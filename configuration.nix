@@ -2,11 +2,14 @@
       # List packages installed in system profile. To search by name, run:
       # $ nix-env -qaP | grep wget
       environment.systemPackages =
-        with pkgs; [ 
-       vim
-       rectangle
-       p7zip
-       #zed-editor
+        with pkgs; [
+            vim
+            rectangle
+            p7zip
+            #zed-editor
+            #oks,micro
+            micro
+            aerospace
         ];
 
       # Auto upgrade nix package and the daemon service.
