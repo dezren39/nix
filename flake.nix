@@ -15,20 +15,24 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    mac-app-util.url = "github:hraban/mac-app-util";
   };
 
-  outputs = inputs@{ nixpkgs, home-manager, darwin, ... }: {
+  outputs = inputs: {
     darwinConfigurations = {
-      MGM9JJ4V3R = darwin.lib.darwinSystem {
+      MGM9JJ4V3R = inputs.darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         modules = [
           ./configuration.nix
-          home-manager.darwinModules.home-manager
+          inputs.mac-app-util.darwinModules.default
+          inputs.home-manager.darwinModules.home-manager
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
             home-manager.users."drewry.pope" = import ./home.nix;
-
+            home-manager.sharedModules = [
+                inputs.mac-app-util.homeManagerModules.default
+            ];
             # Optionally, use home-manager.extraSpecialArgs to pass
             # arguments to home.nix
           }
