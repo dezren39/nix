@@ -2,185 +2,207 @@
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/dock/default.nix
 #
 { config, pkgs, inputs, ... }: {
-      # List packages installed in system profile. To search by name, run:
-      # $ nix-env -qaP | grep wget
+    # List packages installed in system profile. To search by name, run:
+    # $ nix-env -qaP | grep wget
 
-      nixpkgs = {
-        config = {
-          allowUnfree = true;
-          #cudaSupport = true;
-          #cudaCapabilities = ["8.0"];
-          allowBroken = true;
-          allowInsecure = false;
-          allowUnsupportedSystem = true;
-        };
-        # overlays = ...
+    nixpkgs = {
+      config = {
+        allowUnfree = true;
+        #cudaSupport = true;
+        #cudaCapabilities = ["8.0"];
+        allowBroken = true;
+        allowInsecure = false;
+        allowUnsupportedSystem = true;
       };
-
-      environment.systemPackages =
-        with pkgs;
-        [
-          vim
-          p7zip
-          #zed-editor
-          #oks,micro
-          micro
-          age
-          bandwhich
-          coreutils
-          hugo
-          mas
-          nmap
-          openjdk
-          sops
-          ssh-to-age
-        ] ++
-        [
-          # General packages for development and system management
-          act
-          alacritty
-          aspell
-          aspellDicts.en
-          bash-completion
-          bat
-          btop
-          coreutils
-          difftastic
-          du-dust
-          gcc
-          git-filter-repo
-          killall
-          neofetch
-          openssh
-          pandoc
-          sqlite
-          wget
-          zip
-
-          # Encryption and security tools
-          _1password
-          age
-          age-plugin-yubikey
-          gnupg
-          libfido2
-
-          # Cloud-related tools and SDKs
-          # docker
-          # docker-compose
-          # awscli2 - marked broken Mar 22
-          flyctl
-          google-cloud-sdk
-          go
-          gopls
-          ngrok
-          ssm-session-manager-plugin
-          # terraform # fails?
-          # terraform-ls # fails?
-          tflint
-
-          # Media-related packages
-          emacs-all-the-icons-fonts
-          imagemagick
-          dejavu_fonts
-          ffmpeg
-          fd
-          font-awesome
-          glow
-          hack-font
-          jpegoptim
-          meslo-lgs-nf
-          noto-fonts
-          noto-fonts-emoji
-          pngquant
-
-          # PHP
-          # php82
-          # php82Packages.composer
-          # php82Packages.php-cs-fixer
-          # php82Extensions.xdebug
-          # php82Packages.deployer
-          # phpunit
-
-          # Node.js development tools
-          fzf
-          # nodePackages.live-server
-          # nodePackages.nodemon
-          # nodePackages.prettier
-          # nodePackages.npm
-          # nodejs
-
-          # Source code management, Git, GitHub tools
-          gh
-
-          # Text and terminal utilities
-          htop
-          hunspell
-          iftop
-          jetbrains-mono
-          jetbrains.phpstorm
-          jq
-          ripgrep
-          slack
-          tree
-          tmux
-          unrar
-          unzip
-          zsh-powerlevel10k
-
-          # Python packages
-          black
-          python39
-          python39Packages.virtualenv
-        ] ++
-        # darwin
-        [
-          aerospace
-          dockutil
-          fswatch
-          rectangle
-        ];
-
-      # Auto upgrade nix package and the daemon service.
-      services.nix-daemon.enable = true;
-      # disabled because using determinate nix
-      # nix.package = pkgs.nix
-
-      # Necessary for using flakes on this system.
-      nix.settings.experimental-features = "nix-command flakes";
-
-      # Create /etc/zshrc that loads the nix-darwin environment.
-      # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
-      programs.zsh.enable = true;  # default shell on catalina
-      # programs.fish.enable = true;
-      programs.fish.enable = true;
-      programs.bash.enable = true;
-
-      # Set Git commit hash for darwin-version.
-      system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null;
-
-      # Used for backwards compatibility, please read the changelog before changing.
-      # $ darwin-rebuild changelog
-      system.stateVersion = 5;
-
-
-      # The platform the configuration will be used on.
-      nixpkgs.hostPlatform = "aarch64-darwin";
-
-    users.users."drewry.pope" = {
-        name = "drewry.pope";
-        home = "/Users/drewry.pope";
+      # overlays = ...
     };
-    homebrew = {
+
+    environment.systemPackages =
+      with pkgs;
+      [
+        vim
+        p7zip
+        #zed-editor
+        #oks,micro
+        micro
+        age
+        bandwhich
+        coreutils
+        hugo
+        mas
+        nmap
+        openjdk
+        sops
+        ssh-to-age
+      ] ++
+      [
+        # General packages for development and system management
+        act
+        alacritty
+        aspell
+        aspellDicts.en
+        bash-completion
+        bat
+        btop
+        coreutils
+        difftastic
+        du-dust
+        gcc
+        git-filter-repo
+        killall
+        neofetch
+        openssh
+        pandoc
+        sqlite
+        wget
+        zip
+
+        # Encryption and security tools
+        _1password
+        age
+        age-plugin-yubikey
+        gnupg
+        libfido2
+
+        # Cloud-related tools and SDKs
+        # docker
+        # docker-compose
+        # awscli2 - marked broken Mar 22
+        flyctl
+        google-cloud-sdk
+        go
+        gopls
+        ngrok
+        ssm-session-manager-plugin
+        # terraform # fails?
+        # terraform-ls # fails?
+        tflint
+
+        # Media-related packages
+        emacs-all-the-icons-fonts
+        imagemagick
+        dejavu_fonts
+        ffmpeg
+        fd
+        font-awesome
+        glow
+        hack-font
+        jpegoptim
+        meslo-lgs-nf
+        noto-fonts
+        noto-fonts-emoji
+        pngquant
+
+        # PHP
+        # php82
+        # php82Packages.composer
+        # php82Packages.php-cs-fixer
+        # php82Extensions.xdebug
+        # php82Packages.deployer
+        # phpunit
+
+        # Node.js development tools
+        fzf
+        # nodePackages.live-server
+        # nodePackages.nodemon
+        # nodePackages.prettier
+        # nodePackages.npm
+        # nodejs
+
+        # Source code management, Git, GitHub tools
+        gh
+
+        # Text and terminal utilities
+        htop
+        hunspell
+        iftop
+        jetbrains-mono
+        jetbrains.phpstorm
+        jq
+        ripgrep
+        slack
+        tree
+        tmux
+        unrar
+        unzip
+        zsh-powerlevel10k
+
+        # Python packages
+        black
+        python39
+        python39Packages.virtualenv
+      ] ++
+      # darwin
+      [
+        aerospace
+        dockutil
+        fswatch
+        rectangle
+      ];
+
+    # Auto upgrade nix package and the daemon service.
+    services.nix-daemon.enable = true;
+    # disabled because using determinate nix
+    # nix.package = pkgs.nix
+
+    # Create /etc/zshrc that loads the nix-darwin environment.
+    # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
+    programs.zsh.enable = true;  # default shell on catalina
+    # programs.fish.enable = true;
+    programs.fish.enable = true;
+    programs.bash.enable = true;
+
+    # Set Git commit hash for darwin-version.
+    system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null;
+
+    # Used for backwards compatibility, please read the changelog before changing.
+    # $ darwin-rebuild changelog
+    system.stateVersion = 5;
+
+
+    # The platform the configuration will be used on.
+    nixpkgs.hostPlatform = "aarch64-darwin";
+
+  users.users."drewry.pope" = {
+      name = "drewry.pope";
+      home = "/Users/drewry.pope";
+  };
+  home-manager = {
+    useGlobalPkgs = true;
+    useUserPackages = true;
+    users = {
+      "drewry.pope" = import ./home.nix;
+    };
+    sharedModules = [
+      inputs.mac-app-util.homeManagerModules.default
+    ];
+    extraSpecialArgs = {
+      inherit inputs;
+    };
+  };
+  nix-homebrew = {
+    enable = true;
+    enableRosetta = true;
+    user = "drewry.pope";
+    taps = {
+      "homebrew/homebrew-core" = inputs.homebrew-core;
+      "homebrew/homebrew-cask" = inputs.homebrew-cask;
+      "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
+      "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
+    };
+    mutableTaps = false;
+    autoMigrate = true;
+  };
+  homebrew = {
     enable = true;
     onActivation = {
       autoUpdate = true;
-      # cleanup = "zap";
       cleanup = "uninstall";
+      # cleanup = "zap";
       upgrade = true;
-      extraFlags = [ "--verbose" ]; #"--cleanup" "--force" "--zap" ];
+      extraFlags = [ "--verbose" ];
     };
-    # taps = []; # must be empty, mutableTaps = false
-    # taps = builtins.attrNames config.nix-homebrew.taps;
+    taps = builtins.attrNames config.nix-homebrew.taps;
     brews = [
       "cowsay"
       "fastfetch"
@@ -265,20 +287,14 @@
       # "vertex-inc--self-service"
       # "workday"
     };
-};
-    }
-
+  };
+} // import ./nix.settings.nix
     /*
     nix = {
       settings = {
         bash-prompt-prefix = "(nix:$name)\040";
         build-users-group = "nixbld";
-        experimental-features = [
-          "auto-allocate-uids"
-          "flakes"
-          "nix-command"
-          "repl-flake"
-        ];
+
         extra-trusted-public-keys = [
           "flox-cache-public-1:7F4OyH7ZCnFhcze3fJdfyXYLQw/aV7GEed86nQ7IsOs="
         ];

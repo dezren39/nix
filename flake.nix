@@ -55,45 +55,9 @@
         modules = [
           inputs.determinate.darwinModules.default
           inputs.nix-homebrew.darwinModules.nix-homebrew
-          ({config, ...}: {
-              homebrew.taps = builtins.attrNames config.nix-homebrew.taps;
-              nix-homebrew = {
-                # Install Homebrew under the default prefix
-                enable = true;
-
-                # Apple Silicon Only: Also install Homebrew under the default Intel prefix for Rosetta 2
-                enableRosetta = true;
-
-                # User owning the Homebrew prefix
-                user = "drewry.pope";
-
-                # Optional: Declarative tap management
-                taps = {
-                  "homebrew/homebrew-core" = inputs.homebrew-core;
-                  "homebrew/homebrew-cask" = inputs.homebrew-cask;
-                  "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
-                  "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
-                };
-
-                # Optional: Enable fully-declarative tap management
-                #
-                # With mutableTaps disabled, taps can no longer be added imperatively with `brew tap`.
-                mutableTaps = false;
-              };
-            })
           inputs.mac-app-util.darwinModules.default
-          ./configuration.nix
           inputs.home-manager.darwinModules.home-manager
-          {
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.users."drewry.pope" = import ./home.nix;
-            home-manager.sharedModules = [
-                inputs.mac-app-util.homeManagerModules.default
-            ];
-            # Optionally, use home-manager.extraSpecialArgs to pass
-            # arguments to home.nix
-          }
+          ./configuration.nix
         ];
         specialArgs = { inherit inputs; };
       };
