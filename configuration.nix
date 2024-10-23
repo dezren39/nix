@@ -180,7 +180,7 @@
       extraFlags = [ "--verbose" ]; #"--cleanup" "--force" "--zap" ];
     };
     # taps = []; # must be empty, mutableTaps = false
-    taps = builtins.attrNames config.nix-homebrew.taps;
+    # taps = builtins.attrNames config.nix-homebrew.taps;
     brews = [
       "cowsay"
       "fastfetch"
