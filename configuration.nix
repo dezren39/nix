@@ -251,16 +251,23 @@
       # "tailscale"
       # "vivaldi"
       "zoom"
-    ] ++
-    [ # adopted
+      "safari-technology-preview" # "safari"
+    ] ++ [ # adopted custom
       "1password"
       "alt-tab" # "alttab"
       "bartender" # "bartender-5"
+      "github@beta" # "github-desktop"
+      "google-chrome" # VERSION MISMATCH
+      "mkvtoolnix" # "mkvtoolnix-88-0"
+      "rectangle"
+      "superkey"
+      "windows-app"
+      "zed"
+      "zoom" # "zoom-us"
+    ] ++[ # adopted standard
       "contexts"
       "displaylink" # "displaylink-manager"
       "drawio" # "draw-io"
-      "github@beta" # "github-desktop"
-      "google-chrome" # VERSION MISMATCH
       "iterm2@nightly" # iterm2 # iterm2@beta # iterm2@nightly # "iterm"
       "microsoft-edge"
       "microsoft-excel"
@@ -269,16 +276,9 @@
       "microsoft-powerpoint"
       "microsoft-teams"
       "microsoft-word"
-      "mkvtoolnix" # "mkvtoolnix-88-0"
       "onedrive" # VERSION MISMATCH
-      "rectangle"
-      "safari-technology-preview" # "safari"
       "snagit" # "snagit-2024"
-      "superkey"
       "webex" # VERSION
-      "windows-app"
-      "zed"
-      "zoom" # "zoom-us"
     ];
     masApps = { # Mac App Store must be logged in & apps must be purchased first
       "1Password for Safari" = 1569813296;
@@ -287,14 +287,16 @@
       "Keynote" = 409183694;
       "Numbers" = 409203825;
       "Pages" = 409201541;
-      # "arctic-wolf-agent-manager"
-      # "arctic-wolf-agent-notifier"
-      # "company-portal"
-      # "jamf-connect"
-      # "thousandeyes-endpoint-agent"
-      # "vertex-inc--self-service"
-      # "workday"
     };
+    # preInstalledAndNotFoundInNixOrBrewOrAppStore = [ # apps that are pre-installed on a macOS but not found in nixpkgs, homebrew, or the Mac App Store
+    #   "arctic-wolf-agent-manager"
+    #   "arctic-wolf-agent-notifier"
+    #   "company-portal"
+    #   "jamf-connect"
+    #   "thousandeyes-endpoint-agent"
+    #   "vertex-inc--self-service"
+    #   "workday"
+    # ];
   };
   # nix = {
   #   configureBuildUsers = true;
