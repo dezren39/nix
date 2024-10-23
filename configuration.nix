@@ -176,6 +176,7 @@
       cleanup = "zap";
       # cleanup = "uninstall";
       upgrade = true;
+      extraFlags = [ "--verbose" "--cleanup" "--force" "--zap" ];
     };
     # taps = []; # must be empty, mutableTaps = false
     brews = [
