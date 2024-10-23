@@ -203,6 +203,8 @@
     autoMigrate = true;
   };
   homebrew = {
+    # https://github.com/BatteredBunny/brew-nix
+    # https://github.com/jcszymansk/nixcasks
     enable = true;
     global = {
       # lockfiles
