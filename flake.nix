@@ -46,6 +46,7 @@
       url = "github:null-dev/homebrew-firefox-profile-switcher";
       flake = false;
     };
+    # rust, see https://github.com/nix-community/fenix#usage
   };
 
   outputs = inputs: {

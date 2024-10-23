@@ -62,6 +62,8 @@
     extra-substituters = [ ];
     extra-trusted-substituters = [ ];
     extra-trusted-public-keys = [ ];
+    # bash-prompt-prefix = "(nix:$name)\040";
+    # build-users-group = "nixbld";
     http-connections = 100; # 128 default:25
     max-substitution-jobs = 64; # 128 default:16
     # Store:querySubstitutablePaths Store::queryMissing binary-caches-parallel-connections fileTransferSettings.httpConnections

@@ -2,166 +2,175 @@
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/dock/default.nix
 #
 { config, pkgs, inputs, ... }: {
-    # List packages installed in system profile. To search by name, run:
-    # $ nix-env -qaP | grep wget
+  # List packages installed in system profile. To search by name, run:
+  # $ nix-env -qaP | grep wget
 
-    nixpkgs = {
-      config = {
-        allowUnfree = true;
-        #cudaSupport = true;
-        #cudaCapabilities = ["8.0"];
-        allowBroken = true;
-        allowInsecure = false;
-        allowUnsupportedSystem = true;
-      };
-      # overlays = ...
+  nixpkgs = {
+    config = {
+      allowUnfree = true;
+      #cudaSupport = true;
+      #cudaCapabilities = ["8.0"];
+      allowBroken = true;
+      allowInsecure = false;
+      allowUnsupportedSystem = true;
     };
+    # overlays = ...
+  };
 
-    environment.systemPackages =
-      with pkgs;
-      [
-        vim
-        p7zip
-        #zed-editor
-        #oks,micro
-        micro
-        age
-        bandwhich
-        coreutils
-        hugo
-        mas
-        nmap
-        openjdk
-        sops
-        ssh-to-age
-      ] ++
-      [
-        # General packages for development and system management
-        act
-        alacritty
-        aspell
-        aspellDicts.en
-        bash-completion
-        bat
-        btop
-        coreutils
-        difftastic
-        du-dust
-        gcc
-        git-filter-repo
-        killall
-        neofetch
-        openssh
-        pandoc
-        sqlite
-        wget
-        zip
+  environment.systemPackages = with pkgs; [ # possibly not darwin
+    _1password
+    act
+    age
+    age-plugin-yubikey
+    alacritty
+    ansible
+    arduino-cli
+    aspell
+    aspellDicts.en
+    awscli
+    bandwhich
+    bash-completion
+    bat
+    # bitwarden-cli
+    # whalebrew?
+    black
+    btop
+    buf
+    caddy
+    certstrap
+    cfssl
+    cocoapods
+    coreutils
+    curl
+    dbmate
+    dejavu_fonts
+    deno
+    devenv
+    difftastic
+    dive
+    du-dust
+    emacs
+    # emacs-unstable
+    emacs-all-the-icons-fonts
+    fastlane
+    fd
+    ffmpeg
+    flyctl
+    font-awesome
+    fzf
+    gcc
+    gh
+    git
+    git-filter-repo
+    glow
+    gnupg
+    gnused
+    go
+    # golangci # ???
+    gomplate
+    google-cloud-sdk
+    gopls
+    goreleaser
+    graphviz
+    gum
+    hack-font
+    hcloud
+    htop
+    httpie
+    hugo
+    hunspell
+    iftop
+    imagemagick
+    inetutils
+    ipcalc
+    # jdk17
+    jetbrains-mono
+    jetbrains.phpstorm
+    jpegoptim
+    jq
+    jwt-cli
+    k3d
+    k9s
+    killall
+    kubectl
+    libfido2
+    lima
+    lnav
+    mas
+    meslo-lgs-nf
+    micro
+    mitmproxy
+    mutagen
+    mutagen-compose
+    nats-server
+    natscli
+    ncdu
+    neofetch
+    neovim
+    ngrok
+    nmap
+    nodejs
+    noto-fonts
+    noto-fonts-emoji
+    openfortivpn
+    openjdk
+    openssh
+    p7zip
+    pandoc
+    pgcli
+    php81
+    platformio
+    pngquant
+    protobuf
+    protoc-gen-go
+    protoc-gen-go-grpc
+    python39
+    python39Packages.virtualenv
+    redis
+    ripgrep
+    slack
+    sops
+    sqlite
+    ssh-to-age
+    ssm-session-manager-plugin
+    symfony-cli
+    tflint
+    tmux
+    tree
+    trivy
+    unrar
+    unzip
+    upx
+    # vector
+    vim
+    watchman
+    wget
+    yarn
+    zip
+    zsh-powerlevel10k
+  ] ++
+  [ # darwin
+    aerospace
+    dockutil
+    fswatch
+    rectangle
+  ];
 
-        # Encryption and security tools
-        _1password
-        age
-        age-plugin-yubikey
-        gnupg
-        libfido2
+  services.nix-daemon.enable = true;
+  # nix.package = pkgs.nix # disabled because using determinate nix
 
-        # Cloud-related tools and SDKs
-        # docker
-        # docker-compose
-        # awscli2 - marked broken Mar 22
-        flyctl
-        google-cloud-sdk
-        go
-        gopls
-        ngrok
-        ssm-session-manager-plugin
-        # terraform # fails?
-        # terraform-ls # fails?
-        tflint
+  programs.zsh.enable = true;  # default shell on catalina # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
+  programs.fish.enable = true;
+  programs.bash.enable = true;
 
-        # Media-related packages
-        emacs-all-the-icons-fonts
-        imagemagick
-        dejavu_fonts
-        ffmpeg
-        fd
-        font-awesome
-        glow
-        hack-font
-        jpegoptim
-        meslo-lgs-nf
-        noto-fonts
-        noto-fonts-emoji
-        pngquant
+  system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null; # Set Git commit hash for darwin-version.
 
-        # PHP
-        # php82
-        # php82Packages.composer
-        # php82Packages.php-cs-fixer
-        # php82Extensions.xdebug
-        # php82Packages.deployer
-        # phpunit
+  # Used for backwards compatibility, please read the changelog before changing.
+  # $ darwin-rebuild changelog
+  system.stateVersion = 5;
 
-        # Node.js development tools
-        fzf
-        # nodePackages.live-server
-        # nodePackages.nodemon
-        # nodePackages.prettier
-        # nodePackages.npm
-        # nodejs
-
-        # Source code management, Git, GitHub tools
-        gh
-
-        # Text and terminal utilities
-        htop
-        hunspell
-        iftop
-        jetbrains-mono
-        jetbrains.phpstorm
-        jq
-        ripgrep
-        slack
-        tree
-        tmux
-        unrar
-        unzip
-        zsh-powerlevel10k
-
-        # Python packages
-        black
-        python39
-        python39Packages.virtualenv
-      ] ++
-      # darwin
-      [
-        aerospace
-        dockutil
-        fswatch
-        rectangle
-      ];
-
-    # Auto upgrade nix package and the daemon service.
-    services.nix-daemon.enable = true;
-    # disabled because using determinate nix
-    # nix.package = pkgs.nix
-
-    # Create /etc/zshrc that loads the nix-darwin environment.
-    # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
-    programs.zsh.enable = true;  # default shell on catalina
-    # programs.fish.enable = true;
-    programs.fish.enable = true;
-    programs.bash.enable = true;
-
-    # Set Git commit hash for darwin-version.
-    system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null;
-
-    # Used for backwards compatibility, please read the changelog before changing.
-    # $ darwin-rebuild changelog
-    system.stateVersion = 5;
-
-
-    # The platform the configuration will be used on.
-    nixpkgs.hostPlatform = "aarch64-darwin";
+  # The platform the configuration will be used on.
+  nixpkgs.hostPlatform = "aarch64-darwin";
 
   users.users."drewry.pope" = {
       name = "drewry.pope";
@@ -243,8 +252,7 @@
       # "vivaldi"
       "zoom"
     ] ++
-    # adopted
-    [
+    [ # adopted
       "1password"
       "alt-tab" # "alttab"
       "bartender" # "bartender-5"
@@ -288,160 +296,80 @@
       # "workday"
     };
   };
+  # nix = {
+  #   configureBuildUsers = true;
+  #   extraOptions = ''
+  #     extra-nix-path = nixpkgs=flake:nixpkgs
+  #     upgrade-nix-store-path-url = https://install.determinate.systems/nix-upgrade/stable/universal
+  #   '';
+  #   gc = {
+  #     user = "root";
+  #     automatic = true;
+  #     interval = { Weekday = 0; Hour = 2; Minute = 0; };
+  #     options = "--delete-older-than 30d";
+  #   };
+  # };
+  # system.checks.verifyNixPath = false;
+  launchd.user.agents = {
+    naturalScrollingToggle = {
+      path = [ config.environment.systemPath ];
+      serviceConfig = {
+        KeepAlive = false;
+        RunAtLoad = true;
+        ProgramArguments = [
+          "/bin/sh"
+          "-c"
+          "if system_profiler SPUSBDataType | grep -i \"Mouse\"; then defaults write NSGlobalDomain com.apple.swipescrolldirection -bool false; else defaults write NSGlobalDomain com.apple.swipescrolldirection -bool true; fi && killall Finder"
+        ];
+        StandardErrorPath = "/tmp/natural_scrolling.err.log";
+        StandardOutPath = "/tmp/natural_scrolling.out.log";
+      };
+    };
+  };
+  system = {
+    defaults = {
+      LaunchServices = {
+        LSQuarantine = false;
+      };
+
+      NSGlobalDomain = {
+        AppleShowAllExtensions = true;
+        ApplePressAndHoldEnabled = false;
+
+        # 120, 90, 60, 30, 12, 6, 2
+        KeyRepeat = 2;
+
+        # 120, 94, 68, 35, 25, 15
+        InitialKeyRepeat = 15;
+
+        "com.apple.mouse.tapBehavior" = 1;
+        "com.apple.sound.beep.volume" = 0.0;
+        "com.apple.sound.beep.feedback" = 0;
+      };
+
+      # dock = {
+      # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/home-manager.nix#L70
+      #   autohide = true;
+      #   show-recents = true;
+      #   launchanim = true;
+      #   mouse-over-hilite-stack = true;
+      #   orientation = "bottom";
+      #   tilesize = 48;
+      # };
+
+      finder = {
+        _FXShowPosixPathInTitle = false;
+      };
+
+      trackpad = {
+        Clicking = true;
+        TrackpadThreeFingerDrag = true;
+      };
+    };
+
+    # keyboard = {
+    #   enableKeyMapping = true;
+    #   remapCapsLockToControl = true;
+    # };
+  };
 } // import ./nix.settings.nix
-    /*
-    nix = {
-      settings = {
-        bash-prompt-prefix = "(nix:$name)\040";
-        build-users-group = "nixbld";
-
-        extra-trusted-public-keys = [
-          "flox-cache-public-1:7F4OyH7ZCnFhcze3fJdfyXYLQw/aV7GEed86nQ7IsOs="
-        ];
-        extra-trusted-substituters = [
-          "https://cache.flox.dev"
-        ];
-        trusted-users = [ "@admin" "${username}" ];
-      };
-      extraOptions = ''
-        # Generated by https://github.com/DeterminateSystems/nix-installer, version 0.11.0.
-        extra-nix-path = nixpkgs=flake:nixpkgs
-        # Uncoment below after validation bug is fixed
-        #upgrade-nix-store-path-url = https://install.determinate.systems/nix-upgrade/stable/universal
-      '';
-    };
-
-    programs = {
-      zsh.enable = true;
-    };
-
-    services.nix-daemon.enable = true;
-
-    { agenix, config, pkgs, ... }:
-
-    let user = "dustin"; in
-    {
-
-      imports = [
-        ../../modules/darwin/secrets.nix
-        ../../modules/darwin/home-manager.nix
-        ../../modules/shared
-        agenix.darwinModules.default
-      ];
-
-      # Auto upgrade nix package and the daemon service.
-      services.nix-daemon.enable = true;
-
-      # Setup user, packages, programs
-      nix = {
-        package = pkgs.nix;
-        configureBuildUsers = true;
-
-        settings = {
-          trusted-users = [ "@admin" "${user}" ];
-          substituters = [ "https://nix-community.cachix.org" "https://cache.nixos.org" ];
-          trusted-public-keys = [ "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" ];
-        };
-
-        gc = {
-          user = "root";
-          automatic = true;
-          interval = { Weekday = 0; Hour = 2; Minute = 0; };
-          options = "--delete-older-than 30d";
-        };
-
-        # Turn this on to make command line easier
-        extraOptions = ''
-          experimental-features = nix-command flakes
-        '';
-      };
-
-      # Turn off NIX_PATH warnings now that we're using flakes
-      system.checks.verifyNixPath = false;
-
-      # Load configuration that is shared across systems
-      environment.systemPackages = with pkgs; [
-        emacs-unstable
-        agenix.packages."${pkgs.system}".default
-      ] ++ (import ../../modules/shared/packages.nix { inherit pkgs; });
-
-      launchd.user.agents = {
-        emacs = {
-          path = [ config.environment.systemPath ];
-          serviceConfig = {
-            KeepAlive = true;
-            ProgramArguments = [
-              "/bin/sh"
-              "-c"
-              "{ osascript -e 'display notification \"Attempting to start Emacs...\" with title \"Emacs Launch\"'; /bin/wait4path ${pkgs.emacs}/bin/emacs && { ${pkgs.emacs}/bin/emacs --fg-daemon; if [ $? -eq 0 ]; then osascript -e 'display notification \"Emacs has started.\" with title \"Emacs Launch\"'; else osascript -e 'display notification \"Failed to start Emacs.\" with title \"Emacs Launch\"' >&2; fi; } } &> /tmp/emacs_launch.log"
-            ];
-            StandardErrorPath = "/tmp/emacs.err.log";
-            StandardOutPath = "/tmp/emacs.out.log";
-          };
-        };
-
-        naturalScrollingToggle = {
-          path = [ config.environment.systemPath ];
-          serviceConfig = {
-            KeepAlive = false;
-            RunAtLoad = true;
-            ProgramArguments = [
-              "/bin/sh"
-              "-c"
-              "if system_profiler SPUSBDataType | grep -i \"Mouse\"; then defaults write NSGlobalDomain com.apple.swipescrolldirection -bool false; else defaults write NSGlobalDomain com.apple.swipescrolldirection -bool true; fi && killall Finder"
-            ];
-            StandardErrorPath = "/tmp/natural_scrolling.err.log";
-            StandardOutPath = "/tmp/natural_scrolling.out.log";
-          };
-        };
-      };
-
-      system = {
-        stateVersion = 4;
-
-        defaults = {
-          LaunchServices = {
-            LSQuarantine = false;
-          };
-
-          NSGlobalDomain = {
-            AppleShowAllExtensions = true;
-            ApplePressAndHoldEnabled = false;
-
-            # 120, 90, 60, 30, 12, 6, 2
-            KeyRepeat = 2;
-
-            # 120, 94, 68, 35, 25, 15
-            InitialKeyRepeat = 15;
-
-            "com.apple.mouse.tapBehavior" = 1;
-            "com.apple.sound.beep.volume" = 0.0;
-            "com.apple.sound.beep.feedback" = 0;
-          };
-
-          dock = {
-            autohide = false;
-            show-recents = false;
-            launchanim = true;
-            mouse-over-hilite-stack = true;
-            orientation = "bottom";
-            tilesize = 48;
-          };
-
-          finder = {
-            _FXShowPosixPathInTitle = false;
-          };
-
-          trackpad = {
-            Clicking = true;
-            TrackpadThreeFingerDrag = true;
-          };
-        };
-
-        keyboard = {
-          enableKeyMapping = true;
-          remapCapsLockToControl = true;
-        };
-      };
-    }
-    */
