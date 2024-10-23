@@ -204,6 +204,14 @@
   };
   homebrew = {
     enable = true;
+    # global = {
+      # lockfiles
+      # brewFile
+      # autoUpdate
+    # };
+    # brewOptions
+    # caskArgsOptions
+    # tapOptions
     onActivation = {
       autoUpdate = true;
       cleanup = "uninstall";
@@ -211,7 +219,11 @@
       upgrade = true;
       extraFlags = [ "--verbose" ];
     };
+    # caskArgs
     taps = builtins.attrNames config.nix-homebrew.taps;
+    # brewfile
+    # extraConfig
+    # whalebrews
     brews = [
       "cowsay"
       "fastfetch"
