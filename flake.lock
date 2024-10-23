@@ -172,6 +172,22 @@
         "type": "github"
       }
     },
+    "homebrew-firefox-profile-switcher": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1647976971,
+        "narHash": "sha256-7bcUkqXHN3YsLp8/aPTaRvpPNJEGlq7axuY1IW6z9ZU=",
+        "owner": "null-dev",
+        "repo": "homebrew-firefox-profile-switcher",
+        "rev": "d199dbe16b3b3b28e099b27f3aaf1fe3107cd661",
+        "type": "github"
+      },
+      "original": {
+        "owner": "null-dev",
+        "repo": "homebrew-firefox-profile-switcher",
+        "type": "github"
+      }
+    },
     "mac-app-util": {
       "inputs": {
         "cl-nix-lite": "cl-nix-lite",
@@ -272,6 +288,7 @@
         "homebrew-bundle": "homebrew-bundle",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
+        "homebrew-firefox-profile-switcher": "homebrew-firefox-profile-switcher",
         "mac-app-util": "mac-app-util",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs_2",

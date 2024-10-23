@@ -41,6 +41,10 @@
       url = "github:homebrew/homebrew-bundle";
       flake = false;
     };
+    homebrew-firefox-profile-switcher = {
+      url = "github:null-dev/homebrew-firefox-profile-switcher";
+      flake = false;
+    };
   };
 
   outputs = inputs: {
@@ -65,6 +69,7 @@
                 "homebrew/homebrew-core" = inputs.homebrew-core;
                 "homebrew/homebrew-cask" = inputs.homebrew-cask;
                 "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
+                "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
               };
 
               # Optional: Enable fully-declarative tap management

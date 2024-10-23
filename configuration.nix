@@ -20,20 +20,20 @@
       environment.systemPackages =
         with pkgs;
         [
-            vim
-            p7zip
-            #zed-editor
-            #oks,micro
-            micro
-            age
-            bandwhich
-            coreutils
-            hugo
-            mas
-            nmap
-            openjdk
-            sops
-            ssh-to-age
+          vim
+          p7zip
+          #zed-editor
+          #oks,micro
+          micro
+          age
+          bandwhich
+          coreutils
+          hugo
+          mas
+          nmap
+          openjdk
+          sops
+          ssh-to-age
         ] ++
         [
           # General packages for development and system management
@@ -134,10 +134,10 @@
         ] ++
         # darwin
         [
-        aerospace
-        fswatch
-        dockutil
-        rectangle
+          aerospace
+          dockutil
+          fswatch
+          rectangle
         ];
 
       # Auto upgrade nix package and the daemon service.
@@ -177,19 +177,16 @@
       # cleanup = "uninstall";
       upgrade = true;
     };
-    taps = [
-    "homebrew/cask-fonts"
-    "null-dev/firefox-profile-switcher"
-    ];
+    # taps = []; # must be empty, mutableTaps = false
     brews = [
-          "fastfetch"
-          "ffmpeg"
-          "firefox-profile-switcher-connector"
-          "telnet"
-        "cowsay"
-        ];
+      "cowsay"
+      "fastfetch"
+      "ffmpeg"
+      "firefox-profile-switcher-connector"
+      "telnet"
+    ];
     casks = [
-    "1password"
+      "1password"
       "1password-cli"
       "amethyst"
       "angry-ip-scanner"
@@ -206,7 +203,7 @@
       "gitkraken-cli"
       "handbrake"
       "imageoptim"
-      "iterm2"
+      # "iterm2"
       "keepingyouawake"
       "libreoffice"
       "logseq"
@@ -222,10 +219,50 @@
       "tailscale"
       "vivaldi"
       "zoom"
+    ] ++
+    # adopted
+    [
+    "1password"
+    "alt-tab" # "alttab"
+    "bartender" # "bartender-5"
+    "contexts"
+    "displaylink" # "displaylink-manager"
+    "drawio" # "draw-io"
+    "github@beta" # "github-desktop"
+    "google-chrome" # VERSION MISMATCH
+    "iterm2@nightly" # iterm2 # iterm2@beta # iterm2@nightly # "iterm"
+    "microsoft-edge"
+    "microsoft-excel"
+    "microsoft-onenote"
+    "microsoft-outlook"
+    "microsoft-powerpoint"
+    "microsoft-teams"
+    "microsoft-word"
+    "mkvtoolnix" # "mkvtoolnix-88-0"
+    "onedrive" # VERSION MISMATCH
+    "rectangle"
+    "safari-technology-preview" # "safari"
+    "snagit" # "snagit-2024"
+    "superkey"
+    "webex" # VERSION
+    "windows-app"
+    "zed"
+    "zoom" # "zoom-us"
+    # "arctic-wolf-agent-manager"
+    # "arctic-wolf-agent-notifier"
+    # "company-portal"
+    # "garageband"
+    # "imovie"
+    # "jamf-connect"
+    # "keynote"
+    # "numbers"
+    # "pages"
+    # "thousandeyes-endpoint-agent"
+    # "vertex-inc--self-service"
+    # "workday"
     ];
-    masApps = {
-    "1Password for Safari" = 1569813296;
-
+    masApps = { # Mac App Store must be logged in & apps must be purchased first
+      "1Password for Safari" = 1569813296;
     };
 };
     }
