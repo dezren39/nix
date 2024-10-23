@@ -25,7 +25,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-homebrew = {
-      url = "github:zhaofengli-wip/nix-homebrew";
+      # url = "github:zhaofengli/nix-homebrew";
+      url = "github:dezren39/nix-homebrew/shellIntegration";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     homebrew-core = {
