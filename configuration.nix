@@ -1,7 +1,7 @@
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/dock/default.nix
 #
-{ pkgs, inputs, ... }: {
+{ config, pkgs, inputs, ... }: {
       # List packages installed in system profile. To search by name, run:
       # $ nix-env -qaP | grep wget
 
@@ -180,6 +180,7 @@
       extraFlags = [ "--verbose" ]; #"--cleanup" "--force" "--zap" ];
     };
     # taps = []; # must be empty, mutableTaps = false
+    taps = builtins.attrNames config.nix-homebrew.taps;
     brews = [
       "cowsay"
       "fastfetch"
