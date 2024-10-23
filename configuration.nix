@@ -204,11 +204,11 @@
   };
   homebrew = {
     enable = true;
-    # global = {
+    global = {
       # lockfiles
       # brewFile
-      # autoUpdate
-    # };
+      autoUpdate = true;
+    };
     # brewOptions
     # caskArgsOptions
     # tapOptions
