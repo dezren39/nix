@@ -153,7 +153,7 @@
     aerospace
     dockutil
     fswatch
-    rectangle
+    # rectangle
   ];
 
   services.nix-daemon.enable = true;
@@ -281,6 +281,7 @@
     ] ++[ # adopted standard
       "contexts"
       "displaylink" # "displaylink-manager"
+      # TODO: macOS App LoginExtension-EXE
       "drawio" # "draw-io"
       "iterm2@nightly" # iterm2 # iterm2@beta # iterm2@nightly # "iterm"
       "microsoft-edge"

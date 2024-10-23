@@ -15,7 +15,7 @@ echo "git add ."
 git add .
 
 echo "darwin-rebuild switch --flake ."
-darwin-rebuild switch --flake .
+darwin-rebuild switch --flake . --keep-going
 
 current=$(darwin-rebuild --list-generations | grep current)
 echo "current: $current"
