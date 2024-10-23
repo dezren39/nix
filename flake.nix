@@ -12,6 +12,7 @@
     stable = {
       url = "github:nixos/nixpkgs/nixos-unstable";
     };
+    determinate.url = "https://flakehub.com/f/DeterminateSystems/determinate/0.1";
     darwin = {
       url = "github:lnl7/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -52,6 +53,7 @@
       MGM9JJ4V3R = inputs.darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         modules = [
+          inputs.determinate.darwinModules.default
           inputs.nix-homebrew.darwinModules.nix-homebrew
           {
             nix-homebrew = {
