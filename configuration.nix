@@ -16,6 +16,7 @@
         };
         # overlays = ...
       };
+
       environment.systemPackages =
         with pkgs;
         [
@@ -142,7 +143,8 @@
       # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
       programs.zsh.enable = true;  # default shell on catalina
       # programs.fish.enable = true;
-
+      programs.fish.enable = true;
+      programs.bash.enable = true;
 
       # Set Git commit hash for darwin-version.
       system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null;
