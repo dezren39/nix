@@ -173,10 +173,10 @@
     enable = true;
     onActivation = {
       autoUpdate = true;
-      cleanup = "zap";
-      # cleanup = "uninstall";
+      # cleanup = "zap";
+      cleanup = "uninstall";
       upgrade = true;
-      extraFlags = [ "--verbose" "--cleanup" "--force" "--zap" ];
+      extraFlags = [ "--verbose" ]; #"--cleanup" "--force" "--zap" ];
     };
     # taps = []; # must be empty, mutableTaps = false
     brews = [
