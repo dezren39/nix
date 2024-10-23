@@ -1,0 +1,10 @@
+.direnv
+.vscode
+
+result*
+
+*.o
+*.out
+
+*~
+*.swp
