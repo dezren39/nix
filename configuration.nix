@@ -17,7 +17,10 @@
     # overlays = ...
   };
 
-  environment.systemPackages = with pkgs; [ # possibly not darwin
+  environment.systemPackages = with pkgs; [
+    powershell
+    oils-for-unix
+  ] ++ [ # possibly not darwin
     _1password
     act
     age
@@ -162,6 +165,9 @@
   programs.zsh.enable = true;  # default shell on catalina # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
   programs.fish.enable = true;
   programs.bash.enable = true;
+  # programs.pwsh.enable = true;
+  # programs.osh.enable = true;
+  # programs.ysh.enable = true;
 
   system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null; # Set Git commit hash for darwin-version.
 
