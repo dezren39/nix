@@ -9,6 +9,7 @@ _: {
     "bartender"
     "element"
     "firefox"
+    "hammerspoon"
     "font-hack-nerd-font"
     "font-inconsolata-g-for-powerline"
     "font-source-code-pro-for-powerline"

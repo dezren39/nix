@@ -110,7 +110,7 @@
       "homebrew/homebrew-cask" = inputs.homebrew-cask;
       "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
       "homebrew/homebrew-services" = inputs.nixpkgs.legacyPackages."${pkgs.system}".applyPatches {
-        name = "homebrew-services-patched";
+        name = "homebrew-services-patched"; # https://github.com/zhaofengli/nix-homebrew/issues/13#issuecomment-2156223912
         src = inputs.homebrew-services;
         patches = [./homebrew-services.patch];
       };

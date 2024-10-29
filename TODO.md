@@ -1,3 +1,8 @@
+- fix path
+- centerMouseOnFocus (aerospace or maybe raiseonfocus can do it_
+- investigate yabai/amethyst/other-aerospace-alernatives
+- auto start autoraise services
+- ensure can access systempackages, homepackages, brews, casks, masApps
 security.pam.enableSudoTouchIdAuth = true;
 system.defaults = {
   dock.autohide = true;
