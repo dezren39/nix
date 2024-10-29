@@ -5,7 +5,7 @@
     stateVersion = "23.05";
     file = {};
     sessionVariables = {};
-  } // ((import ./homePackages.nix) { inherit config pkgs; });
+  } // import ./homePackages.nix { inherit config pkgs; };
 } // import ./homePrograms.nix {}
 /*
 
