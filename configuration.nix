@@ -7,11 +7,13 @@
     ./brews.nix
     ./casks.nix
     ./masApps.nix
+    # ./home.nix
   ];
   # List packages installed in system profile. To search by name, run:
   # $ nix-env -qaP | grep wget
 
-  nixpkgs = {
+  nixpkgs = { # TODO: module nixpkgs
+    hostPlatform = "aarch64-darwin";
     config = {
       allowUnfree = true;
       #cudaSupport = true;
@@ -24,27 +26,72 @@
   };
 
 
+   # TODO: module services
   services.nix-daemon.enable = true;
   # nix.package = pkgs.nix # disabled because using determinate nix
 
-  system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null; # Set Git commit hash for darwin-version.
+   # TODO: module system
+  system = {
+    configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null; # Set Git commit hash for darwin-version.
+    stateVersion = 5;
+    defaults = {
+      LaunchServices = {
+        LSQuarantine = false;
+      };
 
-  # Used for backwards compatibility, please read the changelog before changing.
-  # $ darwin-rebuild changelog
-  system.stateVersion = 5;
+      NSGlobalDomain = {
+        AppleShowAllExtensions = true;
+        ApplePressAndHoldEnabled = false;
 
-  # The platform the configuration will be used on.
-  nixpkgs.hostPlatform = "aarch64-darwin";
+        # 120, 90, 60, 30, 12, 6, 2
+        KeyRepeat = 2;
 
-  users.users."drewry.pope" = {
+        # 120, 94, 68, 35, 25, 15
+        InitialKeyRepeat = 15;
+
+        "com.apple.mouse.tapBehavior" = 1;
+        "com.apple.sound.beep.volume" = 0.0;
+        "com.apple.sound.beep.feedback" = 0;
+      };
+
+      # dock = {
+      # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/home-manager.nix#L70
+      #   autohide = true;
+      #   show-recents = true;
+      #   launchanim = true;
+      #   mouse-over-hilite-stack = true;
+      #   orientation = "bottom";
+      #   tilesize = 48;
+      # };
+
+      finder = {
+        _FXShowPosixPathInTitle = false;
+      };
+
+      trackpad = {
+        Clicking = true;
+        TrackpadThreeFingerDrag = true;
+      };
+    };
+
+    # keyboard = {
+    #   enableKeyMapping = true;
+    #   remapCapsLockToControl = true;
+    # };
+  };
+
+   # TODO: module users
+   users.users."drewry.pope" = {
       name = "drewry.pope";
       home = "/Users/drewry.pope";
   };
+  # TODO: module home-manager
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;
     users = {
-      "drewry.pope" = import ./home.nix;
+      # TODO: module per-user home manager
+      "drewry.pope" = import ./homeUser.nix;
     };
     sharedModules = [
       inputs.mac-app-util.homeManagerModules.default
@@ -53,6 +100,7 @@
       inherit inputs;
     };
   };
+  # TODO: module nix-homebrew
   nix-homebrew = {
     enable = true;
     enableRosetta = true;
@@ -66,6 +114,7 @@
     mutableTaps = false;
     autoMigrate = true;
   };
+  # TODO: module homebrew
   homebrew = {
     # https://github.com/BatteredBunny/brew-nix
     # https://github.com/jcszymansk/nixcasks
@@ -114,6 +163,7 @@
   #   };
   # };
   # system.checks.verifyNixPath = false;
+  # TODO: module launchd
   launchd.user.agents = {
     naturalScrollingToggle = {
       path = [ config.environment.systemPath ];
@@ -130,50 +180,4 @@
       };
     };
   };
-  system = {
-    defaults = {
-      LaunchServices = {
-        LSQuarantine = false;
-      };
-
-      NSGlobalDomain = {
-        AppleShowAllExtensions = true;
-        ApplePressAndHoldEnabled = false;
-
-        # 120, 90, 60, 30, 12, 6, 2
-        KeyRepeat = 2;
-
-        # 120, 94, 68, 35, 25, 15
-        InitialKeyRepeat = 15;
-
-        "com.apple.mouse.tapBehavior" = 1;
-        "com.apple.sound.beep.volume" = 0.0;
-        "com.apple.sound.beep.feedback" = 0;
-      };
-
-      # dock = {
-      # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/home-manager.nix#L70
-      #   autohide = true;
-      #   show-recents = true;
-      #   launchanim = true;
-      #   mouse-over-hilite-stack = true;
-      #   orientation = "bottom";
-      #   tilesize = 48;
-      # };
-
-      finder = {
-        _FXShowPosixPathInTitle = false;
-      };
-
-      trackpad = {
-        Clicking = true;
-        TrackpadThreeFingerDrag = true;
-      };
-    };
-
-    # keyboard = {
-    #   enableKeyMapping = true;
-    #   remapCapsLockToControl = true;
-    # };
-  };
-} // import ./nix.settings.nix
+} // import ./nix.settings.nix # TODO: module nix-settings

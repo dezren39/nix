@@ -6,6 +6,7 @@ _: {
     # pwsh.enable = true;
     # osh.enable = true;
     # ysh.enable = true;
+    home-manager.enable = true;
     git = {
       enable = true;
       config = {
