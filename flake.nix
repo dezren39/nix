@@ -50,6 +50,10 @@
       url = "github:Dimentium/homebrew-autoraise";
       flake = false;
     };
+    homebrew-services = {
+      url = "github:homebrew/homebrew-services";
+      flake = false;
+    };
     # rust, see https://github.com/nix-community/fenix#usage
   };
 

@@ -343,6 +343,22 @@
         "type": "github"
       }
     },
+    "homebrew-services": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1730104345,
+        "narHash": "sha256-7C0QlF3YjrTadK2uirOeScanvD1+zfHxPo6weLVNC/U=",
+        "owner": "homebrew",
+        "repo": "homebrew-services",
+        "rev": "a1eae5ea8ba85bf6b32ec6aba8d25fcc277bca8d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "homebrew",
+        "repo": "homebrew-services",
+        "type": "github"
+      }
+    },
     "libgit2": {
       "flake": false,
       "locked": {
@@ -580,6 +596,7 @@
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
         "homebrew-firefox-profile-switcher": "homebrew-firefox-profile-switcher",
+        "homebrew-services": "homebrew-services",
         "mac-app-util": "mac-app-util",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs_5",
