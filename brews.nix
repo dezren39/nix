@@ -5,5 +5,6 @@ _: {
     "ffmpeg"
     "firefox-profile-switcher-connector"
     "telnet"
+    "autoraise"
   ];
 }
