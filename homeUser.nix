@@ -1,5 +1,5 @@
 # home.nix
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 {
   home = {
     stateVersion = "23.05";
@@ -7,6 +7,11 @@
       ".aerospace.toml".source = ./.aerospace.toml;
     };
     sessionVariables = {};
+    activation = {
+      reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
+        $DRY_RUN_CMD ${pkgs.aerospace}/bin/aerospace reload-config
+      '';
+    };
   } // import ./homePackages.nix { inherit config pkgs; };
 } // import ./homePrograms.nix {}
 /*
