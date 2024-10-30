@@ -3,7 +3,9 @@
 {
   home = {
     stateVersion = "23.05";
-    file = {};
+    file = {
+      ".aerospace.toml".source = ./.aerospace.toml;
+    };
     sessionVariables = {};
   } // import ./homePackages.nix { inherit config pkgs; };
 } // import ./homePrograms.nix {}
