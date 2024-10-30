@@ -2,6 +2,7 @@
   environment.systemPackages = with pkgs; [
     powershell
     oils-for-unix
+    # zen-browser
   ] ++ [ # possibly not darwin
     _1password
     act

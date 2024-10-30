@@ -1,5 +1,7 @@
 _: {
   homebrew.casks = [
+    "audio-hijack"
+    "zen-browser"
     "1password"
     "1password-cli"
     "amethyst"
