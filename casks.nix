@@ -42,7 +42,7 @@ _: {
     "github@beta" # "github-desktop"
     "google-chrome" # VERSION MISMATCH
     "mkvtoolnix" # "mkvtoolnix-88-0"
-    # "rectangle"
+    "rectangle"
     "superkey"
     "windows-app"
     "zed"
