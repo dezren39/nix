@@ -180,10 +180,10 @@ alt-shift-j = 'join-with down'
 alt-shift-k = 'join-with up'
 alt-shift-l = 'join-with right'
 
-alt-shift-left = 'join-with left'
-alt-shift-down = 'join-with down'
-alt-shift-up = 'join-with up'
-alt-shift-right = 'join-with right'
+# alt-shift-left = 'join-with left'
+# alt-shift-down = 'join-with down'
+# alt-shift-up = 'join-with up'
+# alt-shift-right = 'join-with right'
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#workspace-back-and-forth
 alt-tab = 'workspace-back-and-forth'
