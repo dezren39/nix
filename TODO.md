@@ -1,3 +1,4 @@
+- auto reload aerospace
 - fix path
 - centerMouseOnFocus (aerospace or maybe raiseonfocus can do it_
 - investigate yabai/amethyst/other-aerospace-alernatives
