@@ -4,7 +4,7 @@
     oils-for-unix
     # zen-browser
   ] ++ [ # possibly not darwin
-    _1password
+    _1password-cli
     act
     age
     age-plugin-yubikey
@@ -90,7 +90,7 @@
     mutagen-compose
     nats-server
     natscli
-    ncdu
+    #ncdu
     neofetch
     neovim
     ngrok
@@ -98,7 +98,7 @@
     nodejs
     noto-fonts
     noto-fonts-emoji
-    openfortivpn
+    #openfortivpn
     openjdk
     openssh
     p7zip
@@ -111,7 +111,7 @@
     protoc-gen-go
     protoc-gen-go-grpc
     python39
-    python39Packages.virtualenv
+    # python39Packages.virtualenv
     redis
     ripgrep
     slack
