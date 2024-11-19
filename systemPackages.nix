@@ -14,6 +14,8 @@
     aspell
     aspellDicts.en
     awscli
+    jujutsu
+    lazyjj
     bandwhich
     bash-completion
     bat
