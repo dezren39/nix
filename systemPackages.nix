@@ -11,6 +11,7 @@
     alacritty
     ansible
     arduino-cli
+    terraform
     aspell
     aspellDicts.en
     awscli
