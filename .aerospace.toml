@@ -185,7 +185,7 @@ alt-shift-l = 'join-with right'
 # alt-shift-up = 'join-with up'
 # alt-shift-right = 'join-with right'
 
-alt-enter = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
+alt-shift-enter = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#workspace-back-and-forth
 # alt-tab = 'workspace-back-and-forth'
