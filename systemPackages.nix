@@ -21,6 +21,9 @@
     bat
     # bitwarden-cli
     # whalebrew?
+    zellij
+    tmux
+    screen
     black
     btop
     buf
