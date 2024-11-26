@@ -65,7 +65,7 @@
       MGM9JJ4V3R = inputs.darwin.lib.darwinSystem {
         system = "aarch64-darwin";
         modules = [
-          # inputs.determinate.darwinModules.default
+          inputs.determinate.darwinModules.default
           inputs.nix-homebrew.darwinModules.nix-homebrew
           inputs.mac-app-util.darwinModules.default
           inputs.home-manager.darwinModules.home-manager
