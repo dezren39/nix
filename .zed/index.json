@@ -1,0 +1,4711 @@
+{
+  "extensions": {
+    "0x96f": {
+      "manifest": {
+        "id": "0x96f",
+        "name": "0x96f Theme",
+        "version": "1.2.2",
+        "schema_version": 1,
+        "description": "A simple and pleasant dark theme for Zed",
+        "repository": "https://github.com/filipjanevski/zed-theme",
+        "authors": [
+          "Filip Janevski <filip@janevski.dev>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/0x96f-theme.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "asciidoc": {
+      "manifest": {
+        "id": "asciidoc",
+        "name": "AsciiDoc",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Support for AsciiDoc syntax",
+        "repository": "https://github.com/andreicek/asciidoc-zed",
+        "authors": [
+          "Andrei Zvonimir Crnkovic <andrei@0x7f.dev>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/asciidoc"
+        ],
+        "grammars": {
+          "asciidoc": {
+            "repository": "https://github.com/cathaysia/tree-sitter-asciidoc",
+            "rev": "736ab072da132283b5d9397100d70f14b4fb71ae",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "awk": {
+      "manifest": {
+        "id": "awk",
+        "name": "AWK",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "AWK syntax for Zed",
+        "repository": "https://github.com/dangh/zed-awk",
+        "authors": [
+          "Dang Huynh"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/awk"
+        ],
+        "grammars": {
+          "awk": {
+            "repository": "https://github.com/Beaglefoot/tree-sitter-awk",
+            "rev": "ba7472152d79a8c916550c80fdbfd5724d07a0c9",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "base16": {
+      "manifest": {
+        "id": "base16",
+        "name": "base16",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "Chris Kempson's base16 Themes",
+        "repository": "https://github.com/bswinnerton/base16-zed",
+        "authors": [
+          "Brooks Swinnerton <bswinnerton@gmail.com>",
+          "Tim Chmielecki <me@timcki.com>",
+          "Kevin Gyori <hi@gyori.me>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/base16-atelier-cave-light.json",
+          "themes/base16-unikitty-dark.json",
+          "themes/base16-tokyo-city-terminal-light.json",
+          "themes/base16-gruvbox-material-light-soft.json",
+          "themes/base16-atelier-lakeside.json",
+          "themes/base16-tomorrow-night-eighties.json",
+          "themes/base16-atelier-seaside.json",
+          "themes/base16-atelier-savanna.json",
+          "themes/base16-dirtysea.json",
+          "themes/base16-darcula.json",
+          "themes/base16-papercolor-dark.json",
+          "themes/base16-atelier-estuary.json",
+          "themes/base16-tokyo-night-light.json",
+          "themes/base16-mountain.json",
+          "themes/base16-tokyo-night-terminal-light.json",
+          "themes/base16-ia-light.json",
+          "themes/base16-tokyodark-terminal.json",
+          "themes/base16-black-metal-mayhem.json",
+          "themes/base16-default-dark.json",
+          "themes/base16-equilibrium-light.json",
+          "themes/base16-gruvbox-light-medium.json",
+          "themes/base16-tokyodark.json",
+          "themes/base16-tokyo-night-storm.json",
+          "themes/base16-harmonic16-dark.json",
+          "themes/base16-atelier-dune.json",
+          "themes/base16-primer-dark.json",
+          "themes/base16-onedark.json",
+          "themes/base16-kimber.json",
+          "themes/base16-brogrammer.json",
+          "themes/base16-stella.json",
+          "themes/base16-sakura.json",
+          "themes/base16-decaf.json",
+          "themes/base16-papercolor-light.json",
+          "themes/base16-atelier-sulphurpool-light.json",
+          "themes/base16-silk-dark.json",
+          "themes/base16-brushtrees.json",
+          "themes/base16-isotope.json",
+          "themes/base16-grayscale-dark.json",
+          "themes/base16-apathy.json",
+          "themes/base16-horizon-light.json",
+          "themes/base16-woodland.json",
+          "themes/base16-railscasts.json",
+          "themes/base16-black-metal-bathory_custom.json",
+          "themes/base16-summerfruit-light.json",
+          "themes/base16-default-light.json",
+          "themes/base16-ocean_custom.json",
+          "themes/base16-humanoid-dark.json",
+          "themes/base16-vice.json",
+          "themes/base16-shades-of-purple.json",
+          "themes/base16-selenized-white.json",
+          "themes/base16-cupcake.json",
+          "themes/base16-gruvbox-light-soft.json",
+          "themes/base16-material.json",
+          "themes/base16-material-vivid.json",
+          "themes/base16-edge-dark.json",
+          "themes/base16-solarflare-light.json",
+          "themes/base16-cupertino.json",
+          "themes/base16-icy.json",
+          "themes/base16-horizon-dark.json",
+          "themes/base16-everforest.json",
+          "themes/base16-selenized-black.json",
+          "themes/base16-black-metal-marduk.json",
+          "themes/base16-material-lighter.json",
+          "themes/base16-eva.json",
+          "themes/base16-irblack.json",
+          "themes/base16-black-metal-immortal.json",
+          "themes/base16-windows-nt.json",
+          "themes/base16-synth-midnight-dark.json",
+          "themes/base16-windows-95.json",
+          "themes/base16-atelier-cave.json",
+          "themes/base16-solarflare.json",
+          "themes/base16-gruvbox-dark-pale.json",
+          "themes/base16-atelier-forest-light.json",
+          "themes/base16-equilibrium-dark.json",
+          "themes/base16-eva-dim.json",
+          "themes/base16-uwunicorn.json",
+          "themes/base16-tender.json",
+          "themes/base16-mocha.json",
+          "themes/base16-gruvbox-dark-soft.json",
+          "themes/base16-pasque.json",
+          "themes/base16-equilibrium-gray-light.json",
+          "themes/base16-classic-light.json",
+          "themes/base16-flat.json",
+          "themes/base16-materia.json",
+          "themes/base16-solarized-light.json",
+          "themes/base16-atelier-savanna-light.json",
+          "themes/base16-brewer.json",
+          "themes/base16-zenburn.json",
+          "themes/base16-atelier-heath-light.json",
+          "themes/base16-chalk.json",
+          "themes/base16-pandora.json",
+          "themes/base16-windows-nt-light.json",
+          "themes/base16-gigavolt.json",
+          "themes/base16-atlas.json",
+          "themes/base16-evenok-dark.json",
+          "themes/base16-horizon-terminal-light.json",
+          "themes/base16-summercamp.json",
+          "themes/base16-atelier-sulphurpool.json",
+          "themes/base16-windows-highcontrast.json",
+          "themes/base16-one-light.json",
+          "themes/base16-da-one-ocean.json",
+          "themes/base16-atelier-heath.json",
+          "themes/base16-heetch-light.json",
+          "themes/base16-nord.json",
+          "themes/base16-framer.json",
+          "themes/base16-tokyo-night-terminal-storm.json",
+          "themes/base16-gruvbox-material-dark-soft.json",
+          "themes/base16-pop.json",
+          "themes/base16-everforest-dark-hard.json",
+          "themes/base16-phd.json",
+          "themes/base16-apprentice.json",
+          "themes/base16-gruvbox-dark-medium.json",
+          "themes/base16-rose-pine-dawn.json",
+          "themes/base16-standardized-dark.json",
+          "themes/base16-katy.json",
+          "themes/base16-unikitty-reversible.json",
+          "themes/base16-twilight.json",
+          "themes/base16-pico.json",
+          "themes/base16-atelier-plateau.json",
+          "themes/base16-black-metal-khold.json",
+          "themes/base16-oxocarbon-dark.json",
+          "themes/base16-da-one-paper.json",
+          "themes/base16-xcode-dusk.json",
+          "themes/base16-tango.json",
+          "themes/base16-caroline.json",
+          "themes/base16-black-metal-burzum.json",
+          "themes/base16-tokyo-city-dark.json",
+          "themes/base16-selenized-dark.json",
+          "themes/base16-spacemacs.json",
+          "themes/base16-grayscale-light.json",
+          "themes/base16-codeschool.json",
+          "themes/base16-silk-light.json",
+          "themes/base16-gruvbox-material-light-medium.json",
+          "themes/base16-catppuccin-latte.json",
+          "themes/base16-zenbones.json",
+          "themes/base16-black-metal-venom.json",
+          "themes/base16-colors.json",
+          "themes/base16-darktooth.json",
+          "themes/base16-black-metal-dark-funeral.json",
+          "themes/base16-oxocarbon-light.json",
+          "themes/base16-nebula.json",
+          "themes/base16-catppuccin-macchiato.json",
+          "themes/base16-espresso.json",
+          "themes/base16-danqing-light.json",
+          "themes/base16-tube.json",
+          "themes/base16-rose-pine-moon.json",
+          "themes/base16-google-light.json",
+          "themes/base16-primer-dark-dimmed.json",
+          "themes/base16-solarized-dark.json",
+          "themes/base16-nova.json",
+          "themes/base16-purpledream.json",
+          "themes/base16-embers.json",
+          "themes/base16-marrakesh.json",
+          "themes/base16-tokyo-city-light.json",
+          "themes/base16-windows-10-light.json",
+          "themes/base16-gruber.json",
+          "themes/base16-emil.json",
+          "themes/base16-paraiso.json",
+          "themes/base16-darkmoss.json",
+          "themes/base16-horizon-terminal-dark.json",
+          "themes/base16-oceanicnext.json",
+          "themes/base16-gruvbox-dark-hard.json",
+          "themes/base16-pinky.json",
+          "themes/base16-ashes.json",
+          "themes/base16-sandcastle.json",
+          "themes/base16-3024.json",
+          "themes/base16-ayu-light.json",
+          "themes/base16-seti.json",
+          "themes/base16-snazzy.json",
+          "themes/base16-tokyo-city-terminal-dark.json",
+          "themes/base16-da-one-gray.json",
+          "themes/base16-atelier-forest.json",
+          "themes/base16-kanagawa.json",
+          "themes/base16-da-one-sea.json",
+          "themes/base16-google-dark.json",
+          "themes/base16-sagelight.json",
+          "themes/base16-ia-dark.json",
+          "themes/base16-tomorrow.json",
+          "themes/base16-outrun-dark.json",
+          "themes/base16-blueish.json",
+          "themes/base16-circus.json",
+          "themes/base16-catppuccin-frappe.json",
+          "themes/base16-vulcan.json",
+          "themes/base16-shadesmear-light.json",
+          "themes/base16-rose-pine.json",
+          "themes/base16-gruvbox-material-light-hard.json",
+          "themes/base16-atelier-plateau-light.json",
+          "themes/base16-material-palenight.json",
+          "themes/base16-still-alive.json",
+          "themes/base16-classic-dark.json",
+          "themes/base16-edge-light.json",
+          "themes/base16-gotham.json",
+          "themes/base16-synth-midnight-light.json",
+          "themes/base16-danqing.json",
+          "themes/base16-tokyo-night-terminal-dark.json",
+          "themes/base16-eighties.json",
+          "themes/base16-gruvbox-light-hard.json",
+          "themes/base16-black-metal.json",
+          "themes/base16-primer-light.json",
+          "themes/base16-catppuccin-mocha.json",
+          "themes/base16-da-one-black.json",
+          "themes/base16-fruit-soda.json",
+          "themes/base16-windows-highcontrast-light.json",
+          "themes/base16-windows-10.json",
+          "themes/base16-lime.json",
+          "themes/base16-atelier-dune-light.json",
+          "themes/base16-monokai.json",
+          "themes/base16-ayu-mirage.json",
+          "themes/base16-helios.json",
+          "themes/base16-spaceduck.json",
+          "themes/base16-eris.json",
+          "themes/base16-atelier-lakeside-light.json",
+          "themes/base16-tokyo-night-dark.json",
+          "themes/base16-blueforest.json",
+          "themes/base16-da-one-white.json",
+          "themes/base16-shadesmear-dark.json",
+          "themes/base16-hardcore.json",
+          "themes/base16-macintosh.json",
+          "themes/base16-selenized-light.json",
+          "themes/base16-hopscotch.json",
+          "themes/base16-harmonic16-light.json",
+          "themes/base16-humanoid-light.json",
+          "themes/base16-bright.json",
+          "themes/base16-tomorrow-night.json",
+          "themes/base16-atelier-seaside-light.json",
+          "themes/base16-greenscreen.json",
+          "themes/base16-gruvbox-material-dark-hard.json",
+          "themes/base16-tarot.json",
+          "themes/base16-windows-95-light.json",
+          "themes/base16-mexico-light.json",
+          "themes/base16-equilibrium-gray-dark.json",
+          "themes/base16-heetch.json",
+          "themes/base16-summerfruit-dark.json",
+          "themes/base16-atelier-estuary-light.json",
+          "themes/base16-darkviolet.json",
+          "themes/base16-mellow-purple.json",
+          "themes/base16-dracula.json",
+          "themes/base16-ayu-dark.json",
+          "themes/base16-gruvbox-material-dark-medium.json",
+          "themes/base16-bespin.json",
+          "themes/base16-qualia.json",
+          "themes/base16-unikitty-light.json",
+          "themes/base16-shapeshifter.json",
+          "themes/base16-black-metal-nile.json",
+          "themes/base16-rebecca.json",
+          "themes/base16-material-darker.json",
+          "themes/base16-github.json",
+          "themes/base16-black-metal-gorgoroth.json",
+          "themes/base16-brushtrees-dark.json",
+          "themes/base16-standardized-light.json",
+          "themes/base16-porple.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "basher": {
+      "manifest": {
+        "id": "basher",
+        "name": "Basher",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Bash support",
+        "repository": "https://github.com/d1y/bash.zed",
+        "authors": [
+          "d1y <chenhonzhou@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.4"
+        },
+        "themes": [],
+        "languages": [
+          "languages/bash"
+        ],
+        "grammars": {
+          "bash": {
+            "repository": "https://github.com/tree-sitter/tree-sitter-bash",
+            "rev": "152c934b24cd7b3290e77cd6c9d80401f23fc915",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "bash-language-server": {
+            "language": "Shell Script",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "biome": {
+      "manifest": {
+        "id": "biome",
+        "name": "Biome",
+        "version": "0.1.3",
+        "schema_version": 1,
+        "description": "Biome support for Zed",
+        "repository": "https://github.com/biomejs/biome-zed",
+        "authors": [
+          "biomejs <biomejs.dev>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "biome": {
+            "language": "JavaScript",
+            "languages": [
+              "JavaScript",
+              "JSX",
+              "TypeScript",
+              "TSX",
+              "Vue.js",
+              "Astro",
+              "Svelte",
+              "JSON",
+              "JSONC",
+              "CSS",
+              "GraphQL"
+            ],
+            "language_ids": {
+              "JSON": "json",
+              "Astro": "astro",
+              "Svelte": "svelte",
+              "CSS": "css",
+              "JSX": "javascriptreact",
+              "Vue.js": "vuejs",
+              "JavaScript": "javascript",
+              "GraphQL": "graphql",
+              "TSX": "typescriptreact",
+              "JSONC": "jsonc",
+              "TypeScript": "typescript"
+            },
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "blackula": {
+      "manifest": {
+        "id": "blackula",
+        "name": "Blackula",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "A superdark Dracula theme for Zed",
+        "repository": "https://github.com/JacobCoffee/blackula",
+        "authors": [
+          "Jacob Coffee <jacob@z7x.org>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/blackula.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "cargo-tom": {
+      "manifest": {
+        "id": "cargo-tom",
+        "name": "CargoTom",
+        "version": "0.4.1",
+        "schema_version": 1,
+        "description": "Cargo.toml crate/version/features suggestions(offline mode enabled by default) & other usefull Cargo.toml features",
+        "repository": "https://github.com/frederik-uni/zed-cargotom",
+        "authors": [
+          "frederik <termite_pilgrim04@icloud.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "cargo-tom": {
+            "language": "TOML",
+            "languages": [
+              "TOML",
+              "Rust"
+            ],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "colorizer": {
+      "manifest": {
+        "id": "colorizer",
+        "name": "Colorizer",
+        "version": "0.0.4",
+        "schema_version": 1,
+        "description": "Colorizer is a vibrant Zed code editor theme that enhances readability with rich, contrasting colors, making your coding experience both efficient and enjoyable.",
+        "repository": "https://github.com/tamimhasandev/colorizer",
+        "authors": [
+          "Md Tamim Hasan <tamimhasandev@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/colorizer.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "csharp": {
+      "manifest": {
+        "id": "csharp",
+        "name": "C#",
+        "version": "0.0.2",
+        "schema_version": 1,
+        "description": "C# support.",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "fminkowski <fminkowski@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.4"
+        },
+        "themes": [],
+        "languages": [
+          "languages/csharp"
+        ],
+        "grammars": {
+          "c_sharp": {
+            "repository": "https://github.com/tree-sitter/tree-sitter-c-sharp",
+            "rev": "dd5e59721a5f8dae34604060833902b882023aaf",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "omnisharp": {
+            "language": "CSharp",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "csv": {
+      "manifest": {
+        "id": "csv",
+        "name": "CSV",
+        "version": "0.0.2",
+        "schema_version": 1,
+        "description": "CSV language support.",
+        "repository": "https://github.com/huacnlee/zed-csv",
+        "authors": [
+          "Jason Lee <huacnlee@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.4"
+        },
+        "themes": [],
+        "languages": [
+          "languages/csv"
+        ],
+        "grammars": {
+          "csv": {
+            "repository": "https://github.com/arnau/tree-sitter-csv",
+            "rev": "4b25b5d745f9462e54b781e3d7798b8e0a4db703",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "cue": {
+      "manifest": {
+        "id": "cue",
+        "name": "CUE",
+        "version": "0.0.3",
+        "schema_version": 1,
+        "description": "CUE language support for Zed",
+        "repository": "https://github.com/jkasky/zed-cue",
+        "authors": [
+          "Jesse Kasky <jkasky@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [
+          "languages/cue"
+        ],
+        "grammars": {
+          "cue": {
+            "repository": "https://github.com/eonpatapon/tree-sitter-cue",
+            "rev": "8a5f273bfa281c66354da562f2307c2d394b6c81",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "cuepls": {
+            "language": "CUE",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "docker-compose": {
+      "manifest": {
+        "id": "docker-compose",
+        "name": "Docker Compose",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "Syntax highlighting for Docker Compose files",
+        "repository": "https://github.com/eth0net/zed-docker-compose",
+        "authors": [
+          "eth0net <eth0net@pm.me>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "docker-compose": {
+            "language": "YAML",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "dockerfile": {
+      "manifest": {
+        "id": "dockerfile",
+        "name": "Dockerfile",
+        "version": "0.0.4",
+        "schema_version": 1,
+        "description": "Dockerfile support.",
+        "repository": "https://github.com/d1y/dockerfile.zed",
+        "authors": [
+          "d1y <chenhonzho@gmail.com>",
+          "joshmeads <github@joshmeads.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.4"
+        },
+        "themes": [],
+        "languages": [
+          "languages/dockerfile"
+        ],
+        "grammars": {
+          "dockerfile": {
+            "repository": "https://github.com/camdencheek/tree-sitter-dockerfile",
+            "rev": "868e44ce378deb68aac902a9db68ff82d2299dd0",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "dockerfile-language-server": {
+            "language": "Dockerfile",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "env": {
+      "manifest": {
+        "id": "env",
+        "name": "env",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "🔐 Environment support. ✰ and report issues ➩",
+        "repository": "https://github.com/zarifpour/zed-env",
+        "authors": [
+          "Daniel Zarifpour <z@rifpour.xyz>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/env"
+        ],
+        "grammars": {
+          "env": {
+            "repository": "https://github.com/zarifpour/tree-sitter-dotenv",
+            "rev": "a854096808a5c1da0de998b31e5887995a98a89f",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "focus-theme": {
+      "manifest": {
+        "id": "focus-theme",
+        "name": "Focus Theme",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Focus is a collection of themes created to cause less eye strain and help you focus on code",
+        "repository": "https://github.com/jigyansunanda/Focus",
+        "authors": [
+          "Jigyansu Nanda <nandajigyansu@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/Focus.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "git-firefly": {
+      "manifest": {
+        "id": "git-firefly",
+        "name": "Git Firefly",
+        "version": "0.0.3",
+        "schema_version": 1,
+        "description": "Provides Git Syntax Highlighting",
+        "repository": "https://github.com/d1y/git_firefly",
+        "authors": [
+          "d1y <chenhonzho@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/gitconfig",
+          "languages/diff",
+          "languages/gitcommit",
+          "languages/gitignore",
+          "languages/gitrebase",
+          "languages/gitattributes"
+        ],
+        "grammars": {
+          "diff": {
+            "repository": "https://github.com/the-mikedavis/tree-sitter-diff",
+            "rev": "c165725c28e69b36c5799ff0e458713a844f1aaf",
+            "path": null
+          },
+          "git_commit": {
+            "repository": "https://github.com/the-mikedavis/tree-sitter-git-commit",
+            "rev": "6f193a66e9aa872760823dff020960c6cedc37b3",
+            "path": null
+          },
+          "git_config": {
+            "repository": "https://github.com/the-mikedavis/tree-sitter-git-config",
+            "rev": "9c2a1b7894e6d9eedfe99805b829b4ecd871375e",
+            "path": null
+          },
+          "git_rebase": {
+            "repository": "https://github.com/the-mikedavis/tree-sitter-git-rebase",
+            "rev": "d8a4207ebbc47bd78bacdf48f883db58283f9fd8",
+            "path": null
+          },
+          "gitattributes": {
+            "repository": "https://github.com/tree-sitter-grammars/tree-sitter-gitattributes",
+            "rev": "41940e199ba5763abea1d21b4f717014b45f01ea",
+            "path": null
+          },
+          "gitignore": {
+            "repository": "https://github.com/shunsambongi/tree-sitter-gitignore",
+            "rev": "f4685bf11ac466dd278449bcfe5fd014e94aa504",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "golangci-lint": {
+      "manifest": {
+        "id": "golangci-lint",
+        "name": "Golangci-Lint",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "Golangci Lint support.",
+        "repository": "https://github.com/j4ng5y/zed_golangci_lint",
+        "authors": [
+          "Jordan Gregory <jordan@j4ng5y.dev>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "golangci-lint": {
+            "language": "Golangci Lint",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "graphviz": {
+      "manifest": {
+        "id": "graphviz",
+        "name": "Graphviz",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "Graphviz support.",
+        "repository": "https://github.com/gabeidx/zed-graphviz",
+        "authors": [
+          "Gabriel Silva <gabe@gabe.id>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/dot"
+        ],
+        "grammars": {
+          "dot": {
+            "repository": "https://github.com/rydesun/tree-sitter-dot",
+            "rev": "9ab85550c896d8b294d9b9ca1e30698736f08cea",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "green-monochrome-monitor-crt-phosphor": {
+      "manifest": {
+        "id": "green-monochrome-monitor-crt-phosphor",
+        "name": "Green Monochrome Monitor CRT Phosphor",
+        "version": "0.1.3",
+        "schema_version": 1,
+        "description": "Designed to replicate the classic CRT monitors, the dark version features a black background with vibrant green text, while the light version has a soft green background for contrast.",
+        "repository": "https://github.com/takk8is/green-monochrome-monitor-crt-phosphor-theme-for-zed",
+        "authors": [
+          "David C Cavalcante <davcavalcante@proton.me>",
+          "Takk™ Innovate Studio <say@takk.ag>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/green-monochrome-monitor-crt-phosphor.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "hare": {
+      "manifest": {
+        "id": "hare",
+        "name": "Hare",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Hare support for Zed",
+        "repository": "https://github.com/xdBronch/hare-zed",
+        "authors": [
+          "xdBronch <51252236+xdBronch@users.noreply.github.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/hare"
+        ],
+        "grammars": {
+          "hare": {
+            "repository": "https://github.com/tree-sitter-grammars/tree-sitter-hare",
+            "rev": "4af5d82cf9ec39f67cb1db5b7a9269d337406592",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "helm": {
+      "manifest": {
+        "id": "helm",
+        "name": "Helm",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Syntax highlighting for Helm templates",
+        "repository": "https://github.com/cabrinha/helm.zed",
+        "authors": [
+          "cabrinha <yuppie@hey.com>",
+          "MrJosh <hi@mrjosh.me>",
+          "Hemant Joshi <mail@hjoshi.me>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.4"
+        },
+        "themes": [],
+        "languages": [
+          "languages/helm"
+        ],
+        "grammars": {
+          "helm": {
+            "repository": "https://github.com/ngalaiko/tree-sitter-go-template",
+            "rev": "9d3f6e526dd074b9edae9070b7bb778f00e87a5b",
+            "path": "dialects/helm"
+          }
+        },
+        "language_servers": {
+          "helm": {
+            "language": "Helm",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "html": {
+      "manifest": {
+        "id": "html",
+        "name": "HTML",
+        "version": "0.1.4",
+        "schema_version": 1,
+        "description": "HTML support.",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "Isaac Clayton <slightknack@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [
+          "languages/html"
+        ],
+        "grammars": {
+          "html": {
+            "repository": "https://github.com/tree-sitter/tree-sitter-html",
+            "rev": "bfa075d83c6b97cd48440b3829ab8d24a2319809",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "vscode-html-language-server": {
+            "language": "HTML",
+            "languages": [],
+            "language_ids": {
+              "HTML": "html",
+              "CSS": "css"
+            },
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "http": {
+      "manifest": {
+        "id": "http",
+        "name": "http",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Highlights .http files",
+        "repository": "https://github.com/tie304/zed-http",
+        "authors": [
+          "tylerhanson921@gmail.com"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/http"
+        ],
+        "grammars": {
+          "http": {
+            "repository": "http://github.com/rest-nvim/tree-sitter-http",
+            "rev": "e061995f0caf2fa30f68fa1fdf2c08bcbd4629a8",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "idris2": {
+      "manifest": {
+        "id": "idris2",
+        "name": "Idris2",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Idris2 support.",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "Serhii Khoma Yuriyovich <srghma@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [
+          "languages/ipkg",
+          "languages/idris2"
+        ],
+        "grammars": {
+          "idris2": {
+            "repository": "https://github.com/srghma/tree-sitter-idris",
+            "rev": "901b55d5851a98859f9aa632577f0036b80a87f8",
+            "path": null
+          },
+          "ipkg": {
+            "repository": "https://github.com/srghma/tree-sitter-ipkg",
+            "rev": "367aab22ad78c1c17d7bf79ec30d0566f7d9b6d6",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "idris2-lsp": {
+            "language": "Idris2",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "ini": {
+      "manifest": {
+        "id": "ini",
+        "name": "ini",
+        "version": "0.0.2",
+        "schema_version": 1,
+        "description": "Ini support.",
+        "repository": "https://github.com/bajrangCoder/zed-ini",
+        "authors": [
+          "Raunak Raj <bajrangcoders@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/ini"
+        ],
+        "grammars": {
+          "ini": {
+            "repository": "https://github.com/justinmk/tree-sitter-ini",
+            "rev": "fc37e95b8d9651c60d81cccbcbbc55867dbb0afd",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "jsonnet": {
+      "manifest": {
+        "id": "jsonnet",
+        "name": "Jsonnet",
+        "version": "0.2.0",
+        "schema_version": 1,
+        "description": "Jsonnet language support for Zed",
+        "repository": "https://github.com/narqo/zed-jsonnet",
+        "authors": [
+          "Vladimir Varankin <vladimir@varank.in>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/jsonnet"
+        ],
+        "grammars": {
+          "jsonnet": {
+            "repository": "https://github.com/sourcegraph/tree-sitter-jsonnet",
+            "rev": "ddd075f1939aed8147b7aa67f042eda3fce22790",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "jsonnet-language-server": {
+            "language": "Jsonnet",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "kdl": {
+      "manifest": {
+        "id": "kdl",
+        "name": "kdl",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Syntax highlighting for KDL files.",
+        "repository": "https://github.com/elkowar/zed-kdl",
+        "authors": [
+          "ElKowar <dev@elkowar.dev>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/kdl"
+        ],
+        "grammars": {
+          "kdl": {
+            "repository": "https://github.com/tree-sitter-grammars/tree-sitter-kdl",
+            "rev": "b37e3d58e5c5cf8d739b315d6114e02d42e66664",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "leblackque": {
+      "manifest": {
+        "id": "leblackque",
+        "name": "Le Blackque Theme",
+        "version": "1.0.1",
+        "schema_version": 1,
+        "description": "A dark and elegant theme",
+        "repository": "https://github.com/gx0r/leblackque",
+        "authors": [
+          "Grant Miner <gx0r@proton.me>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/LeBlackque.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "ledger": {
+      "manifest": {
+        "id": "ledger",
+        "name": "Ledger",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "Support for ledger journal files",
+        "repository": "https://github.com/mrkstwrt/zed-ledger",
+        "authors": [
+          "Mark Stewart <me@markstewart.dev>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/ledger"
+        ],
+        "grammars": {
+          "ledger": {
+            "repository": "https://github.com/cbarrete/tree-sitter-ledger",
+            "rev": "8a841fb20ce683bfbb3469e6ba67f2851cfdf94a",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "live-server": {
+      "manifest": {
+        "id": "live-server",
+        "name": "LiveServer",
+        "version": "0.3.0",
+        "schema_version": 1,
+        "description": "Launch a development local Server with live reload feature",
+        "repository": "https://github.com/frederik-uni/zed-live-server",
+        "authors": [
+          "frederik <termite_pilgrim04@icloud.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "live-server": {
+            "language": "HTML",
+            "languages": [
+              "HTML",
+              "JavaScript",
+              "CSS"
+            ],
+            "language_ids": {
+              "HTML": "html",
+              "JavaScript": "javascript",
+              "CSS": "css"
+            },
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "log": {
+      "manifest": {
+        "id": "log",
+        "name": "LOG",
+        "version": "0.0.6",
+        "schema_version": 1,
+        "description": "Syntax highlighting for log files.",
+        "repository": "https://github.com/nervenes/zed-log",
+        "authors": [
+          "nervenes",
+          "notpeter",
+          "d1y"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/log"
+        ],
+        "grammars": {
+          "log": {
+            "repository": "https://github.com/Tudyx/tree-sitter-log",
+            "rev": "62cfe307e942af3417171243b599cc7deac5eab9",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "lox": {
+      "manifest": {
+        "id": "lox",
+        "name": "Lox",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Lox syntax highlighting for Zed",
+        "repository": "https://github.com/arian81/zed-lox",
+        "authors": [
+          "Arian Ahmadinejad<hey@arian.gg>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/lox"
+        ],
+        "grammars": {
+          "lox": {
+            "repository": "https://github.com/ajeetdsouza/tree-sitter-lox",
+            "rev": "7e39bb2efbfe61d3f1bae6ab263d9a370c20395f",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "martianized": {
+      "manifest": {
+        "id": "martianized",
+        "name": "Martianized",
+        "version": "1.0.0",
+        "schema_version": 1,
+        "description": "A dark color scheme with a focus on reds, browns, and icy whites.",
+        "repository": "https://github.com/clamjohnston/martianized",
+        "authors": [
+          "ClamJohnston"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/martianized.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "msun-dark": {
+      "manifest": {
+        "id": "msun-dark",
+        "name": "msun-dark",
+        "version": "0.0.6",
+        "schema_version": 1,
+        "description": "Minimalist dark theme loosely based on rsms Sublime Text theme",
+        "repository": "https://github.com/mikesun/msun-dark-zed",
+        "authors": [
+          "Mike Sun <mike@msun.io"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/msun-dark.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "nanowise": {
+      "manifest": {
+        "id": "nanowise",
+        "name": "Nanowise Themes",
+        "version": "0.1.0",
+        "schema_version": 0,
+        "description": "🌔 The galaxy in Zed.",
+        "repository": "https://github.com/Fastiraz/nanowise",
+        "authors": [
+          "Fastiraz"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/nanowise.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "nginx": {
+      "manifest": {
+        "id": "nginx",
+        "name": "Nginx",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Nginx support",
+        "repository": "https://github.com/d1y/nginx-zed",
+        "authors": [
+          "d1y <chenhonzhou@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/nginx"
+        ],
+        "grammars": {
+          "nginx": {
+            "repository": "https://gitlab.com/joncoole/tree-sitter-nginx",
+            "rev": "b4b61db443602b69410ab469c122c01b1e685aa0",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "nginx": {
+            "language": "Nginx",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "nix": {
+      "manifest": {
+        "id": "nix",
+        "name": "Nix",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "Nix support.",
+        "repository": "https://github.com/zed-extensions/nix",
+        "authors": [
+          "Hasit Mistry <hasitnm@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [
+          "languages/nix"
+        ],
+        "grammars": {
+          "nix": {
+            "repository": "https://github.com/nix-community/tree-sitter-nix",
+            "rev": "b3cda619248e7dd0f216088bd152f59ce0bbe488",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "nil": {
+            "language": "Nix",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          },
+          "nixd": {
+            "language": "Nix",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "norrsken": {
+      "manifest": {
+        "id": "norrsken",
+        "name": "Norrsken Theme",
+        "version": "3.0.1",
+        "schema_version": 0,
+        "description": "An aurora-inspired theme designed to minimize eye strain and improve syntax highlighting.",
+        "repository": "https://github.com/webhooked/norrsken-zed",
+        "authors": [
+          "Webhooked <hello@webhooked.dev>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/norrsken.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "nu": {
+      "manifest": {
+        "id": "nu",
+        "name": "Nu",
+        "version": "0.0.3",
+        "schema_version": 1,
+        "description": "Nu language support for Zed",
+        "repository": "https://github.com/zed-extensions/nu",
+        "authors": [
+          "Mikayla Maki <mikayla@zed.dev>",
+          "Joseph Lyons <joseph@zed.dev>",
+          "Darren Schroeder"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/nu"
+        ],
+        "grammars": {
+          "nu": {
+            "repository": "https://github.com/nushell/tree-sitter-nu",
+            "rev": "b090676f0205f52debb93745b9ad788385583276",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "nu": {
+            "language": null,
+            "languages": [
+              "Nu"
+            ],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "odin": {
+      "manifest": {
+        "id": "odin",
+        "name": "Odin",
+        "version": "0.2.0",
+        "schema_version": 1,
+        "description": "Odin support.",
+        "repository": "https://github.com/rxptr/zed-odin",
+        "authors": [
+          "Mo Nematzadeh <mohammad.h.nematzadeh@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [
+          "languages/odin"
+        ],
+        "grammars": {
+          "odin": {
+            "repository": "https://github.com/tree-sitter-grammars/tree-sitter-odin",
+            "rev": "e4897cd9b73e35d80bdb89ff4b0c62606435837f",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "ols": {
+            "language": "Odin",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "one-black-theme": {
+      "manifest": {
+        "id": "one-black-theme",
+        "name": "One Black Theme",
+        "version": "0.0.2",
+        "schema_version": 1,
+        "description": "One Dark got even dar..kier",
+        "repository": "https://github.com/serhiiboreiko/one-black-theme-zed",
+        "authors": [
+          "Serhii Boreiko <jestersunborn@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/one-black.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "playdate": {
+      "manifest": {
+        "id": "playdate",
+        "name": "Playdate",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "Playdate support for Zed.",
+        "repository": "https://github.com/notpeter/playdate-zed-extension",
+        "authors": [
+          "Peter Tripp <petertripp@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/animationtxt",
+          "languages/pdxinfo"
+        ],
+        "grammars": {
+          "animationtxt": {
+            "repository": "https://github.com/notpeter/tree-sitter-animationtxt",
+            "rev": "d7947cdcc94fbad7a2436053572552adf471fc9b",
+            "path": null
+          },
+          "pdxinfo": {
+            "repository": "https://github.com/notpeter/tree-sitter-pdxinfo",
+            "rev": "f53aa27c0f93c0b89367894c8858528cf0b85e81",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "powershell": {
+      "manifest": {
+        "id": "powershell",
+        "name": "PowerShell",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "PowerShell support",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "Thanabodee Charoenpiriyakij <wingyminus@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/powershell"
+        ],
+        "grammars": {
+          "powershell": {
+            "repository": "https://github.com/airbus-cert/tree-sitter-powershell",
+            "rev": "804d86fd4ad286bd0cc1c1f0f7b28bd7af6755ad",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "powershell-es": {
+            "language": null,
+            "languages": [
+              "PowerShell"
+            ],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "prisma": {
+      "manifest": {
+        "id": "prisma",
+        "name": "Prisma",
+        "version": "0.0.3",
+        "schema_version": 1,
+        "description": "Prisma support.",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "Matthew Gramigna <matthewgramigna@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.4"
+        },
+        "themes": [],
+        "languages": [
+          "languages/prisma"
+        ],
+        "grammars": {
+          "prisma": {
+            "repository": "https://github.com/victorhqc/tree-sitter-prisma",
+            "rev": "eca2596a355b1a9952b4f80f8f9caed300a272b5",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "prisma-language-server": {
+            "language": "Prisma",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "rainbow-csv": {
+      "manifest": {
+        "id": "rainbow-csv",
+        "name": "Rainbow CSV",
+        "version": "0.0.3",
+        "schema_version": 1,
+        "description": "Highlight CSV with different rainbow colors to make them more readable",
+        "repository": "https://github.com/weartist/zed-rainbow-csv",
+        "authors": [
+          "Hans <weartistt@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/csv",
+          "languages/tsv"
+        ],
+        "grammars": {
+          "csv": {
+            "repository": "https://github.com/versecafe/rainbow-csv-tree-sitter",
+            "rev": "d3dbf916446131417e4c2ea9eb8591b23b466d27",
+            "path": null
+          },
+          "tsv": {
+            "repository": "https://github.com/weartist/rainbow-tsv-tree-sitter",
+            "rev": "fdbd83fc30690777822b7ab183f57664c11310e9",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "replicant": {
+      "manifest": {
+        "id": "replicant",
+        "name": "Replicant",
+        "version": "0.0.2",
+        "schema_version": 1,
+        "description": "A port of Kenzie Bottoms' Replicant theme, based on a palette from Bladerunner.",
+        "repository": "https://github.com/pierrenel/replicant",
+        "authors": [
+          "Pierre Nel <hello@pierre.io>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/replicant.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "roc": {
+      "manifest": {
+        "id": "roc",
+        "name": "Roc",
+        "version": "0.0.6",
+        "schema_version": 1,
+        "description": "Roc language support for Zed",
+        "repository": "https://github.com/h2000/zed-roc",
+        "authors": [
+          "Alf Richter <kuehlboxen.vorgemisch0e@icloud.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/roc"
+        ],
+        "grammars": {
+          "roc": {
+            "repository": "https://github.com/faldor20/tree-sitter-roc",
+            "rev": "6ea64b6434a45472bd87b0772fd84a017de0a557",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "roc": {
+            "language": "Roc",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "s-dark-theme": {
+      "manifest": {
+        "id": "s-dark-theme",
+        "name": "S-Dark Theme",
+        "version": "1.0.1",
+        "schema_version": 1,
+        "description": "A beautiful dark theme.",
+        "repository": "https://github.com/sinamombeiny/S-DarkTheme.zed",
+        "authors": [
+          "Sina Mombeiny <SMombeiny@proton.me>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/S-Dark.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "scls": {
+      "manifest": {
+        "id": "scls",
+        "name": "Simple completion",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Allow to use common word completion and snippets for Helix editor",
+        "repository": "https://github.com/d1y/simple-completion-zed",
+        "authors": [
+          "d1y <chenhonzhou@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "scls": {
+            "language": null,
+            "languages": [
+              "TypeScript",
+              "JavaScript",
+              "Vue.js",
+              "Go",
+              "Go Mod",
+              "Go Work",
+              "Shell Script",
+              "HTML",
+              "Scheme",
+              "Lua",
+              "Dart",
+              "Zig",
+              "C",
+              "C++",
+              "CSS",
+              "JSON",
+              "Markdown",
+              "Ruby",
+              "Rust",
+              "YAML",
+              "TOML",
+              "Git Commit",
+              "Git Ignore"
+            ],
+            "language_ids": {
+              "Dart": "dart",
+              "C": "c",
+              "TOML": "toml",
+              "Zig": "zig",
+              "TypeScript": "typescript",
+              "Ruby": "ruby",
+              "Vue.js": "vue",
+              "Lua": "lua",
+              "Python": "python",
+              "Git Commit": "git_commit",
+              "JavaScript": "javascript",
+              "C++": "cpp",
+              "HTML": "html",
+              "YAML": "yaml",
+              "Scheme": "scm",
+              "Go": "go",
+              "Shell Script": "shell",
+              "Go Mod": "gomod",
+              "Git Ignore": "git_ignore",
+              "JSON": "json",
+              "Markdown": "markdown",
+              "CSS": "css",
+              "Rust": "rust"
+            },
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "short-giraffe-theme": {
+      "manifest": {
+        "id": "short-giraffe-theme",
+        "name": "Short Giraffe Theme",
+        "version": "2.0.0",
+        "schema_version": 1,
+        "description": "A dark theme with carefully picked colors",
+        "repository": "https://github.com/Mehdi-Hp/Short-Giraffe",
+        "authors": [
+          "Mehdi Hoseini <mehdi.hoseinipajooh@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/zed.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "simple-darker": {
+      "manifest": {
+        "id": "simple-darker",
+        "name": "Simple Darker Theme",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Simple Darker Theme for zed",
+        "repository": "https://github.com/DP19/zed-theme-simple-darker",
+        "authors": [
+          "David Pait <davidjpait@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/simple-darker.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "sql": {
+      "manifest": {
+        "id": "sql",
+        "name": "SQL",
+        "version": "1.1.2",
+        "schema_version": 1,
+        "description": "SQL language support.",
+        "repository": "https://github.com/nervenes/zed-sql",
+        "authors": [
+          "nervenes",
+          "notpeter",
+          "phileix",
+          "tammyxiong"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/sql"
+        ],
+        "grammars": {
+          "sql": {
+            "repository": "https://github.com/nervenes/tree-sitter-sql",
+            "rev": "6dfca8b6dcb196d943c10e9cabab25e60232d332",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "strace": {
+      "manifest": {
+        "id": "strace",
+        "name": "Strace",
+        "version": "0.0.2",
+        "schema_version": 0,
+        "description": "Strace log file support for Zed",
+        "repository": "https://github.com/sigmasd/zed-strace",
+        "authors": [
+          "Bedis Nbiba"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/strace"
+        ],
+        "grammars": {
+          "strace": {
+            "repository": "https://github.com/sigmaSd/tree-sitter-strace",
+            "rev": "0dc85e4cfcd0cc4b33f855ddb782d81d1297bf6e",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "struct-theme": {
+      "manifest": {
+        "id": "struct-theme",
+        "name": "Struct Theme",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "High contrast dark theme to match https://destruct.dev",
+        "repository": "https://github.com/Fake-User/Struct-Zed-Theme",
+        "authors": [
+          "Struct <self@destruct.dev>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/struct.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "superhtml": {
+      "manifest": {
+        "id": "superhtml",
+        "name": "Superhtml",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "Superhtml support.",
+        "repository": "https://github.com/WeetHet/superhtml-zed",
+        "authors": [
+          "WeetHet <stas.ale66@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "superhtml": {
+            "language": null,
+            "languages": [
+              "HTML"
+            ],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "synthwave": {
+      "manifest": {
+        "id": "synthwave",
+        "name": "Synthwave '84 Theme",
+        "version": "0.0.1",
+        "schema_version": 0,
+        "description": "A port of the Synthwave '84 extension in VS Code",
+        "repository": "https://github.com/DanielMSchmidt/zed-synthwave",
+        "authors": [
+          "Daniel Schmidt <danielmschmidt92@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/synthwave-84.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "tailwind-theme": {
+      "manifest": {
+        "id": "tailwind-theme",
+        "name": "Tailwind Syntax",
+        "version": "0.5.0",
+        "schema_version": 1,
+        "description": "Tailwind theme for Zed",
+        "repository": "https://github.com/biaqat/tailwind-theme-zed",
+        "authors": [
+          "blaqat <blaqat.ag@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/tailwind.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "templ": {
+      "manifest": {
+        "id": "templ",
+        "name": "Templ",
+        "version": "0.0.4",
+        "schema_version": 1,
+        "description": "Templ language support for Zed",
+        "repository": "https://github.com/makifdb/zed-templ",
+        "authors": [
+          "Mehmet Akif Duba <mail@makifdb.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/templ"
+        ],
+        "grammars": {
+          "templ": {
+            "repository": "https://github.com/vrischmann/tree-sitter-templ",
+            "rev": "71978ef587a9e4456333d62a5929949669af66fc",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "templ": {
+            "language": "Templ",
+            "languages": [],
+            "language_ids": {
+              "Templ": "templ"
+            },
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "terraform": {
+      "manifest": {
+        "id": "terraform",
+        "name": "Terraform",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "Terraform support.",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "Caius Durling <dev@caius.name>",
+          "Daniel Banck <dbanck@users.noreply.github.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [
+          "languages/terraform-vars",
+          "languages/terraform",
+          "languages/hcl"
+        ],
+        "grammars": {
+          "hcl": {
+            "repository": "https://github.com/MichaHoffmann/tree-sitter-hcl",
+            "rev": "e936d3fef8bac884661472dce71ad82284761eb1",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "terraform-ls": {
+            "language": null,
+            "languages": [
+              "Terraform",
+              "Terraform Vars"
+            ],
+            "language_ids": {
+              "Terraform Vars": "terraform-vars",
+              "Terraform": "terraform"
+            },
+            "code_action_kinds": []
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "the-dark-side": {
+      "manifest": {
+        "id": "the-dark-side",
+        "name": "The Dark Side",
+        "version": "0.2.5",
+        "schema_version": 0,
+        "description": "Join the dark side.",
+        "repository": "https://github.com/Imgkl/the-dark-side",
+        "authors": [
+          "Sai Gokula Krishnan <hi@gokula.dev>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/the-dark-side.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "toml": {
+      "manifest": {
+        "id": "toml",
+        "name": "TOML",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "TOML support.",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "Max Brunsfeld <max@zed.dev>",
+          "Ammar Arif <evergreenkary@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/toml"
+        ],
+        "grammars": {
+          "toml": {
+            "repository": "https://github.com/tree-sitter/tree-sitter-toml",
+            "rev": "342d9be207c2dba869b9967124c679b5e6fd0ebe",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "taplo": {
+            "language": "TOML",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "twig": {
+      "manifest": {
+        "id": "twig",
+        "name": "Twig",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "Syntax highlighting and Intellisense for Twig in Zed",
+        "repository": "https://github.com/YussufSassi/zed-twig",
+        "authors": [
+          "Yussuf Sassi <yussuf@tuta.io>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.0.6"
+        },
+        "themes": [],
+        "languages": [
+          "languages/twig"
+        ],
+        "grammars": {
+          "twig": {
+            "repository": "https://github.com/gbprod/tree-sitter-twig",
+            "rev": "eaf80e6af969e25993576477a9dbdba3e48c1305",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "twig-language-server": {
+            "language": "Twig",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "typos": {
+      "manifest": {
+        "id": "typos",
+        "name": "Typos",
+        "version": "0.0.4",
+        "schema_version": 1,
+        "description": "Typos Language Server support for Zed editor",
+        "repository": "https://github.com/BaptisteRoseau/zed-typos",
+        "authors": [
+          "Baptiste Roseau <broseau@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {
+          "typos": {
+            "language": null,
+            "languages": [
+              "AsciiDoc",
+              "Astro",
+              "Bash",
+              "Biome",
+              "C",
+              "C#",
+              "C++",
+              "Clojure",
+              "CSharp",
+              "CSS",
+              "CSV",
+              "D",
+              "Dart",
+              "Deno",
+              "Docker",
+              "Elixir",
+              "Elm",
+              "Emmet",
+              "Erlang",
+              "Fish",
+              "FSharp",
+              "GDScript",
+              "Git Commit",
+              "Gleam",
+              "GLSL",
+              "Go",
+              "GraphQL",
+              "Groovy",
+              "Haskell",
+              "HEEX",
+              "HTML",
+              "Hy",
+              "Idris",
+              "Java",
+              "JavaScript",
+              "JSON",
+              "JSONC",
+              "Julia",
+              "Kotlin",
+              "LaTeX",
+              "Lua",
+              "Luau",
+              "Makefile",
+              "Markdown",
+              "Nim",
+              "Nix",
+              "OCaml",
+              "PHP",
+              "Plain Text",
+              "Prisma",
+              "Proto",
+              "PureScript",
+              "Python",
+              "R",
+              "Racket",
+              "Rego",
+              "reST",
+              "ReStructuredText",
+              "Roc",
+              "Ruby",
+              "Rust",
+              "Scala",
+              "Scheme",
+              "SCSS",
+              "Shell Script",
+              "SQL",
+              "Svelte",
+              "Swift",
+              "TailwindCSS",
+              "Terraform",
+              "TOML",
+              "TSX",
+              "TypeScript",
+              "Typst",
+              "Uiua",
+              "Vue",
+              "WIT",
+              "XML",
+              "YAML",
+              "Yarn",
+              "Zig"
+            ],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "uiua": {
+      "manifest": {
+        "id": "uiua",
+        "name": "Uiua",
+        "version": "0.0.1",
+        "schema_version": 1,
+        "description": "Uiua support for Zed",
+        "repository": "https://github.com/zed-industries/zed",
+        "authors": [
+          "Max Brunsfeld <max@zed.dev>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/uiua"
+        ],
+        "grammars": {
+          "uiua": {
+            "repository": "https://github.com/shnarazk/tree-sitter-uiua",
+            "rev": "21dc2db39494585bf29a3f86d5add6e9d11a22ba",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "uiua": {
+            "language": "Uiua",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "unison": {
+      "manifest": {
+        "id": "unison",
+        "name": "unison",
+        "version": "0.0.4",
+        "schema_version": 1,
+        "description": "Unison support for Zed. The friendly programming language from the future with the editor from the future.",
+        "repository": "https://github.com/zetashift/unison-zed",
+        "authors": [
+          "zetashift <rskaraya@gmail.com>"
+        ],
+        "lib": {
+          "kind": "Rust",
+          "version": "0.1.0"
+        },
+        "themes": [],
+        "languages": [
+          "languages/unison"
+        ],
+        "grammars": {
+          "unison": {
+            "repository": "https://github.com/kylegoetz/tree-sitter-unison",
+            "rev": "59d36a09282be7e4d3374854126590f3dcebee6e",
+            "path": null
+          }
+        },
+        "language_servers": {
+          "unison": {
+            "language": "Unison",
+            "languages": [],
+            "language_ids": {},
+            "code_action_kinds": null
+          }
+        },
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "vhs": {
+      "manifest": {
+        "id": "vhs",
+        "name": "VHS",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "Syntax highlighting for VHS `.tape` files",
+        "repository": "https://github.com/eth0net/zed-vhs",
+        "authors": [
+          "eth0net <eth0net@pm.me>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/vhs"
+        ],
+        "grammars": {
+          "vhs": {
+            "repository": "https://github.com/charmbracelet/tree-sitter-vhs",
+            "rev": "9534865e614c95eb9418e5e73f061c32fa4d9540",
+            "path": null
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "vscode-dark-high-contrast": {
+      "manifest": {
+        "id": "vscode-dark-high-contrast",
+        "name": "VSCode Dark High Contrast",
+        "version": "1.0.0",
+        "schema_version": 1,
+        "description": "A clone of the Dark High Contrast theme from VSCode",
+        "repository": "https://github.com/nick-myrick/vscode-dark-high-contrast",
+        "authors": [
+          "Nicholas Myrick <nmyrick@purdue.edu>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/vscodehighcontrast.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "xml": {
+      "manifest": {
+        "id": "xml",
+        "name": "XML",
+        "version": "0.0.8",
+        "schema_version": 1,
+        "description": "XML syntax support.",
+        "repository": "https://github.com/sweetppro/zed-xml",
+        "authors": [
+          "sweetppro"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [],
+        "languages": [
+          "languages/xml"
+        ],
+        "grammars": {
+          "xml": {
+            "repository": "https://github.com/tree-sitter-grammars/tree-sitter-xml",
+            "rev": "4b64dd3a03ec002258d6268d712fd93716d6ab57",
+            "path": "xml"
+          }
+        },
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "xy-zed": {
+      "manifest": {
+        "id": "xy-zed",
+        "name": "XY-Zed Theme",
+        "version": "0.1.1",
+        "schema_version": 1,
+        "description": "🐈‍⬛ A sleek and sophisticated dark theme with vibrant, intelligent syntax highlighting. Please report issues ➩",
+        "repository": "https://github.com/zarifpour/xy-zed",
+        "authors": [
+          "Daniel Zarifpour <z@rifpour.xyz>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/xy-zed.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    },
+    "zen-abyssal": {
+      "manifest": {
+        "id": "zen-abyssal",
+        "name": "Zen Abyssal",
+        "version": "0.1.0",
+        "schema_version": 1,
+        "description": "A theme you'll probably like for zed.",
+        "repository": "https://github.com/KevInCompile/ZenAbyssal",
+        "authors": [
+          "KevInCompile <kevcoc10@gmail.com>"
+        ],
+        "lib": {
+          "kind": null,
+          "version": null
+        },
+        "themes": [
+          "themes/zen-abyssal.json"
+        ],
+        "languages": [],
+        "grammars": {},
+        "language_servers": {},
+        "context_servers": {},
+        "slash_commands": {},
+        "indexed_docs_providers": {},
+        "snippets": null
+      },
+      "dev": false
+    }
+  },
+  "themes": {
+    "0x96f Theme": {
+      "extension": "0x96f",
+      "path": "themes/0x96f-theme.json"
+    },
+    "Base16 3024": {
+      "extension": "base16",
+      "path": "themes/base16-3024.json"
+    },
+    "Base16 Apathy": {
+      "extension": "base16",
+      "path": "themes/base16-apathy.json"
+    },
+    "Base16 Apprentice": {
+      "extension": "base16",
+      "path": "themes/base16-apprentice.json"
+    },
+    "Base16 Ashes": {
+      "extension": "base16",
+      "path": "themes/base16-ashes.json"
+    },
+    "Base16 Atelier Cave": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-cave.json"
+    },
+    "Base16 Atelier Cave Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-cave-light.json"
+    },
+    "Base16 Atelier Dune": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-dune.json"
+    },
+    "Base16 Atelier Dune Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-dune-light.json"
+    },
+    "Base16 Atelier Estuary": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-estuary.json"
+    },
+    "Base16 Atelier Estuary Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-estuary-light.json"
+    },
+    "Base16 Atelier Forest": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-forest.json"
+    },
+    "Base16 Atelier Forest Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-forest-light.json"
+    },
+    "Base16 Atelier Heath": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-heath.json"
+    },
+    "Base16 Atelier Heath Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-heath-light.json"
+    },
+    "Base16 Atelier Lakeside": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-lakeside.json"
+    },
+    "Base16 Atelier Lakeside Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-lakeside-light.json"
+    },
+    "Base16 Atelier Plateau": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-plateau.json"
+    },
+    "Base16 Atelier Plateau Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-plateau-light.json"
+    },
+    "Base16 Atelier Savanna": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-savanna.json"
+    },
+    "Base16 Atelier Savanna Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-savanna-light.json"
+    },
+    "Base16 Atelier Seaside": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-seaside.json"
+    },
+    "Base16 Atelier Seaside Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-seaside-light.json"
+    },
+    "Base16 Atelier Sulphurpool": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-sulphurpool.json"
+    },
+    "Base16 Atelier Sulphurpool Light": {
+      "extension": "base16",
+      "path": "themes/base16-atelier-sulphurpool-light.json"
+    },
+    "Base16 Atlas": {
+      "extension": "base16",
+      "path": "themes/base16-atlas.json"
+    },
+    "Base16 Ayu Dark": {
+      "extension": "base16",
+      "path": "themes/base16-ayu-dark.json"
+    },
+    "Base16 Ayu Light": {
+      "extension": "base16",
+      "path": "themes/base16-ayu-light.json"
+    },
+    "Base16 Ayu Mirage": {
+      "extension": "base16",
+      "path": "themes/base16-ayu-mirage.json"
+    },
+    "Base16 Bespin": {
+      "extension": "base16",
+      "path": "themes/base16-bespin.json"
+    },
+    "Base16 Black Metal": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal.json"
+    },
+    "Base16 Black Metal (Bathory) Dark": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-bathory_custom.json"
+    },
+    "Base16 Black Metal (Burzum)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-burzum.json"
+    },
+    "Base16 Black Metal (Dark Funeral)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-dark-funeral.json"
+    },
+    "Base16 Black Metal (Gorgoroth)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-gorgoroth.json"
+    },
+    "Base16 Black Metal (Immortal)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-immortal.json"
+    },
+    "Base16 Black Metal (Khold)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-khold.json"
+    },
+    "Base16 Black Metal (Marduk)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-marduk.json"
+    },
+    "Base16 Black Metal (Mayhem)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-mayhem.json"
+    },
+    "Base16 Black Metal (Nile)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-nile.json"
+    },
+    "Base16 Black Metal (Venom)": {
+      "extension": "base16",
+      "path": "themes/base16-black-metal-venom.json"
+    },
+    "Base16 Blue Forest": {
+      "extension": "base16",
+      "path": "themes/base16-blueforest.json"
+    },
+    "Base16 Blueish": {
+      "extension": "base16",
+      "path": "themes/base16-blueish.json"
+    },
+    "Base16 Brewer": {
+      "extension": "base16",
+      "path": "themes/base16-brewer.json"
+    },
+    "Base16 Bright": {
+      "extension": "base16",
+      "path": "themes/base16-bright.json"
+    },
+    "Base16 Brogrammer": {
+      "extension": "base16",
+      "path": "themes/base16-brogrammer.json"
+    },
+    "Base16 Brush Trees": {
+      "extension": "base16",
+      "path": "themes/base16-brushtrees.json"
+    },
+    "Base16 Brush Trees Dark": {
+      "extension": "base16",
+      "path": "themes/base16-brushtrees-dark.json"
+    },
+    "Base16 Catppuccin Frappe": {
+      "extension": "base16",
+      "path": "themes/base16-catppuccin-frappe.json"
+    },
+    "Base16 Catppuccin Latte": {
+      "extension": "base16",
+      "path": "themes/base16-catppuccin-latte.json"
+    },
+    "Base16 Catppuccin Macchiato": {
+      "extension": "base16",
+      "path": "themes/base16-catppuccin-macchiato.json"
+    },
+    "Base16 Catppuccin Mocha": {
+      "extension": "base16",
+      "path": "themes/base16-catppuccin-mocha.json"
+    },
+    "Base16 Chalk": {
+      "extension": "base16",
+      "path": "themes/base16-chalk.json"
+    },
+    "Base16 Circus": {
+      "extension": "base16",
+      "path": "themes/base16-circus.json"
+    },
+    "Base16 Classic Dark": {
+      "extension": "base16",
+      "path": "themes/base16-classic-dark.json"
+    },
+    "Base16 Classic Light": {
+      "extension": "base16",
+      "path": "themes/base16-classic-light.json"
+    },
+    "Base16 Codeschool": {
+      "extension": "base16",
+      "path": "themes/base16-codeschool.json"
+    },
+    "Base16 Colors": {
+      "extension": "base16",
+      "path": "themes/base16-colors.json"
+    },
+    "Base16 Cupcake": {
+      "extension": "base16",
+      "path": "themes/base16-cupcake.json"
+    },
+    "Base16 Cupertino": {
+      "extension": "base16",
+      "path": "themes/base16-cupertino.json"
+    },
+    "Base16 Da One Black": {
+      "extension": "base16",
+      "path": "themes/base16-da-one-black.json"
+    },
+    "Base16 Da One Gray": {
+      "extension": "base16",
+      "path": "themes/base16-da-one-gray.json"
+    },
+    "Base16 Da One Ocean": {
+      "extension": "base16",
+      "path": "themes/base16-da-one-ocean.json"
+    },
+    "Base16 Da One Paper": {
+      "extension": "base16",
+      "path": "themes/base16-da-one-paper.json"
+    },
+    "Base16 Da One Sea": {
+      "extension": "base16",
+      "path": "themes/base16-da-one-sea.json"
+    },
+    "Base16 Da One White": {
+      "extension": "base16",
+      "path": "themes/base16-da-one-white.json"
+    },
+    "Base16 DanQing": {
+      "extension": "base16",
+      "path": "themes/base16-danqing.json"
+    },
+    "Base16 DanQing Light": {
+      "extension": "base16",
+      "path": "themes/base16-danqing-light.json"
+    },
+    "Base16 Darcula": {
+      "extension": "base16",
+      "path": "themes/base16-darcula.json"
+    },
+    "Base16 Dark Violet": {
+      "extension": "base16",
+      "path": "themes/base16-darkviolet.json"
+    },
+    "Base16 Darktooth": {
+      "extension": "base16",
+      "path": "themes/base16-darktooth.json"
+    },
+    "Base16 Decaf": {
+      "extension": "base16",
+      "path": "themes/base16-decaf.json"
+    },
+    "Base16 Default Dark": {
+      "extension": "base16",
+      "path": "themes/base16-default-dark.json"
+    },
+    "Base16 Default Light": {
+      "extension": "base16",
+      "path": "themes/base16-default-light.json"
+    },
+    "Base16 Dracula": {
+      "extension": "base16",
+      "path": "themes/base16-dracula.json"
+    },
+    "Base16 Edge Dark": {
+      "extension": "base16",
+      "path": "themes/base16-edge-dark.json"
+    },
+    "Base16 Edge Light": {
+      "extension": "base16",
+      "path": "themes/base16-edge-light.json"
+    },
+    "Base16 Eighties": {
+      "extension": "base16",
+      "path": "themes/base16-eighties.json"
+    },
+    "Base16 Embers": {
+      "extension": "base16",
+      "path": "themes/base16-embers.json"
+    },
+    "Base16 Equilibrium Dark": {
+      "extension": "base16",
+      "path": "themes/base16-equilibrium-dark.json"
+    },
+    "Base16 Equilibrium Gray Dark": {
+      "extension": "base16",
+      "path": "themes/base16-equilibrium-gray-dark.json"
+    },
+    "Base16 Equilibrium Gray Light": {
+      "extension": "base16",
+      "path": "themes/base16-equilibrium-gray-light.json"
+    },
+    "Base16 Equilibrium Light": {
+      "extension": "base16",
+      "path": "themes/base16-equilibrium-light.json"
+    },
+    "Base16 Espresso": {
+      "extension": "base16",
+      "path": "themes/base16-espresso.json"
+    },
+    "Base16 Eva": {
+      "extension": "base16",
+      "path": "themes/base16-eva.json"
+    },
+    "Base16 Eva Dim": {
+      "extension": "base16",
+      "path": "themes/base16-eva-dim.json"
+    },
+    "Base16 Evenok Dark": {
+      "extension": "base16",
+      "path": "themes/base16-evenok-dark.json"
+    },
+    "Base16 Everforest": {
+      "extension": "base16",
+      "path": "themes/base16-everforest.json"
+    },
+    "Base16 Everforest Dark Hard": {
+      "extension": "base16",
+      "path": "themes/base16-everforest-dark-hard.json"
+    },
+    "Base16 Flat": {
+      "extension": "base16",
+      "path": "themes/base16-flat.json"
+    },
+    "Base16 Framer": {
+      "extension": "base16",
+      "path": "themes/base16-framer.json"
+    },
+    "Base16 Fruit Soda": {
+      "extension": "base16",
+      "path": "themes/base16-fruit-soda.json"
+    },
+    "Base16 Gigavolt": {
+      "extension": "base16",
+      "path": "themes/base16-gigavolt.json"
+    },
+    "Base16 Github": {
+      "extension": "base16",
+      "path": "themes/base16-github.json"
+    },
+    "Base16 Google Dark": {
+      "extension": "base16",
+      "path": "themes/base16-google-dark.json"
+    },
+    "Base16 Google Light": {
+      "extension": "base16",
+      "path": "themes/base16-google-light.json"
+    },
+    "Base16 Gotham": {
+      "extension": "base16",
+      "path": "themes/base16-gotham.json"
+    },
+    "Base16 Grayscale Dark": {
+      "extension": "base16",
+      "path": "themes/base16-grayscale-dark.json"
+    },
+    "Base16 Grayscale Light": {
+      "extension": "base16",
+      "path": "themes/base16-grayscale-light.json"
+    },
+    "Base16 Green Screen": {
+      "extension": "base16",
+      "path": "themes/base16-greenscreen.json"
+    },
+    "Base16 Gruber": {
+      "extension": "base16",
+      "path": "themes/base16-gruber.json"
+    },
+    "Base16 Gruvbox Material Dark, Hard": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-material-dark-hard.json"
+    },
+    "Base16 Gruvbox Material Dark, Medium": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-material-dark-medium.json"
+    },
+    "Base16 Gruvbox Material Dark, Soft": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-material-dark-soft.json"
+    },
+    "Base16 Gruvbox Material Light, Hard": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-material-light-hard.json"
+    },
+    "Base16 Gruvbox Material Light, Medium": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-material-light-medium.json"
+    },
+    "Base16 Gruvbox Material Light, Soft": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-material-light-soft.json"
+    },
+    "Base16 Gruvbox dark, hard": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-dark-hard.json"
+    },
+    "Base16 Gruvbox dark, medium": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-dark-medium.json"
+    },
+    "Base16 Gruvbox dark, pale": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-dark-pale.json"
+    },
+    "Base16 Gruvbox dark, soft": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-dark-soft.json"
+    },
+    "Base16 Gruvbox light, hard": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-light-hard.json"
+    },
+    "Base16 Gruvbox light, medium": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-light-medium.json"
+    },
+    "Base16 Gruvbox light, soft": {
+      "extension": "base16",
+      "path": "themes/base16-gruvbox-light-soft.json"
+    },
+    "Base16 Hardcore": {
+      "extension": "base16",
+      "path": "themes/base16-hardcore.json"
+    },
+    "Base16 Harmonic16 Dark": {
+      "extension": "base16",
+      "path": "themes/base16-harmonic16-dark.json"
+    },
+    "Base16 Harmonic16 Light": {
+      "extension": "base16",
+      "path": "themes/base16-harmonic16-light.json"
+    },
+    "Base16 Heetch Dark": {
+      "extension": "base16",
+      "path": "themes/base16-heetch.json"
+    },
+    "Base16 Heetch Light": {
+      "extension": "base16",
+      "path": "themes/base16-heetch-light.json"
+    },
+    "Base16 Helios": {
+      "extension": "base16",
+      "path": "themes/base16-helios.json"
+    },
+    "Base16 Hopscotch": {
+      "extension": "base16",
+      "path": "themes/base16-hopscotch.json"
+    },
+    "Base16 Horizon Dark": {
+      "extension": "base16",
+      "path": "themes/base16-horizon-dark.json"
+    },
+    "Base16 Horizon Light": {
+      "extension": "base16",
+      "path": "themes/base16-horizon-light.json"
+    },
+    "Base16 Horizon Terminal Dark": {
+      "extension": "base16",
+      "path": "themes/base16-horizon-terminal-dark.json"
+    },
+    "Base16 Horizon Terminal Light": {
+      "extension": "base16",
+      "path": "themes/base16-horizon-terminal-light.json"
+    },
+    "Base16 Humanoid dark": {
+      "extension": "base16",
+      "path": "themes/base16-humanoid-dark.json"
+    },
+    "Base16 Humanoid light": {
+      "extension": "base16",
+      "path": "themes/base16-humanoid-light.json"
+    },
+    "Base16 IR Black": {
+      "extension": "base16",
+      "path": "themes/base16-irblack.json"
+    },
+    "Base16 Icy Dark": {
+      "extension": "base16",
+      "path": "themes/base16-icy.json"
+    },
+    "Base16 Isotope": {
+      "extension": "base16",
+      "path": "themes/base16-isotope.json"
+    },
+    "Base16 Kanagawa": {
+      "extension": "base16",
+      "path": "themes/base16-kanagawa.json"
+    },
+    "Base16 Katy": {
+      "extension": "base16",
+      "path": "themes/base16-katy.json"
+    },
+    "Base16 Kimber": {
+      "extension": "base16",
+      "path": "themes/base16-kimber.json"
+    },
+    "Base16 London Tube": {
+      "extension": "base16",
+      "path": "themes/base16-tube.json"
+    },
+    "Base16 Macintosh": {
+      "extension": "base16",
+      "path": "themes/base16-macintosh.json"
+    },
+    "Base16 Marrakesh": {
+      "extension": "base16",
+      "path": "themes/base16-marrakesh.json"
+    },
+    "Base16 Materia": {
+      "extension": "base16",
+      "path": "themes/base16-materia.json"
+    },
+    "Base16 Material": {
+      "extension": "base16",
+      "path": "themes/base16-material.json"
+    },
+    "Base16 Material Darker": {
+      "extension": "base16",
+      "path": "themes/base16-material-darker.json"
+    },
+    "Base16 Material Lighter": {
+      "extension": "base16",
+      "path": "themes/base16-material-lighter.json"
+    },
+    "Base16 Material Palenight": {
+      "extension": "base16",
+      "path": "themes/base16-material-palenight.json"
+    },
+    "Base16 Material Vivid": {
+      "extension": "base16",
+      "path": "themes/base16-material-vivid.json"
+    },
+    "Base16 Mellow Purple": {
+      "extension": "base16",
+      "path": "themes/base16-mellow-purple.json"
+    },
+    "Base16 Mexico Light": {
+      "extension": "base16",
+      "path": "themes/base16-mexico-light.json"
+    },
+    "Base16 Mocha": {
+      "extension": "base16",
+      "path": "themes/base16-mocha.json"
+    },
+    "Base16 Monokai": {
+      "extension": "base16",
+      "path": "themes/base16-monokai.json"
+    },
+    "Base16 Mountain": {
+      "extension": "base16",
+      "path": "themes/base16-mountain.json"
+    },
+    "Base16 Nebula": {
+      "extension": "base16",
+      "path": "themes/base16-nebula.json"
+    },
+    "Base16 Nord": {
+      "extension": "base16",
+      "path": "themes/base16-nord.json"
+    },
+    "Base16 Nova": {
+      "extension": "base16",
+      "path": "themes/base16-nova.json"
+    },
+    "Base16 Ocean": {
+      "extension": "base16",
+      "path": "themes/base16-ocean_custom.json"
+    },
+    "Base16 OceanicNext": {
+      "extension": "base16",
+      "path": "themes/base16-oceanicnext.json"
+    },
+    "Base16 One Light": {
+      "extension": "base16",
+      "path": "themes/base16-one-light.json"
+    },
+    "Base16 OneDark": {
+      "extension": "base16",
+      "path": "themes/base16-onedark.json"
+    },
+    "Base16 Outrun Dark": {
+      "extension": "base16",
+      "path": "themes/base16-outrun-dark.json"
+    },
+    "Base16 Oxocarbon Dark": {
+      "extension": "base16",
+      "path": "themes/base16-oxocarbon-dark.json"
+    },
+    "Base16 Oxocarbon Light": {
+      "extension": "base16",
+      "path": "themes/base16-oxocarbon-light.json"
+    },
+    "Base16 PaperColor Dark": {
+      "extension": "base16",
+      "path": "themes/base16-papercolor-dark.json"
+    },
+    "Base16 PaperColor Light": {
+      "extension": "base16",
+      "path": "themes/base16-papercolor-light.json"
+    },
+    "Base16 Paraiso": {
+      "extension": "base16",
+      "path": "themes/base16-paraiso.json"
+    },
+    "Base16 Pasque": {
+      "extension": "base16",
+      "path": "themes/base16-pasque.json"
+    },
+    "Base16 PhD": {
+      "extension": "base16",
+      "path": "themes/base16-phd.json"
+    },
+    "Base16 Pico": {
+      "extension": "base16",
+      "path": "themes/base16-pico.json"
+    },
+    "Base16 Pop": {
+      "extension": "base16",
+      "path": "themes/base16-pop.json"
+    },
+    "Base16 Porple": {
+      "extension": "base16",
+      "path": "themes/base16-porple.json"
+    },
+    "Base16 Primer Dark": {
+      "extension": "base16",
+      "path": "themes/base16-primer-dark.json"
+    },
+    "Base16 Primer Dark Dimmed": {
+      "extension": "base16",
+      "path": "themes/base16-primer-dark-dimmed.json"
+    },
+    "Base16 Primer Light": {
+      "extension": "base16",
+      "path": "themes/base16-primer-light.json"
+    },
+    "Base16 Purpledream": {
+      "extension": "base16",
+      "path": "themes/base16-purpledream.json"
+    },
+    "Base16 Qualia": {
+      "extension": "base16",
+      "path": "themes/base16-qualia.json"
+    },
+    "Base16 Railscasts": {
+      "extension": "base16",
+      "path": "themes/base16-railscasts.json"
+    },
+    "Base16 Rebecca": {
+      "extension": "base16",
+      "path": "themes/base16-rebecca.json"
+    },
+    "Base16 Rosé Pine": {
+      "extension": "base16",
+      "path": "themes/base16-rose-pine.json"
+    },
+    "Base16 Rosé Pine Dawn": {
+      "extension": "base16",
+      "path": "themes/base16-rose-pine-dawn.json"
+    },
+    "Base16 Rosé Pine Moon": {
+      "extension": "base16",
+      "path": "themes/base16-rose-pine-moon.json"
+    },
+    "Base16 Sagelight": {
+      "extension": "base16",
+      "path": "themes/base16-sagelight.json"
+    },
+    "Base16 Sakura": {
+      "extension": "base16",
+      "path": "themes/base16-sakura.json"
+    },
+    "Base16 Sandcastle": {
+      "extension": "base16",
+      "path": "themes/base16-sandcastle.json"
+    },
+    "Base16 Seti UI": {
+      "extension": "base16",
+      "path": "themes/base16-seti.json"
+    },
+    "Base16 ShadeSmear Dark": {
+      "extension": "base16",
+      "path": "themes/base16-shadesmear-dark.json"
+    },
+    "Base16 ShadeSmear Light": {
+      "extension": "base16",
+      "path": "themes/base16-shadesmear-light.json"
+    },
+    "Base16 Shades of Purple": {
+      "extension": "base16",
+      "path": "themes/base16-shades-of-purple.json"
+    },
+    "Base16 Shapeshifter": {
+      "extension": "base16",
+      "path": "themes/base16-shapeshifter.json"
+    },
+    "Base16 Silk Dark": {
+      "extension": "base16",
+      "path": "themes/base16-silk-dark.json"
+    },
+    "Base16 Silk Light": {
+      "extension": "base16",
+      "path": "themes/base16-silk-light.json"
+    },
+    "Base16 Snazzy": {
+      "extension": "base16",
+      "path": "themes/base16-snazzy.json"
+    },
+    "Base16 Solar Flare": {
+      "extension": "base16",
+      "path": "themes/base16-solarflare.json"
+    },
+    "Base16 Solar Flare Light": {
+      "extension": "base16",
+      "path": "themes/base16-solarflare-light.json"
+    },
+    "Base16 Solarized Dark": {
+      "extension": "base16",
+      "path": "themes/base16-solarized-dark.json"
+    },
+    "Base16 Solarized Light": {
+      "extension": "base16",
+      "path": "themes/base16-solarized-light.json"
+    },
+    "Base16 Spaceduck": {
+      "extension": "base16",
+      "path": "themes/base16-spaceduck.json"
+    },
+    "Base16 Spacemacs": {
+      "extension": "base16",
+      "path": "themes/base16-spacemacs.json"
+    },
+    "Base16 Stella": {
+      "extension": "base16",
+      "path": "themes/base16-stella.json"
+    },
+    "Base16 Still Alive": {
+      "extension": "base16",
+      "path": "themes/base16-still-alive.json"
+    },
+    "Base16 Summerfruit Dark": {
+      "extension": "base16",
+      "path": "themes/base16-summerfruit-dark.json"
+    },
+    "Base16 Summerfruit Light": {
+      "extension": "base16",
+      "path": "themes/base16-summerfruit-light.json"
+    },
+    "Base16 Synth Midnight Terminal Dark": {
+      "extension": "base16",
+      "path": "themes/base16-synth-midnight-dark.json"
+    },
+    "Base16 Synth Midnight Terminal Light": {
+      "extension": "base16",
+      "path": "themes/base16-synth-midnight-light.json"
+    },
+    "Base16 Tango": {
+      "extension": "base16",
+      "path": "themes/base16-tango.json"
+    },
+    "Base16 Tokyo City Dark": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-city-dark.json"
+    },
+    "Base16 Tokyo City Light": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-city-light.json"
+    },
+    "Base16 Tokyo City Terminal Dark": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-city-terminal-dark.json"
+    },
+    "Base16 Tokyo City Terminal Light": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-city-terminal-light.json"
+    },
+    "Base16 Tokyo Night Dark": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-night-dark.json"
+    },
+    "Base16 Tokyo Night Light": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-night-light.json"
+    },
+    "Base16 Tokyo Night Storm": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-night-storm.json"
+    },
+    "Base16 Tokyo Night Terminal Dark": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-night-terminal-dark.json"
+    },
+    "Base16 Tokyo Night Terminal Light": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-night-terminal-light.json"
+    },
+    "Base16 Tokyo Night Terminal Storm": {
+      "extension": "base16",
+      "path": "themes/base16-tokyo-night-terminal-storm.json"
+    },
+    "Base16 Tokyodark": {
+      "extension": "base16",
+      "path": "themes/base16-tokyodark.json"
+    },
+    "Base16 Tokyodark Terminal": {
+      "extension": "base16",
+      "path": "themes/base16-tokyodark-terminal.json"
+    },
+    "Base16 Tomorrow": {
+      "extension": "base16",
+      "path": "themes/base16-tomorrow.json"
+    },
+    "Base16 Tomorrow Night": {
+      "extension": "base16",
+      "path": "themes/base16-tomorrow-night.json"
+    },
+    "Base16 Tomorrow Night Eighties": {
+      "extension": "base16",
+      "path": "themes/base16-tomorrow-night-eighties.json"
+    },
+    "Base16 Twilight": {
+      "extension": "base16",
+      "path": "themes/base16-twilight.json"
+    },
+    "Base16 Unikitty Dark": {
+      "extension": "base16",
+      "path": "themes/base16-unikitty-dark.json"
+    },
+    "Base16 Unikitty Light": {
+      "extension": "base16",
+      "path": "themes/base16-unikitty-light.json"
+    },
+    "Base16 Unikitty Reversible": {
+      "extension": "base16",
+      "path": "themes/base16-unikitty-reversible.json"
+    },
+    "Base16 UwUnicorn": {
+      "extension": "base16",
+      "path": "themes/base16-uwunicorn.json"
+    },
+    "Base16 Windows 10": {
+      "extension": "base16",
+      "path": "themes/base16-windows-10.json"
+    },
+    "Base16 Windows 10 Light": {
+      "extension": "base16",
+      "path": "themes/base16-windows-10-light.json"
+    },
+    "Base16 Windows 95": {
+      "extension": "base16",
+      "path": "themes/base16-windows-95.json"
+    },
+    "Base16 Windows 95 Light": {
+      "extension": "base16",
+      "path": "themes/base16-windows-95-light.json"
+    },
+    "Base16 Windows High Contrast": {
+      "extension": "base16",
+      "path": "themes/base16-windows-highcontrast.json"
+    },
+    "Base16 Windows High Contrast Light": {
+      "extension": "base16",
+      "path": "themes/base16-windows-highcontrast-light.json"
+    },
+    "Base16 Windows NT": {
+      "extension": "base16",
+      "path": "themes/base16-windows-nt.json"
+    },
+    "Base16 Windows NT Light": {
+      "extension": "base16",
+      "path": "themes/base16-windows-nt-light.json"
+    },
+    "Base16 Woodland": {
+      "extension": "base16",
+      "path": "themes/base16-woodland.json"
+    },
+    "Base16 XCode Dusk": {
+      "extension": "base16",
+      "path": "themes/base16-xcode-dusk.json"
+    },
+    "Base16 Zenbones": {
+      "extension": "base16",
+      "path": "themes/base16-zenbones.json"
+    },
+    "Base16 Zenburn": {
+      "extension": "base16",
+      "path": "themes/base16-zenburn.json"
+    },
+    "Base16 caroline": {
+      "extension": "base16",
+      "path": "themes/base16-caroline.json"
+    },
+    "Base16 darkmoss": {
+      "extension": "base16",
+      "path": "themes/base16-darkmoss.json"
+    },
+    "Base16 dirtysea": {
+      "extension": "base16",
+      "path": "themes/base16-dirtysea.json"
+    },
+    "Base16 emil": {
+      "extension": "base16",
+      "path": "themes/base16-emil.json"
+    },
+    "Base16 eris": {
+      "extension": "base16",
+      "path": "themes/base16-eris.json"
+    },
+    "Base16 iA Dark": {
+      "extension": "base16",
+      "path": "themes/base16-ia-dark.json"
+    },
+    "Base16 iA Light": {
+      "extension": "base16",
+      "path": "themes/base16-ia-light.json"
+    },
+    "Base16 lime": {
+      "extension": "base16",
+      "path": "themes/base16-lime.json"
+    },
+    "Base16 pandora": {
+      "extension": "base16",
+      "path": "themes/base16-pandora.json"
+    },
+    "Base16 pinky": {
+      "extension": "base16",
+      "path": "themes/base16-pinky.json"
+    },
+    "Base16 selenized-black": {
+      "extension": "base16",
+      "path": "themes/base16-selenized-black.json"
+    },
+    "Base16 selenized-dark": {
+      "extension": "base16",
+      "path": "themes/base16-selenized-dark.json"
+    },
+    "Base16 selenized-light": {
+      "extension": "base16",
+      "path": "themes/base16-selenized-light.json"
+    },
+    "Base16 selenized-white": {
+      "extension": "base16",
+      "path": "themes/base16-selenized-white.json"
+    },
+    "Base16 standardized-dark": {
+      "extension": "base16",
+      "path": "themes/base16-standardized-dark.json"
+    },
+    "Base16 standardized-light": {
+      "extension": "base16",
+      "path": "themes/base16-standardized-light.json"
+    },
+    "Base16 summercamp": {
+      "extension": "base16",
+      "path": "themes/base16-summercamp.json"
+    },
+    "Base16 tarot": {
+      "extension": "base16",
+      "path": "themes/base16-tarot.json"
+    },
+    "Base16 tender": {
+      "extension": "base16",
+      "path": "themes/base16-tender.json"
+    },
+    "Base16 vice": {
+      "extension": "base16",
+      "path": "themes/base16-vice.json"
+    },
+    "Base16 vulcan": {
+      "extension": "base16",
+      "path": "themes/base16-vulcan.json"
+    },
+    "Blackula": {
+      "extension": "blackula",
+      "path": "themes/blackula.json"
+    },
+    "Colorizer": {
+      "extension": "colorizer",
+      "path": "themes/colorizer.json"
+    },
+    "Colorizer Pro": {
+      "extension": "colorizer",
+      "path": "themes/colorizer.json"
+    },
+    "Focus (Darknight + Solarized Gruvbox)": {
+      "extension": "focus-theme",
+      "path": "themes/Focus.json"
+    },
+    "Focus (Darknight)": {
+      "extension": "focus-theme",
+      "path": "themes/Focus.json"
+    },
+    "Focus (Forest + Solarized Gruvbox)": {
+      "extension": "focus-theme",
+      "path": "themes/Focus.json"
+    },
+    "Focus (Forest)": {
+      "extension": "focus-theme",
+      "path": "themes/Focus.json"
+    },
+    "Focus (Rusty)": {
+      "extension": "focus-theme",
+      "path": "themes/Focus.json"
+    },
+    "Focus (Solarized Gruvbox)": {
+      "extension": "focus-theme",
+      "path": "themes/Focus.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Dark I": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Dark II": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Dark P1": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Dark P31": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Dark P39 I": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Dark P39 II": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Light": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Light P1": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Light P31": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Light P39 I": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Green Monochrome Monitor CRT Phosphor Light P39 II": {
+      "extension": "green-monochrome-monitor-crt-phosphor",
+      "path": "themes/green-monochrome-monitor-crt-phosphor.json"
+    },
+    "Le Blackque orange": {
+      "extension": "leblackque",
+      "path": "themes/LeBlackque.json"
+    },
+    "Le Blackque orange italic": {
+      "extension": "leblackque",
+      "path": "themes/LeBlackque.json"
+    },
+    "Le Blackque purple": {
+      "extension": "leblackque",
+      "path": "themes/LeBlackque.json"
+    },
+    "Le Blackque purple italic": {
+      "extension": "leblackque",
+      "path": "themes/LeBlackque.json"
+    },
+    "Martianized": {
+      "extension": "martianized",
+      "path": "themes/martianized.json"
+    },
+    "Nanowise Galaxy": {
+      "extension": "nanowise",
+      "path": "themes/nanowise.json"
+    },
+    "Nanowise Light": {
+      "extension": "nanowise",
+      "path": "themes/nanowise.json"
+    },
+    "Norrsken Kiruna": {
+      "extension": "norrsken",
+      "path": "themes/norrsken.json"
+    },
+    "Norrsken Reykjavík": {
+      "extension": "norrsken",
+      "path": "themes/norrsken.json"
+    },
+    "Norrsken Svalbard": {
+      "extension": "norrsken",
+      "path": "themes/norrsken.json"
+    },
+    "One Black": {
+      "extension": "one-black-theme",
+      "path": "themes/one-black.json"
+    },
+    "Replicant": {
+      "extension": "replicant",
+      "path": "themes/replicant.json"
+    },
+    "S-Dark Theme": {
+      "extension": "s-dark-theme",
+      "path": "themes/S-Dark.json"
+    },
+    "Short Giraffe": {
+      "extension": "short-giraffe-theme",
+      "path": "themes/zed.json"
+    },
+    "Simple Darker": {
+      "extension": "simple-darker",
+      "path": "themes/simple-darker.json"
+    },
+    "Struct": {
+      "extension": "struct-theme",
+      "path": "themes/struct.json"
+    },
+    "SynthWave 84 Dark": {
+      "extension": "synthwave",
+      "path": "themes/synthwave-84.json"
+    },
+    "Tailwind Syntax": {
+      "extension": "tailwind-theme",
+      "path": "themes/tailwind.json"
+    },
+    "The Dark Side": {
+      "extension": "the-dark-side",
+      "path": "themes/the-dark-side.json"
+    },
+    "VSCode Dark High Contrast": {
+      "extension": "vscode-dark-high-contrast",
+      "path": "themes/vscodehighcontrast.json"
+    },
+    "XY-Zed": {
+      "extension": "xy-zed",
+      "path": "themes/xy-zed.json"
+    },
+    "Zen Abyssal": {
+      "extension": "zen-abyssal",
+      "path": "themes/zen-abyssal.json"
+    },
+    "Zen Abyssal Blur": {
+      "extension": "zen-abyssal",
+      "path": "themes/zen-abyssal.json"
+    },
+    "msun-dark": {
+      "extension": "msun-dark",
+      "path": "themes/msun-dark.json"
+    },
+    "msun-dark-6000k": {
+      "extension": "msun-dark",
+      "path": "themes/msun-dark.json"
+    },
+    "msun-dark-6000k-nobold": {
+      "extension": "msun-dark",
+      "path": "themes/msun-dark.json"
+    },
+    "msun-dark-nobold": {
+      "extension": "msun-dark",
+      "path": "themes/msun-dark.json"
+    },
+    "msun-dark-twilight": {
+      "extension": "msun-dark",
+      "path": "themes/msun-dark.json"
+    }
+  },
+  "languages": {
+    "AWK": {
+      "extension": "awk",
+      "path": "languages/awk",
+      "matcher": {
+        "path_suffixes": [
+          "awk"
+        ],
+        "first_line_pattern": "^#!.*\\bg?awk\\b"
+      },
+      "grammar": "awk"
+    },
+    "Animation.txt": {
+      "extension": "playdate",
+      "path": "languages/animationtxt",
+      "matcher": {
+        "path_suffixes": [
+          "animation.txt"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "animationtxt"
+    },
+    "AsciiDoc": {
+      "extension": "asciidoc",
+      "path": "languages/asciidoc",
+      "matcher": {
+        "path_suffixes": [
+          "asciidoc",
+          "adoc"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "asciidoc"
+    },
+    "CSV": {
+      "extension": "csv",
+      "path": "languages/csv",
+      "matcher": {
+        "path_suffixes": [
+          "csv"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "csv"
+    },
+    "CSharp": {
+      "extension": "csharp",
+      "path": "languages/csharp",
+      "matcher": {
+        "path_suffixes": [
+          "cs"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "c_sharp"
+    },
+    "CUE": {
+      "extension": "cue",
+      "path": "languages/cue",
+      "matcher": {
+        "path_suffixes": [
+          "cue"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "cue"
+    },
+    "DOT": {
+      "extension": "graphviz",
+      "path": "languages/dot",
+      "matcher": {
+        "path_suffixes": [
+          "dot",
+          "gv",
+          "DOT"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "dot"
+    },
+    "Diff": {
+      "extension": "git-firefly",
+      "path": "languages/diff",
+      "matcher": {
+        "path_suffixes": [
+          "diff"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "diff"
+    },
+    "Dockerfile": {
+      "extension": "dockerfile",
+      "path": "languages/dockerfile",
+      "matcher": {
+        "path_suffixes": [
+          "Dockerfile",
+          "Containerfile"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "dockerfile"
+    },
+    "Git Attributes": {
+      "extension": "git-firefly",
+      "path": "languages/gitattributes",
+      "matcher": {
+        "path_suffixes": [
+          ".gitattributes"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "gitattributes"
+    },
+    "Git Commit": {
+      "extension": "git-firefly",
+      "path": "languages/gitcommit",
+      "matcher": {
+        "path_suffixes": [
+          "TAG_EDITMSG",
+          "MERGE_MSG",
+          "COMMIT_EDITMSG",
+          "NOTES_EDITMSG",
+          "EDIT_DESCRIPTION"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "git_commit"
+    },
+    "Git Config": {
+      "extension": "git-firefly",
+      "path": "languages/gitconfig",
+      "matcher": {
+        "path_suffixes": [
+          ".gitconfig",
+          ".gitmodules"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "git_config"
+    },
+    "Git Ignore": {
+      "extension": "git-firefly",
+      "path": "languages/gitignore",
+      "matcher": {
+        "path_suffixes": [
+          ".gitignore",
+          ".dockerignore"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "gitignore"
+    },
+    "Git Rebase": {
+      "extension": "git-firefly",
+      "path": "languages/gitrebase",
+      "matcher": {
+        "path_suffixes": [
+          "git-rebase-todo"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "git_rebase"
+    },
+    "HCL": {
+      "extension": "terraform",
+      "path": "languages/hcl",
+      "matcher": {
+        "path_suffixes": [
+          "hcl"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "hcl"
+    },
+    "HTML": {
+      "extension": "html",
+      "path": "languages/html",
+      "matcher": {
+        "path_suffixes": [
+          "html",
+          "htm",
+          "shtml"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "html"
+    },
+    "Hare": {
+      "extension": "hare",
+      "path": "languages/hare",
+      "matcher": {
+        "path_suffixes": [
+          "ha"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "hare"
+    },
+    "Helm": {
+      "extension": "helm",
+      "path": "languages/helm",
+      "matcher": {
+        "path_suffixes": [],
+        "first_line_pattern": null
+      },
+      "grammar": "helm"
+    },
+    "IPKG": {
+      "extension": "idris2",
+      "path": "languages/ipkg",
+      "matcher": {
+        "path_suffixes": [
+          "ipkg"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "ipkg"
+    },
+    "Idris2": {
+      "extension": "idris2",
+      "path": "languages/idris2",
+      "matcher": {
+        "path_suffixes": [
+          "idr"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "idris2"
+    },
+    "Jsonnet": {
+      "extension": "jsonnet",
+      "path": "languages/jsonnet",
+      "matcher": {
+        "path_suffixes": [
+          "jsonnet",
+          "libsonnet"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "jsonnet"
+    },
+    "Kdl": {
+      "extension": "kdl",
+      "path": "languages/kdl",
+      "matcher": {
+        "path_suffixes": [
+          "kdl"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "kdl"
+    },
+    "LOG": {
+      "extension": "log",
+      "path": "languages/log",
+      "matcher": {
+        "path_suffixes": [
+          "log"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "log"
+    },
+    "Ledger": {
+      "extension": "ledger",
+      "path": "languages/ledger",
+      "matcher": {
+        "path_suffixes": [
+          "ledger",
+          "ldg",
+          "ldgr"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "ledger"
+    },
+    "Lox": {
+      "extension": "lox",
+      "path": "languages/lox",
+      "matcher": {
+        "path_suffixes": [
+          "lox"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "lox"
+    },
+    "Nginx": {
+      "extension": "nginx",
+      "path": "languages/nginx",
+      "matcher": {
+        "path_suffixes": [
+          "nginx.conf"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "nginx"
+    },
+    "Nix": {
+      "extension": "nix",
+      "path": "languages/nix",
+      "matcher": {
+        "path_suffixes": [
+          "nix"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "nix"
+    },
+    "Nu": {
+      "extension": "nu",
+      "path": "languages/nu",
+      "matcher": {
+        "path_suffixes": [
+          "nu"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "nu"
+    },
+    "Odin": {
+      "extension": "odin",
+      "path": "languages/odin",
+      "matcher": {
+        "path_suffixes": [
+          "odin"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "odin"
+    },
+    "Pdxinfo": {
+      "extension": "playdate",
+      "path": "languages/pdxinfo",
+      "matcher": {
+        "path_suffixes": [
+          "pdxinfo"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "pdxinfo"
+    },
+    "PowerShell": {
+      "extension": "powershell",
+      "path": "languages/powershell",
+      "matcher": {
+        "path_suffixes": [
+          "ps1"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "powershell"
+    },
+    "Prisma": {
+      "extension": "prisma",
+      "path": "languages/prisma",
+      "matcher": {
+        "path_suffixes": [
+          "prisma"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "prisma"
+    },
+    "Rainbow CSV": {
+      "extension": "rainbow-csv",
+      "path": "languages/csv",
+      "matcher": {
+        "path_suffixes": [
+          "csv"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "csv"
+    },
+    "Rainbow TSV": {
+      "extension": "rainbow-csv",
+      "path": "languages/tsv",
+      "matcher": {
+        "path_suffixes": [
+          "tsv"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "tsv"
+    },
+    "Roc": {
+      "extension": "roc",
+      "path": "languages/roc",
+      "matcher": {
+        "path_suffixes": [
+          "roc"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "roc"
+    },
+    "SQL": {
+      "extension": "sql",
+      "path": "languages/sql",
+      "matcher": {
+        "path_suffixes": [
+          "sql"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "sql"
+    },
+    "Shell Script": {
+      "extension": "basher",
+      "path": "languages/bash",
+      "matcher": {
+        "path_suffixes": [
+          "sh",
+          "bash",
+          "bashrc",
+          "bash_profile",
+          "bash_aliases",
+          "bash_logout",
+          "profile",
+          "zsh",
+          "zshrc",
+          "zshenv",
+          "zsh_profile",
+          "zsh_aliases",
+          "zsh_histfile",
+          "zlogin",
+          "zprofile",
+          ".env"
+        ],
+        "first_line_pattern": "^#!.*\\b(?:ba|z)?sh\\b"
+      },
+      "grammar": "bash"
+    },
+    "Strace": {
+      "extension": "strace",
+      "path": "languages/strace",
+      "matcher": {
+        "path_suffixes": [
+          "strace"
+        ],
+        "first_line_pattern": "^\\d*\\s?execve\\("
+      },
+      "grammar": "strace"
+    },
+    "TOML": {
+      "extension": "toml",
+      "path": "languages/toml",
+      "matcher": {
+        "path_suffixes": [
+          "Cargo.lock",
+          "toml"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "toml"
+    },
+    "Templ": {
+      "extension": "templ",
+      "path": "languages/templ",
+      "matcher": {
+        "path_suffixes": [
+          "templ"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "templ"
+    },
+    "Terraform": {
+      "extension": "terraform",
+      "path": "languages/terraform",
+      "matcher": {
+        "path_suffixes": [
+          "tf"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "hcl"
+    },
+    "Terraform Vars": {
+      "extension": "terraform",
+      "path": "languages/terraform-vars",
+      "matcher": {
+        "path_suffixes": [
+          "tfvars"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "hcl"
+    },
+    "Twig": {
+      "extension": "twig",
+      "path": "languages/twig",
+      "matcher": {
+        "path_suffixes": [
+          "html.twig",
+          "twig",
+          "twig.html"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "twig"
+    },
+    "Uiua": {
+      "extension": "uiua",
+      "path": "languages/uiua",
+      "matcher": {
+        "path_suffixes": [
+          "ua"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "uiua"
+    },
+    "Unison": {
+      "extension": "unison",
+      "path": "languages/unison",
+      "matcher": {
+        "path_suffixes": [
+          "u"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "unison"
+    },
+    "VHS": {
+      "extension": "vhs",
+      "path": "languages/vhs",
+      "matcher": {
+        "path_suffixes": [
+          "tape"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "vhs"
+    },
+    "XML": {
+      "extension": "xml",
+      "path": "languages/xml",
+      "matcher": {
+        "path_suffixes": [
+          "xml"
+        ],
+        "first_line_pattern": "^<.*xml"
+      },
+      "grammar": "xml"
+    },
+    "env": {
+      "extension": "env",
+      "path": "languages/env",
+      "matcher": {
+        "path_suffixes": [
+          "conf",
+          "env",
+          "envrc",
+          "example",
+          "local"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "env"
+    },
+    "http": {
+      "extension": "http",
+      "path": "languages/http",
+      "matcher": {
+        "path_suffixes": [
+          "http"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "http"
+    },
+    "ini": {
+      "extension": "ini",
+      "path": "languages/ini",
+      "matcher": {
+        "path_suffixes": [
+          "ini"
+        ],
+        "first_line_pattern": null
+      },
+      "grammar": "ini"
+    }
+  }
+}
