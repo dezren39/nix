@@ -12,7 +12,8 @@
       # url = "github:nixos/nixpkgs";
     };
     stable = {
-      url = "github:nixos/nixpkgs/nixos-unstable";
+      url = "github:developing-today-forks/nixpkgs";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
     };
     determinate.url = "https://flakehub.com/f/DeterminateSystems/determinate/0.1";
     darwin = {

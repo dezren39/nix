@@ -604,16 +604,15 @@
     },
     "stable": {
       "locked": {
-        "lastModified": 1732014248,
-        "narHash": "sha256-y/MEyuJ5oBWrWAic/14LaIr/u5E0wRVzyYsouYY3W6w=",
-        "owner": "nixos",
+        "lastModified": 1731547115,
+        "narHash": "sha256-v96m1+w9K3QQHe0HoQvaUPVL3FNSoi32xA3rFMqWMhY=",
+        "owner": "developing-today-forks",
         "repo": "nixpkgs",
-        "rev": "23e89b7da85c3640bbc2173fe04f4bd114342367",
+        "rev": "116eed8580cefb3a9ebc4d5c9877f36a9626d067",
         "type": "github"
       },
       "original": {
-        "owner": "nixos",
-        "ref": "nixos-unstable",
+        "owner": "developing-today-forks",
         "repo": "nixpkgs",
         "type": "github"
       }
