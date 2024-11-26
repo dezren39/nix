@@ -7,7 +7,8 @@
     #nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     # nixpkgs.url = "github:nixos/nixpkgs";
     nixpkgs = {
-      url = "github:nixos/nixpkgs/nixos-unstable";
+      url = "github:developing-today-forks/nixpkgs";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs";
     };
     stable = {
