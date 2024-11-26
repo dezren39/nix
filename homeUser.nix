@@ -1,7 +1,7 @@
 # home.nix
 { config, pkgs, lib, ... }:
-{
-  home = {
+lib.recursiveUpdate {
+  home = lib.recursiveUpdate {
     stateVersion = "23.05";
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
@@ -12,8 +12,8 @@
         $DRY_RUN_CMD ${pkgs.aerospace}/bin/aerospace reload-config
       '';
     };
-  } // import ./homePackages.nix { inherit config pkgs; };
-} // import ./homePrograms.nix {}
+  } (import ./homePackages.nix { inherit config pkgs; });
+} (import ./homePrograms.nix {})
 /*
 
 { config, pkgs, lib, home-manager, ... }:
