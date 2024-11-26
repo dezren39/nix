@@ -1,7 +1,7 @@
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/dock/default.nix
 #
-{ config, pkgs, inputs, ... }: {
+{ config, pkgs, lib, inputs, ... }: lib.recursiveUpdate {
   imports = [
     ./systemPackages.nix
     ./brews.nix
@@ -156,10 +156,11 @@
     # ];
   };
   nix = {
-    # package = pkgs.nixVersions.git;
+    # package = pkgs.nixVersions.nix_2_24;
+    package = pkgs.nixVersions.git;
     # package = pkgs.nixVersions.nix_2_25;
     # package = pkgs.nixVersions.nix_2_26;
-    package = pkgs.nixVersions.nix_2_42;
+    # package = pkgs.nixVersions.nix_2_42;
   };
   #   configureBuildUsers = true;
   #   extraOptions = ''
@@ -191,4 +192,4 @@
       };
     };
   };
-} // import ./nix.settings.nix # TODO: module nix-settings
+} (import ./nix.settings.nix) # TODO: module nix-settings
