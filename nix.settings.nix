@@ -15,6 +15,7 @@
       "nix-command"
       # "no-url-literals" # <- removed no-url-literals for flakehub testing
       "parse-toml-timestamps"
+      "pipe-operators"
       "read-only-local-store"
       "recursive-nix"
       "verified-fetches"
