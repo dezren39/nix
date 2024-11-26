@@ -14,8 +14,12 @@ echo "git add ."
 
 git add .
 
-echo "nix flake update"
-nix flake update
+echo "darwin-rebuild switch --flake ."
+nix run nix-darwin -- switch --flake . --keep-going
+#darwin-rebuild switch --flake . --keep-going
 
-echo "./simple-rebuild.sh"
-./simple-rebuild.sh
+current=$(darwin-rebuild --list-generations | grep current)
+echo "current: $current"
+hostname=$(hostname)
+echo "hostname: $hostname"
+git commit --no-verify --allow-empty -m "$hostname $current"

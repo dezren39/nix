@@ -6,6 +6,7 @@
     _1password-cli
     act
     age
+    nixd
     age-plugin-yubikey
     alacritty
     ansible

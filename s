@@ -1,1 +1,1 @@
-./rebuild.sh
+simple-rebuild.sh
