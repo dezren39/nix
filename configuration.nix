@@ -157,7 +157,8 @@
   };
   nix = {
     # package = pkgs.nixVersions.git;
-    package = pkgs.nixVersions.nix_2_25;
+    # package = pkgs.nixVersions.nix_2_25;
+    package = pkgs.nixVersions.nix_2_26;
   };
   #   configureBuildUsers = true;
   #   extraOptions = ''
