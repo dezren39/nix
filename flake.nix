@@ -15,7 +15,10 @@
       url = "github:developing-today-forks/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
     };
-    determinate.url = "https://flakehub.com/f/DeterminateSystems/determinate/0.1";
+    determinate = {
+      url = "https://flakehub.com/f/DeterminateSystems/determinate/0.1";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     darwin = {
       url = "github:lnl7/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";
