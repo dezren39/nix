@@ -1,5 +1,5 @@
 {
-  nix.optimise.automatic = true;
+  # nix.optimise.automatic = true;
   nix.settings = {
     # unfortunately can't import, but this should be equal to flake.nix
     experimental-features = [

@@ -43,7 +43,7 @@ _: {
     "google-chrome" # VERSION MISMATCH
     "mkvtoolnix" # "mkvtoolnix-88-0"
     "rectangle"
-    "superkey"
+    # "superkey"
     "windows-app"
     "zed"
     "zoom" # "zoom-us"

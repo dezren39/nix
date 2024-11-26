@@ -1,9 +1,8 @@
 { pkgs, ... } : {
-  environment.systemPackages = with pkgs; [
+  environment.systemPackages = with pkgs; [ # possibly not darwin
     powershell
     oils-for-unix
     # zen-browser
-  ] ++ [ # possibly not darwin
     _1password-cli
     act
     age

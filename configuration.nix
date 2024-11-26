@@ -155,7 +155,9 @@
     #   "workday"
     # ];
   };
-  # nix = {
+  nix = {
+    package = pkgs.nixVersions.git;
+  };
   #   configureBuildUsers = true;
   #   extraOptions = ''
   #     extra-nix-path = nixpkgs=flake:nixpkgs
