@@ -4,8 +4,8 @@ _: {
       jankyborders = {
         enable = true;
         hidpi = true;
-        width = 1.0;
-        style = "square";
+        # width = 1.0;
+        # style = "square";
         # order = "above";
       };
       # aerospace.enable = true; # TODO: switch to this
