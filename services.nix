@@ -6,7 +6,7 @@ _: {
         hidpi = true;
         width = 1.0;
         style = "square";
-        order = "above";
+        # order = "above";
       };
       # aerospace.enable = true; # TODO: switch to this
       sketchybar = {
