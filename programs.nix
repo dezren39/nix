@@ -4,7 +4,7 @@ _: {
       enable = true;
       interactiveShellInit = ''
         ff() {
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "aerospace focus --window-id {1}")+abort'
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "sleep 0.1 && aerospace focus --window-id {1} &")+abort'
         }
       '';
     };
@@ -13,7 +13,7 @@ _: {
       enable = true;
       interactiveShellInit = ''
         ff() {
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "aerospace focus --window-id {1}")+abort'
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "sleep 0.1 && aerospace focus --window-id {1} &")+abort'
         }
       '';
     };
@@ -22,7 +22,7 @@ _: {
       enable = true;
       interactiveShellInit = ''
         function ff
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "aerospace focus --window-id {1}")+abort'
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "sleep 0.1 && aerospace focus --window-id {1} &")+abort'
         end
       '';
     };
