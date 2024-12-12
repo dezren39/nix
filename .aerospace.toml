@@ -95,7 +95,8 @@ alt-comma = 'layout accordion horizontal vertical'
 
 # alt-f = 'exec-and-forget open -a Terminal.app && osascript -e "tell application \"Terminal\" to do script \"ff\""'
 # alt-f = 'exec-and-forget osascript -e "tell application \"Terminal\" to do script \"ff; exit\""'
-alt-f = 'exec-and-forget osascript -e "tell application \"Terminal\" to set newWindow to do script \"ff; exit\"" -e "tell application \"Terminal\" to set floating of newWindow to true"'
+# alt-f = 'exec-and-forget osascript -e "tell application \"Terminal\" to set newWindow to do script \"ff; exit\"" -e "tell application \"Terminal\" to set floating of newWindow to true"'
+alt-f = 'exec-and-forget osascript -e "tell application \"Terminal\" to set newWindow to do script \"ff && exit\"" -e "tell application \"Terminal\" to set floating of newWindow to true" -e "tell application \"Terminal\" to activate"'
 # See: https://nikitabobko.github.io/AeroSpace/commands#focus
 alt-h = 'focus left'
 alt-j = 'focus down'
