@@ -24,6 +24,9 @@
     # whalebrew?
     zellij
     tmux
+    jankyborders
+    sketchybar
+    sketchybar-app-font
     screen
     black
     btop
