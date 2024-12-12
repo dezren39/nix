@@ -99,6 +99,7 @@
     extraSpecialArgs = {
       inherit inputs;
     };
+    backupFileExtension = ".backup";
   };
   # TODO: module nix-homebrew
   nix-homebrew = {

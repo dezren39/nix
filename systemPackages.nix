@@ -28,6 +28,7 @@
     black
     btop
     buf
+    stow
     caddy
     certstrap
     cfssl

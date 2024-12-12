@@ -1,11 +1,35 @@
 _: {
   programs = {
-    zsh.enable = true; # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
-    fish.enable = true;
-    bash.enable = true;
-    # pwsh.enable = true;
-    # osh.enable = true;
-    # ysh.enable = true;
+    bash = {
+      enable = true;
+      interactiveShellInit = ''
+        ff() {
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "aerospace focus --window-id {1}")+abort'
+        }
+      '';
+    };
+
+    zsh = {
+      enable = true;
+      interactiveShellInit = ''
+        ff() {
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "aerospace focus --window-id {1}")+abort'
+        }
+      '';
+    };
+
+    fish = {
+      enable = true;
+      interactiveShellInit = ''
+        function ff
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "aerospace focus --window-id {1}")+abort'
+        end
+      '';
+    };
+      # pwsh.enable = true;
+      # osh.enable = true;
+      # ysh.enable = true;
+    };
     home-manager.enable = true;
     git = {
       enable = true;
