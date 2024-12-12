@@ -3,7 +3,7 @@ _: {
       nix-daemon.enable = true;
       jankyborders = {
         enable = true;
-        hidpi = true;
+        # hidpi = true;
         # width = 1.0;
         # style = "square";
         # order = "above";
