@@ -93,7 +93,7 @@ outer.right = 0
 alt-slash = 'layout tiles horizontal vertical'
 alt-comma = 'layout accordion horizontal vertical'
 
-alt-f = 'exec-and-forget /run/current-system/sw/bin/alacritty -e zsh -cli "ff; sleep 2"'
+alt-f = 'exec-and-forget /run/current-system/sw/bin/alacritty -e zsh -cli "ff; sleep 1"'
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#focus
 alt-h = 'focus left'
