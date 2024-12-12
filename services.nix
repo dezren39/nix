@@ -21,5 +21,6 @@ _: {
       # chunkwm.enable = true;
       # autossh
       # eternalterminal
+      # https://github.com/omerxx/dotfiles
     };
 }
