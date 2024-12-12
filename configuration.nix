@@ -7,6 +7,7 @@
     ./brews.nix
     ./casks.nix
     ./masApps.nix
+    ./services.nix
     # ./home.nix
   ];
   # List packages installed in system profile. To search by name, run:
@@ -25,9 +26,6 @@
     # overlays = ...
   };
 
-
-   # TODO: module services
-  services.nix-daemon.enable = true;
   # nix.package = pkgs.nix # disabled because using determinate nix
 
    # TODO: module system
