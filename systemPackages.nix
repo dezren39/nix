@@ -22,6 +22,7 @@
     bat
     # bitwarden-cli
     # whalebrew?
+    kitty
     zellij
     tmux
     jankyborders

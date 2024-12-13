@@ -4,7 +4,7 @@ _: {
       enable = true;
       interactiveShellInit = ''
         ff() {
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "sleep 0.4 && aerospace focus --window-id {1} &")+abort'
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
       '';
     };
@@ -13,7 +13,7 @@ _: {
       enable = true;
       interactiveShellInit = ''
         ff() {
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "sleep 0.4 && aerospace focus --window-id {1} &")+abort'
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
       '';
     };
@@ -22,7 +22,7 @@ _: {
       enable = true;
       interactiveShellInit = ''
         function ff
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "sleep 0.4 && aerospace focus --window-id {1} &")+abort'
+          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         end
       '';
     };
