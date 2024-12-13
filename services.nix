@@ -1,4 +1,5 @@
-_: {
+
+{pkgs,...}: {
     services = {
       nix-daemon.enable = true;
       jankyborders = {
@@ -9,6 +10,11 @@ _: {
         # order = "above";
       };
       # aerospace.enable = true; # TODO: switch to this
+      aerospace = {
+        enable = true;
+        settings = builtins.fromTOML (builtins.readFile ./.aerospace.toml);
+        package = pkgs.aerospace;
+      };
       sketchybar = {
         enable = true;
         config = ''
