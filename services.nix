@@ -8,6 +8,10 @@
         # style = "square";
         # order = "above";
       };
+      skhd = {
+        enable = true;
+        package = pkgs.skhd;
+      };
       # aerospace = {
       #   enable = false;
       #   settings = builtins.fromTOML (builtins.readFile ./.aerospace.toml);
