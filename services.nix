@@ -1,4 +1,3 @@
-
 {pkgs,...}: {
     services = {
       nix-daemon.enable = true;
@@ -9,11 +8,15 @@
         # style = "square";
         # order = "above";
       };
-      # aerospace.enable = true; # TODO: switch to this
-      aerospace = {
+      # aerospace = {
+      #   enable = false;
+      #   settings = builtins.fromTOML (builtins.readFile ./.aerospace.toml);
+      #   package = pkgs.aerospace;
+      # };
+      yabai = {
         enable = true;
-        settings = builtins.fromTOML (builtins.readFile ./.aerospace.toml);
-        package = pkgs.aerospace;
+        package = pkgs.yabai;
+        enableScriptingAddition = true;
       };
       sketchybar = {
         enable = true;
@@ -23,7 +26,6 @@
           echo "sketchybar configuration loaded.."
         '';
       };
-      # yabai.enable = true;
       # chunkwm.enable = true;
       # autossh
       # eternalterminal
