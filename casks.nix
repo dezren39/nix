@@ -20,7 +20,7 @@ _: {
     "handbrake"
     "imageoptim"
     "keepingyouawake"
-    "libreoffice"
+    # "libreoffice"
     "logseq"
     "makemkv"
     "meld"
