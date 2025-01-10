@@ -1,7 +1,7 @@
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/dock/default.nix
 #
-{ config, pkgs, lib, inputs, ... }: lib.recursiveUpdate {
+{ config, pkgs, lib, inputs, system, ... }: lib.recursiveUpdate {
   imports = [
     ./systemPackages.nix
     ./brews.nix
@@ -95,7 +95,7 @@
       inputs.mac-app-util.homeManagerModules.default
     ];
     extraSpecialArgs = {
-      inherit inputs;
+      inherit inputs system;
     };
     backupFileExtension = ".backup";
   };

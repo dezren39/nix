@@ -11,6 +11,9 @@
       # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs";
     };
+    nixpkgs-master = {
+      url = "github:nixos/nixpkgs";
+    };
     stable = {
       url = "github:developing-today-forks/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
@@ -60,12 +63,17 @@
       url = "github:homebrew/homebrew-services";
       flake = false;
     };
+
+    nur = {
+      url = "github:nix-community/NUR";
+      inputs.nixpkgs.follows = "nixpkgs";
+    }; # what is https://github.com/nix-community/nur-combined ?
     # rust, see https://github.com/nix-community/fenix#usage
   };
 
   outputs = inputs: {
     darwinConfigurations = {
-      MGM9JJ4V3R = inputs.darwin.lib.darwinSystem {
+      MGM9JJ4V3R = inputs.darwin.lib.darwinSystem rec {
         system = "aarch64-darwin";
         modules = [
           inputs.determinate.darwinModules.default
@@ -74,7 +82,7 @@
           inputs.home-manager.darwinModules.home-manager
           ./configuration.nix
         ];
-        specialArgs = { inherit inputs; };
+        specialArgs = { inherit inputs system; };
       };
     };
   };

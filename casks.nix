@@ -29,7 +29,7 @@ _: {
     # "onlyoffice"
     "raycast"
     "signal"
-    "slack"
+    # "slack"
     # "sonos"
     # "tailscale"
     # "vivaldi"

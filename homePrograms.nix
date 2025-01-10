@@ -1,5 +1,17 @@
-_: {
+{inputs, system} : {
   programs = {
+
+    ghostty = {
+      enable = true;
+      # package = inputs.nixpkgs-master.legacyPackages.${system}.ghostty;
+      package = inputs.nur.legacyPackages."${system}".repos.DimitarNestorov.ghostty;
+      settings = {
+        # ghostty +list-themes
+        theme = "synthwave";
+        # window-decoration = false;
+        # TODO: hide tabs or make smaller or both
+      };
+    };
     bash = {
       enable = true;
       initExtra = ''

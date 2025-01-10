@@ -82,7 +82,7 @@
     ipcalc
     # jdk17
     jetbrains-mono
-    jetbrains.phpstorm
+    # jetbrains.phpstorm
     jpegoptim
     jq
     jwt-cli
@@ -125,7 +125,7 @@
     # python39Packages.virtualenv
     redis
     ripgrep
-    slack
+    # slack
     sops
     sqlite
     ssh-to-age

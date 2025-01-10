@@ -1,5 +1,5 @@
 # home.nix
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, inputs, system, ... }:
 lib.recursiveUpdate {
   home = lib.recursiveUpdate {
     stateVersion = "23.05";
@@ -13,7 +13,7 @@ lib.recursiveUpdate {
     #   '';
     # };
   } (import ./homePackages.nix { inherit config pkgs; });
-} (import ./homePrograms.nix {})
+} (import ./homePrograms.nix { inherit inputs system; })
 /*
 
 { config, pkgs, lib, home-manager, ... }:
