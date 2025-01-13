@@ -187,9 +187,13 @@ alt-shift-l = 'join-with right'
 # alt-shift-up = 'join-with up'
 # alt-shift-right = 'join-with right'
 
-alt-shift-enter = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
+# alt-shift-enter = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
+# kitty
+alt-shift-enter = 'exec-and-forget open -n /etc/profiles/per-user/drewry.pope/bin/ghostty'
 # cmd-enter = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
-alt-q = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
+# alt-q = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
+# kitty
+alt-q = 'exec-and-forget open -n /etc/profiles/per-user/drewry.pope/bin/ghostty'
 
 # See: https://nikitabobko.github.io/AeroSpace/commands#workspace-back-and-forth
 # alt-tab = 'workspace-back-and-forth'

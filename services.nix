@@ -19,7 +19,7 @@
 
         skhdConfig = ''
       #     # Terminal (default: SUPER + Return)
-      #     cmd - return : kitty
+      #     cmd - return : ghostty #kitty
 
       #     # Window Focus
       #     alt - h : yabai -m window --focus west
