@@ -107,14 +107,14 @@
       #   package = pkgs.yabai;
       #   enableScriptingAddition = true;
       # };
-      sketchybar = {
-        enable = true;
-        config = ''
-          sketchybar --bar height=24
-          sketchybar --update
-          echo "sketchybar configuration loaded.."
-        '';
-      };
+      # sketchybar = {
+      #   enable = true;
+      #   config = ''
+      #     sketchybar --bar height=24
+      #     sketchybar --update
+      #     echo "sketchybar configuration loaded.."
+      #   '';
+      # };
       # chunkwm.enable = true;
       # autossh
       # eternalterminal
