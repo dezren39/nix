@@ -98,7 +98,7 @@
         '';
       };
       aerospace = {
-        enable = false;
+        enable = true;
         settings = builtins.fromTOML (builtins.readFile ./.aerospace.toml);
         package = pkgs.aerospace;
       };
