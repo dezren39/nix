@@ -12,6 +12,9 @@
         # TODO: hide tabs or make smaller or both
       };
     };
+    vscode = {
+      enable = true;
+    };
     bash = {
       enable = true;
       initExtra = ''
