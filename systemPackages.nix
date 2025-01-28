@@ -6,6 +6,8 @@
     _1password-cli
     act
     age
+    dbeaver
+    sqldeveloper
     nixd
     age-plugin-yubikey
     alacritty
