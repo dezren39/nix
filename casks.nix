@@ -35,6 +35,7 @@ _: {
     # "vivaldi"
     "zoom"
     "safari-technology-preview" # "safari"
+    "usb-overdrive"
   ] ++ [ # adopted custom
     "1password"
     "alt-tab" # "alttab"
