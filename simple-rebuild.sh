@@ -15,7 +15,7 @@ echo "git add ."
 git add .
 
 echo "darwin-rebuild switch --flake ."
-nix run nix-darwin -- switch --flake . --keep-going
+nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
 #darwin-rebuild switch --flake . --keep-going
 
 current=$(darwin-rebuild --list-generations | grep current)

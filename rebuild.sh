@@ -15,7 +15,7 @@ echo "git add ."
 git add .
 
 echo "nix flake update"
-nix flake update
+nix --extra-experimental-features 'nix-command flakes' flake update
 
 echo "./simple-rebuild.sh"
 ./simple-rebuild.sh
