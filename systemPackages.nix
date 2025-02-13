@@ -13,9 +13,11 @@
     ansible
     arduino-cli
     terraform
+    powershell
     aspell
     aspellDicts.en
     awscli
+    direnv
     jujutsu
     lazyjj
     bandwhich
