@@ -45,8 +45,6 @@
       enable = true;
       userName = "Drewry Pope";
       userEmail = "drewry.pope@vertexinc.com"; # TODO: move work email out of default
-      # config = {
-      # };
       extraConfig = {
         init.defaultBranch = "main";
         pull.rebase = true;

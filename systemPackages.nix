@@ -16,6 +16,7 @@
     powershell
     aspell
     aspellDicts.en
+    nixfmt-rfc-style
     awscli
     direnv
     jujutsu
