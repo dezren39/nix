@@ -68,24 +68,33 @@
     treefmt-nix.url = "github:numtide/treefmt-nix";
   };
 
-  outputs = inputs: let
-      eachSystem = f: inputs.nixpkgs.lib.genAttrs (import inputs.systems) (system: f inputs.nixpkgs.legacyPackages.${system});
+  outputs =
+    inputs:
+    let
+      eachSystem =
+        f:
+        inputs.nixpkgs.lib.genAttrs (import inputs.systems) (
+          system: f inputs.nixpkgs.legacyPackages.${system}
+        );
       treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
-    in {
-    darwinConfigurations = {
-      MGM9JJ4V3R = inputs.darwin.lib.darwinSystem rec {
-        system = "aarch64-darwin";
-        modules = [
-          inputs.determinate.darwinModules.default
-          inputs.nix-homebrew.darwinModules.nix-homebrew
-          inputs.mac-app-util.darwinModules.default
-          inputs.home-manager.darwinModules.home-manager
-          ./configuration.nix
-        ];
-        specialArgs = { inherit inputs system; };
+    in
+    {
+      darwinConfigurations = {
+        MGM9JJ4V3R = inputs.darwin.lib.darwinSystem rec {
+          system = "aarch64-darwin";
+          modules = [
+            inputs.determinate.darwinModules.default
+            inputs.nix-homebrew.darwinModules.nix-homebrew
+            inputs.mac-app-util.darwinModules.default
+            inputs.home-manager.darwinModules.home-manager
+            ./configuration.nix
+          ];
+          specialArgs = { inherit inputs system; };
+        };
       };
+      formatter = eachSystem (pkgs: treefmtEval.${pkgs.system}.config.build.wrapper);
+      checks = eachSystem (pkgs: {
+        formatting = treefmtEval.${pkgs.system}.config.build.check inputs.self;
+      });
     };
-    formatter = eachSystem (pkgs: treefmtEval.${pkgs.system}.config.build.wrapper);
-    checks = eachSystem (pkgs: {formatting = treefmtEval.${pkgs.system}.config.build.check inputs.self;});
-  };
 }

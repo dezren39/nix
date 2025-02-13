@@ -1,4 +1,5 @@
-{inputs, system} : {
+{ inputs, system }:
+{
   programs = {
     # pwsh.enable = true;
     # osh.enable = true;
@@ -25,7 +26,8 @@
         }
       '';
     };
-    zsh = { # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
+    zsh = {
+      # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
       enable = true;
       initExtra = ''
         ff() {

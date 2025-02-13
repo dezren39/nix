@@ -1,7 +1,15 @@
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin
 # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/dock/default.nix
 #
-{ config, pkgs, lib, inputs, system, ... }: lib.recursiveUpdate {
+{
+  config,
+  pkgs,
+  lib,
+  inputs,
+  system,
+  ...
+}:
+lib.recursiveUpdate {
   imports = [
     ./systemPackages.nix
     ./brews.nix
@@ -13,7 +21,8 @@
   # List packages installed in system profile. To search by name, run:
   # $ nix-env -qaP | grep wget
 
-  nixpkgs = { # TODO: module nixpkgs
+  nixpkgs = {
+    # TODO: module nixpkgs
     hostPlatform = "aarch64-darwin";
     config = {
       allowUnfree = true;
@@ -28,7 +37,7 @@
 
   # nix.package = pkgs.nix # disabled because using determinate nix
 
-   # TODO: module system
+  # TODO: module system
   system = {
     configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null; # Set Git commit hash for darwin-version.
     stateVersion = 5;
@@ -78,10 +87,10 @@
     # };
   };
 
-   # TODO: module users
-   users.users."drewry.pope" = {
-      name = "drewry.pope";
-      home = "/Users/drewry.pope";
+  # TODO: module users
+  users.users."drewry.pope" = {
+    name = "drewry.pope";
+    home = "/Users/drewry.pope";
   };
   # TODO: module home-manager
   home-manager = {
@@ -111,7 +120,7 @@
       "homebrew/homebrew-services" = inputs.nixpkgs.legacyPackages."${pkgs.system}".applyPatches {
         name = "homebrew-services-patched"; # https://github.com/zhaofengli/nix-homebrew/issues/13#issuecomment-2156223912
         src = inputs.homebrew-services;
-        patches = [./homebrew-services.patch];
+        patches = [ ./homebrew-services.patch ];
       };
       "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
       "Dimentium/homebrew-autoraise" = inputs.homebrew-autoraise;

@@ -503,13 +503,13 @@
         "type": "github"
       }
     },
-    "nixpkgs-master": {
+    "nixpkgs-git": {
       "locked": {
-        "lastModified": 1739300671,
-        "narHash": "sha256-Zm3CV8KdwOxLoOhp7B2WEjV2HSEuFDhrZUzaZ4XZW94=",
+        "lastModified": 1739421695,
+        "narHash": "sha256-y51x6zQg9lEnTu59LoZyDNsAw9P3kwLCXiVfyjtLc/c=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "05c6720a0f56c236d58115f2b82e5570684df2af",
+        "rev": "83f0f09ed50a0803436b64f816a8c221c1e1329a",
         "type": "github"
       },
       "original": {
@@ -563,16 +563,15 @@
     },
     "nixpkgs_4": {
       "locked": {
-        "lastModified": 1739214665,
-        "narHash": "sha256-26L8VAu3/1YRxS8MHgBOyOM8xALdo6N0I04PgorE7UM=",
-        "owner": "nixos",
+        "lastModified": 1734754329,
+        "narHash": "sha256-F5OozHeVCNAXFzAaanL/NM2xE1pmP+FmQv2r6LiX5+E=",
+        "owner": "developing-today-forks",
         "repo": "nixpkgs",
-        "rev": "64e75cd44acf21c7933d61d7721e812eac1b5a0a",
+        "rev": "a1688135d6f4f1c13b9388090c8534dd961e601b",
         "type": "github"
       },
       "original": {
-        "owner": "nixos",
-        "ref": "nixos-unstable",
+        "owner": "developing-today-forks",
         "repo": "nixpkgs",
         "type": "github"
       }
@@ -629,7 +628,7 @@
         "mac-app-util": "mac-app-util",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs_4",
-        "nixpkgs-master": "nixpkgs-master",
+        "nixpkgs-git": "nixpkgs-git",
         "nur": "nur",
         "stable": "stable",
         "systems": "systems_2",
