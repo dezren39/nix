@@ -71,6 +71,7 @@ _: {
     # "ngrok"
     "postico"
     "visual-studio-code"
+    "visual-studio-code@insiders"
     "wireshark"
     "cursor"
     "discord"
