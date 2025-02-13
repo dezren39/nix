@@ -1,23 +1,20 @@
-# flake.nix
-
 {
   description = "Darwin configuration";
 
   inputs = {
-    #nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    # nixpkgs.url = "github:nixos/nixpkgs";
     nixpkgs = {
       url = "github:developing-today-forks/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs";
     };
-    nixpkgs-master = {
+    nixpkgs-git = {
       url = "github:nixos/nixpkgs";
     };
     stable = {
       url = "github:developing-today-forks/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
     };
+    systems.url = "github:nix-systems/default";
     determinate = {
       url = "https://flakehub.com/f/DeterminateSystems/determinate/0.1";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -36,7 +33,6 @@
     };
     nix-homebrew = {
       url = "github:zhaofengli/nix-homebrew";
-      # url = "github:dezren39/nix-homebrew/shellIntegration";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     homebrew-core = {
