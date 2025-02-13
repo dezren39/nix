@@ -20,7 +20,7 @@
       powershell
       aspell
       aspellDicts.en
-      nixfmt
+      nixfmt-rfc-style
       awscli
       direnv
       jujutsu
