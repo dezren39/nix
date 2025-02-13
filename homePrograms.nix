@@ -1,6 +1,8 @@
 {inputs, system} : {
   programs = {
-
+    # pwsh.enable = true;
+    # osh.enable = true;
+    # ysh.enable = true;
     ghostty = {
       enable = true;
       # package = inputs.nixpkgs-master.legacyPackages.${system}.ghostty;
@@ -23,7 +25,6 @@
         }
       '';
     };
-
     zsh = { # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
       enable = true;
       initExtra = ''
@@ -32,7 +33,6 @@
         }
       '';
     };
-
     fish = {
       enable = true;
       functions = {
@@ -41,20 +41,21 @@
         '';
       };
     };
-    # pwsh.enable = true;
-    # osh.enable = true;
-    # ysh.enable = true;
     git = {
       enable = true;
       userName = "Drewry Pope";
       userEmail = "drewry.pope@vertexinc.com"; # TODO: move work email out of default
+      # config = {
+      # };
       extraConfig = {
         init.defaultBranch = "main";
         pull.rebase = true;
         core = {
           editor = "zed";
           autocrlf = "input";
+          bigFileThreshold = "50m";
         };
+        safe.directory = "*";
       };
       ignores = [
         ".DS_Store"
