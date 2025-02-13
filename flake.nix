@@ -69,9 +69,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
     }; # what is https://github.com/nix-community/nur-combined ?
     # rust, see https://github.com/nix-community/fenix#usage
+    treefmt-nix.url = "github:numtide/treefmt-nix";
   };
 
-  outputs = inputs: {
+  outputs = inputs: let
+      eachSystem = f: inputs.nixpkgs.lib.genAttrs (import inputs.systems) (system: f inputs.nixpkgs.legacyPackages.${system});
+      treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
+    in {
     darwinConfigurations = {
       MGM9JJ4V3R = inputs.darwin.lib.darwinSystem rec {
         system = "aarch64-darwin";
@@ -85,7 +89,7 @@
         specialArgs = { inherit inputs system; };
       };
     };
-    formatter.x86_64-linux = inputs.nixpkgs.legacyPackages.x86_64-linux.nixfmt-rfc-style;
-    formatter.aarch64-darwin = inputs.nixpkgs.legacyPackages.aarch64-darwin.nixfmt-rfc-style;
+    formatter = eachSystem (pkgs: treefmtEval.${pkgs.system}.config.build.wrapper);
+    checks = eachSystem (pkgs: {formatting = treefmtEval.${pkgs.system}.config.build.check inputs.self;});
   };
 }
