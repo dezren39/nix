@@ -1,8 +1,9 @@
-{ pkgs, ... }:
+{ inputs, system, pkgs, ... }:
 {
   environment.systemPackages =
     with pkgs;
     [
+      inputs.nixpkgs-terraform.packages.${system}."1.5.7"
       # possibly not darwin
       powershell
       oils-for-unix
@@ -16,7 +17,7 @@
       alacritty
       ansible
       arduino-cli
-      terraform
+      # terraform
       powershell
       aspell
       aspellDicts.en

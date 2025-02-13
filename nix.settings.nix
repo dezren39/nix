@@ -61,9 +61,13 @@
       # "colmena.cachix.org-1:7BzpDnjjH8ki2CT3f6GdOk7QAzPOl+1t3LvTLXqYcSg="
       # "sylvorg.cachix.org-1:xd1jb7cDkzX+D+Wqt6TemzkJH9u9esXEFu1yaR9p8H8="
     ];
-    extra-substituters = [ ];
+    extra-substituters = [
+      "https://nixpkgs-terraform.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "nixpkgs-terraform.cachix.org-1:8Sit092rIdAVENA3ZVeH9hzSiqI/jng6JiCrQ1Dmusw="
+    ];
     extra-trusted-substituters = [ ];
-    extra-trusted-public-keys = [ ];
     # bash-prompt-prefix = "(nix:$name)\040";
     # build-users-group = "nixbld";
     http-connections = 100; # 128 default:25

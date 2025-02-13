@@ -66,8 +66,9 @@
     }; # what is https://github.com/nix-community/nur-combined ?
     # rust, see https://github.com/nix-community/fenix#usage
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    nixpkgs-terraform.url = "github:stackbuilders/nixpkgs-terraform";
+    flake-utils.url = "github:numtide/flake-utils";
   };
-
   outputs =
     inputs:
     let
