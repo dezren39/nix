@@ -1,7 +1,7 @@
 { pkgs, ... }:
 {
   services = {
-    nix-daemon.enable = true;
+#    nix-daemon.enable = true;
     jankyborders = {
       enable = true;
       # hidpi = true;

@@ -164,6 +164,7 @@ lib.recursiveUpdate {
     # ];
   };
   nix = {
+    enable = false;
     # package = pkgs.nixVersions.nix_2_24;
     package = lib.mkForce pkgs.nixVersions.git; # forcing because determinate nix wants an older version, if problems try commenting the above line and reverting to the determinate nix version, probably 2.24.10 or something
     # package = pkgs.nixVersions.nix_2_25;
