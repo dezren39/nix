@@ -12,7 +12,6 @@
       act
       age
       dbeaver-bin
-      yq
       nixd
       age-plugin-yubikey
       alacritty
