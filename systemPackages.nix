@@ -3,6 +3,9 @@
   environment.systemPackages =
     with pkgs;
     [
+      colima
+      docker
+      docker-compose
       inputs.nixpkgs-terraform.packages.${system}."1.5.7"
       # possibly not darwin
       powershell
