@@ -29,7 +29,7 @@
     zsh = {
       # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
       enable = true;
-      initExtra = ''
+      initContent = ''
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }

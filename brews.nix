@@ -6,5 +6,6 @@ _: {
     "firefox-profile-switcher-connector"
     "telnet"
     "autoraise"
+    "docker-credential-helper"
   ];
 }

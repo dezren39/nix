@@ -11,13 +11,13 @@
       url = "github:nixos/nixpkgs";
     };
     stable = {
-      url = "github:developing-today-forks/nixpkgs";
-      # url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:developing-today-forks/nixpkgs";
+      url = "github:nixos/nixpkgs/nixos-unstable";
     };
     systems.url = "github:nix-systems/default";
     determinate = {
       url = "https://flakehub.com/f/DeterminateSystems/determinate/0.1";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # inputs.nixpkgs.follows = "nixpkgs";
     };
     darwin = {
       url = "github:lnl7/nix-darwin";
@@ -25,11 +25,11 @@
     };
     home-manager = {
       url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # # inputs.nixpkgs.follows = "nixpkgs";
     };
     mac-app-util = {
       url = "github:hraban/mac-app-util";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-homebrew = {
       url = "github:zhaofengli/nix-homebrew";
@@ -62,7 +62,7 @@
 
     nur = {
       url = "github:nix-community/NUR";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # inputs.nixpkgs.follows = "nixpkgs";
     }; # what is https://github.com/nix-community/nur-combined ?
     # rust, see https://github.com/nix-community/fenix#usage
     treefmt-nix.url = "github:numtide/treefmt-nix";
