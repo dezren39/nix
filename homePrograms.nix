@@ -4,17 +4,17 @@
     # pwsh.enable = true;
     # osh.enable = true;
     # ysh.enable = true;
-    ghostty = {
-      enable = true;
-      # package = inputs.nixpkgs-master.legacyPackages.${system}.ghostty;
-      package = inputs.nur.legacyPackages."${system}".repos.DimitarNestorov.ghostty;
-      settings = {
-        # ghostty +list-themes
-        theme = "synthwave";
-        # window-decoration = false;
-        # TODO: hide tabs or make smaller or both
-      };
-    };
+    # ghostty = {
+    #   enable = true;
+    #   # package = inputs.nixpkgs.legacyPackages.${system}.ghostty;
+    #   # package = inputs.nur.legacyPackages."${system}".repos.DimitarNestorov.ghostty;
+    #   settings = {
+    #     # ghostty +list-themes
+    #     theme = "synthwave";
+    #     # window-decoration = false;
+    #     # TODO: hide tabs or make smaller or both
+    #   };
+    # };
     vscode = {
       enable = true;
     };
