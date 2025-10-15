@@ -1,6 +1,16 @@
 #!/usr/bin/env zsh
 path=("$HOME/.nix-profile/bin" "/nix/var/nix/profiles/default/bin" "/run/current-system/sw/bin" "$path[@]")
 set -exuo pipefail
+
+# error: opening Git repository "/Users/drewry.pope/.config/nix": repository path '/Users/drewry.pope/.config/nix' is not owned by current user
+# # if not root rerun as root
+# if [[ $EUID -ne 0 ]]; then
+#     echo "Rerunning as root..."
+#     sudo "$0"
+#     exit $?
+# else
+#     echo "Running as root..."
+# fi
 #ulimit -n $(ulimit -Hn)
 #sudo prlimit --pid $$ --nofile=1000000:1000000
 #nix-shell -p nixVersions.nix_2_18 git cachix jq
