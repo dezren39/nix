@@ -14,11 +14,13 @@ echo "git add ."
 
 git add .
 
-echo "darwin-rebuild switch --flake ."
-nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
-#darwin-rebuild switch --flake . --keep-going
+echo "softwareupdate --install-rosetta --agree-to-license"
+softwareupdate --install-rosetta --agree-to-license
 
-current=$(darwin-rebuild --list-generations | grep current)
+echo "darwin-rebuild switch --flake ."
+sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
+
+current=$(sudo darwin-rebuild --list-generations | grep current)
 echo "current: $current"
 hostname=$(hostname)
 echo "hostname: $hostname"

@@ -10,8 +10,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Git add for the script's directory
 cd "${script_dir}" || exit 1
 echo "entered: $script_dir"
-echo "git add ."
 
+echo "git add ."
 git add .
 
 echo "nix flake update"
