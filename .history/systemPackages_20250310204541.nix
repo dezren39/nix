@@ -1,4 +1,9 @@
-{ inputs, system, pkgs, ... }:
+{
+  inputs,
+  system,
+  pkgs,
+  ...
+}:
 {
   environment.systemPackages =
     with pkgs;
@@ -125,7 +130,7 @@
       p7zip
       pandoc
       pgcli
-      php81
+      # php81
       platformio
       pngquant
       protobuf

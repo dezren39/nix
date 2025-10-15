@@ -94,6 +94,7 @@ lib.recursiveUpdate {
   };
   # TODO: module home-manager
   home-manager = {
+
     useGlobalPkgs = true;
     useUserPackages = true;
     users = {
@@ -117,11 +118,12 @@ lib.recursiveUpdate {
       "homebrew/homebrew-core" = inputs.homebrew-core;
       "homebrew/homebrew-cask" = inputs.homebrew-cask;
       "homebrew/homebrew-bundle" = inputs.homebrew-bundle;
-      "homebrew/homebrew-services" = inputs.nixpkgs.legacyPackages."${pkgs.system}".applyPatches {
-        name = "homebrew-services-patched"; # https://github.com/zhaofengli/nix-homebrew/issues/13#issuecomment-2156223912
-        src = inputs.homebrew-services;
-        patches = [ ./homebrew-services.patch ];
-      };
+      # "homebrew/homebrew-services" = inputs.nixpkgs.legacyPackages."${pkgs.system}".applyPatches
+      # {
+      #   name = "homebrew-services-patched"; # https://github.com/zhaofengli/nix-homebrew/issues/13#issuecomment-2156223912
+      #   src = inputs.homebrew-services;
+      #   patches = [ ./homebrew-services.patch ];
+      # };
       "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
       "Dimentium/homebrew-autoraise" = inputs.homebrew-autoraise;
     };
@@ -184,6 +186,8 @@ lib.recursiveUpdate {
   #   };
   # };
   # system.checks.verifyNixPath = false;
+  system.primaryUser = "drewry.pope";
+
   # TODO: module launchd
   launchd.user.agents = {
     naturalScrollingToggle = {

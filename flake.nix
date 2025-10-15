@@ -3,16 +3,28 @@
 
   inputs = {
     nixpkgs = {
-      url = "github:developing-today-forks/nixpkgs";
+      # url = "github:developing-today-forks/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs/staging-next";
+      # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
+      url = "github:ofalvai/nixpkgs/72a5334";
       # url = "github:nixos/nixpkgs";
     };
     nixpkgs-git = {
-      url = "github:nixos/nixpkgs";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs/staging-next";
+      # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
+      url = "github:ofalvai/nixpkgs/72a5334";
+      # url = "github:nixos/nixpkgs";
     };
     stable = {
       # url = "github:developing-today-forks/nixpkgs";
-      url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs/staging-next";
+      # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
+      url = "github:ofalvai/nixpkgs/72a5334";
     };
     systems.url = "github:nix-systems/default";
     determinate = {
@@ -24,16 +36,21 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     home-manager = {
-      url = "github:nix-community/home-manager";
-      # # inputs.nixpkgs.follows = "nixpkgs";
+      url = "github:nix-community/home-manager/master";
+      inputs.nixpkgs.follows = "nixpkgs";
+      # inputs.nixpkgs.follows = "nixpkgs";
     };
     mac-app-util = {
       url = "github:hraban/mac-app-util";
       # inputs.nixpkgs.follows = "nixpkgs";
     };
+    brew-src = {
+      url = "github:Homebrew/brew/4.6.12";
+      flake = false;
+    };
     nix-homebrew = {
       url = "github:zhaofengli/nix-homebrew";
-      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.brew-src.follows = "brew-src";
     };
     homebrew-core = {
       url = "github:homebrew/homebrew-core";

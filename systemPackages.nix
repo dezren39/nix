@@ -1,4 +1,9 @@
-{ inputs, system, pkgs, ... }:
+{
+  inputs,
+  system,
+  pkgs,
+  ...
+}:
 {
   environment.systemPackages =
     with pkgs;
@@ -16,7 +21,7 @@
       age
       dbeaver-bin
       yq-go
-      nixd
+      # nixd # 2025-10-15 fixed in staging
       age-plugin-yubikey
       alacritty
       ansible
@@ -40,7 +45,7 @@
       tmux
       jankyborders
       sketchybar
-      sketchybar-app-font
+      # sketchybar-app-font
       screen
       black
       btop
@@ -53,20 +58,20 @@
       coreutils
       curl
       dbmate
-      dejavu_fonts
+      # dejavu_fonts
       deno
-      devenv
+      # devenv
       difftastic
       dive
       du-dust
       emacs
       # emacs-unstable
-      emacs-all-the-icons-fonts
+      # emacs-all-the-icons-fonts
       fastlane
       fd
       ffmpeg
       flyctl
-      font-awesome
+      # font-awesome
       fzf
       gcc
       gh
@@ -83,7 +88,7 @@
       goreleaser
       graphviz
       gum
-      hack-font
+      # hack-font
       hcloud
       htop
       httpie
@@ -120,15 +125,15 @@
       ngrok
       nmap
       nodejs
-      noto-fonts
-      noto-fonts-emoji
+      # noto-fonts
+      # noto-fonts-emoji
       #openfortivpn
       openjdk
       openssh
       p7zip
       pandoc
       pgcli
-      php81
+      # php81
       platformio
       pngquant
       protobuf
