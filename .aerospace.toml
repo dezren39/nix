@@ -188,7 +188,11 @@ alt-shift-l = 'join-with right'
 # alt-shift-down = 'join-with down'
 # alt-shift-up = 'join-with up'
 # alt-shift-right = 'join-with right'
-
+#
+alt-shift-left = 'move-node-to-monitor left'
+alt-shift-down = 'move-node-to-monitor down'
+alt-shift-up = 'move-node-to-monitor up'
+alt-shift-right = 'move-node-to-monitor right'
 # alt-shift-enter = 'exec-and-forget open -n /System/Applications/Utilities/Terminal.app'
 # kitty
 alt-shift-enter = "exec-and-forget open -n '/Users/drewry.pope/Applications/Home Manager Trampolines/Ghostty.app'"
