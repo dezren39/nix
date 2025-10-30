@@ -10,9 +10,9 @@
 lib.recursiveUpdate {
   home = lib.recursiveUpdate {
     stateVersion = "23.05";
-    # file = {
-    #   ".aerospace.toml".source = ./.aerospace.toml;
-    # };
+    file = {
+      ".aerospace.toml".source = ./.aerospace.toml;
+    };
     sessionVariables = { };
     # activation = {
     #   reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
