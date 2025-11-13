@@ -139,6 +139,7 @@
       protobuf
       protoc-gen-go
       protoc-gen-go-grpc
+      python3
       # python39
       # python39Packages.virtualenv
       redis
