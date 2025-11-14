@@ -10,6 +10,7 @@ _: {
     "audacity"
     "balenaetcher"
     "bartender"
+    "ghostty"
     "element"
     "firefox"
     "hammerspoon"

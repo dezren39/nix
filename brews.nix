@@ -1,8 +1,8 @@
 _: {
   homebrew.brews = [
     "cowsay"
-    "fastfetch"
-    "ffmpeg"
+    # "fastfetch"
+    # "ffmpeg"
     "firefox-profile-switcher-connector"
     "telnet"
     "autoraise"
