@@ -11,13 +11,17 @@
       colima
       docker
       docker-compose
-      inputs.nixpkgs-terraform.packages.${system}."1.5.7"
+      inputs.nixpkgs-terraform.packages.${system}."terraform-1.5.7"
       # possibly not darwin
       powershell
       oils-for-unix
       # zen-browser
       _1password-cli
       act
+      github-copilot-cli
+      gh-copilot
+      copilot-cli
+      # copilot-chat
       age
       dbeaver-bin
       yq-go
@@ -30,7 +34,7 @@
       powershell
       aspell
       aspellDicts.en
-      nixfmt-rfc-style
+      nixfmt
       awscli
       direnv
       jujutsu
