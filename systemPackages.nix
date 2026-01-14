@@ -19,9 +19,7 @@
       _1password-cli
       act
       github-copilot-cli
-      gh-copilot
       copilot-cli
-      # copilot-chat
       age
       dbeaver-bin
       yq-go
