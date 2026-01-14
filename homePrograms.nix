@@ -54,7 +54,7 @@
           init.defaultBranch = "main";
           pull.rebase = true;
           core = {
-            editor = "zed";
+            editor = "code-insiders";
             autocrlf = "input";
             bigFileThreshold = "50m";
           };
