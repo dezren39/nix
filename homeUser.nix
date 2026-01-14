@@ -13,12 +13,16 @@ lib.recursiveUpdate {
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
     };
-    sessionVariables = { };
     # activation = {
     #   reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
     #     $DRY_RUN_CMD ${pkgs.aerospace}/bin/aerospace reload-config
     #   '';
     # };
+    sessionVariables = {
+      EDITOR = "code-insiders";
+      LANG = "en_US.UTF-8";
+      COPILOT_MODEL = "claude-opus-4.5";
+    };
   } (import ./homePackages.nix { inherit config pkgs; });
 } (import ./homePrograms.nix { inherit inputs system; })
 /*
