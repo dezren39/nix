@@ -63,7 +63,7 @@
       # devenv
       difftastic
       dive
-      du-dust
+      dust
       emacs
       # emacs-unstable
       # emacs-all-the-icons-fonts
