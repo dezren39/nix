@@ -22,6 +22,7 @@ cd "${script_dir}" || exit 1
 echo "entered: $script_dir"
 echo "git add ."
 
+sudo chown -R "${USER:-$(id -un)}" .
 git add .
 
 echo "softwareupdate --install-rosetta --agree-to-license"
