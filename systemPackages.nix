@@ -130,6 +130,7 @@
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
+      opencode
       openjdk
       openssh
       p7zip

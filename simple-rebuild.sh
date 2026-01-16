@@ -34,4 +34,5 @@ current=$(sudo darwin-rebuild --list-generations | grep current)
 echo "current: $current"
 hostname=$(hostname)
 echo "hostname: $hostname"
+sudo chown -R "${USER:-$(id -un)}" .
 git commit --no-verify --allow-empty -m "$hostname $current"
