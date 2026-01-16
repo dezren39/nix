@@ -174,6 +174,7 @@
       aerospace
       dockutil
       fswatch
+      noTunes
       # rectangle
     ];
 }

@@ -32,7 +32,11 @@ lib.recursiveUpdate {
       allowInsecure = false;
       allowUnsupportedSystem = true;
     };
-    # overlays = ...
+    overlays = [
+      (final: prev: {
+        noTunes = final.callPackage ./pkgs/noTunes.nix { };
+      })
+    ];
   };
 
   # nix.package = pkgs.nix # disabled because using determinate nix
