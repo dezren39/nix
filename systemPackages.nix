@@ -10,6 +10,7 @@
     [
       colima
       docker
+      uv
       docker-compose
       inputs.nixpkgs-terraform.packages.${system}."terraform-1.5.7"
       # possibly not darwin
