@@ -7,12 +7,14 @@
       # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
-      url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
+      url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
       # url = "github:ofalvai/nixpkgs/72a5334";
       # url = "github:nixos/nixpkgs";
     };
     nixpkgs-git = {
-      url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
+      url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
       # url = "github:ofalvai/nixpkgs/72a5334";
@@ -25,7 +27,8 @@
       # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
-      url = "github:nixos/nixpkgs/nixos-unstable";
+      # url = "github:nixos/nixpkgs/nixos-unstable";
+      url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
       # url = "github:ofalvai/nixpkgs/72a5334";
     };
     systems.url = "github:nix-systems/default";
