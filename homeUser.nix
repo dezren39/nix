@@ -12,6 +12,8 @@ lib.recursiveUpdate {
     stateVersion = "23.05";
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
+      ".config/opencode/commands/fix.md".source = ./config/.opencode/commands/fix.md;
+      ".config/opencode/commands/why.md".source = ./config/.opencode/commands/why.md;
     };
     # activation = {
     #   reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -22,7 +24,7 @@ lib.recursiveUpdate {
       EDITOR = "code-insiders";
       LANG = "en_US.UTF-8";
       COPILOT_MODEL = "claude-opus-4.5";
-      OPENCODE_EXPERIMENTAL="true";
+      OPENCODE_EXPERIMENTAL = "true";
     };
   } (import ./homePackages.nix { inherit config pkgs; });
 } (import ./homePrograms.nix { inherit inputs system; })
