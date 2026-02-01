@@ -12,7 +12,7 @@ lib.recursiveUpdate {
     stateVersion = "23.05";
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
-      ".config/opencode".source = ./config/opencode;
+      ".config/opencode/commands".source = ./config/opencode/commands;
     };
     # activation = {
     #   reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
