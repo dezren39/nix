@@ -22,6 +22,7 @@ lib.recursiveUpdate {
       EDITOR = "code-insiders";
       LANG = "en_US.UTF-8";
       COPILOT_MODEL = "claude-opus-4.5";
+      OPENCODE_EXPERIMENTAL="true";
     };
   } (import ./homePackages.nix { inherit config pkgs; });
 } (import ./homePrograms.nix { inherit inputs system; })
