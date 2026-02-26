@@ -49,7 +49,9 @@
       # inputs.nixpkgs.follows = "nixpkgs";
     };
     brew-src = {
-      url = "github:Homebrew/brew/5.0.15"; # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
+      # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
+      # find latest version here https://github.com/Homebrew/brew/releases
+      url = "github:Homebrew/brew/5.0.15";
       flake = false;
     };
     nix-homebrew = {
