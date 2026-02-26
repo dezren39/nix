@@ -117,7 +117,7 @@
       mas
       meslo-lgs-nf
       micro
-      mitmproxy
+      # mitmproxy # broken on master 2026-02-26
       mutagen
       mutagen-compose
       nats-server
@@ -132,6 +132,7 @@
       # noto-fonts-emoji
       #openfortivpn
       opencode
+      opencode-desktop
       openjdk
       openssh
       p7zip

@@ -8,27 +8,27 @@
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
       # url = "github:nixos/nixpkgs/nixos-unstable";
-      url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
+      # url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
       # url = "github:ofalvai/nixpkgs/72a5334";
-      # url = "github:nixos/nixpkgs";
+      url = "github:nixos/nixpkgs";
     };
     nixpkgs-git = {
       # url = "github:nixos/nixpkgs/nixos-unstable";
-      url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
+      # url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
       # url = "github:ofalvai/nixpkgs/72a5334";
-      # url = "github:nixos/nixpkgs";
+      url = "github:nixos/nixpkgs";
     };
     stable = {
       # url = "github:developing-today-forks/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
-      # url = "github:nixos/nixpkgs";
+      url = "github:nixos/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
       # url = "github:nixos/nixpkgs/nixos-unstable";
-      url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
+      # url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
       # url = "github:ofalvai/nixpkgs/72a5334";
     };
     systems.url = "github:nix-systems/default";
@@ -49,7 +49,7 @@
       # inputs.nixpkgs.follows = "nixpkgs";
     };
     brew-src = {
-      url = "github:Homebrew/brew/4.6.12";
+      url = "github:Homebrew/brew/5.0.15"; # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
       flake = false;
     };
     nix-homebrew = {
