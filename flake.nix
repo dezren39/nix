@@ -33,7 +33,7 @@
     };
     systems.url = "github:nix-systems/default";
     determinate = {
-      url = "https://flakehub.com/f/DeterminateSystems/determinate/0.1";
+      url = "https://flakehub.com/f/DeterminateSystems/determinate/*";
       # inputs.nixpkgs.follows = "nixpkgs";
     };
     darwin = {

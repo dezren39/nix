@@ -72,11 +72,11 @@
         "rev": "b0833008a670c5d1ad2d1afbd711c1bf101f5296",
         "revCount": 405,
         "type": "tarball",
-        "url": "https://api.flakehub.com/f/pinned/DeterminateSystems/determinate/0.1.405%2Brev-b0833008a670c5d1ad2d1afbd711c1bf101f5296/019c8e19-48cd-7ab1-870f-0fd1a6781e20/source.tar.gz"
+        "url": "https://api.flakehub.com/f/pinned/DeterminateSystems/determinate/3.16.3/019c8e19-e7a4-7fe4-ad79-b4b5feefd24a/source.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://flakehub.com/f/DeterminateSystems/determinate/0.1"
+        "url": "https://flakehub.com/f/DeterminateSystems/determinate/%2A"
       }
     },
     "determinate-nixd-aarch64-darwin": {
@@ -326,11 +326,11 @@
     "homebrew-cask": {
       "flake": false,
       "locked": {
-        "lastModified": 1772121792,
-        "narHash": "sha256-A2/LEDB5eg009g9fukBt8J4lFLR0JN8cNo6i+1v7QHs=",
+        "lastModified": 1772123393,
+        "narHash": "sha256-utjIZnhvnEKsE9/aEAGixofWdHGiUZm5fZiHRqDv++4=",
         "owner": "homebrew",
         "repo": "homebrew-cask",
-        "rev": "efe3f8795eebd6fca4494a4f50e940683c5952ab",
+        "rev": "69dda80d736963a20c73b84cc369131b621d7ef9",
         "type": "github"
       },
       "original": {
@@ -342,11 +342,11 @@
     "homebrew-core": {
       "flake": false,
       "locked": {
-        "lastModified": 1772122005,
-        "narHash": "sha256-Ym2u7doI7NrULeVwboyaxKWhBw0qiGN6NcAV6Y32zpw=",
+        "lastModified": 1772123024,
+        "narHash": "sha256-Lp4Z+OSYUjn43Hy204Iziu6oRcQ20dSogSzYj7FULBQ=",
         "owner": "homebrew",
         "repo": "homebrew-core",
-        "rev": "0d52d8596048d190e5e647c4dcefa279c7ee69eb",
+        "rev": "4eafbfec7f40d47c240dfdedc8b12ee73b1c0fa2",
         "type": "github"
       },
       "original": {
