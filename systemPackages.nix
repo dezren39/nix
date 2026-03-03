@@ -9,6 +9,7 @@
     with pkgs;
     [
       colima
+      dog
       docker
       uv
       docker-compose
