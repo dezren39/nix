@@ -124,7 +124,7 @@
       nats-server
       natscli
       #ncdu
-      neofetch
+      fastfetch
       neovim
       ngrok
       nmap
