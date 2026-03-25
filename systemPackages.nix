@@ -68,7 +68,7 @@
       difftastic
       dive
       dust
-      emacs
+      # emacs
       # emacs-unstable
       # emacs-all-the-icons-fonts
       fastlane
