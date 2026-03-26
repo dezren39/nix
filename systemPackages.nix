@@ -36,7 +36,7 @@
       aspellDicts.en
       nixfmt
       awscli
-      direnv
+      # direnv - managed via home-manager programs.direnv for shell hook integration
       jujutsu
       lazyjj
       bandwhich
@@ -171,6 +171,7 @@
       zip
       zsh-powerlevel10k
       dotnet-sdk_9
+      just
     ]
     ++ [
       # darwin
