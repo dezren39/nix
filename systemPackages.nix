@@ -36,7 +36,7 @@
       aspellDicts.en
       nixfmt
       awscli
-      # direnv - managed via home-manager programs.direnv for shell hook integration
+      direnv
       jujutsu
       lazyjj
       bandwhich

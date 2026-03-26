@@ -1,0 +1,33 @@
+{
+  "sessionID": "ses_2d424e5c7ffeT1DcIWUpA44caP",
+  "slots": {
+    "error": [],
+    "decision": [],
+    "todo": [],
+    "dependency": []
+  },
+  "pool": [
+    {
+      "id": "wm_1774557277079_vkz28mz",
+      "type": "file-path",
+      "content": "README.md",
+      "source": "tool:read",
+      "timestamp": 1774557277079,
+      "relevanceScore": 1.35,
+      "mentions": 1,
+      "lastEventCounter": 2
+    },
+    {
+      "id": "wm_1774557277080_12mmi7q",
+      "type": "file-path",
+      "content": "TODO.md",
+      "source": "tool:read",
+      "timestamp": 1774557277079,
+      "relevanceScore": 1,
+      "mentions": 1,
+      "lastEventCounter": 2
+    }
+  ],
+  "eventCounter": 2,
+  "updatedAt": "2026-03-26T20:34:37.080Z"
+}

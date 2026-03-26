@@ -1,0 +1,7 @@
+{
+  "callID": "tooluse_vsOsNC0GD9p91OUl0vtVMK",
+  "sessionID": "ses_2d424e5c7ffeT1DcIWUpA44caP",
+  "tool": "read",
+  "fullOutput": "<path>/Users/drewry.pope/.config/nix</path>\n<type>directory</type>\n<entries>\n.aerospace.toml\n.git/\n.github/\n.gitignore\n.opencode/\n.zed/\nbackup-zed.sh\nbrews.nix\ncasks.nix\ncode-install-extensions.sh\nconfig.toml\nconfig/\nconfiguration.nix\nDCO-1.1\nflake.lock\nflake.nix\nhomebrew-services.patch\nhomePackages.nix\nhomePrograms.nix\nhomeUser.nix\nLICENSE.APACHE-2.0\nLICENSE.MIT\nmacOS App LoginExtension-EXE.dmg\nmasApps.nix\nnix.settings.nix\nNOTICE\npath.sh\npkgs/\nr\nREADME.md\nrebuild.sh\nresult\ns\nsearch.sh\nservices.nix\nsimple-rebuild.sh\nsystemPackages.nix\nsystemVariables.nix\nTODO.md\ntreefmt.nix\nvsc-extensions.txt\n\n(41 entries)\n</entries>",
+  "timestamp": 1774557277078
+}
