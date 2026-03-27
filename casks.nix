@@ -60,6 +60,7 @@ _: {
     "raycast"
     "asana"
     "google-chrome"
+    "keycastr"
   ]
   ++ [
     # adopted custom
