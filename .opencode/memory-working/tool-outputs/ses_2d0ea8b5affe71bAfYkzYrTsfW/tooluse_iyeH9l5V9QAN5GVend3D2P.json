@@ -1,0 +1,7 @@
+{
+  "callID": "tooluse_iyeH9l5V9QAN5GVend3D2P",
+  "sessionID": "ses_2d0ea8b5affe71bAfYkzYrTsfW",
+  "tool": "bash",
+  "fullOutput": "warning: Git tree '/Users/drewry.pope/.config/nix' is dirty\nunpacking 'github:anomalyco/opencode/3fb60d05e555dad020d3354602affe166ef0cc22' into the Git cache...\nwarning: updating lock file '\"/Users/drewry.pope/.config/nix/flake.lock\"':\n• Added input 'opencode':\n    'github:anomalyco/opencode/3fb60d05e555dad020d3354602affe166ef0cc22?narHash=sha256-ZxmzU/6Gcrq9DFEmqdLWFnZkZuGWZNZBiSycarKflw4%3D' (2026-03-27)\n• Added input 'opencode/nixpkgs':\n    'github:NixOS/nixpkgs/7149c06513f335be57f26fcbbbe34afda923882b?narHash=sha256-vglVrLfHjFIzIdV9A27Ugul6rh3I1qHbbitGW7dk420%3D' (2026-03-19)\nwarning: Git tree '/Users/drewry.pope/.config/nix' is dirty\n",
+  "timestamp": 1774611544872
+}

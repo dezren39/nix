@@ -91,6 +91,10 @@
     treefmt-nix.url = "github:numtide/treefmt-nix";
     nixpkgs-terraform.url = "github:stackbuilders/nixpkgs-terraform";
     flake-utils.url = "github:numtide/flake-utils";
+    opencode = {
+      url = "github:anomalyco/opencode/dev";
+      # inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs =
     inputs:

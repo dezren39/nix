@@ -132,8 +132,22 @@
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
-      opencode
-      opencode-desktop
+      inputs.opencode.packages.${system}.opencode
+      # Fix opencode-desktop: upstream flake is missing outputHashes for git dependencies
+      # as-of: 2026-03-27
+      # ref: https://github.com/anomalyco/opencode/issues/18273
+      # ref: https://github.com/Vishal2002/opencode/tree/fix/auth-to-body-provider-dialogs
+      # NOTE: auth->body sed patches removed; SDK types expect `auth` and tsgo -b fails with `body`
+      (inputs.opencode.packages.${system}.desktop.overrideAttrs (old: {
+        cargoDeps = pkgs.rustPlatform.importCargoLock {
+          lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
+          outputHashes = {
+            "specta-2.0.0-rc.22" = "sha256-YsyOAnXELLKzhNlJ35dHA6KGbs0wTAX/nlQoW8wWyJQ=";
+            "tauri-2.9.5" = "sha256-dv5E/+A49ZBvnUQUkCGGJ21iHrVvrhHKNcpUctivJ8M=";
+            "tauri-specta-2.0.0-rc.21" = "sha256-n2VJ+B1nVrh6zQoZyfMoctqP+Csh7eVHRXwUQuiQjaQ=";
+          };
+        };
+      }))
       openjdk
       openssh
       p7zip

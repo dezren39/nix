@@ -1,0 +1,102 @@
+{
+  "sessionID": "ses_2d0ea8b5affe71bAfYkzYrTsfW",
+  "slots": {
+    "error": [
+      {
+        "id": "wm_1774611515272_99jcloh",
+        "type": "error",
+        "content": "error:",
+        "source": "tool:bash",
+        "timestamp": 1774611515272,
+        "relevanceScore": 0,
+        "mentions": 1
+      },
+      {
+        "id": "wm_1774611515272_xp2r96y",
+        "type": "error",
+        "content": "       error: unable to download 'https://api.github.com/repos/anomalyco/opencode/commits/master': HTTP error 422",
+        "source": "tool:bash",
+        "timestamp": 1774611515272,
+        "relevanceScore": 0,
+        "mentions": 1
+      }
+    ],
+    "decision": [],
+    "todo": [],
+    "dependency": []
+  },
+  "pool": [
+    {
+      "id": "wm_1774611443917_psm94ti",
+      "type": "file-path",
+      "content": "README.md",
+      "source": "tool:read",
+      "timestamp": 1774611443916,
+      "relevanceScore": 2.453317796875,
+      "mentions": 1,
+      "lastEventCounter": 7
+    },
+    {
+      "id": "wm_1774611443917_ar9trqn",
+      "type": "file-path",
+      "content": "TODO.md",
+      "source": "tool:read",
+      "timestamp": 1774611443916,
+      "relevanceScore": 2.2980209375,
+      "mentions": 1,
+      "lastEventCounter": 7
+    },
+    {
+      "id": "wm_1774611453753_o39igsg",
+      "type": "file-path",
+      "content": "/Users/drewry.pope/.config/nix/.opencode/memory-working/tool-outputs/ses_2d0ea8b5affe71bAfYkzYrTsfW/tooluse_ASbqWTjsebpHcC88wDAaXT.json",
+      "source": "tool:grep",
+      "timestamp": 1774611453751,
+      "relevanceScore": 2.11531875,
+      "mentions": 1,
+      "lastEventCounter": 7
+    },
+    {
+      "id": "wm_1774611453754_zfma6r9",
+      "type": "file-path",
+      "content": "/Users/drewry.pope/.config/nix/.opencode/memory-working/tool-outputs/ses_2d424e5c7ffeT1DcIWUpA44caP/tooluse_NEtXf6aARSJFDxlxpewNtE.json",
+      "source": "tool:grep",
+      "timestamp": 1774611453751,
+      "relevanceScore": 1.900375,
+      "mentions": 1,
+      "lastEventCounter": 7
+    },
+    {
+      "id": "wm_1774611453754_i8lafsf",
+      "type": "file-path",
+      "content": "/Users/drewry.pope/.config/nix/.opencode/memory-working/tool-outputs/ses_2d424e5c7ffeT1DcIWUpA44caP/tooluse_AMhYAf1qHRu1E7NOY8IHo2.json",
+      "source": "tool:grep",
+      "timestamp": 1774611453751,
+      "relevanceScore": 1.6475,
+      "mentions": 1,
+      "lastEventCounter": 7
+    },
+    {
+      "id": "wm_1774611453754_mbbtiuy",
+      "type": "file-path",
+      "content": "/Users/drewry.pope/.config/nix/.opencode/memory-working/tool-outputs/ses_2d424e5c7ffeT1DcIWUpA44caP/tooluse_vsOsNC0GD9p91OUl0vtVMK.json",
+      "source": "tool:grep",
+      "timestamp": 1774611453751,
+      "relevanceScore": 1.35,
+      "mentions": 1,
+      "lastEventCounter": 7
+    },
+    {
+      "id": "wm_1774611453755_g13uuuh",
+      "type": "file-path",
+      "content": "/Users/drewry.pope/.config/nix/.github/workflows/opencode.yml",
+      "source": "tool:grep",
+      "timestamp": 1774611453751,
+      "relevanceScore": 1,
+      "mentions": 1,
+      "lastEventCounter": 7
+    }
+  ],
+  "eventCounter": 9,
+  "updatedAt": "2026-03-27T11:38:35.272Z"
+}
