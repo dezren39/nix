@@ -2,11 +2,14 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import * as os from "os";
 
 const DEFAULT_BACKUP_DIR = path.join(
   process.env.HOME || process.env.USERPROFILE || "/tmp",
   ".vscode-buffer-backups"
 );
+
+const META_PREFIX = "// BUFFER-BACKUP-META: ";
 
 interface Duration {
   years: number;
@@ -209,13 +212,106 @@ function utcDayDir(base: string): string {
   return dir;
 }
 
-function hash(s: string): string {
+function contentHash(s: string): string {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
 
 const lastHash = new Map<string, string>();
 
-function backupDoc(doc: vscode.TextDocument, dir: string): void {
+type BackupTrigger = "change" | "focus" | "init";
+
+interface BackupMeta {
+  sha256: string;
+  bufferUri: string;
+  languageId: string;
+  lineCount: number;
+  charCount: number;
+  firstLine: string;
+  openTabs: number;
+  untitledTabs: number;
+  dirtyTabs: number;
+  workspace: string;
+  hostname: string;
+  vscodeVersion: string;
+  trigger: BackupTrigger;
+  timestamp: string;
+}
+
+function getFirstLine(text: string): string {
+  const lines = text.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0) {
+      return trimmed.length > 120 ? trimmed.slice(0, 120) + "..." : trimmed;
+    }
+  }
+  return "";
+}
+
+function getWorkspacePath(): string {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    return "(no workspace)";
+  }
+  return folders.map((f) => f.uri.fsPath).join("; ");
+}
+
+function countTabs(): { open: number; untitled: number; dirty: number } {
+  let open = 0;
+  let untitled = 0;
+  let dirty = 0;
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      open++;
+      if (tab.isDirty) {
+        dirty++;
+      }
+      const input = tab.input;
+      if (input && typeof input === "object" && "uri" in input) {
+        const uri = (input as { uri: vscode.Uri }).uri;
+        if (uri.scheme === "untitled") {
+          untitled++;
+        }
+      }
+    }
+  }
+  return { open, untitled, dirty };
+}
+
+function buildMeta(
+  doc: vscode.TextDocument,
+  text: string,
+  h: string,
+  trigger: BackupTrigger
+): BackupMeta {
+  const tabs = countTabs();
+  return {
+    sha256: h,
+    bufferUri: doc.uri.toString(),
+    languageId: doc.languageId || "txt",
+    lineCount: doc.lineCount,
+    charCount: text.length,
+    firstLine: getFirstLine(text),
+    openTabs: tabs.open,
+    untitledTabs: tabs.untitled,
+    dirtyTabs: tabs.dirty,
+    workspace: getWorkspacePath(),
+    hostname: os.hostname(),
+    vscodeVersion: vscode.version,
+    trigger,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function formatMetaLine(meta: BackupMeta): string {
+  return META_PREFIX + JSON.stringify(meta);
+}
+
+function backupDoc(
+  doc: vscode.TextDocument,
+  dir: string,
+  trigger: BackupTrigger
+): void {
   if (doc.uri.scheme !== "untitled") {
     return;
   }
@@ -225,7 +321,7 @@ function backupDoc(doc: vscode.TextDocument, dir: string): void {
   }
 
   const key = doc.uri.toString();
-  const h = hash(text);
+  const h = contentHash(text);
   if (lastHash.get(key) === h) {
     return;
   }
@@ -235,13 +331,16 @@ function backupDoc(doc: vscode.TextDocument, dir: string): void {
   const lang = doc.languageId || "txt";
   const dayDir = utcDayDir(dir);
 
-  fs.writeFileSync(path.join(dayDir, `${name}_${ts}.${lang}`), text);
+  const meta = buildMeta(doc, text, h, trigger);
+  const content = formatMetaLine(meta) + "\n" + text;
+
+  fs.writeFileSync(path.join(dayDir, `${name}_${ts}.${lang}`), content);
   lastHash.set(key, h);
 }
 
-function backupAll(cfg: Config): void {
+function backupAll(cfg: Config, trigger: BackupTrigger): void {
   for (const doc of vscode.workspace.textDocuments) {
-    backupDoc(doc, cfg.backupDir);
+    backupDoc(doc, cfg.backupDir, trigger);
   }
 }
 
@@ -279,12 +378,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
       }
       timers.set(
         key,
-        setTimeout(() => backupDoc(doc, cfg.backupDir), cfg.debounceMs)
+        setTimeout(() => backupDoc(doc, cfg.backupDir, "change"), cfg.debounceMs)
       );
     }),
 
     vscode.window.onDidChangeWindowState(() => {
-      backupAll(cfg);
+      backupAll(cfg, "focus");
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -311,6 +410,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
   cleanupAge(cfg);
   cleanupSize(cfg);
   cleanupCount(cfg);
+
+  // Initial backup of any already-open untitled buffers
+  backupAll(cfg, "init");
 }
 
 export function deactivate(): void {
