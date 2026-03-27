@@ -1,0 +1,119 @@
+{
+  "name": "buffer-backup",
+  "displayName": "Buffer Backup",
+  "description": "Automatically backs up untitled/unsaved buffers to disk with configurable retention policies",
+  "version": "0.2.0",
+  "publisher": "drewry-pope",
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "Buffer Backup",
+      "properties": {
+        "bufferBackup.backupDir": {
+          "type": "string",
+          "default": "",
+          "description": "Backup directory (default: ~/.vscode-buffer-backups)"
+        },
+        "bufferBackup.maxAge.years": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max age: years component"
+        },
+        "bufferBackup.maxAge.months": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max age: months component (30 days each)"
+        },
+        "bufferBackup.maxAge.days": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max age: days component"
+        },
+        "bufferBackup.maxAge.hours": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max age: hours component"
+        },
+        "bufferBackup.maxAge.minutes": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max age: minutes component"
+        },
+        "bufferBackup.maxAge.seconds": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max age: seconds component"
+        },
+        "bufferBackup.maxTotalMb": {
+          "type": "number",
+          "default": 0,
+          "description": "Max total backup size in MB (0 = disabled)"
+        },
+        "bufferBackup.rolloutMb": {
+          "type": "number",
+          "default": 0,
+          "description": "MB to free when maxTotalMb is hit (oldest first)"
+        },
+        "bufferBackup.maxFileCount": {
+          "type": "integer",
+          "default": 0,
+          "description": "Max backup file count (0 = disabled)"
+        },
+        "bufferBackup.rolloutFileCount": {
+          "type": "integer",
+          "default": 0,
+          "description": "Files to delete when maxFileCount is hit (oldest first)"
+        },
+        "bufferBackup.debounceMs": {
+          "type": "integer",
+          "default": 3000,
+          "description": "Debounce delay on text change in milliseconds"
+        },
+        "bufferBackup.ageCleanupIntervalSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "description": "Age cleanup interval in seconds (null/0 = 5s, min 1s)"
+        },
+        "bufferBackup.sizeCleanupIntervalSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "description": "Size cleanup interval in seconds (null/0 = 5s, min 1s)"
+        },
+        "bufferBackup.countCleanupIntervalSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "default": null,
+          "description": "Count cleanup interval in seconds (null/0 = 5s, min 1s)"
+        }
+      }
+    }
+  }
+}

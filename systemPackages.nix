@@ -58,6 +58,7 @@
       caddy
       certstrap
       cfssl
+      chromium
       cocoapods
       coreutils
       curl
@@ -155,6 +156,8 @@
       pgcli
       # php81
       platformio
+      playwright-driver
+      playwright-test
       pngquant
       protobuf
       protoc-gen-go
