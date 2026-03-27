@@ -1,7 +1,0 @@
-{
-  "callID": "tooluse_4nMkJuwkmIUe6LQLVPnmWY",
-  "sessionID": "ses_2d0ea8b5affe71bAfYkzYrTsfW",
-  "tool": "read",
-  "fullOutput": "<path>/Users/drewry.pope/.config/nix/systemPackages.nix</path>\n<type>file</type>\n<content>130:       nmap\n131:       nodejs\n132:       # noto-fonts\n133:       # noto-fonts-emoji\n134:       #openfortivpn\n135:       inputs.opencode.packages.${system}.opencode\n136:       inputs.opencode.packages.${system}.desktop\n137:       openjdk\n138:       openssh\n139:       p7zip\n140:       pandoc\n141:       pgcli\n142:       # php81\n143:       platformio\n144:       pngquant\n\n(Showing lines 130-144 of 184. Use offset=145 to continue.)\n</content>",
-  "timestamp": 1774612027509
-}

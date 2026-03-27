@@ -1,7 +1,0 @@
-{
-  "callID": "tooluse_PHwYaBoOpazbwqWRet8jPp",
-  "sessionID": "ses_2d0ea8b5affe71bAfYkzYrTsfW",
-  "tool": "bash",
-  "fullOutput": "warning: '--update-input' is a deprecated alias for 'flake update' and will be removed in a future version.\nwarning: Git tree '/Users/drewry.pope/.config/nix' is dirty\nerror:\n       … while updating the lock file of flake 'git+file:///Users/drewry.pope/.config/nix'\n\n       … while updating the flake input 'opencode'\n\n       … while fetching the input 'github:anomalyco/opencode/master'\n\n       error: unable to download 'https://api.github.com/repos/anomalyco/opencode/commits/master': HTTP error 422\n\n       response body:\n\n       {\n         \"message\": \"No commit found for SHA: master\",\n         \"documentation_url\": \"https://docs.github.com/rest/commits/commits#get-a-commit\",\n         \"status\": \"422\"\n       }\n",
-  "timestamp": 1774611515271
-}

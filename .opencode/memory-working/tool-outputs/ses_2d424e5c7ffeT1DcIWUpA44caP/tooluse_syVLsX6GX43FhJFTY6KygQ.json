@@ -1,7 +1,0 @@
-{
-  "callID": "tooluse_syVLsX6GX43FhJFTY6KygQ",
-  "sessionID": "ses_2d424e5c7ffeT1DcIWUpA44caP",
-  "tool": "glob",
-  "fullOutput": "/Users/drewry.pope/.config/nix/systemPackages.nix\n/Users/drewry.pope/.config/nix/homePrograms.nix\n/Users/drewry.pope/.config/nix/configuration.nix\n/Users/drewry.pope/.config/nix/flake.nix\n/Users/drewry.pope/.config/nix/homeUser.nix\n/Users/drewry.pope/.config/nix/systemVariables.nix\n/Users/drewry.pope/.config/nix/pkgs/noTunes.nix\n/Users/drewry.pope/.config/nix/brews.nix\n/Users/drewry.pope/.config/nix/casks.nix\n/Users/drewry.pope/.config/nix/services.nix\n/Users/drewry.pope/.config/nix/nix.settings.nix\n/Users/drewry.pope/.config/nix/treefmt.nix\n/Users/drewry.pope/.config/nix/masApps.nix\n/Users/drewry.pope/.config/nix/homePackages.nix",
-  "timestamp": 1774557277783
-}

@@ -10,3 +10,14 @@ result*
 *.swp
 
 *.dmg
+
+# opencode/thoughts session files
+.opencode/**/ses_*
+.opencode/ses_*
+.opencode/**/*_ses_*
+.opencode/*_ses_*
+.opencode/worktree-session-state.json
+thoughts/**/ses_*
+thoughts/ses_*
+thoughts/**/*_ses_*
+thoughts/*_ses_*
