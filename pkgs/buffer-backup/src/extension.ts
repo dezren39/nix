@@ -11,6 +11,105 @@ const DEFAULT_BACKUP_DIR = path.join(
 
 const META_PREFIX = "// BUFFER-BACKUP-META: ";
 
+// Map VS Code languageId → common file extension
+const LANG_TO_EXT: Record<string, string> = {
+  abap: ".abap",
+  bat: ".bat",
+  bibtex: ".bib",
+  c: ".c",
+  clojure: ".clj",
+  coffeescript: ".coffee",
+  cpp: ".cpp",
+  csharp: ".cs",
+  css: ".css",
+  cuda: ".cu",
+  d: ".d",
+  dart: ".dart",
+  "dockerfile": ".dockerfile",
+  elixir: ".ex",
+  elm: ".elm",
+  erlang: ".erl",
+  fsharp: ".fs",
+  "git-commit": ".txt",
+  "git-rebase": ".txt",
+  go: ".go",
+  graphql: ".graphql",
+  groovy: ".groovy",
+  haml: ".haml",
+  handlebars: ".hbs",
+  haskell: ".hs",
+  html: ".html",
+  ini: ".ini",
+  java: ".java",
+  javascript: ".js",
+  javascriptreact: ".jsx",
+  json: ".json",
+  jsonc: ".jsonc",
+  julia: ".jl",
+  kotlin: ".kt",
+  latex: ".tex",
+  less: ".less",
+  lisp: ".lisp",
+  log: ".log",
+  lua: ".lua",
+  makefile: ".mk",
+  markdown: ".md",
+  "objective-c": ".m",
+  "objective-cpp": ".mm",
+  ocaml: ".ml",
+  pascal: ".pas",
+  perl: ".pl",
+  perl6: ".p6",
+  php: ".php",
+  plaintext: ".txt",
+  powershell: ".ps1",
+  pug: ".pug",
+  python: ".py",
+  r: ".r",
+  razor: ".cshtml",
+  ruby: ".rb",
+  rust: ".rs",
+  sass: ".sass",
+  scala: ".scala",
+  scheme: ".scm",
+  scss: ".scss",
+  shellscript: ".sh",
+  slim: ".slim",
+  sql: ".sql",
+  stylus: ".styl",
+  svelte: ".svelte",
+  swift: ".swift",
+  tcl: ".tcl",
+  tex: ".tex",
+  toml: ".toml",
+  typescript: ".ts",
+  typescriptreact: ".tsx",
+  vb: ".vb",
+  vue: ".vue",
+  xml: ".xml",
+  xsl: ".xsl",
+  yaml: ".yaml",
+  zig: ".zig",
+  nix: ".nix",
+  proto: ".proto",
+  terraform: ".tf",
+  "terraform-vars": ".tfvars",
+  astro: ".astro",
+  mdx: ".mdx",
+  prisma: ".prisma",
+  "github-actions-workflow": ".yml",
+  ignore: ".gitignore",
+  properties: ".properties",
+  diff: ".diff",
+  csv: ".csv",
+  tsv: ".tsv",
+  jsonl: ".jsonl",
+};
+
+function langToExtension(languageId: string): string {
+  return LANG_TO_EXT[languageId] || `.${languageId}`;
+}
+
 interface Duration {
   years: number;
   months: number;
@@ -217,22 +316,30 @@ function contentHash(s: string): string {
 }
 
 const lastHash = new Map<string, string>();
+const lastBackupPath = new Map<string, string>();
 
-type BackupTrigger = "change" | "focus" | "init";
+type BackupTrigger = "change" | "focus" | "init" | "close" | "will-save";
 
 interface BackupMeta {
   sha256: string;
   bufferUri: string;
   languageId: string;
+  fileExtension: string;
   lineCount: number;
   charCount: number;
   firstLine: string;
+  allTabs: string[];
   openTabs: number;
   untitledTabs: number;
   dirtyTabs: number;
+  terminals: string[];
   workspace: string;
+  windowTitle: string;
+  appName: string;
+  appHost: string;
   hostname: string;
   vscodeVersion: string;
+  previousBackupPath: string | null;
   trigger: BackupTrigger;
   timestamp: string;
 }
@@ -256,13 +363,22 @@ function getWorkspacePath(): string {
   return folders.map((f) => f.uri.fsPath).join("; ");
 }
 
-function countTabs(): { open: number; untitled: number; dirty: number } {
+interface TabInfo {
+  labels: string[];
+  open: number;
+  untitled: number;
+  dirty: number;
+}
+
+function getTabInfo(): TabInfo {
+  const labels: string[] = [];
   let open = 0;
   let untitled = 0;
   let dirty = 0;
   for (const group of vscode.window.tabGroups.all) {
     for (const tab of group.tabs) {
       open++;
+      labels.push(tab.label);
       if (tab.isDirty) {
         dirty++;
       }
@@ -275,7 +391,19 @@ function countTabs(): { open: number; untitled: number; dirty: number } {
       }
     }
   }
-  return { open, untitled, dirty };
+  return { labels, open, untitled, dirty };
+}
+
+function getTerminalNames(): string[] {
+  return vscode.window.terminals.map((t) => t.name);
+}
+
+function getWindowTitle(): string {
+  const folders = vscode.workspace.workspaceFolders;
+  const wsName = folders && folders.length > 0
+    ? folders.map((f) => f.name).join(", ")
+    : "(no folder)";
+  return `${wsName} — ${vscode.env.appName}`;
 }
 
 function buildMeta(
@@ -284,20 +412,29 @@ function buildMeta(
   h: string,
   trigger: BackupTrigger
 ): BackupMeta {
-  const tabs = countTabs();
+  const tabs = getTabInfo();
+  const bufferUri = doc.uri.toString();
+  const ext = langToExtension(doc.languageId || "txt");
   return {
     sha256: h,
-    bufferUri: doc.uri.toString(),
+    bufferUri,
     languageId: doc.languageId || "txt",
+    fileExtension: ext,
     lineCount: doc.lineCount,
     charCount: text.length,
     firstLine: getFirstLine(text),
+    allTabs: tabs.labels,
     openTabs: tabs.open,
     untitledTabs: tabs.untitled,
     dirtyTabs: tabs.dirty,
+    terminals: getTerminalNames(),
     workspace: getWorkspacePath(),
+    windowTitle: getWindowTitle(),
+    appName: vscode.env.appName,
+    appHost: vscode.env.appHost,
     hostname: os.hostname(),
     vscodeVersion: vscode.version,
+    previousBackupPath: lastBackupPath.get(bufferUri) || null,
     trigger,
     timestamp: new Date().toISOString(),
   };
@@ -322,20 +459,25 @@ function backupDoc(
 
   const key = doc.uri.toString();
   const h = contentHash(text);
-  if (lastHash.get(key) === h) {
+
+  // On close/will-save triggers, always write even if hash matches (final snapshot)
+  const forceWrite = trigger === "close" || trigger === "will-save";
+  if (!forceWrite && lastHash.get(key) === h) {
     return;
   }
 
   const name = doc.uri.path.replace(/[^a-zA-Z0-9]/g, "_") || "untitled";
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const lang = doc.languageId || "txt";
+  const ext = langToExtension(doc.languageId || "txt");
   const dayDir = utcDayDir(dir);
 
   const meta = buildMeta(doc, text, h, trigger);
   const content = formatMetaLine(meta) + "\n" + text;
 
-  fs.writeFileSync(path.join(dayDir, `${name}_${ts}.${lang}`), content);
+  const backupFilePath = path.join(dayDir, `${name}_${ts}${ext}`);
+  fs.writeFileSync(backupFilePath, content);
   lastHash.set(key, h);
+  lastBackupPath.set(key, backupFilePath);
 }
 
 function backupAll(cfg: Config, trigger: BackupTrigger): void {
@@ -366,6 +508,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   setupCleanupTimers();
 
   ctx.subscriptions.push(
+    // Debounced backup on text change
     vscode.workspace.onDidChangeTextDocument((e) => {
       const doc = e.document;
       if (doc.uri.scheme !== "untitled") {
@@ -382,8 +525,32 @@ export function activate(ctx: vscode.ExtensionContext): void {
       );
     }),
 
+    // Backup on window focus change
     vscode.window.onDidChangeWindowState(() => {
       backupAll(cfg, "focus");
+    }),
+
+    // Backup when tab is about to close (fires for untitled docs when user dismisses save dialog)
+    vscode.workspace.onDidCloseTextDocument((doc) => {
+      if (doc.uri.scheme !== "untitled") {
+        return;
+      }
+      // Flush any pending debounce timer for this doc
+      const key = doc.uri.toString();
+      const pending = timers.get(key);
+      if (pending !== undefined) {
+        clearTimeout(pending);
+        timers.delete(key);
+      }
+      backupDoc(doc, cfg.backupDir, "close");
+    }),
+
+    // Backup when save dialog appears (willSave fires before the save-as prompt)
+    vscode.workspace.onWillSaveTextDocument((e) => {
+      if (e.document.uri.scheme !== "untitled") {
+        return;
+      }
+      backupDoc(e.document, cfg.backupDir, "will-save");
     }),
 
     vscode.workspace.onDidChangeConfiguration((e) => {
