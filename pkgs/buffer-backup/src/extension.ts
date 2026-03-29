@@ -318,7 +318,7 @@ function contentHash(s: string): string {
 const lastHash = new Map<string, string>();
 const lastBackupPath = new Map<string, string>();
 
-type BackupTrigger = "change" | "focus" | "init" | "close" | "will-save";
+type BackupTrigger = "change" | "focus" | "init" | "close" | "will-save" | "tab-switch";
 
 interface BackupMeta {
   sha256: string;
@@ -507,6 +507,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
   setupCleanupTimers();
 
+  // Track the previously active editor so we can back it up on tab switch
+  let previousEditor: vscode.TextEditor | undefined = vscode.window.activeTextEditor;
+
   ctx.subscriptions.push(
     // Debounced backup on text change
     vscode.workspace.onDidChangeTextDocument((e) => {
@@ -528,6 +531,14 @@ export function activate(ctx: vscode.ExtensionContext): void {
     // Backup on window focus change
     vscode.window.onDidChangeWindowState(() => {
       backupAll(cfg, "focus");
+    }),
+
+    // Backup when switching tabs (back up the tab we just left)
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (previousEditor && previousEditor.document.uri.scheme === "untitled") {
+        backupDoc(previousEditor.document, cfg.backupDir, "tab-switch");
+      }
+      previousEditor = editor;
     }),
 
     // Backup when tab is about to close (fires for untitled docs when user dismisses save dialog)
