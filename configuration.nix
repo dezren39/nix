@@ -36,6 +36,13 @@ lib.recursiveUpdate {
       (final: prev: {
         noTunes = final.callPackage ./pkgs/noTunes.nix { };
       })
+      # (final: prev: {
+      #   helium =
+      #     (import inputs.nixpkgs-helium {
+      #       inherit (prev) system;
+      #       config = prev.config;
+      #     }).helium;
+      # })
     ];
   };
 

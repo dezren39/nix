@@ -95,6 +95,10 @@
       url = "github:anomalyco/opencode/dev";
       # inputs.nixpkgs.follows = "nixpkgs";
     };
+    # nixpkgs-helium = {
+    #   # https://github.com/NixOS/nixpkgs/pull/498572
+    #   url = "github:Nytelife26/nixpkgs/helium/init";
+    # };
   };
   outputs =
     inputs:

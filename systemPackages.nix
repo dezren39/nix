@@ -59,6 +59,7 @@
       certstrap
       cfssl
       chromium
+      # helium
       cocoapods
       coreutils
       curl
@@ -129,7 +130,9 @@
       neovim
       ngrok
       nmap
+      bun
       nodejs
+      pnpm
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
@@ -156,8 +159,8 @@
       pgcli
       # php81
       platformio
-      playwright-driver
-      playwright-test
+      # playwright-driver # driverLink not supported on darwin
+      # playwright-test  # depends on playwright-driver
       pngquant
       protobuf
       protoc-gen-go
@@ -187,6 +190,7 @@
       yarn
       zip
       zsh-powerlevel10k
+      cargo
       dotnet-sdk_9
       just
     ]

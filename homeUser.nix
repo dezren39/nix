@@ -14,11 +14,14 @@ lib.recursiveUpdate {
       ".aerospace.toml".source = ./.aerospace.toml;
       ".config/opencode/commands".source = ./config/opencode/commands;
     };
-    # activation = {
-    #   reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    #     $DRY_RUN_CMD ${pkgs.aerospace}/bin/aerospace reload-config
-    #   '';
-    # };
+    activation = {
+      # reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
+      #   $DRY_RUN_CMD ${pkgs.aerospace}/bin/aerospace reload-config
+      # '';
+      installPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        run ${pkgs.nodejs}/bin/npm install -g playwright@latest 2>/dev/null || true
+      '';
+    };
     sessionVariables = {
       EDITOR = "code-insiders";
       LANG = "en_US.UTF-8";
