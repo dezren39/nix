@@ -58,7 +58,7 @@
       caddy
       certstrap
       cfssl
-      chromium
+      # chromium # driverLink not supported on darwin - 2026-03-29
       # helium
       cocoapods
       coreutils
@@ -136,13 +136,25 @@
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
-      inputs.opencode.packages.${system}.opencode
+      # Patch opencode with upstream PRs not yet merged to dev:
+      # - PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise
+      # - PR #18879: Clarify edit tool read requirement for new file creation
+      (inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          ./opencode-copilot-compaction-fix.patch
+          ./opencode-edit-read-clarify.patch
+        ];
+      }))
       # Fix opencode-desktop: upstream flake is missing outputHashes for git dependencies
       # as-of: 2026-03-27
       # ref: https://github.com/anomalyco/opencode/issues/18273
       # ref: https://github.com/Vishal2002/opencode/tree/fix/auth-to-body-provider-dialogs
       # NOTE: auth->body sed patches removed; SDK types expect `auth` and tsgo -b fails with `body`
       (inputs.opencode.packages.${system}.desktop.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          ./opencode-copilot-compaction-fix.patch
+          ./opencode-edit-read-clarify.patch
+        ];
         cargoDeps = pkgs.rustPlatform.importCargoLock {
           lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
           outputHashes = {

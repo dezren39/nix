@@ -528,22 +528,6 @@
         "type": "github"
       }
     },
-    "nixpkgs-helium": {
-      "locked": {
-        "lastModified": 1774543824,
-        "narHash": "sha256-k98v9ktb8tJXbNLKffHyb3X2D0gjfA5Q4qEOGWvfSXM=",
-        "owner": "Nytelife26",
-        "repo": "nixpkgs",
-        "rev": "a2f7e81b7f671d75f4dee225c994a72b16d9ccd9",
-        "type": "github"
-      },
-      "original": {
-        "owner": "Nytelife26",
-        "ref": "helium/init",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "nixpkgs-lib": {
       "locked": {
         "lastModified": 1765674936,
@@ -824,7 +808,6 @@
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs_8",
         "nixpkgs-git": "nixpkgs-git",
-        "nixpkgs-helium": "nixpkgs-helium",
         "nixpkgs-terraform": "nixpkgs-terraform",
         "nur": "nur",
         "opencode": "opencode",
