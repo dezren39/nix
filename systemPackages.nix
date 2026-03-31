@@ -205,9 +205,14 @@
       cargo
       dotnet-sdk_9
       just
+      # linker/binary diagnostic and fixing tools
+      patchelf # fix ELF binaries (rpath, interpreter) - essential for Linux containers/cross-compile
+      binutils # readelf, objdump, nm, strings - inspect binaries
+      file # identify binary types (ELF vs Mach-O, architecture)
     ]
     ++ [
       # darwin
+      cctools # install_name_tool, otool, lipo - inspect/fix Mach-O binaries
       aerospace
       dockutil
       fswatch
