@@ -53,7 +53,7 @@
       screen
       black
       btop
-      buf
+      (buf.overrideAttrs { doCheck = false; }) # WASM plugin timeout in TestRunBreakingPolicyLocal under Nix sandbox
       stow
       caddy
       certstrap

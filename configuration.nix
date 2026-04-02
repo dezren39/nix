@@ -125,6 +125,19 @@ lib.recursiveUpdate {
     enable = true;
     enableRosetta = true;
     user = "drewry.pope";
+    # Workaround: nix-homebrew uses Ruby 4.0 but brew vendors gems under ruby/3.4.0.
+    # bundler/setup.rb resolves to ruby/4.0.0/ which doesn't exist, so gems like
+    # sorbet-runtime fail to load. Also, install_bundler_gems! tries to write into the
+    # read-only Nix store (gems.rb mkpath). Fix both by:
+    # 1. Symlinking ruby/4.0.0 → 3.4.0 so bundler/setup.rb finds vendored gems
+    # 2. Setting HOMEBREW_SKIP_INITIAL_GEM_INSTALL to prevent writes to Nix store
+    # ref: https://github.com/zhaofengli/nix-homebrew/issues/35
+    package = pkgs.runCommandLocal "brew-src-ruby40-compat" { } ''
+      cp -r "${inputs.brew-src}" "$out"
+      chmod u+w "$out/Library/Homebrew/vendor/bundle/ruby"
+      ln -s 3.4.0 "$out/Library/Homebrew/vendor/bundle/ruby/4.0.0"
+    '';
+    extraEnv.HOMEBREW_SKIP_INITIAL_GEM_INSTALL = "1";
     taps = {
       "homebrew/homebrew-core" = inputs.homebrew-core;
       "homebrew/homebrew-cask" = inputs.homebrew-cask;

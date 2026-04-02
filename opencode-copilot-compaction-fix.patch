@@ -1,8 +1,7 @@
 diff --git a/packages/opencode/src/session/llm.ts b/packages/opencode/src/session/llm.ts
-index 4be6e2538f7..37323543592 100644
 --- a/packages/opencode/src/session/llm.ts
 +++ b/packages/opencode/src/session/llm.ts
-@@ -160,18 +160,21 @@ export namespace LLM {
+@@ -199,22 +199,25 @@
  
      const tools = await resolveTools(input)
  
@@ -24,8 +23,13 @@ index 4be6e2538f7..37323543592 100644
 +      input.model.api.id.toLowerCase().includes("litellm") ||
 +      input.model.providerID.toLowerCase().includes("github-copilot-enterprise")
  
+-    // LiteLLM/Bedrock rejects requests where the message history contains tool
++    // LiteLLM/Bedrock/Copilot rejects requests where the message history contains tool
+     // calls but no tools param is present. When there are no active tools (e.g.
+     // during compaction), inject a stub tool to satisfy the validation requirement.
+     // The stub description explicitly tells the model not to call it.
 -    if (isLiteLLMProxy && Object.keys(tools).length === 0 && hasToolCalls(input.messages)) {
 +    if (needsDummyTools && Object.keys(tools).length === 0 && hasToolCalls(input.messages)) {
        tools["_noop"] = tool({
-         description:
-           "Placeholder for LiteLLM/Anthropic proxy compatibility - required when message history contains tool calls but no active tools are needed",
+         description: "Do not call this tool. It exists only for API compatibility and must never be invoked.",
+         inputSchema: jsonSchema({
