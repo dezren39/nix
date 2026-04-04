@@ -237,6 +237,13 @@ lib.recursiveUpdate {
   # system.checks.verifyNixPath = false;
   system.primaryUser = "drewry.pope";
 
+  # Restart skhd after rebuild so config changes take effect
+  system.activationScripts.postActivation.text = ''
+    if /bin/launchctl list | grep -q org.nixos.skhd; then
+      /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
+    fi
+  '';
+
   # TODO: module launchd
   launchd.user.agents = {
     naturalScrollingToggle = {
