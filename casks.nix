@@ -73,6 +73,7 @@ _: {
     "rectangle"
     # "superkey"
     "windows-app"
+    "slowquitapps"
     "zed"
     "zoom" # "zoom-us"
   ]

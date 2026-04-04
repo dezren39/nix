@@ -18,6 +18,30 @@ lib.recursiveUpdate {
     ./services.nix
     # ./home.nix
   ];
+
+  # =========================================================================
+  # System-wide git safety — applies to ALL users, ALL git binaries
+  # =========================================================================
+
+  # Patterns file at /etc/gitignore
+  environment.etc."gitignore".text = ''
+    # codedb snapshots — never commit anywhere
+    codedb.snapshot
+
+    # lootbox ephemeral dirs (scripts are fine)
+    .lootbox/cache/
+    .lootbox/tmp/
+  '';
+
+  # System gitconfig at /etc/gitconfig — tells git to use the patterns file
+  # Apple/brew git reads /etc/gitconfig by default; nix git needs the env var below
+  environment.etc."gitconfig".text = ''
+    [core]
+    	excludesFile = /etc/gitignore
+  '';
+
+  # Force nix-packaged git to read /etc/gitconfig (it normally reads $nixStore/etc/gitconfig)
+  environment.variables.GIT_CONFIG_SYSTEM = "/etc/gitconfig";
   # List packages installed in system profile. To search by name, run:
   # $ nix-env -qaP | grep wget
 
@@ -150,6 +174,7 @@ lib.recursiveUpdate {
       # };
       "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
       "Dimentium/homebrew-autoraise" = inputs.homebrew-autoraise;
+      "dteoh/homebrew-sqa" = inputs.homebrew-sqa;
     };
     mutableTaps = false;
     autoMigrate = true;
@@ -226,6 +251,32 @@ lib.recursiveUpdate {
         ];
         StandardErrorPath = "/tmp/natural_scrolling.err.log";
         StandardOutPath = "/tmp/natural_scrolling.out.log";
+      };
+    };
+    lootbox = {
+      path = [
+        config.environment.systemPath
+        "/Users/drewry.pope/.deno/bin"
+      ];
+      serviceConfig = {
+        KeepAlive = true;
+        RunAtLoad = true;
+        WorkingDirectory = "/Users/drewry.pope/.config/nix";
+        ProgramArguments = [
+          "/bin/sh"
+          "-c"
+          ''
+            export PATH="/Users/drewry.pope/.deno/bin:$PATH"
+            # Install lootbox if not present
+            if ! command -v lootbox &>/dev/null; then
+              curl -fsSL https://raw.githubusercontent.com/jx-codes/lootbox/main/install.sh | bash
+            fi
+            # Run lootbox server (foreground so launchd can manage it)
+            exec lootbox server --port 9420
+          ''
+        ];
+        StandardErrorPath = "/tmp/lootbox.err.log";
+        StandardOutPath = "/tmp/lootbox.out.log";
       };
     };
   };

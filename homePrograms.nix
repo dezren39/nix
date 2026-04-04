@@ -24,6 +24,8 @@
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
+        # lootbox: ensure deno and lootbox are on PATH
+        export PATH="$HOME/.deno/bin:$PATH"
       '';
     };
     zsh = {
@@ -33,6 +35,8 @@
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
+        # lootbox: ensure deno and lootbox are on PATH
+        export PATH="$HOME/.deno/bin:$PATH"
       '';
     };
     fish = {
@@ -42,6 +46,10 @@
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         '';
       };
+      shellInit = ''
+        # lootbox: ensure deno and lootbox are on PATH
+        fish_add_path $HOME/.deno/bin
+      '';
     };
     direnv = {
       enable = true;
@@ -69,6 +77,11 @@
         ".DS_Store"
         "*.swp"
         ".direnv"
+        # codedb snapshots — never commit anywhere
+        "codedb.snapshot"
+        # lootbox ephemeral dirs — committed scripts (.lootbox/scripts/) are fine
+        ".lootbox/cache/"
+        ".lootbox/tmp/"
       ];
     };
   };

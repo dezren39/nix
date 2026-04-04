@@ -82,6 +82,10 @@
       url = "github:homebrew/homebrew-services";
       flake = false;
     };
+    homebrew-sqa = {
+      url = "github:dteoh/homebrew-sqa";
+      flake = false;
+    };
 
     nur = {
       url = "github:nix-community/NUR";

@@ -21,3 +21,17 @@ thoughts/**/ses_*
 thoughts/ses_*
 thoughts/**/*_ses_*
 thoughts/*_ses_*
+
+# lootbox
+.lootbox/cache/
+.lootbox/tmp/
+
+# codedb
+codedb.snapshot
+
+# opencode plugin artifacts
+.opencode/memory-core/
+.opencode/memory-working/
+.opencode/node_modules/
+.opencode/bun.lock
+.opencode/package-lock.json
