@@ -50,6 +50,8 @@
       url = "github:hraban/mac-app-util";
       # inputs.nixpkgs.follows = "nixpkgs";
       inputs.treefmt-nix.follows = "treefmt-nix";
+      inputs.cl-nix-lite.inputs.systems.follows = "systems";
+      inputs.cl-nix-lite.inputs.treefmt-nix.follows = "treefmt-nix";
     };
     brew-src = {
       # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
@@ -132,6 +134,16 @@
       formatter = eachSystem (pkgs: treefmtEval.${pkgs.system}.config.build.wrapper);
       checks = eachSystem (pkgs: {
         formatting = treefmtEval.${pkgs.system}.config.build.check inputs.self;
+        tidy =
+          pkgs.runCommandLocal "flake-tidy-check"
+            {
+              nativeBuildInputs = [ (import ./pkgs/flake-tidy { inherit pkgs; }) ];
+              src = inputs.self;
+            }
+            ''
+              flake-tidy all --check --flake-dir $src
+              touch $out
+            '';
       });
       apps = eachSystem (pkgs: {
         flake-tidy = {

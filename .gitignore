@@ -22,6 +22,11 @@ thoughts/ses_*
 thoughts/**/*_ses_*
 thoughts/*_ses_*
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+
 # lootbox
 .lootbox/cache/
 .lootbox/tmp/

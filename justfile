@@ -71,10 +71,11 @@ switch:
 # Format
 # =============================================================================
 
-# Format all nix files
+# Format all nix files and run tidy
 [group('format')]
 fmt:
     nixfmt *.nix pkgs/*.nix
+    nix run .#flake-tidy -- all || true
 
 # =============================================================================
 # Flake Tidy
@@ -89,3 +90,28 @@ tidy-dry *args:
 [group('tidy')]
 tidy *args:
     nix run .#flake-tidy -- dedup {{args}}
+
+# Flatten/hoist transitive inputs to root (dry run)
+[group('tidy')]
+flatten-dry *args:
+    nix run .#flake-tidy -- flatten --dry-run {{args}}
+
+# Flatten/hoist transitive inputs to root
+[group('tidy')]
+flatten *args:
+    nix run .#flake-tidy -- flatten {{args}}
+
+# Run all tidy operations (dedup + flatten)
+[group('tidy')]
+tidy-all *args:
+    nix run .#flake-tidy -- all {{args}}
+
+# Check if tidy changes are needed (for CI)
+[group('tidy')]
+tidy-check *args:
+    nix run .#flake-tidy -- all --check {{args}}
+
+# Run flake-tidy tests
+[group('tidy')]
+tidy-test:
+    cd pkgs/flake-tidy && uv run pytest tests/ -v

@@ -9,6 +9,6 @@ pkgs.writeShellApplication {
     nix
   ];
   text = ''
-    exec python3 ${./flake-tidy.py} "$@"
+    exec python3 ${./flake_tidy.py} "$@"
   '';
 }

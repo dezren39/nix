@@ -1,0 +1,142 @@
+{
+  "nodes": {
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems_2"
+      },
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-SFfhn6sZz8KHaFDlILB9gradVCE3BdXP6fGZCKg04/o=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "a1720a10a6cfe8234c0e93907ffe81be440f4cef",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-TEST-SAME-HASH-abc123=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "abc123def456",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-unstable": {
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-TEST-SAME-HASH-abc123=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "abc123def456",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-TEST-SAME-HASH-abc123=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "abc123def456",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs",
+        "nixpkgs-unstable": "nixpkgs-unstable",
+        "some-tool": "some-tool",
+        "systems": "systems"
+      }
+    },
+    "some-lib": {
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-some-lib-unique-hash=",
+        "owner": "example",
+        "repo": "some-lib",
+        "rev": "aabbccdd",
+        "type": "github"
+      },
+      "original": {
+        "owner": "example",
+        "repo": "some-lib",
+        "type": "github"
+      }
+    },
+    "some-tool": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_2",
+        "some-lib": "some-lib"
+      },
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-some-tool-hash=",
+        "owner": "example",
+        "repo": "some-tool",
+        "rev": "11223344",
+        "type": "github"
+      },
+      "original": {
+        "owner": "example",
+        "repo": "some-tool",
+        "type": "github"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-systems-hash-same=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "eeff0011",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "systems_2": {
+      "locked": {
+        "lastModified": 1710146030,
+        "narHash": "sha256-systems-hash-same=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "eeff0011",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
