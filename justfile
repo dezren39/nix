@@ -75,3 +75,17 @@ switch:
 [group('format')]
 fmt:
     nixfmt *.nix pkgs/*.nix
+
+# =============================================================================
+# Flake Tidy
+# =============================================================================
+
+# Deduplicate flake inputs (dry run)
+[group('tidy')]
+tidy-dry *args:
+    nix run .#flake-tidy -- dedup --dry-run {{args}}
+
+# Deduplicate flake inputs
+[group('tidy')]
+tidy *args:
+    nix run .#flake-tidy -- dedup {{args}}
