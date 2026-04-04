@@ -387,6 +387,22 @@
         "type": "github"
       }
     },
+    "homebrew-sqa": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1719373974,
+        "narHash": "sha256-3RDdz8wyL8yO14AiTPHYwVecsL1E2MjhXs7jrrza6gQ=",
+        "owner": "dteoh",
+        "repo": "homebrew-sqa",
+        "rev": "25a8026a1ca50b553b8f1ea38c6879f93595868c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "dteoh",
+        "repo": "homebrew-sqa",
+        "type": "github"
+      }
+    },
     "mac-app-util": {
       "inputs": {
         "cl-nix-lite": "cl-nix-lite",
@@ -804,6 +820,7 @@
         "homebrew-core": "homebrew-core",
         "homebrew-firefox-profile-switcher": "homebrew-firefox-profile-switcher",
         "homebrew-services": "homebrew-services",
+        "homebrew-sqa": "homebrew-sqa",
         "mac-app-util": "mac-app-util",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs_8",

@@ -1,7 +1,7 @@
 { pkgs, ... }:
 {
   services = {
-#    nix-daemon.enable = true;
+    #    nix-daemon.enable = true;
     jankyborders = {
       enable = true;
       # hidpi = true;
@@ -19,6 +19,10 @@
       package = pkgs.skhd;
 
       skhdConfig = ''
+        # Disable cmd-q (prevent accidental quit), use cmd+alt-q instead
+        cmd - q : :
+        cmd + alt - q : osascript -e 'tell application (path to frontmost application as text) to quit'
+
         #     # Terminal (default: SUPER + Return)
         #     cmd - return : ghostty #kitty
 
