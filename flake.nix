@@ -37,6 +37,14 @@
     determinate = {
       url = "https://flakehub.com/f/DeterminateSystems/determinate/*";
       # inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nix.inputs.git-hooks-nix.inputs.flake-compat.follows = "flake-compat";
+      inputs.nix.inputs.flake-parts.follows = "flake-parts-hoisted";
+      inputs.nix.inputs.git-hooks-nix.follows = "git-hooks-nix";
+      inputs.nix.follows = "nix";
+      inputs.nix.inputs.nixpkgs-23-11.follows = "nixpkgs-23-11";
+      inputs.nix.inputs.nixpkgs-regression.follows = "nixpkgs-regression";
+      inputs.nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-2";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted-3";
     };
     darwin = {
       url = "github:lnl7/nix-darwin";
@@ -45,6 +53,7 @@
     home-manager = {
       url = "github:nix-community/home-manager/master";
       # inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted-4";
     };
     mac-app-util = {
       url = "github:hraban/mac-app-util";
@@ -52,6 +61,9 @@
       inputs.treefmt-nix.follows = "treefmt-nix";
       inputs.cl-nix-lite.follows = "cl-nix-lite";
       inputs.flake-utils.follows = "flake-utils";
+      inputs.flake-compat.follows = "flake-compat-hoisted";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted-5";
+      inputs.systems.follows = "systems-hoisted";
     };
     brew-src = {
       # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
@@ -96,11 +108,15 @@
     treefmt-nix.url = "github:numtide/treefmt-nix";
     nixpkgs-terraform.url = "github:stackbuilders/nixpkgs-terraform";
     nixpkgs-terraform.inputs.systems.follows = "systems";
+    nixpkgs-terraform.inputs.nixpkgs-23_05.follows = "nixpkgs-23_05";
+    nixpkgs-terraform.inputs.nixpkgs-24_05.follows = "nixpkgs-24_05";
+    nixpkgs-terraform.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     flake-utils.url = "github:numtide/flake-utils";
     flake-utils.inputs.systems.follows = "systems";
     opencode = {
       url = "github:anomalyco/opencode/dev";
       # inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     };
     # nixpkgs-helium = {
     #   # https://github.com/NixOS/nixpkgs/pull/498572
@@ -110,7 +126,29 @@
       url = "github:hraban/cl-nix-lite";
       inputs.systems.follows = "systems";
       inputs.treefmt-nix.follows = "treefmt-nix";
+      inputs.treefmt-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted";
+      inputs.flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
     };
+    flake-compat.url = "github:edolstra/flake-compat";
+    flake-compat-hoisted.url = "github:hraban/flake-compat/fixed-output";
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    flake-parts-hoisted.url = "https://flakehub.com/f/hercules-ci/flake-parts/0.1";
+    git-hooks-nix.url = "https://flakehub.com/f/cachix/git-hooks.nix/0.1.941";
+    nix.url = "https://flakehub.com/f/DeterminateSystems/nix-src/%2A";
+    nixpkgs-hoisted.url = "github:nixos/nixpkgs/nixos-25.11";
+    nixpkgs-23-11.url = "github:NixOS/nixpkgs";
+    nixpkgs-23_05.url = "github:nixos/nixpkgs/nixos-23.05-small";
+    nixpkgs-24_05.url = "github:nixos/nixpkgs/nixos-24.05-small";
+    nixpkgs-lib.url = "github:nix-community/nixpkgs.lib";
+    nixpkgs-regression.url = "github:NixOS/nixpkgs";
+    nixpkgs-hoisted-hoisted.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    nixpkgs-hoisted-2.url = "https://flakehub.com/f/NixOS/nixpkgs/0.2505";
+    nixpkgs-hoisted-3.url = "https://flakehub.com/f/DeterminateSystems/nixpkgs-weekly/0.1";
+    nixpkgs-hoisted-4.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-hoisted-5.url = "github:NixOS/nixpkgs";
+    systems-hoisted.url = "github:nix-systems/default-darwin";
   };
   outputs =
     inputs:

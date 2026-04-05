@@ -41,6 +41,7 @@ Config shape:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -416,8 +417,14 @@ def node_original_url(node_data: dict) -> str:
         if "ref" in orig:
             url += f"/{orig['ref']}"
         return url
-    elif t in ("tarball", "file"):
+    elif t == "tarball":
         return orig.get("url", "")
+    elif t == "file":
+        raw = orig.get("url", "")
+        # Prefix with file+ so nix doesn't default to tarball fetching
+        if raw.startswith(("https://", "http://")):
+            return f"file+{raw}"
+        return raw
     elif t == "indirect":
         return f"indirect:{orig.get('id', '')}"
     return json.dumps(orig, sort_keys=True)
@@ -2337,66 +2344,186 @@ def analyze_flatten(
     return proposals
 
 
+def _match_failure_to_proposal(
+    input_path: str | None,
+    proposals: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Match a failed input path from stderr to one of our proposals."""
+    if not input_path:
+        return None
+    for p in proposals:
+        name = p["new_input_name"]
+        if input_path == name or input_path.startswith(name + "/"):
+            return p
+    return None
+
+
 def apply_flatten(
     flake_dir: str,
     proposals: list[dict[str, Any]],
     verbose: bool = False,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """Apply flatten proposals. Returns (applied_count, failed_proposals)."""
+    """Apply flatten proposals using batch-with-elimination.
+
+    Applies all proposals at once and locks.  If locking fails, identifies
+    the bad proposal from stderr, removes it, and retries with the rest.
+    Failed proposals carry ``error`` and ``failed_at`` keys for diagnostics.
+    Returns (applied_count, failed_proposals).
+    """
     if not proposals:
         return 0, []
 
-    content = read_flake_nix(flake_dir)
     lock_path = os.path.join(flake_dir, "flake.lock")
 
-    saved_content = content
+    # Save original state
+    original_content = read_flake_nix(flake_dir)
     with open(lock_path) as f:
-        saved_lock = f.read()
+        original_lock = f.read()
+    original_lock_data = json.loads(original_lock)
 
-    applied = 0
+    remaining = list(proposals)
     failed: list[dict[str, Any]] = []
 
-    for p in proposals:
-        # Add new root input
-        if not root_input_exists_in_content(content, p["new_input_name"]):
-            if verbose:
-                print(f'  add root input: {p["new_input_name"]}.url = "{p["url"]}"')
-            content = insert_root_input(content, p["new_input_name"], p["url"])
+    while remaining:
+        # Reset to original state
+        write_flake_nix(flake_dir, original_content)
+        with open(lock_path, "w") as f:
+            f.write(original_lock)
 
-        # Add follows
-        for follows_parts in p["follows"]:
-            if not follows_exists_in_content(
-                content, follows_parts, p["new_input_name"]
-            ):
+        # Apply all remaining proposals
+        content = original_content
+        for p in remaining:
+            if not root_input_exists_in_content(content, p["new_input_name"]):
                 if verbose:
-                    fp = ".".join(follows_parts)
-                    print(f"  add follows: {fp} -> {p['new_input_name']}")
-                content = insert_follows_in_content(
+                    print(f'  add root input: {p["new_input_name"]}.url = "{p["url"]}"')
+                content = insert_root_input(content, p["new_input_name"], p["url"])
+            for follows_parts in p["follows"]:
+                if not follows_exists_in_content(
                     content, follows_parts, p["new_input_name"]
-                )
+                ):
+                    if verbose:
+                        fp = ".".join(follows_parts)
+                        print(f"  add follows: {fp} -> {p['new_input_name']}")
+                    content = insert_follows_in_content(
+                        content, follows_parts, p["new_input_name"]
+                    )
 
-    write_flake_nix(flake_dir, content)
-    run_nixfmt(flake_dir)
-    content = read_flake_nix(flake_dir)
-
-    print("  locking after flatten...")
-    saved_lock_data = json.loads(saved_lock)
-    ok, stderr = run_nix_flake_lock_robust(
-        flake_dir, lock_data=saved_lock_data, flake_content=content
-    )
-    if ok:
-        applied = len(proposals)
-    else:
-        # Back out all flatten changes
-        print("  warning: lock failed after flatten, backing out", file=sys.stderr)
-        content = saved_content
         write_flake_nix(flake_dir, content)
         run_nixfmt(flake_dir)
-        with open(lock_path, "w") as f:
-            f.write(saved_lock)
-        failed = proposals
+        content = read_flake_nix(flake_dir)
 
-    return applied, failed
+        if verbose:
+            print(f"  locking {len(remaining)} proposal(s)...")
+        ok, stderr = run_nix_flake_lock_robust(
+            flake_dir, lock_data=original_lock_data, flake_content=content
+        )
+        if ok:
+            return len(remaining), failed
+
+        # Lock failed — identify the bad proposal
+        input_path, _flake_name = extract_failed_input(stderr)
+        bad = _match_failure_to_proposal(input_path, remaining)
+
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+        if bad is None:
+            # Can't identify — all remaining fail
+            if verbose:
+                print(
+                    "  warning: lock failed, cannot identify failing proposal",
+                    file=sys.stderr,
+                )
+            for p in remaining:
+                p["error"] = stderr
+                p["failed_at"] = now
+            failed.extend(remaining)
+            remaining = []
+            break
+
+        # Remove bad proposal and retry
+        bad["error"] = stderr
+        bad["failed_at"] = now
+        if verbose:
+            print(
+                f"  removing failed proposal: {bad['new_input_name']}, retrying...",
+                file=sys.stderr,
+            )
+        failed.append(bad)
+        remaining.remove(bad)
+
+    # Restore original state if nothing succeeded
+    if not remaining:
+        write_flake_nix(flake_dir, original_content)
+        run_nixfmt(flake_dir)
+        with open(lock_path, "w") as f:
+            f.write(original_lock)
+
+    return len(proposals) - len(failed), failed
+
+
+def _first_error_line(stderr: str) -> str:
+    """Extract the first meaningful (non-warning) line from nix stderr."""
+    for line in stderr.split("\n"):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("warning:"):
+            if len(stripped) > 200:
+                return stripped[:200] + "..."
+            return stripped
+    return "unknown error"
+
+
+def insert_flatten_failure_comments(content: str, failed: list[dict[str, Any]]) -> str:
+    """Insert commented-out flatten proposals with error diagnostics."""
+    if not failed:
+        return content
+
+    style, _block_start, block_end = detect_inputs_style(content)
+    lines = content.split("\n")
+
+    # Detect indent from existing input lines
+    indent = "    "
+    for line in lines:
+        m = re.match(r"^(\s+)\S+\.(url|follows)\s*=", line)
+        if m:
+            indent = m.group(1)
+            break
+
+    # Build comment blocks for all failures (reversed so insert order is stable)
+    for p in reversed(failed):
+        name = p["new_input_name"]
+        url = p["url"]
+        error_line = _first_error_line(p.get("error", ""))
+        failed_at = p.get("failed_at", "unknown")
+
+        comment_lines = [
+            f"{indent}# [flake-tidy] flatten failed ({failed_at}): {name}",
+            f"{indent}# error: {error_line}",
+            f'{indent}# {name}.url = "{url}";',
+        ]
+        for follows_parts in p.get("follows", []):
+            if len(follows_parts) == 1:
+                comment_lines.append(
+                    f'{indent}# {follows_parts[0]}.follows = "{name}";'
+                )
+            else:
+                deep = ".".join(f"inputs.{part}" for part in follows_parts[1:])
+                comment_lines.append(
+                    f'{indent}# {follows_parts[0]}.{deep}.follows = "{name}";'
+                )
+
+        block = "\n".join(comment_lines)
+
+        if style == "block" and block_end is not None:
+            lines.insert(block_end, block)
+        else:
+            # Insert after last input line
+            last_input = 0
+            for i, line in enumerate(lines):
+                if re.match(r"\s*(inputs\.)?\S+\.(url|follows)\s*=", line):
+                    last_input = i
+            lines.insert(last_input + 1, block)
+
+    return "\n".join(lines)
 
 
 def flatten(
@@ -2431,10 +2558,18 @@ def flatten(
         print(f"\n  {len(failed)} flatten proposals could not be applied:")
         for p in failed:
             print(f"    {p['desc']}")
+        # Leave commented-out diagnostics in flake.nix
+        content = read_flake_nix(flake_dir)
+        content = insert_flatten_failure_comments(content, failed)
+        write_flake_nix(flake_dir, content)
+
+    if applied > 0 or failed:
+        run_nixfmt(flake_dir)
 
     if applied > 0:
         print(f"  flatten done: hoisted {applied} input(s).")
-        run_nixfmt(flake_dir)
+    if failed:
+        print(f"  {len(failed)} failure(s) left as comments in flake.nix.")
 
     return len(proposals)
 
