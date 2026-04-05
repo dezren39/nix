@@ -40,3 +40,5 @@ codedb.snapshot
 .opencode/node_modules/
 .opencode/bun.lock
 .opencode/package-lock.json
+.opencode/opencode-notifier-state.json
+.opencode/plugin/subtask2/logs/
