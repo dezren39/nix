@@ -195,3 +195,107 @@ line2"""
         stripped = lines[1].strip()
         assert not stripped.startswith("#")
         assert 'follows = "nixpkgs"' in stripped
+
+
+class TestFindInputUrlLine:
+    def test_find_url_block_style(self, sample_flake_nix):
+        """finds url inside a block-style input."""
+        line = flake_tidy.find_input_url_line(sample_flake_nix, "nixpkgs-unstable")
+        assert line is not None
+        lines = sample_flake_nix.split("\n")
+        assert "url" in lines[line]
+        assert "nixos/nixpkgs" in lines[line]
+
+    def test_find_url_dotted_style(self):
+        """finds url in dotted style."""
+        content = """{
+  inputs.nixpkgs.url = "github:nixos/nixpkgs";
+  inputs.foo.url = "github:foo/bar";
+  outputs = _: {};
+}
+"""
+        line = flake_tidy.find_input_url_line(content, "foo")
+        assert line is not None
+        assert "foo/bar" in content.split("\n")[line]
+
+    def test_find_url_block_inline_dotted(self, sample_flake_nix):
+        """finds dotted url at block level."""
+        # nixpkgs uses ``nixpkgs.url = ...`` inside the inputs block
+        line = flake_tidy.find_input_url_line(sample_flake_nix, "nixpkgs")
+        assert line is not None
+        assert "nixos/nixpkgs" in sample_flake_nix.split("\n")[line]
+
+    def test_find_url_nonexistent(self, sample_flake_nix):
+        """returns None for input without url."""
+        assert flake_tidy.find_input_url_line(sample_flake_nix, "nonexistent") is None
+
+
+class TestRemoveInputUrlLine:
+    def test_remove_url_block(self, sample_flake_nix):
+        """removes url from block-style input."""
+        new_content, removed = flake_tidy.remove_input_url_line(
+            sample_flake_nix, "nixpkgs-unstable"
+        )
+        assert removed is True
+        assert 'url = "github:nixos/nixpkgs"' not in new_content or new_content.count(
+            'url = "github:nixos/nixpkgs"'
+        ) < sample_flake_nix.count('url = "github:nixos/nixpkgs"')
+
+    def test_remove_url_dotted(self):
+        """removes url from dotted-style input."""
+        content = """{
+  inputs.nixpkgs.url = "github:nixos/nixpkgs";
+  inputs.foo.url = "github:foo/bar";
+  outputs = _: {};
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "foo/bar" not in new_content
+        # nixpkgs url should still be there
+        assert "nixos/nixpkgs" in new_content
+
+    def test_remove_url_nonexistent(self, sample_flake_nix):
+        """no-op for input without url."""
+        new_content, removed = flake_tidy.remove_input_url_line(
+            sample_flake_nix, "nonexistent"
+        )
+        assert removed is False
+        assert new_content == sample_flake_nix
+
+
+class TestFollowsTargetForInput:
+    def test_block_style(self):
+        """finds follows target in block style."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs";
+    stable = {
+      url = "github:nixos/nixpkgs";
+      follows = "nixpkgs";
+    };
+  };
+  outputs = _: {};
+}
+"""
+        target = flake_tidy._follows_target_for_input(content, "stable")
+        assert target == "nixpkgs"
+
+    def test_dotted_style(self):
+        """finds follows target in dotted style."""
+        content = """{
+  inputs.nixpkgs.url = "github:nixos/nixpkgs";
+  inputs.stable.url = "github:nixos/nixpkgs";
+  inputs.stable.follows = "nixpkgs";
+  outputs = _: {};
+}
+"""
+        target = flake_tidy._follows_target_for_input(content, "stable")
+        assert target == "nixpkgs"
+
+    def test_no_follows(self, sample_flake_nix):
+        """returns None when input has no follows."""
+        target = flake_tidy._follows_target_for_input(
+            sample_flake_nix, "nixpkgs-unstable"
+        )
+        assert target is None

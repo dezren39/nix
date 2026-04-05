@@ -146,6 +146,7 @@
     git-hooks-nix.url = "https://flakehub.com/f/cachix/git-hooks.nix/0.1.941";
     git-hooks-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     git-hooks-nix.inputs.gitignore.follows = "gitignore";
+    git-hooks-nix.inputs.flake-compat.follows = "flake-compat";
     nix.url = "https://flakehub.com/f/DeterminateSystems/nix-src/%2A";
     nix.inputs.flake-parts.follows = "flake-parts-hoisted";
     nix.inputs.git-hooks-nix.follows = "git-hooks-nix";

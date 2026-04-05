@@ -955,6 +955,116 @@ def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, b
     return (last, inside_block) if last is not None else (None, False)
 
 
+def find_input_url_line(content: str, input_name: str) -> int | None:
+    """Find the line number of a root input's ``url = ...`` declaration.
+
+    Handles both block style (``name = { url = "..."; ... }``) and dotted
+    style (``inputs.name.url = "...";``).  Returns the 0-based line index,
+    or *None* if no url line is found.
+    """
+    lines = content.split("\n")
+    esc = re.escape(input_name)
+    style, block_start, block_end = detect_inputs_style(content)
+    block_ctx = _block_context_for_lines(content)
+
+    # --- Block style: look inside the input's own block ---
+    if style == "block" and block_start is not None and block_end is not None:
+        in_target = False
+        depth = 0
+        for i in range(block_start + 1, block_end):
+            stripped = lines[i].strip()
+            if stripped.startswith("#"):
+                continue
+            # Detect block open: ``name = {``
+            if not in_target and depth == 0:
+                if re.match(rf"{esc}\s*=\s*\{{", stripped):
+                    in_target = True
+                    depth = stripped.count("{") - stripped.count("}")
+                    # Check if url is on the same line (unlikely but safe)
+                    if re.search(r"\burl\s*=", stripped):
+                        return i
+                    continue
+            if in_target:
+                depth += stripped.count("{") - stripped.count("}")
+                if re.match(r"url\s*=", stripped):
+                    return i
+                if depth <= 0:
+                    break
+
+    # --- Dotted style: ``inputs.name.url = ...`` at root scope ---
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if block_ctx[i] is not None:
+            continue
+        if re.match(rf"(?:inputs\.)?{esc}\.url\s*=", stripped):
+            return i
+
+    return None
+
+
+def remove_input_url_line(content: str, input_name: str) -> tuple[str, bool]:
+    """Remove the ``url = ...`` line for a root input.
+
+    Returns ``(new_content, was_removed)``.  If the input has no url line
+    the content is returned unchanged.
+    """
+    line_no = find_input_url_line(content, input_name)
+    if line_no is None:
+        return content, False
+    lines = content.split("\n")
+    removed_line = lines[line_no].strip()
+    del lines[line_no]
+    return "\n".join(lines), True
+
+
+def _follows_target_for_input(content: str, input_name: str) -> str | None:
+    """Return the follows target name for a root input, or *None*.
+
+    Matches both block style (``follows = "target";``) and dotted style
+    (``inputs.name.follows = "target";`` / ``name.follows = "target";``).
+    """
+    lines = content.split("\n")
+    esc = re.escape(input_name)
+    style, block_start, block_end = detect_inputs_style(content)
+
+    # Block style: look inside the input's block for bare ``follows = "X";``
+    if style == "block" and block_start is not None and block_end is not None:
+        in_target = False
+        depth = 0
+        for i in range(block_start + 1, block_end):
+            stripped = lines[i].strip()
+            if stripped.startswith("#"):
+                continue
+            if not in_target and depth == 0:
+                if re.match(rf"{esc}\s*=\s*\{{", stripped):
+                    in_target = True
+                    depth = stripped.count("{") - stripped.count("}")
+                    m = re.search(r'\bfollows\s*=\s*"([^"]+)"', stripped)
+                    if m:
+                        return m.group(1)
+                    continue
+            if in_target:
+                depth += stripped.count("{") - stripped.count("}")
+                m = re.match(r'follows\s*=\s*"([^"]+)"', stripped)
+                if m:
+                    return m.group(1)
+                if depth <= 0:
+                    break
+
+    # Dotted style
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        m = re.match(rf'(?:inputs\.)?{esc}\.follows\s*=\s*"([^"]+)"', stripped)
+        if m:
+            return m.group(1)
+
+    return None
+
+
 def insert_follows_in_content(
     content: str, follows_parts: list[str], target: str
 ) -> str:
@@ -1586,6 +1696,7 @@ def analyze_dedup(
                         "source_key": key,
                         "desc": f"{other_name} -> follows {canonical_name}",
                         "operation": "dedup",
+                        "hash_verified": True,
                     }
                 )
 
@@ -1858,6 +1969,17 @@ def apply_dedup(
                     content, p["follows_parts"], p["target"]
                 )
 
+            # When a root-level input now follows another and the hashes
+            # are known to match, its url line is redundant and conflicts
+            # with the new follows — remove it.
+            if len(p["follows_parts"]) == 1 and p.get("hash_verified"):
+                input_name = p["follows_parts"][0]
+                content, removed = remove_input_url_line(content, input_name)
+                if removed:
+                    print(
+                        f"  remove url: {input_name} (hash-aligned with {p['target']})"
+                    )
+
         write_flake_nix(flake_dir, content)
         run_nixfmt(flake_dir)
         content = read_flake_nix(flake_dir)
@@ -1926,7 +2048,14 @@ def dedup(
 
         print(f"  dedup: {len(proposals)} follows to add:")
         for p in proposals:
-            print(f"    {p['desc']}")
+            suffix = ""
+            if (
+                len(p["follows_parts"]) == 1
+                and p.get("hash_verified")
+                and find_input_url_line(content, p["follows_parts"][0]) is not None
+            ):
+                suffix = " (will remove redundant url)"
+            print(f"    {p['desc']}{suffix}")
 
         if dry_run or check:
             break
@@ -2896,17 +3025,57 @@ def run_all(
 
     Returns total number of proposals found.
     """
-    # Pre-flight: warn about inputs with both url and follows
+    # Pre-flight: fix or warn about inputs with both url and follows.
+    # When the lock hash of the input matches the follows target, the url
+    # is redundant so we remove it automatically.
     content = read_flake_nix(flake_dir)
     conflicts = check_url_follows_conflicts(content)
     if conflicts:
-        print(
-            "  warning: these inputs have both url and follows"
-            " (invalid nix, will cause lock failures):"
-        )
+        lock = load_lock(flake_dir)
+        nodes = lock.get("nodes", {})
+        root_inputs = nodes.get("root", {}).get("inputs", {})
+        fixed: list[str] = []
+        unfixed: list[str] = []
         for name in conflicts:
-            print(f"    {name}")
-        print()
+            # Resolve both the conflicting input and its follows target
+            node_name = root_inputs.get(name, "")
+            if not isinstance(node_name, str) or node_name not in nodes:
+                unfixed.append(name)
+                continue
+            inp_hash = locked_hash(nodes[node_name])
+            # Find the follows target from content
+            target_name = _follows_target_for_input(content, name)
+            if not target_name:
+                unfixed.append(name)
+                continue
+            target_node = root_inputs.get(target_name, "")
+            if not isinstance(target_node, str) or target_node not in nodes:
+                unfixed.append(name)
+                continue
+            target_hash = locked_hash(nodes[target_node])
+            if inp_hash and inp_hash == target_hash:
+                content, removed = remove_input_url_line(content, name)
+                if removed:
+                    fixed.append(name)
+                    print(
+                        f"  fix: removed url from {name}"
+                        f" (hash-aligned with follows target {target_name})"
+                    )
+                else:
+                    unfixed.append(name)
+            else:
+                unfixed.append(name)
+        if fixed and not dry_run and not check:
+            write_flake_nix(flake_dir, content)
+            run_nixfmt(flake_dir)
+        if unfixed:
+            print(
+                "  warning: these inputs have both url and follows"
+                " (hashes do not align, fix manually):"
+            )
+            for name in unfixed:
+                print(f"    {name}")
+            print()
 
     total = 0
 
