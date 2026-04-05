@@ -50,8 +50,7 @@
       url = "github:hraban/mac-app-util";
       # inputs.nixpkgs.follows = "nixpkgs";
       inputs.treefmt-nix.follows = "treefmt-nix";
-      inputs.cl-nix-lite.inputs.systems.follows = "systems";
-      inputs.cl-nix-lite.inputs.treefmt-nix.follows = "treefmt-nix";
+      inputs.cl-nix-lite.follows = "cl-nix-lite";
     };
     brew-src = {
       # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
@@ -106,6 +105,11 @@
     #   # https://github.com/NixOS/nixpkgs/pull/498572
     #   url = "github:Nytelife26/nixpkgs/helium/init";
     # };
+    cl-nix-lite = {
+      url = "github:hraban/cl-nix-lite";
+      inputs.systems.follows = "systems";
+      inputs.treefmt-nix.follows = "treefmt-nix";
+    };
   };
   outputs =
     inputs:

@@ -79,9 +79,11 @@ class TestMergeCLI:
             "max_depth": None,
             "include": None,
             "include_dedup": None,
+            "include_merge": None,
             "include_flatten": None,
             "exclude_input": None,
             "exclude_dedup": None,
+            "exclude_merge": None,
             "exclude_flatten": None,
         }
         defaults.update(kwargs)

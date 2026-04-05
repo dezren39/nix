@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""flake-tidy: deduplicate and flatten flake inputs by adding follows declarations.
+"""flake-tidy: deduplicate, merge, and flatten flake inputs by adding follows declarations.
 
 Actions:
   dedup    Add follows for duplicate inputs (transitive + same-URL root inputs)
+  merge    Hoist deep-followed transitive inputs to root, replacing deep follows
   flatten  Hoist transitive-only inputs to root level, then add follows
-  all      Run dedup then flatten then dedup again (default)
+  all      Run merge then dedup then flatten then dedup again (default)
 
 Flags:
   --dry-run  Show what would change without modifying files
@@ -22,6 +23,7 @@ Config shape:
     "include": {
       "input": ["*"],
       "dedup": ["*"],
+      "merge": ["*"],
       "flatten": ["*"]
     },
     "exclude": {
@@ -30,6 +32,7 @@ Config shape:
       "follows": [],
       "follows-url": [],
       "dedup": [],
+      "merge": [],
       "flatten": []
     }
   }
@@ -57,6 +60,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "include": {
         "input": ["*"],  # global: process all inputs
         "dedup": ["*"],  # dedup: process all
+        "merge": ["*"],  # merge: process all
         "flatten": ["*"],  # flatten: process all
     },
     "exclude": {
@@ -65,6 +69,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "follows": [],  # excluded follows paths (e.g. "home-manager.nixpkgs")
         "follows-url": [],  # excluded follows targets by URL
         "dedup": [],  # input names excluded from dedup only
+        "merge": [],  # input names excluded from merge only
         "flatten": [],  # input names excluded from flatten only
     },
 }
@@ -74,6 +79,7 @@ CONFIG_SCHEMA: dict[str, Any] = {
     "include": {
         "input": list,
         "dedup": list,
+        "merge": list,
         "flatten": list,
     },
     "exclude": {
@@ -82,6 +88,7 @@ CONFIG_SCHEMA: dict[str, Any] = {
         "follows": list,
         "follows-url": list,
         "dedup": list,
+        "merge": list,
         "flatten": list,
     },
 }
@@ -236,6 +243,8 @@ def merge_cli_into_config(
         config["include"]["input"] = args.include
     if args.include_dedup:
         config["include"]["dedup"] = args.include_dedup
+    if args.include_merge:
+        config["include"]["merge"] = args.include_merge
     if args.include_flatten:
         config["include"]["flatten"] = args.include_flatten
 
@@ -244,6 +253,8 @@ def merge_cli_into_config(
         config["exclude"]["input"].extend(args.exclude_input)
     if args.exclude_dedup:
         config["exclude"]["dedup"].extend(args.exclude_dedup)
+    if args.exclude_merge:
+        config["exclude"]["merge"].extend(args.exclude_merge)
     if args.exclude_flatten:
         config["exclude"]["flatten"].extend(args.exclude_flatten)
 
@@ -611,23 +622,46 @@ def follows_exists_in_content(
 
 
 def root_input_exists_in_content(content: str, input_name: str) -> bool:
-    """Check if a root input declaration already exists in flake.nix."""
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            continue
-        # inputs.NAME = { or inputs.NAME.url = or NAME = { inside inputs block
-        if re.match(rf"inputs\.{re.escape(input_name)}\s*[.=]", stripped):
-            return True
-    # Also check inside inputs = { } block
+    """Check if a root input declaration already exists in flake.nix.
+
+    Only matches direct root input declarations, not references to the name
+    inside another input's block (e.g. ``inputs.parent.inputs.CHILD...``
+    inside a parent block is NOT a root declaration of CHILD).
+    """
+    esc = re.escape(input_name)
+    lines = content.split("\n")
     style, block_start, block_end = detect_inputs_style(content)
+
     if style == "block" and block_start is not None and block_end is not None:
-        lines = content.split("\n")
-        for i in range(block_start + 1, block_end):
+        # Track brace depth inside inputs = { ... } to only match at depth 1
+        depth = 0
+        for i in range(block_start, len(lines)):
             stripped = lines[i].strip()
             if stripped.startswith("#"):
                 continue
-            if re.match(rf"{re.escape(input_name)}\s*[.=]", stripped):
+            # Check BEFORE counting this line's braces
+            if i > block_start and depth == 1:
+                # NAME = { or NAME.url = etc.
+                if re.match(rf"{esc}\s*[.=]", stripped):
+                    return True
+            depth += stripped.count("{") - stripped.count("}")
+            if depth <= 0 and i > block_start:
+                break
+    else:
+        # Dotted style: look for top-level inputs.NAME declarations
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if re.match(rf"inputs\.{esc}\s*=", stripped):
+                return True
+            if re.match(rf"inputs\.{esc}\.(url|follows|flake)\s*=", stripped):
+                return True
+            # inputs.NAME.inputs.X.follows is a shallow override on NAME
+            if re.match(
+                rf"inputs\.{esc}\.inputs\.[a-zA-Z0-9_'-]+\.(follows|url)\s*=",
+                stripped,
+            ):
                 return True
     return False
 
@@ -995,6 +1029,309 @@ def build_override_inputs(lock: dict, input_path: str) -> dict[str, str]:
     return {}
 
 
+# Known flake registry names that Nix can resolve without --override-input
+KNOWN_REGISTRY_FLAKES = frozenset(
+    {
+        "nixpkgs",
+        "flake-utils",
+        "systems",
+        "flake-compat",
+        "flake-parts",
+        "home-manager",
+        "darwin",
+        "nix-darwin",
+        "treefmt-nix",
+        "pre-commit-hooks",
+        "devshell",
+        "hercules-ci-effects",
+        "dream2nix",
+        "fenix",
+        "rust-overlay",
+        "naersk",
+        "poetry2nix",
+    }
+)
+
+
+def build_override_from_flake_name(
+    lock: dict, input_path: str, flake_name: str | None
+) -> dict[str, str]:
+    """Fallback: find a node by indirect id or name and build URL from locked field."""
+    if not flake_name:
+        return {}
+    nodes = lock.get("nodes", {})
+    # First pass: look for a node whose original is indirect:flake_name
+    for _node_name, node_data in nodes.items():
+        orig = node_data.get("original", {})
+        if orig.get("type") == "indirect" and orig.get("id") == flake_name:
+            locked = node_data.get("locked", {})
+            lt = locked.get("type", "")
+            if lt in ("github", "gitlab"):
+                url = f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+                return {input_path: url}
+    # Second pass: look for a node whose name matches flake_name
+    for node_name, node_data in nodes.items():
+        if node_name == flake_name or node_name.startswith(f"{flake_name}_"):
+            url = node_original_url(node_data)
+            if url and not url.startswith("indirect:"):
+                return {input_path: url}
+    return {}
+
+
+def compute_indirect_overrides(
+    lock: dict, flake_content: str | None = None
+) -> dict[str, str]:
+    """Pre-compute --override-input for inputs that Nix cannot resolve on its own.
+
+    Handles two cases:
+
+    1. **Indirect registry references** — transitive inputs whose ``original``
+       uses ``"type": "indirect"`` with an id not in the standard Nix flake
+       registries (e.g. ``flake:cl-nix-lite``).
+
+    2. **Deep follows overrides** — when flake.nix has declarations like
+       ``inputs.mac-app-util.inputs.cl-nix-lite.inputs.systems.follows = "systems"``
+       Nix must resolve ``mac-app-util/cl-nix-lite`` but may fail if the
+       upstream flake uses a non-standard reference.  We detect these by
+       parsing the flake.nix content for deep input-override patterns and
+       proactively providing ``--override-input`` for each transitive input
+       that Nix would need to fetch.
+    """
+    nodes = lock.get("nodes", {})
+    overrides: dict[str, str] = {}
+
+    # --- Case 1: indirect registry refs not in known set ---
+    def walk(node_name: str, prefix: str) -> None:
+        node = nodes.get(node_name, {})
+        for inp_name, ref in node.get("inputs", {}).items():
+            path = f"{prefix}/{inp_name}" if prefix else inp_name
+            if isinstance(ref, list):
+                # follows – skip, Nix resolves these via the follows chain
+                continue
+            if isinstance(ref, str):
+                child = nodes.get(ref, {})
+                orig = child.get("original", {})
+                if (
+                    orig.get("type") == "indirect"
+                    and orig.get("id") not in KNOWN_REGISTRY_FLAKES
+                ):
+                    # Try to build a real URL from the node
+                    locked = child.get("locked", {})
+                    lt = locked.get("type", "")
+                    if lt in ("github", "gitlab"):
+                        url = f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+                        overrides[path] = url
+                    else:
+                        url = node_original_url(child)
+                        if url and not url.startswith("indirect:"):
+                            overrides[path] = url
+                walk(ref, path)
+
+    walk("root", "")
+
+    # --- Case 2: deep follows overrides in flake.nix ---
+    if flake_content:
+        _add_deep_follows_overrides(lock, flake_content, overrides)
+
+    return overrides
+
+
+def _add_deep_follows_overrides(
+    lock: dict, content: str, overrides: dict[str, str]
+) -> None:
+    """Parse flake.nix for deep input-override patterns and add overrides.
+
+    Looks for patterns like::
+
+        mac-app-util = {
+          inputs.cl-nix-lite.inputs.systems.follows = "systems";
+        };
+
+    or top-level::
+
+        inputs.mac-app-util.inputs.cl-nix-lite.inputs.systems.follows = "systems";
+
+    For each unique transitive input path (``mac-app-util/cl-nix-lite`` etc.),
+    walks the lock graph to find the node and build a resolvable URL for
+    ``--override-input``.
+    """
+    nodes = lock.get("nodes", {})
+
+    # Collect all transitive input paths that Nix would need to fetch.
+    # We need to handle two flake.nix styles:
+    #
+    # 1. Block style:  <root-input> = { inputs.X.inputs.Y.follows = "Z"; };
+    #    Here X is a transitive input of <root-input>.
+    #
+    # 2. Dotted style: inputs.<root>.inputs.X.inputs.Y.follows = "Z";
+    #    Here X is a transitive input of <root>.
+
+    deep_paths: set[str] = set()
+
+    # --- Parse block-style: track current input block context ---
+    current_block: str | None = None
+    brace_depth = 0
+    in_inputs_section = False
+
+    for line in content.split("\n"):
+        stripped = line.strip()
+
+        # Detect top-level inputs section
+        if re.match(r"inputs\s*=\s*\{", stripped):
+            in_inputs_section = True
+            brace_depth = 1
+            continue
+
+        if in_inputs_section:
+            # Count braces
+            opens = stripped.count("{")
+            closes = stripped.count("}")
+
+            # Detect named input block: <name> = {
+            if current_block is None and brace_depth == 1:
+                m = re.match(r"([a-zA-Z0-9_-]+)\s*=\s*\{", stripped)
+                if m:
+                    current_block = m.group(1)
+                    brace_depth += opens  # count the { we just matched
+                    brace_depth -= closes
+                    # Check for deep follows inside this block on the same line
+                    # (unlikely but handle it)
+                    continue
+
+            # Inside a named input block
+            if current_block is not None:
+                # Look for: inputs.X.inputs.Y.follows (or .url, etc.)
+                m_deep = re.match(
+                    r"inputs\.([a-zA-Z0-9_-]+)(?:\.inputs\.([a-zA-Z0-9_-]+))+",
+                    stripped,
+                )
+                if m_deep:
+                    parts = re.findall(r"inputs\.([a-zA-Z0-9_-]+)", stripped)
+                    # Full path is current_block / parts[0] / parts[1] / ...
+                    # The transitive inputs that need resolving are the
+                    # intermediate ones: current_block/parts[0],
+                    # current_block/parts[0]/parts[1], etc.
+                    for i in range(1, len(parts) + 1):
+                        path = current_block + "/" + "/".join(parts[:i])
+                        deep_paths.add(path)
+
+                # Also catch: inputs.X.follows (X is transitive of current_block)
+                m_shallow = re.match(
+                    r"inputs\.([a-zA-Z0-9_-]+)\.(follows|url)\b", stripped
+                )
+                if m_shallow and not m_deep:
+                    # inputs.X.follows inside block = current_block/X is transitive
+                    # But this is only relevant if X is NOT the root input itself
+                    # Actually this is a follows *of* the root input, Nix handles
+                    # this without needing to fetch X. Skip.
+                    pass
+
+            brace_depth += opens
+            brace_depth -= closes
+
+            if current_block is not None and brace_depth <= 1:
+                current_block = None
+            if brace_depth <= 0:
+                in_inputs_section = False
+
+    # --- Parse dotted-style: inputs.A.inputs.B.inputs.C.follows ---
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        m = re.match(
+            r"inputs\.([a-zA-Z0-9_-]+)(?:\.inputs\.([a-zA-Z0-9_-]+))+",
+            stripped,
+        )
+        if m and not in_inputs_section:
+            parts = re.findall(r"inputs\.([a-zA-Z0-9_-]+)", stripped)
+            if len(parts) >= 2:
+                for i in range(2, len(parts) + 1):
+                    path = "/".join(parts[:i])
+                    deep_paths.add(path)
+
+    # --- Resolve each deep path via the lock graph ---
+    for path in deep_paths:
+        if path in overrides:
+            continue
+        parts = path.split("/")
+        # Walk the lock to find the node for this path
+        current = "root"
+        valid = True
+        for part in parts:
+            node = nodes.get(current, {})
+            inputs = node.get("inputs", {})
+            ref = inputs.get(part)
+            if ref is None:
+                valid = False
+                break
+            if isinstance(ref, str):
+                current = ref
+            elif isinstance(ref, list):
+                resolved = resolve_follows(lock, ref)
+                if resolved is None:
+                    valid = False
+                    break
+                current = resolved
+        if not valid:
+            continue
+        node_data = nodes.get(current, {})
+        url = node_original_url(node_data)
+        if url and not url.startswith("indirect:"):
+            overrides[path] = url
+
+
+def run_nix_flake_lock_robust(
+    flake_dir: str,
+    lock_data: dict | None = None,
+    flake_content: str | None = None,
+    extra_overrides: dict[str, str] | None = None,
+    max_retries: int = 5,
+) -> tuple[bool, str]:
+    """Run nix flake lock with proactive indirect-input overrides and retry loop.
+
+    1. If ``lock_data`` is provided, pre-computes overrides for all indirect
+       inputs not in the standard registries and for deep follows overrides
+       found in ``flake_content``.
+    2. Merges any ``extra_overrides`` on top.
+    3. Runs ``nix flake lock``.
+    4. On failure, parses stderr for the failed input, adds a new override from
+       the lock data, and retries up to ``max_retries`` times.
+    """
+    overrides: dict[str, str] = {}
+    if lock_data:
+        overrides.update(compute_indirect_overrides(lock_data, flake_content))
+    if extra_overrides:
+        overrides.update(extra_overrides)
+
+    for attempt in range(max_retries + 1):
+        ok, stderr = run_nix_flake_lock(flake_dir, overrides if overrides else None)
+        if ok:
+            return True, ""
+        # Parse the failure and try to add a new override
+        input_path, flake_name = extract_failed_input(stderr)
+        if not input_path or input_path in overrides:
+            # Can't make progress – return the failure
+            return False, stderr
+        # Try path-based lookup first
+        if lock_data:
+            new_ov = build_override_inputs(lock_data, input_path)
+            if not new_ov:
+                new_ov = build_override_from_flake_name(
+                    lock_data, input_path, flake_name
+                )
+            if new_ov:
+                overrides.update(new_ov)
+                print(
+                    f"  retry {attempt + 1}: adding --override-input"
+                    f" {input_path} -> {list(new_ov.values())[0]}",
+                )
+                continue
+        # No new override found – give up
+        return False, stderr
+    return False, stderr
+
+
 # ---------------------------------------------------------------------------
 # Dedup logic
 # ---------------------------------------------------------------------------
@@ -1241,22 +1578,13 @@ def apply_dedup(
         content = read_flake_nix(flake_dir)
 
         print(f"  locking (depth {depth})...")
-        ok, stderr = run_nix_flake_lock(flake_dir)
+        saved_lock_data = json.loads(saved_lock)
+        ok, stderr = run_nix_flake_lock_robust(
+            flake_dir, lock_data=saved_lock_data, flake_content=content
+        )
         if ok:
             applied += len(batch)
         else:
-            # Try fallback with --override-input
-            input_path, flake_name = extract_failed_input(stderr)
-            if input_path:
-                print(f"  retrying with --override-input {input_path}...")
-                saved_lock_data = json.loads(saved_lock)
-                overrides = build_override_inputs(saved_lock_data, input_path)
-                if overrides:
-                    ok2, _ = run_nix_flake_lock(flake_dir, overrides)
-                    if ok2:
-                        applied += len(batch)
-                        continue
-
             # Back out this batch
             print(
                 f"  warning: lock failed for depth-{depth} follows, backing out",
@@ -1329,6 +1657,391 @@ def dedup(
 
 
 # ---------------------------------------------------------------------------
+# Merge logic: hoist deep-followed transitive inputs to root
+# ---------------------------------------------------------------------------
+
+
+def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
+    """Parse flake.nix for deep follows patterns.
+
+    Detects patterns like::
+
+        parent = {
+          inputs.CHILD.inputs.X.follows = "target";
+        };
+
+    or top-level dotted style::
+
+        inputs.parent.inputs.CHILD.inputs.X.follows = "target";
+
+    Returns a list of dicts:
+        {
+            "parent": "mac-app-util",
+            "child": "cl-nix-lite",
+            "sub_input": "systems",
+            "target": "systems",
+            "line_number": 53,
+            "line": "      inputs.cl-nix-lite.inputs.systems.follows = ...",
+        }
+    """
+    results: list[dict[str, Any]] = []
+    lines = content.split("\n")
+    in_inputs_section = False
+    current_block: str | None = None
+    brace_depth = 0
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+
+        # Detect top-level inputs = { block
+        if re.match(r"inputs\s*=\s*\{", stripped):
+            in_inputs_section = True
+            brace_depth = stripped.count("{") - stripped.count("}")
+            continue
+
+        if in_inputs_section:
+            opens = stripped.count("{")
+            closes = stripped.count("}")
+
+            # Detect named input block at depth 1
+            if current_block is None and brace_depth == 1:
+                m = re.match(r"([a-zA-Z0-9_'-]+)\s*=\s*\{", stripped)
+                if m:
+                    current_block = m.group(1)
+
+            # Inside a named block: look for inputs.CHILD.inputs.SUB.follows
+            if current_block is not None:
+                m = re.match(
+                    r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+                    stripped,
+                )
+                if m:
+                    results.append(
+                        {
+                            "parent": current_block,
+                            "child": m.group(1),
+                            "sub_input": m.group(2),
+                            "target": m.group(3),
+                            "line_number": i,
+                            "line": line,
+                        }
+                    )
+
+            brace_depth += opens
+            brace_depth -= closes
+
+            if current_block is not None and brace_depth <= 1:
+                current_block = None
+            if brace_depth <= 0:
+                in_inputs_section = False
+
+        # Dotted-style: inputs.PARENT.inputs.CHILD.inputs.SUB.follows
+        m = re.match(
+            r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+            stripped,
+        )
+        if m and not in_inputs_section:
+            results.append(
+                {
+                    "parent": m.group(1),
+                    "child": m.group(2),
+                    "sub_input": m.group(3),
+                    "target": m.group(4),
+                    "line_number": i,
+                    "line": line,
+                }
+            )
+
+    return results
+
+
+def _remove_lines(content: str, line_numbers: set[int]) -> str:
+    """Remove specific lines from content by line number."""
+    lines = content.split("\n")
+    return "\n".join(line for i, line in enumerate(lines) if i not in line_numbers)
+
+
+def _resolve_transitive_url(lock: dict, parent: str, child: str) -> str | None:
+    """Look up the URL for a transitive input (parent/child) from the lock file."""
+    nodes = lock.get("nodes", {})
+    root_node = nodes.get("root", {})
+    root_inputs = root_node.get("inputs", {})
+
+    # Find the parent's node name
+    parent_ref = root_inputs.get(parent)
+    if not parent_ref or not isinstance(parent_ref, str):
+        return None
+
+    parent_node = nodes.get(parent_ref, {})
+    parent_inputs = parent_node.get("inputs", {})
+
+    # Find the child's node name
+    child_ref = parent_inputs.get(child)
+    if not child_ref:
+        return None
+
+    if isinstance(child_ref, list):
+        child_node_name = resolve_follows(lock, child_ref)
+    else:
+        child_node_name = child_ref
+
+    if not child_node_name:
+        return None
+
+    child_node = nodes.get(child_node_name, {})
+    url = node_original_url(child_node)
+    if url and not url.startswith("indirect:"):
+        return url
+
+    # Fallback: try locked field
+    locked = child_node.get("locked", {})
+    lt = locked.get("type", "")
+    if lt in ("github", "gitlab"):
+        return f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+
+    return None
+
+
+def insert_root_input_block(
+    content: str, input_name: str, url: str, sub_follows: list[tuple[str, str]]
+) -> str:
+    """Add a new root input as a block with sub-follows declarations.
+
+    Inserts::
+
+        NAME = {
+          url = "URL";
+          inputs.X.follows = "target-x";
+          inputs.Y.follows = "target-y";
+        };
+
+    into the inputs section.
+    """
+    if root_input_exists_in_content(content, input_name):
+        return content
+
+    style, block_start, block_end = detect_inputs_style(content)
+    lines = content.split("\n")
+
+    indent = "    "
+    if style == "block" and block_start is not None and block_end is not None:
+        for k in range(block_start + 1, block_end):
+            m = re.match(r"^(\s+)", lines[k])
+            if m and lines[k].strip():
+                indent = m.group(1)
+                break
+
+    # Build the block
+    block_lines = [f"{indent}{input_name} = {{"]
+    block_lines.append(f'{indent}  url = "{url}";')
+    for sub_input, target in sub_follows:
+        block_lines.append(f'{indent}  inputs.{sub_input}.follows = "{target}";')
+    block_lines.append(f"{indent}}};")
+
+    if style == "block" and block_end is not None:
+        for line_str in reversed(block_lines):
+            lines.insert(block_end, line_str)
+    else:
+        # Dotted style: find last input line
+        last_input_line = 0
+        for k, line_str in enumerate(lines):
+            if re.match(r"\s*inputs\.", line_str.strip()):
+                last_input_line = k
+        for j, line_str in enumerate(block_lines):
+            lines.insert(last_input_line + 1 + j, line_str)
+
+    return "\n".join(lines)
+
+
+def analyze_merge(
+    lock: dict,
+    content: str,
+    config: dict[str, Any],
+    verbose: bool = False,
+) -> list[dict[str, Any]]:
+    """Analyze flake.nix for deep follows that need merging.
+
+    Detects patterns where flake.nix overrides sub-inputs of a transitive
+    input (e.g. ``mac-app-util.inputs.cl-nix-lite.inputs.systems.follows``).
+
+    These cause ``nix flake lock`` to fail when the transitive input name
+    is not in the flake registry.
+
+    Returns merge proposals that hoist the transitive input to root with
+    the sub-follows applied directly, plus a simple follows on the parent.
+    """
+    deep_follows = _parse_deep_follows(content)
+    if not deep_follows:
+        return []
+
+    # Group by (parent, child)
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for df in deep_follows:
+        groups[(df["parent"], df["child"])].append(df)
+
+    proposals: list[dict[str, Any]] = []
+
+    for (parent, child), entries in groups.items():
+        # Check includes/excludes
+        if not should_include(config, "merge", parent):
+            if verbose:
+                print(f"  skip merge {parent}/{child}: parent not in merge includes")
+            continue
+        if should_exclude(config, "merge", parent):
+            if verbose:
+                print(f"  skip merge {parent}/{child}: parent excluded from merge")
+            continue
+        if should_exclude(config, "merge", child):
+            if verbose:
+                print(f"  skip merge {parent}/{child}: child excluded from merge")
+            continue
+
+        # Skip if child is already a root input
+        if root_input_exists_in_content(content, child):
+            if verbose:
+                print(f"  skip merge {parent}/{child}: {child} is already a root input")
+            continue
+
+        # Look up the URL for the transitive input
+        url = _resolve_transitive_url(lock, parent, child)
+        if not url:
+            if verbose:
+                print(
+                    f"  skip merge {parent}/{child}: "
+                    f"could not resolve URL from lock file"
+                )
+            continue
+
+        # Collect sub-input follows: (sub_input_name, target)
+        sub_follows: list[tuple[str, str]] = []
+        line_numbers: set[int] = set()
+        for entry in entries:
+            sub_follows.append((entry["sub_input"], entry["target"]))
+            line_numbers.add(entry["line_number"])
+
+        proposals.append(
+            {
+                "parent": parent,
+                "child": child,
+                "url": url,
+                "sub_follows": sub_follows,
+                "line_numbers": line_numbers,
+                "desc": (
+                    f"merge {parent}/{child}: "
+                    f"hoist {child} to root, "
+                    f'add {parent}.inputs.{child}.follows = "{child}"'
+                ),
+                "operation": "merge",
+            }
+        )
+
+    return proposals
+
+
+def apply_merge(
+    flake_dir: str,
+    proposals: list[dict[str, Any]],
+    verbose: bool = False,
+) -> tuple[int, list[dict[str, Any]]]:
+    """Apply merge proposals. Returns (applied_count, failed_proposals)."""
+    if not proposals:
+        return 0, []
+
+    content = read_flake_nix(flake_dir)
+    lock_path = os.path.join(flake_dir, "flake.lock")
+
+    saved_content = content
+    with open(lock_path) as f:
+        saved_lock = f.read()
+
+    # Apply all merge proposals
+    for p in proposals:
+        # 1. Remove the old deep follows lines
+        if verbose:
+            for ln in sorted(p["line_numbers"]):
+                print(f"  remove deep follows line {ln + 1}")
+        content = _remove_lines(content, p["line_numbers"])
+
+        # 2. Add the new root input block with sub-follows
+        if verbose:
+            print(f'  add root input: {p["child"]} = {{ url = "{p["url"]}"; ... }}')
+        content = insert_root_input_block(
+            content, p["child"], p["url"], p["sub_follows"]
+        )
+
+        # 3. Add follows on the parent: parent.inputs.CHILD.follows = "CHILD"
+        follows_parts = [p["parent"], p["child"]]
+        if not follows_exists_in_content(content, follows_parts, p["child"]):
+            if verbose:
+                print(f"  add follows: {p['parent']}.{p['child']} -> {p['child']}")
+            content = insert_follows_in_content(content, follows_parts, p["child"])
+
+    write_flake_nix(flake_dir, content)
+    run_nixfmt(flake_dir)
+    content = read_flake_nix(flake_dir)
+
+    print("  locking after merge...")
+    saved_lock_data = json.loads(saved_lock)
+    ok, stderr = run_nix_flake_lock_robust(
+        flake_dir, lock_data=saved_lock_data, flake_content=content
+    )
+    if ok:
+        return len(proposals), []
+    else:
+        # Back out all merge changes
+        print("  warning: lock failed after merge, backing out", file=sys.stderr)
+        content = saved_content
+        write_flake_nix(flake_dir, content)
+        run_nixfmt(flake_dir)
+        with open(lock_path, "w") as f:
+            f.write(saved_lock)
+        return 0, proposals
+
+
+def merge(
+    flake_dir: str,
+    config: dict[str, Any],
+    dry_run: bool = False,
+    check: bool = False,
+    verbose: bool = False,
+) -> int:
+    """Main merge action. Returns number of proposals found."""
+    lock = load_lock(flake_dir)
+    content = read_flake_nix(flake_dir)
+    proposals = analyze_merge(lock, content, config, verbose=verbose)
+
+    if not proposals:
+        if verbose:
+            print("  merge: no deep follows to hoist.")
+        return 0
+
+    print(f"  merge: {len(proposals)} transitive input(s) to hoist:")
+    for p in proposals:
+        print(f"    + {p['child']} ({p['url']}) from {p['parent']}")
+        for sub_input, target in p["sub_follows"]:
+            print(f'      {p["child"]}.inputs.{sub_input}.follows = "{target}"')
+        print(f'      {p["parent"]}.inputs.{p["child"]}.follows = "{p["child"]}"')
+
+    if dry_run or check:
+        return len(proposals)
+
+    applied, failed = apply_merge(flake_dir, proposals, verbose=verbose)
+
+    if failed:
+        print(f"\n  {len(failed)} merge proposals could not be applied:")
+        for p in failed:
+            print(f"    {p['desc']}")
+
+    if applied > 0:
+        print(f"  merge done: hoisted {applied} transitive input(s) to root.")
+        run_nixfmt(flake_dir)
+
+    return len(proposals)
+
+
+# ---------------------------------------------------------------------------
 # Flatten logic
 # ---------------------------------------------------------------------------
 
@@ -1345,7 +2058,7 @@ def analyze_flatten(
     """
     nodes = lock["nodes"]
     root_inputs = nodes.get("root", {}).get("inputs", {})
-    root_node_names = set(root_inputs.values())
+    root_node_names = set(v for v in root_inputs.values() if isinstance(v, str))
     max_depth = config["max-depth"]
 
     # Find all transitive-only nodes
@@ -1363,6 +2076,8 @@ def analyze_flatten(
         key = source_key(node_data)
         has_root_equivalent = False
         for _iname, rnode in root_inputs.items():
+            if not isinstance(rnode, str):
+                continue
             rdata = nodes.get(rnode, {})
             if "original" in rdata and source_key(rdata) == key:
                 has_root_equivalent = True
@@ -1437,11 +2152,23 @@ def analyze_flatten(
         # Avoid collision with other proposals
         existing_names = {p["new_input_name"] for p in proposals}
         if best_name in existing_names:
-            best_name = f"{best_name}-hoisted"
+            base = best_name
+            suffix = 2
+            best_name = f"{base}-hoisted"
+            while best_name in existing_names:
+                best_name = f"{base}-{suffix}"
+                suffix += 1
 
         # Get URL from the first node
         first_node_data = nodes[members[0][0]]
         url = node_original_url(first_node_data)
+
+        # Skip indirect URLs — they can't be used as root input URLs since Nix
+        # may not be able to resolve them from the global flake registries.
+        if url.startswith("indirect:"):
+            if verbose:
+                print(f"  skip flatten {best_name}: indirect URL ({url})")
+            continue
 
         # Collect all follows needed
         follows_list: list[list[str]] = []
@@ -1518,21 +2245,13 @@ def apply_flatten(
     content = read_flake_nix(flake_dir)
 
     print("  locking after flatten...")
-    ok, stderr = run_nix_flake_lock(flake_dir)
+    saved_lock_data = json.loads(saved_lock)
+    ok, stderr = run_nix_flake_lock_robust(
+        flake_dir, lock_data=saved_lock_data, flake_content=content
+    )
     if ok:
         applied = len(proposals)
     else:
-        # Try with overrides
-        input_path, flake_name = extract_failed_input(stderr)
-        if input_path:
-            print(f"  retrying with --override-input {input_path}...")
-            saved_lock_data = json.loads(saved_lock)
-            overrides = build_override_inputs(saved_lock_data, input_path)
-            if overrides:
-                ok2, _ = run_nix_flake_lock(flake_dir, overrides)
-                if ok2:
-                    return len(proposals), []
-
         # Back out all flatten changes
         print("  warning: lock failed after flatten, backing out", file=sys.stderr)
         content = saved_content
@@ -1597,13 +2316,16 @@ def run_all(
     check: bool = False,
     verbose: bool = False,
 ) -> int:
-    """Run all operations: dedup -> flatten -> dedup.
+    """Run all operations: merge -> dedup -> flatten -> dedup.
 
     Returns total number of proposals found.
     """
     total = 0
 
-    print("=== dedup (pass 1) ===")
+    print("=== merge ===")
+    total += merge(flake_dir, config, dry_run=dry_run, check=check, verbose=verbose)
+
+    print("\n=== dedup (pass 1) ===")
     total += dedup(flake_dir, config, dry_run=dry_run, check=check, verbose=verbose)
 
     print("\n=== flatten ===")
@@ -1634,7 +2356,7 @@ def build_parser() -> argparse.ArgumentParser:
         "action",
         nargs="?",
         default="all",
-        choices=["dedup", "flatten", "all"],
+        choices=["dedup", "merge", "flatten", "all"],
         help="Action to perform (default: all)",
     )
     parser.add_argument(
@@ -1681,6 +2403,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only dedup these inputs (replaces config include.dedup)",
     )
     parser.add_argument(
+        "--include-merge",
+        nargs="+",
+        default=None,
+        metavar="NAME",
+        help="Only merge these inputs (replaces config include.merge)",
+    )
+    parser.add_argument(
         "--include-flatten",
         nargs="+",
         default=None,
@@ -1702,6 +2431,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="NAME",
         help="Exclude these inputs from dedup (appends to config)",
+    )
+    parser.add_argument(
+        "--exclude-merge",
+        nargs="+",
+        default=None,
+        metavar="NAME",
+        help="Exclude these inputs from merge (appends to config)",
     )
     parser.add_argument(
         "--exclude-flatten",
@@ -1765,6 +2501,10 @@ def main() -> None:
 
     if args.action == "dedup":
         total_proposals = dedup(
+            flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
+        )
+    elif args.action == "merge":
+        total_proposals = merge(
             flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
         )
     elif args.action == "flatten":

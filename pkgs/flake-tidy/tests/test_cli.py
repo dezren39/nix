@@ -29,6 +29,11 @@ class TestCLI:
         args = self.parser.parse_args(["flatten"])
         assert args.action == "flatten"
 
+    def test_merge_action(self):
+        """'merge' action parsed correctly."""
+        args = self.parser.parse_args(["merge"])
+        assert args.action == "merge"
+
     def test_dry_run_flag(self):
         """--dry-run flag."""
         args = self.parser.parse_args(["--dry-run"])
@@ -79,6 +84,11 @@ class TestCLI:
         args = self.parser.parse_args(["--include-flatten", "foo"])
         assert args.include_flatten == ["foo"]
 
+    def test_include_merge_args(self):
+        """--include-merge foo."""
+        args = self.parser.parse_args(["--include-merge", "foo"])
+        assert args.include_merge == ["foo"]
+
     def test_exclude_args(self):
         """--exclude-input foo bar."""
         args = self.parser.parse_args(["--exclude-input", "foo", "bar"])
@@ -88,6 +98,11 @@ class TestCLI:
         """--exclude-dedup foo."""
         args = self.parser.parse_args(["--exclude-dedup", "foo"])
         assert args.exclude_dedup == ["foo"]
+
+    def test_exclude_merge_args(self):
+        """--exclude-merge foo."""
+        args = self.parser.parse_args(["--exclude-merge", "foo"])
+        assert args.exclude_merge == ["foo"]
 
     def test_exclude_flatten_args(self):
         """--exclude-flatten foo."""
