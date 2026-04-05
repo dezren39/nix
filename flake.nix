@@ -51,6 +51,7 @@
       # inputs.nixpkgs.follows = "nixpkgs";
       inputs.treefmt-nix.follows = "treefmt-nix";
       inputs.cl-nix-lite.follows = "cl-nix-lite";
+      inputs.flake-utils.follows = "flake-utils";
     };
     brew-src = {
       # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6

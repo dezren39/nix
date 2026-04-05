@@ -1514,6 +1514,133 @@ def analyze_dedup(
                     }
                 )
 
+    # --- Cross-type hash dedup ---
+    # source_key grouping above misses cases where the original type differs
+    # (e.g. github vs indirect) but locked content is byte-identical.
+    # Fall back to locked hash comparison for these stragglers, preferring
+    # explicit types (github/gitlab) over indirect.
+    _TYPE_PREF = {
+        "github": 0,
+        "gitlab": 1,
+        "sourcehut": 2,
+        "tarball": 3,
+        "file": 4,
+        "path": 5,
+        "indirect": 6,
+    }
+
+    grouped_nodes: set[str] = set()
+    for _gk, gmembers in groups.items():
+        if len(gmembers) >= 2:
+            grouped_nodes.update(gmembers)
+
+    # Map locked hash -> best root node
+    root_by_hash: dict[str, tuple[str, str]] = {}  # hash -> (node_name, input_name)
+    for iname, nname in root_inputs.items():
+        if not isinstance(nname, str):
+            continue
+        ndata = nodes.get(nname, {})
+        if "original" not in ndata or "locked" not in ndata:
+            continue
+        h = locked_hash(ndata)
+        if not h:
+            continue
+        cur_type = ndata.get("original", {}).get("type", "")
+        if h in root_by_hash:
+            existing_type = (
+                nodes[root_by_hash[h][0]].get("original", {}).get("type", "")
+            )
+            if _TYPE_PREF.get(cur_type, 99) < _TYPE_PREF.get(existing_type, 99):
+                root_by_hash[h] = (nname, iname)
+        else:
+            root_by_hash[h] = (nname, iname)
+
+    for node_name, node_data in nodes.items():
+        if node_name == "root" or "original" not in node_data:
+            continue
+        if node_name in grouped_nodes:
+            continue
+        if node_name in root_inputs.values():
+            continue
+        if is_path_input(node_data):
+            continue
+
+        h = locked_hash(node_data)
+        if not h or h not in root_by_hash:
+            continue
+
+        canon_node, canon_iname = root_by_hash[h]
+
+        # Only act when source_key actually differs (same-key was handled above)
+        if source_key(node_data) == source_key(nodes[canon_node]):
+            continue
+
+        # Prefer explicit type at root; skip if transitive is MORE explicit
+        trans_type = node_data.get("original", {}).get("type", "")
+        canon_type = nodes[canon_node].get("original", {}).get("type", "")
+        if _TYPE_PREF.get(trans_type, 99) < _TYPE_PREF.get(canon_type, 99):
+            continue
+
+        if should_exclude(config, "dedup", canon_iname):
+            continue
+        if is_excluded_follows_url(config, node_url(nodes[canon_node])):
+            continue
+
+        trans_url = node_url(node_data)
+        if should_exclude(config, "dedup", "", trans_url):
+            continue
+
+        all_paths = find_all_paths(lock, node_name)
+
+        for path in all_paths:
+            if not path:
+                continue
+            _last_inp, _last_child, last_is_follows = path[-1]
+            if last_is_follows:
+                continue
+
+            has_intermediate_follows = any(is_f for _, _, is_f in path[:-1])
+            if has_intermediate_follows:
+                if verbose:
+                    fp = ".".join(inp for inp, _, _ in path)
+                    print(f"  skip {fp}: intermediate follows in path")
+                continue
+
+            depth = path_depth(path)
+            if max_depth and depth > max_depth:
+                if verbose:
+                    fp = ".".join(inp for inp, _, _ in path)
+                    print(f"  skip {fp}: depth {depth} > max {max_depth}")
+                continue
+
+            follows_parts = [inp for inp, _, _ in path]
+            follows_path = ".".join(follows_parts)
+
+            if not should_include(config, "dedup", follows_parts[0]):
+                continue
+
+            if is_excluded_full(
+                config,
+                lock,
+                "dedup",
+                follows_path,
+                follows_parts,
+                canon_iname,
+                canon_node,
+            ):
+                continue
+
+            proposals.append(
+                {
+                    "follows_parts": follows_parts,
+                    "target": canon_iname,
+                    "follows_path": follows_path,
+                    "source_key": f"cross-type:{source_key(node_data)}={source_key(nodes[canon_node])}",
+                    "desc": f"{follows_path} -> follows {canon_iname} (cross-type)",
+                    "operation": "dedup",
+                }
+            )
+
     # Deduplicate by follows_path
     seen_paths: set[str] = set()
     unique: list[dict[str, Any]] = []
@@ -2073,13 +2200,21 @@ def analyze_flatten(
             continue
 
         # Check if any root input has the same source already
+        # Match by source_key first, then fall back to locked hash so that
+        # cross-type matches (e.g. indirect vs github) are caught by dedup.
         key = source_key(node_data)
+        node_hash = locked_hash(node_data)
         has_root_equivalent = False
         for _iname, rnode in root_inputs.items():
             if not isinstance(rnode, str):
                 continue
             rdata = nodes.get(rnode, {})
-            if "original" in rdata and source_key(rdata) == key:
+            if "original" not in rdata:
+                continue
+            if source_key(rdata) == key:
+                has_root_equivalent = True
+                break
+            if node_hash and locked_hash(rdata) == node_hash:
                 has_root_equivalent = True
                 break
         if has_root_equivalent:

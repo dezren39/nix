@@ -256,3 +256,63 @@ class TestAnalyzeFlatten:
         assert len(proposals) == 1
         # Should have follows for both paths
         assert len(proposals[0]["follows"]) == 2
+
+    def test_analyze_flatten_skips_cross_type_root_equivalent(self, default_config):
+        """skips indirect transitive when a github root has the same locked hash."""
+        lock = {
+            "nodes": {
+                "root": {
+                    "inputs": {
+                        "flake-utils": "flake-utils",
+                        "mac-app-util": "mac-app-util",
+                    }
+                },
+                "flake-utils": {
+                    "locked": {
+                        "narHash": "sha256-SAME",
+                        "rev": "aaaa",
+                        "type": "github",
+                    },
+                    "original": {
+                        "owner": "numtide",
+                        "repo": "flake-utils",
+                        "type": "github",
+                    },
+                },
+                "flake-utils_2": {
+                    "locked": {
+                        "narHash": "sha256-SAME",
+                        "rev": "aaaa",
+                        "type": "github",
+                    },
+                    "original": {"id": "flake-utils", "type": "indirect"},
+                },
+                "mac-app-util": {
+                    "inputs": {"flake-utils": "flake-utils_2"},
+                    "locked": {
+                        "narHash": "sha256-MAU",
+                        "rev": "cccc",
+                        "type": "github",
+                    },
+                    "original": {
+                        "owner": "hraban",
+                        "repo": "mac-app-util",
+                        "type": "github",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        content = """{
+  inputs = {
+    flake-utils.url = "github:numtide/flake-utils";
+    mac-app-util.url = "github:hraban/mac-app-util";
+  };
+  outputs = _: {};
+}
+"""
+        proposals = flake_tidy.analyze_flatten(lock, content, default_config)
+        # flake-utils_2 should be skipped — root equivalent by hash (dedup handles it)
+        hoisted = [p for p in proposals if "flake-utils" in p.get("new_input_name", "")]
+        assert len(hoisted) == 0
