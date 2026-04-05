@@ -81,30 +81,43 @@ fmt:
 # Flake Tidy
 # =============================================================================
 
-# Deduplicate flake inputs (dry run)
+# Run all tidy operations: merge -> dedup -> flatten -> dedup
+[group('tidy')]
+tidy *args:
+    nix run .#flake-tidy -- all {{args}}
+
+# Run all tidy operations (dry run)
 [group('tidy')]
 tidy-dry *args:
-    nix run .#flake-tidy -- dedup --dry-run {{args}}
+    nix run .#flake-tidy -- all --dry-run {{args}}
 
 # Deduplicate flake inputs
 [group('tidy')]
-tidy *args:
+tidy-dedup *args:
     nix run .#flake-tidy -- dedup {{args}}
 
-# Flatten/hoist transitive inputs to root (dry run)
+alias dedup := tidy-dedup
+
+# Deduplicate flake inputs (dry run)
 [group('tidy')]
-flatten-dry *args:
-    nix run .#flake-tidy -- flatten --dry-run {{args}}
+tidy-dedup-dry *args:
+    nix run .#flake-tidy -- dedup --dry-run {{args}}
+
+alias dedup-dry := tidy-dedup-dry
 
 # Flatten/hoist transitive inputs to root
 [group('tidy')]
-flatten *args:
+tidy-flatten *args:
     nix run .#flake-tidy -- flatten {{args}}
 
-# Run all tidy operations (dedup + flatten)
+alias flatten := tidy-flatten
+
+# Flatten/hoist transitive inputs to root (dry run)
 [group('tidy')]
-tidy-all *args:
-    nix run .#flake-tidy -- all {{args}}
+tidy-flatten-dry *args:
+    nix run .#flake-tidy -- flatten --dry-run {{args}}
+
+alias flatten-dry := tidy-flatten-dry
 
 # Check if tidy changes are needed (for CI)
 [group('tidy')]

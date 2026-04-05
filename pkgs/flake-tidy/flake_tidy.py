@@ -589,19 +589,74 @@ def get_input_file_order(content: str) -> list[str]:
     return order
 
 
+def _block_context_for_lines(content: str) -> list[str | None]:
+    """Return the enclosing block input name for each line.
+
+    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
+    For top-level dotted lines (outside any block) returns ``None``.
+
+    This is approximate but sufficient: it tracks ``<name> = {`` opens
+    and matching ``};`` closes at the same indent level.
+    """
+    lines = content.split("\n")
+    result: list[str | None] = [None] * len(lines)
+    # Stack of (block_name, open_line_index, indent_level)
+    stack: list[tuple[str, int, int]] = []
+    inputs_block_depth = 0
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            if stack:
+                result[i] = stack[-1][0]
+            continue
+
+        indent = len(line) - len(line.lstrip())
+
+        # Check for block open: <name> = { (inside the inputs block)
+        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
+        if m:
+            name = m.group(2)
+            if name == "inputs":
+                inputs_block_depth += 1
+            elif inputs_block_depth > 0 or stack:
+                stack.append((name, i, indent))
+                result[i] = name
+                continue
+
+        # Check for block close: }; or }; # comment
+        if (
+            stripped == "};"
+            or stripped.startswith("}; #")
+            or stripped.startswith("};#")
+        ) and stack:
+            _name, _open_i, open_indent = stack[-1]
+            if indent <= open_indent + 2:  # allow for slight indent variation
+                stack.pop()
+                if stack:
+                    result[i] = stack[-1][0]
+                continue
+
+        if stripped.startswith("inputs") and stripped.endswith("{"):
+            pass  # inputs = { handled above
+
+        if stack:
+            result[i] = stack[-1][0]
+
+    return result
+
+
 def follows_exists_in_content(
     content: str, follows_parts: list[str], target: str
 ) -> bool:
     """Check if a follows declaration already exists (active) in flake.nix.
 
-    Checks both absolute and relative forms.
+    Checks both absolute and relative forms, and is block-context-aware:
+    a line ``inputs.nix.inputs.X.follows`` inside a ``determinate = { ... }``
+    block is NOT the same as root-level ``nix.inputs.X.follows``.
     """
+    # Build candidate strings for ROOT-level scope (block_context == None)
     full = ".".join(f"inputs.{p}" for p in follows_parts) + f'.follows = "{target}"'
-    relative_parent = (
-        ".".join(f"inputs.{p}" for p in follows_parts[1:]) + f'.follows = "{target}"'
-        if len(follows_parts) >= 2
-        else None
-    )
     relative_inputs = (
         follows_parts[0]
         + "."
@@ -610,21 +665,100 @@ def follows_exists_in_content(
         if len(follows_parts) >= 2
         else f'{follows_parts[0]}.follows = "{target}"'
     )
-    bare_follows = f'follows = "{target}"' if len(follows_parts) == 1 else None
+    root_candidates = [full, relative_inputs]
 
-    candidates = [
-        c for c in [full, relative_parent, relative_inputs, bare_follows] if c
-    ]
+    # Build candidate strings for BLOCK scope (inside follows_parts[0] block)
+    block_candidates: list[str] = []
+    if len(follows_parts) >= 2:
+        # Inside the block of follows_parts[0], the path is relative
+        inner = (
+            ".".join(f"inputs.{p}" for p in follows_parts[1:])
+            + f'.follows = "{target}"'
+        )
+        block_candidates.append(inner)
+        # bare follows for depth 2
+        if len(follows_parts) == 2:
+            block_candidates.append(f'follows = "{target}"')
+    elif len(follows_parts) == 1:
+        # Inside the block of the single part, bare follows matches
+        block_candidates.append(f'follows = "{target}"')
 
-    for line in content.split("\n"):
+    block_context = _block_context_for_lines(content)
+    lines = content.split("\n")
+    first_part = follows_parts[0] if follows_parts else None
+
+    for i, line in enumerate(lines):
         stripped = line.strip().rstrip(";").strip()
         if stripped.startswith("#"):
             continue
         normalized = re.sub(r"\s+", " ", stripped)
-        for c in candidates:
-            c_normalized = re.sub(r"\s+", " ", c)
-            if normalized == c_normalized:
-                return True
+        ctx = block_context[i]
+
+        if ctx is None:
+            # Root scope: match full or relative forms
+            for c in root_candidates:
+                if re.sub(r"\s+", " ", c) == normalized:
+                    return True
+        elif ctx == first_part:
+            # Inside the block of the first follows_parts element
+            for c in block_candidates:
+                if re.sub(r"\s+", " ", c) == normalized:
+                    return True
+
+    return False
+
+
+def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
+    """Check if a follows for the given attribute path exists with ANY target.
+
+    Block-context-aware: a line inside a different block is not a match.
+    """
+    # Root-level prefixes
+    full_prefix = ".".join(f"inputs.{p}" for p in follows_parts) + ".follows"
+    relative_inputs = (
+        follows_parts[0]
+        + "."
+        + ".".join(f"inputs.{p}" for p in follows_parts[1:])
+        + ".follows"
+        if len(follows_parts) >= 2
+        else f"{follows_parts[0]}.follows"
+    )
+    root_prefixes = [full_prefix, relative_inputs]
+
+    # Block-level prefixes (inside follows_parts[0] block)
+    block_prefixes: list[str] = []
+    if len(follows_parts) >= 2:
+        inner = ".".join(f"inputs.{p}" for p in follows_parts[1:]) + ".follows"
+        block_prefixes.append(inner)
+        if len(follows_parts) == 2:
+            block_prefixes.append("follows")
+    elif len(follows_parts) == 1:
+        block_prefixes.append("follows")
+
+    block_context = _block_context_for_lines(content)
+    lines = content.split("\n")
+    first_part = follows_parts[0] if follows_parts else None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip().rstrip(";").strip()
+        if stripped.startswith("#"):
+            continue
+        normalized = re.sub(r"\s+", " ", stripped)
+        ctx = block_context[i]
+
+        if ctx is None:
+            for pfx in root_prefixes:
+                if normalized.startswith(pfx + " =") or normalized.startswith(
+                    pfx + "="
+                ):
+                    return True
+        elif ctx == first_part:
+            for pfx in block_prefixes:
+                if normalized.startswith(pfx + " =") or normalized.startswith(
+                    pfx + "="
+                ):
+                    return True
+
     return False
 
 
@@ -788,12 +922,15 @@ def detect_inputs_style(
 
 
 def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, bool]:
-    """Find the last dotted-style line for an input.
+    """Find the last dotted-style line for an input at ROOT scope.
 
     Returns (line_number, is_inside_block) or (None, False).
+    Only considers lines that are at root scope (not inside another input's
+    block) to avoid inserting follows into the wrong block.
     """
     lines = content.split("\n")
     style, block_start, block_end = detect_inputs_style(content)
+    block_ctx = _block_context_for_lines(content)
 
     last = None
     inside_block = False
@@ -801,6 +938,10 @@ def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, b
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
+            continue
+        ctx = block_ctx[i]
+        # Only match lines at root scope (context is None)
+        if ctx is not None:
             continue
         if re.match(rf"inputs\.{re.escape(input_name)}\.", stripped):
             last = i
@@ -886,10 +1027,13 @@ def insert_follows_in_content(
         return _insert_before_inputs_end(lines, f"    {full_nix}", False)
 
 
-def insert_root_input(content: str, input_name: str, url: str) -> str:
+def insert_root_input(
+    content: str, input_name: str, url: str, *, flake: bool = True
+) -> str:
     """Add a new root input declaration to flake.nix.
 
     Uses dotted style inside block, or top-level dotted style.
+    If *flake* is False, also adds ``<name>.flake = false;``.
     """
     if root_input_exists_in_content(content, input_name):
         return content
@@ -907,6 +1051,8 @@ def insert_root_input(content: str, input_name: str, url: str) -> str:
                     break
         new_line = f'{indent}{input_name}.url = "{url}";'
         lines.insert(block_end, new_line)
+        if not flake:
+            lines.insert(block_end + 1, f"{indent}{input_name}.flake = false;")
     else:
         last_input_line = 0
         for i, line in enumerate(lines):
@@ -919,6 +1065,11 @@ def insert_root_input(content: str, input_name: str, url: str) -> str:
                 indent = m.group(1)
         new_line = f'{indent}inputs.{input_name}.url = "{url}";'
         lines.insert(last_input_line + 1, new_line)
+        if not flake:
+            lines.insert(
+                last_input_line + 2,
+                f"{indent}inputs.{input_name}.flake = false;",
+            )
 
     return "\n".join(lines)
 
@@ -1719,11 +1870,19 @@ def apply_dedup(
         if ok:
             applied += len(batch)
         else:
+            is_preexisting = "has both a flake reference and a follows" in stderr
+            if is_preexisting:
+                print(
+                    "  error: nix flake lock failed due to a pre-existing"
+                    " url+follows conflict in flake.nix (not caused by tidy).",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"  warning: lock failed for depth-{depth} follows, backing out",
+                    file=sys.stderr,
+                )
             # Back out this batch
-            print(
-                f"  warning: lock failed for depth-{depth} follows, backing out",
-                file=sys.stderr,
-            )
             for p in batch:
                 print(f"    skipped: {p['desc']}", file=sys.stderr)
                 failed.append(p)
@@ -2282,28 +2441,52 @@ def analyze_flatten(
                 print(f"  skip flatten {best_name}: excluded from flatten")
             continue
 
-        # Avoid name collision with existing root inputs
-        if best_name in {iname for iname in root_inputs}:
-            for alt_name in sorted(name_counts, key=name_counts.get, reverse=True):
-                if alt_name not in root_inputs:
-                    best_name = alt_name
-                    break
-            else:
-                best_name = f"{best_name}-hoisted"
-
-        # Avoid collision with other proposals
-        existing_names = {p["new_input_name"] for p in proposals}
-        if best_name in existing_names:
-            base = best_name
-            suffix = 2
-            best_name = f"{base}-hoisted"
-            while best_name in existing_names:
-                best_name = f"{base}-{suffix}"
-                suffix += 1
-
         # Get URL from the first node
         first_node_data = nodes[members[0][0]]
         url = node_original_url(first_node_data)
+        node_hash = locked_hash(first_node_data)
+        is_non_flake = first_node_data.get("flake", True) is False
+
+        # If an existing root input has the same source or locked hash,
+        # reuse it instead of creating a new root input.
+        reuse_existing = False
+        for iname, iref in root_inputs.items():
+            if not isinstance(iref, str):
+                continue
+            rdata = nodes.get(iref, {})
+            if "original" not in rdata:
+                continue
+            if source_key(rdata) == key or (
+                node_hash and locked_hash(rdata) == node_hash
+            ):
+                best_name = iname
+                reuse_existing = True
+                if verbose:
+                    print(
+                        f"  flatten: reusing existing root input"
+                        f" '{iname}' for {members[0][0]}"
+                    )
+                break
+
+        if not reuse_existing:
+            # Avoid name collision with existing root inputs
+            if best_name in {iname for iname in root_inputs}:
+                for alt_name in sorted(name_counts, key=name_counts.get, reverse=True):
+                    if alt_name not in root_inputs:
+                        best_name = alt_name
+                        break
+                else:
+                    best_name = f"{best_name}-hoisted"
+
+            # Avoid collision with other proposals
+            existing_names = {p["new_input_name"] for p in proposals}
+            if best_name in existing_names:
+                base = best_name
+                suffix = 2
+                best_name = f"{base}-hoisted"
+                while best_name in existing_names:
+                    best_name = f"{base}-{suffix}"
+                    suffix += 1
 
         # Skip indirect URLs — they can't be used as root input URLs since Nix
         # may not be able to resolve them from the global flake registries.
@@ -2323,8 +2506,22 @@ def analyze_flatten(
                     continue
                 if follows_exists_in_content(content, follows_parts, best_name):
                     continue
+                # Skip if a follows for this path already exists with ANY
+                # target (e.g. dedup already added one pointing elsewhere).
+                if follows_path_has_any_target(content, follows_parts):
+                    continue
 
                 follows_list.append(follows_parts)
+
+        if not follows_list and root_input_exists_in_content(content, best_name):
+            # All follows already exist and root input already exists — nothing
+            # to do for this proposal.
+            if verbose:
+                print(
+                    f"  skip flatten {best_name}: root input exists"
+                    f" and all follows paths already covered"
+                )
+            continue
 
         if not follows_list and not root_input_exists_in_content(content, best_name):
             # Still add the root input even without follows (makes it available)
@@ -2336,6 +2533,7 @@ def analyze_flatten(
                 "url": url,
                 "source_key": key,
                 "follows": follows_list,
+                "flake": not is_non_flake,
                 "desc": f"hoist {best_name} ({url})",
                 "operation": "flatten",
             }
@@ -2396,11 +2594,23 @@ def apply_flatten(
             if not root_input_exists_in_content(content, p["new_input_name"]):
                 if verbose:
                     print(f'  add root input: {p["new_input_name"]}.url = "{p["url"]}"')
-                content = insert_root_input(content, p["new_input_name"], p["url"])
+                content = insert_root_input(
+                    content,
+                    p["new_input_name"],
+                    p["url"],
+                    flake=p.get("flake", True),
+                )
             for follows_parts in p["follows"]:
                 if not follows_exists_in_content(
                     content, follows_parts, p["new_input_name"]
                 ):
+                    # Also skip if the path already has a follows with a
+                    # different target (e.g. dedup placed one earlier).
+                    if follows_path_has_any_target(content, follows_parts):
+                        if verbose:
+                            fp = ".".join(follows_parts)
+                            print(f"  skip follows: {fp} (already has a follows)")
+                        continue
                     if verbose:
                         fp = ".".join(follows_parts)
                         print(f"  add follows: {fp} -> {p['new_input_name']}")
@@ -2427,8 +2637,19 @@ def apply_flatten(
         now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
         if bad is None:
-            # Can't identify — all remaining fail
-            if verbose:
+            # Check if it's a pre-existing flake.nix issue (url+follows)
+            is_preexisting = "has both a flake reference and a follows" in stderr
+            if is_preexisting:
+                print(
+                    "  error: nix flake lock failed due to a pre-existing"
+                    " url+follows conflict in flake.nix (not caused by tidy).",
+                    file=sys.stderr,
+                )
+                print(
+                    "  fix the conflict manually, then re-run.",
+                    file=sys.stderr,
+                )
+            elif verbose:
                 print(
                     "  warning: lock failed, cannot identify failing proposal",
                     file=sys.stderr,
@@ -2500,6 +2721,8 @@ def insert_flatten_failure_comments(content: str, failed: list[dict[str, Any]]) 
             f"{indent}# error: {error_line}",
             f'{indent}# {name}.url = "{url}";',
         ]
+        if not p.get("flake", True):
+            comment_lines.append(f"{indent}# {name}.flake = false;")
         for follows_parts in p.get("follows", []):
             if len(follows_parts) == 1:
                 comment_lines.append(
@@ -2579,6 +2802,89 @@ def flatten(
 # ---------------------------------------------------------------------------
 
 
+def check_url_follows_conflicts(content: str) -> list[str]:
+    """Detect root inputs that have both a URL and a top-level follows.
+
+    Nix rejects ``{ url = ...; follows = ...; }`` so we warn early rather than
+    let every ``nix flake lock`` call fail cryptically.
+    """
+    conflicts: list[str] = []
+    lines = content.split("\n")
+    style, block_start, block_end = detect_inputs_style(content)
+
+    if style == "block" and block_start is not None and block_end is not None:
+        # Walk through input blocks
+        current_block: str | None = None
+        has_url = False
+        has_follows = False
+        depth = 0
+        for i in range(block_start + 1, block_end):
+            stripped = lines[i].strip()
+            if stripped.startswith("#"):
+                continue
+            # Detect block start: ``name = {``
+            m = re.match(r"(\w[\w-]*)\s*=\s*\{", stripped)
+            if m and depth == 0:
+                current_block = m.group(1)
+                has_url = False
+                has_follows = False
+                depth = stripped.count("{") - stripped.count("}")
+                if "url" in stripped and "=" in stripped:
+                    has_url = True
+                if re.search(r"\bfollows\s*=", stripped):
+                    has_follows = True
+                continue
+            if current_block:
+                depth += stripped.count("{") - stripped.count("}")
+                if re.search(r"\burl\s*=", stripped):
+                    has_url = True
+                # Only top-level follows (not inputs.X.follows)
+                if re.match(r"follows\s*=", stripped):
+                    has_follows = True
+                if depth <= 0:
+                    if has_url and has_follows:
+                        conflicts.append(current_block)
+                    current_block = None
+                    has_url = False
+                    has_follows = False
+                    depth = 0
+
+    # Also check dotted-style: inputs.name.url and inputs.name.follows
+    # Only match direct follows (name.follows = "x"), NOT deep follows
+    # (name.inputs.sub.follows = "x").
+    # Only consider lines outside of block-style sub-blocks (depth 0).
+    url_names: set[str] = set()
+    follows_names: set[str] = set()
+    depth = 0
+    in_inputs = style == "block" and block_start is not None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if in_inputs and block_start is not None:
+            if i <= block_start:
+                continue
+            if block_end is not None and i >= block_end:
+                break
+            # Track brace depth to skip sub-block interiors
+            depth += stripped.count("{") - stripped.count("}")
+            if depth > 0:
+                continue
+            depth = max(depth, 0)
+        m = re.match(r"(?:inputs\.)?(\w[\w-]*)\.url\s*=", stripped)
+        if m:
+            url_names.add(m.group(1))
+        m = re.match(r"(?:inputs\.)?(\w[\w-]*)\.follows\s*=", stripped)
+        if m:
+            follows_names.add(m.group(1))
+
+    for name in url_names & follows_names:
+        if name not in conflicts:
+            conflicts.append(name)
+
+    return conflicts
+
+
 def run_all(
     flake_dir: str,
     config: dict[str, Any],
@@ -2590,6 +2896,18 @@ def run_all(
 
     Returns total number of proposals found.
     """
+    # Pre-flight: warn about inputs with both url and follows
+    content = read_flake_nix(flake_dir)
+    conflicts = check_url_follows_conflicts(content)
+    if conflicts:
+        print(
+            "  warning: these inputs have both url and follows"
+            " (invalid nix, will cause lock failures):"
+        )
+        for name in conflicts:
+            print(f"    {name}")
+        print()
+
     total = 0
 
     print("=== merge ===")

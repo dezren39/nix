@@ -18,13 +18,13 @@
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
       # url = "github:ofalvai/nixpkgs/72a5334";
-      url = "github:nixos/nixpkgs";
+      # url = "github:nixos/nixpkgs";
       follows = "nixpkgs";
     };
     stable = {
       # url = "github:developing-today-forks/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
-      url = "github:nixos/nixpkgs";
+      # url = "github:nixos/nixpkgs";
       # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs/staging-next";
       # url = "github:ofalvai/nixpkgs/push-nqwkpkkyqxzv"; # 72a5334
@@ -45,6 +45,9 @@
       inputs.nix.inputs.nixpkgs-regression.follows = "nixpkgs-regression";
       inputs.nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-2";
       inputs.nixpkgs.follows = "nixpkgs-hoisted-3";
+      inputs.determinate-nixd-aarch64-darwin.follows = "determinate-nixd-aarch64-darwin";
+      inputs.determinate-nixd-aarch64-linux.follows = "determinate-nixd-aarch64-linux";
+      inputs.determinate-nixd-x86_64-linux.follows = "determinate-nixd-x86_64-linux";
     };
     darwin = {
       url = "github:lnl7/nix-darwin";
@@ -103,9 +106,12 @@
     nur = {
       url = "github:nix-community/NUR";
       # inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted-4";
     }; # what is https://github.com/nix-community/nur-combined ?
     # rust, see https://github.com/nix-community/fenix#usage
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    treefmt-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     nixpkgs-terraform.url = "github:stackbuilders/nixpkgs-terraform";
     nixpkgs-terraform.inputs.systems.follows = "systems";
     nixpkgs-terraform.inputs.nixpkgs-23_05.follows = "nixpkgs-23_05";
@@ -134,9 +140,21 @@
     flake-compat.url = "github:edolstra/flake-compat";
     flake-compat-hoisted.url = "github:hraban/flake-compat/fixed-output";
     flake-parts.url = "github:hercules-ci/flake-parts";
+    flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
     flake-parts-hoisted.url = "https://flakehub.com/f/hercules-ci/flake-parts/0.1";
+    flake-parts-hoisted.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
     git-hooks-nix.url = "https://flakehub.com/f/cachix/git-hooks.nix/0.1.941";
+    git-hooks-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
+    git-hooks-nix.inputs.gitignore.follows = "gitignore";
     nix.url = "https://flakehub.com/f/DeterminateSystems/nix-src/%2A";
+    nix.inputs.flake-parts.follows = "flake-parts-hoisted";
+    nix.inputs.git-hooks-nix.follows = "git-hooks-nix";
+    nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-2";
+    nix.inputs.nixpkgs-23-11.follows = "nixpkgs-23-11";
+    nix.inputs.nixpkgs-regression.follows = "nixpkgs-23-11";
+    nix.inputs.git-hooks-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
+    nix.inputs.flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
+    nix.inputs.git-hooks-nix.inputs.gitignore.follows = "gitignore";
     nixpkgs-hoisted.url = "github:nixos/nixpkgs/nixos-25.11";
     nixpkgs-23-11.url = "github:NixOS/nixpkgs";
     nixpkgs-23_05.url = "github:nixos/nixpkgs/nixos-23.05-small";
@@ -149,6 +167,15 @@
     nixpkgs-hoisted-4.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs-hoisted-5.url = "github:NixOS/nixpkgs";
     systems-hoisted.url = "github:nix-systems/default-darwin";
+    determinate-nixd-aarch64-darwin.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/macOS";
+    determinate-nixd-aarch64-darwin.flake = false;
+    determinate-nixd-aarch64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/aarch64-linux";
+    determinate-nixd-aarch64-linux.flake = false;
+    determinate-nixd-x86_64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/x86_64-linux";
+    determinate-nixd-x86_64-linux.flake = false;
+    gitignore.url = "github:hercules-ci/gitignore.nix";
+    nixpkgs-23-11-hoisted.url = "github:NixOS/nixpkgs";
+    nixpkgs-regression-hoisted.url = "github:NixOS/nixpkgs";
   };
   outputs =
     inputs:
