@@ -186,6 +186,28 @@
         inputs.nixpkgs.lib.genAttrs (import inputs.systems) (
           system: f inputs.nixpkgs.legacyPackages.${system}
         );
+      # Per-host configuration; darwin-rebuild matches via scutil --get LocalHostName
+      hosts = {
+        MGM9JJ4V3R = {
+          # inherits default system "aarch64-darwin"
+          # extraModules = [ ];
+          # extraSpecialArgs = { };
+        };
+      };
+
+      # Default darwin system configuration shared by all hosts
+      defaultDarwinSystem = {
+        system = "aarch64-darwin";
+        modules = [
+          inputs.determinate.darwinModules.default
+          inputs.nix-homebrew.darwinModules.nix-homebrew
+          inputs.mac-app-util.darwinModules.default
+          inputs.home-manager.darwinModules.home-manager
+          ./configuration.nix
+        ];
+        specialArgs = { inherit inputs; };
+      };
+
       treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
 
       # Shared patch list applied to all opencode derivations
@@ -227,24 +249,33 @@
           });
 
           flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
-
-          terraform = inputs.nixpkgs-terraform.packages.${system}."terraform-1.5.7";
         };
+      # Per-host darwinSystem args — merged defaults + host overrides, filtered to allowed keys
+      darwinSystemConfigurations = builtins.mapAttrs (
+        hostName: hostConfiguration:
+        let
+          merged = defaultDarwinSystem // { inherit hostName; } // hostConfiguration;
+          extra = merged // {
+            modules = merged.modules ++ (merged.extraModules or [ ]);
+            specialArgs =
+              merged.specialArgs
+              // (merged.extraSpecialArgs or { })
+              // {
+                inherit (merged) hostName system;
+              };
+          };
+          final = {
+            inherit (extra) system modules specialArgs;
+          };
+        in
+        final
+      ) hosts;
     in
     {
-      darwinConfigurations = {
-        MGM9JJ4V3R = inputs.darwin.lib.darwinSystem rec {
-          system = "aarch64-darwin";
-          modules = [
-            inputs.determinate.darwinModules.default
-            inputs.nix-homebrew.darwinModules.nix-homebrew
-            inputs.mac-app-util.darwinModules.default
-            inputs.home-manager.darwinModules.home-manager
-            ./configuration.nix
-          ];
-          specialArgs = { inherit inputs system; };
-        };
-      };
+      inherit inputs hosts;
+      darwinConfigurations = builtins.mapAttrs (
+        _hostName: hostConfiguration: inputs.darwin.lib.darwinSystem hostConfiguration
+      ) darwinSystemConfigurations;
       packages = eachSystem mkPackages;
       formatter = eachSystem (pkgs: treefmtEval.${pkgs.system}.config.build.wrapper);
       checks = eachSystem (pkgs: {
