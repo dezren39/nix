@@ -4,6 +4,9 @@
   pkgs,
   ...
 }:
+let
+  self = inputs.self.packages.${system};
+in
 {
   environment.systemPackages =
     with pkgs;
@@ -13,7 +16,7 @@
       docker
       uv
       docker-compose
-      inputs.nixpkgs-terraform.packages.${system}."terraform-1.5.7"
+      self.terraform
       # possibly not darwin
       powershell
       oils-for-unix
@@ -138,8 +141,8 @@
       #openfortivpn
       # Patched opencode CLI and desktop — defined in flake.nix packages output
       # Patches: PR #11197, #18879, #20758, #20848
-      inputs.self.packages.${system}.opencode
-      inputs.self.packages.${system}.opencode-desktop
+      self.opencode
+      self.opencode-desktop
       openjdk
       openssh
       p7zip

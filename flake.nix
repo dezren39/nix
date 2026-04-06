@@ -227,6 +227,8 @@
           });
 
           flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
+
+          terraform = inputs.nixpkgs-terraform.packages.${system}."terraform-1.5.7";
         };
     in
     {
