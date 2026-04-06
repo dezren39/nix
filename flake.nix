@@ -1,4 +1,4 @@
-{
+rec {
   description = "Darwin configuration";
 
   inputs = {
@@ -178,153 +178,154 @@
     nixpkgs-23-11-hoisted.url = "github:NixOS/nixpkgs";
     nixpkgs-regression-hoisted.url = "github:NixOS/nixpkgs";
   };
-  outputs =
-    inputs:
-    let
-      eachSystem =
-        f:
-        inputs.nixpkgs.lib.genAttrs (import inputs.systems) (
-          system: f inputs.nixpkgs.legacyPackages.${system}
-        );
-      # Per-host configuration; darwin-rebuild matches via scutil --get LocalHostName
-      hosts = {
-        MGM9JJ4V3R = {
-          # inherits default system "aarch64-darwin"
-          # extraModules = [ ];
-          # extraSpecialArgs = { };
-        };
-      };
-
-      # Default darwin system configuration shared by all hosts
-      defaultDarwinSystem = {
-        system = "aarch64-darwin";
-        modules = [
-          inputs.determinate.darwinModules.default
-          inputs.nix-homebrew.darwinModules.nix-homebrew
-          inputs.mac-app-util.darwinModules.default
-          inputs.home-manager.darwinModules.home-manager
-          ./configuration.nix
-        ];
-        specialArgs = { inherit inputs; };
-      };
-
-      treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
-
-      # Shared patch list applied to all opencode derivations
-      opencodePatches = [
-        ./opencode-copilot-compaction-fix.patch # PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise https://github.com/anomalyco/opencode/pull/11197
-        ./opencode-edit-read-clarify.patch # PR #18879: Clarify edit tool read requirement for new file creation https://github.com/anomalyco/opencode/pull/18879
-        ./opencode-copilot-business-support.patch # PR #20758: Enable Copilot Business/Enterprise support https://github.com/anomalyco/opencode/pull/20758
-        ./opencode-openai-response-id-caching.patch # PR #20848: Wire OpenAI previous_response_id session caching https://github.com/anomalyco/opencode/pull/20848
-      ];
-
-      # Shared package definitions — used by packages, apps, devShells, and checks
-      mkPackages =
-        pkgs:
-        let
-          system = pkgs.stdenv.hostPlatform.system;
-        in
-        {
-          opencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
-            patches = (old.patches or [ ]) ++ opencodePatches;
-          });
-
-          # Patch opencode-desktop with same PRs + fix missing cargo outputHashes
-          # ref: https://github.com/anomalyco/opencode/issues/18273
-          opencode-desktop = inputs.opencode.packages.${system}.desktop.overrideAttrs (old: {
-            patches = (old.patches or [ ]) ++ opencodePatches;
-            cargoDeps = pkgs.rustPlatform.importCargoLock {
-              lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
-              outputHashes = {
-                "specta-2.0.0-rc.22" = "sha256-YsyOAnXELLKzhNlJ35dHA6KGbs0wTAX/nlQoW8wWyJQ=";
-                "tauri-2.9.5" = "sha256-dv5E/+A49ZBvnUQUkCGGJ21iHrVvrhHKNcpUctivJ8M=";
-                "tauri-specta-2.0.0-rc.21" = "sha256-n2VJ+B1nVrh6zQoZyfMoctqP+Csh7eVHRXwUQuiQjaQ=";
-              };
-            };
-          });
-
-          flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
-        };
-      # Per-host darwinSystem args — merged defaults + host overrides, filtered to allowed keys
-      darwinSystemConfigurations = builtins.mapAttrs (
-        hostName: hostConfiguration:
-        let
-          merged = defaultDarwinSystem // { inherit hostName; } // hostConfiguration;
-          extra = merged // {
-            modules = merged.modules ++ (merged.extraModules or [ ]);
-            specialArgs =
-              merged.specialArgs
-              // (merged.extraSpecialArgs or { })
-              // {
-                inherit (merged) hostName system;
-              };
-          };
-          final = {
-            inherit (extra) modules specialArgs;
-          };
-        in
-        final
-      ) hosts;
-    in
-    {
-      inherit inputs hosts;
-      darwinConfigurations = builtins.mapAttrs (
-        _hostName: hostConfiguration: inputs.darwin.lib.darwinSystem hostConfiguration
-      ) darwinSystemConfigurations;
-      packages = eachSystem mkPackages;
-      formatter = eachSystem (pkgs: treefmtEval.${pkgs.system}.config.build.wrapper);
-      checks = eachSystem (pkgs: {
-        formatting = treefmtEval.${pkgs.system}.config.build.check inputs.self;
-        tidy =
-          let
-            selfPkgs = mkPackages pkgs;
-          in
-          pkgs.runCommandLocal "flake-tidy-check"
-            {
-              nativeBuildInputs = [ selfPkgs.flake-tidy ];
-              src = inputs.self;
-            }
-            ''
-              flake-tidy all --check --flake-dir $src
-              touch $out
-            '';
-      });
-      apps = eachSystem (
-        pkgs:
-        let
-          selfPkgs = mkPackages pkgs;
-        in
-        {
-          flake-tidy = {
-            type = "app";
-            program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
-          };
-          opencode = {
-            type = "app";
-            program = "${selfPkgs.opencode}/bin/opencode";
-          };
-        }
+  outputs = inputs: {
+    eachSystem =
+      f:
+      inputs.nixpkgs.lib.genAttrs (import inputs.systems) (
+        system: f inputs.nixpkgs.legacyPackages.${system}
       );
-      devShells = eachSystem (
-        pkgs:
-        let
-          selfPkgs = mkPackages pkgs;
-        in
-        {
-          default = pkgs.mkShell {
-            packages = [
-              selfPkgs.opencode
-              selfPkgs.flake-tidy
-              pkgs.just
-              pkgs.nixfmt
-              pkgs.git
-              pkgs.gh
-            ];
-            shellHook = ''
-              echo "nix devshell: opencode $(opencode --version 2>/dev/null || echo 'unknown'), just $(just --version)"
-            '';
-          };
-        }
-      );
+
+    # Per-host configuration; darwin-rebuild matches via scutil --get LocalHostName
+    hosts = {
+      MGM9JJ4V3R = {
+        # inherits default system "aarch64-darwin"
+        # extraModules = [ ];
+        # extraSpecialArgs = { };
+      };
     };
+    # Default darwin system configuration shared by all hosts
+    defaultDarwinSystem = {
+      system = "aarch64-darwin";
+      modules = [
+        inputs.determinate.darwinModules.default
+        inputs.nix-homebrew.darwinModules.nix-homebrew
+        inputs.mac-app-util.darwinModules.default
+        inputs.home-manager.darwinModules.home-manager
+        ./configuration.nix
+      ];
+      specialArgs = { inherit inputs; };
+    };
+    # Per-host darwinSystem args — merged defaults + host overrides, filtered to allowed keys
+    darwinSystemConfigurations = builtins.mapAttrs (
+      hostName: hostConfiguration:
+      let
+        merged = defaultDarwinSystem // { inherit hostName; } // hostConfiguration;
+        extra = merged // {
+          modules = merged.modules ++ (merged.extraModules or [ ]);
+          specialArgs =
+            merged.specialArgs
+            // (merged.extraSpecialArgs or { })
+            // {
+              inherit (merged) hostName system;
+            };
+        };
+        final = {
+          inherit (extra) modules specialArgs;
+        };
+      in
+      final
+    ) hosts;
+    darwinConfigurations = builtins.mapAttrs (
+      _hostName: hostConfiguration: inputs.darwin.lib.darwinSystem hostConfiguration
+    ) darwinSystemConfigurations;
+
+    # Shared patch list applied to all opencode derivations
+    opencodePatches = [
+      ./opencode-copilot-compaction-fix.patch # PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise https://github.com/anomalyco/opencode/pull/11197
+      ./opencode-edit-read-clarify.patch # PR #18879: Clarify edit tool read requirement for new file creation https://github.com/anomalyco/opencode/pull/18879
+      ./opencode-copilot-business-support.patch # PR #20758: Enable Copilot Business/Enterprise support https://github.com/anomalyco/opencode/pull/20758
+      ./opencode-openai-response-id-caching.patch # PR #20848: Wire OpenAI previous_response_id session caching https://github.com/anomalyco/opencode/pull/20848
+    ];
+    # Shared package definitions — used by packages, apps, devShells, and checks
+    mkPackages =
+      pkgs:
+      let
+        system = pkgs.stdenv.hostPlatform.system;
+      in
+      {
+        opencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ opencodePatches;
+        });
+
+        # Patch opencode-desktop with same PRs + fix missing cargo outputHashes
+        # ref: https://github.com/anomalyco/opencode/issues/18273
+        opencode-desktop = inputs.opencode.packages.${system}.desktop.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ opencodePatches;
+          cargoDeps = pkgs.rustPlatform.importCargoLock {
+            lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
+            outputHashes = {
+              "specta-2.0.0-rc.22" = "sha256-YsyOAnXELLKzhNlJ35dHA6KGbs0wTAX/nlQoW8wWyJQ=";
+              "tauri-2.9.5" = "sha256-dv5E/+A49ZBvnUQUkCGGJ21iHrVvrhHKNcpUctivJ8M=";
+              "tauri-specta-2.0.0-rc.21" = "sha256-n2VJ+B1nVrh6zQoZyfMoctqP+Csh7eVHRXwUQuiQjaQ=";
+            };
+          };
+        });
+
+        flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
+      };
+
+    treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
+
+    packages = eachSystem mkPackages;
+    formatter = eachSystem (pkgs: treefmtEval.${pkgs.stdenv.hostPlatform.system}.config.build.wrapper);
+    checks = eachSystem (pkgs: {
+      formatting = treefmtEval.${pkgs.stdenv.hostPlatform.system}.config.build.check inputs.self;
+      tidy =
+        let
+          selfPkgs = mkPackages pkgs;
+        in
+        pkgs.runCommandLocal "flake-tidy-check"
+          {
+            nativeBuildInputs = [ selfPkgs.flake-tidy ];
+            src = inputs.self;
+          }
+          ''
+            flake-tidy all --check --flake-dir $src
+            touch $out
+          '';
+    });
+    apps = eachSystem (
+      pkgs:
+      let
+        selfPkgs = mkPackages pkgs;
+      in
+      {
+        flake-tidy = {
+          type = "app";
+          program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
+        };
+        opencode = {
+          type = "app";
+          program = "${selfPkgs.opencode}/bin/opencode";
+        };
+      }
+    );
+    devShells = eachSystem (
+      pkgs:
+      let
+        selfPkgs = mkPackages pkgs;
+      in
+      {
+        default = pkgs.mkShell {
+          packages = [
+            selfPkgs.opencode
+            selfPkgs.flake-tidy
+            pkgs.just
+            pkgs.nixfmt
+            pkgs.git
+            pkgs.gh
+          ];
+          shellHook = ''
+            echo "devshell (${pkgs.stdenv.hostPlatform.system})"
+            echo "  opencode   $(opencode --version 2>/dev/null || echo 'not found')"
+            echo "  flake-tidy $(command -v flake-tidy >/dev/null 2>&1 && echo 'ok' || echo 'not found')"
+            echo "  just       $(just --version 2>/dev/null || echo 'not found')"
+            echo "  nix        $(nix --version 2>/dev/null || echo 'not found')"
+            echo "  git        $(git --version 2>/dev/null || echo 'not found')"
+            echo "  gh         $(gh --version 2>/dev/null | head -1 || echo 'not found')"
+          '';
+        };
+      }
+    );
+  };
 }
