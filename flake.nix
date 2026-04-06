@@ -212,24 +212,19 @@
 
       # Shared patch list applied to all opencode derivations
       opencodePatches = [
-        ./opencode-copilot-compaction-fix.patch
-        ./opencode-edit-read-clarify.patch
-        ./opencode-copilot-business-support.patch
-        ./opencode-openai-response-id-caching.patch
+        ./opencode-copilot-compaction-fix.patch # PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise https://github.com/anomalyco/opencode/pull/11197
+        ./opencode-edit-read-clarify.patch # PR #18879: Clarify edit tool read requirement for new file creation https://github.com/anomalyco/opencode/pull/18879
+        ./opencode-copilot-business-support.patch # PR #20758: Enable Copilot Business/Enterprise support https://github.com/anomalyco/opencode/pull/20758
+        ./opencode-openai-response-id-caching.patch # PR #20848: Wire OpenAI previous_response_id session caching https://github.com/anomalyco/opencode/pull/20848
       ];
 
       # Shared package definitions — used by packages, apps, devShells, and checks
       mkPackages =
         pkgs:
         let
-          system = pkgs.system;
+          system = pkgs.stdenv.hostPlatform.system;
         in
         {
-          # Patch opencode CLI with upstream PRs not yet merged to dev:
-          # - PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise
-          # - PR #18879: Clarify edit tool read requirement for new file creation
-          # - PR #20758: Enable Copilot Business/Enterprise support
-          # - PR #20848: Wire OpenAI previous_response_id session caching
           opencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
             patches = (old.patches or [ ]) ++ opencodePatches;
           });
@@ -265,7 +260,7 @@
               };
           };
           final = {
-            inherit (extra) system modules specialArgs;
+            inherit (extra) modules specialArgs;
           };
         in
         final
