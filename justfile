@@ -128,3 +128,20 @@ tidy-check *args:
 [group('tidy')]
 tidy-test:
     cd pkgs/flake-tidy && uv run pytest tests/ -v
+
+# =============================================================================
+# Symlinks
+# =============================================================================
+
+# Overridable via environment variables
+LINK_GIT_INPUT_DIR  := env_var_or_default("LINK_GIT_INPUT_DIR",  home_directory() / "git")
+LINK_GIT_OUTPUT_DIR := env_var_or_default("LINK_GIT_OUTPUT_DIR", home_directory())
+
+# Symlink ~/git/* into ~/ (add-only unless --force)
+[group('symlinks')]
+link-git-dirs *args:
+    ./symlinker.sh --input-dir "{{LINK_GIT_INPUT_DIR}}" --output-dir "{{LINK_GIT_OUTPUT_DIR}}" {{args}}
+
+alias link-git     := link-git-dirs
+alias link-home    := link-git-dirs
+alias link-git-dir := link-git-dirs

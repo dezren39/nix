@@ -60,12 +60,11 @@ rec {
     };
     mac-app-util = {
       url = "github:hraban/mac-app-util";
-      # inputs.nixpkgs.follows = "nixpkgs";
+      # nixpkgs not followed — mac-app-util uses its own tested nixpkgs for SBCL/CL compat
       inputs.treefmt-nix.follows = "treefmt-nix";
       inputs.cl-nix-lite.follows = "cl-nix-lite";
       inputs.flake-utils.follows = "flake-utils";
       inputs.flake-compat.follows = "flake-compat-hoisted";
-      inputs.nixpkgs.follows = "nixpkgs-hoisted-5";
       inputs.systems.follows = "systems-hoisted";
     };
     brew-src = {
@@ -134,7 +133,7 @@ rec {
       inputs.treefmt-nix.follows = "treefmt-nix";
       inputs.treefmt-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
       inputs.flake-parts.follows = "flake-parts";
-      inputs.nixpkgs.follows = "nixpkgs-hoisted";
+      # nixpkgs not followed — cl-nix-lite uses its own tested nixpkgs for SBCL/CL compat
       inputs.flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
     };
     flake-compat.url = "github:edolstra/flake-compat";
