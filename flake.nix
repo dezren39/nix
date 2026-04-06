@@ -187,6 +187,47 @@
           system: f inputs.nixpkgs.legacyPackages.${system}
         );
       treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
+
+      # Shared patch list applied to all opencode derivations
+      opencodePatches = [
+        ./opencode-copilot-compaction-fix.patch
+        ./opencode-edit-read-clarify.patch
+        ./opencode-copilot-business-support.patch
+        ./opencode-openai-response-id-caching.patch
+      ];
+
+      # Shared package definitions — used by packages, apps, devShells, and checks
+      mkPackages =
+        pkgs:
+        let
+          system = pkgs.system;
+        in
+        {
+          # Patch opencode CLI with upstream PRs not yet merged to dev:
+          # - PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise
+          # - PR #18879: Clarify edit tool read requirement for new file creation
+          # - PR #20758: Enable Copilot Business/Enterprise support
+          # - PR #20848: Wire OpenAI previous_response_id session caching
+          opencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
+            patches = (old.patches or [ ]) ++ opencodePatches;
+          });
+
+          # Patch opencode-desktop with same PRs + fix missing cargo outputHashes
+          # ref: https://github.com/anomalyco/opencode/issues/18273
+          opencode-desktop = inputs.opencode.packages.${system}.desktop.overrideAttrs (old: {
+            patches = (old.patches or [ ]) ++ opencodePatches;
+            cargoDeps = pkgs.rustPlatform.importCargoLock {
+              lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
+              outputHashes = {
+                "specta-2.0.0-rc.22" = "sha256-YsyOAnXELLKzhNlJ35dHA6KGbs0wTAX/nlQoW8wWyJQ=";
+                "tauri-2.9.5" = "sha256-dv5E/+A49ZBvnUQUkCGGJ21iHrVvrhHKNcpUctivJ8M=";
+                "tauri-specta-2.0.0-rc.21" = "sha256-n2VJ+B1nVrh6zQoZyfMoctqP+Csh7eVHRXwUQuiQjaQ=";
+              };
+            };
+          });
+
+          flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
+        };
     in
     {
       darwinConfigurations = {
@@ -202,13 +243,17 @@
           specialArgs = { inherit inputs system; };
         };
       };
+      packages = eachSystem mkPackages;
       formatter = eachSystem (pkgs: treefmtEval.${pkgs.system}.config.build.wrapper);
       checks = eachSystem (pkgs: {
         formatting = treefmtEval.${pkgs.system}.config.build.check inputs.self;
         tidy =
+          let
+            selfPkgs = mkPackages pkgs;
+          in
           pkgs.runCommandLocal "flake-tidy-check"
             {
-              nativeBuildInputs = [ (import ./pkgs/flake-tidy { inherit pkgs; }) ];
+              nativeBuildInputs = [ selfPkgs.flake-tidy ];
               src = inputs.self;
             }
             ''
@@ -216,34 +261,36 @@
               touch $out
             '';
       });
-      apps = eachSystem (pkgs: {
-        flake-tidy = {
-          type = "app";
-          program = "${import ./pkgs/flake-tidy { inherit pkgs; }}/bin/flake-tidy";
-        };
-      });
+      apps = eachSystem (
+        pkgs:
+        let
+          selfPkgs = mkPackages pkgs;
+        in
+        {
+          flake-tidy = {
+            type = "app";
+            program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
+          };
+          opencode = {
+            type = "app";
+            program = "${selfPkgs.opencode}/bin/opencode";
+          };
+        }
+      );
       devShells = eachSystem (
         pkgs:
         let
-          system = pkgs.system;
-          patchedOpencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
-            patches = (old.patches or [ ]) ++ [
-              ./opencode-copilot-compaction-fix.patch
-              ./opencode-edit-read-clarify.patch
-              ./opencode-copilot-business-support.patch
-              ./opencode-openai-response-id-caching.patch
-            ];
-          });
+          selfPkgs = mkPackages pkgs;
         in
         {
           default = pkgs.mkShell {
             packages = [
-              patchedOpencode
+              selfPkgs.opencode
+              selfPkgs.flake-tidy
               pkgs.just
               pkgs.nixfmt
               pkgs.git
               pkgs.gh
-              (import ./pkgs/flake-tidy { inherit pkgs; })
             ];
             shellHook = ''
               echo "nix devshell: opencode $(opencode --version 2>/dev/null || echo 'unknown'), just $(just --version)"

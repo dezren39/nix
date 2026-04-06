@@ -136,40 +136,10 @@
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
-      # Patch opencode with upstream PRs not yet merged to dev:
-      # - PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise
-      # - PR #18879: Clarify edit tool read requirement for new file creation
-      # - PR #20758: Enable Copilot Business/Enterprise support — bearer exchange, dynamic endpoint, VS Code identity headers
-      # - PR #20848: Wire OpenAI previous_response_id session caching
-      (inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [
-          ./opencode-copilot-compaction-fix.patch
-          ./opencode-edit-read-clarify.patch
-          ./opencode-copilot-business-support.patch
-          ./opencode-openai-response-id-caching.patch
-        ];
-      }))
-      # Fix opencode-desktop: upstream flake is missing outputHashes for git dependencies
-      # as-of: 2026-03-27
-      # ref: https://github.com/anomalyco/opencode/issues/18273
-      # ref: https://github.com/Vishal2002/opencode/tree/fix/auth-to-body-provider-dialogs
-      # NOTE: auth->body sed patches removed; SDK types expect `auth` and tsgo -b fails with `body`
-      (inputs.opencode.packages.${system}.desktop.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [
-          ./opencode-copilot-compaction-fix.patch
-          ./opencode-edit-read-clarify.patch
-          ./opencode-copilot-business-support.patch
-          ./opencode-openai-response-id-caching.patch
-        ];
-        cargoDeps = pkgs.rustPlatform.importCargoLock {
-          lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
-          outputHashes = {
-            "specta-2.0.0-rc.22" = "sha256-YsyOAnXELLKzhNlJ35dHA6KGbs0wTAX/nlQoW8wWyJQ=";
-            "tauri-2.9.5" = "sha256-dv5E/+A49ZBvnUQUkCGGJ21iHrVvrhHKNcpUctivJ8M=";
-            "tauri-specta-2.0.0-rc.21" = "sha256-n2VJ+B1nVrh6zQoZyfMoctqP+Csh7eVHRXwUQuiQjaQ=";
-          };
-        };
-      }))
+      # Patched opencode CLI and desktop — defined in flake.nix packages output
+      # Patches: PR #11197, #18879, #20758, #20848
+      inputs.self.packages.${system}.opencode
+      inputs.self.packages.${system}.opencode-desktop
       openjdk
       openssh
       p7zip
