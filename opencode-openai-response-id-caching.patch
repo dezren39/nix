@@ -1,0 +1,1649 @@
+# https://github.com/anomalyco/opencode/pull/20848
+diff --git a/packages/opencode/migration/20260403085443_add_last_response_id/migration.sql b/packages/opencode/migration/20260403085443_add_last_response_id/migration.sql
+new file mode 100644
+index 000000000000..085e5a431108
+--- /dev/null
++++ b/packages/opencode/migration/20260403085443_add_last_response_id/migration.sql
+@@ -0,0 +1 @@
++ALTER TABLE `session` ADD `last_response_id` text;
+\ No newline at end of file
+diff --git a/packages/opencode/migration/20260403085443_add_last_response_id/snapshot.json b/packages/opencode/migration/20260403085443_add_last_response_id/snapshot.json
+new file mode 100644
+index 000000000000..bd7e672cef02
+--- /dev/null
++++ b/packages/opencode/migration/20260403085443_add_last_response_id/snapshot.json
+@@ -0,0 +1,1347 @@
++{
++  "version": "7",
++  "dialect": "sqlite",
++  "id": "4b1a6545-cc64-4272-9b58-5debd80f5c59",
++  "prevIds": [
++    "f13dfa58-7fb4-47a2-8f6b-dc70258e14ed"
++  ],
++  "ddl": [
++    {
++      "name": "account_state",
++      "entityType": "tables"
++    },
++    {
++      "name": "account",
++      "entityType": "tables"
++    },
++    {
++      "name": "control_account",
++      "entityType": "tables"
++    },
++    {
++      "name": "workspace",
++      "entityType": "tables"
++    },
++    {
++      "name": "project",
++      "entityType": "tables"
++    },
++    {
++      "name": "message",
++      "entityType": "tables"
++    },
++    {
++      "name": "part",
++      "entityType": "tables"
++    },
++    {
++      "name": "permission",
++      "entityType": "tables"
++    },
++    {
++      "name": "session",
++      "entityType": "tables"
++    },
++    {
++      "name": "todo",
++      "entityType": "tables"
++    },
++    {
++      "name": "session_share",
++      "entityType": "tables"
++    },
++    {
++      "name": "event_sequence",
++      "entityType": "tables"
++    },
++    {
++      "name": "event",
++      "entityType": "tables"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "account_state"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "active_account_id",
++      "entityType": "columns",
++      "table": "account_state"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "active_org_id",
++      "entityType": "columns",
++      "table": "account_state"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "email",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "url",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "access_token",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "refresh_token",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "token_expiry",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "email",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "url",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "access_token",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "refresh_token",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "token_expiry",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "active",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "control_account"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "workspace"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "type",
++      "entityType": "columns",
++      "table": "workspace"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "branch",
++      "entityType": "columns",
++      "table": "workspace"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "name",
++      "entityType": "columns",
++      "table": "workspace"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "directory",
++      "entityType": "columns",
++      "table": "workspace"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "extra",
++      "entityType": "columns",
++      "table": "workspace"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "project_id",
++      "entityType": "columns",
++      "table": "workspace"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "worktree",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "vcs",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "name",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "icon_url",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "icon_color",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_initialized",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "sandboxes",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "commands",
++      "entityType": "columns",
++      "table": "project"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "message"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "session_id",
++      "entityType": "columns",
++      "table": "message"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "message"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "message"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "data",
++      "entityType": "columns",
++      "table": "message"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "part"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "message_id",
++      "entityType": "columns",
++      "table": "part"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "session_id",
++      "entityType": "columns",
++      "table": "part"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "part"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "part"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "data",
++      "entityType": "columns",
++      "table": "part"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "project_id",
++      "entityType": "columns",
++      "table": "permission"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "permission"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "permission"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "data",
++      "entityType": "columns",
++      "table": "permission"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "project_id",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "workspace_id",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "parent_id",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "slug",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "directory",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "title",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "version",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "share_url",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "summary_additions",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "summary_deletions",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "summary_files",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "summary_diffs",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "revert",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "permission",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_compacting",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "integer",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_archived",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "last_response_id",
++      "entityType": "columns",
++      "table": "session"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "session_id",
++      "entityType": "columns",
++      "table": "todo"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "content",
++      "entityType": "columns",
++      "table": "todo"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "status",
++      "entityType": "columns",
++      "table": "todo"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "priority",
++      "entityType": "columns",
++      "table": "todo"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "position",
++      "entityType": "columns",
++      "table": "todo"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "todo"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "todo"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "session_id",
++      "entityType": "columns",
++      "table": "session_share"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "session_share"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "secret",
++      "entityType": "columns",
++      "table": "session_share"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "url",
++      "entityType": "columns",
++      "table": "session_share"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_created",
++      "entityType": "columns",
++      "table": "session_share"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "time_updated",
++      "entityType": "columns",
++      "table": "session_share"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "aggregate_id",
++      "entityType": "columns",
++      "table": "event_sequence"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "seq",
++      "entityType": "columns",
++      "table": "event_sequence"
++    },
++    {
++      "type": "text",
++      "notNull": false,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "id",
++      "entityType": "columns",
++      "table": "event"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "aggregate_id",
++      "entityType": "columns",
++      "table": "event"
++    },
++    {
++      "type": "integer",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "seq",
++      "entityType": "columns",
++      "table": "event"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "type",
++      "entityType": "columns",
++      "table": "event"
++    },
++    {
++      "type": "text",
++      "notNull": true,
++      "autoincrement": false,
++      "default": null,
++      "generated": null,
++      "name": "data",
++      "entityType": "columns",
++      "table": "event"
++    },
++    {
++      "columns": [
++        "active_account_id"
++      ],
++      "tableTo": "account",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "SET NULL",
++      "nameExplicit": false,
++      "name": "fk_account_state_active_account_id_account_id_fk",
++      "entityType": "fks",
++      "table": "account_state"
++    },
++    {
++      "columns": [
++        "project_id"
++      ],
++      "tableTo": "project",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_workspace_project_id_project_id_fk",
++      "entityType": "fks",
++      "table": "workspace"
++    },
++    {
++      "columns": [
++        "session_id"
++      ],
++      "tableTo": "session",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_message_session_id_session_id_fk",
++      "entityType": "fks",
++      "table": "message"
++    },
++    {
++      "columns": [
++        "message_id"
++      ],
++      "tableTo": "message",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_part_message_id_message_id_fk",
++      "entityType": "fks",
++      "table": "part"
++    },
++    {
++      "columns": [
++        "project_id"
++      ],
++      "tableTo": "project",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_permission_project_id_project_id_fk",
++      "entityType": "fks",
++      "table": "permission"
++    },
++    {
++      "columns": [
++        "project_id"
++      ],
++      "tableTo": "project",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_session_project_id_project_id_fk",
++      "entityType": "fks",
++      "table": "session"
++    },
++    {
++      "columns": [
++        "session_id"
++      ],
++      "tableTo": "session",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_todo_session_id_session_id_fk",
++      "entityType": "fks",
++      "table": "todo"
++    },
++    {
++      "columns": [
++        "session_id"
++      ],
++      "tableTo": "session",
++      "columnsTo": [
++        "id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_session_share_session_id_session_id_fk",
++      "entityType": "fks",
++      "table": "session_share"
++    },
++    {
++      "columns": [
++        "aggregate_id"
++      ],
++      "tableTo": "event_sequence",
++      "columnsTo": [
++        "aggregate_id"
++      ],
++      "onUpdate": "NO ACTION",
++      "onDelete": "CASCADE",
++      "nameExplicit": false,
++      "name": "fk_event_aggregate_id_event_sequence_aggregate_id_fk",
++      "entityType": "fks",
++      "table": "event"
++    },
++    {
++      "columns": [
++        "email",
++        "url"
++      ],
++      "nameExplicit": false,
++      "name": "control_account_pk",
++      "entityType": "pks",
++      "table": "control_account"
++    },
++    {
++      "columns": [
++        "session_id",
++        "position"
++      ],
++      "nameExplicit": false,
++      "name": "todo_pk",
++      "entityType": "pks",
++      "table": "todo"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "account_state_pk",
++      "table": "account_state",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "account_pk",
++      "table": "account",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "workspace_pk",
++      "table": "workspace",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "project_pk",
++      "table": "project",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "message_pk",
++      "table": "message",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "part_pk",
++      "table": "part",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "project_id"
++      ],
++      "nameExplicit": false,
++      "name": "permission_pk",
++      "table": "permission",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "session_pk",
++      "table": "session",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "session_id"
++      ],
++      "nameExplicit": false,
++      "name": "session_share_pk",
++      "table": "session_share",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "aggregate_id"
++      ],
++      "nameExplicit": false,
++      "name": "event_sequence_pk",
++      "table": "event_sequence",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        "id"
++      ],
++      "nameExplicit": false,
++      "name": "event_pk",
++      "table": "event",
++      "entityType": "pks"
++    },
++    {
++      "columns": [
++        {
++          "value": "session_id",
++          "isExpression": false
++        },
++        {
++          "value": "time_created",
++          "isExpression": false
++        },
++        {
++          "value": "id",
++          "isExpression": false
++        }
++      ],
++      "isUnique": false,
++      "where": null,
++      "origin": "manual",
++      "name": "message_session_time_created_id_idx",
++      "entityType": "indexes",
++      "table": "message"
++    },
++    {
++      "columns": [
++        {
++          "value": "message_id",
++          "isExpression": false
++        },
++        {
++          "value": "id",
++          "isExpression": false
++        }
++      ],
++      "isUnique": false,
++      "where": null,
++      "origin": "manual",
++      "name": "part_message_id_id_idx",
++      "entityType": "indexes",
++      "table": "part"
++    },
++    {
++      "columns": [
++        {
++          "value": "session_id",
++          "isExpression": false
++        }
++      ],
++      "isUnique": false,
++      "where": null,
++      "origin": "manual",
++      "name": "part_session_idx",
++      "entityType": "indexes",
++      "table": "part"
++    },
++    {
++      "columns": [
++        {
++          "value": "project_id",
++          "isExpression": false
++        }
++      ],
++      "isUnique": false,
++      "where": null,
++      "origin": "manual",
++      "name": "session_project_idx",
++      "entityType": "indexes",
++      "table": "session"
++    },
++    {
++      "columns": [
++        {
++          "value": "workspace_id",
++          "isExpression": false
++        }
++      ],
++      "isUnique": false,
++      "where": null,
++      "origin": "manual",
++      "name": "session_workspace_idx",
++      "entityType": "indexes",
++      "table": "session"
++    },
++    {
++      "columns": [
++        {
++          "value": "parent_id",
++          "isExpression": false
++        }
++      ],
++      "isUnique": false,
++      "where": null,
++      "origin": "manual",
++      "name": "session_parent_idx",
++      "entityType": "indexes",
++      "table": "session"
++    },
++    {
++      "columns": [
++        {
++          "value": "session_id",
++          "isExpression": false
++        }
++      ],
++      "isUnique": false,
++      "where": null,
++      "origin": "manual",
++      "name": "todo_session_idx",
++      "entityType": "indexes",
++      "table": "todo"
++    }
++  ],
++  "renames": []
++}
+\ No newline at end of file
+diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
+index afd69f9e7072..cc26842fa669 100644
+--- a/packages/opencode/src/provider/provider.ts
++++ b/packages/opencode/src/provider/provider.ts
+@@ -1366,21 +1366,6 @@ export namespace Provider {
+             const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
+             if (combined) opts.signal = combined
+ 
+-            // Strip openai itemId metadata following what codex does
+-            if (model.api.npm === "@ai-sdk/openai" && opts.body && opts.method === "POST") {
+-              const body = JSON.parse(opts.body as string)
+-              const isAzure = model.providerID.includes("azure")
+-              const keepIds = isAzure && body.store === true
+-              if (!keepIds && Array.isArray(body.input)) {
+-                for (const item of body.input) {
+-                  if ("id" in item) {
+-                    delete item.id
+-                  }
+-                }
+-                opts.body = JSON.stringify(body)
+-              }
+-            }
+-
+             const res = await fetchFn(input, {
+               ...opts,
+               // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+diff --git a/packages/opencode/src/provider/transform.ts b/packages/opencode/src/provider/transform.ts
+index c402238685f9..492dd8cebca2 100644
+--- a/packages/opencode/src/provider/transform.ts
++++ b/packages/opencode/src/provider/transform.ts
+@@ -747,6 +747,7 @@ export namespace ProviderTransform {
+     model: Provider.Model
+     sessionID: string
+     providerOptions?: Record<string, any>
++    previousResponseId?: string
+   }): Record<string, any> {
+     const result: Record<string, any> = {}
+ 
+@@ -782,10 +783,19 @@ export namespace ProviderTransform {
+       }
+     }
+ 
+-    if (input.model.providerID === "openai" || input.providerOptions?.setCacheKey) {
++    if (
++      input.model.api.npm === "@ai-sdk/openai" ||
++      input.model.api.npm === "@ai-sdk/github-copilot" ||
++      input.model.providerID === "openai" ||
++      input.providerOptions?.setCacheKey
++    ) {
+       result["promptCacheKey"] = input.sessionID
+     }
+ 
++    if (input.previousResponseId && input.model.api.npm === "@ai-sdk/openai") {
++      result["previousResponseId"] = input.previousResponseId
++    }
++
+     if (input.model.api.npm === "@ai-sdk/google" || input.model.api.npm === "@ai-sdk/google-vertex") {
+       if (input.model.capabilities.reasoning) {
+         result["thinkingConfig"] = {
+diff --git a/packages/opencode/src/session/index.ts b/packages/opencode/src/session/index.ts
+index 41fad1a9d483..f33f78dd3c20 100644
+--- a/packages/opencode/src/session/index.ts
++++ b/packages/opencode/src/session/index.ts
+@@ -85,6 +85,7 @@ export namespace Session {
+         compacting: row.time_compacting ?? undefined,
+         archived: row.time_archived ?? undefined,
+       },
++      lastResponseId: row.last_response_id ?? undefined,
+     }
+   }
+ 
+@@ -109,6 +110,7 @@ export namespace Session {
+       time_updated: info.time.updated,
+       time_compacting: info.time.compacting,
+       time_archived: info.time.archived,
++      last_response_id: info.lastResponseId,
+     }
+   }
+ 
+@@ -160,6 +162,7 @@ export namespace Session {
+           diff: z.string().optional(),
+         })
+         .optional(),
++      lastResponseId: z.string().optional(),
+     })
+     .meta({
+       ref: "Session",
+@@ -334,6 +337,7 @@ export namespace Session {
+     }) => Effect.Effect<void>
+     readonly clearRevert: (sessionID: SessionID) => Effect.Effect<void>
+     readonly setSummary: (input: { sessionID: SessionID; summary: Info["summary"] }) => Effect.Effect<void>
++    readonly setResponseId: (input: { sessionID: SessionID; responseId: string }) => Effect.Effect<void>
+     readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
+     readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[]>
+     readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
+@@ -586,6 +590,13 @@ export namespace Session {
+         yield* patch(input.sessionID, { time: { updated: Date.now() }, summary: input.summary })
+       })
+ 
++      const setResponseId = Effect.fn("Session.setResponseId")(function* (input: {
++        sessionID: SessionID
++        responseId: string
++      }) {
++        yield* patch(input.sessionID, { lastResponseId: input.responseId })
++      })
++
+       const diff = Effect.fn("Session.diff")(function* (sessionID: SessionID) {
+         return yield* Effect.tryPromise(() => Storage.read<Snapshot.FileDiff[]>(["session_diff", sessionID])).pipe(
+           Effect.orElseSucceed(() => [] as Snapshot.FileDiff[]),
+@@ -667,6 +678,7 @@ export namespace Session {
+         setRevert,
+         clearRevert,
+         setSummary,
++        setResponseId,
+         diff,
+         messages,
+         children,
+@@ -884,4 +896,9 @@ export namespace Session {
+     z.object({ sessionID: SessionID.zod, modelID: ModelID.zod, providerID: ProviderID.zod, messageID: MessageID.zod }),
+     (input) => runPromise((svc) => svc.initialize(input)),
+   )
++
++  export const setResponseId = fn(
++    z.object({ sessionID: SessionID.zod, responseId: z.string() }),
++    (input) => runPromise((svc) => svc.setResponseId(input)),
++  )
+ }
+diff --git a/packages/opencode/src/session/llm.ts b/packages/opencode/src/session/llm.ts
+index 1813346cdc93..bc1c4b09d6a0 100644
+--- a/packages/opencode/src/session/llm.ts
++++ b/packages/opencode/src/session/llm.ts
+@@ -35,6 +35,7 @@ export namespace LLM {
+     tools: Record<string, Tool>
+     retries?: number
+     toolChoice?: "auto" | "required" | "none"
++    lastResponseId?: string
+   }
+ 
+   export type StreamRequest = StreamInput & {
+@@ -134,6 +135,7 @@ export namespace LLM {
+           model: input.model,
+           sessionID: input.sessionID,
+           providerOptions: provider.options,
++          previousResponseId: input.lastResponseId,
+         })
+     const options: Record<string, any> = pipe(
+       base,
+diff --git a/packages/opencode/src/session/processor.ts b/packages/opencode/src/session/processor.ts
+index 146c73f27712..b8700738d90a 100644
+--- a/packages/opencode/src/session/processor.ts
++++ b/packages/opencode/src/session/processor.ts
+@@ -270,6 +270,10 @@ export namespace SessionProcessor {
+                 usage: value.usage,
+                 metadata: value.providerMetadata,
+               })
++              const responseId = value.providerMetadata?.openai?.responseId
++              if (typeof responseId === "string" && responseId.length > 0) {
++                yield* session.setResponseId({ sessionID: ctx.sessionID, responseId })
++              }
+               ctx.assistantMessage.finish = value.finishReason
+               ctx.assistantMessage.cost += usage.cost
+               ctx.assistantMessage.tokens = usage.tokens
+diff --git a/packages/opencode/src/session/projectors.ts b/packages/opencode/src/session/projectors.ts
+index 81929cddca0f..924fbd47b389 100644
+--- a/packages/opencode/src/session/projectors.ts
++++ b/packages/opencode/src/session/projectors.ts
+@@ -56,6 +56,7 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
+     time_updated: grab(info, "time", (v) => grab(v, "updated")),
+     time_compacting: grab(info, "time", (v) => grab(v, "compacting")),
+     time_archived: grab(info, "time", (v) => grab(v, "archived")),
++    last_response_id: grab(info, "lastResponseId"),
+   }
+ 
+   return Object.fromEntries(Object.entries(obj).filter(([_, val]) => val !== undefined))
+diff --git a/packages/opencode/src/session/prompt.ts b/packages/opencode/src/session/prompt.ts
+index e4709ef47e03..2c7389e378fc 100644
+--- a/packages/opencode/src/session/prompt.ts
++++ b/packages/opencode/src/session/prompt.ts
+@@ -1339,9 +1339,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+           const ctx = yield* InstanceState.context
+           let structured: unknown | undefined
+           let step = 0
+-          const session = yield* sessions.get(sessionID)
+-
+           while (true) {
++            const session = yield* sessions.get(sessionID)
+             yield* status.set(sessionID, { type: "busy" })
+             log.info("loop", { step, sessionID })
+ 
+@@ -1518,6 +1517,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+                   tools,
+                   model,
+                   toolChoice: format.type === "json_schema" ? "required" : undefined,
++                  lastResponseId: session.lastResponseId,
+                 })
+ 
+                 if (structured !== undefined) {
+diff --git a/packages/opencode/src/session/session.sql.ts b/packages/opencode/src/session/session.sql.ts
+index 189a596873a3..a5990eaa20ba 100644
+--- a/packages/opencode/src/session/session.sql.ts
++++ b/packages/opencode/src/session/session.sql.ts
+@@ -35,6 +35,7 @@ export const SessionTable = sqliteTable(
+     ...Timestamps,
+     time_compacting: integer(),
+     time_archived: integer(),
++    last_response_id: text(),
+   },
+   (table) => [
+     index("session_project_idx").on(table.project_id),
+diff --git a/packages/opencode/test/provider/transform.test.ts b/packages/opencode/test/provider/transform.test.ts
+index 0aee396f44a3..b0edde143e7d 100644
+--- a/packages/opencode/test/provider/transform.test.ts
++++ b/packages/opencode/test/provider/transform.test.ts
+@@ -102,6 +102,72 @@ describe("ProviderTransform.options - setCacheKey", () => {
+     })
+     expect(result.store).toBe(false)
+   })
++
++  test("should set previousResponseId for openai sdk models", () => {
++    const openaiModel = {
++      ...mockModel,
++      providerID: "openai",
++      api: {
++        id: "gpt-5",
++        url: "https://api.openai.com",
++        npm: "@ai-sdk/openai",
++      },
++    }
++    const result = ProviderTransform.options({
++      model: openaiModel,
++      sessionID,
++      providerOptions: {},
++      previousResponseId: "resp_123",
++    })
++    expect(result.previousResponseId).toBe("resp_123")
++  })
++
++  test("should set promptCacheKey for github-copilot sdk models", () => {
++    const copilotModel = {
++      ...mockModel,
++      providerID: "github-copilot",
++      api: {
++        id: "gpt-5",
++        url: "https://api.githubcopilot.com",
++        npm: "@ai-sdk/github-copilot",
++      },
++    }
++    const result = ProviderTransform.options({
++      model: copilotModel,
++      sessionID,
++      providerOptions: {},
++    })
++    expect(result.promptCacheKey).toBe(sessionID)
++  })
++
++  test("should not set previousResponseId for github-copilot sdk models", () => {
++    const copilotModel = {
++      ...mockModel,
++      providerID: "github-copilot",
++      api: {
++        id: "gpt-5",
++        url: "https://api.githubcopilot.com",
++        npm: "@ai-sdk/github-copilot",
++      },
++    }
++    const result = ProviderTransform.options({
++      model: copilotModel,
++      sessionID,
++      providerOptions: {},
++      previousResponseId: "resp_123",
++    })
++    expect(result.previousResponseId).toBeUndefined()
++  })
++
++  test("should not set previousResponseId for non-openai sdk models", () => {
++    const result = ProviderTransform.options({
++      model: mockModel,
++      sessionID,
++      providerOptions: { setCacheKey: true },
++      previousResponseId: "resp_123",
++    })
++    expect(result.previousResponseId).toBeUndefined()
++  })
+ })
+ 
+ describe("ProviderTransform.options - google thinkingConfig gating", () => {

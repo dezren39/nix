@@ -139,10 +139,14 @@
       # Patch opencode with upstream PRs not yet merged to dev:
       # - PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise
       # - PR #18879: Clarify edit tool read requirement for new file creation
+      # - PR #20758: Enable Copilot Business/Enterprise support — bearer exchange, dynamic endpoint, VS Code identity headers
+      # - PR #20848: Wire OpenAI previous_response_id session caching
       (inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
         patches = (old.patches or [ ]) ++ [
           ./opencode-copilot-compaction-fix.patch
           ./opencode-edit-read-clarify.patch
+          ./opencode-copilot-business-support.patch
+          ./opencode-openai-response-id-caching.patch
         ];
       }))
       # Fix opencode-desktop: upstream flake is missing outputHashes for git dependencies
@@ -154,6 +158,8 @@
         patches = (old.patches or [ ]) ++ [
           ./opencode-copilot-compaction-fix.patch
           ./opencode-edit-read-clarify.patch
+          ./opencode-copilot-business-support.patch
+          ./opencode-openai-response-id-caching.patch
         ];
         cargoDeps = pkgs.rustPlatform.importCargoLock {
           lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";

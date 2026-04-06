@@ -222,5 +222,34 @@
           program = "${import ./pkgs/flake-tidy { inherit pkgs; }}/bin/flake-tidy";
         };
       });
+      devShells = eachSystem (
+        pkgs:
+        let
+          system = pkgs.system;
+          patchedOpencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
+            patches = (old.patches or [ ]) ++ [
+              ./opencode-copilot-compaction-fix.patch
+              ./opencode-edit-read-clarify.patch
+              ./opencode-copilot-business-support.patch
+              ./opencode-openai-response-id-caching.patch
+            ];
+          });
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              patchedOpencode
+              pkgs.just
+              pkgs.nixfmt
+              pkgs.git
+              pkgs.gh
+              (import ./pkgs/flake-tidy { inherit pkgs; })
+            ];
+            shellHook = ''
+              echo "nix devshell: opencode $(opencode --version 2>/dev/null || echo 'unknown'), just $(just --version)"
+            '';
+          };
+        }
+      );
     };
 }
