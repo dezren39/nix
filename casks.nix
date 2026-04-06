@@ -84,6 +84,7 @@ _: {
     # TODO: macOS App LoginExtension-EXE
     "drawio" # "draw-io"
     "iterm2@nightly" # iterm2 # iterm2@beta # iterm2@nightly # "iterm"
+    "macfuse" # required for bindfs (opencode-share)
     "microsoft-edge"
     "microsoft-excel"
     "microsoft-onenote"

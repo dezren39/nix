@@ -101,6 +101,10 @@ rec {
       url = "github:homebrew/homebrew-services";
       flake = false;
     };
+    homebrew-fuse = {
+      url = "github:gromgit/homebrew-fuse";
+      flake = false;
+    };
 
     nur = {
       url = "github:nix-community/NUR";
@@ -261,6 +265,11 @@ rec {
         });
 
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
+        opencode-share = import ./pkgs/opencode-share { inherit pkgs; };
+        symlinker = import ./pkgs/symlinker {
+          inherit pkgs;
+          symlinkerSrc = ./symlinker.sh;
+        };
       };
 
     treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
@@ -297,6 +306,14 @@ rec {
           type = "app";
           program = "${selfPkgs.opencode}/bin/opencode";
         };
+        opencode-share = {
+          type = "app";
+          program = "${selfPkgs.opencode-share}/bin/opencode-share";
+        };
+        symlinker = {
+          type = "app";
+          program = "${selfPkgs.symlinker}/bin/symlinker";
+        };
       }
     );
     devShells = eachSystem (
@@ -309,6 +326,7 @@ rec {
           packages = [
             selfPkgs.opencode
             selfPkgs.flake-tidy
+            selfPkgs.symlinker
             pkgs.just
             pkgs.nixfmt
             pkgs.git
@@ -318,6 +336,7 @@ rec {
             echo "devshell (${pkgs.stdenv.hostPlatform.system})"
             echo "  opencode   $(opencode --version 2>/dev/null || echo 'not found')"
             echo "  flake-tidy $(command -v flake-tidy >/dev/null 2>&1 && echo 'ok' || echo 'not found')"
+            echo "  symlinker  $(command -v symlinker >/dev/null 2>&1 && echo 'ok' || echo 'not found')"
             echo "  just       $(just --version 2>/dev/null || echo 'not found')"
             echo "  nix        $(nix --version 2>/dev/null || echo 'not found')"
             echo "  git        $(git --version 2>/dev/null || echo 'not found')"

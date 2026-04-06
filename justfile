@@ -145,3 +145,27 @@ link-git-dirs *args:
 alias link-git     := link-git-dirs
 alias link-home    := link-git-dirs
 alias link-git-dir := link-git-dirs
+
+# =============================================================================
+# OpenCode Share — bindfs-based .opencode sharing with per-project plans/
+# =============================================================================
+
+# Share .opencode into target directories via bindfs mount
+[group('opencode')]
+share *args:
+    nix run .#opencode-share -- {{args}}
+
+# Unmount shared .opencode from target directories
+[group('opencode')]
+unshare *args:
+    nix run .#opencode-share -- --unmount {{args}}
+
+# Show mount status for target directories
+[group('opencode')]
+share-status *args:
+    nix run .#opencode-share -- --status {{args}}
+
+# Dry-run: show what share would do
+[group('opencode')]
+share-dry *args:
+    nix run .#opencode-share -- --dry-run {{args}}

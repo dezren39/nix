@@ -43,3 +43,5 @@ codedb.snapshot
 .opencode/opencode-notifier-state.json
 .opencode/plugin/subtask2/logs/
 .opencode/worktrees
+# private/unshared
+.opencode/plans

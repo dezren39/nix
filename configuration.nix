@@ -174,6 +174,7 @@ lib.recursiveUpdate {
       # };
       "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
       "Dimentium/homebrew-autoraise" = inputs.homebrew-autoraise;
+      "gromgit/homebrew-fuse" = inputs.homebrew-fuse;
 
     };
     mutableTaps = false;
