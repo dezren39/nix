@@ -178,7 +178,7 @@ rec {
     nixpkgs-23-11-hoisted.url = "github:NixOS/nixpkgs";
     nixpkgs-regression-hoisted.url = "github:NixOS/nixpkgs";
   };
-  outputs = inputs: {
+  outputs = inputs: rec {
     eachSystem =
       f:
       inputs.nixpkgs.lib.genAttrs (import inputs.systems) (
