@@ -42,3 +42,4 @@ codedb.snapshot
 .opencode/package-lock.json
 .opencode/opencode-notifier-state.json
 .opencode/plugin/subtask2/logs/
+.opencode/worktrees

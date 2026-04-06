@@ -29,6 +29,17 @@ BACKUP_SUFFIX=".bak.$RUN_TIMESTAMP"
 IFS=':' read -r -a DEFAULT_EXCLUDES <<< "${SYMLINKER_DEFAULT_EXCLUDES:-.DS_Store}"
 EXTRA_EXCLUDES=()
 
+# Type filters
+ONLY_FILES=false
+ONLY_DIRS=false
+
+# Name filters — each is an array; filter mode tracks which flag added them
+FILTER_EXACT=()
+FILTER_PREFIX=()
+FILTER_SUFFIX=()
+FILTER_REGEX=()
+FILTER_MATCH=()     # substring/contains
+
 # Log directory
 LOG_DIR="${XDG_CACHE_HOME:-$HOME/.config}/symlinker"
 
@@ -58,6 +69,34 @@ OPTIONS
   --simple                Omit file types, item counts, symlink targets
   --strict                Stop on first error (default: continue and report)
   -h, --help              Show this help
+
+TYPE FILTERS
+  --only-files            Only symlink regular files (skip directories)
+  --only-dirs             Only symlink directories (skip regular files)
+
+  These are mutually exclusive. Symlinks in the source are classified by
+  what they point to (a symlink to a dir counts as a dir, etc.).
+
+NAME FILTERS
+  Each filter flag accepts one or more values, consuming all arguments until
+  the next --flag. When multiple filter types are used, a name must match at
+  least one pattern in EACH type (AND across types, OR within a type).
+
+  --exact <name...>           Match names exactly
+  --prefix <str...>           Match names starting with str (alias: --starts-with)
+  --starts-with <str...>      Same as --prefix
+  --suffix <str...>           Match names ending with str (alias: --ends-with)
+  --ends-with <str...>        Same as --suffix
+  --regex <pattern...>        Match names by extended regex (bash =~)
+  --match <str...>            Match names containing str (substring)
+
+  Examples:
+    symlinker.sh ... --match git nix       # children containing "git" or "nix"
+    symlinker.sh ... --prefix . --only-files  # dotfiles only
+    symlinker.sh ... --suffix .sh .zsh     # shell scripts
+    symlinker.sh ... --regex '^\..*rc$'    # dotfiles ending in "rc"
+    symlinker.sh ... --exact .zshrc .bashrc
+    symlinker.sh ... --match git --suffix config  # contains "git" AND ends in "config"
 
 UNDO
   --undo <timestamp>      Undo a previous run (unlink symlinks, restore backups)
@@ -124,6 +163,10 @@ EXAMPLES
   symlinker.sh --input-dir ~/git --output-dir ~ --force --yes
   symlinker.sh --input-dir ~/git --output-dir ~ --force --skip-backup --yes
   symlinker.sh --input-dir ~/git --output-dir ~ --exclude .envrc
+  symlinker.sh --input-dir ~/git --output-dir ~ --only-dirs
+  symlinker.sh --input-dir ~/git --output-dir ~ --match nix git
+  symlinker.sh --input-dir ~/git --output-dir ~ --prefix . --only-files
+  symlinker.sh --input-dir ~/git --output-dir ~ --regex '^\..*rc$'
   symlinker.sh --undo 1234567890
   symlinker.sh --undo 1234567890 --skip-restore
   symlinker.sh --undo 1234567890 --dry-run
@@ -157,9 +200,46 @@ while [[ $# -gt 0 ]]; do
     --skip-conflict)     SKIP_CONFLICT=true; shift ;;
     --skip-restore)      SKIP_RESTORE=true;  shift ;;
     --strict)            STRICT=true;        shift ;;
+    --only-files)        ONLY_FILES=true;    shift ;;
+    --only-dirs)         ONLY_DIRS=true;     shift ;;
     --exclude)
       [[ -n "${2:-}" ]] || { echo "Error: --exclude requires a value" >&2; exit 1; }
       EXTRA_EXCLUDES+=("$2"); shift 2 ;;
+    --exact)
+      shift
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        FILTER_EXACT+=("$1"); shift
+      done
+      [[ ${#FILTER_EXACT[@]} -gt 0 ]] || { echo "Error: --exact requires at least one value" >&2; exit 1; }
+      ;;
+    --prefix|--starts-with)
+      shift
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        FILTER_PREFIX+=("$1"); shift
+      done
+      [[ ${#FILTER_PREFIX[@]} -gt 0 ]] || { echo "Error: --prefix/--starts-with requires at least one value" >&2; exit 1; }
+      ;;
+    --suffix|--ends-with)
+      shift
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        FILTER_SUFFIX+=("$1"); shift
+      done
+      [[ ${#FILTER_SUFFIX[@]} -gt 0 ]] || { echo "Error: --suffix/--ends-with requires at least one value" >&2; exit 1; }
+      ;;
+    --regex)
+      shift
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        FILTER_REGEX+=("$1"); shift
+      done
+      [[ ${#FILTER_REGEX[@]} -gt 0 ]] || { echo "Error: --regex requires at least one value" >&2; exit 1; }
+      ;;
+    --match)
+      shift
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        FILTER_MATCH+=("$1"); shift
+      done
+      [[ ${#FILTER_MATCH[@]} -gt 0 ]] || { echo "Error: --match requires at least one value" >&2; exit 1; }
+      ;;
     -h|--help)           usage; exit 0 ;;
     *)
       echo "Error: Unknown argument: $1" >&2
@@ -168,6 +248,11 @@ while [[ $# -gt 0 ]]; do
       exit 1 ;;
   esac
 done
+
+# Validate conflicting type filters
+if $ONLY_FILES && $ONLY_DIRS; then
+  echo "Error: --only-files and --only-dirs are mutually exclusive" >&2; exit 1
+fi
 
 # ─── Display helpers (basic — enhanced after validate for forward path) ──────
 
@@ -624,7 +709,11 @@ LOG_FILE="$LOG_DIR/$RUN_TIMESTAMP.log"
   echo "# symlinker log — $RUN_TIMESTAMP"
   echo "# input-dir: $INPUT_DIR"
   echo "# output-dir: $OUTPUT_DIR"
-  echo "# flags: dry-run=$DRY_RUN force=$FORCE skip-backup=$SKIP_BACKUP skip-conflict=$SKIP_CONFLICT"
+  echo "# flags: dry-run=$DRY_RUN force=$FORCE skip-backup=$SKIP_BACKUP skip-conflict=$SKIP_CONFLICT strict=$STRICT"
+  echo "# type-filter: only-files=$ONLY_FILES only-dirs=$ONLY_DIRS"
+  if (( ${#FILTER_EXACT[@]} + ${#FILTER_PREFIX[@]} + ${#FILTER_SUFFIX[@]} + ${#FILTER_REGEX[@]} + ${#FILTER_MATCH[@]} > 0 )); then
+    echo "# name-filters: exact=(${FILTER_EXACT[*]:-}) prefix=(${FILTER_PREFIX[*]:-}) suffix=(${FILTER_SUFFIX[*]:-}) regex=(${FILTER_REGEX[*]:-}) match=(${FILTER_MATCH[*]:-})"
+  fi
   echo ""
 } > "$LOG_FILE"
 
@@ -649,6 +738,81 @@ log() {
   echo "$msg" >> "$LOG_FILE"
 }
 
+# ─── Name/type filter helpers ────────────────────────────────────────────────
+
+HAS_NAME_FILTERS=false
+if (( ${#FILTER_EXACT[@]} + ${#FILTER_PREFIX[@]} + ${#FILTER_SUFFIX[@]} + ${#FILTER_REGEX[@]} + ${#FILTER_MATCH[@]} > 0 )); then
+  HAS_NAME_FILTERS=true
+fi
+
+# Returns 0 (true) if the name passes all active filters, 1 otherwise.
+# When multiple filter types are active, a name must match at least one
+# pattern in EACH active type (AND across types, OR within a type).
+name_matches_filters() {
+  local name="$1"
+  $HAS_NAME_FILTERS || return 0  # no filters = everything passes
+
+  if (( ${#FILTER_EXACT[@]} > 0 )); then
+    local found=false
+    for pat in "${FILTER_EXACT[@]}"; do
+      [[ "$name" == "$pat" ]] && { found=true; break; }
+    done
+    $found || return 1
+  fi
+
+  if (( ${#FILTER_PREFIX[@]} > 0 )); then
+    local found=false
+    for pat in "${FILTER_PREFIX[@]}"; do
+      [[ "$name" == "$pat"* ]] && { found=true; break; }
+    done
+    $found || return 1
+  fi
+
+  if (( ${#FILTER_SUFFIX[@]} > 0 )); then
+    local found=false
+    for pat in "${FILTER_SUFFIX[@]}"; do
+      [[ "$name" == *"$pat" ]] && { found=true; break; }
+    done
+    $found || return 1
+  fi
+
+  if (( ${#FILTER_REGEX[@]} > 0 )); then
+    local found=false
+    for pat in "${FILTER_REGEX[@]}"; do
+      [[ "$name" =~ $pat ]] && { found=true; break; }
+    done
+    $found || return 1
+  fi
+
+  if (( ${#FILTER_MATCH[@]} > 0 )); then
+    local found=false
+    for pat in "${FILTER_MATCH[@]}"; do
+      [[ "$name" == *"$pat"* ]] && { found=true; break; }
+    done
+    $found || return 1
+  fi
+
+  return 0
+}
+
+# Returns 0 (true) if the entry passes the type filter.
+type_matches_filter() {
+  local entry="$1"
+  if $ONLY_FILES; then
+    [[ -f "$entry" && ! -d "$entry" ]] && return 0
+    # Also accept symlinks that point to files
+    [[ -L "$entry" ]] && [[ -f "$(readlink -f "$entry" 2>/dev/null)" ]] && return 0
+    return 1
+  fi
+  if $ONLY_DIRS; then
+    [[ -d "$entry" && ! -L "$entry" ]] && return 0
+    # Also accept symlinks that point to dirs
+    [[ -L "$entry" ]] && [[ -d "$(readlink -f "$entry" 2>/dev/null)" ]] && return 0
+    return 1
+  fi
+  return 0
+}
+
 # ─── Scan and categorize ────────────────────────────────────────────────────
 
 # Build combined excludes set (defaults + extras)
@@ -657,6 +821,7 @@ for e in "${DEFAULT_EXCLUDES[@]}"; do EXCLUDES_MAP["$e"]=1; done
 for e in "${EXTRA_EXCLUDES[@]}"; do EXCLUDES_MAP["$e"]=1; done
 
 excluded_count=0
+filtered_count=0
 
 skip_links=();     skip_targets=()
 create_links=();   create_targets=()
@@ -670,6 +835,19 @@ while IFS= read -r -d '' entry; do
     (( excluded_count++ )) || true
     continue
   fi
+
+  # Apply type filter
+  if ! type_matches_filter "$entry"; then
+    (( filtered_count++ )) || true
+    continue
+  fi
+
+  # Apply name filters
+  if ! name_matches_filters "$name"; then
+    (( filtered_count++ )) || true
+    continue
+  fi
+
   target="$(realpath "$entry" 2>/dev/null)" || continue
   link="$OUTPUT_DIR/$name"
 
@@ -689,8 +867,26 @@ done < <(find "$INPUT_DIR" -mindepth 1 -maxdepth 1 -print0 | sort -z)
 
 total=$(( ${#skip_links[@]} + ${#create_links[@]} + ${#conflict_links[@]} ))
 if (( total == 0 )); then
-  log "Nothing found in $(disp "$INPUT_DIR")."
+  if $HAS_NAME_FILTERS || $ONLY_FILES || $ONLY_DIRS; then
+    log "Nothing matched in $(disp "$INPUT_DIR") (${filtered_count} filtered out, ${excluded_count} excluded)."
+  else
+    log "Nothing found in $(disp "$INPUT_DIR")."
+  fi
   exit 0
+fi
+
+# Show active filters
+if $HAS_NAME_FILTERS || $ONLY_FILES || $ONLY_DIRS; then
+  filter_desc=""
+  $ONLY_FILES && filter_desc+="only-files "
+  $ONLY_DIRS && filter_desc+="only-dirs "
+  (( ${#FILTER_EXACT[@]} > 0 )) && filter_desc+="exact(${FILTER_EXACT[*]}) "
+  (( ${#FILTER_PREFIX[@]} > 0 )) && filter_desc+="prefix(${FILTER_PREFIX[*]}) "
+  (( ${#FILTER_SUFFIX[@]} > 0 )) && filter_desc+="suffix(${FILTER_SUFFIX[*]}) "
+  (( ${#FILTER_REGEX[@]} > 0 )) && filter_desc+="regex(${FILTER_REGEX[*]}) "
+  (( ${#FILTER_MATCH[@]} > 0 )) && filter_desc+="match(${FILTER_MATCH[*]}) "
+  log "Filters: ${filter_desc% }"
+  log ""
 fi
 
 # ─── Report: Skipped ────────────────────────────────────────────────────────
@@ -768,7 +964,9 @@ fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
-log "Summary: ${#skip_links[@]} skipped, ${#create_links[@]} to create, ${#conflict_links[@]} conflicts, ${excluded_count} excluded"
+summary_line="Summary: ${#skip_links[@]} skipped, ${#create_links[@]} to create, ${#conflict_links[@]} conflicts, ${excluded_count} excluded"
+(( filtered_count > 0 )) && summary_line+=", ${filtered_count} filtered"
+log "$summary_line"
 
 # ─── Conflict error (default) ───────────────────────────────────────────────
 
@@ -893,6 +1091,7 @@ print_results() {
   (( ${#done_deleted_paths[@]} > 0 )) && summary+=", ${#done_deleted_paths[@]} deleted"
   (( ${#done_error_paths[@]} > 0 )) && summary+=", ${#done_error_paths[@]} error(s)"
   summary+=", ${excluded_count} excluded"
+  (( filtered_count > 0 )) && summary+=", ${filtered_count} filtered"
   if $DRY_RUN; then
     log "${prefix}${summary}"
   else
