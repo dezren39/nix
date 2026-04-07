@@ -40,7 +40,6 @@
       '';
     };
     zsh = {
-      # https://github.com/dustinlyons/nixos-config/blob/main/modules/shared/config/p10k.zsh
       enable = true;
       initContent = ''
         ff() {
@@ -97,6 +96,30 @@
           "^exit"
           "^clear"
         ];
+      };
+    };
+    # starship: cross-shell prompt — git status, language versions, nix shell indicator, cmd duration
+    starship = {
+      enable = true;
+      enableZshIntegration = true;
+      enableBashIntegration = true;
+      enableFishIntegration = true;
+      settings = {
+        add_newline = false;
+        character = {
+          success_symbol = "[❯](bold green)";
+          error_symbol = "[❯](bold red)";
+        };
+        git_status.disabled = false;
+        nix_shell = {
+          symbol = " ";
+          format = "via [$symbol$state( \\($name\\))]($style) ";
+        };
+        directory.truncation_length = 3;
+        cmd_duration = {
+          min_time = 2000;
+          format = "took [$duration]($style) ";
+        };
       };
     };
     direnv = {

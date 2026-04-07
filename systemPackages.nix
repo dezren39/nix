@@ -178,7 +178,7 @@
       wget
       yarn
       zip
-      zsh-powerlevel10k
+      # zsh-powerlevel10k — replaced by programs.starship (cross-shell, Rust, faster)
       cargo
       dotnet-sdk_9
       inputs.just.packages.${system}.default
