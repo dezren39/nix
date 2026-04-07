@@ -45,3 +45,5 @@ codedb.snapshot
 .opencode/worktrees
 # private/unshared
 .opencode/plans
+.DS_Store
+**/.DS_Store

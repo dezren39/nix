@@ -66,6 +66,7 @@ rec {
       inputs.flake-utils.follows = "flake-utils";
       inputs.flake-compat.follows = "flake-compat-hoisted";
       inputs.systems.follows = "systems-hoisted";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted";
     };
     brew-src = {
       # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
@@ -115,6 +116,11 @@ rec {
     # rust, see https://github.com/nix-community/fenix#usage
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
+    just = {
+      url = "github:casey/just";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
     nixpkgs-terraform.url = "github:stackbuilders/nixpkgs-terraform";
     nixpkgs-terraform.inputs.systems.follows = "systems";
     nixpkgs-terraform.inputs.nixpkgs-23_05.follows = "nixpkgs-23_05";
@@ -139,6 +145,7 @@ rec {
       inputs.flake-parts.follows = "flake-parts";
       # nixpkgs not followed — cl-nix-lite uses its own tested nixpkgs for SBCL/CL compat
       inputs.flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted";
     };
     flake-compat.url = "github:edolstra/flake-compat";
     flake-compat-hoisted.url = "github:hraban/flake-compat/fixed-output";
@@ -327,7 +334,7 @@ rec {
             selfPkgs.opencode
             selfPkgs.flake-tidy
             selfPkgs.symlinker
-            pkgs.just
+            inputs.just.packages.${pkgs.stdenv.hostPlatform.system}.default
             pkgs.nixfmt
             pkgs.git
             pkgs.gh

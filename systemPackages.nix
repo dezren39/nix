@@ -181,7 +181,7 @@
       zsh-powerlevel10k
       cargo
       dotnet-sdk_9
-      just
+      inputs.just.packages.${system}.default
       # linker/binary diagnostic and fixing tools
       patchelf # fix ELF binaries (rpath, interpreter) - essential for Linux containers/cross-compile
       binutils # readelf, objdump, nm, strings - inspect binaries
