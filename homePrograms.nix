@@ -122,6 +122,10 @@
         };
       };
     };
+    # fastfetch: fast system info display (neofetch replacement)
+    fastfetch = {
+      enable = true;
+    };
     direnv = {
       enable = true;
       nix-direnv.enable = true;
