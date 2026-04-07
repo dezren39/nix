@@ -27,6 +27,13 @@ lib.recursiveUpdate {
       LANG = "en_US.UTF-8";
       COPILOT_MODEL = "claude-opus-4.5";
       OPENCODE_EXPERIMENTAL = "true";
+
+      # Shell history — most precise timestamp format (ISO date + HH:MM:SS + timezone)
+      HISTTIMEFORMAT = "%F %T %Z ";
+      HISTSIZE = "100000";
+      HISTFILESIZE = "200000";
+      HISTCONTROL = "ignoreboth:erasedups";
+      HISTIGNORE = "ls:cd:pwd:exit:clear:history";
     };
   } (import ./homePackages.nix { inherit config pkgs; });
 } (import ./homePrograms.nix { inherit inputs system; })
