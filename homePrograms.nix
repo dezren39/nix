@@ -129,6 +129,18 @@
     fastfetch = {
       enable = true;
     };
+    # fzf: fuzzy finder with shell integration (file finder, directory jumper, Ctrl+T/Alt+C)
+    fzf = {
+      enable = true;
+      enableZshIntegration = true;
+      enableBashIntegration = true;
+      enableFishIntegration = true;
+      defaultOptions = [
+        "--height 40%"
+        "--border"
+        "--reverse"
+      ];
+    };
     direnv = {
       enable = true;
       nix-direnv.enable = true;
