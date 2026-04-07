@@ -77,6 +77,28 @@
         complete -c opencode -f -a '(__fish_opencode_completions)'
       '';
     };
+    # atuin: SQLite-backed shell history with fuzzy search, cross-shell, exit code/duration tracking
+    atuin = {
+      enable = true;
+      enableZshIntegration = true;
+      enableBashIntegration = true;
+      enableFishIntegration = true;
+      settings = {
+        auto_sync = false;
+        search_mode = "fuzzy";
+        filter_mode = "global";
+        style = "compact";
+        show_preview = true;
+        show_help = true;
+        history_filter = [
+          "^ls"
+          "^cd"
+          "^pwd"
+          "^exit"
+          "^clear"
+        ];
+      };
+    };
     direnv = {
       enable = true;
       nix-direnv.enable = true;
