@@ -4,17 +4,20 @@
     # pwsh.enable = true;
     # osh.enable = true;
     # ysh.enable = true;
-    # ghostty = {
-    #   enable = true;
-    #   # package = inputs.nixpkgs.legacyPackages.${system}.ghostty;
-    #   # package = inputs.nur.legacyPackages."${system}".repos.DimitarNestorov.ghostty;
-    #   settings = {
-    #     # ghostty +list-themes
-    #     theme = "synthwave";
-    #     # window-decoration = false;
-    #     # TODO: hide tabs or make smaller or both
-    #   };
-    # };
+    # ghostty: terminal emulator — installed via brew cask, config managed by home-manager
+    ghostty = {
+      enable = true;
+      installVimSyntax = true;
+      settings = {
+        # ghostty +list-themes
+        theme = "synthwave";
+        font-size = 14;
+        window-padding-x = 8;
+        window-padding-y = 8;
+        copy-on-select = "clipboard";
+        confirm-close-surface = false;
+      };
+    };
     vscode = {
       enable = true;
     };
