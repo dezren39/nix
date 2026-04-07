@@ -114,6 +114,104 @@ lib.recursiveUpdate {
         Clicking = true;
         TrackpadThreeFingerDrag = true;
       };
+
+      # =====================================================================
+      # Spotlight — trim search categories and disable noisy result types
+      # =====================================================================
+      CustomUserPreferences = {
+        "com.apple.Spotlight" = {
+          orderedItems = [
+            {
+              enabled = true;
+              name = "APPLICATIONS";
+            }
+            {
+              enabled = true;
+              name = "SYSTEM_PREFS";
+            }
+            {
+              enabled = true;
+              name = "MENU_EXPRESSION";
+            } # Calculator
+            {
+              enabled = true;
+              name = "MENU_CONVERSION";
+            } # Unit conversion
+            {
+              enabled = true;
+              name = "MENU_DEFINITION";
+            } # Dictionary
+            {
+              enabled = false;
+              name = "DIRECTORIES";
+            } # Folders
+            {
+              enabled = false;
+              name = "PDF";
+            }
+            {
+              enabled = false;
+              name = "DOCUMENTS";
+            }
+            {
+              enabled = false;
+              name = "FONTS";
+            }
+            {
+              enabled = false;
+              name = "MESSAGES";
+            }
+            {
+              enabled = false;
+              name = "CONTACT";
+            }
+            {
+              enabled = false;
+              name = "EVENT_TODO";
+            }
+            {
+              enabled = false;
+              name = "IMAGES";
+            }
+            {
+              enabled = false;
+              name = "BOOKMARKS";
+            }
+            {
+              enabled = false;
+              name = "MUSIC";
+            }
+            {
+              enabled = false;
+              name = "MOVIES";
+            }
+            {
+              enabled = false;
+              name = "PRESENTATIONS";
+            }
+            {
+              enabled = false;
+              name = "SPREADSHEETS";
+            }
+            {
+              enabled = false;
+              name = "SOURCE";
+            }
+            {
+              enabled = false;
+              name = "MENU_OTHER";
+            }
+            {
+              enabled = false;
+              name = "MENU_WEBSEARCH";
+            } # Siri suggestions
+            {
+              enabled = false;
+              name = "MENU_SPOTLIGHT_SUGGESTIONS";
+            }
+          ];
+        };
+      };
     };
 
     # keyboard = {
@@ -239,10 +337,41 @@ lib.recursiveUpdate {
   system.primaryUser = "drewry.pope";
 
   # Restart skhd after rebuild so config changes take effect
+  # Fix Spotlight indexing and exclude noisy directories
   system.activationScripts.postActivation.text = ''
     if /bin/launchctl list | grep -q org.nixos.skhd; then
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
     fi
+
+    # =====================================================================
+    # Spotlight indexing fixes
+    # =====================================================================
+
+    # Disable Spotlight indexing on /nix (huge read-only store, never useful)
+    if [ -d /nix ]; then
+      /usr/bin/mdutil -i off /nix 2>/dev/null || true
+      # Marker file tells Spotlight to never index this volume/directory
+      /usr/bin/touch /nix/.metadata_never_index 2>/dev/null || true
+    fi
+
+    # If Spotlight is stuck in transitioning state, rebuild the index
+    if /usr/bin/mdutil -s / 2>&1 | grep -q "kMDConfigSearchLevelTransitioning"; then
+      echo "Spotlight stuck in transitioning state — rebuilding index..."
+      /usr/bin/mdutil -E / 2>/dev/null || true
+    fi
+
+    # Add .metadata_never_index to common dev/cache directories in $HOME
+    HOME_DIR="/Users/drewry.pope"
+    for dir in \
+      "$HOME_DIR/.nix-defexpr" \
+      "$HOME_DIR/.nix-profile" \
+      "$HOME_DIR/.local/state/nix" \
+      "$HOME_DIR/.cache" \
+      "$HOME_DIR/Library/Caches"; do
+      if [ -d "$dir" ]; then
+        /usr/bin/touch "$dir/.metadata_never_index" 2>/dev/null || true
+      fi
+    done
   '';
 
   # TODO: module launchd

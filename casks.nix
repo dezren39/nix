@@ -46,6 +46,7 @@ _: {
     "visual-studio-code"
     "visual-studio-code@insiders"
     "wireshark"
+    "cmux"
     "cursor"
     "discord"
     "loom"
