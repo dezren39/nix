@@ -1,15 +1,21 @@
-{ inputs, system }:
+{
+  inputs,
+  system,
+  pkgs,
+  ...
+}:
 {
   programs = {
     # pwsh.enable = true;
     # osh.enable = true;
     # ysh.enable = true;
-    # ghostty: terminal emulator — installed via brew cask, config managed by home-manager
+    # ghostty: terminal emulator — use ghostty-bin (pre-built binary) on darwin
     # NOTE: ghostty flake (github:ghostty-org/ghostty) does NOT build on darwin (missing Swift 6 / xcodebuild in nix)
+    # NOTE: ghostty (source build) fails on darwin (wuffs + gtk4-layer-shell). ghostty-bin avoids this.
     ghostty = {
       enable = true;
-      package = null; # installed via homebrew cask — don't build the nix package (broken on darwin: wuffs + gtk4-layer-shell)
-      # installVimSyntax = true; # requires nix package — install vim syntax manually if needed
+      package = pkgs.ghostty-bin; # pre-built binary — avoids broken source build on darwin
+      installVimSyntax = true;
       settings = {
         # ghostty +list-themes
         theme = "synthwave";

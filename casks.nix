@@ -10,7 +10,7 @@ _: {
     "audacity"
     "balenaetcher"
     "bartender"
-    "ghostty"
+    # "ghostty" # switched to nixpkgs ghostty-bin (pre-built binary managed by home-manager)
     "element"
     "firefox"
     "hammerspoon"

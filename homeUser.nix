@@ -36,7 +36,7 @@ lib.recursiveUpdate {
       HISTIGNORE = "ls:cd:pwd:exit:clear:history";
     };
   } (import ./homePackages.nix { inherit config pkgs; });
-} (import ./homePrograms.nix { inherit inputs system; })
+} (import ./homePrograms.nix { inherit inputs system pkgs; })
 /*
   { config, pkgs, lib, home-manager, ... }:
 
