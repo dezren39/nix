@@ -5,6 +5,7 @@
     # osh.enable = true;
     # ysh.enable = true;
     # ghostty: terminal emulator — installed via brew cask, config managed by home-manager
+    # NOTE: ghostty flake (github:ghostty-org/ghostty) does NOT build on darwin (missing Swift 6 / xcodebuild in nix)
     ghostty = {
       enable = true;
       package = null; # installed via homebrew cask — don't build the nix package (broken on darwin: wuffs + gtk4-layer-shell)

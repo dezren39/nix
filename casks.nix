@@ -46,7 +46,7 @@ _: {
     "visual-studio-code"
     "visual-studio-code@insiders"
     "wireshark"
-    "cmux"
+    "cmux" # nixpkgs PR pending: https://github.com/NixOS/nixpkgs/pull/493537
     "cursor"
     "discord"
     "loom"
