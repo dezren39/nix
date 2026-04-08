@@ -7,7 +7,8 @@
     # ghostty: terminal emulator — installed via brew cask, config managed by home-manager
     ghostty = {
       enable = true;
-      installVimSyntax = true;
+      package = null; # installed via homebrew cask — don't build the nix package (broken on darwin: wuffs + gtk4-layer-shell)
+      # installVimSyntax = true; # requires nix package — install vim syntax manually if needed
       settings = {
         # ghostty +list-themes
         theme = "synthwave";
@@ -147,6 +148,7 @@
     };
     git = {
       enable = true;
+      signing.format = null; # silence home-manager 25.05 deprecation warning (was defaulting to "openpgp")
       settings = {
         user = {
           name = "Drewry Pope";
