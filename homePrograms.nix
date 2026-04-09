@@ -31,6 +31,11 @@
     };
     bash = {
       enable = true;
+      shellAliases = {
+        rm = "trash";
+        dd-creds = "source ~/Documents/dd-creds.sh";
+        gh-token = "source ~/Documents/gh-token.sh";
+      };
       initExtra = ''
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
@@ -52,6 +57,11 @@
     };
     zsh = {
       enable = true;
+      shellAliases = {
+        rm = "trash";
+        dd-creds = "source ~/Documents/dd-creds.sh";
+        gh-token = "source ~/Documents/gh-token.sh";
+      };
       initContent = ''
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
@@ -65,6 +75,9 @@
     };
     fish = {
       enable = true;
+      shellAbbrs = {
+        rm = "trash";
+      };
       functions = {
         ff = ''
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
@@ -87,25 +100,43 @@
         complete -c opencode -f -a '(__fish_opencode_completions)'
       '';
     };
-    # atuin: SQLite-backed shell history with fuzzy search, cross-shell, exit code/duration tracking
+    # atuin: SQLite-backed shell history — Ctrl+R only (up arrow = normal shell behavior)
     atuin = {
       enable = true;
       enableZshIntegration = true;
       enableBashIntegration = true;
       enableFishIntegration = true;
+      flags = [
+        "--disable-up-arrow" # up arrow = normal previous command, Ctrl+R = atuin search
+      ];
       settings = {
         auto_sync = false;
+        update_check = false;
         search_mode = "fuzzy";
-        filter_mode = "global";
+        filter_mode = "global"; # default: search everything. Ctrl+R cycles through filters
+        workspaces = true; # enable "workspace" filter — scopes to current git repo
         style = "compact";
+        inline_height = 20; # smaller inline UI instead of fullscreen
         show_preview = true;
         show_help = true;
+        enter_accept = false; # tab-like: lets you edit before running
+        store_failed = true; # keep commands that failed too
+        secrets_filter = true; # auto-hide AWS keys, tokens, etc.
         history_filter = [
           "^ls"
           "^cd"
           "^pwd"
           "^exit"
           "^clear"
+        ];
+        # filter modes available when cycling with Ctrl+R during search:
+        # global → host → session → directory → workspace → global ...
+        search.filters = [
+          "global"
+          "host"
+          "session"
+          "directory"
+          "workspace"
         ];
       };
     };
