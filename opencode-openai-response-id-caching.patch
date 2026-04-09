@@ -1550,14 +1550,14 @@ index e4709ef47e03..2c7389e378fc 100644
              yield* status.set(sessionID, { type: "busy" })
              log.info("loop", { step, sessionID })
  
-@@ -1518,6 +1517,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
-                   tools,
-                   model,
-                   toolChoice: format.type === "json_schema" ? "required" : undefined,
-+                  lastResponseId: session.lastResponseId,
-                 })
+@@ -1523,6 +1522,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
+                 tools,
+                 model,
+                 toolChoice: format.type === "json_schema" ? "required" : undefined,
++                lastResponseId: session.lastResponseId,
+               })
  
-                 if (structured !== undefined) {
+               if (structured !== undefined) {
 diff --git a/packages/opencode/src/session/session.sql.ts b/packages/opencode/src/session/session.sql.ts
 index 189a596873a3..a5990eaa20ba 100644
 --- a/packages/opencode/src/session/session.sql.ts

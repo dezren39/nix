@@ -186,7 +186,7 @@
       patchelf # fix ELF binaries (rpath, interpreter) - essential for Linux containers/cross-compile
       binutils # readelf, objdump, nm, strings - inspect binaries
       file # identify binary types (ELF vs Mach-O, architecture)
-      macos-trash # `trash` command — moves files to macOS Trash instead of permanent deletion
+      darwin.trash # `trash` command — moves files to macOS Trash instead of permanent deletion
     ]
     ++ [
       # darwin

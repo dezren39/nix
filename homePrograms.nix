@@ -33,10 +33,11 @@
       enable = true;
       shellAliases = {
         rm = "trash";
-        dd-creds = "source ~/Documents/dd-creds.sh";
-        gh-token = "source ~/Documents/gh-token.sh";
       };
       initExtra = ''
+        dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
+        gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
+
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
@@ -59,10 +60,11 @@
       enable = true;
       shellAliases = {
         rm = "trash";
-        dd-creds = "source ~/Documents/dd-creds.sh";
-        gh-token = "source ~/Documents/gh-token.sh";
       };
       initContent = ''
+        dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
+        gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
+
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
