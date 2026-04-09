@@ -187,6 +187,7 @@
       binutils # readelf, objdump, nm, strings - inspect binaries
       file # identify binary types (ELF vs Mach-O, architecture)
       darwin.trash # `trash` command — moves files to macOS Trash instead of permanent deletion
+      inputs.self.packages.${system}.brew-repair
     ]
     ++ [
       # darwin

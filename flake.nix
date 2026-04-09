@@ -271,6 +271,10 @@ rec {
           };
         });
 
+        brew-repair = import ./pkgs/brew-repair {
+          inherit pkgs;
+          lib = pkgs.lib;
+        };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
         opencode-share = import ./pkgs/opencode-share { inherit pkgs; };
         symlinker = import ./pkgs/symlinker {
