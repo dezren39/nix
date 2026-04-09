@@ -33,6 +33,7 @@
       enable = true;
       shellAliases = {
         rm = "trash";
+        ll = "ls -lah --group-directories-first --color=auto";
       };
       initExtra = ''
         dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
@@ -60,6 +61,7 @@
       enable = true;
       shellAliases = {
         rm = "trash";
+        ll = "ls -lah --group-directories-first --color=auto";
       };
       initContent = ''
         dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
@@ -79,6 +81,7 @@
       enable = true;
       shellAbbrs = {
         rm = "trash";
+        ll = "ls -lah --group-directories-first --color=auto";
       };
       functions = {
         ff = ''
