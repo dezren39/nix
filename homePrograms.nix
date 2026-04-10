@@ -199,7 +199,7 @@
         };
         extraConfig = {
           init.defaultBranch = "main";
-          pull.rebase = true;
+          # pull.rebase = true; # commented out — prefer merge default
           core = {
             editor = "code-insiders";
             autocrlf = "input";
