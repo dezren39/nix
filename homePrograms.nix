@@ -4,6 +4,115 @@
   pkgs,
   ...
 }:
+let
+  homeDir = "/Users/drewry.pope";
+
+  sharedShellAliases = {
+    rm = "trash";
+    ll = "ls -lah --group-directories-first --color=auto";
+  };
+
+  # Shared POSIX shell init — sourced by bash, zsh, and fish (fish tolerates POSIX via implicit translation)
+  sharedShellInit = ''
+    dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
+    gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
+
+    ff() {
+      aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
+    }
+
+    # lootbox: ensure deno and lootbox are on PATH
+    export PATH="$HOME/.deno/bin:$PATH"
+
+    # uv tool install
+    export PATH="${homeDir}/.local/bin:$PATH"
+
+    # ez-stack
+    export PATH="${homeDir}/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
+    eval "$(ez shell-init)"
+
+    # setup-opencode: link the central .opencode directory into the current project
+    setup-opencode() {
+      # Resolve the central .opencode dir (always use drewry.pope's, even as root)
+      local central
+      central="$(realpath ${homeDir}/.config/nix/.opencode 2>/dev/null)"
+      if [ -z "$central" ] || [ ! -d "$central" ]; then
+        echo "ERROR: Central .opencode not found at ${homeDir}/.config/nix/.opencode" >&2
+        return 1
+      fi
+
+      # Trash dir (always drewry.pope's ~/git/.trash, even as root)
+      local trash_dir="${homeDir}/git/.trash"
+      mkdir -p "$trash_dir"
+
+      local target=".opencode"
+
+      # Case 1: Already a symlink
+      # FUTURE IMPROVEMENT: Could handle migration — if .opencode is a symlink to
+      # a different .opencode directory (not central), we could:
+      #   1. Merge files from the symlink target into central
+      #   2. Replace the symlink at the old target location to point to central
+      #   3. Then re-link .opencode here to central
+      # CAUTION: Must compare realpath of both the symlink target and central,
+      # since the symlink may use a different path (e.g. ../foo, ~/foo, or an
+      # intermediate symlink) but still resolve to the same final directory.
+      if [ -L "$target" ]; then
+        local link_dest
+        link_dest="$(realpath "$target" 2>/dev/null)"
+        if [ "$link_dest" = "$central" ]; then
+          echo "✓ .opencode already linked to $central"
+          return 0
+        else
+          echo "WARNING: .opencode is a symlink to $link_dest (expected $central)" >&2
+          echo "  Remove it manually if you want to re-link: rm .opencode" >&2
+          return 1
+        fi
+      fi
+
+      # Case 2: Existing directory — merge new files, report conflicts, then trash
+      if [ -d "$target" ]; then
+        echo "Merging new files from local .opencode into central..."
+        local had_conflicts=0
+        while IFS= read -r rel; do
+          if [ -e "$central/$rel" ]; then
+            if ! diff -q "$target/$rel" "$central/$rel" >/dev/null 2>&1; then
+              echo "  CONFLICT (kept central): $rel"
+              had_conflicts=1
+            fi
+          else
+            mkdir -p "$central/$(dirname "$rel")"
+            cp -a "$target/$rel" "$central/$rel"
+            echo "  COPIED: $rel"
+          fi
+        done < <(cd "$target" && find . -type f | sed 's|^\./||')
+
+        # Trash the local directory with RFC 3339 timestamp (colons replaced with dashes)
+        local stamp
+        stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+        local base
+        base="$(basename "$(pwd)")"
+        local trash_dest="$trash_dir/.opencode-''${base}-''${stamp}"
+        mv "$target" "$trash_dest"
+        echo "Trashed local .opencode → $trash_dest"
+        echo ""
+        echo "  Files moved to: $trash_dest"
+        echo ""
+
+        if [ "$had_conflicts" -eq 1 ]; then
+          echo "Some files had conflicts (central version was kept)."
+          echo "You can examine the previous .opencode directory to compare:"
+          echo ""
+          echo "  cd $trash_dest"
+          echo ""
+        fi
+      fi
+
+      # Case 3 (or after Case 2 cleanup): Create symlink
+      ln -s "$central" "$target"
+      echo "✓ Linked .opencode → $central"
+    }
+  '';
+in
 {
   programs = {
     # pwsh.enable = true;
@@ -31,27 +140,9 @@
     };
     bash = {
       enable = true;
-      shellAliases = {
-        rm = "trash";
-        ll = "ls -lah --group-directories-first --color=auto";
-      };
+      shellAliases = sharedShellAliases;
       initExtra = ''
-        dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
-        gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
-
-        ff() {
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
-        }
-
-        # lootbox: ensure deno and lootbox are on PATH
-        export PATH="$HOME/.deno/bin:$PATH"
-
-        # uv tool install
-        export PATH="/Users/drewry.pope/.local/bin:$PATH"
-
-        # ez-stack
-        export PATH="/Users/drewry.pope/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
-        eval "$(ez shell-init)"
+        ${sharedShellInit}
 
         # opencode: shell completions (yargs-based)
         _opencode_yargs_completions() {
@@ -67,27 +158,9 @@
     };
     zsh = {
       enable = true;
-      shellAliases = {
-        rm = "trash";
-        ll = "ls -lah --group-directories-first --color=auto";
-      };
+      shellAliases = sharedShellAliases;
       initContent = ''
-        dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
-        gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
-
-        ff() {
-          aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
-        }
-
-        # lootbox: ensure deno and lootbox are on PATH
-        export PATH="$HOME/.deno/bin:$PATH"
-
-        # uv tool install
-        export PATH="/Users/drewry.pope/.local/bin:$PATH"
-
-        # ez-stack
-        export PATH="/Users/drewry.pope/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
-        eval "$(ez shell-init)"
+        ${sharedShellInit}
 
         # opencode: shell completions (yargs-based)
         eval "$(opencode completion 2>/dev/null)"
@@ -95,10 +168,7 @@
     };
     fish = {
       enable = true;
-      shellAbbrs = {
-        rm = "trash";
-        ll = "ls -lah --group-directories-first --color=auto";
-      };
+      shellAbbrs = sharedShellAliases;
       functions = {
         ff = ''
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
@@ -114,19 +184,7 @@
         '';
       };
       shellInit = ''
-        dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
-        gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
-
-        # lootbox: ensure deno and lootbox are on PATH
-        export PATH="$HOME/.deno/bin:$PATH"
-
-        # uv tool install
-        export PATH="/Users/drewry.pope/.local/bin:$PATH"
-
-        # ez-stack
-        export PATH="/Users/drewry.pope/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
-        eval "$(ez shell-init)"
-
+        ${sharedShellInit}
 
         # opencode: register completions
         complete -c opencode -f -a '(__fish_opencode_completions)'
