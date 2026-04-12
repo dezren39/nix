@@ -42,11 +42,13 @@
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
+
         # lootbox: ensure deno and lootbox are on PATH
         export PATH="$HOME/.deno/bin:$PATH"
 
         # uv tool install
         export PATH="/Users/drewry.pope/.local/bin:$PATH"
+
         # ez-stack
         export PATH="/Users/drewry.pope/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
         eval "$(ez shell-init)"
@@ -76,11 +78,17 @@
         ff() {
           aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
         }
+
         # lootbox: ensure deno and lootbox are on PATH
         export PATH="$HOME/.deno/bin:$PATH"
 
         # uv tool install
         export PATH="/Users/drewry.pope/.local/bin:$PATH"
+
+        # ez-stack
+        export PATH="/Users/drewry.pope/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
+        eval "$(ez shell-init)"
+
         # opencode: shell completions (yargs-based)
         eval "$(opencode completion 2>/dev/null)"
       '';
@@ -106,8 +114,19 @@
         '';
       };
       shellInit = ''
+        dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
+        gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
+
         # lootbox: ensure deno and lootbox are on PATH
-        fish_add_path $HOME/.deno/bin
+        export PATH="$HOME/.deno/bin:$PATH"
+
+        # uv tool install
+        export PATH="/Users/drewry.pope/.local/bin:$PATH"
+
+        # ez-stack
+        export PATH="/Users/drewry.pope/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
+        eval "$(ez shell-init)"
+
 
         # opencode: register completions
         complete -c opencode -f -a '(__fish_opencode_completions)'
