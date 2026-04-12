@@ -10,6 +10,7 @@ let
   sharedShellAliases = {
     rm = "trash";
     ll = "ls -lah --group-directories-first --color=auto";
+    cmux = ''open "/Users/drewry.pope/Library/Developer/Xcode/DerivedData/cmux-fix-paste/Build/Products/Debug/cmux DEV fix-paste.app"'';
   };
 
   # Shared POSIX shell init — sourced by bash, zsh, and fish (fish tolerates POSIX via implicit translation)

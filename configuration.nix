@@ -376,6 +376,10 @@ lib.recursiveUpdate {
     # Point xcode-select at full Xcode.app if installed (idempotent, instant)
     if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
       /usr/bin/xcode-select -s /Applications/Xcode.app/Contents/Developer 2>/dev/null || true
+      # Accept Xcode license (no-op if already accepted)
+      /usr/bin/xcodebuild -license accept 2>/dev/null || true
+      # Install additional components on first launch (no-op if already done)
+      /usr/bin/xcodebuild -runFirstLaunch 2>/dev/null || true
     fi
   '';
 
