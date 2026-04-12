@@ -45,6 +45,12 @@
         # lootbox: ensure deno and lootbox are on PATH
         export PATH="$HOME/.deno/bin:$PATH"
 
+        # uv tool install
+        export PATH="/Users/drewry.pope/.local/bin:$PATH"
+        # ez-stack
+        export PATH="/Users/drewry.pope/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
+        eval "$(ez shell-init)"
+
         # opencode: shell completions (yargs-based)
         _opencode_yargs_completions() {
           local cur_word args type_list
@@ -72,7 +78,7 @@
         }
         # lootbox: ensure deno and lootbox are on PATH
         export PATH="$HOME/.deno/bin:$PATH"
-        
+
         # uv tool install
         export PATH="/Users/drewry.pope/.local/bin:$PATH"
         # opencode: shell completions (yargs-based)
