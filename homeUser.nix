@@ -13,6 +13,8 @@ lib.recursiveUpdate {
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
       ".config/opencode/commands".source = ./config/opencode/commands;
+      # npm: set global install prefix to a writable user directory
+      ".npmrc".text = "prefix=~/.npm-global\n";
     };
     activation = {
       # reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
@@ -27,6 +29,10 @@ lib.recursiveUpdate {
       LANG = "en_US.UTF-8";
       COPILOT_MODEL = "claude-opus-4.5";
       OPENCODE_EXPERIMENTAL = "true";
+
+      # Go: user-local install directory
+      GOPATH = "$HOME/go";
+      GOBIN = "$HOME/go/bin";
 
       # Shell history — most precise timestamp format (ISO date + HH:MM:SS + timezone)
       HISTTIMEFORMAT = "%F %T %Z ";

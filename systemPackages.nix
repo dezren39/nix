@@ -180,6 +180,8 @@
       zip
       # zsh-powerlevel10k — replaced by programs.starship (cross-shell, Rust, faster)
       cargo
+      zig
+      swiftPackages.swift # provides swiftc
       dotnet-sdk_9
       inputs.just.packages.${system}.default
       # linker/binary diagnostic and fixing tools

@@ -21,11 +21,14 @@ let
       aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
     }
 
-    # lootbox: ensure deno and lootbox are on PATH
-    export PATH="$HOME/.deno/bin:$PATH"
-
-    # uv tool install
-    export PATH="${homeDir}/.local/bin:$PATH"
+    # Tool install bin directories — ensure globally-installed binaries are on PATH
+    export PATH="$HOME/bin:$PATH"              # personal scripts
+    export PATH="$HOME/.deno/bin:$PATH"       # deno install
+    export PATH="${homeDir}/.local/bin:$PATH"  # uv tool install, pip install --user
+    export PATH="$HOME/.bun/bin:$PATH"        # bun install -g
+    export PATH="$HOME/.cargo/bin:$PATH"      # cargo install
+    export PATH="$HOME/go/bin:$PATH"          # go install
+    export PATH="$HOME/.npm-global/bin:$PATH" # npm install -g (prefix set via npmrc)
 
     # ez-stack
     export PATH="${homeDir}/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
@@ -273,6 +276,16 @@ in
     direnv = {
       enable = true;
       nix-direnv.enable = true;
+      config = {
+        global = {
+          hide_env_diff = true;
+          warn_timeout = "30s";
+          load_dotenv = true;
+        };
+        whitelist = {
+          prefix = [ "${homeDir}" ];
+        };
+      };
     };
     git = {
       enable = true;

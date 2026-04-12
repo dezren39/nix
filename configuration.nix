@@ -372,6 +372,11 @@ lib.recursiveUpdate {
         /usr/bin/touch "$dir/.metadata_never_index" 2>/dev/null || true
       fi
     done
+
+    # Point xcode-select at full Xcode.app if installed (idempotent, instant)
+    if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+      /usr/bin/xcode-select -s /Applications/Xcode.app/Contents/Developer 2>/dev/null || true
+    fi
   '';
 
   # TODO: module launchd
