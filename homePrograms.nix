@@ -72,7 +72,9 @@
         }
         # lootbox: ensure deno and lootbox are on PATH
         export PATH="$HOME/.deno/bin:$PATH"
-
+        
+        # uv tool install
+        export PATH="/Users/drewry.pope/.local/bin:$PATH"
         # opencode: shell completions (yargs-based)
         eval "$(opencode completion 2>/dev/null)"
       '';
