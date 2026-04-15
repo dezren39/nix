@@ -63,9 +63,11 @@
     ];
     extra-substituters = [
       "https://nixpkgs-terraform.cachix.org"
+      "https://fenix.cachix.org"
     ];
     extra-trusted-public-keys = [
       "nixpkgs-terraform.cachix.org-1:8Sit092rIdAVENA3ZVeH9hzSiqI/jng6JiCrQ1Dmusw="
+      "fenix.cachix.org-1:3P7lGPtYmRiUi/BV0UlR4HWkKGORzmfDIBqtwMnWUiY="
     ];
     extra-trusted-substituters = [ ];
     # bash-prompt-prefix = "(nix:$name)\040";

@@ -179,7 +179,28 @@
       yarn
       zip
       # zsh-powerlevel10k — replaced by programs.starship (cross-shell, Rust, faster)
-      cargo
+      # Rust toolchain via fenix (replaces bare cargo) — stable with all dev components
+      (pkgs.fenix.stable.withComponents [
+        "cargo"
+        "clippy"
+        "rustc"
+        "rustfmt"
+        "rust-src" # needed by rust-analyzer for goto-definition into std
+        "rust-analyzer" # LSP server
+        "llvm-tools" # code coverage, llvm-profdata, llvm-cov
+      ])
+      # Nightly-only: miri (undefined behavior detector) — use fenix.complete for nightly components
+      # pkgs.fenix.complete.miri
+      # Extra cargo tools (from nixpkgs, not fenix)
+      cargo-watch # auto-rebuild on file changes
+      cargo-expand # macro expansion viewer
+      cargo-edit # `cargo add`, `cargo rm`, `cargo upgrade`
+      cargo-nextest # faster test runner
+      cargo-udeps # find unused dependencies
+      cargo-deny # lint deps for licenses, bans, advisories
+      cargo-flamegraph # profiling flamegraphs
+      cargo-audit # security vulnerability scanner
+      cargo-insta # snapshot testing
       zig
       swiftPackages.swift # provides swiftc
       dotnet-sdk_9

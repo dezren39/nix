@@ -114,6 +114,10 @@ rec {
       inputs.nixpkgs.follows = "nixpkgs-hoisted-4";
     }; # what is https://github.com/nix-community/nur-combined ?
     # rust, see https://github.com/nix-community/fenix#usage
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     just = {

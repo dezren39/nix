@@ -57,6 +57,7 @@ lib.recursiveUpdate {
       allowUnsupportedSystem = true;
     };
     overlays = [
+      inputs.fenix.overlays.default
       (final: prev: {
         noTunes = final.callPackage ./pkgs/noTunes.nix { };
       })

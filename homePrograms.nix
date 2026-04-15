@@ -23,13 +23,20 @@ let
     }
 
     # Tool install bin directories — ensure globally-installed binaries are on PATH
-    export PATH="$HOME/bin:$PATH"              # personal scripts
-    export PATH="$HOME/.deno/bin:$PATH"       # deno install
-    export PATH="${homeDir}/.local/bin:$PATH"  # uv tool install, pip install --user
-    export PATH="$HOME/.bun/bin:$PATH"        # bun install -g
-    export PATH="$HOME/.cargo/bin:$PATH"      # cargo install
-    export PATH="$HOME/go/bin:$PATH"          # go install
-    export PATH="$HOME/.npm-global/bin:$PATH" # npm install -g (prefix set via npmrc)
+    # personal scripts
+    export PATH="$HOME/bin:$PATH"
+    # deno install
+    export PATH="$HOME/.deno/bin:$PATH"
+    # uv tool install pip install --user
+    export PATH="${homeDir}/.local/bin:$PATH"
+    # bun install -g
+    export PATH="$HOME/.bun/bin:$PATH"
+    # cargo install
+    export PATH="$HOME/.cargo/bin:$PATH"
+    # go install
+    export PATH="$HOME/go/bin:$PATH"
+    # npm install -g (prefix set via npmrc)
+    export PATH="$HOME/.npm-global/bin:$PATH"
 
     # ez-stack
     export PATH="${homeDir}/.local/share/uv/tools/ez-stack/lib/python3.12/site-packages/ez_stack/bin:$PATH"
