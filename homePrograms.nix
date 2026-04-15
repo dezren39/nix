@@ -11,6 +11,9 @@ let
     rm = "trash";
     ll = "ls -lah --group-directories-first --color=auto";
     cmux = ''open "/Users/drewry.pope/Library/Developer/Xcode/DerivedData/cmux-fix-paste/Build/Products/Debug/cmux DEV fix-paste.app"'';
+    setup-creds = "dd-creds && gh-token";
+    cargo-build-release = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build --release 2>&1";
+    cargo-build-debug = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build 2>&1";
   };
 
   # Shared POSIX shell init — sourced by bash, zsh, and fish (fish tolerates POSIX via implicit translation)
