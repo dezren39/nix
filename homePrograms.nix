@@ -20,8 +20,8 @@ let
   sharedShellInit = ''
     dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
     gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
-    og-creds() { sudo -v && source ~/Documents/og_creds.sh && echo "OPSGENIE_API_KEY exported"; }
-    jira-creds() { sudo -v && source ~/Documents/jira-creds.sh && echo "JIRA_API_KEY exported"; }
+    og-creds() { sudo -v && source ~/Documents/og_creds.sh && echo "OPSGENIE_API_KEY and OPSGENIE_TEAM_ID exported"; }
+    jira-creds() { sudo -v && source ~/Documents/jira-creds.sh && echo "JIRA_EMAIL and JIRA_TOKEN exported"; }
     ff() {
       aerospace list-windows --all | fzf --bind 'enter:execute(bash -c "setsid sh -c \"aerospace focus --window-id {1}\" >/dev/null 2>&1 < /dev/null &")+abort'
     }
