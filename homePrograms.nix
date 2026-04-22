@@ -12,6 +12,7 @@ let
     ll = "ls -lah --group-directories-first --color=auto";
     cmux = ''open "/Users/drewry.pope/Library/Developer/Xcode/DerivedData/cmux-fix-paste/Build/Products/Debug/cmux DEV fix-paste.app"'';
     setup-creds = "dd-creds && gh-token && og-creds && jira-creds";
+    setup-ops-creds = "ops-dd-creds && gh-token && og-creds && jira-creds";
     cargo-build-release = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build --release 2>&1";
     cargo-build-debug = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build 2>&1";
   };
@@ -19,6 +20,7 @@ let
   # Shared POSIX shell init — sourced by bash, zsh, and fish (fish tolerates POSIX via implicit translation)
   sharedShellInit = ''
     dd-creds() { sudo -v && source ~/Documents/dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
+    ops-dd-creds() { sudo -v && source ~/Documents/ops-dd-creds.sh && echo "DD_APP_KEY and DD_API_KEY exported"; }
     gh-token() { sudo -v && source ~/Documents/gh-token.sh && echo "GH_TOKEN exported"; }
     og-creds() { sudo -v && source ~/Documents/og_creds.sh && echo "OPSGENIE_API_KEY and OPSGENIE_TEAM_ID exported"; }
     jira-creds() { sudo -v && source ~/Documents/jira-creds.sh && echo "JIRA_EMAIL and JIRA_TOKEN exported"; }
