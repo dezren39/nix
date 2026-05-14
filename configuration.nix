@@ -336,6 +336,17 @@ lib.recursiveUpdate {
 
   # Restart skhd after rebuild so config changes take effect
   # Fix Spotlight indexing and exclude noisy directories
+  # Clean up stale Caskroom artifacts before homebrew runs (e.g. after cask renames)
+  system.activationScripts.preActivation.text = ''
+    stale_casks="mkvtoolnix-app"
+    for stale in $stale_casks; do
+      if [ -e "/opt/homebrew/Caskroom/$stale" ]; then
+        echo "Removing stale Caskroom: $stale"
+        rm -rf "/opt/homebrew/Caskroom/$stale"
+      fi
+    done
+  '';
+
   system.activationScripts.postActivation.text = ''
     if /bin/launchctl list | grep -q org.nixos.skhd; then
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true

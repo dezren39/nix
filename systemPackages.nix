@@ -80,7 +80,7 @@
       # font-awesome
       fzf
       gcc
-      # gh # managed by home-manager programs.gh (with extensions)
+      gh
       git
       git-filter-repo
       glow

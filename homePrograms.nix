@@ -332,10 +332,6 @@ in
       ];
     };
 
-    gh = {
-      enable = true;
-      # gh-copilot extension removed from nixpkgs; install imperatively:
-      #   gh extension install github/gh-copilot
-    };
+    # gh-copilot extension: install imperatively with `gh extension install github/gh-copilot`
   };
 }
