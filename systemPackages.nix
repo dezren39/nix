@@ -20,8 +20,8 @@
       # zen-browser
       _1password-cli
       act
-      github-copilot-cli
-      copilot-cli
+      # github-copilot-cli # removed: upstream end-of-life
+      # copilot-cli # removed: upstream end-of-life
       age
       dbeaver-bin
       yq-go
@@ -80,7 +80,7 @@
       # font-awesome
       fzf
       gcc
-      gh
+      # gh # managed by home-manager programs.gh (with extensions)
       git
       git-filter-repo
       glow
@@ -139,7 +139,7 @@
       # Patched opencode CLI and desktop — defined in flake.nix packages output
       # Patches: PR #11197, #18879, #20758, #20848
       inputs.self.packages.${system}.opencode
-      inputs.self.packages.${system}.opencode-desktop
+      # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
       inputs.self.packages.${system}.opencode-share
       openjdk
       openssh

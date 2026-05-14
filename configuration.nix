@@ -255,11 +255,8 @@ lib.recursiveUpdate {
     # 1. Symlinking ruby/4.0.0 → 3.4.0 so bundler/setup.rb finds vendored gems
     # 2. Setting HOMEBREW_SKIP_INITIAL_GEM_INSTALL to prevent writes to Nix store
     # ref: https://github.com/zhaofengli/nix-homebrew/issues/35
-    package = pkgs.runCommandLocal "brew-src-ruby40-compat" { } ''
-      cp -r "${inputs.brew-src}" "$out"
-      chmod u+w "$out/Library/Homebrew/vendor/bundle/ruby"
-      ln -s 3.4.0 "$out/Library/Homebrew/vendor/bundle/ruby/4.0.0"
-    '';
+    # Ruby 4.0 symlink workaround removed — brew 5.1.11 ships with ruby/4.0.0 natively
+    package = inputs.brew-src;
     extraEnv.HOMEBREW_SKIP_INITIAL_GEM_INSTALL = "1";
     taps = {
       "homebrew/homebrew-core" = inputs.homebrew-core;

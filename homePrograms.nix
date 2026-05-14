@@ -331,5 +331,11 @@ in
         ".lootbox/tmp/"
       ];
     };
+
+    gh = {
+      enable = true;
+      # gh-copilot extension removed from nixpkgs; install imperatively:
+      #   gh extension install github/gh-copilot
+    };
   };
 }

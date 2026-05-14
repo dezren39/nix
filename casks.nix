@@ -48,7 +48,7 @@ _: {
     "microsoft-powerpoint"
     "microsoft-teams"
     "microsoft-word"
-    "mkvtoolnix" # replaces deprecated mkvtoolnix-app
+    "mkvtoolnix-app" # renamed from mkvtoolnix
     # "nextcloud"
     # "ngrok"
     "notion"
@@ -65,7 +65,7 @@ _: {
     # "sonos"
     # "steam"
     # "superkey"
-    "syncthing"
+    "syncthing-app" # renamed from syncthing
     "tableplus"
     # "tailscale"
     "telegram"
@@ -76,7 +76,7 @@ _: {
     "vlc"
     "webex"
     "windows-app"
-    "wireshark"
+    "wireshark-app" # renamed from wireshark
     "zed"
     "zen-browser"
     "zoom"

@@ -71,7 +71,7 @@ rec {
     brew-src = {
       # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
       # find latest version here https://github.com/Homebrew/brew/releases
-      url = "github:Homebrew/brew/5.0.15";
+      url = "github:Homebrew/brew/5.1.11";
       flake = false;
     };
     nix-homebrew = {
@@ -244,12 +244,8 @@ rec {
     ) darwinSystemConfigurations;
 
     # Shared patch list applied to all opencode derivations
-    opencodePatches = [
-      ./opencode-copilot-compaction-fix.patch # PR #11197: Fix compaction 400 Bad Request for GitHub Copilot Enterprise https://github.com/anomalyco/opencode/pull/11197
-      ./opencode-edit-read-clarify.patch # PR #18879: Clarify edit tool read requirement for new file creation https://github.com/anomalyco/opencode/pull/18879
-      ./opencode-copilot-business-support.patch # PR #20758: Enable Copilot Business/Enterprise support https://github.com/anomalyco/opencode/pull/20758
-      ./opencode-openai-response-id-caching.patch # PR #20848: Wire OpenAI previous_response_id session caching https://github.com/anomalyco/opencode/pull/20848
-    ];
+    # All patches merged upstream as of 2026-05-13 — list cleared
+    opencodePatches = [ ];
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
       pkgs:
@@ -261,19 +257,8 @@ rec {
           patches = (old.patches or [ ]) ++ opencodePatches;
         });
 
-        # Patch opencode-desktop with same PRs + fix missing cargo outputHashes
-        # ref: https://github.com/anomalyco/opencode/issues/18273
-        opencode-desktop = inputs.opencode.packages.${system}.desktop.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ opencodePatches;
-          cargoDeps = pkgs.rustPlatform.importCargoLock {
-            lockFile = inputs.opencode + "/packages/desktop/src-tauri/Cargo.lock";
-            outputHashes = {
-              "specta-2.0.0-rc.22" = "sha256-YsyOAnXELLKzhNlJ35dHA6KGbs0wTAX/nlQoW8wWyJQ=";
-              "tauri-2.9.5" = "sha256-dv5E/+A49ZBvnUQUkCGGJ21iHrVvrhHKNcpUctivJ8M=";
-              "tauri-specta-2.0.0-rc.21" = "sha256-n2VJ+B1nVrh6zQoZyfMoctqP+Csh7eVHRXwUQuiQjaQ=";
-            };
-          };
-        });
+        # opencode-desktop — disabled: upstream build broken
+        # opencode-desktop = inputs.opencode.packages.${system}.desktop;
 
         brew-repair = import ./pkgs/brew-repair {
           inherit pkgs;

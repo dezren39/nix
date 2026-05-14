@@ -23,6 +23,9 @@ lib.recursiveUpdate {
       installPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.nodejs}/bin/npm install -g playwright@latest 2>/dev/null || true
       '';
+      installGhCopilot = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        run ${pkgs.gh}/bin/gh extension install github/gh-copilot 2>/dev/null || run ${pkgs.gh}/bin/gh extension upgrade gh-copilot 2>/dev/null || true
+      '';
     };
     sessionVariables = {
       EDITOR = "code-insiders";
