@@ -19,6 +19,9 @@
       package = pkgs.skhd;
 
       skhdConfig = ''
+        # Toggle menu bar (reclaim/show notch space)
+        cmd + shift - m : ~/.local/bin/toggle-menubar
+
         # Disable cmd-q (prevent accidental quit), use cmd+alt-q instead
         cmd - q : :
         cmd + alt - q : osascript -e 'tell application (path to frontmost application as text) to quit'

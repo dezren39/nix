@@ -244,17 +244,24 @@ rec {
     ) darwinSystemConfigurations;
 
     # Shared patch list applied to all opencode derivations
-    # All patches merged upstream as of 2026-05-13 — list cleared
-    opencodePatches = [ ];
+    opencodePatches = [
+      ./patches/opencode-compact-tui.patch
+    ];
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
       pkgs:
       let
         system = pkgs.stdenv.hostPlatform.system;
+        bun-bin = pkgs.callPackage ./pkgs/bun-bin/package.nix { };
       in
       {
+        inherit bun-bin;
+
         opencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ opencodePatches;
+          nativeBuildInputs = map (p:
+            if (p.pname or "") == "bun" then bun-bin else p
+          ) (old.nativeBuildInputs or [ ]);
         });
 
         # opencode-desktop — disabled: upstream build broken

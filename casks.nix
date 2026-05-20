@@ -11,6 +11,7 @@ _: {
     "audio-hijack"
     "balenaetcher"
     "bartender"
+    "betterdisplay"
     "cmux" # nixpkgs PR pending: https://github.com/NixOS/nixpkgs/pull/493537
     "contexts"
     "cursor"

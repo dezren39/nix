@@ -15,6 +15,21 @@ lib.recursiveUpdate {
       ".config/opencode/commands".source = ./config/opencode/commands;
       # npm: set global install prefix to a writable user directory
       ".npmrc".text = "prefix=~/.npm-global\n";
+      # Toggle menu bar visibility (bind to skhd shortcut)
+      ".local/bin/toggle-menubar".executable = true;
+      ".local/bin/toggle-menubar".text = ''
+        #!/bin/bash
+        # Toggle macOS menu bar auto-hide (reclaims notch space when hidden)
+        current=$(defaults read NSGlobalDomain _HIHideMenuBar 2>/dev/null || echo 0)
+        if [ "$current" = "1" ]; then
+          defaults write NSGlobalDomain _HIHideMenuBar -bool false
+          echo "Menu bar: visible (notch space used by menu bar)"
+        else
+          defaults write NSGlobalDomain _HIHideMenuBar -bool true
+          echo "Menu bar: hidden (notch space reclaimed, shows on hover)"
+        fi
+        killall Dock 2>/dev/null || true
+      '';
     };
     activation = {
       # reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''

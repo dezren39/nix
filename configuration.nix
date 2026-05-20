@@ -95,6 +95,9 @@ lib.recursiveUpdate {
         "com.apple.mouse.tapBehavior" = 1;
         "com.apple.sound.beep.volume" = 0.0;
         "com.apple.sound.beep.feedback" = 0;
+
+        # Auto-hide menu bar on desktop — reclaims notch row, shows on hover
+        _HIHideMenuBar = true;
       };
 
       # dock = {
@@ -348,6 +351,16 @@ lib.recursiveUpdate {
   '';
 
   system.activationScripts.postActivation.text = ''
+    # =====================================================================
+    # Menu bar / notch space — auto-hide + tighter icon spacing
+    # =====================================================================
+    # Hide menu bar in fullscreen (apps use full screen beside notch)
+    /usr/bin/defaults write -g AppleMenuBarVisibleInFullscreen -bool false
+
+    # Reduce menu bar icon spacing so more fits beside the notch
+    /usr/bin/defaults -currentHost write -globalDomain NSStatusItemSpacing -int 6
+    /usr/bin/defaults -currentHost write -globalDomain NSStatusItemSelectionPadding -int 6
+
     if /bin/launchctl list | grep -q org.nixos.skhd; then
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
     fi
