@@ -1,5 +1,5 @@
 diff --git a/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx b/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx
-index e4907dcc2..258cdd5ea 100644
+index e4907dcc2..1b65acce0 100644
 --- a/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx
 @@ -1482,9 +1482,9 @@ export function Prompt(props: PromptProps) {
@@ -9,8 +9,8 @@ index e4907dcc2..258cdd5ea 100644
 -            paddingLeft={2}
 -            paddingRight={2}
 -            paddingTop={1}
-+            paddingLeft={1}
-+            paddingRight={1}
++            paddingLeft={0}
++            paddingRight={0}
 +            paddingTop={0}
              flexShrink={0}
              backgroundColor={theme.backgroundElement}
@@ -70,7 +70,7 @@ index e4907dcc2..258cdd5ea 100644
              <Match when={warpNotice()}>
                {(notice) => (
 -                <box paddingLeft={3}>
-+                <box paddingLeft={1}>
++                <box paddingLeft={0}>
                    <text fg={theme.accent}>{notice()}</text>
                  </box>
                )}
@@ -78,12 +78,12 @@ index e4907dcc2..258cdd5ea 100644
              <Match when={workspaceLabel()}>
                {(workspace) => (
 -                <box paddingLeft={3} flexDirection="row" gap={1}>
-+                <box paddingLeft={1} flexDirection="row" gap={0}>
++                <box paddingLeft={0} flexDirection="row" gap={0}>
                    <Show when={workspaceCreating()}>
                      <Spinner color={theme.accent} />
                    </Show>
 diff --git a/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx b/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx
-index ea9c966bc..895f5c5ce 100644
+index ea9c966bc..26f4e042f 100644
 --- a/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx
 @@ -27,7 +27,7 @@ function Mcp(props: { api: TuiPluginApi }) {
@@ -105,13 +105,13 @@ index ea9c966bc..895f5c5ce 100644
 -      paddingRight={2}
 +      paddingTop={0}
 +      paddingBottom={0}
-+      paddingLeft={1}
-+      paddingRight={1}
++      paddingLeft={0}
++      paddingRight={0}
        flexDirection="row"
        flexShrink={0}
        gap={2}
 diff --git a/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx b/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx
-index 1bdffa486..1eb5603d2 100644
+index 1bdffa486..1695824ca 100644
 --- a/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx
 @@ -26,21 +26,21 @@ function View(props: { api: TuiPluginApi }) {
@@ -129,8 +129,8 @@ index 1bdffa486..1eb5603d2 100644
 -          paddingRight={2}
 +          paddingTop={0}
 +          paddingBottom={0}
-+          paddingLeft={1}
-+          paddingRight={1}
++          paddingLeft={0}
++          paddingRight={0}
            flexDirection="row"
 -          gap={1}
 +          gap={0}
@@ -153,7 +153,7 @@ index 1bdffa486..1eb5603d2 100644
                <text fg={theme().textMuted}>/connect</text>
              </box>
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/home.tsx b/packages/opencode/src/cli/cmd/tui/routes/home.tsx
-index 43a52082b..b6475eb45 100644
+index 43a52082b..6d3343813 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/home.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/home.tsx
 @@ -60,7 +60,7 @@ export function Home() {
@@ -161,7 +161,7 @@ index 43a52082b..b6475eb45 100644
    return (
      <>
 -      <box flexGrow={1} alignItems="center" paddingLeft={2} paddingRight={2}>
-+      <box flexGrow={1} alignItems="center" paddingLeft={1} paddingRight={1}>
++      <box flexGrow={1} alignItems="center" paddingLeft={0} paddingRight={0}>
          <box flexGrow={1} minHeight={0} />
          <box height={4} minHeight={0} flexShrink={1} />
          <box flexShrink={0}>
@@ -175,15 +175,24 @@ index 43a52082b..b6475eb45 100644
              name="home_prompt"
              mode="replace"
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-index 3f2e902bd..732a43cac 100644
+index 3f2e902bd..b7f0b6a66 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
+@@ -213,7 +213,7 @@ export function Session() {
+   })
+ 
+   const dimensions = useTerminalDimensions()
+-  const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "auto")
++  const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "hide")
+   const [sidebarOpen, setSidebarOpen] = createSignal(false)
+   const [conceal, setConceal] = createSignal(true)
+   const thinking = useThinkingMode()
 @@ -1106,7 +1106,7 @@ export function Session() {
          }}
        >
          <box flexDirection="row" flexGrow={1} minHeight={0}>
 -          <box flexGrow={1} minHeight={0} paddingBottom={1} paddingLeft={2} paddingRight={2} gap={1}>
-+          <box flexGrow={1} minHeight={0} paddingBottom={0} paddingLeft={1} paddingRight={1} gap={0}>
++          <box flexGrow={1} minHeight={0} paddingBottom={0} paddingLeft={0} paddingRight={0} gap={0}>
              <Show when={session()}>
                <scrollbox
                  ref={(r) => (scroll = r)}
@@ -204,7 +213,7 @@ index 3f2e902bd..732a43cac 100644
 -                                paddingLeft={2}
 +                                paddingTop={0}
 +                                paddingBottom={0}
-+                                paddingLeft={1}
++                                paddingLeft={0}
                                  backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
                                >
                                  <text fg={theme.textMuted}>{revert()!.reverted.length} message reverted</text>
@@ -226,7 +235,7 @@ index 3f2e902bd..732a43cac 100644
 -            paddingLeft={2}
 +            paddingTop={0}
 +            paddingBottom={0}
-+            paddingLeft={1}
++            paddingLeft={0}
              backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
              flexShrink={0}
            >
@@ -251,7 +260,7 @@ index 3f2e902bd..732a43cac 100644
        </For>
        <Show when={props.parts.some((x) => x.type === "tool" && x.tool === "task")}>
 -        <box paddingTop={1} paddingLeft={3}>
-+        <box paddingTop={0} paddingLeft={1}>
++        <box paddingTop={0} paddingLeft={0}>
            <text fg={theme.text}>
              {childShortcut()}
              <span style={{ fg: theme.textMuted }}> view subagents</span>
@@ -265,7 +274,7 @@ index 3f2e902bd..732a43cac 100644
 -          marginTop={1}
 +          paddingTop={0}
 +          paddingBottom={0}
-+          paddingLeft={1}
++          paddingLeft={0}
 +          marginTop={0}
            backgroundColor={theme.backgroundPanel}
            customBorderChars={SplitBorder.customBorderChars}
@@ -276,7 +285,7 @@ index 3f2e902bd..732a43cac 100644
          <Match when={props.last || final() || props.message.error?.name === "MessageAbortedError"}>
 -          <box paddingLeft={3}>
 -            <text marginTop={1}>
-+          <box paddingLeft={1}>
++          <box paddingLeft={0}>
 +            <text marginTop={0}>
                <span
                  style={{
@@ -287,7 +296,7 @@ index 3f2e902bd..732a43cac 100644
              id={"text-" + props.part.id}
 -            paddingLeft={2}
 -            marginTop={1}
-+            paddingLeft={1}
++            paddingLeft={0}
 +            marginTop={0}
              flexDirection="column"
              border={["left"]}
@@ -297,7 +306,7 @@ index 3f2e902bd..732a43cac 100644
          <Match when={isDone()}>
            {/* Settled: ▶ at the start as the click-to-expand cue. */}
 -          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0} onMouseUp={toggle}>
-+          <box id={"text-" + props.part.id} paddingLeft={1} marginTop={0} flexShrink={0} onMouseUp={toggle}>
++          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexShrink={0} onMouseUp={toggle}>
              <text fg={theme.textMuted} wrapMode="none">
                {"▶ " +
                  (title()
@@ -306,7 +315,7 @@ index 3f2e902bd..732a43cac 100644
            {/* Streaming: leading animated spinner, no disclosure arrow yet — it
                snaps in once reasoning settles, signalling "done, click to expand". */}
 -          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0} onMouseUp={toggle}>
-+          <box id={"text-" + props.part.id} paddingLeft={1} marginTop={0} flexShrink={0} onMouseUp={toggle}>
++          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexShrink={0} onMouseUp={toggle}>
              <Spinner color={theme.textMuted}>{title() ? "Thinking: " + title() : "Thinking"}</Spinner>
            </box>
          </Match>
@@ -315,7 +324,7 @@ index 3f2e902bd..732a43cac 100644
    return (
      <Show when={props.part.text.trim()}>
 -      <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0}>
-+      <box id={"text-" + props.part.id} paddingLeft={1} marginTop={0} flexShrink={0}>
++      <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexShrink={0}>
          <markdown
            syntaxStyle={syntax()}
            streaming={true}
@@ -333,7 +342,7 @@ index 3f2e902bd..732a43cac 100644
      <box
        marginTop={margin()}
 -      paddingLeft={3}
-+      paddingLeft={1}
++      paddingLeft={0}
        onMouseOver={() => props.onClick && setHover(true)}
        onMouseOut={() => setHover(false)}
        onMouseUp={() => {
@@ -342,7 +351,7 @@ index 3f2e902bd..732a43cac 100644
          </Match>
          <Match when={true}>
 -          <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
-+          <text paddingLeft={1} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
++          <text paddingLeft={0} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
              <Show fallback={<>~ {props.pending}</>} when={props.complete}>
                <span style={{ fg: props.iconColor }}>{props.icon}</span> {props.children}
              </Show>
@@ -357,7 +366,7 @@ index 3f2e902bd..732a43cac 100644
 -      gap={1}
 +      paddingTop={0}
 +      paddingBottom={0}
-+      paddingLeft={1}
++      paddingLeft={0}
 +      marginTop={0}
 +      gap={0}
        backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
@@ -368,7 +377,7 @@ index 3f2e902bd..732a43cac 100644
          when={props.spinner}
          fallback={
 -          <text paddingLeft={3} fg={theme.textMuted}>
-+          <text paddingLeft={1} fg={theme.textMuted}>
++          <text paddingLeft={0} fg={theme.textMuted}>
              {props.title}
            </text>
          }
@@ -381,17 +390,44 @@ index 3f2e902bd..732a43cac 100644
              <text fg={theme.text}>$ {props.input.command}</text>
              <Show when={output()}>
                <text fg={theme.text}>{limited()}</text>
+@@ -1937,7 +1937,7 @@ function Write(props: ToolProps<typeof WriteTool>) {
+     <Switch>
+       <Match when={props.metadata.diagnostics !== undefined}>
+         <BlockTool title={"# Wrote " + pathFormatter.format(props.input.filePath)} part={props.part}>
+-          <line_number fg={theme.textMuted} minWidth={3} paddingRight={1}>
++          <line_number fg={theme.textMuted} minWidth={3} paddingRight={0}>
+             <code
+               conceal={false}
+               fg={theme.text}
 @@ -1994,8 +1994,8 @@ function Read(props: ToolProps<typeof ReadTool>) {
        </InlineTool>
        <For each={loaded()}>
          {(filepath) => (
 -          <box paddingLeft={3}>
 -            <text paddingLeft={3} fg={theme.textMuted}>
-+          <box paddingLeft={1}>
-+            <text paddingLeft={1} fg={theme.textMuted}>
++          <box paddingLeft={0}>
++            <text paddingLeft={0} fg={theme.textMuted}>
                ↳ Loaded {pathFormatter.format(filepath)}
              </text>
            </box>
+@@ -2131,7 +2131,7 @@ function Edit(props: ToolProps<typeof EditTool>) {
+     <Switch>
+       <Match when={props.metadata.diff !== undefined}>
+         <BlockTool title={"← Edit " + pathFormatter.format(props.input.filePath)} part={props.part}>
+-          <box paddingLeft={1}>
++          <box paddingLeft={0}>
+             <diff
+               diff={diffContent()}
+               view={view()}
+@@ -2179,7 +2179,7 @@ function ApplyPatch(props: ToolProps<typeof ApplyPatchTool>) {
+ 
+   function Diff(p: { diff: string; filePath: string }) {
+     return (
+-      <box paddingLeft={1}>
++      <box paddingLeft={0}>
+         <diff
+           diff={p.diff}
+           view={view()}
 @@ -2274,7 +2274,7 @@ function Question(props: ToolProps<typeof QuestionTool>) {
      <Switch>
        <Match when={props.metadata.answers}>
@@ -401,3 +437,49 @@ index 3f2e902bd..732a43cac 100644
              <For each={props.input.questions ?? []}>
                {(q, i) => (
                  <box flexDirection="column">
+diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
+index 0f9214092..066b2f804 100644
+--- a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
++++ b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
+@@ -28,10 +28,10 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+         backgroundColor={theme.backgroundPanel}
+         width={42}
+         height="100%"
+-        paddingTop={1}
+-        paddingBottom={1}
+-        paddingLeft={2}
+-        paddingRight={2}
++        paddingTop={0}
++        paddingBottom={0}
++        paddingLeft={0}
++        paddingRight={0}
+         position={props.overlay ? "absolute" : "relative"}
+       >
+         <scrollbox
+@@ -44,7 +44,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+             },
+           }}
+         >
+-          <box flexShrink={0} gap={1} paddingRight={1}>
++          <box flexShrink={0} gap={0} paddingRight={0}>
+             <TuiPluginRuntime.Slot
+               name="sidebar_title"
+               mode="single_winner"
+@@ -52,7 +52,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+               title={session()!.title}
+               share_url={session()!.share?.url}
+             >
+-              <box paddingRight={1}>
++              <box paddingRight={0}>
+                 <text fg={theme.text}>
+                   <b>{session()!.title}</b>
+                 </text>
+@@ -85,7 +85,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+           </box>
+         </scrollbox>
+ 
+-        <box flexShrink={0} gap={1} paddingTop={1}>
++        <box flexShrink={0} gap={0} paddingTop={0}>
+           <TuiPluginRuntime.Slot name="sidebar_footer" mode="single_winner" session_id={props.sessionID}>
+             <text fg={theme.textMuted}>
+               <span style={{ fg: theme.success }}>•</span> <b>Open</b>
