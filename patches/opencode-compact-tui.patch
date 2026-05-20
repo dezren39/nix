@@ -437,11 +437,23 @@ index 3f2e902bd..b7f0b6a66 100644
              <For each={props.input.questions ?? []}>
                {(q, i) => (
                  <box flexDirection="column">
+diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx
+index ac8c45a6e..42cc20970 100644
+--- a/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx
++++ b/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx
+@@ -54,6 +54,7 @@ function EditBody(props: { request: PermissionRequest }) {
+           height="100%"
+           scrollAcceleration={scrollAcceleration()}
+           verticalScrollbarOptions={{
++            visible: false,
+             trackOptions: {
+               backgroundColor: theme.background,
+               foregroundColor: theme.borderActive,
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
-index 0f9214092..066b2f804 100644
+index 0f9214092..b79d83e51 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
-@@ -28,10 +28,10 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+@@ -28,23 +28,24 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
          backgroundColor={theme.backgroundPanel}
          width={42}
          height="100%"
@@ -456,7 +468,13 @@ index 0f9214092..066b2f804 100644
          position={props.overlay ? "absolute" : "relative"}
        >
          <scrollbox
-@@ -44,7 +44,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+           flexGrow={1}
+           scrollAcceleration={scrollAcceleration()}
+           verticalScrollbarOptions={{
++            visible: false,
+             trackOptions: {
+               backgroundColor: theme.background,
+               foregroundColor: theme.borderActive,
              },
            }}
          >
@@ -465,7 +483,7 @@ index 0f9214092..066b2f804 100644
              <TuiPluginRuntime.Slot
                name="sidebar_title"
                mode="single_winner"
-@@ -52,7 +52,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+@@ -52,7 +53,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                title={session()!.title}
                share_url={session()!.share?.url}
              >
@@ -474,7 +492,7 @@ index 0f9214092..066b2f804 100644
                  <text fg={theme.text}>
                    <b>{session()!.title}</b>
                  </text>
-@@ -85,7 +85,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+@@ -85,7 +86,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
            </box>
          </scrollbox>
  

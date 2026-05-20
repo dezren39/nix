@@ -150,6 +150,8 @@ in
         window-padding-y = 8;
         copy-on-select = "clipboard";
         confirm-close-surface = false;
+        macos-titlebar-style = "hidden";
+        window-decoration = false;
       };
     };
     vscode = {
