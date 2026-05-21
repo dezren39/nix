@@ -165,15 +165,15 @@ index 43a52082b..6d3343813 100644
          <box flexGrow={1} minHeight={0} />
          <box height={4} minHeight={0} flexShrink={1} />
          <box flexShrink={0}>
-@@ -69,7 +69,7 @@ export function Home() {
+@@ -67,7 +67,7 @@ export function Home() {
            </TuiPluginRuntime.Slot>
          </box>
          <box height={1} minHeight={0} flexShrink={1} />
 -        <box width="100%" maxWidth={75} zIndex={1000} paddingTop={1} flexShrink={0}>
 +        <box width="100%" maxWidth={75} zIndex={1000} paddingTop={0} flexShrink={0}>
-           <TuiPluginRuntime.Slot
-             name="home_prompt"
-             mode="replace"
+           <TuiPluginRuntime.Slot name="home_prompt" mode="replace" ref={bind}>
+             <Prompt ref={bind} right={<TuiPluginRuntime.Slot name="home_prompt_right" />} placeholders={placeholder} />
+           </TuiPluginRuntime.Slot>
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 index 3f2e902bd..b7f0b6a66 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
@@ -290,30 +290,29 @@ index 3f2e902bd..b7f0b6a66 100644
                <span
                  style={{
                    fg:
-@@ -1533,8 +1533,8 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+@@ -1532,24 +1532,24 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+         <Match when={!inMinimal() || expanded()}>
            {/* Full markdown block: `show` mode, or `hide` after the user opens it. */}
-           <box
-             id={"text-" + props.part.id}
--            paddingLeft={2}
--            marginTop={1}
-+            paddingLeft={0}
-+            marginTop={0}
-             flexDirection="column"
-             border={["left"]}
-             customBorderChars={SplitBorder.customBorderChars}
-@@ -1554,7 +1554,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+-          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexDirection="column" onMouseUp={toggle}>
++          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexDirection="column" onMouseUp={toggle}>
+             <code
+               filetype="markdown"
+               drawUnstyledText={false}
+               streaming={true}
+               syntaxStyle={subtleSyntax()}
+               content={(inMinimal() ? "- " : "") + (isDone() ? "_Thought:_ " : "_Thinking:_ ") + content()}
+               conceal={ctx.conceal()}
+               fg={theme.textMuted}
+             />
+           </box>
          </Match>
          <Match when={isDone()}>
-           {/* Settled: ▶ at the start as the click-to-expand cue. */}
 -          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0} onMouseUp={toggle}>
 +          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexShrink={0} onMouseUp={toggle}>
-             <text fg={theme.textMuted} wrapMode="none">
-               {"▶ " +
-                 (title()
-@@ -1566,7 +1566,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+             <CollapsedReasoningText title={title()} duration={duration()} />
+           </box>
+         </Match>
          <Match when={true}>
-           {/* Streaming: leading animated spinner, no disclosure arrow yet — it
-               snaps in once reasoning settles, signalling "done, click to expand". */}
 -          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0} onMouseUp={toggle}>
 +          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexShrink={0} onMouseUp={toggle}>
              <Spinner color={theme.textMuted}>{title() ? "Thinking: " + title() : "Thinking"}</Spinner>

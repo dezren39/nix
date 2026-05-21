@@ -12,7 +12,7 @@ lib.recursiveUpdate {
     stateVersion = "23.05";
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
-      ".config/opencode/commands".source = ./config/opencode/commands;
+      # ".config/opencode/commands".source = ./config/opencode/commands;
       # npm: set global install prefix to a writable user directory
       ".npmrc".text = "prefix=~/.npm-global\n";
       # Toggle menu bar visibility (bind to skhd shortcut)
