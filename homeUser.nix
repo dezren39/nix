@@ -41,12 +41,15 @@ lib.recursiveUpdate {
       installGhCopilot = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.gh}/bin/gh extension install github/gh-copilot 2>/dev/null || run ${pkgs.gh}/bin/gh extension upgrade gh-copilot 2>/dev/null || true
       '';
+      installPlannotator = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        run ${pkgs.curl}/bin/curl -fsSL https://plannotator.ai/install.sh | run ${pkgs.bash}/bin/bash 2>/dev/null || true
+      '';
     };
     sessionVariables = {
       EDITOR = "code-insiders";
       LANG = "en_US.UTF-8";
       COPILOT_MODEL = "claude-opus-4.5";
-      OPENCODE_EXPERIMENTAL = "true";
+      OPENCODE_EXPERIMENTAL = "1";
 
       # Go: user-local install directory
       GOPATH = "$HOME/go";
