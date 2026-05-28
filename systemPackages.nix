@@ -174,7 +174,7 @@
       upx
       # vector
       vim
-      watchman
+      # watchman
       wget
       yarn
       zip
