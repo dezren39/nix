@@ -49,7 +49,7 @@ _: {
     "microsoft-powerpoint"
     "microsoft-teams"
     "microsoft-word"
-    "mkvtoolnix-app" # renamed from mkvtoolnix
+    # "mkvtoolnix-app" # renamed from mkvtoolnix
     # "nextcloud"
     # "ngrok"
     "notion"

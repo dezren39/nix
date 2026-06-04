@@ -65,7 +65,7 @@
       curl
       dbmate
       # dejavu_fonts
-      deno
+      # deno # commented out — rusty-v8 build takes too long
       # devenv
       difftastic
       dive

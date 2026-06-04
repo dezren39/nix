@@ -1,8 +1,6 @@
-diff --git a/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx b/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx
-index e870355..35f7a9a 100644
 --- a/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/component/prompt/index.tsx
-@@ -1473,9 +1473,9 @@ export function Prompt(props: PromptProps) {
+@@ -1368,9 +1368,9 @@
            }}
          >
            <box
@@ -15,7 +13,7 @@ index e870355..35f7a9a 100644
              flexShrink={0}
              backgroundColor={theme.backgroundElement}
              flexGrow={1}
-@@ -1552,8 +1552,8 @@ export function Prompt(props: PromptProps) {
+@@ -1449,8 +1449,8 @@
                cursorColor={props.disabled ? theme.backgroundElement : theme.text}
                syntaxStyle={syntax()}
              />
@@ -26,7 +24,7 @@ index e870355..35f7a9a 100644
                  <Show when={local.agent.current()} fallback={<box height={1} />}>
                    {(agent) => (
                      <>
-@@ -1561,7 +1561,7 @@ export function Prompt(props: PromptProps) {
+@@ -1458,7 +1458,7 @@
                          {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
                        </text>
                        <Show when={store.mode === "normal"}>
@@ -35,7 +33,7 @@ index e870355..35f7a9a 100644
                            <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>
                            <text
                              flexShrink={0}
-@@ -1585,7 +1585,7 @@ export function Prompt(props: PromptProps) {
+@@ -1482,7 +1482,7 @@
                  </Show>
                </box>
                <Show when={hasRightContent()}>
@@ -44,7 +42,7 @@ index e870355..35f7a9a 100644
                    {props.right}
                  </box>
                </Show>
-@@ -1623,17 +1623,17 @@ export function Prompt(props: PromptProps) {
+@@ -1520,17 +1520,17 @@
              <Match when={status().type !== "idle"}>
                <box
                  flexDirection="row"
@@ -65,9 +63,9 @@ index e870355..35f7a9a 100644
                      {(() => {
                        const retry = createMemo(() => {
                          const s = status()
-@@ -1702,14 +1702,14 @@ export function Prompt(props: PromptProps) {
+@@ -1599,14 +1599,14 @@
              </Match>
-             <Match when={warpNotice()}>
+             <Match when={workspace.notice()}>
                {(notice) => (
 -                <box paddingLeft={3}>
 +                <box paddingLeft={0}>
@@ -75,18 +73,34 @@ index e870355..35f7a9a 100644
                  </box>
                )}
              </Match>
-             <Match when={workspaceLabel()}>
-               {(workspace) => (
+             <Match when={workspace.label()}>
+               {(label) => (
 -                <box paddingLeft={3} flexDirection="row" gap={1}>
 +                <box paddingLeft={0} flexDirection="row" gap={0}>
-                   <Show when={workspaceCreating()}>
+                   <Show when={workspace.creating()}>
                      <Spinner color={theme.accent} />
                    </Show>
-diff --git a/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx b/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx
-index ea9c966..26f4e04 100644
+@@ -1634,7 +1634,7 @@
+             </Match>
+             <Match when={move.progress()}>
+               {(progress) => (
+-                <box paddingLeft={3}>
++                <box paddingLeft={0}>
+                   <Spinner color={theme.accent}>
+                     {progress()}
+                     <span style={{ fg: theme.textMuted }}>{".".repeat(move.creatingDots())}</span>
+@@ -1643,7 +1643,7 @@
+               )}
+             </Match>
+             <Match when={move.pendingNew()}>
+-              <box paddingLeft={3}>
++              <box paddingLeft={0}>
+                 <text fg={theme.accent}>(new working copy)</text>
+               </box>
+             </Match>
 --- a/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/feature-plugins/home/footer.tsx
-@@ -27,7 +27,7 @@ function Mcp(props: { api: TuiPluginApi }) {
+@@ -32,7 +32,7 @@
  
    return (
      <Show when={has()}>
@@ -95,7 +109,7 @@ index ea9c966..26f4e04 100644
          <text fg={theme().text}>
            <Switch>
              <Match when={err()}>
-@@ -59,10 +59,10 @@ function View(props: { api: TuiPluginApi }) {
+@@ -64,10 +64,10 @@
    return (
      <box
        width="100%"
@@ -110,11 +124,9 @@ index ea9c966..26f4e04 100644
        flexDirection="row"
        flexShrink={0}
        gap={2}
-diff --git a/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx b/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx
-index 1bdffa4..1695824 100644
 --- a/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/feature-plugins/sidebar/footer.tsx
-@@ -26,21 +26,21 @@ function View(props: { api: TuiPluginApi }) {
+@@ -28,21 +28,21 @@
    })
  
    return (
@@ -143,7 +155,7 @@ index 1bdffa4..1695824 100644
              <box flexDirection="row" justifyContent="space-between">
                <text fg={theme().text}>
                  <b>Getting started</b>
-@@ -53,7 +53,7 @@ function View(props: { api: TuiPluginApi }) {
+@@ -55,7 +55,7 @@
              <text fg={theme().textMuted}>
                Connect from 75+ providers to use other models, including Claude, GPT, Gemini etc
              </text>
@@ -152,33 +164,29 @@ index 1bdffa4..1695824 100644
                <text fg={theme().text}>Connect provider</text>
                <text fg={theme().textMuted}>/connect</text>
              </box>
-diff --git a/packages/opencode/src/cli/cmd/tui/routes/home.tsx b/packages/opencode/src/cli/cmd/tui/routes/home.tsx
-index bbdbecf..7c612d2 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/home.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/home.tsx
-@@ -58,7 +58,7 @@ export function Home() {
+@@ -68,7 +68,7 @@
  
    return (
-     <>
+     <HomeSessionDestinationProvider>
 -      <box flexGrow={1} alignItems="center" paddingLeft={2} paddingRight={2}>
 +      <box flexGrow={1} alignItems="center" paddingLeft={0} paddingRight={0}>
          <box flexGrow={1} minHeight={0} />
          <box height={4} minHeight={0} flexShrink={1} />
          <box flexShrink={0}>
-@@ -67,7 +67,7 @@ export function Home() {
+@@ -77,7 +77,7 @@
            </TuiPluginRuntime.Slot>
          </box>
          <box height={1} minHeight={0} flexShrink={1} />
--        <box width="100%" maxWidth={75} zIndex={1000} paddingTop={1} flexShrink={0}>
-+        <box width="100%" maxWidth={75} zIndex={1000} paddingTop={0} flexShrink={0}>
+-        <box width="100%" maxWidth={promptMaxWidth()} zIndex={1000} paddingTop={1} flexShrink={0}>
++        <box width="100%" maxWidth={promptMaxWidth()} zIndex={1000} paddingTop={0} flexShrink={0}>
            <TuiPluginRuntime.Slot name="home_prompt" mode="replace" ref={bind}>
              <Prompt ref={bind} right={<TuiPluginRuntime.Slot name="home_prompt_right" />} placeholders={placeholder} />
            </TuiPluginRuntime.Slot>
-diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-index ae23d58..fcaa9a6 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-@@ -212,7 +212,7 @@ export function Session() {
+@@ -220,7 +220,7 @@
    })
  
    const dimensions = useTerminalDimensions()
@@ -187,7 +195,7 @@ index ae23d58..fcaa9a6 100644
    const [sidebarOpen, setSidebarOpen] = createSignal(false)
    const [conceal, setConceal] = createSignal(true)
    const thinking = useThinkingMode()
-@@ -1105,7 +1105,7 @@ export function Session() {
+@@ -1135,7 +1135,7 @@
          }}
        >
          <box flexDirection="row" flexGrow={1} minHeight={0}>
@@ -196,7 +204,7 @@ index ae23d58..fcaa9a6 100644
              <Show when={session()}>
                <scrollbox
                  ref={(r) => (scroll = r)}
-@@ -1151,16 +1151,16 @@ export function Session() {
+@@ -1181,16 +1181,16 @@
                                onMouseOver={() => setHover(true)}
                                onMouseOut={() => setHover(false)}
                                onMouseUp={handleUnrevert}
@@ -217,7 +225,7 @@ index ae23d58..fcaa9a6 100644
                                  backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
                                >
                                  <text fg={theme.textMuted}>{revert()!.reverted.length} message reverted</text>
-@@ -1168,7 +1168,7 @@ export function Session() {
+@@ -1198,7 +1198,7 @@
                                    <span style={{ fg: theme.text }}>{redoShortcut()}</span> or /redo to restore
                                  </text>
                                  <Show when={revert()!.diffFiles?.length}>
@@ -226,7 +234,7 @@ index ae23d58..fcaa9a6 100644
                                      <For each={revert()!.diffFiles}>
                                        {(file) => (
                                          <text fg={theme.text}>
-@@ -1341,15 +1341,15 @@ function UserMessage(props: {
+@@ -1374,15 +1374,15 @@
                setHover(false)
              }}
              onMouseUp={props.onMouseUp}
@@ -246,7 +254,7 @@ index ae23d58..fcaa9a6 100644
                  <For each={files()}>
                    {(file) => {
                      const bg = createMemo(() => {
-@@ -1388,7 +1388,7 @@ function UserMessage(props: {
+@@ -1421,7 +1421,7 @@
        </Show>
        <Show when={compaction()}>
          <box
@@ -255,7 +263,7 @@ index ae23d58..fcaa9a6 100644
            border={["top"]}
            title=" Compaction "
            titleAlignment="center"
-@@ -1439,7 +1439,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1472,7 +1472,7 @@
          }}
        </For>
        <Show when={props.parts.some((x) => x.type === "tool" && x.tool === "task")}>
@@ -264,7 +272,7 @@ index ae23d58..fcaa9a6 100644
            <text fg={theme.text}>
              {childShortcut()}
              <span style={{ fg: theme.textMuted }}> view subagents</span>
-@@ -1452,7 +1452,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1485,7 +1485,7 @@
            paddingTop={1}
            paddingBottom={1}
            paddingLeft={2}
@@ -273,7 +281,7 @@ index ae23d58..fcaa9a6 100644
            backgroundColor={theme.backgroundPanel}
            customBorderChars={SplitBorder.customBorderChars}
            borderColor={theme.error}
-@@ -1462,8 +1462,8 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1495,8 +1495,8 @@
        </Show>
        <Switch>
          <Match when={props.last || final() || props.message.error?.name === "MessageAbortedError"}>
@@ -284,31 +292,25 @@ index ae23d58..fcaa9a6 100644
                <span
                  style={{
                    fg:
-@@ -1532,7 +1532,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
-       <Switch>
-         <Match when={!inMinimal() || expanded()}>
-           {/* Full markdown block: `show` mode, or `hide` after the user opens it. */}
--          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexDirection="column" onMouseUp={toggle}>
-+          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexDirection="column" onMouseUp={toggle}>
+@@ -1560,7 +1560,7 @@
+ 
+   return (
+     <Show when={content()}>
+-      <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexDirection="column" flexShrink={0}>
++      <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexDirection="column" flexShrink={0}>
+         <box onMouseUp={toggle}>
+           <ReasoningHeader
+             toggleable={inMinimal()}
+@@ -1571,7 +1571,7 @@
+           />
+         </box>
+         <Show when={(!inMinimal() || expanded()) && summary().body}>
+-          <box paddingLeft={inMinimal() ? 2 : 0} marginTop={1}>
++          <box paddingLeft={0} marginTop={0}>
              <code
                filetype="markdown"
                drawUnstyledText={false}
-@@ -1547,12 +1547,12 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
-           </box>
-         </Match>
-         <Match when={isDone()}>
--          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0} onMouseUp={toggle}>
-+          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexShrink={0} onMouseUp={toggle}>
-             <CollapsedReasoningText title={title()} duration={duration()} />
-           </box>
-         </Match>
-         <Match when={true}>
--          <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0} onMouseUp={toggle}>
-+          <box id={"text-" + props.part.id} paddingLeft={0} marginTop={0} flexShrink={0} onMouseUp={toggle}>
-             <Spinner color={theme.textMuted}>{title() ? "Thinking: " + title() : "Thinking"}</Spinner>
-           </box>
-         </Match>
-@@ -1579,7 +1579,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
+@@ -1637,7 +1637,7 @@
    const { theme, syntax } = useTheme()
    return (
      <Show when={props.part.text.trim()}>
@@ -317,7 +319,7 @@ index ae23d58..fcaa9a6 100644
          <markdown
            syntaxStyle={syntax()}
            streaming={true}
-@@ -1716,7 +1716,7 @@ function GenericTool(props: ToolProps<any>) {
+@@ -1774,7 +1774,7 @@
          part={props.part}
          onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
        >
@@ -326,27 +328,27 @@ index ae23d58..fcaa9a6 100644
            <text fg={theme.text}>{limited()}</text>
            <Show when={collapsed().overflow}>
              <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
-@@ -1770,7 +1770,7 @@ function InlineTool(props: {
-   return (
+@@ -1891,7 +1891,7 @@
      <box
+       id={props.id}
        marginTop={margin()}
 -      paddingLeft={3}
 +      paddingLeft={0}
-       onMouseOver={() => props.onClick && setHover(true)}
-       onMouseOut={() => setHover(false)}
-       onMouseUp={() => {
-@@ -1805,7 +1805,7 @@ function InlineTool(props: {
-           <Spinner color={fg()} children={props.children} />
-         </Match>
-         <Match when={true}>
--          <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
-+          <text paddingLeft={0} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
-             <Show fallback={<>~ {props.pending}</>} when={props.complete}>
-               <span style={{ fg: props.iconColor }}>{props.icon}</span> {props.children}
-             </Show>
-@@ -1833,11 +1833,11 @@ function BlockTool(props: {
-   return (
+       onMouseOver={props.onMouseOver}
+       onMouseOut={props.onMouseOut}
+       onMouseUp={props.onMouseUp}
+@@ -1924,7 +1924,7 @@
+           <Show
+             fallback={
+               <text
+-                paddingLeft={3}
++                paddingLeft={0}
+                 fg={props.color}
+                 attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
+               >
+@@ -1976,11 +1976,11 @@
      <box
+       id={props.part ? "tool-block-" + props.part.id : undefined}
        border={["left"]}
 -      paddingTop={1}
 -      paddingBottom={1}
@@ -361,7 +363,7 @@ index ae23d58..fcaa9a6 100644
        backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
        customBorderChars={SplitBorder.customBorderChars}
        borderColor={theme.background}
-@@ -1851,7 +1851,7 @@ function BlockTool(props: {
+@@ -1994,7 +1994,7 @@
        <Show
          when={props.spinner}
          fallback={
@@ -370,7 +372,7 @@ index ae23d58..fcaa9a6 100644
              {props.title}
            </text>
          }
-@@ -1904,7 +1904,7 @@ function Shell(props: ToolProps<typeof ShellTool>) {
+@@ -2047,7 +2047,7 @@
            spinner={isRunning()}
            onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
          >
@@ -379,7 +381,7 @@ index ae23d58..fcaa9a6 100644
              <text fg={theme.text}>$ {props.input.command}</text>
              <Show when={output()}>
                <text fg={theme.text}>{limited()}</text>
-@@ -1936,7 +1936,7 @@ function Write(props: ToolProps<typeof WriteTool>) {
+@@ -2079,7 +2079,7 @@
      <Switch>
        <Match when={props.metadata.diagnostics !== undefined}>
          <BlockTool title={"# Wrote " + pathFormatter.format(props.input.filePath)} part={props.part}>
@@ -388,18 +390,18 @@ index ae23d58..fcaa9a6 100644
              <code
                conceal={false}
                fg={theme.text}
-@@ -1993,8 +1993,8 @@ function Read(props: ToolProps<typeof ReadTool>) {
+@@ -2136,8 +2136,8 @@
        </InlineTool>
        <For each={loaded()}>
-         {(filepath) => (
--          <box paddingLeft={3}>
+         {(filepath, index) => (
+-          <box id={`tool-inline-loaded-${props.part.id}-${index()}`} paddingLeft={3}>
 -            <text paddingLeft={3} fg={theme.textMuted}>
-+          <box paddingLeft={0}>
++          <box id={`tool-inline-loaded-${props.part.id}-${index()}`} paddingLeft={0}>
 +            <text paddingLeft={0} fg={theme.textMuted}>
                ↳ Loaded {pathFormatter.format(filepath)}
              </text>
            </box>
-@@ -2130,7 +2130,7 @@ function Edit(props: ToolProps<typeof EditTool>) {
+@@ -2310,7 +2310,7 @@
      <Switch>
        <Match when={props.metadata.diff !== undefined}>
          <BlockTool title={"← Edit " + pathFormatter.format(props.input.filePath)} part={props.part}>
@@ -408,7 +410,7 @@ index ae23d58..fcaa9a6 100644
              <diff
                diff={diffContent()}
                view={view()}
-@@ -2178,7 +2178,7 @@ function ApplyPatch(props: ToolProps<typeof ApplyPatchTool>) {
+@@ -2358,7 +2358,7 @@
  
    function Diff(p: { diff: string; filePath: string }) {
      return (
@@ -417,7 +419,7 @@ index ae23d58..fcaa9a6 100644
          <diff
            diff={p.diff}
            view={view()}
-@@ -2273,7 +2273,7 @@ function Question(props: ToolProps<typeof QuestionTool>) {
+@@ -2453,7 +2453,7 @@
      <Switch>
        <Match when={props.metadata.answers}>
          <BlockTool title="# Questions" part={props.part}>
@@ -426,11 +428,9 @@ index ae23d58..fcaa9a6 100644
              <For each={props.input.questions ?? []}>
                {(q, i) => (
                  <box flexDirection="column">
-diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx
-index ecbc2f9..5c34e14 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/permission.tsx
-@@ -54,6 +54,7 @@ function EditBody(props: { request: PermissionRequest }) {
+@@ -54,6 +54,7 @@
            height="100%"
            scrollAcceleration={scrollAcceleration()}
            verticalScrollbarOptions={{
@@ -438,11 +438,9 @@ index ecbc2f9..5c34e14 100644
              trackOptions: {
                backgroundColor: theme.background,
                foregroundColor: theme.borderActive,
-diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
-index 0f92140..b79d83e 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
-@@ -28,23 +28,24 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+@@ -28,23 +28,24 @@
          backgroundColor={theme.backgroundPanel}
          width={42}
          height="100%"
@@ -472,7 +470,7 @@ index 0f92140..b79d83e 100644
              <TuiPluginRuntime.Slot
                name="sidebar_title"
                mode="single_winner"
-@@ -52,7 +53,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+@@ -52,7 +53,7 @@
                title={session()!.title}
                share_url={session()!.share?.url}
              >
@@ -481,7 +479,7 @@ index 0f92140..b79d83e 100644
                  <text fg={theme.text}>
                    <b>{session()!.title}</b>
                  </text>
-@@ -85,7 +86,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+@@ -85,7 +86,7 @@
            </box>
          </scrollbox>
  

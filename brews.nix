@@ -3,6 +3,7 @@ _: {
     "cowsay"
     # "fastfetch"
     # "ffmpeg"
+    "deno"
     "firefox-profile-switcher-connector"
     "telnet"
     "autoraise"

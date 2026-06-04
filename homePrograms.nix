@@ -157,6 +157,7 @@ in
     vscode = {
       enable = true;
     };
+
     bash = {
       enable = true;
       shellAliases = sharedShellAliases;
