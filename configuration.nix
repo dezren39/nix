@@ -294,10 +294,9 @@ lib.recursiveUpdate {
     # tapOptions
     onActivation = {
       autoUpdate = true;
-      cleanup = "uninstall";
-      # cleanup = "zap";
+      cleanup = "none"; # "uninstall" generates obsolete --force-cleanup flag
       upgrade = true;
-      extraFlags = [ "--verbose" ];
+      extraFlags = [ "--verbose" "--cleanup" "--force" ];
     };
     # caskArgs
     taps = builtins.attrNames config.nix-homebrew.taps;

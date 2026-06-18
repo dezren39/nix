@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "autoupdate": true,
+  "autoupdate": false,
   "plugin": [
     // "@tarquinen/opencode-dcp@latest", // causes large GitHub API request counts — use manual /compact instead
     // "opencode-working-memory@latest",
@@ -19,7 +19,7 @@
     "@franlol/opencode-md-table-formatter@latest",
     // "true-mem@latest",
     // "@knikolov/opencode-plugin-simple-memory@latest",
-    "opencode-mem@latest",
+    // "opencode-mem@latest",
     "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz",
   ],
   "enabled_providers": ["github-copilot"],
@@ -95,38 +95,38 @@
       },
     },
   },
-  "agent": {
-    "build": {
-      "mode": "subagent",
-      "model": "github-copilot/claude-opus-4.6",
-    },
-    "plan": {
-      "mode": "subagent",
-      "model": "github-copilot/claude-opus-4.6",
-    },
-    // "octto": {
-    //   "variant": "thinking",
-    //   "model": "github-copilot/claude-opus-4.6",
-    // },
-    // "bootstrapper": {
-    //   "variant": "thinking",
-    //   "model": "github-copilot/claude-opus-4.6",
-    // },
-    // "probe": {
-    //   "variant": "thinking",
-    //   "model": "github-copilot/claude-opus-4.6",
-    // },
-    "compaction": {
-      "model": "github-copilot/gpt-5.4",
-      "threshold": 0.5,
-    },
-    "title": {
-      "model": "github-copilot/gpt-5.4",
-    },
-    "summary": {
-      "model": "github-copilot/gpt-5.4",
-    },
-  },
+  // "agent": {
+  // "build": {
+  //   "mode": "subagent",
+  //   "model": "github-copilot/claude-opus-4.6",
+  // },
+  // "plan": {
+  //   "mode": "subagent",
+  //   "model": "github-copilot/claude-opus-4.6",
+  // },
+  // "octto": {
+  //   "variant": "thinking",
+  //   "model": "github-copilot/claude-opus-4.6",
+  // },
+  // "bootstrapper": {
+  //   "variant": "thinking",
+  //   "model": "github-copilot/claude-opus-4.6",
+  // },
+  // "probe": {
+  //   "variant": "thinking",
+  //   "model": "github-copilot/claude-opus-4.6",
+  // },
+  //   "compaction": {
+  //     "model": "github-copilot/gpt-5.4",
+  //     "threshold": 0.5,
+  //   },
+  //   "title": {
+  //     "model": "github-copilot/gpt-5.4",
+  //   },
+  //   "summary": {
+  //     "model": "github-copilot/gpt-5.4",
+  //   },
+  // },
   "instructions": [
     ".opencode/instructions/lootbox.md",
     ".opencode/instructions/subagents.md",
