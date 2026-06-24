@@ -16,6 +16,7 @@ _: {
     "contexts"
     "cursor"
     "discord"
+    "display-pilot"
     "displaylink"
     "drawio"
     "element"
