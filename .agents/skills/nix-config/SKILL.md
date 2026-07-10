@@ -79,10 +79,12 @@ Where things go:
   (port 9420, launchd-managed). Namespaces: `mcp_codedb`, `mcp_fff`,
   `mcp_chrome_devtools`, `mcp_context7`. Write reusable `.ts` scripts to
   `.lootbox/scripts/`. `just lootbox-server|-kill|-restart`.
-- The `opencode` derivation is patched in `flake.nix` with `patches/opencode-compact-tui.patch`
-  and `patches/opencode-scroll-autofollow.patch`. Additional root `*.patch` files
-  cover Copilot Business/Enterprise, compaction, and OpenAI response-id caching —
-  read them before touching opencode auth/session/TUI behavior.
+- The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with ONLY
+  two patches: `patches/opencode-compact-tui.patch` and
+  `patches/opencode-scroll-autofollow.patch`. The root `*.patch` files (Copilot
+  Business/Enterprise, compaction, OpenAI response-id, edit-read) are NOT applied —
+  they're local reference snapshots (already carried by the `anomalyco/opencode/dev`
+  input). Read them before touching opencode auth/session/TUI behavior.
 - Slash commands live in `commands/` (`/fix`, `/why`).
 
 ## Skills in this repo

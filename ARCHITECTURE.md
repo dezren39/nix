@@ -166,7 +166,9 @@ Applied to the opencode build (`patches/`, via `opencodePatches`):
 - **opencode-scroll-autofollow.patch** — adds `auto_scroll_tolerance` config + sticky
   scroll (auto-follow only when near bottom).
 
-Root patches (upstream fixes / features, not all auto-applied — see `flake.nix`):
+Root `*.patch` files are **NOT applied by the flake** (only the two `patches/`
+above are). They are local snapshots/reference for fixes that are already carried
+by the `anomalyco/opencode/dev` input. Read before touching related behavior:
 - **opencode-copilot-business-support.patch** — Copilot Business/Enterprise: `ghu_`
   vs `gho_` tokens, VS Code identity headers, `copilot_internal/v2/token` exchange.
 - **opencode-copilot-compaction-fix.patch** — dummy `_noop` tool for Copilot
