@@ -29,75 +29,124 @@
   "provider": {
     "github-copilot": {
       "models": {
-        "claude-haiku-4.5": {
-          "limit": { "context": 200000, "output": 64000 }, // 0.33x
+        // ---------------------------------------------------------------
+        // Added models: GitHub Copilot exposes these but the pinned opencode
+        // (models.dev catalog) does not know them yet, so define them here.
+        // Limits mirror OpenAI's published GPT-5.6 spec (1.05M ctx / 128k out),
+        // matching how models.dev will list them once added upstream.
+        // API ids: gpt-5.6-sol (alias gpt-5.6), gpt-5.6-terra, gpt-5.6-luna.
+        // ---------------------------------------------------------------
+        "gpt-5.6-sol": {
+          "id": "gpt-5.6-sol",
+          "name": "GPT-5.6 Sol",
+          "family": "gpt",
+          "release_date": "2026-07-09",
+          "attachment": true,
+          "reasoning": true,
+          "temperature": false,
+          "tool_call": true,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 1050000, "input": 272000, "output": 128000 },
         },
-        "claude-opus-4.5": {
-          "limit": { "context": 200000, "output": 32000 }, // 3x
+        "gpt-5.6-terra": {
+          "id": "gpt-5.6-terra",
+          "name": "GPT-5.6 Terra",
+          "family": "gpt",
+          "release_date": "2026-07-09",
+          "attachment": true,
+          "reasoning": true,
+          "temperature": false,
+          "tool_call": true,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 1050000, "input": 272000, "output": 128000 },
         },
-        "claude-opus-4.6": {
-          "limit": { "context": 200000, "output": 32000 }, // 3x
+        "gpt-5.6-luna": {
+          "id": "gpt-5.6-luna",
+          "name": "GPT-5.6 Luna",
+          "family": "gpt",
+          "release_date": "2026-07-09",
+          "attachment": true,
+          "reasoning": true,
+          "temperature": false,
+          "tool_call": true,
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": { "context": 1050000, "input": 272000, "output": 128000 },
         },
-        "claude-opus-4.7": {
-          "limit": { "context": 200000, "output": 32000 },
-        },
-        "claude-opus-4.8": {
-          "limit": { "context": 200000, "output": 32000 },
-        },
-        "claude-sonnet-4": {
-          "limit": { "context": 216000, "output": 16000 }, // 1x
-        },
-        "claude-sonnet-4.5": {
-          "limit": { "context": 200000, "output": 32000 }, // 1x
-        },
-        "claude-sonnet-4.6": {
-          "limit": { "context": 200000, "output": 32000 }, // 1x
-        },
-        "gemini-2.5-pro": {
-          "limit": { "context": 173000, "output": 64000 }, // 1x
-        },
-        "gemini-3-flash-preview": {
-          "limit": { "context": 173000, "output": 64000 }, // 0.33x
-        },
-        "gemini-3-pro-preview": {
-          "limit": { "context": 200000, "output": 64000 }, // 1x
-        },
-        "gemini-3.1-pro-preview": {
-          "limit": { "context": 200000, "output": 64000 }, // 1x
-        },
-        "gpt-4.1": {
-          "limit": { "context": 128000, "output": 16384 }, // 0x
-        },
-        "gpt-4o": {
-          "limit": { "context": 128000, "output": 4096 }, // 0x
-        },
-        "gpt-5-mini": {
-          "limit": { "context": 264000, "output": 64000 }, // 0x
-        },
-        "gpt-5.1": {
-          "limit": { "context": 264000, "output": 64000 }, // 1x
-        },
-        "gpt-5.1-codex": {
-          "limit": { "context": 400000, "output": 128000 }, // 1x
-        },
-        "gpt-5.1-codex-max": {
-          "limit": { "context": 400000, "output": 128000 }, // 1x
-        },
-        "gpt-5.2": {
-          "limit": { "context": 400000, "output": 128000 }, // 1x
-        },
-        "gpt-5.2-codex": {
-          "limit": { "context": 400000, "output": 128000 }, // 1x
-        },
-        "gpt-5.3-codex": {
-          "limit": { "context": 400000, "output": 128000 }, // 1x
-        },
-        "gpt-5.4": {
-          "limit": { "context": 400000, "output": 128000 }, // 1x
-        },
-        "grok-code-fast-1": {
-          "limit": { "context": 256000, "output": 64000 }, // 0.25x
-        },
+        // ---------------------------------------------------------------
+        // Model-limit shaping DISABLED — use each model's upstream (models.dev)
+        // limits. Kept commented for reference / easy re-enable. The trailing
+        // comments are GitHub Copilot premium-request cost multipliers, not
+        // opencode settings.
+        // ---------------------------------------------------------------
+        // "claude-haiku-4.5": {
+        //   "limit": { "context": 200000, "output": 64000 }, // 0.33x
+        // },
+        // "claude-opus-4.5": {
+        //   "limit": { "context": 200000, "output": 32000 }, // 3x
+        // },
+        // "claude-opus-4.6": {
+        //   "limit": { "context": 200000, "output": 32000 }, // 3x
+        // },
+        // "claude-opus-4.7": {
+        //   "limit": { "context": 200000, "output": 32000 },
+        // },
+        // "claude-opus-4.8": {
+        //   "limit": { "context": 200000, "output": 32000 },
+        // },
+        // "claude-sonnet-4": {
+        //   "limit": { "context": 216000, "output": 16000 }, // 1x
+        // },
+        // "claude-sonnet-4.5": {
+        //   "limit": { "context": 200000, "output": 32000 }, // 1x
+        // },
+        // "claude-sonnet-4.6": {
+        //   "limit": { "context": 200000, "output": 32000 }, // 1x
+        // },
+        // "gemini-2.5-pro": {
+        //   "limit": { "context": 173000, "output": 64000 }, // 1x
+        // },
+        // "gemini-3-flash-preview": {
+        //   "limit": { "context": 173000, "output": 64000 }, // 0.33x
+        // },
+        // "gemini-3-pro-preview": {
+        //   "limit": { "context": 200000, "output": 64000 }, // 1x
+        // },
+        // "gemini-3.1-pro-preview": {
+        //   "limit": { "context": 200000, "output": 64000 }, // 1x
+        // },
+        // "gpt-4.1": {
+        //   "limit": { "context": 128000, "output": 16384 }, // 0x
+        // },
+        // "gpt-4o": {
+        //   "limit": { "context": 128000, "output": 4096 }, // 0x
+        // },
+        // "gpt-5-mini": {
+        //   "limit": { "context": 264000, "output": 64000 }, // 0x
+        // },
+        // "gpt-5.1": {
+        //   "limit": { "context": 264000, "output": 64000 }, // 1x
+        // },
+        // "gpt-5.1-codex": {
+        //   "limit": { "context": 400000, "output": 128000 }, // 1x
+        // },
+        // "gpt-5.1-codex-max": {
+        //   "limit": { "context": 400000, "output": 128000 }, // 1x
+        // },
+        // "gpt-5.2": {
+        //   "limit": { "context": 400000, "output": 128000 }, // 1x
+        // },
+        // "gpt-5.2-codex": {
+        //   "limit": { "context": 400000, "output": 128000 }, // 1x
+        // },
+        // "gpt-5.3-codex": {
+        //   "limit": { "context": 400000, "output": 128000 }, // 1x
+        // },
+        // "gpt-5.4": {
+        //   "limit": { "context": 400000, "output": 128000 }, // 1x
+        // },
+        // "grok-code-fast-1": {
+        //   "limit": { "context": 256000, "output": 64000 }, // 0.25x
+        // },
       },
     },
   },
