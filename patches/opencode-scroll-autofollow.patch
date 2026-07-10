@@ -1,0 +1,52 @@
+diff --git a/packages/tui/src/config/index.tsx b/packages/tui/src/config/index.tsx
+index df92397..9aea3a2 100644
+--- a/packages/tui/src/config/index.tsx
++++ b/packages/tui/src/config/index.tsx
+@@ -61,6 +61,10 @@ export const Info = Schema.Struct({
+   prompt: Schema.optional(Prompt),
+   scroll_speed: Schema.optional(ScrollSpeed).annotate({ description: "TUI scroll speed" }),
+   scroll_acceleration: Schema.optional(ScrollAcceleration),
++  auto_scroll_tolerance: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))).annotate({
++    description:
++      "Lines from the bottom within which the session view auto-follows streamed output (0 = only when exactly at bottom)",
++  }),
+   diff_style: Schema.optional(DiffStyle),
+   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable or disable mouse capture (default: true)" }),
+ })
+diff --git a/packages/tui/src/routes/session/index.tsx b/packages/tui/src/routes/session/index.tsx
+index 6d77b0e..1d14207 100644
+--- a/packages/tui/src/routes/session/index.tsx
++++ b/packages/tui/src/routes/session/index.tsx
+@@ -347,6 +347,23 @@ export function Session() {
+   const dialog = useDialog()
+   const renderer = useRenderer()
+ 
++  // Auto-follow (sticky-to-bottom) is only enabled while the user is within
++  // `auto_scroll_tolerance` lines of the bottom. Scrolling up (wheel or PgUp)
++  // disengages auto-follow so streamed output does not yank the viewport down;
++  // returning to within tolerance of the bottom re-engages it.
++  // Tolerance is configurable via tui config `auto_scroll_tolerance` (default 0 = must be exactly at bottom).
++  const autoScrollTolerance = createMemo(() => tuiConfig.auto_scroll_tolerance ?? 0)
++  const [stickToBottom, setStickToBottom] = createSignal(true)
++  const stickToBottomFrame = () => {
++    if (!scroll || scroll.isDestroyed) return
++    const maxScrollTop = Math.max(0, scroll.scrollHeight - scroll.viewport.height)
++    const atBottom = scroll.scrollTop >= maxScrollTop - autoScrollTolerance()
++    if (atBottom !== untrack(stickToBottom)) setStickToBottom(atBottom)
++  }
++  const stickToBottomCallback = async () => stickToBottomFrame()
++  renderer.setFrameCallback(stickToBottomCallback)
++  onCleanup(() => renderer.removeFrameCallback(stickToBottomCallback))
++
+   event.on("session.status", (evt) => {
+     if (evt.properties.sessionID !== route.sessionID) return
+     if (evt.properties.status.type !== "retry") return
+@@ -1178,7 +1195,7 @@ export function Session() {
+                     foregroundColor: theme.border,
+                   },
+                 }}
+-                stickyScroll={true}
++                stickyScroll={stickToBottom()}
+                 stickyStart="bottom"
+                 flexGrow={1}
+                 scrollAcceleration={scrollAcceleration()}

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "theme": "vibrant-ink",
+  // Auto-follow (stick-to-bottom) tolerance in lines, consumed by the
+  // opencode-scroll-autofollow patch. 0 = only auto-follow when the viewport
+  // is exactly at the bottom; scrolling up (wheel or PgUp) freezes the view.
+  "auto_scroll_tolerance": 0
+}

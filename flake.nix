@@ -246,6 +246,7 @@ rec {
     # Shared patch list applied to all opencode derivations
     opencodePatches = [
       ./patches/opencode-compact-tui.patch
+      ./patches/opencode-scroll-autofollow.patch
     ];
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
