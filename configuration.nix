@@ -278,6 +278,17 @@ lib.recursiveUpdate {
     };
     mutableTaps = false;
     autoMigrate = true;
+    # brew 6.x requires explicit trust for non-official taps (HOMEBREW_REQUIRE_TAP_TRUST).
+    # nix-homebrew runs `brew trust` for these during activation so it is declarative and
+    # survives fresh setups. Prefer specific formulae over whole-tap trust.
+    # ref: https://github.com/zhaofengli/nix-homebrew README "trust" + https://docs.brew.sh/Tap-Trust
+    trust = {
+      formulae = [
+        "null-dev/firefox-profile-switcher/firefox-profile-switcher-connector"
+        "dimentium/autoraise/autoraise"
+        "gromgit/fuse/bindfs-mac"
+      ];
+    };
   };
   # TODO: module homebrew
   homebrew = {
