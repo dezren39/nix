@@ -360,6 +360,9 @@ lib.recursiveUpdate {
     /usr/bin/defaults -currentHost write -globalDomain NSStatusItemSpacing -int 6
     /usr/bin/defaults -currentHost write -globalDomain NSStatusItemSelectionPadding -int 6
 
+    # Disable font smoothing (subpixel antialiasing) for sharper text on retina
+    /usr/bin/defaults -currentHost write -g AppleFontSmoothing -int 0
+
     if /bin/launchctl list | grep -q org.nixos.skhd; then
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
     fi
