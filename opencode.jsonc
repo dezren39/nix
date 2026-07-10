@@ -140,4 +140,7 @@
   "compaction": {
     "reserved": 8192,
   },
+  "skills": {
+    "paths": [".agents/skills"],
+  },
 }
