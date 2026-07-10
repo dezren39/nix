@@ -177,7 +177,9 @@ by the `anomalyco/opencode/dev` input. Read before touching related behavior:
   empty `oldString` need no prior read).
 - **opencode-openai-response-id-caching.patch** — OpenAI Responses-API server-side
   prompt caching via `previous_response_id` (adds a DB migration).
-- **homebrew-services.patch** — unrelated: fixes a Homebrew `require_relative` path.
+- **homebrew-services.patch** — fixes a Homebrew `require_relative` path; wired via
+  a **commented-out** `applyPatches` block for the homebrew-services tap in
+  `configuration.nix` (currently disabled).
 
 ---
 
