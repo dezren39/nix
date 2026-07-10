@@ -1,8 +1,8 @@
 diff --git a/packages/tui/src/component/prompt/index.tsx b/packages/tui/src/component/prompt/index.tsx
-index aa00208..c08cf45 100644
+index 115c102..9f1d2b6 100644
 --- a/packages/tui/src/component/prompt/index.tsx
 +++ b/packages/tui/src/component/prompt/index.tsx
-@@ -1352,9 +1352,9 @@ export function Prompt(props: PromptProps) {
+@@ -1355,9 +1355,9 @@ export function Prompt(props: PromptProps) {
            }}
          >
            <box
@@ -15,7 +15,7 @@ index aa00208..c08cf45 100644
              flexShrink={0}
              backgroundColor={theme.backgroundElement}
              flexGrow={1}
-@@ -1433,8 +1433,8 @@ export function Prompt(props: PromptProps) {
+@@ -1436,8 +1436,8 @@ export function Prompt(props: PromptProps) {
                cursorColor={props.disabled ? theme.backgroundElement : theme.text}
                syntaxStyle={syntax()}
              />
@@ -26,16 +26,16 @@ index aa00208..c08cf45 100644
                  <Show when={local.agent.current()} fallback={<box height={1} />}>
                    {(agent) => (
                      <>
-@@ -1442,7 +1442,7 @@ export function Prompt(props: PromptProps) {
-                         {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
-                       </text>
+@@ -1448,7 +1448,7 @@ export function Prompt(props: PromptProps) {
+                         <text fg={fadeColor(theme.textMuted, agentMetaAlpha())}>auto</text>
+                       </Show>
                        <Show when={store.mode === "normal"}>
 -                        <box flexDirection="row" gap={1}>
 +                        <box flexDirection="row" gap={0}>
                            <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>
                            <text
                              flexShrink={0}
-@@ -1466,7 +1466,7 @@ export function Prompt(props: PromptProps) {
+@@ -1472,7 +1472,7 @@ export function Prompt(props: PromptProps) {
                  </Show>
                </box>
                <Show when={hasRightContent()}>
@@ -44,7 +44,7 @@ index aa00208..c08cf45 100644
                    {props.right}
                  </box>
                </Show>
-@@ -1504,17 +1504,17 @@ export function Prompt(props: PromptProps) {
+@@ -1510,17 +1510,17 @@ export function Prompt(props: PromptProps) {
              <Match when={status().type !== "idle"}>
                <box
                  flexDirection="row"
@@ -65,7 +65,7 @@ index aa00208..c08cf45 100644
                      {(() => {
                        const retry = createMemo(() => {
                          const s = status()
-@@ -1583,14 +1583,14 @@ export function Prompt(props: PromptProps) {
+@@ -1589,14 +1589,14 @@ export function Prompt(props: PromptProps) {
              </Match>
              <Match when={workspace.notice()}>
                {(notice) => (
@@ -82,7 +82,7 @@ index aa00208..c08cf45 100644
                    <Show when={workspace.creating()}>
                      <Spinner color={theme.accent} />
                    </Show>
-@@ -1618,7 +1618,7 @@ export function Prompt(props: PromptProps) {
+@@ -1624,7 +1624,7 @@ export function Prompt(props: PromptProps) {
              </Match>
              <Match when={move.progress()}>
                {(progress) => (
@@ -91,7 +91,7 @@ index aa00208..c08cf45 100644
                    <Spinner color={theme.accent}>
                      {progress()}
                      <span style={{ fg: theme.textMuted }}>{".".repeat(move.creatingDots())}</span>
-@@ -1627,7 +1627,7 @@ export function Prompt(props: PromptProps) {
+@@ -1633,7 +1633,7 @@ export function Prompt(props: PromptProps) {
                )}
              </Match>
              <Match when={move.pendingNew()}>
@@ -193,7 +193,7 @@ index d4145e2..535cc87 100644
              <Prompt ref={bind} right={<pluginRuntime.Slot name="home_prompt_right" />} placeholders={placeholder} />
            </pluginRuntime.Slot>
 diff --git a/packages/tui/src/routes/session/index.tsx b/packages/tui/src/routes/session/index.tsx
-index 1a1eb0f..13ec669 100644
+index 6d77b0e..e16dd74 100644
 --- a/packages/tui/src/routes/session/index.tsx
 +++ b/packages/tui/src/routes/session/index.tsx
 @@ -246,7 +246,7 @@ export function Session() {
@@ -205,7 +205,7 @@ index 1a1eb0f..13ec669 100644
    const [sidebarOpen, setSidebarOpen] = createSignal(false)
    const [conceal, setConceal] = createSignal(true)
    const thinking = useThinkingMode()
-@@ -1164,7 +1164,7 @@ export function Session() {
+@@ -1163,7 +1163,7 @@ export function Session() {
          }}
        >
          <box flexDirection="row" flexGrow={1} minHeight={0}>
@@ -214,7 +214,7 @@ index 1a1eb0f..13ec669 100644
              <Show when={session()}>
                <scrollbox
                  ref={(r) => (scroll = r)}
-@@ -1210,16 +1210,16 @@ export function Session() {
+@@ -1209,16 +1209,16 @@ export function Session() {
                                onMouseOver={() => setHover(true)}
                                onMouseOut={() => setHover(false)}
                                onMouseUp={handleUnrevert}
@@ -235,7 +235,7 @@ index 1a1eb0f..13ec669 100644
                                  backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
                                >
                                  <text fg={theme.textMuted}>{revert()!.reverted.length} message reverted</text>
-@@ -1227,7 +1227,7 @@ export function Session() {
+@@ -1226,7 +1226,7 @@ export function Session() {
                                    <span style={{ fg: theme.text }}>{redoShortcut()}</span> or /redo to restore
                                  </text>
                                  <Show when={revert()!.diffFiles?.length}>
@@ -244,7 +244,7 @@ index 1a1eb0f..13ec669 100644
                                      <For each={revert()!.diffFiles}>
                                        {(file) => (
                                          <text fg={theme.text}>
-@@ -1406,15 +1406,15 @@ function UserMessage(props: {
+@@ -1396,15 +1396,15 @@ function UserMessage(props: {
                setHover(false)
              }}
              onMouseUp={props.onMouseUp}
@@ -263,8 +263,8 @@ index 1a1eb0f..13ec669 100644
 +              <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={0} gap={0} flexWrap="wrap">
                  <For each={files()}>
                    {(file) => {
-                     const bg = createMemo(() => {
-@@ -1453,7 +1453,7 @@ function UserMessage(props: {
+                     const directory = file.mime === "application/x-directory"
+@@ -1441,7 +1441,7 @@ function UserMessage(props: {
        </Show>
        <Show when={compaction()}>
          <box
@@ -273,7 +273,7 @@ index 1a1eb0f..13ec669 100644
            border={["top"]}
            title=" Compaction "
            titleAlignment="center"
-@@ -1505,7 +1505,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1493,7 +1493,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
          }}
        </For>
        <Show when={props.parts.some((x) => x.type === "tool" && x.tool === "task")}>
@@ -282,9 +282,9 @@ index 1a1eb0f..13ec669 100644
            <text fg={theme.text}>
              {childShortcut()}
              <span style={{ fg: theme.textMuted }}> view subagents</span>
-@@ -1529,10 +1529,10 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1520,10 +1520,10 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
          <box
-           id={`assistant-error-${props.message.id}`}
+           ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
            border={["left"]}
 -          paddingTop={1}
 -          paddingBottom={1}
@@ -297,21 +297,21 @@ index 1a1eb0f..13ec669 100644
            backgroundColor={theme.backgroundPanel}
            customBorderChars={SplitBorder.customBorderChars}
            borderColor={theme.error}
-@@ -1542,8 +1542,8 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1533,8 +1533,8 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
        </Show>
        <Switch>
          <Match when={props.last || final() || props.message.error?.name === "MessageAbortedError"}>
--          <box id={`assistant-summary-${props.message.id}`} paddingLeft={3}>
+-          <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3}>
 -            <text marginTop={1}>
-+          <box id={`assistant-summary-${props.message.id}`} paddingLeft={0}>
++          <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={0}>
 +            <text marginTop={0}>
                <span
                  style={{
                    fg:
-@@ -1609,8 +1609,8 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+@@ -1600,8 +1600,8 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
      <Show when={content()}>
        <box
-         id={`text-${props.part.messageID}-${props.part.id}`}
+         ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
 -        paddingLeft={3}
 -        marginTop={1}
 +        paddingLeft={0}
@@ -319,7 +319,7 @@ index 1a1eb0f..13ec669 100644
          flexDirection="column"
          flexShrink={0}
        >
-@@ -1624,7 +1624,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+@@ -1615,7 +1615,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
            />
          </box>
          <Show when={(!inMinimal() || expanded()) && summary().body}>
@@ -328,16 +328,16 @@ index 1a1eb0f..13ec669 100644
              <code
                filetype="markdown"
                drawUnstyledText={false}
-@@ -1690,7 +1690,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
+@@ -1681,7 +1681,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
    const { theme, syntax } = useTheme()
    return (
      <Show when={props.part.text.trim()}>
--      <box id={`text-${props.part.messageID}-${props.part.id}`} paddingLeft={3} marginTop={1} flexShrink={0}>
-+      <box id={`text-${props.part.messageID}-${props.part.id}`} paddingLeft={0} marginTop={0} flexShrink={0}>
+-      <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3} marginTop={1} flexShrink={0}>
++      <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={0} marginTop={0} flexShrink={0}>
          <markdown
            syntaxStyle={syntax()}
            streaming={true}
-@@ -1821,7 +1821,7 @@ function GenericTool(props: ToolProps) {
+@@ -1815,7 +1815,7 @@ function GenericTool(props: ToolProps) {
          part={props.part}
          onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
        >
@@ -346,16 +346,16 @@ index 1a1eb0f..13ec669 100644
            <text fg={theme.text}>{limited()}</text>
            <Show when={collapsed().overflow}>
              <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
-@@ -1936,7 +1936,7 @@ export function InlineToolRow(props: {
+@@ -1925,7 +1925,7 @@ export function InlineToolRow(props: {
+ }) {
    return (
      <box
-       id={props.id}
 -      paddingLeft={3}
 +      paddingLeft={0}
        onMouseOver={props.onMouseOver}
        onMouseOut={props.onMouseOut}
        onMouseUp={props.onMouseUp}
-@@ -1963,7 +1963,7 @@ export function InlineToolRow(props: {
+@@ -1947,7 +1947,7 @@ export function InlineToolRow(props: {
            <Show
              fallback={
                <text
@@ -364,9 +364,9 @@ index 1a1eb0f..13ec669 100644
                  fg={props.color}
                  attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
                >
-@@ -2015,11 +2015,11 @@ function BlockTool(props: {
+@@ -1999,11 +1999,11 @@ function BlockTool(props: {
      <box
-       id={props.part ? `tool-block-${props.part.messageID}-${props.part.id}` : undefined}
+       ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
        border={["left"]}
 -      paddingTop={1}
 -      paddingBottom={1}
@@ -381,25 +381,25 @@ index 1a1eb0f..13ec669 100644
        backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
        customBorderChars={SplitBorder.customBorderChars}
        borderColor={theme.background}
-@@ -2033,7 +2033,7 @@ function BlockTool(props: {
-       <Show
-         when={props.spinner}
-         fallback={
--          <text paddingLeft={3} fg={theme.textMuted}>
-+          <text paddingLeft={0} fg={theme.textMuted}>
-             {props.title}
-           </text>
-         }
-@@ -2086,7 +2086,7 @@ function Shell(props: ToolProps) {
-           spinner={isRunning()}
+@@ -2019,7 +2019,7 @@ function BlockTool(props: {
+           <Show
+             when={props.spinner}
+             fallback={
+-              <text paddingLeft={3} fg={theme.textMuted}>
++              <text paddingLeft={0} fg={theme.textMuted}>
+                 {title()}
+               </text>
+             }
+@@ -2073,7 +2073,7 @@ function Shell(props: ToolProps) {
+           part={props.part}
            onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
          >
 -          <box gap={1}>
 +          <box gap={0}>
-             <text fg={theme.text}>$ {stringValue(props.input.command)}</text>
-             <Show when={output()}>
-               <text fg={theme.text}>{limited()}</text>
-@@ -2117,7 +2117,7 @@ function Write(props: ToolProps) {
+             <Show when={isRunning()} fallback={<text fg={theme.text}>$ {stringValue(props.input.command)}</text>}>
+               <Spinner color={theme.text}>{stringValue(props.input.command)}</Spinner>
+             </Show>
+@@ -2106,7 +2106,7 @@ function Write(props: ToolProps) {
      <Switch>
        <Match when={props.metadata.diagnostics !== undefined}>
          <BlockTool title={"# Wrote " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
@@ -408,18 +408,7 @@ index 1a1eb0f..13ec669 100644
              <code
                conceal={false}
                fg={theme.text}
-@@ -2180,8 +2180,8 @@ function Read(props: ToolProps) {
-       </InlineTool>
-       <For each={loaded()}>
-         {(filepath, index) => (
--          <box id={`tool-inline-loaded-${props.part.messageID}-${props.part.id}-${index()}`} paddingLeft={3}>
--            <text paddingLeft={3} fg={theme.textMuted}>
-+          <box id={`tool-inline-loaded-${props.part.messageID}-${props.part.id}-${index()}`} paddingLeft={0}>
-+            <text paddingLeft={0} fg={theme.textMuted}>
-               ↳ Loaded {pathFormatter.format(filepath)}
-             </text>
-           </box>
-@@ -2356,7 +2356,7 @@ function Edit(props: ToolProps) {
+@@ -2405,7 +2405,7 @@ function Edit(props: ToolProps) {
      <Switch>
        <Match when={stringValue(props.metadata.diff) !== undefined}>
          <BlockTool title={"← Edit " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
@@ -428,7 +417,7 @@ index 1a1eb0f..13ec669 100644
              <diff
                diff={diffContent()}
                view={view()}
-@@ -2404,7 +2404,7 @@ function ApplyPatch(props: ToolProps) {
+@@ -2453,7 +2453,7 @@ function ApplyPatch(props: ToolProps) {
  
    function Diff(p: { diff: string; filePath: string }) {
      return (
@@ -437,7 +426,7 @@ index 1a1eb0f..13ec669 100644
          <diff
            diff={p.diff}
            view={view()}
-@@ -2506,7 +2506,7 @@ function Question(props: ToolProps) {
+@@ -2555,7 +2555,7 @@ function Question(props: ToolProps) {
      <Switch>
        <Match when={answers()}>
          <BlockTool title="# Questions" part={props.part}>
@@ -447,7 +436,7 @@ index 1a1eb0f..13ec669 100644
                {(q, i) => (
                  <box flexDirection="column">
 diff --git a/packages/tui/src/routes/session/permission.tsx b/packages/tui/src/routes/session/permission.tsx
-index c787a84..d7048c1 100644
+index 766ed3c..308e600 100644
 --- a/packages/tui/src/routes/session/permission.tsx
 +++ b/packages/tui/src/routes/session/permission.tsx
 @@ -51,6 +51,7 @@ function EditBody(props: { request: PermissionRequest }) {

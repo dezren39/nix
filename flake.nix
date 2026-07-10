@@ -10,7 +10,7 @@ rec {
       # url = "github:nixos/nixpkgs/nixos-unstable";
       # url = "github:nixos/nixpkgs/70801e0"; # swift on darwin https://github.com/nixos/nixpkgs/issues/483584
       # url = "github:ofalvai/nixpkgs/72a5334";
-      url = "github:nixos/nixpkgs";
+      url = "github:nixos/nixpkgs/nixpkgs-unstable";
     };
     nixpkgs-git = {
       # url = "github:nixos/nixpkgs/nixos-unstable";
