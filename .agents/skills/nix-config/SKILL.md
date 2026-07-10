@@ -44,8 +44,6 @@ Where things go:
 - macOS defaults / launchd / activation / homebrew meta → `configuration.nix`.
 - Homebrew apps → `brews.nix` / `casks.nix` / `masApps.nix`.
 - Nix daemon settings → `nix.settings.nix` (keep in sync with flake.nix notes).
-- `systemVariables.nix` is currently NOT imported by configuration.nix — verify
-  before relying on it.
 
 ## Standards & conventions
 
@@ -89,10 +87,10 @@ Where things go:
 
 ## Skills in this repo
 
-Repo-local agent skills live in `.agents/skills/<name>/SKILL.md` (git-tracked,
-mirroring the global `~/.agents/skills` convention opencode auto-scans). Add new
-skills there. If a skills root isn't auto-discovered, register it via
-`skills.paths` in `opencode.jsonc`. Currently shipped: **nix-config** (this skill).
+Repo-local agent skills live in `.agents/skills/<name>/SKILL.md` (a plain
+git-tracked directory, same layout as the global `~/.agents/skills` that opencode
+auto-scans on boot — not a symlink). Add new skills there; opencode picks them up
+automatically. Currently shipped: **nix-config** (this skill).
 
 ## Gotchas
 

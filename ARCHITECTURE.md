@@ -18,7 +18,6 @@ homeUser.nix           home-manager per-user module (imports homePackages + home
 homePackages.nix       home-manager packages (stub: just `hello`)
 homePrograms.nix       home-manager programs (shells, git, ghostty, atuin, starship, setup-opencode)
 systemPackages.nix     environment.systemPackages (~180 pkgs — the real package list)
-systemVariables.nix    environment.variables (EDITOR, COPILOT_MODEL, playwright)  [see wiring note]
 nix.settings.nix       nix daemon settings (experimental-features, substituters)
 services.nix           nix-darwin services (aerospace, skhd, jankyborders)
 brews.nix casks.nix masApps.nix   homebrew formulae / casks / mas apps
@@ -56,10 +55,6 @@ flake.nix → ./configuration.nix
         ├─ recursiveUpdate homePackages.nix
         └─ recursiveUpdate homePrograms.nix
 ```
-
-> Wiring note: `systemVariables.nix` is **not** referenced by `configuration.nix`.
-> Confirm it's wired in `flake.nix` or treat it as dead/duplicate of the
-> `home.sessionVariables` in `homeUser.nix`.
 
 ---
 
@@ -204,7 +199,8 @@ Root patches (upstream fixes / features, not all auto-applied — see `flake.nix
 
 ## 7. Repo-local agent skills (`.agents/skills/`)
 
-Repo-local skills live in `.agents/skills/<name>/SKILL.md` (git-tracked, mirroring
-the global `~/.agents/skills` convention that opencode auto-scans). This repo ships
-`nix-config` — a catch-up skill pointing new agents at this document and the key
-workflows. Register additional skill roots via `skills.paths` in `opencode.jsonc`.
+Repo-local skills live in `.agents/skills/<name>/SKILL.md` — a plain git-tracked
+directory using the same layout as the global `~/.agents/skills` that opencode
+auto-scans on boot (not a symlink). opencode picks them up automatically; no
+config registration needed. This repo ships `nix-config` — a catch-up skill
+pointing new agents at this document and the key workflows.
