@@ -24,7 +24,7 @@
   ],
   "enabled_providers": ["github-copilot"],
   // "default_agent": "octto",
-  "model": "github-copilot/claude-opus-4.8",
+  "model": "github-copilot/gpt-5.6-sol",
   "small_model": "github-copilot/gpt-5.6-terra",
   "provider": {
     "github-copilot": {
