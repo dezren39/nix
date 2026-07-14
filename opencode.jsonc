@@ -28,6 +28,34 @@
   "small_model": "github-copilot/gpt-5.6-terra",
   "provider": {
     "github-copilot": {
+      // Disable models per policy: any gpt < 5.6, any claude < 4.8, any gemini < 3.1.
+      // Blacklist entries are exact upstream (models.dev) model ids; unknown ids are
+      // harmless no-ops. Kept enabled: gpt-5.6-{sol,terra,luna}, claude-opus-4.8,
+      // claude-fable-5, claude-sonnet-5, gemini-3.1-pro-preview, gemini-3.5-flash,
+      // kimi-k2.7-code, mai-code-1-flash-picker.
+      "blacklist": [
+        // gpt < 5.6
+        "gpt-4.1",
+        "gpt-5-mini",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.5",
+        // claude < 4.8
+        "claude-haiku-4.5",
+        "claude-opus-4.5",
+        "claude-opus-4.6",
+        "claude-opus-4.7",
+        "claude-sonnet-4",
+        "claude-sonnet-4.5",
+        "claude-sonnet-4.6",
+        // gemini < 3.1
+        "gemini-2.5-pro",
+        "gemini-3-flash-preview",
+      ],
       "models": {
         // ---------------------------------------------------------------
         // Added models: GitHub Copilot exposes these but the pinned opencode
