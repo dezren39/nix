@@ -61,6 +61,21 @@ lib.recursiveUpdate {
       (final: prev: {
         noTunes = final.callPackage ./pkgs/noTunes.nix { };
       })
+      # Work around cctools ld crashing until nixpkgs#536365 reaches unstable.
+      (final: prev: {
+        cargo-watch = prev.cargo-watch.overrideAttrs (old: {
+          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.llvmPackages.lld ];
+          env = (old.env or { }) // {
+            NIX_CFLAGS_LINK = "-fuse-ld=${lib.getExe' final.llvmPackages.lld "ld64.lld"}";
+          };
+        });
+        sketchybar = prev.sketchybar.overrideAttrs (old: {
+          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ final.llvmPackages.lld ];
+          env = (old.env or { }) // {
+            NIX_CFLAGS_LINK = "-fuse-ld=${lib.getExe' final.llvmPackages.lld "ld64.lld"}";
+          };
+        });
+      })
       # (final: prev: {
       #   helium =
       #     (import inputs.nixpkgs-helium {
@@ -307,7 +322,11 @@ lib.recursiveUpdate {
       autoUpdate = true;
       cleanup = "none"; # "uninstall" generates obsolete --force-cleanup flag
       upgrade = true;
-      extraFlags = [ "--verbose" "--cleanup" "--force" ];
+      extraFlags = [
+        "--verbose"
+        "--cleanup"
+        "--force"
+      ];
     };
     # caskArgs
     taps = builtins.attrNames config.nix-homebrew.taps;

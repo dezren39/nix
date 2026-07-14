@@ -29,7 +29,7 @@ patches/               OpenCode TUI patches applied to the opencode derivation
 instructions/          OpenCode instruction files (lootbox.md, subagents.md)
 commands/              OpenCode slash commands (/fix, /why)  [mirrored in config/opencode/commands]
 .agents/skills/        Repo-local agent skills (see §7)
-opencode.jsonc         OpenCode config (Copilot-only, model limits, plugins)
+opencode.jsonc         OpenCode config (Copilot-only, model policy, plugins)
 tui.jsonc              OpenCode TUI theme + auto_scroll_tolerance
 sounds/                Star Trek notification sounds (opencode-notifier)
 themes/ vibrant-ink.json   Active TUI theme
@@ -142,8 +142,9 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 ## 5. OpenCode integration
 
 - **`opencode.jsonc`** — `github-copilot` only. Primary model
-  `github-copilot/claude-opus-4.8`, small `github-copilot/gpt-5.4`. Large
-  per-model `limit` overrides for the whole Copilot lineup. Loads instructions
+  `github-copilot/gpt-5.6-sol`, small `github-copilot/gpt-5.6-luna`. Uses
+  upstream model metadata and blacklists GPT < 5.6, Claude < 4.8, and Gemini <
+  3.1. Loads instructions
   `.opencode/instructions/{lootbox,subagents}.md`. Plugins (npm): opencode-notifier,
   plannotator, opencode-pty, md-table-formatter, opencode-auto-continue (GitHub
   tarball). `compaction.reserved = 8192`.

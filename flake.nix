@@ -69,9 +69,8 @@ rec {
       inputs.nixpkgs.follows = "nixpkgs-hoisted";
     };
     brew-src = {
-      # must keep this at least as new as https://github.com/zhaofengli/nix-homebrew/blob/main/flake.nix#L6
-      # find latest version here https://github.com/Homebrew/brew/releases
-      url = "github:Homebrew/brew/6.0.9";
+      # Track upstream so ./r's flake update advances Homebrew automatically.
+      url = "github:Homebrew/brew";
       flake = false;
     };
     nix-homebrew = {

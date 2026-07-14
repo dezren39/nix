@@ -72,9 +72,10 @@ Where things go:
 
 ## OpenCode / Copilot / lootbox
 
-- Config: `opencode.jsonc` (github-copilot only; model
-  `github-copilot/claude-opus-4.8`), TUI `tui.jsonc` (`auto_scroll_tolerance` is a
-  custom patched key). Instructions: `instructions/lootbox.md`, `instructions/subagents.md`.
+- Config: `opencode.jsonc` (github-copilot only; primary model
+  `github-copilot/gpt-5.6-sol`, small model `github-copilot/gpt-5.6-luna`), TUI
+  `tui.jsonc` (`auto_scroll_tolerance` is a custom patched key). Instructions:
+  `instructions/lootbox.md`, `instructions/subagents.md`.
 - **Tooling is subagent-first** and routed through the local **lootbox** MCP server
   (port 9420, launchd-managed). Namespaces: `mcp_codedb`, `mcp_fff`,
   `mcp_chrome_devtools`, `mcp_context7`. Write reusable `.ts` scripts to
