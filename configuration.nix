@@ -455,25 +455,34 @@ lib.recursiveUpdate {
     };
     lootbox = {
       path = [
-        config.environment.systemPath
-        "/Users/drewry.pope/.deno/bin"
+        pkgs.deno
+        pkgs.nodejs
+        inputs.self.packages.${system}.codedb
+        inputs.self.packages.${system}.fff-mcp
       ];
       serviceConfig = {
+        EnvironmentVariables.HOME = "/Users/drewry.pope";
+        EnvironmentVariables.LOOTBOX_UI_DIR = "/Users/drewry.pope/.local/share/lootbox/ui";
+        EnvironmentVariables.PATH = lib.mkForce (
+          lib.makeBinPath [
+            pkgs.bash
+            pkgs.deno
+            pkgs.nodejs
+            inputs.self.packages.${system}.codedb
+            inputs.self.packages.${system}.fff-mcp
+          ]
+          + ":/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin"
+        );
         KeepAlive = true;
         RunAtLoad = true;
         WorkingDirectory = "/Users/drewry.pope/.config/nix";
         ProgramArguments = [
-          "/bin/sh"
-          "-c"
-          ''
-            export PATH="/Users/drewry.pope/.deno/bin:$PATH"
-            # Install lootbox if not present
-            if ! command -v lootbox &>/dev/null; then
-              curl -fsSL https://raw.githubusercontent.com/jx-codes/lootbox/main/install.sh | bash
-            fi
-            # Run lootbox server (foreground so launchd can manage it)
-            exec lootbox server --port 9420
-          ''
+          "/Users/drewry.pope/.local/bin/lootbox"
+          "server"
+          "--port"
+          "9420"
+          "--lootbox-root"
+          "/Users/drewry.pope/.config/nix/.lootbox"
         ];
         StandardErrorPath = "/tmp/lootbox.err.log";
         StandardOutPath = "/tmp/lootbox.out.log";

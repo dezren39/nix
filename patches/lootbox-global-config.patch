@@ -1,0 +1,52 @@
+diff --git a/src/lib/get_config.ts b/src/lib/get_config.ts
+index 6775f75..d3584fc 100644
+--- a/src/lib/get_config.ts
++++ b/src/lib/get_config.ts
+@@ -19,12 +19,17 @@ interface ResolvedConfig {
+ }
+ 
+ async function loadConfig(): Promise<Config> {
+-  try {
+-    const configText = await Deno.readTextFile("lootbox.config.json");
+-    return JSON.parse(configText);
+-  } catch {
+-    return {};
++  for (const file of [
++    "lootbox.config.json",
++    `${Deno.env.get("HOME")}/.config/lootbox/lootbox.config.json`,
++  ]) {
++    try {
++      return JSON.parse(await Deno.readTextFile(file));
++    } catch {
++      // Try the next location.
++    }
+   }
++  return {};
+ }
+ 
+ export const get_config = async (): Promise<ResolvedConfig> => {
+diff --git a/src/lib/lootbox-cli/config.ts b/src/lib/lootbox-cli/config.ts
+index a6f9065..36b7409 100644
+--- a/src/lib/lootbox-cli/config.ts
++++ b/src/lib/lootbox-cli/config.ts
+@@ -1,10 +1,15 @@
+ import type { Config } from "./types.ts";
+ 
+ export async function loadConfig(): Promise<Config> {
+-  try {
+-    const configText = await Deno.readTextFile("lootbox.config.json");
+-    return JSON.parse(configText);
+-  } catch {
+-    return {};
++  for (const file of [
++    "lootbox.config.json",
++    `${Deno.env.get("HOME")}/.config/lootbox/lootbox.config.json`,
++  ]) {
++    try {
++      return JSON.parse(await Deno.readTextFile(file));
++    } catch {
++      // Try the next location.
++    }
+   }
++  return {};
+ }

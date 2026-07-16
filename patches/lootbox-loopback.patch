@@ -1,0 +1,15 @@
+diff --git a/src/lib/rpc/websocket_server.ts b/src/lib/rpc/websocket_server.ts
+index 082a5b9..a2773d0 100644
+--- a/src/lib/rpc/websocket_server.ts
++++ b/src/lib/rpc/websocket_server.ts
+@@ -139,10 +139,10 @@ export class WebSocketRpcServer {
+     this.fileWatcherManager.startWatching(config.tools_dir, async () => {
+       await this.rpcCacheManager.refreshCache();
+     });
+ 
+     // Phase 8: Start HTTP server
+-    Deno.serve({ port, onListen: () => {} }, this.app.fetch);
++    Deno.serve({ hostname: "127.0.0.1", port, onListen: () => {} }, this.app.fetch);
+ 
+     // Give server time to start
+     await new Promise((resolve) => setTimeout(resolve, 100));

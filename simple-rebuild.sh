@@ -31,6 +31,9 @@ softwareupdate --install-rosetta --agree-to-license
 echo "darwin-rebuild switch --flake ."
 sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
 
+echo "install/update pinned lootbox"
+nix run .#lootbox-update -- --if-needed
+
 current=$(sudo darwin-rebuild --list-generations | grep current)
 echo "current: $current"
 hostname=$(hostname)

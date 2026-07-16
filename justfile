@@ -8,50 +8,63 @@ list:
 # Utilities - Lootbox
 # =============================================================================
 
-# Reinstall/update lootbox binary from latest source
+# Build and install the pinned Lootbox source, then restart launchd
 [group('lootbox')]
 update-lootbox:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Updating lootbox..."
-    curl -fsSL https://raw.githubusercontent.com/jx-codes/lootbox/main/install.sh | bash
-    echo "lootbox updated to $(lootbox --version)"
+    nix run .#lootbox-update -- --force
 
-# Start lootbox server (if not already running)
+# Start the launchd-managed Lootbox server
 [group('lootbox')]
 lootbox-server:
     #!/usr/bin/env bash
     set -euo pipefail
-    if lsof -iTCP:9420 -sTCP:LISTEN -t &>/dev/null; then
-        echo "Lootbox server already running on port 9420"
-    else
-        echo "Starting lootbox server..."
-        nohup lootbox server --port 9420 &>/dev/null &
-        disown
-        sleep 1
-        if lsof -iTCP:9420 -sTCP:LISTEN -t &>/dev/null; then
-            echo "Lootbox server started on port 9420"
-        else
-            echo "Lootbox server may still be starting up..."
-        fi
+    label="gui/$(id -u)/org.nixos.lootbox"
+    if ! launchctl print "$label" >/dev/null 2>&1; then
+        launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/org.nixos.lootbox.plist"
     fi
+    launchctl kickstart -k "$label"
+    for _ in $(seq 1 90); do
+        namespaces=$("$HOME/.local/bin/lootbox" tools 2>/dev/null || true)
+        if grep -q "mcp_codedb" <<<"$namespaces" \
+          && grep -q "mcp_fff" <<<"$namespaces" \
+          && grep -q "mcp_chrome_devtools" <<<"$namespaces" \
+          && grep -q "mcp_context7" <<<"$namespaces"; then
+            echo "Lootbox server is ready with all configured namespaces"
+            exit 0
+        fi
+        sleep 1
+    done
+    echo "Lootbox server did not become healthy" >&2
+    exit 1
 
-# Kill running lootbox server
+# Stop the launchd-managed Lootbox server
 [group('lootbox')]
 lootbox-kill:
     #!/usr/bin/env bash
     set -euo pipefail
-    pid=$(lsof -iTCP:9420 -sTCP:LISTEN -t 2>/dev/null || true)
-    if [ -n "$pid" ]; then
-        kill "$pid"
-        echo "Killed lootbox server (PID $pid)"
-    else
-        echo "No lootbox server running on port 9420"
-    fi
+    launchctl bootout "gui/$(id -u)/org.nixos.lootbox" 2>/dev/null || true
 
 # Restart lootbox server
 [group('lootbox')]
 lootbox-restart: lootbox-kill lootbox-server
+
+# Verify server health, configured namespaces, and Deno script execution
+[group('lootbox')]
+lootbox-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    curl -fsS http://127.0.0.1:9420/health
+    namespaces=$("$HOME/.local/bin/lootbox" tools)
+    printf '%s\n' "$namespaces"
+    for namespace in mcp_codedb mcp_fff mcp_chrome_devtools mcp_context7; do
+        grep -q "$namespace" <<<"$namespaces"
+    done
+    "$HOME/.local/bin/lootbox" exec 'console.log("lootbox script execution ok")'
+    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_codedb.codedb_status({}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("codedb ok")'
+    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_fff.grep({query:"lootbox"}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("fff ok")'
+    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_chrome_devtools.list_pages({}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("chrome devtools ok")'
+    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_context7.resolve_library_id({libraryName:"react",query:"React documentation"}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("context7 ok")'
+    curl -fsS http://127.0.0.1:9420/ui >/dev/null
 
 # =============================================================================
 # Nix Rebuild
@@ -145,6 +158,16 @@ link-git-dirs *args:
 alias link-git     := link-git-dirs
 alias link-home    := link-git-dirs
 alias link-git-dir := link-git-dirs
+
+# Symlink repository commands into the global OpenCode command directory
+[group('symlinks')]
+symlink-commands *args:
+    ./symlink-commands {{ args }}
+
+# Preview OpenCode command symlink changes
+[group('symlinks')]
+symlink-commands-dry *args:
+    ./symlink-commands --dry-run {{ args }}
 
 # =============================================================================
 # OpenCode Share — bindfs-based .opencode sharing with per-project plans/

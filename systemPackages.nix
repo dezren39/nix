@@ -65,7 +65,7 @@
       curl
       dbmate
       # dejavu_fonts
-      # deno # commented out — rusty-v8 build takes too long
+      deno
       # devenv
       difftastic
       dive
@@ -211,6 +211,9 @@
       file # identify binary types (ELF vs Mach-O, architecture)
       darwin.trash # `trash` command — moves files to macOS Trash instead of permanent deletion
       inputs.self.packages.${system}.brew-repair
+      inputs.self.packages.${system}.codedb
+      inputs.self.packages.${system}.fff-mcp
+      inputs.self.packages.${system}.lootbox-update
     ]
     ++ [
       # darwin

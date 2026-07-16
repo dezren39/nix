@@ -246,6 +246,7 @@ rec {
     opencodePatches = [
       ./patches/opencode-compact-tui.patch
       ./patches/opencode-scroll-autofollow.patch
+      ./patches/opencode-plan-permissions-reminder.patch
     ];
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
@@ -259,9 +260,9 @@ rec {
 
         opencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ opencodePatches;
-          nativeBuildInputs = map (p:
-            if (p.pname or "") == "bun" then bun-bin else p
-          ) (old.nativeBuildInputs or [ ]);
+          nativeBuildInputs = map (p: if (p.pname or "") == "bun" then bun-bin else p) (
+            old.nativeBuildInputs or [ ]
+          );
         });
 
         # opencode-desktop — disabled: upstream build broken
@@ -271,7 +272,24 @@ rec {
           inherit pkgs;
           lib = pkgs.lib;
         };
+        codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
+        fff-mcp = pkgs.callPackage ./pkgs/fff-mcp/package.nix { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
+        lootbox-update = import ./pkgs/lootbox-update {
+          inherit pkgs;
+          lootboxSrc = pkgs.fetchFromGitHub {
+            owner = "jx-codes";
+            repo = "lootbox";
+            rev = "587a5a1b2694d0d00168665d8f1a536bc54e0f1a";
+            hash = "sha256-uY8VETshvwIbGjq10NRVc8ts4IEsKypvdBcjLqOLqu0=";
+          };
+          lootboxPatches = [
+            ./patches/lootbox-deno-2.9.patch
+            ./patches/lootbox-global-config.patch
+            ./patches/lootbox-loopback.patch
+            ./patches/lootbox-ui-dir.patch
+          ];
+        };
         opencode-share = import ./pkgs/opencode-share { inherit pkgs; };
         symlinker = import ./pkgs/symlinker {
           inherit pkgs;
@@ -308,6 +326,10 @@ rec {
         flake-tidy = {
           type = "app";
           program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
+        };
+        lootbox-update = {
+          type = "app";
+          program = "${selfPkgs.lootbox-update}/bin/lootbox-update";
         };
         opencode = {
           type = "app";

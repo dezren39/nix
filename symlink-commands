@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: symlink-commands [--dry-run|-n] [--help|-h]
+
+Symlink command files from this repository's commands/ directory into
+${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands.
+
+Existing identical regular files are replaced with symlinks. Conflicting regular
+files and symlinks that resolve elsewhere are preserved and reported as warnings.
+
+Options:
+  -n, --dry-run  Show changes without modifying the filesystem
+  -h, --help     Show this help
+EOF
+}
+
+dry_run=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n | --dry-run)
+      dry_run=true
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if ! command -v realpath >/dev/null 2>&1; then
+  printf 'Error: realpath is required but was not found in PATH.\n' >&2
+  exit 1
+fi
+
+script_path=$(realpath "$0")
+script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd -P)
+source_dir="$script_dir/commands"
+config_home=${XDG_CONFIG_HOME:-"${HOME:?HOME is not set}/.config"}
+destination_dir="$config_home/opencode/commands"
+
+if [[ ! -d "$source_dir" ]]; then
+  printf 'Error: command source directory does not exist: %s\n' "$source_dir" >&2
+  exit 1
+fi
+
+run() {
+  if [[ "$dry_run" == true ]]; then
+    printf '[dry-run]'
+    printf ' %q' "$@"
+    printf '\n'
+    return 0
+  fi
+  "$@"
+}
+
+if [[ ! -d "$destination_dir" ]]; then
+  run mkdir -p -- "$destination_dir"
+fi
+
+warnings=0
+processed=0
+
+shopt -s nullglob
+for source in "$source_dir"/*; do
+  [[ -f "$source" ]] || continue
+  processed=$((processed + 1))
+  name=${source##*/}
+  destination="$destination_dir/$name"
+  source_real=$(realpath "$source")
+
+  if [[ -L "$destination" ]]; then
+    destination_real=$(realpath "$destination" 2>/dev/null || true)
+    if [[ "$destination_real" == "$source_real" ]]; then
+      printf 'ok: %s -> %s\n' "$destination" "$source_real"
+    else
+      printf 'warning: symlink points elsewhere: %s -> %s\n' \
+        "$destination" "${destination_real:-<broken>}" >&2
+      warnings=$((warnings + 1))
+    fi
+    continue
+  fi
+
+  if [[ -e "$destination" ]]; then
+    if [[ -f "$destination" ]] && cmp -s -- "$source" "$destination"; then
+      printf 'warning: replacing identical regular file: %s\n' "$destination" >&2
+      run rm -- "$destination"
+      run ln -s -- "$source_real" "$destination"
+    elif [[ -f "$destination" ]]; then
+      printf 'warning: conflicting regular file preserved: %s\n' "$destination" >&2
+      warnings=$((warnings + 1))
+    else
+      printf 'warning: conflicting path preserved: %s\n' "$destination" >&2
+      warnings=$((warnings + 1))
+    fi
+    continue
+  fi
+
+  printf 'link: %s -> %s\n' "$destination" "$source_real"
+  run ln -s -- "$source_real" "$destination"
+done
+
+if ((processed == 0)); then
+  printf 'warning: no command files found in %s\n' "$source_dir" >&2
+  warnings=$((warnings + 1))
+fi
+
+if ((warnings > 0)); then
+  printf 'Completed with %d warning(s).\n' "$warnings" >&2
+  exit 1
+fi
+
+if [[ "$dry_run" == true ]]; then
+  printf 'Dry run complete; no changes made.\n'
+else
+  printf 'Command symlinks are up to date.\n'
+fi

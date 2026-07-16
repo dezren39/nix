@@ -27,7 +27,7 @@ pkgs/                  Custom packages (see §4)
 patches/               OpenCode TUI patches applied to the opencode derivation
 *.patch (root)         OpenCode Copilot/OpenAI patches + homebrew fix
 instructions/          OpenCode instruction files (lootbox.md, subagents.md)
-commands/              OpenCode slash commands (/fix, /why)  [mirrored in config/opencode/commands]
+commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)
 opencode.jsonc         OpenCode config (Copilot-only, model policy, plugins)
 tui.jsonc              OpenCode TUI theme + auto_scroll_tolerance
@@ -75,7 +75,8 @@ flake.nix → ./configuration.nix
   `opencodePatches` + swaps in `bun-bin` as the build's bun), and exposes
   `brew-repair`, `flake-tidy`, `opencode-share`, `symlinker`.
 - **`opencodePatches`** = `patches/opencode-compact-tui.patch` +
-  `patches/opencode-scroll-autofollow.patch`.
+  `patches/opencode-scroll-autofollow.patch` +
+  `patches/opencode-plan-permissions-reminder.patch`.
 - **checks:** `formatting` (treefmt) and `tidy` (flake-tidy `--check`).
 - **apps:** `flake-tidy`, `opencode`, `opencode-share`, `symlinker`.
 - **devShell:** opencode, flake-tidy, symlinker, just, nixfmt, git, gh (with a
@@ -136,6 +137,9 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 | symlinker | Bash (~1250 lines, source at repo root `symlinker.sh`) | `writeShellApplication` | Bulk symlink manager with backup, undo (v2 RELINK), filters, dry-run. |
 | buffer-backup | TypeScript (own flake) | own flake | VS Code extension: auto-backs-up unsaved buffers with SHA-256 dedup + retention. |
 | noTunes.nix | Nix | `mkDerivation` | macOS app that stops Apple Music auto-launch. |
+| codedb | Zig binary | `fetchurl` | Pinned signed/notarized AST-aware code search and MCP server. |
+| fff-mcp | Rust binary | `fetchurl` | Pinned frecency-ranked file/content search MCP server. |
+| lootbox-update | Bash/Nix | `writeShellApplication` | Builds pinned Lootbox source with compatibility patches, installs its UI and pinned npm MCP CLIs, then verifies launchd readiness. |
 
 ---
 
@@ -154,9 +158,9 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
   :9420; write reusable `.ts` to `.lootbox/scripts/`; namespaces `mcp_codedb`,
   `mcp_fff`, `mcp_chrome_devtools`, `mcp_context7`); `subagents.md` (subagent-first
   workflow; types explore/general/build/plan/bootstrapper/probe).
-- **`commands/`** — `/fix` (diagnose+fix a failed GitHub Actions job, with
-  production-safety gating) and `/why` (analyze a *successful* job). Mirrored under
-  `config/opencode/commands/`.
+- **`commands/`** — `/gha-fix` (diagnose+fix a failed GitHub Actions job, with
+  production-safety gating) and `/gha-why` (analyze a *successful* job).
+  `./symlink-commands` installs missing global command symlinks safely.
 - **`lootbox.config.json`** — MCP servers: codedb, fff (fff-mcp), chrome-devtools,
   context7.
 
@@ -166,8 +170,10 @@ Applied to the opencode build (`patches/`, via `opencodePatches`):
 - **opencode-compact-tui.patch** — zeroes padding/gaps across TUI for a dense layout.
 - **opencode-scroll-autofollow.patch** — adds `auto_scroll_tolerance` config + sticky
   scroll (auto-follow only when near bottom).
+- **opencode-plan-permissions-reminder.patch** — makes legacy and experimental Plan
+  reminders honor resolved Plan permissions while preserving read-only defaults.
 
-Root `*.patch` files are **NOT applied by the flake** (only the two `patches/`
+Root `*.patch` files are **NOT applied by the flake** (only the three `patches/`
 above are). They are local snapshots/reference for fixes that are already carried
 by the `anomalyco/opencode/dev` input. Read before touching related behavior:
 - **opencode-copilot-business-support.patch** — Copilot Business/Enterprise: `ghu_`
@@ -196,7 +202,10 @@ by the `anomalyco/opencode/dev` input. Read before touching related behavior:
 - **Cleanup:** `./clean` (nix GC, docker prune, cache wipe, trash).
 - **Symlinks:** `just link-git` (symlinker.sh). **.opencode sharing:** `just share`
   / `unshare` / `share-status`.
-- **lootbox:** `just lootbox-server` / `-kill` / `-restart` / `update-lootbox`.
+- **lootbox:** launchd runs the pinned, locally built Lootbox on loopback port 9420.
+  Nix supplies Deno, codedb, fff-mcp, and the updater; Chrome DevTools MCP and
+  mcp-remote are pinned by the controlled update step. Use `just lootbox-server`
+  / `-kill` / `-restart` / `-check` / `update-lootbox`.
 - **CI:** only `.github/workflows/opencode.yml` — a `/oc` comment-triggered
   OpenCode bot. No build/test pipeline in CI (flake-tidy tests run locally).
 
@@ -207,5 +216,6 @@ by the `anomalyco/opencode/dev` input. Read before touching related behavior:
 Repo-local skills live in `.agents/skills/<name>/SKILL.md` — a plain git-tracked
 directory using the same layout as the global `~/.agents/skills` that opencode
 auto-scans on boot (not a symlink). opencode picks them up automatically; no
-config registration needed. This repo ships `nix-config` — a catch-up skill
-pointing new agents at this document and the key workflows.
+config registration needed. This repo ships `nix-config` for repo orientation
+and `update-opencode` for advancing the OpenCode input while preserving and
+repairing active patches.

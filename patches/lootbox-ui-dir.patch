@@ -1,0 +1,62 @@
+diff --git a/src/lib/ui_server.ts b/src/lib/ui_server.ts
+index c7dce7a..69e407e 100644
+--- a/src/lib/ui_server.ts
++++ b/src/lib/ui_server.ts
+@@ -5,13 +5,13 @@
+  * In production: Serves static files from ui/dist
+  */
+
+-import { serveStatic } from "@hono/hono/deno";
+ import type { Hono } from "@hono/hono";
+ import type { OpenAPIHono } from "@hono/zod-openapi";
+
+ export function setupUIRoutes(app: OpenAPIHono) {
+   const isDev = Deno.env.get("MODE") === "development";
+   const vitePort = Deno.env.get("VITE_PORT") || "5173";
++  const uiDir = Deno.env.get("LOOTBOX_UI_DIR") || "./ui/dist";
+ 
+   if (isDev) {
+     // Root UI route (must come before /ui/*)
+@@ -61,31 +61,34 @@ export function setupUIRoutes(app: OpenAPIHono) {
+     const honoApp = app as unknown as Hono;
+ 
+     // Serve index.html for /ui root
+-    honoApp.get("/ui", serveStatic({ path: "./ui/dist/index.html" }));
++    honoApp.get("/ui", async (c) => c.html(await Deno.readTextFile(`${uiDir}/index.html`)));
+ 
+     // Serve static files from ui/dist with SPA fallback for client-side routing
+     honoApp.get("/ui/*", async (c, next) => {
+       const requestPath = c.req.path.replace(/^\/ui/, "");
+-      const filePath = `./ui/dist${requestPath}`;
++      const filePath = `${uiDir}${requestPath}`;
+ 
+       // Check if the requested file exists
+       try {
+         const stat = await Deno.stat(filePath);
+         if (stat.isFile) {
+           // File exists, serve it
+-          const staticHandler = serveStatic({
+-            root: "./ui/dist",
+-            rewriteRequestPath: (p) => p.replace(/^\/ui/, "")
++          const ext = filePath.split(".").pop();
++          const contentType = ext === "js"
++            ? "text/javascript"
++            : ext === "css"
++            ? "text/css"
++            : "application/octet-stream";
++          return new Response(await Deno.readFile(filePath), {
++            headers: { "content-type": contentType },
+           });
+-          return await staticHandler(c, next);
+         }
+       } catch {
+         // File doesn't exist, fall through to serve index.html
+       }
+ 
+       // Serve index.html for SPA routing (handles /ui/playground, /ui/explorer, etc.)
+-      const indexHandler = serveStatic({ path: "./ui/dist/index.html" });
+-      return await indexHandler(c, next);
++      return c.html(await Deno.readTextFile(`${uiDir}/index.html`));
+     });
+   }
+ }

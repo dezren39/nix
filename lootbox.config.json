@@ -1,6 +1,7 @@
 {
   "port": 9420,
-  "lootboxRoot": ".lootbox",
+  "serverUrl": "ws://127.0.0.1:9420/ws",
+  "lootboxRoot": "/Users/drewry.pope/.config/nix/.lootbox",
   "mcpServers": {
     "codedb": {
       "command": "codedb",
@@ -11,13 +12,11 @@
     },
     "fff": {
       "command": "fff-mcp",
-      "args": []
+      "args": ["--no-update-check"]
     },
     "chrome-devtools": {
-      "command": "npx",
+      "command": "chrome-devtools-mcp",
       "args": [
-        "-y",
-        "chrome-devtools-mcp@latest",
         "--headless",
         "--isolated",
         "--viewport=800x600",
@@ -27,8 +26,8 @@
       ]
     },
     "context7": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.context7.com/mcp"]
+      "command": "mcp-remote",
+      "args": ["https://mcp.context7.com/mcp"]
     }
   }
 }

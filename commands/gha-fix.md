@@ -1,4 +1,8 @@
-# Fix
+---
+description: Diagnose and fix a failed GitHub Actions run, with safety checks before changes or reruns.
+---
+
+# GitHub Actions Fix
 
 Analyze a failed GitHub Actions job or other job/command/etc, diagnose the issue, fix it, and retry.
 

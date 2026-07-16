@@ -1,4 +1,4 @@
-All tools are accessed through lootbox. The lootbox server runs on `http://localhost:9420` (auto-started by launchd on macOS).
+All tools are accessed through lootbox. The launchd-managed server listens only on `http://127.0.0.1:9420`.
 
 ## Always write scripts
 
@@ -29,7 +29,7 @@ lootbox exec 'console.log(await tools.mcp_codedb.status({}))'
 
 ```typescript
 // .lootbox/scripts/search-code.ts — find definitions
-const sym = await tools.mcp_codedb.symbol({ name: "handleAuth" });
+const sym = await tools.mcp_codedb.codedb_symbol({ name: "handleAuth" });
 console.log(sym);
 
 // .lootbox/scripts/check-ui.ts — browser verification
@@ -45,7 +45,7 @@ console.log(docs);
 // .lootbox/scripts/multi-search.ts — chain tools
 const files = await tools.mcp_fff.grep({ query: "deprecated" });
 for (const f of files.matches || []) {
-  const outline = await tools.mcp_codedb.outline({ path: f.path });
+  const outline = await tools.mcp_codedb.codedb_outline({ path: f.path });
   console.log(f.path, outline);
 }
 ```
@@ -61,12 +61,14 @@ for (const f of files.matches || []) {
 | `lootbox scripts`          | List available scripts                |
 | `just lootbox-server`      | Start server                          |
 | `just lootbox-kill`        | Kill server                           |
-| `just update-lootbox`      | Update binary                         |
+| `just update-lootbox`      | Rebuild pinned Lootbox and MCP CLIs   |
+| `just lootbox-check`       | Verify health, tools, and Deno scripts |
 
 ## Key notes
 
-- Config: `lootbox.config.json` at repo root
+- Config: `lootbox.config.json` at repo root, exposed globally at `~/.config/lootbox/lootbox.config.json`
 - Scripts: `.lootbox/scripts/` (committed to git)
-- `CONTEXT7_API_KEY` is loaded from `.env.local` via direnv — never put secrets in config
-- `codedb_remote` (via mcp_codedb.remote) searches actual library source code; `mcp_context7` searches documentation
+- Runtime: Nix provides Deno, codedb, and fff-mcp; `lootbox-update` builds pinned Lootbox commit `587a5a1` and installs pinned Chrome DevTools/Context7 MCP CLIs
+- Context7 authenticates through `mcp-remote`; never put secrets in config
+- `codedb_remote` (via `mcp_codedb.codedb_remote`) searches actual library source code; `mcp_context7` searches documentation
 - For codedb worktrees: call `mcp_codedb.index` with the worktree path first

@@ -72,28 +72,32 @@ Where things go:
 
 ## OpenCode / Copilot / lootbox
 
-- Config: `opencode.jsonc` (github-copilot only; primary model
-  `github-copilot/gpt-5.6-sol`, small model `github-copilot/gpt-5.6-luna`), TUI
+- Config: `opencode.jsonc` (github-copilot only; Build uses GPT-5.6 Sol xhigh,
+  Plan uses Claude Fable 5 high, and the small/title model is GPT-5.6 Terra high), TUI
   `tui.jsonc` (`auto_scroll_tolerance` is a custom patched key). Instructions:
   `instructions/lootbox.md`, `instructions/subagents.md`.
 - **Tooling is subagent-first** and routed through the local **lootbox** MCP server
   (port 9420, launchd-managed). Namespaces: `mcp_codedb`, `mcp_fff`,
   `mcp_chrome_devtools`, `mcp_context7`. Write reusable `.ts` scripts to
-  `.lootbox/scripts/`. `just lootbox-server|-kill|-restart`.
-- The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with ONLY
-  two patches: `patches/opencode-compact-tui.patch` and
-  `patches/opencode-scroll-autofollow.patch`. The root `*.patch` files (Copilot
+  `.lootbox/scripts/`. Nix provides Deno/codedb/fff-mcp; a pinned updater builds
+  Lootbox and npm MCP CLIs. `just lootbox-server|-kill|-restart|-check|update-lootbox`.
+- The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with
+  three patches: `patches/opencode-compact-tui.patch`,
+  `patches/opencode-scroll-autofollow.patch`, and
+  `patches/opencode-plan-permissions-reminder.patch`. The root `*.patch` files (Copilot
   Business/Enterprise, compaction, OpenAI response-id, edit-read) are NOT applied —
   they're local reference snapshots (already carried by the `anomalyco/opencode/dev`
   input). Read them before touching opencode auth/session/TUI behavior.
-- Slash commands live in `commands/` (`/fix`, `/why`).
+- Slash commands live in `commands/` (`/gha-fix`, `/gha-why`). Run
+  `./symlink-commands` to install them globally; use `--dry-run` to preview.
 
 ## Skills in this repo
 
 Repo-local agent skills live in `.agents/skills/<name>/SKILL.md` (a plain
 git-tracked directory, same layout as the global `~/.agents/skills` that opencode
 auto-scans on boot — not a symlink). Add new skills there; opencode picks them up
-automatically. Currently shipped: **nix-config** (this skill).
+automatically. Currently shipped: **nix-config** (this skill) and
+**update-opencode** (updates the flake input and preserves active patch behavior).
 
 ## Gotchas
 

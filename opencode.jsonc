@@ -25,14 +25,14 @@
   "enabled_providers": ["github-copilot"],
   // "default_agent": "octto",
   "model": "github-copilot/gpt-5.6-sol",
-  "small_model": "github-copilot/gpt-5.6-luna",
+  "small_model": "github-copilot/gpt-5.6-terra",
   "provider": {
     "github-copilot": {
-      // Disable models per policy: any gpt < 5.6, any claude < 4.8, any gemini < 3.1.
+      // Disable models per policy: any gpt < 5.6, any claude < 4.8, and all Gemini,
+      // Kimi, and MAI models.
       // Blacklist entries are exact upstream (models.dev) model ids; unknown ids are
-      // harmless no-ops. Kept enabled: gpt-5.6-{sol,terra,luna}, claude-opus-4.8,
-      // claude-fable-5, claude-sonnet-5, gemini-3.1-pro-preview, gemini-3.5-flash,
-      // kimi-k2.7-code, mai-code-1-flash-picker.
+      // harmless no-ops. Kept enabled: gpt-5.6-{sol,terra,luna}, claude-fable-5,
+      // and claude-sonnet-5.
       "blacklist": [
         // gpt < 5.6
         "gpt-4.1",
@@ -51,12 +51,19 @@
         "claude-opus-4.6-fast",
         "claude-opus-4.7",
         "claude-opus-4.7-fast",
+        "claude-opus-4.8",
+        "claude-opus-4.8-fast",
         "claude-sonnet-4",
         "claude-sonnet-4.5",
         "claude-sonnet-4.6",
         // gemini < 3.1
         "gemini-2.5-pro",
         "gemini-3-flash-preview",
+        // disabled model families
+        "gemini-3.1-pro-preview",
+        "gemini-3.5-flash",
+        "kimi-k2.7-code",
+        "mai-code-1-flash-picker",
       ],
       "models": {
         // ---------------------------------------------------------------
@@ -137,6 +144,101 @@
       },
     },
   },
+  "agent": {
+    "build": {
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "xhigh",
+    },
+    "plan": {
+      "model": "github-copilot/claude-fable-5",
+      "variant": "high",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "task": "allow",
+      },
+    },
+    "general": {
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "high",
+    },
+    "explore": {
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "high",
+    },
+    "scout": {
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "high",
+    },
+    // Compaction inherits the active conversation model and variant.
+    // The summary agent currently does not make an LLM call.
+    // "compaction": {
+    //   "model": "github-copilot/gpt-5.6-sol",
+    //   "variant": "high",
+    // },
+    // "summary": {
+    //   "model": "github-copilot/gpt-5.6-sol",
+    //   "variant": "high",
+    // },
+    "luna-medium": {
+      "description": "Fast, low-cost worker for bounded utility tasks, extraction, formatting, and simple transformations. Relative capability 57/100; about 5s completion; about $0.39 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.6-luna",
+      "variant": "medium",
+    },
+    "terra-high": {
+      "description": "Fast tool-heavy worker for codebase exploration, terminal tasks, and routine implementation. Relative capability 72/100; about 7s completion; about $0.89 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.6-terra",
+      "variant": "high",
+    },
+    "sol-medium": {
+      "description": "Efficient strong coding worker for general implementation and debugging with low latency. Relative capability 80/100; about 14s completion; about $1.95 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "medium",
+    },
+    "sol-high": {
+      "description": "Strong interactive coding worker for difficult debugging, terminal agents, and multi-step implementation. Relative capability 86/100; about 17s completion; about $2.79 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "high",
+    },
+    "sol-xhigh": {
+      "description": "Advanced reasoning worker for hard agentic tasks that need predictable sub-minute execution. Relative capability 94/100; about 39s completion; about $3.88 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "xhigh",
+    },
+    "sol-max": {
+      "description": "Maximum-effort Sol worker for frontier tasks where quality matters more than latency. Relative capability 98/100; about 135s completion; about $5.69 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "max",
+    },
+    "fable-low": {
+      "description": "Fast frontier specialist for difficult repository bugs, diagnosis, and first-pass patch correctness. Relative capability 88/100; roughly 10-22s completion with variable latency; about $4.46 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/claude-fable-5",
+      "variant": "low",
+    },
+    "fable-medium": {
+      "description": "Frontier coding worker for hard multi-file engineering with balanced Fable cost and depth. Relative capability 92/100; roughly 12-43s completion with high variance; about $6.80 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/claude-fable-5",
+      "variant": "medium",
+    },
+    "fable-high": {
+      "description": "Quality-first frontier worker for architecture, migrations, difficult patches, and deep review. Relative capability 95/100; roughly 13-39s completion with variable latency; about $8.77 per CursorBench task.",
+      "mode": "subagent",
+      "model": "github-copilot/claude-fable-5",
+      "variant": "high",
+    },
+    "title": {
+      "model": "github-copilot/gpt-5.6-terra",
+      "variant": "high",
+    },
+  },
   // "agent": {
   // "build": {
   //   "mode": "subagent",
@@ -170,8 +272,8 @@
   //   },
   // },
   "instructions": [
-    ".opencode/instructions/lootbox.md",
-    ".opencode/instructions/subagents.md",
+    "~/.config/opencode/instructions/lootbox.md",
+    "~/.config/opencode/instructions/subagents.md",
   ],
   "compaction": {
     "reserved": 8192,

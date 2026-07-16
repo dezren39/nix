@@ -1,4 +1,8 @@
-# Why
+---
+description: Explain why a GitHub Actions run succeeded and verify that its success is genuine.
+---
+
+# GitHub Actions Why
 
 Analyze a successful GitHub Actions job or other job/command/etc to understand WHY it succeeded - what changed, how it differs from other branches/PRs, and whether the success is genuine (all steps ran properly).
 
@@ -592,7 +596,7 @@ When creating any file:
 
 ## Safety Rules
 
-1. **READ-ONLY by default** - This skill is for analysis, not modification
+1. **READ-ONLY by default** - This command is for analysis, not modification
 2. **Never** commit, push, or modify code without explicit permission
 3. **Never** re-run jobs or trigger workflows
 4. **Never** modify PRs without explicit confirmation

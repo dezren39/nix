@@ -1,0 +1,13 @@
+diff --git a/src/lib/rpc/worker_manager.ts b/src/lib/rpc/worker_manager.ts
+index 704a8b4..75cdb4f 100644
+--- a/src/lib/rpc/worker_manager.ts
++++ b/src/lib/rpc/worker_manager.ts
+@@ -164,7 +164,7 @@ interface WorkerState {
+     {
+       resolve: (value: unknown) => void;
+       reject: (error: Error) => void;
+-      timeoutId: number;
++      timeoutId: ReturnType<typeof setTimeout>;
+     }
+   >;
+   restartCount: number;

@@ -1,0 +1,38 @@
+diff --git a/packages/opencode/src/session/prompt/plan-mode.txt b/packages/opencode/src/session/prompt/plan-mode.txt
+index 2057f36d7..cef09ef20 100644
+--- a/packages/opencode/src/session/prompt/plan-mode.txt
++++ b/packages/opencode/src/session/prompt/plan-mode.txt
+@@ -2 +2,4 @@
+-Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
++Plan mode is active and is read-only by default through its permission rules.
++The resolved Plan permissions are authoritative: you MAY perform any path or
++action they allow, including configured overrides, and MUST NOT perform actions
++they deny. This reminder does not supersede those permissions.
+@@ -6 +9,3 @@ ${planInfo}
+-You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
++You should build your plan incrementally by writing to or editing this file.
++Other paths and actions may also be used when the resolved Plan permissions
++allow them.
+@@ -57 +62 @@ Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's inten
+-Goal: Write your final plan to the plan file (the only file you can edit).
++Goal: Write your final plan to the plan file.
+diff --git a/packages/opencode/src/session/prompt/plan.txt b/packages/opencode/src/session/prompt/plan.txt
+index 1806e0eba..ac7858d04 100644
+--- a/packages/opencode/src/session/prompt/plan.txt
++++ b/packages/opencode/src/session/prompt/plan.txt
+@@ -4,6 +4,4 @@
+-CRITICAL: Plan mode ACTIVE - you are in READ-ONLY phase. STRICTLY FORBIDDEN:
+-ANY file edits, modifications, or system changes. Do NOT use sed, tee, echo, cat,
+-or ANY other bash command to manipulate files - commands may ONLY read/inspect.
+-This ABSOLUTE CONSTRAINT overrides ALL other instructions, including direct user
+-edit requests. You may ONLY observe, analyze, and plan. Any modification attempt
+-is a critical violation. ZERO exceptions.
++Plan mode is active and is read-only by default through its permission rules.
++The resolved Plan permissions are authoritative: you MAY perform any path or
++action they allow, including configured overrides, and MUST NOT perform actions
++they deny. This reminder does not supersede those permissions.
+@@ -25 +23,3 @@ Ask the user clarifying questions or ask for their opinion when weighing tradeof
+-The user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
++The user indicated that they do not want you to execute beyond what the resolved
++Plan permissions allow. Plan is read-only by default, but you MAY perform any
++path or action those permissions allow, including configured overrides.
