@@ -1,0 +1,7 @@
+export async function ping() {
+  return {
+    ok: true
+  };
+}
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vcHJpdmF0ZS92YXIvZm9sZGVycy9rOS9rMmtzcnRrMTc0ZzRsbWJjbmZ2bjR4djQwMDAwZ3AvVC9vcGVuY29kZS9sb290Ym94LXNtb2tlLy5sb290Ym94L3Rvb2xzL3Rlc3QudHMiXSwic291cmNlc0NvbnRlbnQiOlsiZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIHBpbmcoKTogUHJvbWlzZTx7IG9rOiBib29sZWFuIH0+IHtcbiAgcmV0dXJuIHsgb2s6IHRydWUgfTtcbn1cbiJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQSxPQUFPLGVBQWU7RUFDcEIsT0FBTztJQUFFLElBQUk7RUFBSztBQUNwQiJ9
+// denoCacheMetadata=5242892366900418031,5436854109984413955

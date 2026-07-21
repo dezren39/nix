@@ -1,0 +1,6 @@
+await tools.mcp_chrome_devtools.navigate_page({ url: "http://localhost:8080/bulk-pages/V3M-LG" });
+await new Promise(r => setTimeout(r, 4000));
+const result = await tools.mcp_chrome_devtools.evaluate_script({
+  "function": "() => { const grid = document.getElementById('bp-grid'); return JSON.stringify({ classes: grid?.className, agBg: grid ? getComputedStyle(grid).getPropertyValue('--ag-background-color').trim() : 'N/A', rootBg: grid?.querySelector('.ag-root-wrapper') ? getComputedStyle(grid.querySelector('.ag-root-wrapper')).backgroundColor : 'N/A' }); }"
+});
+console.log(JSON.stringify(result, null, 2));

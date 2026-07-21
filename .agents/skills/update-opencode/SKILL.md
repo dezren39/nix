@@ -157,6 +157,26 @@ Likely upstream-equivalence signals that require the human gate:
   permission rules;
 - the hardcoded read-only reminder is replaced by permission-aware instructions.
 
+### `patches/opencode-hidden-agent-variants.patch`
+
+Intent: hidden/internal agents with an explicitly configured variant use that
+variant instead of inheriting the originating user turn's variant. This allows
+compaction and title generation to select independent reasoning effort.
+
+Required behavior:
+
+- A hidden agent with an explicit variant resolves options from that variant.
+- A hidden agent without an explicit variant preserves upstream inheritance.
+- Non-hidden agents preserve upstream user-turn variant behavior.
+- Small hidden calls, including title generation, may use an explicit variant.
+- Compaction message metadata records its effective configured variant.
+
+Likely upstream-equivalence signals that require the human gate:
+
+- request preparation natively gives internal agent variants precedence;
+- compaction and title expose another supported independent effort setting;
+- compaction no longer derives its variant from the originating user message.
+
 ## Update workflow
 
 ### 1. Protect current work
@@ -225,6 +245,7 @@ rg 'scroll_acceleration|auto_scroll|tolerance' packages/tui
 rg 'paddingLeft|paddingRight|paddingTop|paddingBottom|marginTop|gap=' packages/tui/src
 rg 'kv\.signal<"auto" \| "hide">\("sidebar"' packages/tui
 rg 'only file|supersedes|resolved Plan permissions' packages/opencode/src/session/prompt
+rg 'variantName|agent\.variant|userMessage\.model\.variant' packages/opencode/src/session
 ```
 
 ### 5. Regenerate the smallest correct patches
@@ -259,6 +280,8 @@ perform static checks for the invariants. Specifically confirm:
 - `tui.jsonc` matches the implemented setting name and semantics.
 - legacy and experimental Plan reminders defer to resolved permissions and do
   not claim the generated plan file is the only writable path.
+- explicitly configured hidden-agent variants take precedence while ordinary
+  agent and hidden-agent fallback behavior remains unchanged.
 
 Do not claim runtime UI behavior was manually observed unless it actually was.
 Static source verification plus a successful build should be reported as such.

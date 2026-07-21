@@ -1,0 +1,35 @@
+# Deno cache
+/cache/
+__cache__/
+deno_dir/
+analysis
+.DS_Store
+.lootbox/scripts
+.lootbox/workflows
+
+# Logs
+*.log
+
+# Dependency directories
+node_modules/
+npm/
+
+.env
+
+# RPC storage (all RPC data stored under this directory)
+storage/
+
+rpc-server
+.claude
+script-history/
+lootbox
+lootbox.exe
+lootbox.config.json
+docs/plans/
+!docs/examples/
+.opencode/
+result
+docs/plans
+.opencode
+plans/
+thoughts/

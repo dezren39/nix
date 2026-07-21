@@ -1,0 +1,31 @@
+diff --git a/packages/opencode/src/session/compaction.ts b/packages/opencode/src/session/compaction.ts
+index 907025e2d..84c102e21 100644
+--- a/packages/opencode/src/session/compaction.ts
++++ b/packages/opencode/src/session/compaction.ts
+@@ -360,7 +360,7 @@ export namespace SessionCompaction {
+         sessionID: input.sessionID,
+         mode: "compaction",
+         agent: "compaction",
+-        variant: userMessage.model.variant,
++        variant: agent.variant ?? userMessage.model.variant,
+         summary: true,
+         path: {
+           cwd: ctx.directory,
+diff --git a/packages/opencode/src/session/llm/request.ts b/packages/opencode/src/session/llm/request.ts
+index cb1e975a7..38c1a4d61 100644
+--- a/packages/opencode/src/session/llm/request.ts
++++ b/packages/opencode/src/session/llm/request.ts
+@@ -77,10 +77,9 @@ export const prepare = Effect.fn(function* (input: LLMInput) {
+     system.push(header, rest.join("\n"))
+   }
+ 
+-  const variant =
+-    !input.small && input.model.variants && input.user.model.variant
+-      ? input.model.variants[input.user.model.variant]
+-      : {}
++  const variantName =
++    input.agent.hidden && input.agent.variant ? input.agent.variant : !input.small ? input.user.model.variant : undefined
++  const variant = input.model.variants && variantName ? input.model.variants[variantName] : {}
+   const base = input.small
+     ? ProviderTransform.smallOptions(input.model)
+     : ProviderTransform.options({

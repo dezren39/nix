@@ -1,0 +1,8 @@
+{
+  "server": {
+    "port": 3000,
+    "lootboxRoot": ".lootbox",
+    "timeout": 30000,
+    "rpcTimeout": 60000
+  }
+}

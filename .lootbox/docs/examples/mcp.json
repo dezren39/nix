@@ -1,0 +1,42 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx"
+      },
+      "health": {
+        "checkInterval": 15000,
+        "maxReconnectAttempts": 10,
+        "reconnectBackoffBase": 1000,
+        "maxReconnectBackoff": 30000,
+        "checkTimeout": 3000
+      },
+      "multiClient": {
+        "strategy": "auto-port",
+        "portRange": [9300, 9399],
+        "portArgPattern": "--port"
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "remote-api": {
+      "transport": "streamable_http",
+      "url": "https://mcp.example.com/api"
+    },
+    "legacy-sse": {
+      "transport": "sse",
+      "url": "https://mcp-legacy.example.com/events"
+    }
+  }
+}

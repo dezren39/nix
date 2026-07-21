@@ -145,8 +145,10 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 
 ## 5. OpenCode integration
 
-- **`opencode.jsonc`** — `github-copilot` only. Primary model
-  `github-copilot/gpt-5.6-sol`, small `github-copilot/gpt-5.6-luna`. Uses
+- **`opencode.jsonc`** — `github-copilot` only. Build uses GPT-5.6 Sol xhigh,
+  Plan uses Claude Fable 5 high, native subagents and compaction use GPT-5.6 Sol
+  medium, and title generation uses GPT-5.6 Luna medium. The top-level small
+  model remains GPT-5.6 Terra. Uses
   upstream model metadata and blacklists GPT < 5.6, Claude < 4.8, and Gemini <
   3.1. Loads instructions
   `.opencode/instructions/{lootbox,subagents}.md`. Plugins (npm): opencode-notifier,
@@ -157,7 +159,8 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 - **`instructions/`** — `lootbox.md` (all MCP tooling via local lootbox server on
   :9420; write reusable `.ts` to `.lootbox/scripts/`; namespaces `mcp_codedb`,
   `mcp_fff`, `mcp_chrome_devtools`, `mcp_context7`); `subagents.md` (subagent-first
-  workflow; types explore/general/build/plan/bootstrapper/probe).
+  workflow; native subagents `explore` and `general`, plus configured custom
+  capability tiers).
 - **`commands/`** — `/gha-fix` (diagnose+fix a failed GitHub Actions job, with
   production-safety gating) and `/gha-why` (analyze a *successful* job).
   `./symlink-commands` installs missing global command symlinks safely.
@@ -172,8 +175,11 @@ Applied to the opencode build (`patches/`, via `opencodePatches`):
   scroll (auto-follow only when near bottom).
 - **opencode-plan-permissions-reminder.patch** — makes legacy and experimental Plan
   reminders honor resolved Plan permissions while preserving read-only defaults.
+- **opencode-hidden-agent-variants.patch** — makes an explicitly configured hidden
+  agent variant authoritative, allowing compaction and title generation to use
+  independent reasoning effort.
 
-Root `*.patch` files are **NOT applied by the flake** (only the three `patches/`
+Root `*.patch` files are **NOT applied by the flake** (only the four `patches/`
 above are). They are local snapshots/reference for fixes that are already carried
 by the `anomalyco/opencode/dev` input. Read before touching related behavior:
 - **opencode-copilot-business-support.patch** — Copilot Business/Enterprise: `ghu_`

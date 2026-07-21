@@ -1,0 +1,2 @@
+const r = await tools.mcp_chrome_devtools.evaluate_script({ function: "function() { var gridEl = document.getElementById('vc-pr-detail-grid'); var headers = gridEl.querySelectorAll('.ag-header-cell'); var headerTexts = []; headers.forEach(function(h) { headerTexts.push(h.textContent.trim()); }); var overlay = gridEl.querySelector('.ag-overlay-no-rows-center'); return JSON.stringify({ headerCount: headers.length, headers: headerTexts, noRowsMsg: overlay ? overlay.textContent : null }); }" });
+console.log(r.content[0].text);

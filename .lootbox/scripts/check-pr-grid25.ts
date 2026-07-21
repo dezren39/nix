@@ -1,0 +1,2 @@
+const r = await tools.mcp_chrome_devtools.evaluate_script({ function: "function() { return JSON.stringify({ hasPrSummary: typeof window.PrSummaryGrid !== 'undefined', hasInitPr: typeof window.initPrSummaryGrid !== 'undefined', prGridEl: !!document.getElementById('vc-pr-detail-grid'), prGridInner: document.getElementById('vc-pr-detail-grid').innerHTML.substring(0, 100) }); }" });
+console.log(r.content[0].text);

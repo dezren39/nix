@@ -160,26 +160,16 @@
     },
     "general": {
       "model": "github-copilot/gpt-5.6-sol",
-      "variant": "high",
+      "variant": "medium",
     },
     "explore": {
       "model": "github-copilot/gpt-5.6-sol",
-      "variant": "high",
+      "variant": "medium",
     },
-    "scout": {
+    "compaction": {
       "model": "github-copilot/gpt-5.6-sol",
-      "variant": "high",
+      "variant": "medium",
     },
-    // Compaction inherits the active conversation model and variant.
-    // The summary agent currently does not make an LLM call.
-    // "compaction": {
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "high",
-    // },
-    // "summary": {
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "high",
-    // },
     "luna-medium": {
       "description": "Fast, low-cost worker for bounded utility tasks, extraction, formatting, and simple transformations. Relative capability 57/100; about 5s completion; about $0.39 per CursorBench task.",
       "mode": "subagent",
@@ -235,9 +225,11 @@
       "variant": "high",
     },
     "title": {
-      "model": "github-copilot/gpt-5.6-terra",
-      "variant": "high",
+      "model": "github-copilot/gpt-5.6-luna",
+      "variant": "medium",
     },
+    // Summary computes snapshot/file diffs without making an LLM call.
+    "summary": {},
   },
   // "agent": {
   // "build": {

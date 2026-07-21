@@ -1,0 +1,88 @@
+{
+  "server": {
+    "port": 3000,
+    "lootboxRoot": ".lootbox",
+    "lootboxDataDir": "./data",
+    "timeout": 30000,
+    "rpcTimeout": 60000,
+    "permissions": {
+      "defaults": true,
+      "allow": ["read=/tmp", "env=HOME"],
+      "deny": ["write=/etc"]
+    },
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"],
+        "env": {
+          "NODE_ENV": "production"
+        },
+        "health": {
+          "checkInterval": 15000,
+          "maxReconnectAttempts": 10
+        }
+      },
+      "github": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {
+          "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx"
+        },
+        "health": {
+          "checkInterval": 10000,
+          "maxReconnectAttempts": 3,
+          "reconnectBackoffBase": 1000,
+          "maxReconnectBackoff": 30000,
+          "checkTimeout": 3000
+        },
+        "multiClient": {
+          "strategy": "auto-port",
+          "portRange": [9300, 9399],
+          "portArgPattern": "--port"
+        }
+      },
+      "memory": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-memory"]
+      },
+      "remote-api": {
+        "transport": "streamable_http",
+        "url": "https://mcp.example.com/api"
+      },
+      "legacy-sse": {
+        "transport": "sse",
+        "url": "https://mcp-legacy.example.com/events"
+      }
+    }
+  },
+  "client": {
+    "serverUrl": "ws://localhost:3000/ws",
+    "clientTimeout": 35000,
+    "clientTimeoutBuffer": 5000
+  },
+  "global": {
+    "port": 3000
+  },
+  "hazmat": {
+    "server": {
+      "workerReadyTimeout": 30000,
+      "workerShutdownGrace": 500,
+      "fileWatchDebounce": 100,
+      "maxWorkerBackoff": 30000,
+      "maxWorkerRestarts": 0,
+      "mcpHealthCheckInterval": 30000,
+      "mcpMaxReconnectAttempts": 5,
+      "mcpReconnectBackoffBase": 2000,
+      "mcpMaxReconnectBackoff": 60000,
+      "mcpHealthCheckTimeout": 5000,
+      "mcpDefaultMultiClientStrategy": "warn"
+    },
+    "client": {
+      "workflowStateFile": ".lootbox-workflow.json",
+      "reconnectDelay": 1000
+    },
+    "global": {
+      "wsPath": "/ws"
+    }
+  }
+}

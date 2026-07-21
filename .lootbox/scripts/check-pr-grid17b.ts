@@ -1,0 +1,2 @@
+const r = await tools.mcp_chrome_devtools.evaluate_script({ function: "function() { var gridEl = document.getElementById('vc-pr-detail-grid'); if (!gridEl) return 'NO GRID EL'; var rows = gridEl.querySelectorAll('.ag-row'); return JSON.stringify({ gridH: gridEl.offsetHeight, rowCount: rows.length, hasApi: !!gridEl.__agGridApi, parentH: gridEl.parentElement.offsetHeight }); }" });
+console.log(JSON.stringify(r, null, 2));

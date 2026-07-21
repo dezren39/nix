@@ -1,0 +1,2 @@
+const r = await tools.mcp_chrome_devtools.evaluate_script({ function: "function() { try { var result = window.initPrSummaryGrid({ badgeContainerId: 'vc-pr-summary', gridContainerId: 'vc-pr-detail-grid', gridWrapperId: 'vc-pr-grid-wrapper', apiBase: '/api/support-actions/vod-config', instanceKey: null, repoOwner: '', repoName: '' }); return 'called: ' + JSON.stringify(result); } catch(e) { return 'ERROR: ' + e.message + ' at ' + e.stack; } }" });
+console.log(r.content[0].text);

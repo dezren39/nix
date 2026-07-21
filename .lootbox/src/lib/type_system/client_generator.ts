@@ -1,0 +1,780 @@
+// Client code generation from extracted types
+
+import type { ExtractionResult } from "./types.ts";
+import {
+  DEFAULT_PORT,
+  DEFAULT_WS_PATH,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_AUTO_DISCONNECT_DELAY_MS,
+  DEFAULT_TOOL_FILE_EXTENSION,
+} from "../constants.ts";
+
+export interface ClientGeneratorOptions {
+  includeInterfaces: boolean;
+  clientClassName: string;
+  websocketUrl: string;
+  timeout: number;
+  autoDisconnectDelay: number;
+}
+
+export interface NamespaceInfo {
+  name: string;
+  functionCount: number;
+  description: string;
+  useWhen: string;
+  tags: string[];
+}
+
+export class ClientGenerator {
+  private defaultOptions: ClientGeneratorOptions = {
+    includeInterfaces: true,
+    clientClassName: "RpcClient",
+    websocketUrl: `ws://localhost:${DEFAULT_PORT}${DEFAULT_WS_PATH}`,
+    timeout: DEFAULT_TIMEOUT_MS,
+    autoDisconnectDelay: DEFAULT_AUTO_DISCONNECT_DELAY_MS,
+  };
+
+  /**
+   * Generate complete RPC client code
+   */
+  generateFullClient(
+    extractionResults: ExtractionResult[],
+    options: Partial<ClientGeneratorOptions> = {}
+  ): string {
+    const opts = { ...this.defaultOptions, ...options };
+
+    let code = this.generateHeader();
+
+    if (opts.includeInterfaces) {
+      code += this.generateInterfaces(extractionResults);
+    }
+
+    code += this.generateRpcClientInterface(extractionResults);
+    code += this.generateClientImplementation(opts);
+    code += this.generateTypedProxy(extractionResults, opts);
+
+    return code;
+  }
+
+  /**
+   * Generate complete RPC client code with MCP integration
+   */
+  generateFullClientWithMcp(
+    rpcResults: ExtractionResult[],
+    mcpResults: ExtractionResult[],
+    options: Partial<ClientGeneratorOptions> = {}
+  ): string {
+    const opts = { ...this.defaultOptions, ...options };
+
+    // Merge RPC and MCP results
+    const allResults = [...rpcResults, ...mcpResults];
+
+    let code = this.generateHeader();
+
+    if (opts.includeInterfaces) {
+      code += this.generateInterfaces(allResults);
+    }
+
+    code += this.generateRpcClientInterfaceWithMcp(rpcResults, mcpResults);
+    code += this.generateClientImplementation(opts);
+    code += this.generateTypedProxyWithMcp(rpcResults, mcpResults, opts);
+
+    return code;
+  }
+
+  /**
+   * Generate only the TypeScript types
+   */
+  generateTypesOnly(extractionResults: ExtractionResult[]): string {
+    let code = this.generateHeader();
+    code += this.generateInterfaces(extractionResults);
+    code += this.generateRpcClientInterface(extractionResults);
+    code += this.generateRpcMessage();
+    return code;
+  }
+
+  /**
+   * Generate only types with MCP integration
+   */
+  generateTypesOnlyWithMcp(
+    rpcResults: ExtractionResult[],
+    mcpResults: ExtractionResult[]
+  ): string {
+    const allResults = [...rpcResults, ...mcpResults];
+    let code = this.generateHeader();
+    code += this.generateInterfaces(allResults);
+    code += this.generateRpcClientInterfaceWithMcp(rpcResults, mcpResults);
+    code += this.generateRpcMessage();
+    return code;
+  }
+
+  /**
+   * Generate lightweight type summary for LLM consumption
+   */
+  generateTypesSummary(
+    rpcResults: ExtractionResult[],
+    mcpResults: ExtractionResult[],
+    port: number
+  ): string {
+    let code = ``;
+    const allResults = [...rpcResults, ...mcpResults];
+    code += this.generateInterfaces(allResults);
+    code += this.generateRpcClientInterfaceWithMcp(rpcResults, mcpResults);
+
+    return code;
+  }
+
+  /**
+   * Generate file header
+   */
+  private generateHeader(): string {
+    return `// Auto-generated RPC types and client
+// This file is generated automatically - do not edit manually
+
+`;
+  }
+
+  /**
+   * Generate interface definitions with filename prefixes
+   */
+  private generateInterfaces(results: ExtractionResult[]): string {
+    let code = "";
+
+    for (const result of results) {
+      const namespace = this.extractNamespace(result.sourceFile);
+      const prefix = this.capitalizeNamespace(namespace);
+
+      for (const iface of result.interfaces) {
+        code += `export interface ${prefix}_${iface.name} {\n`;
+
+        for (const prop of iface.properties) {
+          const optional = prop.isOptional ? "?" : "";
+          const prefixedType = this.prefixTypesInResult(
+            prop.type,
+            result,
+            prefix
+          );
+          code += `  ${prop.name}${optional}: ${prefixedType};\n`;
+        }
+
+        code += "}\n\n";
+      }
+    }
+
+    return code;
+  }
+
+  /**
+   * Capitalize namespace for prefixing
+   * Also sanitizes to ensure valid TypeScript identifiers
+   */
+  private capitalizeNamespace(namespace: string): string {
+    const sanitized = namespace.replace(/[^a-zA-Z0-9_]/g, "_");
+    return sanitized.charAt(0).toUpperCase() + sanitized.slice(1);
+  }
+
+  /**
+   * Extract namespace from source file path
+   */
+  private extractNamespace(sourceFile: string): string {
+    const filename = sourceFile.split("/").pop() || sourceFile;
+    return filename.replace(DEFAULT_TOOL_FILE_EXTENSION, "").replace(/[^a-zA-Z0-9]/g, "_");
+  }
+
+  /**
+   * Group functions by namespace
+   */
+  private groupFunctionsByNamespace(
+    results: ExtractionResult[]
+  ): Record<string, ExtractionResult[]> {
+    const grouped: Record<string, ExtractionResult[]> = {};
+
+    for (const result of results) {
+      const namespace = this.extractNamespace(result.sourceFile);
+      if (!grouped[namespace]) {
+        grouped[namespace] = [];
+      }
+      grouped[namespace].push(result);
+    }
+
+    return grouped;
+  }
+
+  /**
+   * Generate RPC client interface with namespaces
+   */
+  private generateRpcClientInterface(results: ExtractionResult[]): string {
+    const grouped = this.groupFunctionsByNamespace(results);
+    let code = "export interface RpcClient {\n";
+
+    for (const [namespace, namespaceResults] of Object.entries(grouped)) {
+      code += `  ${namespace}: {\n`;
+
+      for (const result of namespaceResults) {
+        const prefix = this.capitalizeNamespace(namespace);
+
+        for (const func of result.functions) {
+          const returnType = this.prefixTypesInResult(
+            this.formatReturnType(func.returnType, func.isAsync),
+            result,
+            prefix
+          );
+
+          // Handle 0 or 1 parameters
+          if (func.parameters.length === 0) {
+            code += `    ${func.name}(): ${returnType};\n`;
+          } else {
+            const param = func.parameters[0];
+            const paramType = this.prefixTypesInResult(
+              this.extractDataType(param.type),
+              result,
+              prefix
+            );
+            code += `    ${func.name}(${param.name}: ${paramType}): ${returnType};\n`;
+          }
+        }
+      }
+
+      code += `  };\n`;
+    }
+
+    code += "}\n\n";
+    return code;
+  }
+
+  /**
+   * Prefix interface names from this specific result
+   */
+  private prefixTypesInResult(
+    typeString: string,
+    result: ExtractionResult,
+    prefix: string
+  ): string {
+    let updatedType = typeString;
+
+    for (const iface of result.interfaces) {
+      const regex = new RegExp(`\\b${iface.name}\\b`, "g");
+      updatedType = updatedType.replace(regex, `${prefix}_${iface.name}`);
+    }
+
+    return updatedType;
+  }
+
+  /**
+   * Extract the args parameter type directly
+   */
+  private extractDataType(argsType: string): string {
+    // The args type should already be in the correct format from validation
+    return argsType;
+  }
+
+  /**
+   * Format return type
+   */
+  private formatReturnType(returnType: string, isAsync: boolean): string {
+    if (isAsync) {
+      return returnType; // Already Promise<T>
+    }
+
+    if (returnType.startsWith("Promise<")) {
+      return returnType; // Already a promise
+    }
+
+    return `Promise<${returnType}>`;
+  }
+
+  /**
+   * Generate client implementation
+   */
+  private generateClientImplementation(
+    options: ClientGeneratorOptions
+  ): string {
+    return `export interface RpcClientConfig {
+  url?: string;
+  timeout?: number;
+  autoReconnect?: boolean;
+}
+
+class SimpleRpcClient {
+  private ws?: WebSocket;
+  private pendingCalls = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: number }>();
+  private callId = 0;
+  private connected = false;
+  private connectionPromise?: Promise<void>;
+
+  async connect(): Promise<void> {
+    // Already connected with valid WebSocket
+    if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    // Connection in progress - return existing promise
+    if (this.connectionPromise) {
+      return this.connectionPromise;
+    }
+
+    // Create new connection attempt
+    this.connectionPromise = new Promise<void>((resolve, reject) => {
+      this.ws = new WebSocket("${options.websocketUrl}");
+
+      this.ws.onopen = () => {
+        this.connected = true;
+        resolve();
+      };
+
+      this.ws.onerror = () => {
+        this.connected = false;
+        reject(new Error("WebSocket connection failed"));
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const response = JSON.parse(event.data);
+
+          if (response.type === "welcome") {
+            return;
+          }
+
+          if (response.id && this.pendingCalls.has(response.id)) {
+            const call = this.pendingCalls.get(response.id)!;
+            this.pendingCalls.delete(response.id);
+            clearTimeout(call.timeout);
+
+            if (response.error) {
+              call.reject(new Error(response.error));
+            } else {
+              call.resolve(response.result);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to parse response:", error);
+        }
+      };
+
+      this.ws.onclose = () => {
+        this.connected = false;
+      };
+    }).finally(() => {
+      // Clear connection promise after completion or failure
+      this.connectionPromise = undefined;
+    });
+
+    return this.connectionPromise;
+  }
+
+  async call(method: string, args: unknown): Promise<unknown> {
+    // Ensure connection is established
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+
+    const id = \`call_\${++this.callId}\`;
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingCalls.delete(id);
+        reject(new Error(\`RPC timeout: \${method}\`));
+      }, ${options.timeout});
+
+      this.pendingCalls.set(id, { resolve, reject, timeout });
+
+      this.ws!.send(JSON.stringify({
+        method,
+        args,
+        id
+      }));
+    });
+  }
+
+  disconnect(): void {
+    if (this.ws) {
+      this.ws.close();
+    }
+  }
+}
+
+const client = new SimpleRpcClient();
+
+`;
+  }
+
+  /**
+   * Generate RPC client interface with MCP integration
+   */
+  private generateRpcClientInterfaceWithMcp(
+    rpcResults: ExtractionResult[],
+    mcpResults: ExtractionResult[]
+  ): string {
+    const rpcGrouped = this.groupFunctionsByNamespace(rpcResults);
+    const mcpGrouped = this.groupFunctionsByNamespace(mcpResults);
+
+    let code = "export interface RpcClient {\n";
+
+    // Add RPC namespaces
+    for (const [namespace, namespaceResults] of Object.entries(rpcGrouped)) {
+      code += `  ${namespace}: {\n`;
+
+      for (const result of namespaceResults) {
+        const prefix = this.capitalizeNamespace(namespace);
+
+        for (const func of result.functions) {
+          const returnType = this.prefixTypesInResult(
+            this.formatReturnType(func.returnType, func.isAsync),
+            result,
+            prefix
+          );
+
+          // Handle 0 or 1 parameters
+          if (func.parameters.length === 0) {
+            code += `    ${func.name}(): ${returnType};\n`;
+          } else {
+            const param = func.parameters[0];
+            const paramType = this.prefixTypesInResult(
+              this.extractDataType(param.type),
+              result,
+              prefix
+            );
+            code += `    ${func.name}(${param.name}: ${paramType}): ${returnType};\n`;
+          }
+        }
+      }
+
+      code += `  };\n`;
+    }
+
+    // Add MCP namespaces
+    for (const [namespace, namespaceResults] of Object.entries(mcpGrouped)) {
+      code += `  mcp_${namespace}: {\n`;
+
+      for (const result of namespaceResults) {
+        const prefix = this.capitalizeNamespace(namespace);
+
+        for (const func of result.functions) {
+          const returnType = this.prefixTypesInResult(
+            this.formatReturnType(func.returnType, func.isAsync),
+            result,
+            prefix
+          );
+
+          // Handle 0 or 1 parameters
+          if (func.parameters.length === 0) {
+            code += `    ${func.name}(): ${returnType};\n`;
+          } else {
+            const param = func.parameters[0];
+            const paramType = this.prefixTypesInResult(
+              this.extractDataType(param.type),
+              result,
+              prefix
+            );
+            code += `    ${func.name}(${param.name}: ${paramType}): ${returnType};\n`;
+          }
+        }
+      }
+
+      code += `  };\n`;
+    }
+
+    code += "}\n\n";
+    return code;
+  }
+
+  /**
+   * Generate typed proxy with namespaces
+   */
+  private generateTypedProxy(results: ExtractionResult[], options: ClientGeneratorOptions): string {
+    const grouped = this.groupFunctionsByNamespace(results);
+
+    return `// Track active calls for auto-disconnect
+let activeCalls = 0;
+let disconnectTimer: number | null = null;
+
+// Helper function to create RPC call
+function createRpcCall(method: string) {
+  return async (args: unknown) => {
+    activeCalls++;
+
+    // Clear any pending disconnect timer
+    if (disconnectTimer !== null) {
+      clearTimeout(disconnectTimer);
+      disconnectTimer = null;
+    }
+
+    try {
+      return await client.call(method, args);
+    } finally {
+      activeCalls--;
+
+      // If no more active calls, schedule disconnect after a short delay
+      if (activeCalls === 0) {
+        disconnectTimer = setTimeout(() => {
+          client.disconnect();
+        }, ${options.autoDisconnectDelay}); // auto-disconnect delay for quick successive calls
+      }
+    }
+  };
+}
+
+// Create namespaced tools client
+export const tools: RpcClient = {
+${Object.entries(grouped)
+  .map(([namespace, namespaceResults]) => {
+    const functions = namespaceResults.flatMap((result) => {
+      const prefix = this.capitalizeNamespace(namespace);
+      return result.functions.map((func) => {
+        const returnType = this.prefixTypesInResult(
+          this.formatReturnType(func.returnType, func.isAsync),
+          result,
+          prefix
+        );
+
+        // Handle 0 or 1 parameters
+        let typedSignature: string;
+        if (func.parameters.length === 0) {
+          typedSignature = `() => ${returnType}`;
+        } else {
+          const param = func.parameters[0];
+          const paramType = this.prefixTypesInResult(
+            this.extractDataType(param.type),
+            result,
+            prefix
+          );
+          typedSignature = `(${param.name}: ${paramType}) => ${returnType}`;
+        }
+
+        return {
+          ...func,
+          typedSignature,
+        };
+      });
+    });
+    const functionCalls = functions
+      .map(
+        (func) =>
+          `    ${func.name}: createRpcCall("${namespace}.${func.name}") as ${func.typedSignature}`
+      )
+      .join(",\n");
+
+    return `  ${namespace}: {\n${functionCalls}\n  }`;
+  })
+  .join(",\n")}
+};
+`;
+  }
+
+  /**
+   * Generate typed proxy with MCP integration
+   */
+  private generateTypedProxyWithMcp(
+    rpcResults: ExtractionResult[],
+    mcpResults: ExtractionResult[],
+    options: ClientGeneratorOptions
+  ): string {
+    const rpcGrouped = this.groupFunctionsByNamespace(rpcResults);
+    const mcpGrouped = this.groupFunctionsByNamespace(mcpResults);
+
+    const proxySections: string[] = [];
+
+    // Generate RPC sections
+    for (const [namespace, namespaceResults] of Object.entries(rpcGrouped)) {
+      const functions = namespaceResults.flatMap((result) => {
+        const prefix = this.capitalizeNamespace(namespace);
+        return result.functions.map((func) => {
+          const returnType = this.prefixTypesInResult(
+            this.formatReturnType(func.returnType, func.isAsync),
+            result,
+            prefix
+          );
+
+          // Handle 0 or 1 parameters
+          let typedSignature: string;
+          if (func.parameters.length === 0) {
+            typedSignature = `() => ${returnType}`;
+          } else {
+            const param = func.parameters[0];
+            const paramType = this.prefixTypesInResult(
+              this.extractDataType(param.type),
+              result,
+              prefix
+            );
+            typedSignature = `(${param.name}: ${paramType}) => ${returnType}`;
+          }
+
+          return {
+            ...func,
+            typedSignature,
+          };
+        });
+      });
+
+      const functionCalls = functions
+        .map(
+          (func) =>
+            `    ${func.name}: createRpcCall("${namespace}.${func.name}") as ${func.typedSignature}`
+        )
+        .join(",\n");
+
+      proxySections.push(`  ${namespace}: {\n${functionCalls}\n  }`);
+    }
+
+    // Generate MCP sections
+    for (const [namespace, namespaceResults] of Object.entries(mcpGrouped)) {
+      const functions = namespaceResults.flatMap((result) => {
+        const prefix = this.capitalizeNamespace(namespace);
+        return result.functions.map((func) => {
+          const returnType = this.prefixTypesInResult(
+            this.formatReturnType(func.returnType, func.isAsync),
+            result,
+            prefix
+          );
+
+          // Handle 0 or 1 parameters
+          let typedSignature: string;
+          if (func.parameters.length === 0) {
+            typedSignature = `() => ${returnType}`;
+          } else {
+            const param = func.parameters[0];
+            const paramType = this.prefixTypesInResult(
+              this.extractDataType(param.type),
+              result,
+              prefix
+            );
+            typedSignature = `(${param.name}: ${paramType}) => ${returnType}`;
+          }
+
+          return {
+            ...func,
+            typedSignature,
+          };
+        });
+      });
+
+      const functionCalls = functions
+        .map(
+          (func) =>
+            `    ${func.name}: createRpcCall("mcp_${namespace}.${func.name}") as ${func.typedSignature}`
+        )
+        .join(",\n");
+
+      proxySections.push(`  mcp_${namespace}: {\n${functionCalls}\n  }`);
+    }
+
+    return `// Track active calls for auto-disconnect
+let activeCalls = 0;
+let disconnectTimer: number | null = null;
+
+// Helper function to create RPC call
+function createRpcCall(method: string) {
+  return async (args: unknown) => {
+    activeCalls++;
+
+    // Clear any pending disconnect timer
+    if (disconnectTimer !== null) {
+      clearTimeout(disconnectTimer);
+      disconnectTimer = null;
+    }
+
+    try {
+      return await client.call(method, args);
+    } finally {
+      activeCalls--;
+
+      // If no more active calls, schedule disconnect after a short delay
+      if (activeCalls === 0) {
+        disconnectTimer = setTimeout(() => {
+          client.disconnect();
+        }, ${options.autoDisconnectDelay}); // auto-disconnect delay for quick successive calls
+      }
+    }
+  };
+}
+
+// Create namespaced tools client
+export const tools: RpcClient = {
+${proxySections.join(",\n")}
+};
+`;
+  }
+
+  /**
+   * Generate RPC message types
+   */
+  private generateRpcMessage(): string {
+    return `export interface RpcMessage {
+  method: keyof RpcClient;
+  args?: unknown[];
+  id?: string;
+}
+
+export interface RpcResponse {
+  result?: unknown;
+  error?: string;
+  id?: string;
+}
+`;
+  }
+
+  /**
+   * Group functions by namespace and return available namespace names
+   */
+  getAvailableNamespaces(
+    rpcResults: ExtractionResult[],
+    mcpResults: ExtractionResult[]
+  ): Array<{ name: string; functionCount: number }> {
+    const rpcGrouped = this.groupFunctionsByNamespace(rpcResults);
+    const mcpGrouped = this.groupFunctionsByNamespace(mcpResults);
+
+    // Build unified namespace list with function counts
+    const rpcNamespaces = Object.entries(rpcGrouped).map(([name, results]) => ({
+      name,
+      functionCount: results.reduce((sum, r) => sum + r.functions.length, 0),
+    }));
+
+    const mcpNamespaces = Object.entries(mcpGrouped).map(([name, results]) => ({
+      name: `mcp_${name}`,
+      functionCount: results.reduce((sum, r) => sum + r.functions.length, 0),
+    }));
+
+    return [...rpcNamespaces, ...mcpNamespaces];
+  }
+
+  /**
+   * Get namespace metadata including function counts and meta information
+   */
+  getNamespaceMetadata(
+    rpcResults: ExtractionResult[],
+    mcpResults: ExtractionResult[]
+  ): NamespaceInfo[] {
+    const rpcGrouped = this.groupFunctionsByNamespace(rpcResults);
+    const mcpGrouped = this.groupFunctionsByNamespace(mcpResults);
+
+    const buildNamespaceInfo = (
+      grouped: Record<string, ExtractionResult[]>,
+      addPrefix: boolean = false
+    ): NamespaceInfo[] => {
+      return Object.entries(grouped).map(([namespace, results]) => {
+        // Count total functions across all results in this namespace
+        const functionCount = results.reduce(
+          (sum, result) => sum + result.functions.length,
+          0
+        );
+
+        // Find the first result with metadata (usually there's only one file per namespace)
+        const metaResult = results.find((r) => r.meta);
+        const meta = metaResult?.meta;
+
+        return {
+          name: addPrefix ? `mcp_${namespace}` : namespace,
+          functionCount,
+          description: meta?.description || "",
+          useWhen: meta?.useWhen || "",
+          tags: meta?.tags || [],
+        };
+      });
+    };
+
+    return [
+      ...buildNamespaceInfo(rpcGrouped, false),
+      ...buildNamespaceInfo(mcpGrouped, true),
+    ];
+  }
+}

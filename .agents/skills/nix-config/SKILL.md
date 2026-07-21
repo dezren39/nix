@@ -73,7 +73,8 @@ Where things go:
 ## OpenCode / Copilot / lootbox
 
 - Config: `opencode.jsonc` (github-copilot only; Build uses GPT-5.6 Sol xhigh,
-  Plan uses Claude Fable 5 high, and the small/title model is GPT-5.6 Terra high), TUI
+  Plan uses Claude Fable 5 high, native subagents and compaction use GPT-5.6 Sol
+  medium, title uses GPT-5.6 Luna medium, and the top-level small model is Terra), TUI
   `tui.jsonc` (`auto_scroll_tolerance` is a custom patched key). Instructions:
   `instructions/lootbox.md`, `instructions/subagents.md`.
 - **Tooling is subagent-first** and routed through the local **lootbox** MCP server
@@ -82,9 +83,10 @@ Where things go:
   `.lootbox/scripts/`. Nix provides Deno/codedb/fff-mcp; a pinned updater builds
   Lootbox and npm MCP CLIs. `just lootbox-server|-kill|-restart|-check|update-lootbox`.
 - The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with
-  three patches: `patches/opencode-compact-tui.patch`,
+  four patches: `patches/opencode-compact-tui.patch`,
   `patches/opencode-scroll-autofollow.patch`, and
-  `patches/opencode-plan-permissions-reminder.patch`. The root `*.patch` files (Copilot
+  `patches/opencode-plan-permissions-reminder.patch`, and
+  `patches/opencode-hidden-agent-variants.patch`. The root `*.patch` files (Copilot
   Business/Enterprise, compaction, OpenAI response-id, edit-read) are NOT applied —
   they're local reference snapshots (already carried by the `anomalyco/opencode/dev`
   input). Read them before touching opencode auth/session/TUI behavior.

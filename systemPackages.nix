@@ -140,6 +140,7 @@
       # Patches: PR #11197, #18879, #20758, #20848
       inputs.self.packages.${system}.opencode
       # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
+      inputs.self.packages.${system}.lootbox-link
       inputs.self.packages.${system}.opencode-share
       openjdk
       openssh

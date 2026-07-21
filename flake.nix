@@ -247,6 +247,7 @@ rec {
       ./patches/opencode-compact-tui.patch
       ./patches/opencode-scroll-autofollow.patch
       ./patches/opencode-plan-permissions-reminder.patch
+      ./patches/opencode-hidden-agent-variants.patch
     ];
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
@@ -290,6 +291,7 @@ rec {
             ./patches/lootbox-ui-dir.patch
           ];
         };
+        lootbox-link = import ./pkgs/lootbox-link { inherit pkgs; };
         opencode-share = import ./pkgs/opencode-share { inherit pkgs; };
         symlinker = import ./pkgs/symlinker {
           inherit pkgs;
@@ -330,6 +332,10 @@ rec {
         lootbox-update = {
           type = "app";
           program = "${selfPkgs.lootbox-update}/bin/lootbox-update";
+        };
+        lootbox-link = {
+          type = "app";
+          program = "${selfPkgs.lootbox-link}/bin/lootbox-link";
         };
         opencode = {
           type = "app";

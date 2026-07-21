@@ -1,0 +1,5 @@
+await tools.mcp_chrome_devtools.navigate_page({ url: "http://localhost:8080/support-actions/edit-vod-customer-config?_t=" + Date.now() });
+await new Promise(r => setTimeout(r, 4000));
+
+const r = await tools.mcp_chrome_devtools.evaluate_script({ function: "function() { var yaml = '# VOD Config\\ncustomer_number: 100\\ncustomer_long_name: Acme Corp # company name\\ndeployment_ring: ring1\\n# Infrastructure\\nappserver_count: 3\\n'; var container = document.createElement('div'); document.body.appendChild(container); var currentYaml = yaml; globalThis.__configForm.init(container, function() { return currentYaml; }, function(y) { currentYaml = y; }, {}); var input = container.querySelector('[data-yaml-key=\"customer_long_name\"]'); input.value = 'New Corp'; input.dispatchEvent(new Event('change')); var result = currentYaml; container.remove(); return JSON.stringify({ result: result, numberUnchanged: result.indexOf('customer_number: 100') > -1 && result.indexOf('customer_number: \"100\"') === -1 }); }" });
+console.log(r.content[0].text);
