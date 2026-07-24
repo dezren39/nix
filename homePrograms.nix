@@ -284,6 +284,7 @@ in
       enableZshIntegration = true;
       enableBashIntegration = true;
       enableFishIntegration = true;
+      historyWidget.command = "";
       defaultOptions = [
         "--height 40%"
         "--border"
