@@ -177,6 +177,49 @@ Likely upstream-equivalence signals that require the human gate:
 - compaction and title expose another supported independent effort setting;
 - compaction no longer derives its variant from the originating user message.
 
+### `patches/opencode-run-descendant-permissions.patch`
+
+Intent: port anomalyco/opencode#36898 so headless `opencode run` applies its
+existing `--auto` approve or non-auto reject policy to permission requests from
+any descendant Task session, rather than ignoring the request and hanging.
+
+Required behavior:
+
+- Session create/update events incrementally identify descendants of the root.
+- Missed events are recovered by walking `parentID` with cycle protection.
+- Unrelated session permission requests remain ignored.
+- Descendant lineage lookups are bounded and cached.
+- A failed lineage lookup aborts the pending root request and makes a bounded
+  best-effort server abort instead of leaving the command blocked.
+- Both prompt and command requests observe that abort signal.
+
+Likely upstream-equivalence signals that require the human gate:
+
+- anomalyco/opencode#36898 or equivalent descendant-aware headless permission
+  handling is merged;
+- permission requests are routed to a root session before the CLI receives them.
+
+### `patches/opencode-nested-subagent-prompts.patch`
+
+Intent: port the runtime portions of anomalyco/opencode#36046 so permission and
+question prompts from nested subagent chains are visible in the root TUI and the
+interactive CLI footer tracks the full descendant tree.
+
+Required behavior:
+
+- TUI permission/question collection traverses the full root-session subtree.
+- Child session views do not duplicate prompts collected by the root view.
+- Traversal is cycle-safe and does not cross unrelated session trees.
+- Interactive CLI bootstrap discovers descendants recursively.
+- Live nested Task events register grandchild and deeper subagent tabs.
+- Existing direct-child tab navigation remains unchanged.
+
+Likely upstream-equivalence signals that require the human gate:
+
+- anomalyco/opencode#36046 or equivalent full-subtree prompt collection and CLI
+  footer tracking is merged;
+- nested permission prompts are centrally routed to the root session.
+
 ## Update workflow
 
 ### 1. Protect current work
@@ -246,6 +289,8 @@ rg 'paddingLeft|paddingRight|paddingTop|paddingBottom|marginTop|gap=' packages/t
 rg 'kv\.signal<"auto" \| "hide">\("sidebar"' packages/tui
 rg 'only file|supersedes|resolved Plan permissions' packages/opencode/src/session/prompt
 rg 'variantName|agent\.variant|userMessage\.model\.variant' packages/opencode/src/session
+rg 'isSessionInTree|permission\.sessionID !== sessionID' packages/opencode/src/cli/cmd/run.ts
+rg 'collectDescendantSessions|collectSubtree|knownSession' packages/opencode/src/cli/cmd/run packages/tui/src/routes/session
 ```
 
 ### 5. Regenerate the smallest correct patches
@@ -282,6 +327,10 @@ perform static checks for the invariants. Specifically confirm:
   not claim the generated plan file is the only writable path.
 - explicitly configured hidden-agent variants take precedence while ordinary
   agent and hidden-agent fallback behavior remains unchanged.
+- headless descendant permission requests receive the root run's approval policy
+  and ancestry failures abort rather than hang.
+- nested permission/question prompts and live subagent state surface across the
+  full descendant tree without changing direct-child navigation.
 
 Do not claim runtime UI behavior was manually observed unless it actually was.
 Static source verification plus a successful build should be reported as such.

@@ -23,7 +23,7 @@
     "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz",
   ],
   "enabled_providers": ["github-copilot"],
-  // "default_agent": "octto",
+  "default_agent": "build",
   "model": "github-copilot/gpt-5.6-sol",
   "small_model": "github-copilot/gpt-5.6-terra",
   "provider": {
@@ -147,7 +147,7 @@
   "agent": {
     "build": {
       "model": "github-copilot/gpt-5.6-sol",
-      "variant": "xhigh",
+      "variant": "high",
     },
     "plan": {
       "model": "github-copilot/claude-fable-5",
@@ -155,7 +155,9 @@
       "permission": {
         "edit": "allow",
         "bash": "allow",
-        "task": "allow",
+        "task": {
+          "*": "allow",
+        },
       },
     },
     "general": {
@@ -176,11 +178,17 @@
       "model": "github-copilot/gpt-5.6-luna",
       "variant": "medium",
     },
-    "terra-high": {
-      "description": "Fast tool-heavy worker for codebase exploration, terminal tasks, and routine implementation. Relative capability 72/100; about 7s completion; about $0.89 per CursorBench task.",
+    // "terra-high": {
+    //   "description": "Fast tool-heavy worker for codebase exploration, terminal tasks, and routine implementation. Relative capability 72/100; about 7s completion; about $0.89 per CursorBench task.",
+    //   "mode": "primary",
+    //   "model": "github-copilot/gpt-5.6-terra",
+    //   "variant": "high",
+    // },
+    "sol-low": {
+      "description": "Low-effort Sol subagent for quick, straightforward coding and research tasks.",
       "mode": "subagent",
-      "model": "github-copilot/gpt-5.6-terra",
-      "variant": "high",
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "low",
     },
     "sol-medium": {
       "description": "Efficient strong coding worker for general implementation and debugging with low latency. Relative capability 80/100; about 14s completion; about $1.95 per CursorBench task.",
@@ -194,18 +202,18 @@
       "model": "github-copilot/gpt-5.6-sol",
       "variant": "high",
     },
-    "sol-xhigh": {
-      "description": "Advanced reasoning worker for hard agentic tasks that need predictable sub-minute execution. Relative capability 94/100; about 39s completion; about $3.88 per CursorBench task.",
-      "mode": "subagent",
-      "model": "github-copilot/gpt-5.6-sol",
-      "variant": "xhigh",
-    },
-    "sol-max": {
-      "description": "Maximum-effort Sol worker for frontier tasks where quality matters more than latency. Relative capability 98/100; about 135s completion; about $5.69 per CursorBench task.",
-      "mode": "subagent",
-      "model": "github-copilot/gpt-5.6-sol",
-      "variant": "max",
-    },
+    // "sol-xhigh": {
+    //   "description": "Primary-only advanced reasoning agent for hard agentic tasks that need predictable sub-minute execution. Relative capability 94/100; about 39s completion; about $3.88 per CursorBench task.",
+    //   "mode": "primary",
+    //   "model": "github-copilot/gpt-5.6-sol",
+    //   "variant": "xhigh",
+    // },
+    // "sol-max": {
+    //   "description": "Primary-only maximum-effort Sol agent for frontier tasks where quality matters more than latency. Relative capability 98/100; about 135s completion; about $5.69 per CursorBench task.",
+    //   "mode": "primary",
+    //   "model": "github-copilot/gpt-5.6-sol",
+    //   "variant": "max",
+    // },
     "fable-low": {
       "description": "Fast frontier specialist for difficult repository bugs, diagnosis, and first-pass patch correctness. Relative capability 88/100; roughly 10-22s completion with variable latency; about $4.46 per CursorBench task.",
       "mode": "subagent",
@@ -218,18 +226,18 @@
       "model": "github-copilot/claude-fable-5",
       "variant": "medium",
     },
-    "fable-high": {
-      "description": "Quality-first frontier worker for architecture, migrations, difficult patches, and deep review. Relative capability 95/100; roughly 13-39s completion with variable latency; about $8.77 per CursorBench task.",
-      "mode": "subagent",
-      "model": "github-copilot/claude-fable-5",
-      "variant": "high",
-    },
+    // "fable-high": {
+    //   "description": "Primary-only quality-first agent for architecture, migrations, difficult patches, and deep review. Relative capability 95/100; roughly 13-39s completion with variable latency; about $8.77 per CursorBench task.",
+    //   "mode": "primary",
+    //   "model": "github-copilot/claude-fable-5",
+    //   "variant": "high",
+    // },
     "title": {
       "model": "github-copilot/gpt-5.6-luna",
       "variant": "medium",
     },
     // Summary computes snapshot/file diffs without making an LLM call.
-    "summary": {},
+    // "summary": {},
   },
   // "agent": {
   // "build": {

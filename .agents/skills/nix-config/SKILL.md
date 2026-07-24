@@ -83,10 +83,12 @@ Where things go:
   `.lootbox/scripts/`. Nix provides Deno/codedb/fff-mcp; a pinned updater builds
   Lootbox and npm MCP CLIs. `just lootbox-server|-kill|-restart|-check|update-lootbox`.
 - The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with
-  four patches: `patches/opencode-compact-tui.patch`,
+  six patches: `patches/opencode-compact-tui.patch`,
   `patches/opencode-scroll-autofollow.patch`, and
   `patches/opencode-plan-permissions-reminder.patch`, and
-  `patches/opencode-hidden-agent-variants.patch`. The root `*.patch` files (Copilot
+  `patches/opencode-hidden-agent-variants.patch`,
+  `patches/opencode-run-descendant-permissions.patch`, and
+  `patches/opencode-nested-subagent-prompts.patch`. The root `*.patch` files (Copilot
   Business/Enterprise, compaction, OpenAI response-id, edit-read) are NOT applied —
   they're local reference snapshots (already carried by the `anomalyco/opencode/dev`
   input). Read them before touching opencode auth/session/TUI behavior.
