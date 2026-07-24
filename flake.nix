@@ -248,6 +248,7 @@ rec {
       ./patches/opencode-scroll-autofollow.patch
       ./patches/opencode-plan-permissions-reminder.patch
       ./patches/opencode-hidden-agent-variants.patch
+      ./patches/opencode-agent-variant-defaults.patch
       ./patches/opencode-run-descendant-permissions.patch
       ./patches/opencode-nested-subagent-prompts.patch
     ];

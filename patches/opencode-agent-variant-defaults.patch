@@ -1,0 +1,18 @@
+diff --git a/packages/tui/src/context/local.tsx b/packages/tui/src/context/local.tsx
+--- a/packages/tui/src/context/local.tsx
++++ b/packages/tui/src/context/local.tsx
+@@ -364,7 +364,13 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
+             const m = currentModel()
+             if (!m) return undefined
+             const key = `${m.providerID}/${m.modelID}`
+-            return modelStore.variant[key]
++            const selected = modelStore.variant[key]
++            if (selected !== undefined) return selected
++            const a = agent.current()
++            if (!a?.model || a.model.providerID !== m.providerID || a.model.modelID !== m.modelID) {
++              return undefined
++            }
++            return a.variant
+           },
+           current() {
+             const v = this.selected()

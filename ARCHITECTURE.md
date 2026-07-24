@@ -178,6 +178,8 @@ Applied to the opencode build (`patches/`, via `opencodePatches`):
 - **opencode-hidden-agent-variants.patch** — makes an explicitly configured hidden
   agent variant authoritative, allowing compaction and title generation to use
   independent reasoning effort.
+- **opencode-agent-variant-defaults.patch** — makes a visible agent's configured
+  variant the TUI default when no explicit per-model preference has been saved.
 - **opencode-run-descendant-permissions.patch** — ports anomalyco/opencode#36898 so
   headless `opencode run` approves or rejects permission requests from any
   descendant Task session instead of hanging.
@@ -185,7 +187,7 @@ Applied to the opencode build (`patches/`, via `opencodePatches`):
   anomalyco/opencode#36046 so nested subagent prompts and status surface in the
   TUI and interactive CLI footer.
 
-Root `*.patch` files are **NOT applied by the flake** (only the six `patches/`
+Root `*.patch` files are **NOT applied by the flake** (only the seven `patches/`
 above are). They are local snapshots/reference for fixes that are already carried
 by the `anomalyco/opencode/dev` input. Read before touching related behavior:
 - **opencode-copilot-business-support.patch** — Copilot Business/Enterprise: `ghu_`

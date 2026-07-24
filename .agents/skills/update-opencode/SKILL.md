@@ -177,6 +177,24 @@ Likely upstream-equivalence signals that require the human gate:
 - compaction and title expose another supported independent effort setting;
 - compaction no longer derives its variant from the originating user message.
 
+### `patches/opencode-agent-variant-defaults.patch`
+
+Intent: a visible agent's configured variant is the initial TUI selection when
+the user has not saved an explicit preference for that model.
+
+Required behavior:
+
+- A saved per-model variant, including explicit `default`, takes precedence.
+- Without a saved preference, an agent using its configured model uses its
+  configured variant.
+- An agent-level variant does not apply after selecting a different model.
+- Changing the TUI variant continues to persist the explicit per-model choice.
+
+Likely upstream-equivalence signals that require the human gate:
+
+- the TUI natively falls back to the active agent's configured variant;
+- variant persistence becomes agent-aware while preserving explicit choices.
+
 ### `patches/opencode-run-descendant-permissions.patch`
 
 Intent: port anomalyco/opencode#36898 so headless `opencode run` applies its
