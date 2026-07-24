@@ -66,19 +66,21 @@ flake.nix → ./configuration.nix
 - **Stack inputs:** determinate (Determinate Nix), nix-darwin, home-manager,
   mac-app-util, nix-homebrew (+ brew-src, homebrew-core/cask/bundle/services and
   third-party taps), NUR, fenix (Rust), treefmt-nix, just, nixpkgs-terraform,
-  `opencode` (github:anomalyco/opencode/dev).
+  `opencode` (github:anomalyco/opencode/dev), and `opencode2`
+  (github:anomalyco/opencode/v2).
 - **Input hygiene:** a heavy `follows` graph plus `nixpkgs-hoisted*` inputs keeps
   transitive nixpkgs deduplicated. This is maintained by the custom **flake-tidy**
   tool (§4).
 - **`mkPackages`** (single source of package defs, reused by `packages`, `apps`,
   `devShells`, `checks`): builds `bun-bin`, patches `opencode` (applies
-  `opencodePatches` + swaps in `bun-bin` as the build's bun), and exposes
-  `brew-repair`, `flake-tidy`, `opencode-share`, `symlinker`.
+  `opencodePatches` + swaps in `bun-bin` as the build's bun), builds the v2 CLI
+  from `packages/cli` as `opencode2`, and exposes `brew-repair`, `flake-tidy`,
+  `opencode-share`, `symlinker`.
 - **`opencodePatches`** = `patches/opencode-compact-tui.patch` +
   `patches/opencode-scroll-autofollow.patch` +
   `patches/opencode-plan-permissions-reminder.patch`.
 - **checks:** `formatting` (treefmt) and `tidy` (flake-tidy `--check`).
-- **apps:** `flake-tidy`, `opencode`, `opencode-share`, `symlinker`.
+- **apps:** `flake-tidy`, `opencode`, `opencode2`, `opencode-share`, `symlinker`.
 - **devShell:** opencode, flake-tidy, symlinker, just, nixfmt, git, gh (with a
   version-printing shellHook).
 
@@ -132,6 +134,7 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 | --- | --- | --- | --- |
 | **flake-tidy** ⭐ | Python 3 (~3300 lines) | `writeShellApplication` | Deduplicates/merges/flattens flake inputs by adding `follows`; edits `flake.nix`, reruns `nix flake lock` with backout, reformats. `dedup`/`merge`/`flatten`/`all` subcommands, `--check`/`--dry-run`. **~134 pytest tests** + fixtures. |
 | bun-bin | Nix | `mkDerivation` | Prebuilt Bun (currently 1.3.14); Darwin re-signs via `install_name_tool`+`rcodesign`. Hashes in `hashes.json`. |
+| opencode2 | TypeScript/Bun | `mkDerivation` | Builds the OpenCode 2.0 beta CLI from the tracked upstream `v2` branch as the separate `opencode2` executable. |
 | brew-repair | Bash (+py) | `writeShellScriptBin` | Detects casks brew thinks are installed but whose `.app` is missing; selectively reinstalls. `--dry-run/--quiet/--skip`. |
 | opencode-share | Bash | `writeShellApplication` | Shares one `.opencode` across projects via nested **bindfs** mounts while keeping per-project `plans/`. mount/unmount/status/dry-run. |
 | symlinker | Bash (~1250 lines, source at repo root `symlinker.sh`) | `writeShellApplication` | Bulk symlink manager with backup, undo (v2 RELINK), filters, dry-run. |

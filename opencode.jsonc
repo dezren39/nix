@@ -146,8 +146,9 @@
   },
   "agent": {
     "build": {
-      "model": "github-copilot/gpt-5.6-sol",
-      "variant": "high",
+      "mode": "all",
+      // "model": "github-copilot/gpt-5.6-sol",
+      // "variant": "high",
     },
     "plan": {
       "model": "github-copilot/claude-fable-5",

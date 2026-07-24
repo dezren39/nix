@@ -136,9 +136,10 @@
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
-      # Patched opencode CLI and desktop — defined in flake.nix packages output
+      # OpenCode v1 and v2 CLIs — defined in flake.nix packages output
       # Patches: PR #11197, #18879, #20758, #20848
       inputs.self.packages.${system}.opencode
+      inputs.self.packages.${system}.opencode2
       # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
       inputs.self.packages.${system}.lootbox-link
       inputs.self.packages.${system}.opencode-share

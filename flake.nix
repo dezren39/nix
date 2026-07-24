@@ -136,6 +136,10 @@ rec {
       # inputs.nixpkgs.follows = "nixpkgs";
       inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     };
+    opencode2 = {
+      url = "github:anomalyco/opencode/v2";
+      inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
+    };
     # nixpkgs-helium = {
     #   # https://github.com/NixOS/nixpkgs/pull/498572
     #   url = "github:Nytelife26/nixpkgs/helium/init";
@@ -269,6 +273,12 @@ rec {
           );
         });
 
+        opencode2 = pkgs.callPackage ./pkgs/opencode2/package.nix {
+          inherit bun-bin;
+          opencode2Src = inputs.opencode2;
+          rev = inputs.opencode2.rev;
+        };
+
         # opencode-desktop — disabled: upstream build broken
         # opencode-desktop = inputs.opencode.packages.${system}.desktop;
 
@@ -343,6 +353,10 @@ rec {
         opencode = {
           type = "app";
           program = "${selfPkgs.opencode}/bin/opencode";
+        };
+        opencode2 = {
+          type = "app";
+          program = "${selfPkgs.opencode2}/bin/opencode2";
         };
         opencode-share = {
           type = "app";
