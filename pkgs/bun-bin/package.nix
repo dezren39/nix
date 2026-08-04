@@ -87,7 +87,10 @@ stdenvNoCC.mkDerivation {
     description = "Latest Bun runtime (prebuilt binary)";
     homepage = "https://bun.sh";
     changelog = "https://bun.sh/blog/bun-v${version}";
-    license = with lib.licenses; [ mit lgpl21Only ];
+    license = with lib.licenses; [
+      mit
+      lgpl21Only
+    ];
     sourceProvenance = with lib.sourceTypes; [ binaryNativeCode ];
     mainProgram = "bun";
     platforms = builtins.attrNames hashes;

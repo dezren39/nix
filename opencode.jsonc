@@ -32,7 +32,7 @@
       // Kimi, and MAI models.
       // Blacklist entries are exact upstream (models.dev) model ids; unknown ids are
       // harmless no-ops. Kept enabled: gpt-5.6-{sol,terra,luna}, claude-fable-5,
-      // and claude-sonnet-5.
+      // claude-sonnet-5, and claude-opus-5.
       "blacklist": [
         // gpt < 5.6
         "gpt-4.1",
@@ -66,6 +66,7 @@
         "mai-code-1-flash-picker",
       ],
       "models": {
+        "claude-opus-5": {},
         // ---------------------------------------------------------------
         // Model-limit shaping DISABLED — use each model's upstream (models.dev)
         // limits. Kept commented for reference / easy re-enable. The trailing
@@ -190,6 +191,7 @@
       "mode": "subagent",
       "model": "github-copilot/gpt-5.6-sol",
       "variant": "low",
+      "disable": true,
     },
     "sol-medium": {
       "description": "Efficient strong coding worker for general implementation and debugging with low latency. Relative capability 80/100; about 14s completion; about $1.95 per CursorBench task.",
@@ -199,40 +201,64 @@
     },
     "sol-high": {
       "description": "Strong interactive coding worker for difficult debugging, terminal agents, and multi-step implementation. Relative capability 86/100; about 17s completion; about $2.79 per CursorBench task.",
-      "mode": "subagent",
+      "mode": "primary",
       "model": "github-copilot/gpt-5.6-sol",
       "variant": "high",
     },
-    // "sol-xhigh": {
-    //   "description": "Primary-only advanced reasoning agent for hard agentic tasks that need predictable sub-minute execution. Relative capability 94/100; about 39s completion; about $3.88 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "xhigh",
-    // },
-    // "sol-max": {
-    //   "description": "Primary-only maximum-effort Sol agent for frontier tasks where quality matters more than latency. Relative capability 98/100; about 135s completion; about $5.69 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "max",
-    // },
+    "sol-xhigh": {
+      "description": "Primary-only advanced reasoning agent for hard agentic tasks that need predictable sub-minute execution. Relative capability 94/100; about 39s completion; about $3.88 per CursorBench task.",
+      "mode": "primary",
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "xhigh",
+    },
+    "sol-max": {
+      "description": "Primary-only maximum-effort Sol agent for frontier tasks where quality matters more than latency. Relative capability 98/100; about 135s completion; about $5.69 per CursorBench task.",
+      "mode": "primary",
+      "model": "github-copilot/gpt-5.6-sol",
+      "variant": "max",
+    },
     "fable-low": {
-      "description": "Fast frontier specialist for difficult repository bugs, diagnosis, and first-pass patch correctness. Relative capability 88/100; roughly 10-22s completion with variable latency; about $4.46 per CursorBench task.",
-      "mode": "subagent",
+      "description": "Fast primary agent for difficult repository bugs, diagnosis, and first-pass patch correctness. Relative capability 88/100; roughly 10-22s completion with variable latency; about $4.46 per CursorBench task.",
+      "mode": "primary",
       "model": "github-copilot/claude-fable-5",
       "variant": "low",
     },
     "fable-medium": {
-      "description": "Frontier coding worker for hard multi-file engineering with balanced Fable cost and depth. Relative capability 92/100; roughly 12-43s completion with high variance; about $6.80 per CursorBench task.",
-      "mode": "subagent",
+      "description": "Primary coding agent for hard multi-file engineering with balanced Fable cost and depth. Relative capability 92/100; roughly 12-43s completion with high variance; about $6.80 per CursorBench task.",
+      "mode": "primary",
       "model": "github-copilot/claude-fable-5",
       "variant": "medium",
     },
-    // "fable-high": {
-    //   "description": "Primary-only quality-first agent for architecture, migrations, difficult patches, and deep review. Relative capability 95/100; roughly 13-39s completion with variable latency; about $8.77 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-fable-5",
-    //   "variant": "high",
-    // },
+    "opus-5-med": {
+      "description": "Opus 5 primary agent for complex implementation, debugging, and research tasks.",
+      "mode": "primary",
+      "model": "github-copilot/claude-opus-5",
+      "variant": "medium",
+    },
+    "opus-5-high": {
+      "description": "Opus 5 agent for high-effort implementation, architecture, and deep review.",
+      "mode": "primary",
+      "model": "github-copilot/claude-opus-5",
+      "variant": "high",
+    },
+    "fable-high": {
+      "description": "Primary-only quality-first agent for architecture, migrations, difficult patches, and deep review. Relative capability 95/100; roughly 13-39s completion with variable latency; about $8.77 per CursorBench task.",
+      "mode": "primary",
+      "model": "github-copilot/claude-fable-5",
+      "variant": "high",
+    },
+    "fable-xhigh": {
+      "description": "Primary-only advanced reasoning Fable agent for architecture, migrations, difficult patches, and deep review.",
+      "mode": "primary",
+      "model": "github-copilot/claude-fable-5",
+      "variant": "xhigh",
+    },
+    "fable-max": {
+      "description": "Primary-only maximum-effort Fable agent for the most demanding architecture, implementation, and review tasks.",
+      "mode": "primary",
+      "model": "github-copilot/claude-fable-5",
+      "variant": "max",
+    },
     "title": {
       "model": "github-copilot/gpt-5.6-luna",
       "variant": "medium",

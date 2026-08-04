@@ -116,6 +116,7 @@ rec {
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.rust-analyzer-src.follows = "rust-analyzer-src";
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
     treefmt-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
@@ -178,12 +179,12 @@ rec {
     nixpkgs-23_05.url = "github:nixos/nixpkgs/nixos-23.05-small";
     nixpkgs-24_05.url = "github:nixos/nixpkgs/nixos-24.05-small";
     nixpkgs-lib.url = "github:nix-community/nixpkgs.lib";
-    nixpkgs-regression.url = "github:NixOS/nixpkgs";
-    nixpkgs-hoisted-hoisted.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    nixpkgs-regression.follows = "nixpkgs-23-11";
+    nixpkgs-hoisted-hoisted.follows = "nixpkgs";
     nixpkgs-hoisted-2.url = "https://flakehub.com/f/NixOS/nixpkgs/0.2505";
     nixpkgs-hoisted-3.url = "https://flakehub.com/f/DeterminateSystems/nixpkgs-weekly/0.1";
     nixpkgs-hoisted-4.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixpkgs-hoisted-5.url = "github:NixOS/nixpkgs";
+    nixpkgs-hoisted-5.follows = "nixpkgs-23-11";
     systems-hoisted.url = "github:nix-systems/default-darwin";
     determinate-nixd-aarch64-darwin.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/macOS";
     determinate-nixd-aarch64-darwin.flake = false;
@@ -192,8 +193,10 @@ rec {
     determinate-nixd-x86_64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/x86_64-linux";
     determinate-nixd-x86_64-linux.flake = false;
     gitignore.url = "github:hercules-ci/gitignore.nix";
-    nixpkgs-23-11-hoisted.url = "github:NixOS/nixpkgs";
-    nixpkgs-regression-hoisted.url = "github:NixOS/nixpkgs";
+    nixpkgs-23-11-hoisted.follows = "nixpkgs-23-11";
+    nixpkgs-regression-hoisted.follows = "nixpkgs-23-11";
+    rust-analyzer-src.url = "github:rust-lang/rust-analyzer/nightly";
+    rust-analyzer-src.flake = false;
   };
   outputs = inputs: rec {
     eachSystem =
