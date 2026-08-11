@@ -47,6 +47,12 @@ alt-tab-macos.overrideAttrs (old: {
       [ "-D DEBUG -emit-executable -module-name AltTab" ]
       old.buildPhase;
 
+  postPatch = (old.postPatch or "") + ''
+    # Keep DEBUG's diagnostics available without opening the QA window at launch.
+    substituteInPlace src/App.swift \
+      --replace-fail 'QAMenu.shared?.orderFront(nil)' '// QA menu opens only when requested.'
+  '';
+
   postInstall = (old.postInstall or "") + ''
     app="$out/Applications/AltTab.app"
     mv "$app/Contents/MacOS/AltTab" "$app/Contents/MacOS/AltTab-real"
