@@ -163,7 +163,6 @@ rec {
     flake-parts-hoisted.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
     git-hooks-nix.url = "https://flakehub.com/f/cachix/git-hooks.nix/0.1.941";
     git-hooks-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
-    git-hooks-nix.inputs.gitignore.follows = "gitignore";
     git-hooks-nix.inputs.flake-compat.follows = "flake-compat";
     nix.url = "https://flakehub.com/f/DeterminateSystems/nix-src/%2A";
     nix.inputs.flake-parts.follows = "flake-parts-hoisted";
@@ -173,7 +172,6 @@ rec {
     nix.inputs.nixpkgs-regression.follows = "nixpkgs-23-11";
     nix.inputs.git-hooks-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     nix.inputs.flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
-    nix.inputs.git-hooks-nix.inputs.gitignore.follows = "gitignore";
     nixpkgs-hoisted.url = "github:nixos/nixpkgs/nixos-25.11";
     nixpkgs-23-11.url = "github:NixOS/nixpkgs";
     nixpkgs-23_05.url = "github:nixos/nixpkgs/nixos-23.05-small";
@@ -192,7 +190,6 @@ rec {
     determinate-nixd-aarch64-linux.flake = false;
     determinate-nixd-x86_64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/x86_64-linux";
     determinate-nixd-x86_64-linux.flake = false;
-    gitignore.url = "github:hercules-ci/gitignore.nix";
     nixpkgs-23-11-hoisted.follows = "nixpkgs-23-11";
     nixpkgs-regression-hoisted.follows = "nixpkgs-23-11";
     rust-analyzer-src.url = "github:rust-lang/rust-analyzer/nightly";
@@ -201,9 +198,9 @@ rec {
   outputs = inputs: rec {
     eachSystem =
       f:
-      inputs.nixpkgs.lib.genAttrs (import inputs.systems) (
-        system: f inputs.nixpkgs.legacyPackages.${system}
-      );
+      inputs.nixpkgs.lib.genAttrs (builtins.filter (system: system != "x86_64-darwin") (
+        import inputs.systems
+      )) (system: f inputs.nixpkgs.legacyPackages.${system});
 
     # Per-host configuration; darwin-rebuild matches via scutil --get LocalHostName
     hosts = {

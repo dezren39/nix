@@ -59,6 +59,7 @@ lib.recursiveUpdate {
     overlays = [
       inputs.fenix.overlays.default
       (final: prev: {
+        alt-tab-debug = final.callPackage ./pkgs/alt-tab-debug.nix { };
         noTunes = final.callPackage ./pkgs/noTunes.nix { };
       })
       # Work around cctools ld crashing until nixpkgs#536365 reaches unstable.
