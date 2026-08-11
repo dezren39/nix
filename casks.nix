@@ -2,7 +2,6 @@ _: {
   homebrew.casks = [
     "1password"
     "1password-cli"
-    "alt-tab"
     "amethyst"
     # "angry-ip-scanner" # DEPRECATED — find replacement
     "appcleaner"

@@ -219,6 +219,7 @@
     ]
     ++ [
       # darwin
+      alt-tab-macos
       cctools # install_name_tool, otool, lipo - inspect/fix Mach-O binaries
       aerospace
       dockutil
