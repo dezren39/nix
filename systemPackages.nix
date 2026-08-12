@@ -36,6 +36,7 @@
       aspellDicts.en
       nixfmt
       awscli
+      azure-cli
       direnv
       jujutsu
       lazyjj
