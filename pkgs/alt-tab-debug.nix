@@ -1,44 +1,10 @@
 {
   alt-tab-macos,
-  lib,
-  rcodesign,
-  writeText,
 }:
 
-let
-  launcherSource = writeText "alt-tab-debug-launcher.c" ''
-    #include <limits.h>
-    #include <mach-o/dyld.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <unistd.h>
-
-    int main(int argc, char **argv) {
-      char executable[PATH_MAX];
-      char real_executable[PATH_MAX];
-      uint32_t size = sizeof(executable);
-
-      if (_NSGetExecutablePath(executable, &size) != 0 ||
-          snprintf(real_executable, sizeof(real_executable), "%s-real", executable) >= sizeof(real_executable)) {
-        fputs("Unable to locate the AltTab executable\n", stderr);
-        return 127;
-      }
-
-      char **arguments = calloc((size_t)argc + 2, sizeof(char *));
-      if (arguments == NULL) return 127;
-
-      arguments[0] = real_executable;
-      arguments[1] = "--mock-pro";
-      for (int i = 1; i < argc; i++) arguments[i + 1] = argv[i];
-
-      execv(real_executable, arguments);
-      perror("Unable to launch AltTab");
-      return 127;
-    }
-  '';
-in
 alt-tab-macos.overrideAttrs (old: {
   pname = "alt-tab-debug";
+  patches = (old.patches or [ ]) ++ [ ./alt-tab-debug-defaults.patch ];
 
   # Upstream exposes its local Pro test mode only in DEBUG builds.
   buildPhase =
@@ -48,25 +14,37 @@ alt-tab-macos.overrideAttrs (old: {
       old.buildPhase;
 
   postPatch = (old.postPatch or "") + ''
-    # Keep DEBUG's diagnostics available without opening the QA window at launch.
+    # Keep DEBUG's diagnostics available without opening QA at launch, and use
+    # upstream's mock Pro state for every invocation of this dedicated build.
     substituteInPlace src/App.swift \
-      --replace-fail 'QAMenu.shared?.orderFront(nil)' '// QA menu opens only when requested.'
-  '';
+      --replace-fail 'QAMenu.shared?.orderFront(nil)' '// QA menu opens only when requested.' \
+      --replace-fail 'if CommandLine.arguments.contains("--mock-pro")' 'if true'
 
-  postInstall = (old.postInstall or "") + ''
-    app="$out/Applications/AltTab.app"
-    mv "$app/Contents/MacOS/AltTab" "$app/Contents/MacOS/AltTab-real"
-    "$CC" -Os ${launcherSource} -o "$app/Contents/MacOS/AltTab"
-  '';
+    substituteInPlace src/preferences/Preferences.swift \
+      --replace-fail \
+        '    static func initialize() {' \
+        '    static func initialize() {
+        seedDedicatedBuildDefaultsIfNeeded()' \
+      --replace-fail \
+        '    static func resetAll() {' \
+        '    private static func seedDedicatedBuildDefaultsIfNeeded() {
+        let marker = "dedicatedDefaultsVersion"
+        let defaults = UserDefaults.standard
+        let domain = defaults.persistentDomain(forName: App.bundleIdentifier) ?? [:]
+        guard (domain[marker] as? Int ?? 0) < 1 else { return }
+        for index in [2, 3] {
+            let key = indexToName("shortcutStyleOverride", index)
+            if domain[key] == nil {
+                defaults.set(ShortcutStylePreference.focusOnRelease.indexAsString, forKey: key)
+            }
+        }
+        defaults.set(1, forKey: marker)
+        invalidateAllCache()
+    }
 
-  # Sign the real executable before the original fixup signs the full bundle.
-  postFixup = ''
-    ${lib.getExe rcodesign} sign \
-      --code-signature-flags runtime \
-      --entitlements-xml-file ${old.src}/alt_tab_macos.entitlements \
-      "$out/Applications/AltTab.app/Contents/MacOS/AltTab-real"
-  ''
-  + (old.postFixup or "");
+    static func resetAll() {'
+
+  '';
 
   meta = old.meta // {
     description = "AltTab DEBUG build with upstream mock Pro mode enabled";
