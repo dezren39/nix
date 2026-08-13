@@ -384,6 +384,22 @@
         "type": "github"
       }
     },
+    "homebrew-local-whisper": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784877667,
+        "narHash": "sha256-fIUCa14Oe3JlP7PrTA/3ds9D6+hNoOlxn4/JCRZ/BxE=",
+        "owner": "gabrimatic",
+        "repo": "homebrew-local-whisper",
+        "rev": "36feddcb4235de2ab01fe448f60ae839b2390f18",
+        "type": "github"
+      },
+      "original": {
+        "owner": "gabrimatic",
+        "repo": "homebrew-local-whisper",
+        "type": "github"
+      }
+    },
     "homebrew-services": {
       "flake": false,
       "locked": {
@@ -764,6 +780,7 @@
         "homebrew-core": "homebrew-core",
         "homebrew-firefox-profile-switcher": "homebrew-firefox-profile-switcher",
         "homebrew-fuse": "homebrew-fuse",
+        "homebrew-local-whisper": "homebrew-local-whisper",
         "homebrew-services": "homebrew-services",
         "just": "just",
         "mac-app-util": "mac-app-util",

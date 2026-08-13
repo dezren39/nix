@@ -8,5 +8,6 @@ _: {
     "autoraise"
     "docker-credential-helper"
     "gromgit/fuse/bindfs-mac" # bindfs for macOS — used by opencode-share (requires macfuse cask)
+    "gabrimatic/local-whisper/local-whisper"
   ];
 }

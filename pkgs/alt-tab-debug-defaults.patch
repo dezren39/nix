@@ -15,7 +15,7 @@ diff --git a/src/preferences/Preferences.swift b/src/preferences/Preferences.swi
          (0..<maxShortcutCount).forEach { index in
 -            values[indexToName("holdShortcut", index)] = defaultShortcut("⌥")
 -            values[indexToName("nextWindowShortcut", index)] = defaultShortcut(index == 0 ? "⇥" : (index == 1 ? keyAboveTabDependingOnInputSource() : ""))
-+            values[indexToName("holdShortcut", index)] = defaultShortcut(index < 2 ? "⌘" : "⌥")
++            values[indexToName("holdShortcut", index)] = defaultShortcut(index < 2 ? "⌥" : "⌘")
 +            values[indexToName("nextWindowShortcut", index)] =
 +                defaultShortcut(index.isMultiple(of: 2) ? "⇥" : keyAboveTabDependingOnInputSource())
          }

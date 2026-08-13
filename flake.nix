@@ -105,6 +105,10 @@ rec {
       url = "github:gromgit/homebrew-fuse";
       flake = false;
     };
+    homebrew-local-whisper = {
+      url = "github:gabrimatic/homebrew-local-whisper";
+      flake = false;
+    };
 
     nur = {
       url = "github:nix-community/NUR";

@@ -290,6 +290,7 @@ lib.recursiveUpdate {
       "null-dev/homebrew-firefox-profile-switcher" = inputs.homebrew-firefox-profile-switcher;
       "Dimentium/homebrew-autoraise" = inputs.homebrew-autoraise;
       "gromgit/homebrew-fuse" = inputs.homebrew-fuse;
+      "gabrimatic/homebrew-local-whisper" = inputs.homebrew-local-whisper;
 
     };
     mutableTaps = false;
@@ -303,6 +304,7 @@ lib.recursiveUpdate {
         "null-dev/firefox-profile-switcher/firefox-profile-switcher-connector"
         "dimentium/autoraise/autoraise"
         "gromgit/fuse/bindfs-mac"
+        "gabrimatic/local-whisper/local-whisper"
       ];
     };
   };
