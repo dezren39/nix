@@ -44,6 +44,30 @@ lib.recursiveUpdate {
       installPlannotator = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.curl}/bin/curl -fsSL https://plannotator.ai/install.sh | run ${pkgs.bash}/bin/bash 2>/dev/null || true
       '';
+      installAltTab = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        app="$HOME/Applications/AltTab.app"
+        staging="$HOME/Applications/.AltTab.staging.app"
+        was_running=0
+        /usr/bin/pgrep -x AltTab >/dev/null && was_running=1 || true
+
+        run /usr/bin/killall AltTab 2>/dev/null || true
+        run /bin/rm -rf "$staging"
+        run /usr/bin/ditto "${pkgs.alt-tab-debug}/Applications/AltTab.app" "$staging"
+        run /bin/chmod -R u+w "$staging"
+        run /usr/bin/codesign --force --deep \
+          --sign DB9A68C7370300622592A710E5EA85C5EFA52604 \
+          --options runtime \
+          --preserve-metadata=identifier,entitlements,flags \
+          "$staging"
+        run /usr/bin/codesign --verify --deep --strict "$staging"
+        run /bin/rm -rf "$app"
+        run /bin/mv "$staging" "$app"
+        run /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
+
+        if [ "$was_running" = 1 ]; then
+          run /usr/bin/open "$app"
+        fi
+      '';
     };
     sessionVariables = {
       EDITOR = "code-insiders";

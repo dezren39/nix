@@ -31,14 +31,18 @@ alt-tab-macos.overrideAttrs (old: {
         let marker = "dedicatedDefaultsVersion"
         let defaults = UserDefaults.standard
         let domain = defaults.persistentDomain(forName: App.bundleIdentifier) ?? [:]
-        guard (domain[marker] as? Int ?? 0) < 1 else { return }
+        guard (domain[marker] as? Int ?? 0) < 2 else { return }
         for index in [2, 3] {
             let key = indexToName("shortcutStyleOverride", index)
             if domain[key] == nil {
                 defaults.set(ShortcutStylePreference.focusOnRelease.indexAsString, forKey: key)
             }
+            let previewKey = indexToName("previewFocusedWindowOverride", index)
+            if domain[previewKey] == nil {
+                defaults.set(true, forKey: previewKey)
+            }
         }
-        defaults.set(1, forKey: marker)
+        defaults.set(2, forKey: marker)
         invalidateAllCache()
     }
 
