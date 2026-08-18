@@ -400,6 +400,12 @@ lib.recursiveUpdate {
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
     fi
 
+    # Run the guarded Colima startup check after every switch.
+    primary_uid=$(/usr/bin/id -u ${config.system.primaryUser})
+    /bin/launchctl asuser "$primary_uid" \
+      /usr/bin/sudo -u ${config.system.primaryUser} \
+      /bin/launchctl kickstart "gui/$primary_uid/org.nixos.colima" || true
+
     # =====================================================================
     # Spotlight indexing fixes
     # =====================================================================
@@ -442,6 +448,21 @@ lib.recursiveUpdate {
 
   # TODO: module launchd
   launchd.user.agents = {
+    colima = {
+      path = [ pkgs.colima ];
+      script = ''
+        if ! colima status >/dev/null 2>&1; then
+          colima start
+        fi
+      '';
+      serviceConfig = {
+        EnvironmentVariables.HOME = "/Users/drewry.pope";
+        KeepAlive = false;
+        RunAtLoad = true;
+        StandardErrorPath = "/tmp/colima.err.log";
+        StandardOutPath = "/tmp/colima.out.log";
+      };
+    };
     naturalScrollingToggle = {
       path = [ config.environment.systemPath ];
       serviceConfig = {

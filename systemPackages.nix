@@ -10,8 +10,9 @@
     [
       colima
       doggo
-      docker
+      docker-client
       uv
+      ruff
       docker-compose
       inputs.nixpkgs-terraform.packages.${system}."terraform-1.5.7"
       # possibly not darwin
@@ -38,6 +39,7 @@
       awscli
       azure-cli
       direnv
+      nix-direnv
       jujutsu
       lazyjj
       bandwhich
@@ -87,6 +89,7 @@
       glow
       gnupg
       gnused
+      gnumake
       go
       # golangci # ???
       gomplate
@@ -114,6 +117,7 @@
       k3d
       k9s
       killall
+      kubernetes-helm
       kubectl
       libfido2
       lima
@@ -151,17 +155,26 @@
       pgcli
       # php81
       platformio
-      # playwright-driver # driverLink not supported on darwin
+      playwright-driver.browsers
       # playwright-test  # depends on playwright-driver
       pngquant
       protobuf
       protoc-gen-go
       protoc-gen-go-grpc
       python3
+      bash
       # python39
       # python39Packages.virtualenv
       redis
       ripgrep
+      treefmt
+      shfmt
+      yamlfmt
+      taplo
+      prettier
+      shellcheck
+      hadolint
+      dockerfmt
       # slack
       sops
       sqlite
