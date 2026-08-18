@@ -117,7 +117,9 @@
       k3d
       k9s
       killall
+      argo-workflows
       kubernetes-helm
+      kubernetes-helmPlugins.helm-unittest
       kubectl
       libfido2
       lima
