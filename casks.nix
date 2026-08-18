@@ -79,7 +79,7 @@ _: {
     "windows-app"
     "wireshark-app" # renamed from wireshark
     "zed"
-    "zen-browser"
+    "zen"
     "zoom"
   ];
 }
