@@ -35,6 +35,7 @@ _: {
     "insomnia"
     "iterm2@nightly"
     "keepingyouawake"
+    "keka"
     "keycastr"
     # "libreoffice"
     "logseq"

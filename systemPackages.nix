@@ -196,6 +196,7 @@
       wget
       yarn
       zip
+      zstd
       # zsh-powerlevel10k — replaced by programs.starship (cross-shell, Rust, faster)
       # Rust toolchain via fenix (replaces bare cargo) — stable with all dev components
       (pkgs.fenix.stable.withComponents [
