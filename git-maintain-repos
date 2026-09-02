@@ -1,0 +1,330 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# git-maintain-repos — deep maintenance across every git repo under a path,
+# then hand ongoing upkeep to git's own scheduler.
+
+set -uo pipefail
+
+REFLOG_EXPIRE="${REFLOG_EXPIRE:-1.week.ago}"
+JOBS="${JOBS:-4}"
+PACK_THREADS="${PACK_THREADS:-3}"
+
+usage() {
+  cat <<'EOF'
+git-maintain-repos — deep git maintenance across a tree of repositories
+
+USAGE
+  git-maintain-repos [--auto] [--path DIR] [options]
+  git-maintain-repos --deep DIR
+  git-maintain-repos --system                  (--auto not needed: touches no repos)
+  git-maintain-repos                          show this help
+
+  --deep expires reflogs and prunes unreachable objects, which is NOT
+  reversible. Use --dry-run first if unsure.
+
+OPTIONS
+  --path DIR            Root to scan. May also be given positionally.
+                        Default: ~/git
+
+SCOPE (mutually exclusive; --auto is the default)
+  --auto                Both halves: repositories + system. Names the default;
+                        passing it with --system or --no-system is an error.
+  --system              System half only: install scheduler, report drift.
+                        Touches no repositories, so it is fast enough to run
+                        after every switch (~80 ms).
+  --no-system           Repository half only; skips the scheduler/system setup.
+
+DISCOVERY (shared with clean.sh and spotlight-exclude-artifacts)
+  --recursive           Descend without limit. Default.
+  --no-recursive        Equivalent to --depth 1 (path + direct children).
+  --depth N             Explicit find -maxdepth.
+  --follow              Hop worktree -> real repo -> that repo's other
+                        worktrees, recursively. Default under --auto.
+  --no-follow           Stay put. Default under --path.
+  --repos-only          Output filter, and the default here: maintenance runs
+                        once per REAL repo, because worktrees share the
+                        parent's object store and would repeat the same work.
+  --worktrees-only      Report worktrees instead (diagnostic; rarely useful).
+
+DEPTH (mutually exclusive; the default is neither --quick nor --deep)
+  --quick               Lightest pass that still touches repositories:
+                        commit-graph, loose-objects, pack-refs, register,
+                        gc.auto=0. Rewrites NO packs at all.
+  <none>                The above plus incremental-repack -- the geometric
+                        repack that also refreshes the multi-pack-index.
+                        Still never prunes.
+  --deep                reflog expiry + `gc --prune=now` + full repack.
+                        Reclaims space, NOT reversible. ~3 min across ~/git.
+
+  Together with --system that gives four increasing levels of work:
+    --system   scheduler/config only, no repository is opened
+    --quick    repos touched + registered, but no pack is rewritten
+    <none>     + geometric repack   (the default)
+    --deep     + reflog expiry and pruning
+
+MODIFIERS (apply to --deep and --quick)
+  --fsck                Add `fsck --connectivity-only` (verifies reachability
+                        without rehashing every object, so far cheaper than a
+                        full fsck)
+  --clean-orphans       Delete orphaned packfiles (a .pack with no .idx is
+                        unreadable by git, so it is dead weight). Gated behind
+                        a connectivity check first.
+  --jobs N              Parallel repos (default 4)
+  --pack-threads N      Threads per repack (default 3)
+  --reflog-expire WHEN  Reflog cutoff (default 1.week.ago; "now" = maximum)
+  --no-register         Skip scheduler registration
+  --dry-run             List what would be processed
+  -h, --help            This help
+
+REPO DISCOVERY
+  Delegated to ./git-discover-repos, shared with clean.sh and
+  spotlight-exclude-artifacts. It matches real repos (.git directory), bare
+  repos, and worktrees (.git gitdir-pointer file); prunes the artifact names in
+  lib/common.sh so vendored copies such as node_modules/*/.git are
+  never mistaken for repositories; and with --follow hops worktree -> real repo
+  -> that repo's other worktrees until nothing new appears.
+
+  Only REAL repos are maintained: worktrees share the parent object store, so
+  maintaining each worktree would repeat identical work N times.
+
+QUICK PASS (routine; safe to run often)
+  git maintenance run --task=commit-graph        regenerate generation numbers + Bloom filters
+  git maintenance run --task=loose-objects       fold loose objects into a pack, incrementally
+  git maintenance run --task=incremental-repack  geometric repack + refresh multi-pack-index
+  git maintenance run --task=pack-refs           collapse loose refs into packed-refs
+
+DEEP PASS (periodic; reclaims space)
+  git reflog expire ... --all                    release unreachable objects so prune may drop them
+  git gc --prune=now --force                     full repack + drop unreachable + clear tmp garbage
+  git commit-graph write --reachable ...         rebuild commit-graph after the repack
+  git maintenance register                       add repo to the scheduler's global list
+  git config gc.auto 0                           stop foreground auto-gc stalling commands
+  git config maintenance.auto false              and stop it running mid-command too
+
+ORPHANED PACKFILES
+  A .pack with no matching .idx cannot be read by git at all, so it can never
+  affect a working operation -- but `git gc` refuses to delete it, in case it
+  is a transfer in flight. Normal modes REPORT these. --clean-orphans deletes
+  them, after confirming the live object store is self-consistent.
+
+NOTES
+  multi-pack-index is not written directly: a deep pass ends with one pack, so
+  a MIDX would be pointless. The registered incremental-repack task writes and
+  refreshes it once several packs accumulate again.
+
+  gc --aggressive is never used. It discards existing delta chains and rebuilds
+  with --window=250 --depth=50: hours of CPU, usually single-digit gain, and it
+  can produce worse packs than it replaced.
+
+  Run `git maintenance start` once per machine to install the launchd timers.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+# ${VAR:-default} so the --one child inherits these through the environment
+# instead of having them reset before it reads them.
+SCOPE="${SCOPE:-auto}"
+DEPTH="${DEPTH:-repack}"
+SCOPE_SET=0
+AUTO_SET=0
+FSCK="${FSCK:-0}"
+CLEAN_ORPHANS="${CLEAN_ORPHANS:-0}"
+REGISTER="${REGISTER:-1}"
+DRY_RUN=0
+ROOT=""
+RECURSIVE=1
+DEPTH_LIMIT=""
+FOLLOW=""
+FILTER="--repos-only"
+
+[ $# -eq 0 ] && { usage; exit 0; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --auto) AUTO_SET=1 ;;                        # names the default scope; conflicts with --system/--no-system
+    --path) ROOT="${2:-}"; shift ;;
+    --quick) DEPTH="quick" ;;
+    --deep) DEPTH="deep" ;;
+    --system) SCOPE="system"; SCOPE_SET=1 ;;
+    --no-system) SCOPE="walk"; SCOPE_SET=1 ;;
+    --recursive|--walk) RECURSIVE=1; DEPTH_LIMIT="" ;;
+    --no-recursive|--no-walk) RECURSIVE=0 ;;
+    --depth) DEPTH_LIMIT="${2:-1}"; shift ;;
+    --follow) FOLLOW=1 ;;
+    --no-follow) FOLLOW=0 ;;
+    --repos-only) FILTER="--repos-only" ;;
+    --worktrees-only) FILTER="--worktrees-only" ;;
+    --fsck) FSCK=1 ;;
+    --clean-orphans) CLEAN_ORPHANS=1 ;;
+    --jobs) JOBS="${2:-4}"; shift ;;
+    --pack-threads) PACK_THREADS="${2:-3}"; shift ;;
+    --reflog-expire) REFLOG_EXPIRE="${2:-1.week.ago}"; shift ;;
+    --no-register) REGISTER=0 ;;
+    --dry-run) DRY_RUN=1 ;;
+    -h|--help) usage; exit 0 ;;
+    --one) shift; break ;;                       # internal single-repo mode
+    -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)
+      if [ -z "$ROOT" ]; then ROOT="$1"; else echo "unexpected argument: $1" >&2; exit 2; fi
+      ;;
+  esac
+  shift
+done
+
+# ---------------------------------------------------------------------------
+# Internal single-repo mode (re-entered via xargs for parallelism)
+# ---------------------------------------------------------------------------
+if [ "${GMR_ONE:-0}" = "1" ]; then
+  repo="$1"
+  name="${repo/#$HOME\//~/}"
+  before=$(du -sk "$repo/.git" 2>/dev/null | cut -f1); before=${before:-0}
+
+  if [ "$DEPTH" != "deep" ]; then
+    git -C "$repo" maintenance run --task=commit-graph       2>/dev/null  # generation numbers + Bloom filters
+    git -C "$repo" maintenance run --task=loose-objects      2>/dev/null  # pack loose objects; does not rewrite packs
+    if [ "$DEPTH" != "quick" ]; then
+      git -C "$repo" maintenance run --task=incremental-repack 2>/dev/null # geometric repack + refresh MIDX
+    fi                                                                   # --quick stops short of any repack
+    git -C "$repo" maintenance run --task=pack-refs          2>/dev/null  # collapse loose refs into packed-refs
+  else
+    git -C "$repo" reflog expire --expire="$REFLOG_EXPIRE" \
+      --expire-unreachable="$REFLOG_EXPIRE" --all            2>/dev/null  # release unreachable objects for prune
+    git -C "$repo" -c gc.autoDetach=false -c pack.threads="$PACK_THREADS" \
+      gc --prune=now --force 2>&1 | sed "s|^|  [$name] |"                 # full repack + prune + clear tmp garbage
+    git -C "$repo" commit-graph write --reachable --changed-paths 2>/dev/null  # rebuild graph after repack
+  fi                                                                     # no pack-refs: gc.packRefs defaults true, gc already did it
+
+  if [ "$FSCK" = "1" ] || [ "$CLEAN_ORPHANS" = "1" ]; then
+    git -C "$repo" fsck --connectivity-only --no-dangling --no-progress 2>&1 \
+      | sed "s|^|  [$name fsck] |"                                       # reachability only; no SHA rehash
+    fsck_rc=${PIPESTATUS[0]}
+  else
+    fsck_rc=0
+  fi
+
+  orphans=$(git -C "$repo" count-objects -v 2>/dev/null | awk '/^garbage:/{print $2}')
+  if [ "${orphans:-0}" -gt 0 ]; then
+    obytes=$(git -C "$repo" count-objects -v 2>/dev/null | awk '/^size-garbage:/{print $2}')
+    if [ "$CLEAN_ORPHANS" = "1" ] && [ "$fsck_rc" = "0" ]; then
+      removed=0
+      # count-objects prints these paths relative to the repo, so resolve them
+      # against $repo rather than the caller's cwd.
+      while IFS= read -r f; do
+        case "$f" in /*) : ;; *) f="$repo/$f" ;; esac
+        [ -f "$f" ] && rm -f "$f" && removed=$((removed + 1))            # unreadable without an .idx; safe to drop
+      done < <(git -C "$repo" count-objects -v 2>&1 >/dev/null |
+                 sed -n 's/^warning: no corresponding[^:]*: //p')
+      left=$(git -C "$repo" count-objects -v 2>/dev/null | awk '/^garbage:/{print $2}')
+      printf '  %-50s removed %s/%s orphan pack files (%s MB), %s left\n' \
+        "$name" "$removed" "$orphans" "$((obytes / 1024))" "${left:-?}"
+    else
+      printf '  %-50s NOTE %s orphaned pack files (%s MB) -- use --clean-orphans\n' \
+        "$name" "$orphans" "$((obytes / 1024))"
+    fi
+  fi
+
+  after=$(du -sk "$repo/.git" 2>/dev/null | cut -f1); after=${after:-0}
+  printf '  %-50s %6s MB -> %6s MB\n' "$name" "$((before / 1024))" "$((after / 1024))"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Driver
+# ---------------------------------------------------------------------------
+# `git maintenance start` is idempotent: it rewrites the plists and re-bootstraps,
+# and exits 0 when already installed. Safe to run on every switch.
+ensure_scheduler() {
+  local mc="$HOME/.config/git/maintenance.config"
+  [ -e "$mc" ] || { mkdir -p "$(dirname "$mc")"; printf '[maintenance]\n' > "$mc"; }
+  # launchd *Agents* need a GUI session, which root does not have, so installing
+  # the scheduler as root would create plists that never fire. Config checks below
+  # still apply -- root reads /etc/gitconfig and /var/root/.gitconfig.
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "  running as root: skipping scheduler install (launchd agents need a GUI session)"
+  else
+    git maintenance start 2>/dev/null                                    # install/refresh launchd timers
+  fi
+  local n; n=$(git config --get-all maintenance.repo 2>/dev/null | wc -l | tr -d ' ')
+  local agents; agents=$(find "$HOME/Library/LaunchAgents" -name 'org.git-scm.git.*.plist' 2>/dev/null | wc -l | tr -d ' ')
+  echo "  scheduler: $agents launchd agents, $n repos registered"
+  local stray
+  stray=$(git config --file "$HOME/.gitconfig" --list 2>/dev/null | grep -vc '^maintenance\.repo=' || true)
+  [ "${stray:-0}" -gt 0 ] && echo "  NOTE ~/.gitconfig defines $stray key(s) that override the nix config"
+  return 0
+}
+
+if [ "$AUTO_SET" = "1" ] && [ "$SCOPE_SET" = "1" ]; then
+  echo "git-maintain-repos: --auto conflicts with --system/--no-system" >&2
+  echo "                    (--auto just names the default scope: system + walk)" >&2
+  exit 2
+fi
+
+if [ "$SCOPE" = "system" ]; then
+  echo "git-maintain-repos: system-wide setup"
+  ensure_scheduler
+  exit 0
+fi
+
+# --auto and --path are alternative ways to choose a target: --auto means "the
+# default root", --path names one explicitly. Passing neither implies --auto.
+# --system returned above and needs neither.
+
+# No ROOT means "the whole machine": git-discover-repos --auto applies the
+# shared default scan set rather than the old ~/git-only assumption.
+[ -n "$ROOT" ] && [ ! -d "$ROOT" ] && { echo "git-maintain-repos: $ROOT is not a directory" >&2; exit 1; }
+
+# Discovery is shared with clean.sh and spotlight-exclude-artifacts. Only REAL
+# repositories are requested: worktrees share their parent's object store, so
+# maintaining each worktree would repeat identical work N times.
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+DISCOVER_ARGS=("$FILTER")
+if [ -n "$ROOT" ]; then DISCOVER_ARGS+=(--path "$ROOT"); else DISCOVER_ARGS+=(--auto); fi
+[ "$RECURSIVE" = "0" ] && DISCOVER_ARGS+=(--no-recursive)
+[ -n "$DEPTH_LIMIT" ] && DISCOVER_ARGS+=(--depth "$DEPTH_LIMIT")
+[ -n "$FOLLOW" ] && { [ "$FOLLOW" = "1" ] && DISCOVER_ARGS+=(--follow) || DISCOVER_ARGS+=(--no-follow); }
+
+mapfile -t repos < <("$SELF_DIR/git-discover-repos" "${DISCOVER_ARGS[@]}" 2>/dev/null | cut -f2)
+
+echo "git-maintain-repos: $ROOT — ${#repos[@]} repos, scope=$SCOPE, depth=$DEPTH, jobs=$JOBS, reflog=$REFLOG_EXPIRE"
+[ ${#repos[@]} -eq 0 ] && exit 0
+
+if [ "$DRY_RUN" = "1" ]; then
+  echo "  commands that would run per repo:"
+  if [ "$DEPTH" != "deep" ]; then
+    echo "    git maintenance run --task=commit-graph"
+    echo "    git maintenance run --task=loose-objects"
+    [ "$DEPTH" != "quick" ] && echo "    git maintenance run --task=incremental-repack"
+    echo "    git maintenance run --task=pack-refs"
+  else
+    echo "    git reflog expire --expire=$REFLOG_EXPIRE --expire-unreachable=$REFLOG_EXPIRE --all"
+    echo "    git -c gc.autoDetach=false -c pack.threads=$PACK_THREADS gc --prune=now --force"
+    echo "    git commit-graph write --reachable --changed-paths"
+  fi
+  [ "$FSCK" = "1" ] || [ "$CLEAN_ORPHANS" = "1" ] && \
+    echo "    git fsck --connectivity-only --no-dangling"
+  [ "$CLEAN_ORPHANS" = "1" ] && echo "    rm  <orphaned .pack/.idx/.rev with no matching .idx>"
+  if [ "$REGISTER" = "1" ]; then
+    echo "    git maintenance register --config-file ~/.config/git/maintenance.config"
+    echo "    git config gc.auto 0"
+    echo "    git config maintenance.auto false"
+  fi
+  echo "  repos:"
+  printf '    %s\n' "${repos[@]/#$HOME\//~/}"
+  exit 0
+fi
+
+self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+printf '%s\0' "${repos[@]}" |
+  GMR_ONE=1 DEPTH="$DEPTH" FSCK="$FSCK" CLEAN_ORPHANS="$CLEAN_ORPHANS" REGISTER="$REGISTER" \
+  REFLOG_EXPIRE="$REFLOG_EXPIRE" PACK_THREADS="$PACK_THREADS" \
+    xargs -0 -P "$JOBS" -I{} "$self" --one {}
+
+# --walk deliberately skips the system half.
+if [ "$REGISTER" = "1" ] && [ "$SCOPE" != "walk" ]; then
+  echo
+  echo "git-maintain-repos: scheduler"
+  ensure_scheduler
+fi

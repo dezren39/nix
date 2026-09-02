@@ -79,10 +79,13 @@ flake.nix → ./configuration.nix
 - **`opencodePatches`** = `patches/opencode-compact-tui.patch` +
   `patches/opencode-scroll-autofollow.patch` +
   `patches/opencode-plan-permissions-reminder.patch`.
-- **checks:** `formatting` (treefmt) and `tidy` (flake-tidy `--check`).
-- **apps:** `flake-tidy`, `opencode`, `opencode2`, `opencode-share`, `symlinker`.
+- **checks:** `formatting` (treefmt) and `tidy` (flake-tidy `--check`) on every
+  supported system; the Sidepulse package build/test and setup smoke test run
+  on Darwin only.
+- **apps:** `flake-tidy`, `opencode`, `opencode2`, `opencode-share`, `symlinker`;
+  Sidepulse apps are Darwin-only.
 - **devShell:** opencode, flake-tidy, symlinker, just, nixfmt, git, gh (with a
-  version-printing shellHook).
+  version-printing shellHook); Sidepulse tools are added on Darwin only.
 
 ---
 
@@ -120,6 +123,10 @@ plus the repo's own flake packages. `buf` is overridden with `doCheck=false`.
 `fromTOML`), `skhd` (remaps `cmd-q`, binds toggle-menubar), `jankyborders`.
 (yabai/sketchybar present but commented.)
 
+**`homeUser.nix`** — after `writeBoundary`, activation runs the packaged
+`sidepulse setup` for the `sidepulseProviders` list (OpenCode by default). Edit
+that list to change which providers are managed.
+
 **`homePrograms.nix`** — bash/zsh/fish sharing aliases + init (`rm=trash`, cargo
 linker pinned to `/usr/bin/cc`, credential helpers, an aerospace+fzf window
 switcher, and a `setup-opencode()` helper that symlinks a central `.opencode`
@@ -143,6 +150,8 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 | codedb | Zig binary | `fetchurl` | Pinned signed/notarized AST-aware code search and MCP server. |
 | fff-mcp | Rust binary | `fetchurl` | Pinned frecency-ranked file/content search MCP server. |
 | lootbox-update | Bash/Nix | `writeShellApplication` | Builds pinned Lootbox source with compatibility patches, installs its UI and pinned npm MCP CLIs, then verifies launchd readiness. |
+| sidepulse | Python/PyObjC | `buildPythonApplication` | Darwin-only SidePulse CLI/status-bar app. Individually documented, ordered patches apply upstream PRs #14, #17, #26, #28, #29, and #30; PR #31 is supplied by the locked upstream main. |
+| sidepulse-setup | Bash/Nix | `writeShellApplication` | Darwin-only wrapper providing `sidepulse --setup opencode` and `sidepulse setup opencode`; setup defaults to all upstream-supported providers. Home Manager invokes the packaged `sidepulse setup <provider>` for the configured provider list on every switch. |
 
 ---
 

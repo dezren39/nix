@@ -159,6 +159,27 @@ alias link-git     := link-git-dirs
 alias link-home    := link-git-dirs
 alias link-git-dir := link-git-dirs
 
+# Spotlight: full per-repo artifact walk (not run on switch -- see simple-rebuild.sh)
+[group('maintenance')]
+spotlight-walk *args:
+    ./spotlight-exclude-artifacts --no-system {{ args }}
+
+# Spotlight: re-assert static markers only (user + root)
+[group('maintenance')]
+spotlight-system:
+    ./spotlight-exclude-artifacts --system
+    sudo ./spotlight-exclude-artifacts --system
+
+# Git: deep maintenance across ~/git (reflog expiry + prune + repack)
+[group('maintenance')]
+git-maintain *args:
+    ./git-maintain-repos --auto --deep {{ args }}
+
+# Git: routine pass, never prunes
+[group('maintenance')]
+git-maintain-quick *args:
+    ./git-maintain-repos --auto --quick {{ args }}
+
 # Symlink repository commands into the global OpenCode command directory
 [group('symlinks')]
 symlink-commands *args:
@@ -192,3 +213,13 @@ share-status *args:
 [group('opencode')]
 share-dry *args:
     nix run .#opencode-share -- --dry-run {{args}}
+
+# =============================================================================
+# SidePulse
+# =============================================================================
+
+# Manually configure all SidePulse providers or one provider. `just switch` runs
+# the providers selected in homeUser.nix during Home Manager activation.
+[group('sidepulse')]
+sidepulse-setup *args:
+    nix run .#sidepulse-setup -- {{args}}

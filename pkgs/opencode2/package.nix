@@ -36,7 +36,6 @@ let
         --os="${bunOs}" \
         --filter '!./' \
         --filter './packages/cli' \
-        --frozen-lockfile \
         --ignore-scripts \
         --no-progress
       bun --bun nix/scripts/canonicalize-node-modules.ts
@@ -54,7 +53,7 @@ let
     dontFixup = true;
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-hhWEwb2nCHWGNO0Uqc0l4JAx99Q1aFak8TlGzY8/Rfs=";
+    outputHash = "sha256-QTqlwmugYh+iu5Sh/Hxv01NXH/OhzcQ8ObVUbA9A8AM=";
   };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {

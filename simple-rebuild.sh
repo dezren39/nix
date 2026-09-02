@@ -28,11 +28,47 @@ git add .
 echo "softwareupdate --install-rosetta --agree-to-license"
 softwareupdate --install-rosetta --agree-to-license
 
-echo "darwin-rebuild switch --flake ."
-sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
+# Build as the invoking user, activate as root.
+#
+# `sudo nix run nix-darwin -- switch` did both halves as root, which is why the
+# repo needed `sudo chown -R "$USER" .` above: every eval/build artifact nix
+# touched in this directory came back root-owned. Building unprivileged keeps
+# ~/.cache/nix, the flake eval cache and any result symlinks owned by the user,
+# and leaves root doing only what genuinely needs privilege -- activation.
+#
+# Falls back to the old combined path if the build fails, so a broken build
+# never leaves the machine un-switched.
+echo "nix build .#darwinConfigurations.$(hostname -s).system  (as $USER)"
+if nix --extra-experimental-features 'nix-command flakes' \
+     build ".#darwinConfigurations.$(hostname -s).system" --keep-going --out-link ./result; then
+  echo "darwin-rebuild switch (activate as root)"
+  sudo ./result/sw/bin/darwin-rebuild switch --flake . --keep-going
+else
+  echo "user build failed; falling back to combined root build+switch"
+  sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
+fi
 
 echo "install/update pinned lootbox"
 nix run .#lootbox-update -- --if-needed
+
+# Spotlight: mark .git and regenerable build-artifact dirs under ~/git as
+# never-index. Runs as the invoking user (not root) so the markers are
+# user-owned. Static paths are handled by configuration.nix activation.
+# --system only: re-assert the static marker list for both accounts. The
+# per-repo walk is deliberately NOT run here -- it rescans every repo under
+# ~/git, which is wasted work on a switch. Use `just spotlight-walk` or ./clean.
+echo "spotlight: static exclude markers (user + root)"
+./spotlight-exclude-artifacts --system || true       # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
+sudo ./spotlight-exclude-artifacts --system || true  # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
+
+# System-wide git setup only (scheduler + drift report). Touches no repos, so it
+# stays fast. Per-repo maintenance is the scheduler's job, or ./git-maintain-repos.
+# Run for both accounts: the scheduler is per-user, and root has its own global
+# config via /var/root/.gitconfig.
+echo "git: system-wide maintenance setup (user)"
+./git-maintain-repos --system || true                # ~80ms. Do NOT drop --system: default --auto walks every repo, ~3min
+echo "git: system-wide maintenance setup (root)"
+sudo ./git-maintain-repos --system || true           # ~80ms. Root: config only. No scheduler: macOS has only launchd, and git installs launchd *agents*, which need a GUI Aqua session root lacks
 
 current=$(sudo darwin-rebuild --list-generations | grep current)
 echo "current: $current"

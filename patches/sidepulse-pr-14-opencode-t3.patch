@@ -1,0 +1,3715 @@
+diff --git a/README.md b/README.md
+index 0f4122f..eeaa66b 100644
+--- a/README.md
++++ b/README.md
+@@ -116,7 +116,7 @@ SidePulse Pro and SidePulse Dot.
+ 
+ #### AI Agent Monitoring
+ 
+-SidePulse can monitor AI agents such as Codex, Claude, and Grok through hooks, then
++SidePulse can monitor AI agents such as Codex, Claude, Grok, and OpenCode through hooks, then
+ translate the current agent state into a small, glanceable LED status.
+ 
+ Agent status modes:
+@@ -196,6 +196,21 @@ The monitor currently supports:
+ | Codex | `~/.codex/config.toml` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/codex.jsonl` |
+ | Claude | `~/.claude/settings.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/claude.jsonl` |
+ | Grok | `~/.grok/hooks/sidepulse.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/grok.jsonl` |
++| OpenCode | `~/.config/opencode/plugins/sidepulse.js` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/opencode.jsonl` |
++
++Agents launched through T3 Code are identified as `T3 Code` in the menu while
++retaining their underlying provider session. This avoids counting a T3-hosted
++Codex session once as T3 Code and again as standalone Codex.
++
++T3 Code writes a canonical event log to `~/.t3/userdata/logs/provider`, and
++SidePulse reads it directly rather than relying on each hosted agent shipping
++its own hooks. That log is authoritative for T3-hosted sessions, so a session
++that also reports through provider hooks is shown once, under its T3 thread.
++Canonical events supply the working directory, the running tool, turn and
++thread state, provider rate limits, and token usage; a session whose context is
++at least 70% full shows that percentage in the menu, and every session shows it
++in the session submenu. Only logs modified in the last 24 hours are parsed, so
++rotated history does not slow down a refresh.
+ 
+ #### Local reply classifier (Apple Silicon)
+ 
+@@ -271,11 +286,12 @@ Set up this Mac explicitly after package install:
+ sidepulse setup
+ ```
+ 
+-`sidepulse setup` installs or refreshes Codex, Claude, and Grok hooks, installs
++`sidepulse setup` installs or refreshes Codex, Claude, Grok, and OpenCode hooks, installs
+ SidePulse Pro Eject Prevention, writes the status-bar LaunchAgent, starts both helpers
+ immediately, and enables them at login. This is intentionally an explicit
+ command instead of a `pip install` side effect. To set up only one provider, use
+-`sidepulse setup codex`, `sidepulse setup claude`, or `sidepulse setup grok`.
++`sidepulse setup codex`, `sidepulse setup claude`, `sidepulse setup grok`, or
++`sidepulse setup opencode`.
+ To skip the status-bar app but still install hooks and SidePulse Pro Eject Prevention, use
+ `sidepulse setup --no-status-bar`.
+ 
+@@ -332,6 +348,7 @@ sidepulse agent-monitor install
+ sidepulse agent-monitor install codex
+ sidepulse agent-monitor install claude
+ sidepulse agent-monitor install grok
++sidepulse agent-monitor install opencode
+ ```
+ 
+ Each hook invokes a small, standard-library-only Python entry point. It writes
+@@ -495,7 +512,7 @@ firmware/websim `sdled.wasm` engine, then AppKit only draws the returned RGB
+ frames.
+ 
+ Open `Settings...` from the dropdown to manage agent integrations. The settings
+-window can install or uninstall Codex, Claude, and Grok hooks. The transcript
++window can install or uninstall Codex, Claude, Grok, and OpenCode hooks. The transcript
+ checkboxes control the file-based CLI/debug fallback; the status-bar app gets
+ live updates from the local hook event socket. Settings are stored at
+ `${XDG_CONFIG_HOME:-~/.config}/sidepulse/agent-monitor/settings.json`.
+diff --git a/src/sidepulse/cli.py b/src/sidepulse/cli.py
+index ca8f460..cad4819 100644
+--- a/src/sidepulse/cli.py
++++ b/src/sidepulse/cli.py
+@@ -24,10 +24,12 @@ from .install import (
+     install_codex_hooks,
+     install_cursor_hooks,
+     install_grok_hooks,
++    install_opencode_hooks,
+     uninstall_claude_hooks,
+     uninstall_codex_hooks,
+     uninstall_cursor_hooks,
+     uninstall_grok_hooks,
++    uninstall_opencode_hooks,
+ )
+ from .led_status import AgentLedController, LedStatusWrite
+ from .lid_sleep import (
+@@ -42,6 +44,7 @@ from .providers import (
+     detect_claude_config,
+     detect_codex_config,
+     detect_grok_config,
++    detect_opencode_config,
+     detect_log_path,
+     default_log_path,
+ )
+@@ -99,6 +102,7 @@ def build_sidepulse_parser() -> argparse.ArgumentParser:
+     setup.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
+     setup.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+     setup.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
++    setup.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
+     setup.add_argument("--dry-run", action="store_true", help="Show what would change.")
+     setup.add_argument(
+         "--sd-eject-guard-scope",
+@@ -642,20 +646,22 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
+     )
+     status_bar.set_defaults(func=cmd_status_bar)
+ 
+-    install = subparsers.add_parser("install", help="Install Codex, Claude, and/or Grok monitor hooks.")
++    install = subparsers.add_parser("install", help="Install supported agent monitor hooks.")
+     install.add_argument("provider", choices=("all", *HOOK_PROVIDERS), nargs="?", default="all")
+     install.add_argument("--log-dir", type=Path, help="Directory for provider JSONL files.")
+     install.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
+     install.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+     install.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
++    install.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
+     install.add_argument("--dry-run", action="store_true", help="Show what would change.")
+     install.set_defaults(func=cmd_install)
+ 
+-    uninstall = subparsers.add_parser("uninstall", help="Remove Codex, Claude, and/or Grok monitor hooks.")
++    uninstall = subparsers.add_parser("uninstall", help="Remove supported agent monitor hooks.")
+     uninstall.add_argument("provider", choices=("all", *HOOK_PROVIDERS), nargs="?", default="all")
+     uninstall.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
+     uninstall.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+     uninstall.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
++    uninstall.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
+     uninstall.add_argument("--dry-run", action="store_true", help="Show what would change.")
+     uninstall.set_defaults(func=cmd_uninstall)
+ 
+@@ -697,10 +703,16 @@ def add_status_args(parser: argparse.ArgumentParser, include_json: bool = True)
+     parser.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
+     parser.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+     parser.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
++    parser.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
+ 
+ 
+ def cmd_doctor(args: argparse.Namespace) -> int:
+-    configs = [detect_codex_config(), detect_claude_config(), detect_grok_config()]
++    configs = [
++        detect_codex_config(),
++        detect_claude_config(),
++        detect_grok_config(),
++        detect_opencode_config(),
++    ]
+     payload = {"providers": [config.to_dict() for config in configs]}
+     if args.json:
+         print(json.dumps(payload, indent=2))
+@@ -821,8 +833,10 @@ def install_hook_results(args: argparse.Namespace):
+             results.append(install_claude_hooks(log_path=log_path, dry_run=args.dry_run))
+         elif provider == "cursor":
+             results.append(install_cursor_hooks(log_path=log_path, dry_run=args.dry_run))
+-        else:
++        elif provider == "grok":
+             results.append(install_grok_hooks(log_path=log_path, dry_run=args.dry_run))
++        else:
++            results.append(install_opencode_hooks(log_path=log_path, dry_run=args.dry_run))
+     return results
+ 
+ 
+@@ -849,8 +863,10 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
+             results.append(uninstall_claude_hooks(log_path=log_path, dry_run=args.dry_run))
+         elif provider == "cursor":
+             results.append(uninstall_cursor_hooks(log_path=log_path, dry_run=args.dry_run))
+-        else:
++        elif provider == "grok":
+             results.append(uninstall_grok_hooks(log_path=log_path, dry_run=args.dry_run))
++        else:
++            results.append(uninstall_opencode_hooks(log_path=log_path, dry_run=args.dry_run))
+ 
+     for result in results:
+         action = "would remove" if args.dry_run and result.changed else "removed"
+diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
+index 267d42e..c537dc2 100644
+--- a/src/sidepulse/collector.py
++++ b/src/sidepulse/collector.py
+@@ -4,7 +4,7 @@ import json
+ import re
+ import threading
+ import time
+-from dataclasses import dataclass
++from dataclasses import dataclass, replace
+ from datetime import datetime, timezone
+ from pathlib import Path
+ from typing import Any, Callable, Iterable
+@@ -25,10 +25,29 @@ from .settings import AgentMonitorSettings, load_settings
+ 
+ CODEX_TRANSCRIPT_PROVIDER = "codex-transcripts"
+ CLAUDE_TRANSCRIPT_PROVIDER = "claude-transcripts"
++T3CODE_PROVIDER = "t3code"
+ CODEX_TRANSCRIPT_MAX_FILES = 12
+ CODEX_TRANSCRIPT_MAX_LINES = 500
+ CLAUDE_TRANSCRIPT_MAX_FILES = 24
+ CLAUDE_TRANSCRIPT_MAX_LINES = 500
++T3CODE_MAX_FILES = 32
++T3CODE_MAX_LINES = 5000
++# Rotated provider logs are large and immutable. Anything older than this window
++# can only describe sessions that have already aged out of the menu, so parsing
++# it costs megabytes of JSON for records that are discarded moments later.
++T3CODE_MAX_FILE_AGE_SECONDS = 24 * 60 * 60
++T3CODE_METADATA_EVENT = "T3SessionMetadata"
++T3CODE_FAILED_STATES = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
++T3CODE_TOOL_ITEM_MARKERS = (
++    "tool",
++    "command",
++    "file_change",
++    "mcp",
++    "browser",
++    "exec",
++    "patch",
++    "web_search",
++)
+ TRANSCRIPT_FILE_LIST_CACHE_SECONDS = 5.0
+ CLAUDE_TRANSCRIPT_MTIME_HEARTBEAT_SKEW_SECONDS = 30.0
+ CODEX_SESSION_INDEX_MAX_LINES = 5000
+@@ -48,6 +67,8 @@ class StatusMetadata:
+     cwd: str | None = None
+     title: str | None = None
+     origin: str | None = None
++    provider_session_id: str | None = None
++    context_percent: float | None = None
+ 
+ 
+ @dataclass(frozen=True)
+@@ -194,18 +215,37 @@ class AgentMonitor:
+         metadata_by_session: dict[str, StatusMetadata] = {}
+         metadata_by_status: dict[str, StatusMetadata] = {}
+         pending_permissions_by_key: dict[str, set[str]] = {}
++        ignored_status_keys: set[str] = set()
+ 
+         records = sorted(
+             self._iter_records(),
+             key=lambda record: record.logged_at,
+         )
++        has_t3code_records = any(
++            record.raw.get("source") == T3CODE_PROVIDER for record in records
++        )
+ 
+         for record in records:
++            if (
++                has_t3code_records
++                and record.raw.get("source") != T3CODE_PROVIDER
++                and record.origin == "T3 Code"
++            ):
++                continue
+             metadata = metadata_for_record(
+                 record,
+                 metadata_by_session,
+                 metadata_by_status,
+             )
++            if mark_ignored_session(
++                record,
++                metadata,
++                statuses_by_key,
++                ignored_status_keys,
++            ):
++                continue
++            if record.status_key in ignored_status_keys:
++                continue
+             status = status_from_event(record, metadata)
+             if status is not None:
+                 track_pending_permissions(record, pending_permissions_by_key)
+@@ -218,6 +258,8 @@ class AgentMonitor:
+                     continue
+                 statuses_by_key[status.agent_id] = status
+ 
++        apply_context_metadata(statuses_by_key, metadata_by_session)
++
+         self._latest_status_signature = signature
+         self._latest_statuses_by_key = dict(statuses_by_key)
+         return statuses_by_key
+@@ -249,6 +291,15 @@ class AgentMonitor:
+                     )
+                 )
+                 continue
++            if source.provider == T3CODE_PROVIDER:
++                parts.append(
++                    (
++                        source.provider,
++                        str(source.path),
++                        self._t3code_source_signature(source.path),
++                    )
++                )
++                continue
+ 
+             parts.append((source.provider, str(source.path), file_signature(source.path)))
+         return tuple(parts)
+@@ -264,6 +315,15 @@ class AgentMonitor:
+             for path in self._recent_transcript_files(root, limit=limit)
+         )
+ 
++    def _t3code_source_signature(
++        self,
++        root: Path,
++    ) -> tuple[tuple[str, tuple[float, int] | None], ...]:
++        return tuple(
++            (str(path), file_signature(path))
++            for path in recent_t3code_event_files(root, limit=T3CODE_MAX_FILES)
++        )
++
+     def _iter_records(self) -> Iterable[HookEvent]:
+         for source in self.sources:
+             if not source.path.exists():
+@@ -274,6 +334,9 @@ class AgentMonitor:
+             if source.provider == CLAUDE_TRANSCRIPT_PROVIDER:
+                 yield from self._iter_claude_transcript_records(source.path)
+                 continue
++            if source.provider == T3CODE_PROVIDER:
++                yield from self._iter_t3code_records(source.path)
++                continue
+             yield from self._cached_log_records(source)
+ 
+     def _cached_log_records(self, source: SourceSpec) -> tuple[HookEvent, ...]:
+@@ -317,6 +380,14 @@ class AgentMonitor:
+                 iter_claude_transcript_file,
+             )
+ 
++    def _iter_t3code_records(self, root: Path) -> Iterable[HookEvent]:
++        for path in recent_t3code_event_files(root, limit=T3CODE_MAX_FILES):
++            yield from self._cached_transcript_records(
++                T3CODE_PROVIDER,
++                path,
++                iter_t3code_event_file,
++            )
++
+     def _recent_transcript_files(self, root: Path, *, limit: int) -> tuple[Path, ...]:
+         key = (str(root), limit)
+         now = time.monotonic()
+@@ -398,6 +469,8 @@ class LiveAgentMonitor:
+         self.metadata_by_session: dict[str, StatusMetadata] = {}
+         self.metadata_by_status: dict[str, StatusMetadata] = {}
+         self.pending_permissions_by_key: dict[str, set[str]] = {}
++        self._ignored_status_keys: set[str] = set()
++        self._pending_t3_hooks: dict[tuple[str, str], AgentStatus] = {}
+         self.load_latest_state()
+ 
+     def ingest_record(self, record: HookEvent) -> None:
+@@ -407,10 +480,36 @@ class LiveAgentMonitor:
+                 self.metadata_by_session,
+                 self.metadata_by_status,
+             )
++            if mark_ignored_session(
++                record,
++                metadata,
++                self.statuses_by_key,
++                self._ignored_status_keys,
++            ):
++                self._drop_pending_t3_hooks_for(record)
++                self.write_latest_state()
++                return
++            if record.status_key in self._ignored_status_keys:
++                self._drop_pending_t3_hooks_for(record)
++                return
++
+             status = status_from_event(record, metadata)
+             if status is None:
+                 return
+ 
++            incoming_key = status.agent_id
++            folded = fold_hosted_hook_status(status, self.statuses_by_key.values())
++            if folded.agent_id != incoming_key:
++                self.statuses_by_key.pop(incoming_key, None)
++                status = folded
++            elif is_t3_code_origin(status.origin):
++                native = status.session_id or status.provider_session_id
++                if native:
++                    self._pending_t3_hooks[(status.provider, native)] = status
++                    return
++            else:
++                status = absorb_nested_host_guests(status, self.statuses_by_key)
++
+             track_pending_permissions(record, self.pending_permissions_by_key)
+             previous = self.statuses_by_key.get(status.agent_id)
+             if should_ignore_status_transition(
+@@ -422,6 +521,112 @@ class LiveAgentMonitor:
+             self.statuses_by_key[status.agent_id] = status
+             self.write_latest_state()
+ 
++    def reconcile_statuses(
++        self,
++        statuses: Iterable[AgentStatus],
++        *,
++        replaces_origin: str | None = None,
++    ) -> int:
++        """Merge newer fallback statuses without overriding newer live events.
++
++        ``replaces_origin`` names an origin whose live rows the incoming
++        statuses are authoritative for. A host such as T3 Code reports the same
++        session under its own thread id, so the agent's own hooks would
++        otherwise leave a duplicate row behind.
++        """
++
++        changed = 0
++        with self.lock:
++            canonical_keys: set[str] = set()
++            canonical_provider_sessions: set[tuple[str, str]] = set()
++            canonical_by_native: dict[tuple[str, str], str] = {}
++            for status in statuses:
++                canonical_keys.add(status.agent_id)
++                if status.provider_session_id:
++                    pair = (status.provider, status.provider_session_id)
++                    canonical_provider_sessions.add(pair)
++                    canonical_by_native[pair] = status.agent_id
++                previous = self.statuses_by_key.get(status.agent_id)
++                if previous is not None and previous.updated_at >= status.updated_at:
++                    continue
++                self.statuses_by_key[status.agent_id] = status
++                changed += 1
++            if replaces_origin:
++                if canonical_keys:
++                    wanted = replaces_origin.strip().casefold()
++                    for key, status in list(self.statuses_by_key.items()):
++                        if key in canonical_keys:
++                            continue
++                        same_provider_session = bool(
++                            status.session_id
++                            and (status.provider, status.session_id)
++                            in canonical_provider_sessions
++                        )
++                        if (
++                            (status.origin or "").strip().casefold() == wanted
++                            or same_provider_session
++                        ):
++                            host_id = canonical_by_native.get(
++                                (status.provider, status.session_id or "")
++                            )
++                            if host_id and host_id in self.statuses_by_key:
++                                host = self.statuses_by_key[host_id]
++                                merged = merge_live_hook_into_t3(host, status)
++                                if merged != host:
++                                    self.statuses_by_key[host_id] = merged
++                            del self.statuses_by_key[key]
++                            changed += 1
++                changed += self._apply_pending_t3_hooks(canonical_by_native, canonical_keys)
++            if changed:
++                self.write_latest_state()
++        return changed
++
++    def _apply_pending_t3_hooks(
++        self,
++        canonical_by_native: dict[tuple[str, str], str],
++        canonical_keys: set[str],
++    ) -> int:
++        """Fold buffered T3-hosted hooks into canonical rows, or surface them.
++
++        Hooks can beat T3's event log by a moment. Holding them off the menu
++        avoids a Claude/Cursor flash that is deleted on the next reconcile.
++        """
++
++        if not self._pending_t3_hooks:
++            return 0
++        changed = 0
++        if not canonical_keys:
++            for hook in self._pending_t3_hooks.values():
++                if hook.agent_id in self._ignored_status_keys:
++                    continue
++                self.statuses_by_key[hook.agent_id] = hook
++                changed += 1
++            self._pending_t3_hooks.clear()
++            return changed
++
++        for pair, hook in list(self._pending_t3_hooks.items()):
++            if hook.agent_id in self._ignored_status_keys:
++                del self._pending_t3_hooks[pair]
++                changed += 1
++                continue
++            host_id = canonical_by_native.get(pair)
++            if host_id is None and hook.session_id:
++                host_id = canonical_by_native.get((hook.provider, hook.session_id))
++            if host_id is None or host_id not in self.statuses_by_key:
++                continue
++            host = self.statuses_by_key[host_id]
++            merged = merge_live_hook_into_t3(host, hook)
++            if merged != host:
++                self.statuses_by_key[host_id] = merged
++                changed += 1
++            del self._pending_t3_hooks[pair]
++            changed += 1
++        return changed
++
++    def _drop_pending_t3_hooks_for(self, record: HookEvent) -> None:
++        if record.session_id:
++            self._pending_t3_hooks.pop((record.provider, record.session_id), None)
++
+     def snapshot(self, include_stale: bool = False) -> MonitorSnapshot:
+         now = datetime.now(timezone.utc)
+         with self.lock:
+@@ -474,6 +679,170 @@ class LiveAgentMonitor:
+             pass
+ 
+ 
++def is_t3_code_origin(origin: str | None) -> bool:
++    text = " ".join(str(origin or "").strip().lower().replace("-", " ").split())
++    return "t3 code" in text or "t3code" in text
++
++
++def status_native_session_ids(status: AgentStatus) -> set[str]:
++    return {
++        value
++        for value in (status.session_id, status.provider_session_id)
++        if value
++    }
++
++
++def matching_t3_host_status(
++    status: AgentStatus,
++    existing: Iterable[AgentStatus],
++) -> AgentStatus | None:
++    """Find the T3 Code row that is the same hosted session as ``status``."""
++    native_ids = status_native_session_ids(status)
++    if not native_ids:
++        return None
++    for host in existing:
++        if host.provider != status.provider or host.agent_id == status.agent_id:
++            continue
++        if not is_t3_code_origin(host.origin):
++            continue
++        if native_ids & status_native_session_ids(host):
++            return host
++    return None
++
++
++def fold_hook_status_into_t3_host(
++    status: AgentStatus,
++    existing: Iterable[AgentStatus],
++) -> AgentStatus:
++    """Keep a hosted agent's live hooks on the T3 Code row instead of a duplicate."""
++    host = matching_t3_host_status(status, existing)
++    if host is None:
++        return status
++    return merge_live_hook_into_t3(host, status)
++
++
++def fold_hosted_hook_status(
++    status: AgentStatus,
++    existing: Iterable[AgentStatus],
++) -> AgentStatus:
++    folded = fold_hook_status_into_t3_host(status, existing)
++    if folded.agent_id != status.agent_id:
++        return folded
++    host = matching_editor_host_status(status, existing)
++    if host is None:
++        return status
++    return merge_live_hook_into_host(host, status)
++
++
++def editor_host_provider(origin: str | None) -> str | None:
++    text = (origin or "").strip().casefold()
++    if " in cursor" in text:
++        return "cursor"
++    if " in windsurf" in text:
++        return "windsurf"
++    return None
++
++
++def normalized_session_cwd(cwd: str | None) -> str | None:
++    if not cwd:
++        return None
++    return str(Path(cwd).expanduser()).rstrip("/")
++
++
++def matching_editor_host_status(
++    status: AgentStatus,
++    existing: Iterable[AgentStatus],
++) -> AgentStatus | None:
++    """Fold Claude/Codex hosted in Cursor when exactly one host shares the cwd."""
++    host_provider = editor_host_provider(status.origin)
++    if host_provider is None or status.provider == host_provider:
++        return None
++    cwd = normalized_session_cwd(status.cwd)
++    if not cwd:
++        return None
++    matches = [
++        host
++        for host in existing
++        if host.provider == host_provider
++        and host.agent_id != status.agent_id
++        and normalized_session_cwd(host.cwd) == cwd
++    ]
++    if len(matches) == 1:
++        return matches[0]
++    return None
++
++
++def absorb_nested_host_guests(
++    host: AgentStatus,
++    statuses_by_key: dict[str, AgentStatus],
++) -> AgentStatus:
++    """When a Cursor row arrives second, fold nested Claude-in-Cursor guests into it."""
++    result = host
++    for key, guest in list(statuses_by_key.items()):
++        if matching_editor_host_status(guest, (result,)) is not result:
++            continue
++        merged = merge_live_hook_into_host(result, guest)
++        statuses_by_key.pop(key, None)
++        result = merged
++    return result
++
++
++def is_generic_session_display_name(status: AgentStatus) -> bool:
++    text = " ".join(status.display_name.split()).casefold()
++    label = provider_label(status.provider).casefold()
++    return text == label or text.startswith(f"{label} session ") or text.startswith(
++        f"{label} agent "
++    )
++
++
++def prefer_t3_display_name(host: AgentStatus, incoming: AgentStatus) -> str:
++    if not is_generic_session_display_name(host):
++        return host.display_name
++    if not is_generic_session_display_name(incoming):
++        return incoming.display_name
++    return host.display_name
++
++
++def merge_live_hook_into_t3(host: AgentStatus, hook: AgentStatus) -> AgentStatus:
++    """Keep the T3 thread identity; take fresher mode/tool from the hosted hook."""
++    return merge_live_hook_into_host(host, hook, origin=host.origin or "T3 Code")
++
++
++def merge_live_hook_into_host(
++    host: AgentStatus,
++    hook: AgentStatus,
++    *,
++    origin: str | None = None,
++) -> AgentStatus:
++    """Keep the host row's identity; take fresher mode/tool from the nested hook."""
++    provider_session_id = (
++        host.provider_session_id or hook.provider_session_id or hook.session_id
++    )
++    kept_origin = origin if origin is not None else host.origin
++    if hook.updated_at < host.updated_at:
++        return replace(
++            host,
++            provider_session_id=provider_session_id,
++            cwd=host.cwd or hook.cwd,
++            display_name=prefer_t3_display_name(host, hook),
++        )
++    return replace(
++        hook,
++        provider=host.provider,
++        agent_id=host.agent_id,
++        display_name=prefer_t3_display_name(host, hook),
++        session_id=host.session_id,
++        provider_session_id=provider_session_id,
++        origin=kept_origin,
++        cwd=hook.cwd or host.cwd,
++        context_percent=(
++            hook.context_percent
++            if hook.context_percent is not None
++            else host.context_percent
++        ),
++    )
++
++
+ def default_sources(settings: AgentMonitorSettings | None = None) -> tuple[SourceSpec, ...]:
+     active_settings = load_settings() if settings is None else settings
+     sources = [
+@@ -485,6 +854,10 @@ def default_sources(settings: AgentMonitorSettings | None = None) -> tuple[Sourc
+     if active_settings.claude_transcripts_enabled:
+         sources.append(SourceSpec(CLAUDE_TRANSCRIPT_PROVIDER, Path.home() / ".claude" / "projects"))
+     sources.append(SourceSpec("grok", detect_log_path("grok")))
++    sources.append(SourceSpec("opencode", detect_log_path("opencode")))
++    t3code_logs = default_t3code_event_log_dir()
++    if t3code_logs.exists():
++        sources.append(SourceSpec(T3CODE_PROVIDER, t3code_logs))
+     return unique_sources(sources)
+ 
+ 
+@@ -519,6 +892,351 @@ def recent_transcript_files(
+     return files[:limit]
+ 
+ 
++def default_t3code_event_log_dir(home: Path | None = None) -> Path:
++    root = home or Path.home()
++    return root / ".t3" / "userdata" / "logs" / "provider"
++
++
++def recent_t3code_event_files(
++    root: Path,
++    *,
++    limit: int = T3CODE_MAX_FILES,
++    max_age_seconds: float = T3CODE_MAX_FILE_AGE_SECONDS,
++    now: float | None = None,
++) -> list[Path]:
++    try:
++        files = [
++            path
++            for path in root.glob("events.*.log*")
++            if path.is_file() and re.search(r"\.log(?:\.\d+)?$", path.name)
++        ]
++    except OSError:
++        return []
++    files.sort(key=lambda path: safe_mtime(path), reverse=True)
++    if max_age_seconds > 0:
++        cutoff = (time.time() if now is None else now) - max_age_seconds
++        files = [path for path in files if safe_mtime(path) >= cutoff]
++    return files[:limit]
++
++
++def iter_t3code_event_file(path: Path) -> Iterable[HookEvent]:
++    for line in read_recent_lines(path, T3CODE_MAX_LINES):
++        record = parse_t3code_event_line(line)
++        if record is not None:
++            yield record
++
++
++def parse_t3code_event_line(line: str) -> HookEvent | None:
++    match = re.match(r"^\[([^\]]+)\]\s+CANON:\s+(\{.*\})\s*$", line)
++    if match is None:
++        return None
++    try:
++        event = json.loads(match.group(2))
++    except json.JSONDecodeError:
++        return None
++    if not isinstance(event, dict):
++        return None
++
++    event_type = event.get("type")
++    thread_id = _string_or_none(event.get("threadId"))
++    provider = normalize_t3code_provider(event.get("provider"))
++    if not isinstance(event_type, str) or thread_id is None or provider is None:
++        return None
++
++    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
++    logged_at = parse_datetime(event.get("createdAt"), parse_datetime(match.group(1)))
++    provider_session_id = t3code_provider_session_id(event, payload)
++    context_percent = t3code_context_percent(event_type, payload)
++    cwd = t3code_session_cwd(event_type, payload)
++    hook_event, mode = t3code_event_mapping(event_type, payload)
++
++    if hook_event is None or mode is None:
++        # Native session ids often arrive on hook.started, which has no mode of
++        # its own. Keep those as metadata so later turn/item events can fold
++        # the hosted agent's hooks into this T3 thread.
++        if context_percent is None and cwd is None and provider_session_id is None:
++            return None
++        return t3code_metadata_record(
++            provider=provider,
++            logged_at=logged_at,
++            thread_id=thread_id,
++            turn_id=_string_or_none(event.get("turnId")),
++            event_type=event_type,
++            cwd=cwd,
++            context_percent=context_percent,
++            provider_session_id=provider_session_id,
++        )
++
++    tool_name = t3code_tool_name(payload) if t3code_is_tool_item(payload) else None
++    message = t3code_event_message(event_type, payload)
++    title = t3code_session_title(event_type, payload)
++    raw = {
++        "hook_event_name": hook_event,
++        "session_id": thread_id,
++        "turn_id": event.get("turnId"),
++        "cwd": cwd,
++        "agent_origin": "T3 Code",
++        "agent_origin_kind": "t3code",
++        "sidepulse_mode": mode.value,
++        "source": T3CODE_PROVIDER,
++        "provider_instance_id": event.get("providerInstanceId"),
++        "t3code_event_type": event_type,
++        "t3code_payload": summarize_t3code_payload(payload),
++    }
++    if context_percent is not None:
++        raw["t3code_context_percent"] = context_percent
++    if provider_session_id is not None:
++        raw["t3code_provider_session_id"] = provider_session_id
++    if title is not None:
++        raw["t3code_title"] = title
++    return HookEvent(
++        provider=provider,
++        logged_at=logged_at,
++        event_name=hook_event,
++        raw=raw,
++        session_id=thread_id,
++        turn_id=_string_or_none(event.get("turnId")),
++        cwd=cwd,
++        tool_name=tool_name,
++        message=message,
++        origin="T3 Code",
++    )
++
++
++def t3code_metadata_record(
++    *,
++    provider: str,
++    logged_at: datetime,
++    thread_id: str,
++    turn_id: str | None,
++    event_type: str,
++    cwd: str | None,
++    context_percent: float | None,
++    provider_session_id: str | None,
++) -> HookEvent:
++    raw = {
++        "hook_event_name": T3CODE_METADATA_EVENT,
++        "session_id": thread_id,
++        "cwd": cwd,
++        "agent_origin": "T3 Code",
++        "agent_origin_kind": "t3code",
++        "source": T3CODE_PROVIDER,
++        "t3code_event_type": event_type,
++    }
++    if context_percent is not None:
++        raw["t3code_context_percent"] = context_percent
++    if provider_session_id is not None:
++        raw["t3code_provider_session_id"] = provider_session_id
++    return HookEvent(
++        provider=provider,
++        logged_at=logged_at,
++        event_name=T3CODE_METADATA_EVENT,
++        raw=raw,
++        session_id=thread_id,
++        turn_id=turn_id,
++        cwd=cwd,
++        origin="T3 Code",
++    )
++
++
++def summarize_t3code_payload(payload: dict[str, Any]) -> dict[str, Any]:
++    """Drop bulky nested blobs (per-turn usage, provider detail) before caching.
++
++    A single ``turn.completed`` payload can carry tens of kilobytes of
++    per-iteration token accounting, and the parsed records stay cached for the
++    lifetime of the log file.
++    """
++
++    summary = {
++        key: value
++        for key, value in payload.items()
++        if not isinstance(value, (dict, list))
++    }
++    tool_name = t3code_tool_name(payload) if t3code_is_tool_item(payload) else None
++    if tool_name is not None:
++        summary["tool_name"] = tool_name
++    return summary
++
++
++def normalize_t3code_provider(value: object) -> str | None:
++    if not isinstance(value, str) or not value.strip():
++        return None
++    return {"claudeAgent": "claude"}.get(value, value)
++
++
++def t3code_event_mapping(
++    event_type: str,
++    payload: dict[str, Any],
++) -> tuple[str | None, AgentMode | None]:
++    if event_type in {"turn.completed", "turn.aborted", "session.exited"}:
++        if t3code_state_failed(payload.get("state")):
++            return "StopFailure", AgentMode.BLOCKED_ERROR
++        return "Stop", AgentMode.COMPLETED
++    if event_type == "turn.started":
++        return "UserPromptSubmit", AgentMode.WORKING
++    if event_type in {"request.opened", "user-input.requested"}:
++        return "PermissionRequest", AgentMode.WAITING_FOR_INPUT
++    if event_type in {"request.resolved", "user-input.resolved"}:
++        return "PostToolUse", AgentMode.WORKING
++    if event_type in {"runtime.error", "thread.realtime.error"}:
++        return "StopFailure", AgentMode.BLOCKED_ERROR
++    if event_type in {"item.started", "task.started"}:
++        item_type = str(payload.get("itemType", "")).lower()
++        if event_type == "task.started" or any(
++            marker in item_type for marker in T3CODE_TOOL_ITEM_MARKERS
++        ):
++            return "PreToolUse", AgentMode.TOOL_RUNNING
++        return "UserPromptSubmit", AgentMode.WORKING
++    if event_type in {"item.completed", "task.completed"}:
++        if t3code_state_failed(payload.get("status")):
++            return "PostToolUseFailure", AgentMode.BLOCKED_ERROR
++        return "PostToolUse", AgentMode.WORKING
++    # Codex threads hosted by T3 report their idle/active transitions as
++    # thread.state.changed; only agent-level sessions use session.state.changed.
++    if event_type in {"session.state.changed", "thread.state.changed"}:
++        state = str(payload.get("state", "")).lower()
++        if state in {"idle", "ready"}:
++            return "Stop", AgentMode.COMPLETED
++        if state in {"error", "failed", "exited", "closed"}:
++            return "StopFailure", AgentMode.BLOCKED_ERROR
++        if state in {"busy", "running", "active"}:
++            return "UserPromptSubmit", AgentMode.WORKING
++    if event_type == "account.rate-limits.updated":
++        if t3code_rate_limit_reached(payload):
++            return "StopFailure", AgentMode.BLOCKED_ERROR
++    return None, None
++
++
++def t3code_state_failed(value: object) -> bool:
++    return isinstance(value, str) and value.strip().lower() in T3CODE_FAILED_STATES
++
++
++def t3code_is_tool_item(payload: dict[str, Any]) -> bool:
++    """Reasoning and assistant-message items are not tools; don't label them as one."""
++
++    item_type = str(payload.get("itemType", "")).lower()
++    if not item_type:
++        return isinstance(payload.get("data"), dict)
++    return any(marker in item_type for marker in T3CODE_TOOL_ITEM_MARKERS)
++
++
++def t3code_tool_name(payload: dict[str, Any]) -> str | None:
++    """Prefer the real tool name over T3's generic item title.
++
++    T3 titles items with human labels such as "Command run"; the tool that is
++    actually running is carried in the item data.
++    """
++
++    data = payload.get("data")
++    if isinstance(data, dict):
++        for key in ("toolName", "tool_name", "name", "command"):
++            value = _string_or_none(data.get(key))
++            if value is not None:
++                return value
++    return _string_or_none(payload.get("title"))
++
++
++def t3code_rate_limits(payload: dict[str, Any]) -> dict[str, Any] | None:
++    limits = payload.get("rateLimits")
++    # T3 forwards the provider notification verbatim, which nests the payload
++    # under a second "rateLimits" key.
++    for _ in range(2):
++        if not isinstance(limits, dict):
++            return None
++        inner = limits.get("rateLimits")
++        if not isinstance(inner, dict):
++            return limits
++        limits = inner
++    return limits if isinstance(limits, dict) else None
++
++
++def t3code_rate_limit_reached(payload: dict[str, Any]) -> bool:
++    limits = t3code_rate_limits(payload)
++    if limits is None:
++        return False
++    return _string_or_none(limits.get("rateLimitReachedType")) is not None
++
++
++def t3code_session_cwd(event_type: str, payload: dict[str, Any]) -> str | None:
++    """T3 reports the working directory once, when it configures the session."""
++
++    if event_type not in {"session.configured", "thread.configured"}:
++        return None
++    config = payload.get("config")
++    if not isinstance(config, dict):
++        return None
++    return _string_or_none(config.get("cwd"))
++
++
++T3CODE_NATIVE_SESSION_KEYS = (
++    "session_id",
++    "sessionId",
++    "conversation_id",
++    "conversationId",
++)
++
++
++def t3code_provider_session_id(
++    event: dict[str, Any],
++    payload: dict[str, Any],
++) -> str | None:
++    """Extract the provider's native session id from a canonical T3 event."""
++    containers: list[object] = [payload, payload.get("detail"), event.get("raw")]
++    raw = event.get("raw")
++    if isinstance(raw, dict):
++        containers.append(raw.get("payload"))
++        containers.append(raw.get("detail"))
++    for container in containers:
++        if not isinstance(container, dict):
++            continue
++        for key in T3CODE_NATIVE_SESSION_KEYS:
++            session_id = _string_or_none(container.get(key))
++            if session_id:
++                return session_id
++        thread_id = _string_or_none(container.get("providerThreadId"))
++        if thread_id:
++            return thread_id
++    return None
++
++
++def t3code_session_title(event_type: str, payload: dict[str, Any]) -> str | None:
++    """Use T3 task titles, not generic tool labels such as 'Read file'."""
++    if event_type not in {"task.started", "task.completed"}:
++        return None
++    for key in ("title", "description"):
++        value = _string_or_none(payload.get(key))
++        if value:
++            return value
++    return None
++
++
++def t3code_context_percent(event_type: str, payload: dict[str, Any]) -> float | None:
++    if event_type not in {"thread.token-usage.updated", "session.token-usage.updated"}:
++        return None
++    usage = payload.get("usage")
++    if not isinstance(usage, dict):
++        return None
++    used = usage.get("usedTokens")
++    total = usage.get("maxTokens")
++    if not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
++        return None
++    if total <= 0:
++        return None
++    return max(0.0, min(100.0, round(used / total * 100, 1)))
++
++
++def t3code_event_message(event_type: str, payload: dict[str, Any]) -> str | None:
++    if event_type == "account.rate-limits.updated" and t3code_rate_limit_reached(payload):
++        limits = t3code_rate_limits(payload) or {}
++        reached = _string_or_none(limits.get("rateLimitReachedType")) or "usage"
++        return f"Rate limit reached ({reached})"
++    for key in ("message", "errorMessage", "reason", "stopReason", "title"):
++        value = _string_or_none(payload.get(key))
++        if value is not None:
++            return value
++    return event_type
++
++
+ def safe_mtime(path: Path) -> float:
+     try:
+         return path.stat().st_mtime
+@@ -705,6 +1423,29 @@ def codex_transcript_event(
+             message=message,
+         )
+ 
++    if payload_type == "turn_aborted":
++        reason = _string_or_none(payload.get("reason")) or "aborted"
++        aborted_turn_id = _string_or_none(payload.get("turn_id")) or turn_id
++        return HookEvent(
++            provider="codex",
++            logged_at=timestamp,
++            event_name="Stop",
++            raw={
++                "hook_event_name": "Stop",
++                "session_id": session_id,
++                "turn_id": aborted_turn_id,
++                "cwd": cwd,
++                "last_assistant_message": "",
++                "reason": reason,
++                "transcript_path": str(path),
++                "source": CODEX_TRANSCRIPT_PROVIDER,
++            },
++            session_id=session_id,
++            turn_id=aborted_turn_id,
++            cwd=cwd,
++            message=reason,
++        )
++
+     return None
+ 
+ 
+@@ -949,6 +1690,27 @@ def _string_or_none(value: object) -> str | None:
+     return value if isinstance(value, str) and value else None
+ 
+ 
++def apply_context_metadata(
++    statuses_by_key: dict[str, AgentStatus],
++    metadata_by_session: dict[str, StatusMetadata],
++) -> None:
++    """Stamp the newest context usage onto statuses set by an earlier event.
++
++    Context usage arrives on its own events, so the status a session is showing
++    was usually produced before the most recent measurement.
++    """
++
++    for key, status in list(statuses_by_key.items()):
++        if not status.session_id:
++            continue
++        metadata = metadata_by_session.get(f"{status.provider}:session:{status.session_id}")
++        if metadata is None or metadata.context_percent is None:
++            continue
++        if status.context_percent == metadata.context_percent:
++            continue
++        statuses_by_key[key] = replace(status, context_percent=metadata.context_percent)
++
++
+ def metadata_for_record(
+     record: HookEvent,
+     metadata_by_session: dict[str, StatusMetadata],
+@@ -971,6 +1733,15 @@ def metadata_for_record(
+         cwd=status_metadata.cwd or session_metadata.cwd,
+         title=status_metadata.title or session_metadata.title,
+         origin=status_metadata.origin or session_metadata.origin,
++        provider_session_id=(
++            status_metadata.provider_session_id
++            or session_metadata.provider_session_id
++        ),
++        context_percent=(
++            status_metadata.context_percent
++            if status_metadata.context_percent is not None
++            else session_metadata.context_percent
++        ),
+     )
+ 
+ 
+@@ -986,6 +1757,14 @@ def update_metadata(metadata: StatusMetadata, record: HookEvent) -> None:
+     if origin:
+         metadata.origin = origin
+ 
++    provider_session_id = _string_or_none(record.raw.get("t3code_provider_session_id"))
++    if provider_session_id:
++        metadata.provider_session_id = provider_session_id
++
++    context_percent = record.raw.get("t3code_context_percent")
++    if isinstance(context_percent, (int, float)):
++        metadata.context_percent = float(context_percent)
++
+ 
+ def is_provider_session_title(record: HookEvent, title: str) -> bool:
+     if record.provider == "codex":
+@@ -1021,10 +1800,15 @@ def status_from_event(record: HookEvent, metadata: StatusMetadata | None = None)
+         updated_at=record.logged_at,
+         event_name=record.event_name,
+         session_id=record.session_id,
+-        cwd=record.cwd,
++        provider_session_id=(
++            metadata.provider_session_id
++            or _string_or_none(record.raw.get("t3code_provider_session_id"))
++        ),
++        cwd=record.cwd or metadata.cwd,
+         tool_name=record.tool_name,
+         message=record.message,
+         origin=record.origin or metadata.origin or origin_label_from_payload(record.provider, record.raw),
++        context_percent=metadata.context_percent,
+     )
+ 
+ 
+@@ -1317,16 +2101,24 @@ def agent_status_from_dict(data: object) -> AgentStatus | None:
+             updated_at=updated_at,
+             event_name=str(data["event_name"]),
+             session_id=session_id,
++            provider_session_id=_string_or_none(data.get("provider_session_id")),
+             cwd=cwd,
+             tool_name=_string_or_none(data.get("tool_name")),
+             message=_string_or_none(data.get("message")),
+             origin=_string_or_none(data.get("origin")),
+             stale=bool(data.get("stale", False)),
++            context_percent=_float_or_none(data.get("context_percent")),
+         )
+     except Exception:
+         return None
+ 
+ 
++def _float_or_none(value: object) -> float | None:
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return None
++    return float(value)
++
++
+ def status_counts_active(status: AgentStatus) -> bool:
+     return status.mode not in {AgentMode.COMPLETED, AgentMode.IDLE_READY}
+ 
+@@ -1388,10 +2180,12 @@ def should_ignore_status_transition(
+ 
+ 
+ def should_ignore_record(record: HookEvent, metadata: StatusMetadata) -> bool:
+-    if record.provider != "codex":
+-        return False
+-
+     raw = record.raw
++    if _string_or_none(raw.get("agent_internal_operation")) in {
++        "generateThreadTitle",
++        "generateBranchName",
++    }:
++        return True
+     text = " ".join(
+         part
+         for part in (
+@@ -1405,11 +2199,46 @@ def should_ignore_record(record: HookEvent, metadata: StatusMetadata) -> bool:
+     if not text:
+         return False
+ 
+-    internal_prompts = (
++    universal_internal_prompts = (
+         "generate 0 to 3 hyperpersonalized suggestions",
+         "you are an expert at upholding safety and compliance standards",
+     )
+-    return any(prompt in text for prompt in internal_prompts)
++    if any(prompt in text for prompt in universal_internal_prompts):
++        return True
++
++    origin = " ".join(
++        part
++        for part in (
++            record.origin,
++            _string_or_none(raw.get("agent_origin")),
++            _string_or_none(raw.get("agent_origin_kind")),
++        )
++        if part
++    ).lower()
++    if "t3 code" not in origin and "t3code" not in origin:
++        return False
++
++    t3_internal_prompts = (
++        "generate a title that will help the user recognize this t3 code",
++        "regenerate the title for an existing t3 code thread",
++        "return json with exactly one key: title",
++        "title the subject and outcome. discard incidental instructions",
++    )
++    return any(prompt in text for prompt in t3_internal_prompts)
++
++
++def mark_ignored_session(
++    record: HookEvent,
++    metadata: StatusMetadata,
++    statuses_by_key: dict[str, AgentStatus],
++    ignored_status_keys: set[str],
++) -> bool:
++    if not should_ignore_record(record, metadata):
++        return False
++    agent_id = record.status_key
++    ignored_status_keys.add(agent_id)
++    statuses_by_key.pop(agent_id, None)
++    return True
+ 
+ 
+ def read_recent_lines(path: Path, max_lines: int) -> list[str]:
+@@ -1439,39 +2268,13 @@ def read_recent_lines(path: Path, max_lines: int) -> list[str]:
+ def _replace_stale(status: AgentStatus, stale: bool) -> AgentStatus:
+     if status.stale == stale:
+         return status
+-    return AgentStatus(
+-        provider=status.provider,
+-        agent_id=status.agent_id,
+-        display_name=status.display_name,
+-        mode=status.mode,
+-        updated_at=status.updated_at,
+-        event_name=status.event_name,
+-        session_id=status.session_id,
+-        cwd=status.cwd,
+-        tool_name=status.tool_name,
+-        message=status.message,
+-        origin=status.origin,
+-        stale=stale,
+-    )
++    return replace(status, stale=stale)
+ 
+ 
+ def _replace_mode(status: AgentStatus, mode: AgentMode) -> AgentStatus:
+     if status.mode == mode:
+         return status
+-    return AgentStatus(
+-        provider=status.provider,
+-        agent_id=status.agent_id,
+-        display_name=status.display_name,
+-        mode=mode,
+-        updated_at=status.updated_at,
+-        event_name=status.event_name,
+-        session_id=status.session_id,
+-        cwd=status.cwd,
+-        tool_name=status.tool_name,
+-        message=status.message,
+-        origin=status.origin,
+-        stale=status.stale,
+-    )
++    return replace(status, mode=mode)
+ 
+ 
+ def title_from_event(record: HookEvent) -> str | None:
+@@ -1480,6 +2283,10 @@ def title_from_event(record: HookEvent) -> str | None:
+         if title:
+             return title
+ 
++    t3_title = _string_or_none(record.raw.get("t3code_title"))
++    if t3_title:
++        return t3_title
++
+     if record.event_name != "UserPromptSubmit":
+         return None
+     return summarize_prompt(record.raw.get("prompt"))
+diff --git a/src/sidepulse/install.py b/src/sidepulse/install.py
+index 4d5669b..4ec9b01 100644
+--- a/src/sidepulse/install.py
++++ b/src/sidepulse/install.py
+@@ -21,6 +21,7 @@ from .providers import (
+     CURSOR_EVENTS,
+     GROK_EVENTS,
+     default_cursor_hook_config_path,
++    default_opencode_plugin_path,
+     default_grok_hook_config_path,
+     detect_log_path,
+ )
+@@ -169,6 +170,88 @@ def install_grok_hooks(
+     return InstallResult("grok", config, target_log, changed, backup, dry_run)
+ 
+ 
++def install_opencode_hooks(
++    log_path: Path | None = None,
++    config_path: Path | None = None,
++    dry_run: bool = False,
++    python_executable: str | None = None,
++) -> InstallResult:
++    del python_executable  # OpenCode plugins run in-process and need no Python command.
++    config = config_path or default_opencode_plugin_path()
++    target_log = (log_path or detect_log_path("opencode")).expanduser()
++    original = config.read_text() if config.exists() else ""
++    if original and "sidepulse-opencode-plugin" not in original:
++        raise ValueError(f"refusing to overwrite unmanaged OpenCode plugin: {config}")
++    new_text = opencode_plugin_source(target_log)
++    changed = original != new_text
++    backup = None
++    if changed and not dry_run:
++        config.parent.mkdir(parents=True, exist_ok=True)
++        backup = backup_file(config) if config.exists() else None
++        config.write_text(new_text)
++        target_log.parent.mkdir(parents=True, exist_ok=True)
++        target_log.touch(exist_ok=True)
++    return InstallResult("opencode", config, target_log, changed, backup, dry_run)
++
++
++def opencode_plugin_source(log_path: Path) -> str:
++    encoded_log = json.dumps(str(log_path.expanduser()))
++    return f'''// sidepulse-opencode-plugin
++import {{ appendFile, mkdir }} from "node:fs/promises"
++import {{ dirname }} from "node:path"
++
++const SIDEPULSE_LOG = {encoded_log}
++
++function firstString(...values) {{
++  return values.find((value) => typeof value === "string" && value.length > 0)
++}}
++
++function sessionId(event) {{
++  const p = event?.properties ?? {{}}
++  return firstString(p.sessionID, p.sessionId, p.session_id, p.id, p.info?.id, p.session?.id)
++}}
++
++function eventName(event) {{
++  if (event?.type === "session.status") {{
++    const status = event.properties?.status?.type ?? event.properties?.status
++    if (status === "idle") return "session.idle"
++  }}
++  return event?.type
++}}
++
++export const SidePulsePlugin = async ({{ directory, worktree }}) => ({{
++  event: async ({{ event }}) => {{
++    const name = eventName(event)
++    if (!name || ![
++      "session.created", "session.status", "session.idle", "session.error",
++      "permission.asked", "permission.replied", "tool.execute.before", "tool.execute.after"
++    ].includes(name)) return
++
++    const properties = event.properties ?? {{}}
++    const payload = {{
++      event_name: name,
++      session_id: sessionId(event),
++      cwd: firstString(properties.cwd, properties.directory, worktree, directory),
++      tool_name: firstString(properties.tool, properties.toolName),
++      message: firstString(properties.message, properties.error?.message),
++      timestamp: new Date().toISOString(),
++      ...(process.env.T3CODE_HOME || process.env.T3_CODE || process.env.T3CODE ||
++          process.env.T3_MCP_BEARER_TOKEN
++        ? {{ agent_origin: "T3 Code", agent_origin_kind: "opencode_t3code" }}
++        : {{ agent_origin: "OpenCode", agent_origin_kind: "opencode_app" }}),
++    }}
++    if (!payload.session_id) return
++    try {{
++      await mkdir(dirname(SIDEPULSE_LOG), {{ recursive: true }})
++      await appendFile(SIDEPULSE_LOG, JSON.stringify(payload) + "\\n", "utf8")
++    }} catch {{
++      // Monitoring must never interrupt an OpenCode session.
++    }}
++  }},
++}})
++'''
++
++
+ def uninstall_codex_hooks(
+     log_path: Path | None = None,
+     config_path: Path | None = None,
+@@ -418,6 +501,22 @@ def remove_cursor_hook_entries(entries: list[Any]) -> list[Any]:
+     ]
+ 
+ 
++def uninstall_opencode_hooks(
++    log_path: Path | None = None,
++    config_path: Path | None = None,
++    dry_run: bool = False,
++) -> InstallResult:
++    config = config_path or default_opencode_plugin_path()
++    target_log = (log_path or detect_log_path("opencode")).expanduser()
++    original = config.read_text() if config.exists() else ""
++    managed = "sidepulse-opencode-plugin" in original
++    backup = None
++    if managed and not dry_run:
++        backup = backup_file(config)
++        config.unlink()
++    return InstallResult("opencode", config, target_log, managed, backup, dry_run)
++
++
+ def hook_command(
+     provider: str,
+     log_path: Path,
+diff --git a/src/sidepulse/models.py b/src/sidepulse/models.py
+index 1cc71c2..cea11ff 100644
+--- a/src/sidepulse/models.py
++++ b/src/sidepulse/models.py
+@@ -73,11 +73,13 @@ class AgentStatus:
+     updated_at: datetime
+     event_name: str
+     session_id: str | None = None
++    provider_session_id: str | None = None
+     cwd: str | None = None
+     tool_name: str | None = None
+     message: str | None = None
+     origin: str | None = None
+     stale: bool = False
++    context_percent: float | None = None
+ 
+     @property
+     def priority(self) -> int:
+@@ -103,11 +105,13 @@ class AgentStatus:
+             "age_seconds": round(self.age_seconds(now), 3),
+             "event_name": self.event_name,
+             "session_id": self.session_id,
++            "provider_session_id": self.provider_session_id,
+             "cwd": self.cwd,
+             "tool_name": self.tool_name,
+             "message": self.message,
+             "origin": self.origin,
+             "stale": self.stale,
++            "context_percent": self.context_percent,
+         }
+ 
+ 
+@@ -159,5 +163,5 @@ def provider_label(provider: str) -> str:
+         "claude": "Claude",
+         "grok": "Grok",
+         # Lowercase is the product's own spelling, and provider.title() would break it.
+-        "opencode": "opencode",
++        "opencode": "OpenCode",
+     }.get(provider, provider.title())
+diff --git a/src/sidepulse/origin.py b/src/sidepulse/origin.py
+index 3f87a73..2df52e3 100644
+--- a/src/sidepulse/origin.py
++++ b/src/sidepulse/origin.py
+@@ -10,6 +10,21 @@ from typing import Any, Mapping
+ 
+ from .models import provider_label
+ 
++T3_PROCESS_TOKENS = (
++    "t3 code.app",
++    "t3-code.app",
++    "t3 code (alpha).app",
++    "t3-code-desktop",
++    "t3code",
++    "node_modules/.bin/t3",
++)
++T3_ENV_VALUE_MARKERS = (
++    "t3 code.app",
++    "t3-code.app",
++    "t3 code (alpha).app",
++    "t3code.app",
++)
++
+ 
+ @dataclass(frozen=True)
+ class ProcessInfo:
+@@ -50,6 +65,14 @@ def detect_agent_origin(
+ 
+     env_origin = origin_from_environment(normalized_provider, active_env)
+     if env_origin is not None:
++        # T3 Code is a VS Code fork and sets VSCODE_* variables. Confirm the
++        # host isn't T3 before treating those as a standalone VS Code session.
++        if env_origin.kind.endswith("_vscode"):
++            processes = process_ancestry(parent_pid or os.getppid())
++            if t3_code_host_in_processes(processes):
++                return surface_origin(
++                    normalized_provider, "t3code", "process:T3 Code"
++                )
+         return env_origin
+ 
+     processes = process_ancestry(parent_pid or os.getppid())
+@@ -82,6 +105,9 @@ def explicit_origin_from_env(provider: str, env: Mapping[str, str]) -> AgentOrig
+ 
+ 
+ def origin_from_environment(provider: str, env: Mapping[str, str]) -> AgentOrigin | None:
++    if t3_code_environment(env):
++        return surface_origin(provider, "t3code", "env:T3_CODE")
++
+     term_program = str(env.get("TERM_PROGRAM") or "").strip().lower()
+     if term_program == "vscode" or any(key.startswith("VSCODE_") for key in env):
+         return surface_origin(provider, "vscode", "env:VSCODE")
+@@ -94,6 +120,8 @@ def origin_from_environment(provider: str, env: Mapping[str, str]) -> AgentOrigi
+             return surface_origin(provider, "app", "env:__CFBundleIdentifier")
+         if provider == "grok" and "grok" in bundle_id:
+             return surface_origin(provider, "app", "env:__CFBundleIdentifier")
++        if provider == "opencode" and "opencode" in bundle_id:
++            return surface_origin(provider, "app", "env:__CFBundleIdentifier")
+ 
+     return None
+ 
+@@ -104,6 +132,12 @@ def origin_from_processes(
+ ) -> AgentOrigin | None:
+     haystack = "\n".join(f"{info.comm}\n{info.command}" for info in processes).lower()
+ 
++    # T3 Code hosts provider CLIs (including Codex and OpenCode). Detect the
++    # outer host first so a nested Codex process remains one status entry and
++    # is presented as T3 Code instead of looking like a second standalone run.
++    if t3_code_host_in_processes(processes):
++        return surface_origin(provider, "t3code", "process:T3 Code")
++
+     if any(token in haystack for token in ("visual studio code.app", "code helper", "vscode")):
+         return surface_origin(provider, "vscode", "process:Visual Studio Code")
+     if "cursor.app" in haystack or "cursor helper" in haystack:
+@@ -119,6 +153,8 @@ def origin_from_processes(
+         return surface_origin(provider, "app", "process:Claude.app")
+     if provider == "grok" and "grok.app" in haystack:
+         return surface_origin(provider, "app", "process:Grok.app")
++    if provider == "opencode" and "opencode.app" in haystack:
++        return surface_origin(provider, "app", "process:OpenCode.app")
+ 
+     for info in processes:
+         basename = process_basename(info)
+@@ -128,6 +164,8 @@ def origin_from_processes(
+             return surface_origin(provider, "cli", "process:claude")
+         if provider == "grok" and basename == "grok":
+             return surface_origin(provider, "cli", "process:grok")
++        if provider == "opencode" and basename == "opencode":
++            return surface_origin(provider, "cli", "process:opencode")
+ 
+     return None
+ 
+@@ -139,19 +177,29 @@ def surface_origin(provider: str, surface: str, source: str) -> AgentOrigin:
+         ("codex", "vscode"): "Codex in VS Code",
+         ("codex", "cursor"): "Codex in Cursor",
+         ("codex", "windsurf"): "Codex in Windsurf",
++        ("codex", "t3code"): "T3 Code",
+         ("codex", "transcript"): "Codex Transcript",
+         ("claude", "app"): "Claude App",
+         ("claude", "cli"): "Claude Code CLI",
+         ("claude", "vscode"): "Claude in VS Code",
+         ("claude", "cursor"): "Claude in Cursor",
+         ("claude", "windsurf"): "Claude in Windsurf",
++        ("claude", "t3code"): "T3 Code",
+         ("claude", "transcript"): "Claude Transcript",
+         ("grok", "app"): "Grok App",
+         ("grok", "cli"): "Grok CLI",
+         ("grok", "vscode"): "Grok in VS Code",
+         ("grok", "cursor"): "Grok in Cursor",
+         ("grok", "windsurf"): "Grok in Windsurf",
++        ("grok", "t3code"): "T3 Code",
+         ("grok", "transcript"): "Grok Transcript",
++        ("opencode", "app"): "OpenCode",
++        ("opencode", "cli"): "OpenCode CLI",
++        ("opencode", "vscode"): "OpenCode in VS Code",
++        ("opencode", "cursor"): "OpenCode in Cursor",
++        ("opencode", "windsurf"): "OpenCode in Windsurf",
++        ("opencode", "t3code"): "T3 Code",
++        ("opencode", "transcript"): "OpenCode Transcript",
+     }
+     label = labels.get((provider, surface), provider_label(provider))
+     return AgentOrigin(
+@@ -227,16 +275,53 @@ def terminal_environment(env: Mapping[str, str]) -> bool:
+     return bool(term_program and term_program.lower() != "vscode")
+ 
+ 
++def t3_code_host_in_processes(processes: tuple[ProcessInfo, ...]) -> bool:
++    haystack = "\n".join(f"{info.comm}\n{info.command}" for info in processes).lower()
++    return any(token in haystack for token in T3_PROCESS_TOKENS)
++
++
++def t3_code_environment(env: Mapping[str, str]) -> bool:
++    """Recognize explicit environment markers used by T3 Code launches."""
++    for key in (
++        "T3_CODE",
++        "T3CODE",
++        "T3_CODE_HOME",
++        "T3CODE_HOME",
++        "T3_MCP_BEARER_TOKEN",
++    ):
++        if str(env.get(key) or "").strip():
++            return True
++
++    bundle_id = str(env.get("__CFBundleIdentifier") or "").strip().lower()
++    if any(marker in bundle_id.replace("_", " ") for marker in ("t3 code", "t3-code", "t3code")):
++        return True
++
++    term_program = str(env.get("TERM_PROGRAM") or "").strip().lower()
++    if any(marker in term_program.replace("_", " ") for marker in ("t3 code", "t3-code", "t3code")):
++        return True
++
++    for key, value in env.items():
++        if not str(key).startswith("VSCODE_"):
++            continue
++        lowered = str(value or "").lower()
++        if any(marker in lowered for marker in T3_ENV_VALUE_MARKERS):
++            return True
++    return False
++
++
+ def annotate_payload_with_origin(
+     provider: str,
+     payload: dict[str, Any],
+     *,
+     env: Mapping[str, str] | None = None,
+ ) -> dict[str, Any]:
+-    if "agent_origin" in payload or "agentOrigin" in payload:
+-        return payload
++    active_env = os.environ if env is None else env
+     result = dict(payload)
+-    result.update(detect_agent_origin(provider, env=env).to_payload())
++    if "agent_origin" not in payload and "agentOrigin" not in payload:
++        result.update(detect_agent_origin(provider, env=active_env).to_payload())
++    operation = clean_label(active_env.get("T3CODE_TEXT_GENERATION_OPERATION"))
++    if operation:
++        result["agent_internal_operation"] = operation
+     return result
+ 
+ 
+diff --git a/src/sidepulse/providers.py b/src/sidepulse/providers.py
+index 516ec6c..cf3fdcc 100644
+--- a/src/sidepulse/providers.py
++++ b/src/sidepulse/providers.py
+@@ -74,8 +74,22 @@ CURSOR_EVENTS = (
+     "stop",
+ )
+ 
+-HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor")
+-KNOWN_EVENTS = tuple(dict.fromkeys(CODEX_EVENTS + CLAUDE_EVENTS + GROK_EVENTS))
++OPENCODE_EVENTS = (
++    "SessionStart",
++    "UserPromptSubmit",
++    "PreToolUse",
++    "PostToolUse",
++    "PermissionRequest",
++    "PermissionDenied",
++    "Stop",
++    "StopFailure",
++    "SessionEnd",
++)
++
++HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor", "opencode")
++KNOWN_EVENTS = tuple(
++    dict.fromkeys(CODEX_EVENTS + CLAUDE_EVENTS + GROK_EVENTS + OPENCODE_EVENTS)
++)
+ 
+ 
+ @dataclass(frozen=True)
+@@ -134,6 +148,7 @@ def detect_provider_configs(home: Path | None = None) -> list[ProviderConfig]:
+         detect_claude_config(home),
+         detect_grok_config(home),
+         detect_cursor_config(home),
++        detect_opencode_config(home),
+     ]
+ 
+ 
+@@ -335,6 +350,44 @@ def _paths_from_cursor_entries(entries: list[Any]) -> list[Path]:
+     return paths
+ 
+ 
++def default_opencode_plugin_path(home: Path | None = None) -> Path:
++    if home is not None:
++        config_dir = home / ".config" / "opencode"
++    elif os.environ.get("OPENCODE_CONFIG_DIR"):
++        config_dir = Path(os.environ["OPENCODE_CONFIG_DIR"]).expanduser()
++    elif os.environ.get("XDG_CONFIG_HOME"):
++        config_dir = Path(os.environ["XDG_CONFIG_HOME"]).expanduser() / "opencode"
++    else:
++        config_dir = Path.home() / ".config" / "opencode"
++    return config_dir / "plugins" / "sidepulse.js"
++
++
++def detect_opencode_config(home: Path | None = None) -> ProviderConfig:
++    config_path = default_opencode_plugin_path(home)
++    if not config_path.exists():
++        return ProviderConfig("opencode", config_path, False, False, (), ())
++    try:
++        text = config_path.read_text()
++    except OSError:
++        return ProviderConfig("opencode", config_path, True, False, (), ())
++    enabled = "sidepulse-opencode-plugin" in text
++    paths = list(extract_log_paths_from_command(text))
++    match = re.search(r'const SIDEPULSE_LOG = ("(?:[^"\\]|\\.)*")', text)
++    if match:
++        try:
++            paths.append(Path(json.loads(match.group(1))).expanduser())
++        except (ValueError, json.JSONDecodeError):
++            pass
++    return ProviderConfig(
++        "opencode",
++        config_path,
++        True,
++        enabled,
++        OPENCODE_EVENTS if enabled else (),
++        _dedupe_paths(paths),
++    )
++
++
+ def detect_log_path(provider: str, home: Path | None = None) -> Path:
+     if provider == "codex":
+         config = detect_codex_config(home)
+@@ -344,6 +397,8 @@ def detect_log_path(provider: str, home: Path | None = None) -> Path:
+         config = detect_grok_config(home)
+     elif provider == "cursor":
+         config = detect_cursor_config(home)
++    elif provider == "opencode":
++        config = detect_opencode_config(home)
+     else:
+         config = ProviderConfig(provider, default_log_path(provider, home), False, False, (), ())
+     if config.log_paths:
+@@ -442,6 +497,14 @@ def canonical_event_name(value: Any) -> str | None:
+             "pre_compact": "PreCompact",
+             "post_compact": "PostCompact",
+             "stop_failure": "StopFailure",
++            "session_created": "SessionStart",
++            "session_status": "UserPromptSubmit",
++            "session_idle": "Stop",
++            "session_error": "StopFailure",
++            "permission_asked": "PermissionRequest",
++            "permission_replied": "PostToolUse",
++            "tool_execute_before": "PreToolUse",
++            "tool_execute_after": "PostToolUse",
+         }
+     )
+     return aliases.get(normalized)
+diff --git a/src/sidepulse/session_actions.py b/src/sidepulse/session_actions.py
+index a337b61..fcdd951 100644
+--- a/src/sidepulse/session_actions.py
++++ b/src/sidepulse/session_actions.py
+@@ -13,11 +13,16 @@ SESSION_OPEN_CHOICES = (SESSION_OPEN_APP, SESSION_OPEN_TERMINAL, SESSION_OPEN_VS
+ SESSION_OPEN_APP_SURFACES = ("app", "ui", "transcript")
+ SESSION_OPEN_TERMINAL_SURFACES = ("cli", "terminal", "command line")
+ SESSION_OPEN_VSCODE_SURFACES = ("vscode", "vs code", "visual studio code")
++T3_CODE_ORIGINS = ("t3 code", "t3code")
+ 
+ 
+ def session_deep_link(status: AgentStatus) -> str | None:
++    t3_url = t3code_thread_url(status)
++    if t3_url:
++        return t3_url
++
+     provider = status.provider.lower()
+-    session_id = status.session_id
++    session_id = hosted_session_id(status)
+ 
+     if provider == "codex" and session_id:
+         return f"codex://threads/{quote(session_id, safe='')}"
+@@ -27,28 +32,29 @@ def session_deep_link(status: AgentStatus) -> str | None:
+ 
+ 
+ def session_vscode_link(status: AgentStatus) -> str | None:
+-    if status.provider.lower() != "claude" or not status.session_id:
++    session_id = hosted_session_id(status)
++    if status.provider.lower() != "claude" or not session_id:
+         return None
+     return "vscode://anthropic.claude-code/open?" + urlencode(
+-        {"session": status.session_id},
++        {"session": session_id},
+         quote_via=quote,
+     )
+ 
+ 
+ def session_resume_command(status: AgentStatus) -> str | None:
+-    if not status.session_id:
+-        return None
+-
+     provider = status.provider.lower()
+     cwd = shlex.quote(status.cwd or str(Path.home()))
+-    session_id = shlex.quote(status.session_id)
++    native_id = hosted_session_id(status)
++    session_id = shlex.quote(native_id) if native_id else None
+ 
+-    if provider == "codex":
++    if provider == "codex" and session_id:
+         return f"cd {cwd} && codex resume {session_id}"
+-    if provider == "claude":
++    if provider == "claude" and session_id:
+         return f"cd {cwd} && claude --resume {session_id}"
+-    if provider == "grok":
++    if provider == "grok" and session_id:
+         return f"cd {cwd} && grok --resume {session_id}"
++    if provider == "opencode" and session_id:
++        return f"cd {cwd} && opencode --session {session_id}"
+     return None
+ 
+ 
+@@ -59,9 +65,19 @@ def default_session_open_action(status: AgentStatus) -> str:
+     return SESSION_OPEN_TERMINAL
+ 
+ 
++def hosted_session_id(status: AgentStatus) -> str | None:
++    """Native provider session id when T3 is hosting, else the row's session id."""
++    origin = normalized_origin(status.origin)
++    if any(token in origin for token in T3_CODE_ORIGINS) and status.provider_session_id:
++        return status.provider_session_id
++    return status.session_id
++
++
+ def preferred_session_open_actions(status: AgentStatus) -> tuple[str, ...]:
+     origin = normalized_origin(status.origin)
+     if origin:
++        if any(token in origin for token in T3_CODE_ORIGINS):
++            return (SESSION_OPEN_APP, SESSION_OPEN_TERMINAL, SESSION_OPEN_VSCODE)
+         if any(surface in origin for surface in SESSION_OPEN_VSCODE_SURFACES):
+             return (SESSION_OPEN_VSCODE, SESSION_OPEN_APP, SESSION_OPEN_TERMINAL)
+         if any(surface in origin for surface in SESSION_OPEN_TERMINAL_SURFACES):
+@@ -80,8 +96,48 @@ def normalized_origin(origin: str | None) -> str:
+     return " ".join(str(origin or "").strip().lower().replace("-", " ").split())
+ 
+ 
++def t3code_local_environment_id(home: Path | None = None) -> str | None:
++    """Read T3's local environment id from ``~/.t3/userdata/environment-id``."""
++    root = home or Path.home()
++    try:
++        value = (root / ".t3" / "userdata" / "environment-id").read_text().strip()
++    except OSError:
++        return None
++    return value or None
++
++
++def t3code_thread_url(status: AgentStatus, *, home: Path | None = None) -> str | None:
++    """T3 thread URL: ``t3code://threads/{environmentId}/{threadId}``.
++
++    Matches T3 Code's mobile/widget contract and ``buildAgentAwarenessDeepLink``
++    (``/threads/{environmentId}/{threadId}``). Desktop currently focuses the
++    app; pingdotgg/t3code#6008 teaches it to navigate this same URL. Do not use
++    ``t3code://app/threads/...``: that host is the renderer bundle, and the
++    desktop deep-link parser explicitly rejects it.
++    """
++
++    origin = normalized_origin(status.origin)
++    if not any(token in origin for token in T3_CODE_ORIGINS):
++        return None
++    thread_id = status.session_id
++    if not thread_id:
++        return None
++    environment_id = t3code_local_environment_id(home)
++    if not environment_id:
++        return None
++    return (
++        "t3code://threads/"
++        f"{quote(environment_id, safe='')}/{quote(thread_id, safe='')}"
++    )
++
++
+ def session_open_target(status: AgentStatus, action: str) -> tuple[str, str] | None:
+     if action == SESSION_OPEN_APP:
++        t3_url = t3code_thread_url(status)
++        if t3_url:
++            return ("url", t3_url)
++        if any(origin in normalized_origin(status.origin) for origin in T3_CODE_ORIGINS):
++            return ("application", "t3code")
+         url = session_deep_link(status)
+         return ("url", url) if url else None
+     if action == SESSION_OPEN_VSCODE:
+@@ -100,6 +156,8 @@ def available_session_open_actions(status: AgentStatus) -> tuple[str, ...]:
+ def session_open_action_label(status: AgentStatus, action: str) -> str:
+     provider = status.provider.lower()
+     if action == SESSION_OPEN_APP:
++        if any(origin in normalized_origin(status.origin) for origin in T3_CODE_ORIGINS):
++            return "Open T3 Code"
+         if provider == "codex":
+             return "Open in Codex"
+         if provider == "claude":
+diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
+index c789b32..88c6deb 100644
+--- a/src/sidepulse/status_bar.py
++++ b/src/sidepulse/status_bar.py
+@@ -80,7 +80,14 @@ from .audit import (
+     read_status_history_records,
+     status_history_record,
+ )
+-from .collector import LiveAgentMonitor, SourceSpec
++from .collector import (
++    T3CODE_PROVIDER,
++    AgentMonitor,
++    LiveAgentMonitor,
++    SourceSpec,
++    default_t3code_event_log_dir,
++    read_recent_lines,
++)
+ from .device_writer import (
+     DEFAULT_FILE_NAME,
+     MOUNT_ROOT,
+@@ -99,9 +106,11 @@ from .install import (
+     install_claude_hooks,
+     install_codex_hooks,
+     install_grok_hooks,
++    install_opencode_hooks,
+     uninstall_claude_hooks,
+     uninstall_codex_hooks,
+     uninstall_grok_hooks,
++    uninstall_opencode_hooks,
+ )
+ from .led_status import (
+     AgentLedController,
+@@ -134,6 +143,8 @@ from .providers import (
+     detect_claude_config,
+     detect_codex_config,
+     detect_grok_config,
++    detect_opencode_config,
++    detect_log_path,
+     default_state_dir,
+     parse_log_line,
+ )
+@@ -343,8 +354,12 @@ STATUS_BAR_KEEPALIVE_VOLUME_NAMES = (
+ STATUS_BAR_REFRESH_SECONDS = 15.0
+ STATUS_BAR_DEVICE_POLL_SECONDS = 2.0
+ STATUS_BAR_SESSION_HISTORY_LIMIT = 10
++# Below this the number is noise; above it the session is close enough to a
++# compaction that it is worth seeing without opening the submenu.
++CONTEXT_PERCENT_MENU_THRESHOLD = 70.0
+ SCREEN_BAR_FEATURE_ENABLED = True
+ STATUS_BAR_MAX_LINES_PER_SOURCE = 500
++STATUS_BAR_STARTUP_REPLAY_LINES = 200
+ SETTINGS_WINDOW_WIDTH = 680
+ SETTINGS_WINDOW_HEIGHT = 560
+ SETTINGS_ANIMATIONS_WINDOW_WIDTH = 720
+@@ -508,6 +523,46 @@ def format_percent_value(value: float | int) -> str:
+     return f"{number:.1f}%"
+ 
+ 
++def replay_recent_debug_logs(
++    monitor: LiveAgentMonitor,
++    *,
++    providers: tuple[str, ...] = ("codex", "claude", "grok", "opencode"),
++    max_lines: int = STATUS_BAR_STARTUP_REPLAY_LINES,
++) -> int:
++    replayed = 0
++    for provider in providers:
++        try:
++            path = detect_log_path(provider)
++            lines = read_recent_lines(path, max_lines) if path.exists() else []
++        except Exception as exc:
++            log_status_bar(f"startup_replay {provider} error: {exc}")
++            continue
++
++        for line in lines:
++            record = parse_log_line(provider, line)
++            if record is None:
++                continue
++            monitor.ingest_record(record)
++            replayed += 1
++    return replayed
++
++
++def reconcile_t3code_sessions(
++    monitor: LiveAgentMonitor,
++    t3code_monitor: AgentMonitor,
++) -> int:
++    """Prefer T3 Code's canonical event log over the hosted agent's own hooks.
++
++    T3 reports every provider it hosts, including ones that ship no hooks at
++    all, and it keys sessions by its own thread id. Only live threads are
++    reconciled so a rotated-out log can never retire a session that is still
++    reporting through hooks.
++    """
++
++    canonical = t3code_monitor.snapshot(include_stale=False).statuses
++    return monitor.reconcile_statuses(canonical, replaces_origin="T3 Code")
++
++
+ class StatusBarController(NSObject):
+     def init(self):
+         self = objc.super(StatusBarController, self).init()
+@@ -516,6 +571,7 @@ class StatusBarController(NSObject):
+ 
+         self.settings = load_settings()
+         self.monitor = self.build_monitor()
++        self.t3code_monitor = self.build_t3code_monitor()
+         self.event_server = None
+         self.status_item = None
+         self.timer = None
+@@ -636,6 +692,7 @@ class StatusBarController(NSObject):
+     @objc.IBAction
+     def refresh_(self, _sender):
+         try:
++            reconcile_t3code_sessions(self.monitor, self.t3code_monitor)
+             snapshot = self.monitor.snapshot(include_stale=False)
+         except Exception as exc:
+             log_status_bar(f"refresh error: {exc}")
+@@ -863,6 +920,14 @@ class StatusBarController(NSObject):
+     def uninstallGrokHooks_(self, _sender):
+         self.update_hooks("grok", install=False)
+ 
++    @objc.IBAction
++    def installOpenCodeHooks_(self, _sender):
++        self.update_hooks("opencode", install=True)
++
++    @objc.IBAction
++    def uninstallOpenCodeHooks_(self, _sender):
++        self.update_hooks("opencode", install=False)
++
+     @objc.IBAction
+     def toggleCodexTranscripts_(self, sender):
+         self.set_transcript_monitoring("codex", sender.state() == NSOnState)
+@@ -1054,8 +1119,15 @@ class StatusBarController(NSObject):
+             latest_state_path=default_latest_state_path(),
+         )
+ 
++    def build_t3code_monitor(self) -> AgentMonitor:
++        return AgentMonitor(
++            sources=(SourceSpec(T3CODE_PROVIDER, default_t3code_event_log_dir()),),
++            stale_after_seconds=self.settings.idle_timeout_seconds,
++        )
++
+     def reload_monitor(self) -> None:
+         self.monitor = self.build_monitor()
++        self.t3code_monitor = self.build_t3code_monitor()
+ 
+     def start_event_server(self) -> None:
+         self.stop_event_server()
+@@ -1212,6 +1284,13 @@ class StatusBarController(NSObject):
+         launch_installed = launch_agent_installed()
+         eject_installed = sd_eject_guard_installed()
+         sleep_installed = sleep_helper_installed()
++        codex = detect_codex_config()
++        claude = detect_claude_config()
++        grok = detect_grok_config()
++        opencode = detect_opencode_config()
++        integrations_installed = all(
++            config.hooks_enabled for config in (codex, claude, grok, opencode)
++        )
+ 
+         set_field_value(
+             self.setup_fields.get("launch_status"),
+@@ -1225,9 +1304,14 @@ class StatusBarController(NSObject):
+             self.setup_fields.get("sleep_status"),
+             "Installed" if sleep_installed else "Needs administrator setup",
+         )
++        set_field_value(
++            self.setup_fields.get("opencode_status"),
++            "Installed" if integrations_installed else "Not installed",
++        )
+         self.set_setup_checkbox("launch", True, enabled=not launch_installed)
+         self.set_setup_checkbox("eject_guard", True, enabled=not eject_installed)
+         self.set_setup_checkbox("sleep_helper", True, enabled=not sleep_installed)
++        self.set_setup_checkbox("opencode", True, enabled=not integrations_installed)
+         eject_uninstall = self.setup_buttons.get("eject_guard_uninstall")
+         if eject_uninstall is not None:
+             eject_uninstall.setEnabled_(eject_installed)
+@@ -1244,6 +1328,22 @@ class StatusBarController(NSObject):
+         errors: list[str] = []
+         opened_sleep_installer = False
+ 
++        if checkbox_is_on(self.setup_buttons.get("opencode")):
++            try:
++                results = (
++                    install_codex_hooks(),
++                    install_claude_hooks(),
++                    install_grok_hooks(),
++                    install_opencode_hooks(),
++                )
++                messages.append(
++                    "Agent integrations for OpenCode / T3 Code installed."
++                    if any(result.changed for result in results)
++                    else "Agent integrations for OpenCode / T3 Code already installed."
++                )
++            except Exception as exc:
++                errors.append(f"OpenCode / T3 Code monitoring failed: {exc}")
++
+         if checkbox_is_on(self.setup_buttons.get("launch")) and not launch_agent_installed():
+             try:
+                 result = install_launch_agent(start=False)
+@@ -1328,6 +1428,7 @@ class StatusBarController(NSObject):
+         codex = detect_codex_config()
+         claude = detect_claude_config()
+         grok = detect_grok_config()
++        opencode = detect_opencode_config()
+         set_field_value(
+             self.settings_fields.get("codex_hook_status"),
+             hook_status_text(codex),
+@@ -1340,6 +1441,14 @@ class StatusBarController(NSObject):
+             self.settings_fields.get("grok_hook_status"),
+             hook_status_text(grok),
+         )
++        set_field_value(
++            self.settings_fields.get("opencode_hook_status"),
++            hook_status_text(opencode),
++        )
++        set_field_value(
++            self.settings_fields.get("t3code_hook_status"),
++            "Automatic · uses the selected agent's hooks",
++        )
+         set_field_value(
+             self.settings_fields.get("settings_path"),
+             f"Settings: {default_settings_path()}",
+@@ -1393,7 +1502,7 @@ class StatusBarController(NSObject):
+                 and self.selected_agent_animation_profile_id
+                 not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
+             )
+-        for provider in ("codex", "claude", "grok"):
++        for provider in ("codex", "claude", "grok", "opencode"):
+             popup = self.settings_fields.get(f"{provider}_session_opener")
+             if popup is not None:
+                 refresh_provider_opener_popup(
+@@ -1544,19 +1653,23 @@ class StatusBarController(NSObject):
+                 result = install_claude_hooks()
+             elif provider == "claude":
+                 result = uninstall_claude_hooks()
+-            elif install:
++            elif provider == "grok" and install:
+                 result = install_grok_hooks()
+-            else:
++            elif provider == "grok":
+                 result = uninstall_grok_hooks()
++            elif install:
++                result = install_opencode_hooks()
++            else:
++                result = uninstall_opencode_hooks()
+         except Exception as exc:
+-            self.set_settings_message(f"{provider.title()} hooks failed: {exc}")
++            self.set_settings_message(f"{provider_label(provider)} hooks failed: {exc}")
+             self.refresh_settings_window()
+             return
+ 
+         action = "installed" if install else "removed"
+         if not result.changed:
+             action = "already installed" if install else "already removed"
+-        self.set_settings_message(f"{provider.title()} hooks {action}.")
++        self.set_settings_message(f"{provider_label(provider)} hooks {action}.")
+         self.reload_monitor()
+         self.refresh_settings_window()
+         self.refresh_(None)
+@@ -1899,6 +2012,8 @@ class StatusBarController(NSObject):
+         kind, value = target
+         if kind == "url":
+             open_url(value)
++        elif kind == "application":
++            open_host_application(value)
+         elif kind == "terminal":
+             open_terminal_command(
+                 value,
+@@ -3346,7 +3461,7 @@ def build_brightness_slider_item(
+ 
+ def build_setup_window(target: StatusBarController) -> NSWindow:
+     width = 620
+-    height = 330
++    height = 410
+     style = (
+         NSWindowStyleMaskTitled
+         | NSWindowStyleMaskClosable
+@@ -3363,8 +3478,21 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+     window.center()
+     content = window.contentView()
+ 
+-    add_label(content, "SidePulse", 24, 282, 180, 28)
+-    add_label(content, "Finish setup for this Mac.", 24, 254, 340, 22)
++    add_label(content, "SidePulse", 24, 362, 180, 28)
++    add_label(content, "Finish setup for this Mac.", 24, 334, 340, 22)
++
++    opencode = add_checkbox(
++        content,
++        "Agent Integrations (OpenCode / T3 Code)",
++        32,
++        276,
++        300,
++        24,
++        target,
++        "",
++    )
++    add_label(content, "Install provider hooks and identify agents hosted by T3 Code once.", 56, 254, 430, 20)
++    opencode_status = add_label(content, "", 440, 276, 150, 22)
+ 
+     launch = add_checkbox(
+         content,
+@@ -3415,6 +3543,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+         "launch_status": launch_status,
+         "eject_status": eject_status,
+         "sleep_status": sleep_status,
++        "opencode_status": opencode_status,
+         "message": message,
+     }
+     target.setup_buttons = {
+@@ -3422,6 +3551,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+         "eject_guard": eject_guard,
+         "eject_guard_uninstall": eject_uninstall,
+         "sleep_helper": sleep_helper,
++        "opencode": opencode,
+     }
+     return window
+ 
+@@ -4178,6 +4308,14 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+     agent_animations_tab = animations_tab
+ 
+     add_label(agents_tab, "Agent Hooks", 24, 398, 200, 24)
++    t3code_status = add_label(
++        agents_tab,
++        "T3 Code: automatic · uses the selected agent's hooks",
++        220,
++        400,
++        390,
++        20,
++    )
+     add_label(agents_tab, "Codex", 32, 360, 80, 22)
+     codex_status = add_label(agents_tab, "", 130, 360, 240, 22)
+     add_button(agents_tab, "Install", 400, 356, 90, 28, target, "installCodexHooks:")
+@@ -4193,7 +4331,12 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+     add_button(agents_tab, "Install", 400, 288, 90, 28, target, "installGrokHooks:")
+     add_button(agents_tab, "Uninstall", 500, 288, 100, 28, target, "uninstallGrokHooks:")
+ 
+-    add_separator(agents_tab, 24, 258, tab_width - 48)
++    add_label(agents_tab, "OpenCode", 32, 258, 80, 22)
++    opencode_status = add_label(agents_tab, "", 130, 258, 240, 22)
++    add_button(agents_tab, "Install", 400, 254, 90, 28, target, "installOpenCodeHooks:")
++    add_button(agents_tab, "Uninstall", 500, 254, 100, 28, target, "uninstallOpenCodeHooks:")
++
++    add_separator(agents_tab, 24, 246, tab_width - 48)
+     add_label(agents_tab, "Session Opening", 24, 224, 240, 24)
+     add_label(agents_tab, "Codex", 32, 188, 100, 22)
+     codex_opener = add_provider_opener_popup(agents_tab, "codex", 160, 186, target)
+@@ -4415,6 +4558,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+         "codex_hook_status": codex_status,
+         "claude_hook_status": claude_status,
+         "grok_hook_status": grok_status,
++        "opencode_hook_status": opencode_status,
++        "t3code_hook_status": t3code_status,
+         "debug_log_status": debug_log_status,
+         "codex_session_opener": codex_opener,
+         "claude_session_opener": claude_opener,
+@@ -4914,7 +5059,10 @@ def provider_open_action_label(provider: str, action: str, settings=None) -> str
+         return "VS Code"
+     if action == SESSION_OPEN_TERMINAL:
+         return "Resume in Terminal"
+-    return {"codex": "Codex", "claude": "Claude"}.get(provider, "App")
++    return {"codex": "Codex", "claude": "Claude", "opencode": "OpenCode"}.get(
++        provider,
++        "App",
++    )
+ 
+ 
+ def refresh_provider_opener_popup(popup, provider: str, action: str, settings) -> None:
+@@ -5337,16 +5485,53 @@ def build_session_menu_item(
+     return item
+ 
+ 
+-def native_session_menu_title(status: AgentStatus, *, disambiguate: bool = False) -> str:
++def native_session_menu_title(
++    status: AgentStatus,
++    *,
++    disambiguate: bool = False,
++    include_context: bool = True,
++) -> str:
+     title, project = session_title_parts(status)
++    if normalized_origin_text(status.origin) == "t3 code":
++        title = t3_session_menu_title(status.provider, title)
+     if disambiguate and status.session_id:
+         title = f"{title} ({status.session_id[:8]})"
+     parts = [title]
+     if project:
+         parts.append(project)
++    if include_context:
++        context = format_context_percent(status, threshold=CONTEXT_PERCENT_MENU_THRESHOLD)
++        if context:
++            parts.append(context)
+     return "  ".join(parts)
+ 
+ 
++def t3_session_menu_title(provider: str, title: str) -> str:
++    """Prefix T3 rows with the hosted provider without repeating 'T3 Code'."""
++    label = provider_label(provider)
++    prefix = f"T3 · {label}"
++    stripped = title.strip()
++    lowered = stripped.casefold()
++    generic = f"{label} session ".casefold()
++    if lowered.startswith(generic):
++        rest = stripped[len(f"{label} session ") :].strip()
++        return f"{prefix}  {rest}" if rest else prefix
++    if lowered.startswith(f"{label} ".casefold()):
++        rest = stripped[len(f"{label} ") :].strip()
++        if rest:
++            stripped = rest
++    if lowered.startswith("t3 ·") or lowered.startswith("t3 code"):
++        return stripped
++    return f"{prefix}  {stripped}" if stripped else prefix
++
++
++def format_context_percent(status: AgentStatus, *, threshold: float = 0.0) -> str | None:
++    percent = status.context_percent
++    if percent is None or percent < threshold or round(percent) <= 0:
++        return None
++    return f"{round(percent)}% context"
++
++
+ def build_session_options_menu(
+     status: AgentStatus,
+     now: datetime,
+@@ -5431,6 +5616,8 @@ def session_origin_icon_for_status(status: AgentStatus):
+     host_icon = host_icon_for_origin(status.origin)
+     if host_icon is None:
+         return provider_icon
++    if normalized_origin_text(status.origin) == "t3 code":
++        return host_icon
+     return composite_app_icons(host_icon, provider_icon)
+ 
+ 
+@@ -5476,7 +5663,16 @@ def host_icon_for_origin(origin: str | None):
+     if normalized in _origin_icon_cache:
+         return _origin_icon_cache[normalized]
+     image = None
+-    if "vs code" in normalized or "vscode" in normalized or "visual studio code" in normalized:
++    if normalized == "t3 code" or "t3code" in normalized:
++        image = first_app_icon(
++            (
++                "/Applications/T3 Code.app",
++                "/Applications/T3 Code (Alpha).app",
++                "/Applications/T3 Code (Nightly).app",
++                "/Applications/t3-code.app",
++            )
++        ) or image_for_symbol("square.stack.3d.up", "T3 Code")
++    elif "vs code" in normalized or "vscode" in normalized or "visual studio code" in normalized:
+         image = first_app_icon(
+             (
+                 "/Applications/Visual Studio Code.app",
+@@ -5718,7 +5914,7 @@ def session_title_collision_keys(statuses: list[AgentStatus]) -> set[tuple[str,
+ def session_title_collision_key(status: AgentStatus) -> tuple[str, str]:
+     return (
+         status.provider.lower(),
+-        normalized_menu_part(native_session_menu_title(status)),
++        normalized_menu_part(native_session_menu_title(status, include_context=False)),
+     )
+ 
+ 
+@@ -5772,6 +5968,9 @@ def session_detail_for_status(status: AgentStatus, now: datetime) -> str:
+         details.append(status.origin)
+     if status.tool_name:
+         details.append(status.tool_name)
++    context = format_context_percent(status)
++    if context:
++        details.append(context)
+     return " · ".join(details)
+ 
+ 
+@@ -5876,6 +6075,22 @@ def open_url(url: str) -> None:
+         NSWorkspace.sharedWorkspace().openURL_(ns_url)
+ 
+ 
++def open_host_application(host: str) -> None:
++    if host != "t3code":
++        return
++    paths = (
++        "/Applications/T3 Code.app",
++        "/Applications/T3 Code (Alpha).app",
++        "/Applications/T3 Code (Nightly).app",
++        "/Applications/t3-code.app",
++    )
++    path = next((candidate for candidate in paths if Path(candidate).exists()), None)
++    if path is None:
++        subprocess.Popen(["open", "-a", "T3 Code"])
++        return
++    NSWorkspace.sharedWorkspace().openURL_(NSURL.fileURLWithPath_(path))
++
++
+ def open_terminal_command(
+     command: str,
+     *,
+diff --git a/tests/test_packaging.py b/tests/test_packaging.py
+index 5eb5889..e4205ce 100644
+--- a/tests/test_packaging.py
++++ b/tests/test_packaging.py
+@@ -63,7 +63,7 @@ def requirement_name(spec: str) -> str:
+     ``"pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'"`` -> ``pyobjc-framework-cocoa``
+     """
+     head = spec.split(";", 1)[0].strip()
+-    head = re.split(r"[<>=!~\[\s]", head, 1)[0]
++    head = re.split(r"[<>=!~\[\s]", head, maxsplit=1)[0]
+     return normalize_dist_name(head)
+ 
+ 
+diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
+index 5e2ef24..d27b9e9 100644
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -4,6 +4,7 @@ import json
+ import os
+ import plistlib
+ import re
++import shutil
+ import subprocess
+ import sys
+ import tempfile
+@@ -55,9 +56,11 @@ from sidepulse.install import (
+     install_claude_hooks,
+     install_codex_hooks,
+     install_grok_hooks,
++    install_opencode_hooks,
+     uninstall_claude_hooks,
+     uninstall_codex_hooks,
+     uninstall_grok_hooks,
++    uninstall_opencode_hooks,
+     update_codex_trusted_hashes,
+ )
+ from sidepulse.keep_awake import KeepAwakeController, status_file_for_target
+@@ -86,10 +89,11 @@ from sidepulse.lid_sleep import (
+     run_sudo_pmset_disablesleep,
+     sleep_helper_sudoers_rule,
+ )
+-from sidepulse.models import AgentMode, AgentStatus, AggregateStatus
+-from sidepulse.origin import ProcessInfo, origin_from_processes
++from sidepulse.models import AgentMode, AgentStatus, AggregateStatus, HookEvent
++from sidepulse.origin import ProcessInfo, origin_from_environment, origin_from_processes
+ from sidepulse.providers import (
+     detect_grok_config,
++    detect_opencode_config,
+     default_log_path,
+     default_state_dir,
+     parse_log_line,
+@@ -115,6 +119,7 @@ from sidepulse.session_actions import (
+     SESSION_OPEN_VSCODE,
+     default_session_open_action,
+     session_deep_link,
++    session_open_action_label,
+     session_open_target,
+     session_resume_command,
+     session_vscode_link,
+@@ -357,6 +362,137 @@ class AgentMonitorTests(unittest.TestCase):
+             "Claude Code CLI",
+         )
+ 
++    def test_t3_code_origin_wins_over_nested_codex_process(self) -> None:
++        origin = origin_from_processes(
++            "codex",
++            (
++                ProcessInfo(pid=10, ppid=20, comm="codex", command="codex app-server"),
++                ProcessInfo(
++                    pid=20,
++                    ppid=1,
++                    comm="/Applications/T3 Code.app/Contents/MacOS/T3 Code",
++                    command="/Applications/T3 Code.app/Contents/MacOS/T3 Code",
++                ),
++            ),
++        )
++        self.assertIsNotNone(origin)
++        self.assertEqual(origin.label, "T3 Code")
++        self.assertEqual(origin.kind, "codex_t3code")
++
++    def test_t3_code_origin_recognizes_mcp_environment(self) -> None:
++        origin = origin_from_environment(
++            "opencode",
++            {"T3_MCP_BEARER_TOKEN": "present"},
++        )
++        self.assertIsNotNone(origin)
++        self.assertEqual(origin.label, "T3 Code")
++        self.assertEqual(origin.kind, "opencode_t3code")
++
++    def test_opencode_event_names_are_normalized(self) -> None:
++        record = parse_log_line(
++            "opencode",
++            json.dumps(
++                {
++                    "event_name": "tool.execute.before",
++                    "session_id": "open-session",
++                    "cwd": "/tmp/project",
++                    "tool_name": "bash",
++                    "timestamp": "2026-08-14T12:00:00Z",
++                }
++            ),
++        )
++        self.assertIsNotNone(record)
++        self.assertEqual(record.provider, "opencode")
++        self.assertEqual(record.event_name, "PreToolUse")
++
++    def test_opencode_session_can_resume_in_terminal(self) -> None:
++        from sidepulse.session_actions import session_resume_command
++
++        status = AgentStatus(
++            provider="opencode",
++            agent_id="opencode:session:open-session",
++            display_name="OpenCode session",
++            mode=AgentMode.COMPLETED,
++            updated_at=datetime.now(timezone.utc),
++            event_name="Stop",
++            session_id="open-session",
++            cwd="/tmp/project",
++        )
++        self.assertEqual(
++            session_resume_command(status),
++            "cd /tmp/project && opencode --session open-session",
++        )
++
++    def test_opencode_plugin_install_detect_and_uninstall(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            plugin = base / ".config" / "opencode" / "plugins" / "sidepulse.js"
++            log = base / "state" / "opencode.jsonl"
++
++            installed = install_opencode_hooks(log_path=log, config_path=plugin)
++            self.assertTrue(installed.changed)
++            self.assertTrue(plugin.exists())
++            self.assertIn("sidepulse-opencode-plugin", plugin.read_text())
++            self.assertIn(str(log), plugin.read_text())
++            self.assertIn("T3_MCP_BEARER_TOKEN", plugin.read_text())
++
++            detected = detect_opencode_config(base)
++            self.assertTrue(detected.hooks_enabled)
++            self.assertEqual(detected.log_paths, (log,))
++
++            repeated = install_opencode_hooks(log_path=log, config_path=plugin)
++            self.assertFalse(repeated.changed)
++
++            removed = uninstall_opencode_hooks(log_path=log, config_path=plugin)
++            self.assertTrue(removed.changed)
++            self.assertFalse(plugin.exists())
++
++    def test_opencode_plugin_refuses_to_replace_unmanaged_file(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            plugin = base / "sidepulse.js"
++            plugin.write_text("export const ExistingPlugin = true\n")
++
++            with self.assertRaisesRegex(ValueError, "refusing to overwrite unmanaged"):
++                install_opencode_hooks(
++                    log_path=base / "opencode.jsonl",
++                    config_path=plugin,
++                )
++
++            self.assertEqual(plugin.read_text(), "export const ExistingPlugin = true\n")
++
++    @unittest.skipUnless(shutil.which("node"), "Node is required for OpenCode plugin test")
++    def test_opencode_plugin_emits_t3_busy_and_idle_events(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            plugin = base / "sidepulse.mjs"
++            log = base / "deleted-state" / "opencode.jsonl"
++            install_opencode_hooks(log_path=log, config_path=plugin)
++            log.unlink()
++            log.parent.rmdir()
++
++            runner = base / "run-plugin.mjs"
++            runner.write_text(
++                'import { SidePulsePlugin } from "./sidepulse.mjs"\n'
++                'const hooks = await SidePulsePlugin({directory: "/tmp/project", worktree: "/tmp/project"})\n'
++                'await hooks.event({event: {type: "session.status", properties: {sessionID: "open-session", status: {type: "busy"}}}})\n'
++                'await hooks.event({event: {type: "session.idle", properties: {sessionID: "open-session"}}})\n'
++            )
++            env = {**os.environ, "T3CODE_HOME": str(base / "t3")}
++            completed = subprocess.run(
++                [shutil.which("node"), str(runner)],
++                check=False,
++                stdout=subprocess.PIPE,
++                stderr=subprocess.PIPE,
++                text=True,
++                env=env,
++            )
++            self.assertEqual(completed.returncode, 0, completed.stderr)
++
++            payloads = [json.loads(line) for line in log.read_text().splitlines()]
++            self.assertEqual([item["event_name"] for item in payloads], ["session.status", "session.idle"])
++            self.assertTrue(all(item["agent_origin"] == "T3 Code" for item in payloads))
++
+     def test_grok_log_line_normalizes_camel_case_payload(self) -> None:
+         record = parse_log_line(
+             "grok",
+@@ -446,6 +582,10 @@ class AgentMonitorTests(unittest.TestCase):
+ 
+             with (
+                 patch("sidepulse.hook.detect_log_path", return_value=grok),
++                # Origin detection walks the real process tree before falling
++                # back to TERM_PROGRAM, so an editor-hosted test runner would
++                # otherwise decide this terminal session belongs to its host.
++                patch("sidepulse.origin.process_ancestry", return_value=()),
+                 patch.dict(os.environ, {"TERM_PROGRAM": "Apple_Terminal"}, clear=True),
+             ):
+                 provider, path, line = routed_hook_payload("claude", claude, payload)
+@@ -784,6 +924,27 @@ class AgentMonitorTests(unittest.TestCase):
+         self.assertEqual(image.size().width, 24)
+         self.assertEqual(image.size().height, 18)
+ 
++    def test_status_bar_t3_origin_uses_t3_icon_without_codex_overlay(self) -> None:
++        try:
++            from sidepulse import status_bar
++        except SystemExit as exc:
++            self.skipTest(str(exc))
++
++        status = AgentStatus(
++            provider="codex",
++            agent_id="codex:session:abc",
++            display_name="T3 task",
++            mode=AgentMode.WORKING,
++            updated_at=datetime.now(timezone.utc),
++            event_name="UserPromptSubmit",
++            origin="T3 Code",
++        )
++        sentinel = object()
++        with patch("sidepulse.status_bar.host_icon_for_origin", return_value=sentinel):
++            image = status_bar.session_origin_icon_for_status(status)
++
++        self.assertIs(image, sentinel)
++
+     def test_status_bar_session_row_icon_combines_status_and_origin(self) -> None:
+         try:
+             from sidepulse import status_bar
+@@ -1909,6 +2070,7 @@ class AgentMonitorTests(unittest.TestCase):
+             },
+         )
+         self.assertIn("debug_log_status", target.settings_fields)
++        self.assertIn("t3code_hook_status", target.settings_fields)
+         self.assertIn("status_history_status", target.settings_fields)
+         self.assertIn("status_history_chart", target.settings_fields)
+         self.assertIn("session_terminal", target.settings_fields)
+@@ -2184,9 +2346,11 @@ class AgentMonitorTests(unittest.TestCase):
+         self.assertIn("eject_guard", target.setup_buttons)
+         self.assertIn("eject_guard_uninstall", target.setup_buttons)
+         self.assertIn("sleep_helper", target.setup_buttons)
++        self.assertIn("opencode", target.setup_buttons)
+         self.assertIn("launch_status", target.setup_fields)
+         self.assertIn("eject_status", target.setup_fields)
+         self.assertIn("sleep_status", target.setup_fields)
++        self.assertIn("opencode_status", target.setup_fields)
+ 
+     def test_first_launch_setup_window_only_shows_until_completed(self) -> None:
+         try:
+@@ -3608,6 +3772,13 @@ class AgentMonitorTests(unittest.TestCase):
+             changed=True,
+             backup_path=None,
+         )
++        opencode_result = SimpleNamespace(
++            provider="opencode",
++            config_path=Path("/tmp/sidepulse.js"),
++            log_path=Path("/tmp/opencode.jsonl"),
++            changed=True,
++            backup_path=None,
++        )
+         launch_result = SimpleNamespace(
+             plist_path=Path("/tmp/io.sidepulse.agentstatus.plist"),
+             changed=True,
+@@ -3633,6 +3804,11 @@ class AgentMonitorTests(unittest.TestCase):
+                 return_value=cursor_result,
+             ) as cursor,
+             patch.object(cli_module, "install_grok_hooks", return_value=grok_result) as grok,
++            patch.object(
++                cli_module,
++                "install_opencode_hooks",
++                return_value=opencode_result,
++            ) as opencode,
+             patch(
+                 "sidepulse.sd_eject_guard_launch.install_sd_eject_guard",
+                 return_value=guard_result,
+@@ -3649,6 +3825,7 @@ class AgentMonitorTests(unittest.TestCase):
+         claude.assert_called_once()
+         cursor.assert_called_once()
+         grok.assert_called_once()
++        opencode.assert_called_once()
+         guard.assert_called_once_with(scope="auto", dry_run=False)
+         launch.assert_called_once_with(start=True)
+ 
+@@ -6615,6 +6792,69 @@ class AgentMonitorTests(unittest.TestCase):
+             self.assertEqual(snapshot.aggregate.mode, AgentMode.IDLE_READY)
+             self.assertEqual(snapshot.statuses, ())
+ 
++    def test_t3_title_helpers_are_ignored_without_hiding_standalone_codex(self) -> None:
++        now = datetime.now(timezone.utc)
++        helper = collector_module.HookEvent(
++            provider="codex",
++            logged_at=now,
++            event_name="UserPromptSubmit",
++            raw={
++                "hook_event_name": "UserPromptSubmit",
++                "session_id": "t3-title",
++                "prompt": (
++                    "Generate a title that will help the user recognize this T3 Code "
++                    "thread weeks later. Return JSON with exactly one key: title."
++                ),
++                "agent_origin": "T3 Code",
++            },
++            session_id="t3-title",
++            message="Generate a title for this T3 Code thread",
++            origin="T3 Code",
++        )
++        standalone = collector_module.HookEvent(
++            provider="codex",
++            logged_at=now,
++            event_name="UserPromptSubmit",
++            raw={**helper.raw, "session_id": "standalone", "agent_origin": "Codex"},
++            session_id="standalone",
++            message=helper.message,
++            origin="Codex",
++        )
++        metadata = collector_module.StatusMetadata(cwd="/tmp/project")
++
++        self.assertTrue(collector_module.should_ignore_record(helper, metadata))
++        self.assertFalse(collector_module.should_ignore_record(standalone, metadata))
++
++    def test_structured_t3_helper_operation_removes_live_session(self) -> None:
++        store = collector_module.LiveAgentMonitor(sources=(), stale_after_seconds=3600)
++        now = datetime.now(timezone.utc)
++        session_id = "t3-helper"
++        store.ingest_record(
++            collector_module.HookEvent(
++                provider="codex",
++                logged_at=now,
++                event_name="SessionStart",
++                raw={"hook_event_name": "SessionStart", "session_id": session_id},
++                session_id=session_id,
++            )
++        )
++        self.assertEqual(len(store.statuses_by_key), 1)
++
++        store.ingest_record(
++            collector_module.HookEvent(
++                provider="codex",
++                logged_at=now,
++                event_name="UserPromptSubmit",
++                raw={
++                    "hook_event_name": "UserPromptSubmit",
++                    "session_id": session_id,
++                    "agent_internal_operation": "generateThreadTitle",
++                },
++                session_id=session_id,
++            )
++        )
++        self.assertEqual(store.statuses_by_key, {})
++
+     def test_codex_transcript_fallback_marks_recent_user_turn_active(self) -> None:
+         with tempfile.TemporaryDirectory() as tmp:
+             root = Path(tmp)
+@@ -6911,6 +7151,897 @@ class AgentMonitorTests(unittest.TestCase):
+             self.assertEqual(snapshot.aggregate.mode, AgentMode.COMPLETED)
+             self.assertEqual(snapshot.statuses[0].event_name, "Stop")
+ 
++    def test_t3code_canonical_events_track_all_provider_lifecycles(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            now = datetime.now(timezone.utc)
++            providers = ("codex", "claudeAgent", "opencode", "cursor", "grok")
++            for index, provider in enumerate(providers):
++                thread_id = f"00000000-0000-4000-8000-{index:012d}"
++                path = root / f"events.{thread_id}.log"
++                started_at = (now + timedelta(milliseconds=index * 2)).isoformat()
++                ended_at = (now + timedelta(milliseconds=index * 2 + 1)).isoformat()
++                path.write_text(
++                    "\n".join(
++                        [
++                            f"[{started_at}] CANON: "
++                            + json.dumps(
++                                {
++                                    "type": "turn.started",
++                                    "provider": provider,
++                                    "threadId": thread_id,
++                                    "createdAt": started_at,
++                                    "payload": {},
++                                }
++                            ),
++                            f"[{ended_at}] CANON: "
++                            + json.dumps(
++                                {
++                                    "type": "turn.aborted",
++                                    "provider": provider,
++                                    "threadId": thread_id,
++                                    "createdAt": ended_at,
++                                    "payload": {"reason": "interrupted"},
++                                }
++                            ),
++                        ]
++                    )
++                    + "\n"
++                )
++
++            snapshot = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            ).snapshot()
++
++            self.assertEqual(len(snapshot.statuses), len(providers))
++            self.assertTrue(
++                all(status.mode == AgentMode.COMPLETED for status in snapshot.statuses)
++            )
++            self.assertTrue(all(status.origin == "T3 Code" for status in snapshot.statuses))
++            self.assertEqual(
++                {status.provider for status in snapshot.statuses},
++                {"codex", "claude", "opencode", "cursor", "grok"},
++            )
++
++    def test_t3code_canonical_tool_and_input_events_map_to_statuses(self) -> None:
++        thread_id = "00000000-0000-4000-8000-000000000001"
++        now = datetime.now(timezone.utc).isoformat()
++
++        tool = collector_module.parse_t3code_event_line(
++            f"[{now}] CANON: "
++            + json.dumps(
++                {
++                    "type": "item.started",
++                    "provider": "claudeAgent",
++                    "threadId": thread_id,
++                    "createdAt": now,
++                    "payload": {
++                        "itemType": "command_execution",
++                        "title": "Bash",
++                    },
++                }
++            )
++        )
++        waiting = collector_module.parse_t3code_event_line(
++            f"[{now}] CANON: "
++            + json.dumps(
++                {
++                    "type": "user-input.requested",
++                    "provider": "claudeAgent",
++                    "threadId": thread_id,
++                    "createdAt": now,
++                    "payload": {"message": "Choose an option"},
++                }
++            )
++        )
++        resolved = collector_module.parse_t3code_event_line(
++            f"[{now}] CANON: "
++            + json.dumps(
++                {
++                    "type": "user-input.resolved",
++                    "provider": "claudeAgent",
++                    "threadId": thread_id,
++                    "createdAt": now,
++                    "payload": {},
++                }
++            )
++        )
++
++        self.assertIsNotNone(tool)
++        self.assertIsNotNone(waiting)
++        self.assertIsNotNone(resolved)
++        self.assertEqual(collector_module.status_from_event(tool).mode, AgentMode.TOOL_RUNNING)
++        self.assertEqual(
++            collector_module.status_from_event(waiting).mode,
++            AgentMode.WAITING_FOR_INPUT,
++        )
++        self.assertEqual(
++            collector_module.status_from_event(resolved).mode,
++            AgentMode.WORKING,
++        )
++        self.assertEqual(tool.origin, "T3 Code")
++        self.assertEqual(tool.provider, "claude")
++
++    def test_t3code_canonical_sessions_replace_duplicate_hook_rows(self) -> None:
++        from sidepulse.status_bar import reconcile_t3code_sessions
++
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        hook_row = AgentStatus(
++            provider="claude",
++            agent_id="claude:session:claude-native-id",
++            display_name="hosted session",
++            mode=AgentMode.WORKING,
++            updated_at=now - timedelta(seconds=30),
++            event_name="PreToolUse",
++            session_id="claude-native-id",
++            origin="Claude Code CLI",
++        )
++        local_row = AgentStatus(
++            provider="claude",
++            agent_id="claude:session:terminal-id",
++            display_name="terminal session",
++            mode=AgentMode.WORKING,
++            updated_at=now - timedelta(seconds=30),
++            event_name="PreToolUse",
++            session_id="terminal-id",
++        )
++        live.statuses_by_key = {
++            hook_row.agent_id: hook_row,
++            local_row.agent_id: local_row,
++        }
++
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "00000000-0000-4000-8000-000000000047"
++            started_at = now.isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                f"[{started_at}] CANON: "
++                + json.dumps(
++                    {
++                        "type": "turn.started",
++                        "provider": "claudeAgent",
++                        "threadId": thread_id,
++                        "createdAt": started_at,
++                        "raw": {
++                            "payload": {"session_id": "claude-native-id"},
++                        },
++                        "payload": {},
++                    }
++                )
++                + "\n"
++            )
++            t3code = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            )
++
++            reconcile_t3code_sessions(live, t3code)
++
++        keys = set(live.statuses_by_key)
++        self.assertIn(f"claude:session:{thread_id}", keys)
++        self.assertIn(local_row.agent_id, keys, "non-T3 sessions must survive")
++        self.assertNotIn(
++            hook_row.agent_id,
++            keys,
++            "the hosted agent's own hook row duplicates the canonical T3 row",
++        )
++
++    def test_t3code_native_provider_session_id_is_preserved(self) -> None:
++        record = collector_module.parse_t3code_event_line(
++            "[2026-08-25T14:30:08Z] CANON: "
++            + json.dumps(
++                {
++                    "type": "session.state.changed",
++                    "provider": "claudeAgent",
++                    "threadId": "t3-thread-id",
++                    "createdAt": "2026-08-25T14:30:08Z",
++                    "raw": {
++                        "payload": {"session_id": "claude-native-id"},
++                    },
++                    "payload": {"state": "running"},
++                }
++            )
++        )
++
++        self.assertIsNotNone(record)
++        status = collector_module.status_from_event(record)
++        self.assertIsNotNone(status)
++        self.assertEqual(status.provider_session_id, "claude-native-id")
++
++    def test_t3code_hook_started_binds_native_id_onto_later_status(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "76bc0b8f-1111-4000-8000-000000000001"
++            native_id = "9c3e1232-a5b7-45b2-9f6c-09f8a44244c7"
++            now = datetime.now(timezone.utc)
++            started_at = now.isoformat()
++            turn_at = (now + timedelta(milliseconds=1)).isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                "\n".join(
++                    [
++                        f"[{started_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "hook.started",
++                                "provider": "claudeAgent",
++                                "threadId": thread_id,
++                                "createdAt": started_at,
++                                "raw": {
++                                    "payload": {"session_id": native_id},
++                                },
++                                "payload": {},
++                            }
++                        ),
++                        f"[{turn_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "turn.started",
++                                "provider": "claudeAgent",
++                                "threadId": thread_id,
++                                "createdAt": turn_at,
++                                "payload": {},
++                            }
++                        ),
++                    ]
++                )
++                + "\n"
++            )
++            snapshot = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            ).snapshot()
++
++        self.assertEqual(len(snapshot.statuses), 1)
++        status = snapshot.statuses[0]
++        self.assertEqual(status.session_id, thread_id)
++        self.assertEqual(status.provider_session_id, native_id)
++        self.assertEqual(status.origin, "T3 Code")
++
++    def test_t3code_camelcase_session_id_is_extracted(self) -> None:
++        record = collector_module.parse_t3code_event_line(
++            "[2026-08-25T14:30:08Z] CANON: "
++            + json.dumps(
++                {
++                    "type": "turn.started",
++                    "provider": "cursor",
++                    "threadId": "t3-thread-id",
++                    "createdAt": "2026-08-25T14:30:08Z",
++                    "payload": {"sessionId": "cursor-native-id"},
++                }
++            )
++        )
++
++        self.assertIsNotNone(record)
++        status = collector_module.status_from_event(record)
++        self.assertIsNotNone(status)
++        self.assertEqual(status.provider_session_id, "cursor-native-id")
++
++    def test_t3code_live_hook_folds_into_existing_t3_row(self) -> None:
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        thread_id = "76bc0b8f-1111-4000-8000-000000000001"
++        native_id = "9c3e1232-a5b7-45b2-9f6c-09f8a44244c7"
++        t3_row = AgentStatus(
++            provider="claude",
++            agent_id=f"claude:session:{thread_id}",
++            display_name="hosted T3 task",
++            mode=AgentMode.WORKING,
++            updated_at=now - timedelta(seconds=5),
++            event_name="UserPromptSubmit",
++            session_id=thread_id,
++            provider_session_id=native_id,
++            origin="T3 Code",
++        )
++        live.statuses_by_key = {t3_row.agent_id: t3_row}
++
++        live.ingest_record(
++            HookEvent(
++                provider="claude",
++                logged_at=now,
++                event_name="PreToolUse",
++                raw={"tool_name": "Bash"},
++                session_id=native_id,
++                tool_name="Bash",
++                origin="Claude in VS Code",
++            )
++        )
++
++        self.assertEqual(set(live.statuses_by_key), {t3_row.agent_id})
++        folded = live.statuses_by_key[t3_row.agent_id]
++        self.assertEqual(folded.origin, "T3 Code")
++        self.assertEqual(folded.session_id, thread_id)
++        self.assertEqual(folded.provider_session_id, native_id)
++        self.assertEqual(folded.mode, AgentMode.TOOL_RUNNING)
++        self.assertEqual(folded.tool_name, "Bash")
++        self.assertNotIn(f"claude:session:{native_id}", live.statuses_by_key)
++
++    def test_t3code_origin_hooks_stay_pending_until_canonical_row(self) -> None:
++        from sidepulse.status_bar import reconcile_t3code_sessions
++
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        native_id = "9c3e1232-a5b7-45b2-9f6c-09f8a44244c7"
++        live.ingest_record(
++            HookEvent(
++                provider="claude",
++                logged_at=now,
++                event_name="PreToolUse",
++                raw={"tool_name": "Bash"},
++                session_id=native_id,
++                tool_name="Bash",
++                origin="T3 Code",
++            )
++        )
++        self.assertEqual(live.statuses_by_key, {})
++
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "t3-thread-id"
++            started_at = now.isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                f"[{started_at}] CANON: "
++                + json.dumps(
++                    {
++                        "type": "turn.started",
++                        "provider": "claudeAgent",
++                        "threadId": thread_id,
++                        "createdAt": started_at,
++                        "raw": {"payload": {"session_id": native_id}},
++                        "payload": {},
++                    }
++                )
++                + "\n"
++            )
++            t3code = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            )
++            reconcile_t3code_sessions(live, t3code)
++
++        self.assertEqual(set(live.statuses_by_key), {f"claude:session:{thread_id}"})
++        folded = live.statuses_by_key[f"claude:session:{thread_id}"]
++        self.assertEqual(folded.origin, "T3 Code")
++        self.assertEqual(folded.mode, AgentMode.TOOL_RUNNING)
++        self.assertEqual(folded.tool_name, "Bash")
++
++    def test_claude_in_cursor_folds_into_unique_cursor_session(self) -> None:
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        cwd = "/tmp/sidepulse"
++        cursor_row = AgentStatus(
++            provider="cursor",
++            agent_id="cursor:session:cursor-1",
++            display_name="Cursor task",
++            mode=AgentMode.WORKING,
++            updated_at=now - timedelta(seconds=2),
++            event_name="UserPromptSubmit",
++            session_id="cursor-1",
++            cwd=cwd,
++            origin="Cursor",
++        )
++        live.statuses_by_key = {cursor_row.agent_id: cursor_row}
++        live.ingest_record(
++            HookEvent(
++                provider="claude",
++                logged_at=now,
++                event_name="PreToolUse",
++                raw={"tool_name": "Edit"},
++                session_id="claude-in-cursor",
++                cwd=cwd,
++                tool_name="Edit",
++                origin="Claude in Cursor",
++            )
++        )
++
++        self.assertEqual(set(live.statuses_by_key), {cursor_row.agent_id})
++        folded = live.statuses_by_key[cursor_row.agent_id]
++        self.assertEqual(folded.provider, "cursor")
++        self.assertEqual(folded.mode, AgentMode.TOOL_RUNNING)
++        self.assertEqual(folded.tool_name, "Edit")
++        self.assertNotIn("claude:session:claude-in-cursor", live.statuses_by_key)
++
++    def test_claude_in_cursor_does_not_fold_when_two_cursor_sessions_share_cwd(self) -> None:
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        cwd = "/tmp/sidepulse"
++        for session_id in ("cursor-1", "cursor-2"):
++            row = AgentStatus(
++                provider="cursor",
++                agent_id=f"cursor:session:{session_id}",
++                display_name=session_id,
++                mode=AgentMode.WORKING,
++                updated_at=now,
++                event_name="UserPromptSubmit",
++                session_id=session_id,
++                cwd=cwd,
++                origin="Cursor",
++            )
++            live.statuses_by_key[row.agent_id] = row
++        live.ingest_record(
++            HookEvent(
++                provider="claude",
++                logged_at=now,
++                event_name="PreToolUse",
++                raw={},
++                session_id="claude-in-cursor",
++                cwd=cwd,
++                origin="Claude in Cursor",
++            )
++        )
++        self.assertIn("claude:session:claude-in-cursor", live.statuses_by_key)
++        self.assertEqual(len(live.statuses_by_key), 3)
++
++    def test_cursor_row_absorbs_existing_claude_in_cursor_guest(self) -> None:
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        cwd = "/tmp/sidepulse"
++        live.ingest_record(
++            HookEvent(
++                provider="claude",
++                logged_at=now,
++                event_name="PreToolUse",
++                raw={"tool_name": "Read"},
++                session_id="claude-in-cursor",
++                cwd=cwd,
++                tool_name="Read",
++                origin="Claude in Cursor",
++            )
++        )
++        self.assertIn("claude:session:claude-in-cursor", live.statuses_by_key)
++        live.ingest_record(
++            HookEvent(
++                provider="cursor",
++                logged_at=now - timedelta(seconds=2),
++                event_name="UserPromptSubmit",
++                raw={"prompt": "keep going"},
++                session_id="cursor-1",
++                cwd=cwd,
++                origin="Cursor",
++            )
++        )
++        self.assertEqual(set(live.statuses_by_key), {"cursor:session:cursor-1"})
++        folded = live.statuses_by_key["cursor:session:cursor-1"]
++        self.assertEqual(folded.provider, "cursor")
++        self.assertEqual(folded.tool_name, "Read")
++        self.assertEqual(folded.mode, AgentMode.TOOL_RUNNING)
++
++    def test_t3code_environment_id_and_thread_url(self) -> None:
++        from sidepulse.session_actions import t3code_local_environment_id, t3code_thread_url
++
++        with tempfile.TemporaryDirectory() as tmp:
++            home = Path(tmp)
++            userdata = home / ".t3" / "userdata"
++            userdata.mkdir(parents=True)
++            (userdata / "environment-id").write_text("df5f9151-3b4b-478f-a3bf-3d4b55f711e3\n")
++            self.assertEqual(
++                t3code_local_environment_id(home),
++                "df5f9151-3b4b-478f-a3bf-3d4b55f711e3",
++            )
++            status = AgentStatus(
++                provider="claude",
++                agent_id="claude:session:thread-1",
++                display_name="T3 task",
++                mode=AgentMode.WORKING,
++                updated_at=datetime.now(timezone.utc),
++                event_name="UserPromptSubmit",
++                session_id="thread-1",
++                origin="T3 Code",
++            )
++            self.assertEqual(
++                t3code_thread_url(status, home=home),
++                "t3code://threads/df5f9151-3b4b-478f-a3bf-3d4b55f711e3/thread-1",
++            )
++
++    def test_t3code_thread_started_binds_provider_thread_id(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "t3-thread-id"
++            native_id = "9c3e1232-a5b7-45b2-9f6c-09f8a44244c7"
++            now = datetime.now(timezone.utc)
++            started_at = now.isoformat()
++            turn_at = (now + timedelta(milliseconds=1)).isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                "\n".join(
++                    [
++                        f"[{started_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "thread.started",
++                                "provider": "claudeAgent",
++                                "threadId": thread_id,
++                                "createdAt": started_at,
++                                "payload": {"providerThreadId": native_id},
++                            }
++                        ),
++                        f"[{turn_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "turn.started",
++                                "provider": "claudeAgent",
++                                "threadId": thread_id,
++                                "createdAt": turn_at,
++                                "payload": {},
++                            }
++                        ),
++                    ]
++                )
++                + "\n"
++            )
++            snapshot = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            ).snapshot()
++
++        self.assertEqual(len(snapshot.statuses), 1)
++        self.assertEqual(snapshot.statuses[0].provider_session_id, native_id)
++
++    def test_t3code_task_title_names_the_session(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "00000000-0000-4000-8000-000000000050"
++            now = datetime.now(timezone.utc).isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                f"[{now}] CANON: "
++                + json.dumps(
++                    {
++                        "type": "task.started",
++                        "provider": "claudeAgent",
++                        "threadId": thread_id,
++                        "createdAt": now,
++                        "payload": {
++                            "taskId": "b5yqez9eq",
++                            "title": "Rewrite SchedulerPanel with week strip and swipe",
++                            "description": "Rewrite SchedulerPanel with week strip and swipe",
++                            "taskType": "local_bash",
++                        },
++                    }
++                )
++                + "\n"
++            )
++            snapshot = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            ).snapshot()
++
++        self.assertEqual(len(snapshot.statuses), 1)
++        self.assertIn("Rewrite SchedulerPanel", snapshot.statuses[0].display_name)
++        self.assertNotIn("Read file", snapshot.statuses[0].display_name)
++
++    def test_t3code_reconcile_keeps_newer_hook_tool_state(self) -> None:
++        from sidepulse.status_bar import reconcile_t3code_sessions
++
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        native_id = "claude-native-id"
++        hook_row = AgentStatus(
++            provider="claude",
++            agent_id=f"claude:session:{native_id}",
++            display_name="Claude session claude-n",
++            mode=AgentMode.TOOL_RUNNING,
++            updated_at=now,
++            event_name="PreToolUse",
++            session_id=native_id,
++            tool_name="Bash",
++            origin="Claude in VS Code",
++        )
++        live.statuses_by_key = {hook_row.agent_id: hook_row}
++
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "00000000-0000-4000-8000-000000000051"
++            started_at = (now - timedelta(seconds=5)).isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                f"[{started_at}] CANON: "
++                + json.dumps(
++                    {
++                        "type": "turn.started",
++                        "provider": "claudeAgent",
++                        "threadId": thread_id,
++                        "createdAt": started_at,
++                        "raw": {"payload": {"session_id": native_id}},
++                        "payload": {},
++                    }
++                )
++                + "\n"
++            )
++            t3code = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            )
++            reconcile_t3code_sessions(live, t3code)
++
++        self.assertEqual(set(live.statuses_by_key), {f"claude:session:{thread_id}"})
++        folded = live.statuses_by_key[f"claude:session:{thread_id}"]
++        self.assertEqual(folded.origin, "T3 Code")
++        self.assertEqual(folded.mode, AgentMode.TOOL_RUNNING)
++        self.assertEqual(folded.tool_name, "Bash")
++        self.assertEqual(folded.provider_session_id, native_id)
++
++    def test_t3code_reconcile_leaves_hook_rows_when_no_canonical_events(self) -> None:
++        from sidepulse.status_bar import reconcile_t3code_sessions
++
++        now = datetime.now(timezone.utc)
++        live = collector_module.LiveAgentMonitor(stale_after_seconds=3600)
++        hook_row = AgentStatus(
++            provider="claude",
++            agent_id="claude:session:claude-native-id",
++            display_name="hosted session",
++            mode=AgentMode.WORKING,
++            updated_at=now - timedelta(seconds=30),
++            event_name="PreToolUse",
++            session_id="claude-native-id",
++            origin="T3 Code",
++        )
++        live.statuses_by_key = {hook_row.agent_id: hook_row}
++
++        with tempfile.TemporaryDirectory() as tmp:
++            t3code = AgentMonitor(
++                sources=(SourceSpec("t3code", Path(tmp)),),
++                stale_after_seconds=3600,
++            )
++            self.assertEqual(reconcile_t3code_sessions(live, t3code), 0)
++
++        self.assertIn(hook_row.agent_id, live.statuses_by_key)
++
++    def test_t3code_thread_state_changes_drive_codex_status(self) -> None:
++        thread_id = "00000000-0000-4000-8000-000000000042"
++        now = datetime.now(timezone.utc).isoformat()
++
++        def canon(event_type: str, payload: dict) -> str:
++            return f"[{now}] CANON: " + json.dumps(
++                {
++                    "type": event_type,
++                    "provider": "codex",
++                    "threadId": thread_id,
++                    "createdAt": now,
++                    "payload": payload,
++                }
++            )
++
++        active = collector_module.parse_t3code_event_line(
++            canon("thread.state.changed", {"state": "active"})
++        )
++        idle = collector_module.parse_t3code_event_line(
++            canon("thread.state.changed", {"state": "idle"})
++        )
++
++        self.assertIsNotNone(active)
++        self.assertIsNotNone(idle)
++        self.assertEqual(
++            collector_module.status_from_event(active).mode,
++            AgentMode.WORKING,
++        )
++        self.assertEqual(
++            collector_module.status_from_event(idle).mode,
++            AgentMode.COMPLETED,
++        )
++        self.assertEqual(idle.provider, "codex")
++
++    def test_t3code_failed_items_and_turns_report_errors(self) -> None:
++        thread_id = "00000000-0000-4000-8000-000000000043"
++        now = datetime.now(timezone.utc).isoformat()
++
++        def canon(event_type: str, payload: dict) -> str:
++            return f"[{now}] CANON: " + json.dumps(
++                {
++                    "type": event_type,
++                    "provider": "claudeAgent",
++                    "threadId": thread_id,
++                    "createdAt": now,
++                    "payload": payload,
++                }
++            )
++
++        failed_item = collector_module.parse_t3code_event_line(
++            canon(
++                "item.completed",
++                {"itemType": "command_execution", "status": "failed", "title": "Command run"},
++            )
++        )
++        ok_item = collector_module.parse_t3code_event_line(
++            canon(
++                "item.completed",
++                {"itemType": "command_execution", "status": "completed", "title": "Command run"},
++            )
++        )
++        failed_turn = collector_module.parse_t3code_event_line(
++            canon("turn.completed", {"state": "failed", "stopReason": "error"})
++        )
++
++        self.assertEqual(
++            collector_module.status_from_event(failed_item).mode,
++            AgentMode.BLOCKED_ERROR,
++        )
++        self.assertEqual(
++            collector_module.status_from_event(ok_item).mode,
++            AgentMode.WORKING,
++        )
++        self.assertEqual(
++            collector_module.status_from_event(failed_turn).mode,
++            AgentMode.BLOCKED_ERROR,
++        )
++
++    def test_t3code_tool_name_prefers_tool_over_generic_title(self) -> None:
++        thread_id = "00000000-0000-4000-8000-000000000044"
++        now = datetime.now(timezone.utc).isoformat()
++
++        def canon(payload: dict) -> str:
++            return f"[{now}] CANON: " + json.dumps(
++                {
++                    "type": "item.started",
++                    "provider": "claudeAgent",
++                    "threadId": thread_id,
++                    "createdAt": now,
++                    "payload": payload,
++                }
++            )
++
++        tool = collector_module.parse_t3code_event_line(
++            canon(
++                {
++                    "itemType": "command_execution",
++                    "title": "Command run",
++                    "data": {"toolName": "Bash", "input": {"command": "ls"}},
++                }
++            )
++        )
++        titled = collector_module.parse_t3code_event_line(
++            canon({"itemType": "file_change", "title": "File change"})
++        )
++        reasoning = collector_module.parse_t3code_event_line(
++            canon({"itemType": "reasoning", "title": "Reasoning"})
++        )
++
++        self.assertEqual(tool.tool_name, "Bash")
++        self.assertEqual(titled.tool_name, "File change")
++        self.assertIsNone(reasoning.tool_name)
++        self.assertNotIn("input", json.dumps(tool.raw))
++
++    def test_t3code_token_usage_annotates_context_without_changing_mode(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "00000000-0000-4000-8000-000000000045"
++            now = datetime.now(timezone.utc)
++            started_at = now.isoformat()
++            usage_at = (now + timedelta(milliseconds=1)).isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                "\n".join(
++                    [
++                        f"[{started_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "turn.started",
++                                "provider": "codex",
++                                "threadId": thread_id,
++                                "createdAt": started_at,
++                                "payload": {},
++                            }
++                        ),
++                        f"[{usage_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "thread.token-usage.updated",
++                                "provider": "codex",
++                                "threadId": thread_id,
++                                "createdAt": usage_at,
++                                "payload": {
++                                    "usage": {"usedTokens": 116305, "maxTokens": 258400}
++                                },
++                            }
++                        ),
++                    ]
++                )
++                + "\n"
++            )
++
++            snapshot = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            ).snapshot()
++
++            self.assertEqual(len(snapshot.statuses), 1)
++            status = snapshot.statuses[0]
++            self.assertEqual(status.mode, AgentMode.WORKING)
++            self.assertEqual(status.context_percent, 45.0)
++
++    def test_t3code_session_config_names_the_project(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            thread_id = "00000000-0000-4000-8000-000000000048"
++            now = datetime.now(timezone.utc)
++            configured_at = now.isoformat()
++            started_at = (now + timedelta(milliseconds=1)).isoformat()
++            (root / f"events.{thread_id}.log").write_text(
++                "\n".join(
++                    [
++                        f"[{configured_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "session.configured",
++                                "provider": "claudeAgent",
++                                "threadId": thread_id,
++                                "createdAt": configured_at,
++                                "payload": {
++                                    "config": {
++                                        "cwd": "/Users/test/GitHub/sidepulse",
++                                        "model": "claude-opus-5",
++                                    }
++                                },
++                            }
++                        ),
++                        f"[{started_at}] CANON: "
++                        + json.dumps(
++                            {
++                                "type": "turn.started",
++                                "provider": "claudeAgent",
++                                "threadId": thread_id,
++                                "createdAt": started_at,
++                                "payload": {},
++                            }
++                        ),
++                    ]
++                )
++                + "\n"
++            )
++
++            snapshot = AgentMonitor(
++                sources=(SourceSpec("t3code", root),),
++                stale_after_seconds=3600,
++            ).snapshot()
++
++            self.assertEqual(len(snapshot.statuses), 1)
++            status = snapshot.statuses[0]
++            self.assertEqual(status.cwd, "/Users/test/GitHub/sidepulse")
++            self.assertIn("sidepulse", status.display_name)
++
++    def test_t3code_rate_limit_reached_blocks_session(self) -> None:
++        thread_id = "00000000-0000-4000-8000-000000000046"
++        now = datetime.now(timezone.utc).isoformat()
++
++        def canon(reached) -> str:
++            return f"[{now}] CANON: " + json.dumps(
++                {
++                    "type": "account.rate-limits.updated",
++                    "provider": "codex",
++                    "threadId": thread_id,
++                    "createdAt": now,
++                    "payload": {
++                        "rateLimits": {
++                            "rateLimits": {
++                                "planType": "plus",
++                                "primary": {"usedPercent": 87},
++                                "rateLimitReachedType": reached,
++                            }
++                        }
++                    },
++                }
++            )
++
++        self.assertIsNone(collector_module.parse_t3code_event_line(canon(None)))
++        reached = collector_module.parse_t3code_event_line(canon("primary"))
++        self.assertIsNotNone(reached)
++        self.assertEqual(
++            collector_module.status_from_event(reached).mode,
++            AgentMode.BLOCKED_ERROR,
++        )
++        self.assertIn("Rate limit reached", reached.message)
++
++    def test_t3code_event_files_skip_stale_rotated_logs(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            fresh = root / "events.fresh.log"
++            stale = root / "events.stale.log.1"
++            fresh.write_text("")
++            stale.write_text("")
++            old = time.time() - collector_module.T3CODE_MAX_FILE_AGE_SECONDS - 60
++            os.utime(stale, (old, old))
++
++            files = collector_module.recent_t3code_event_files(root)
++
++            self.assertEqual(files, [fresh])
++
+     def test_claude_transcript_fallback_marks_tool_calls_running(self) -> None:
+         with tempfile.TemporaryDirectory() as tmp:
+             root = Path(tmp)
+@@ -7647,6 +8778,57 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
+             default_session_open_action(status_for("codex", "Codex UI")),
+             SESSION_OPEN_APP,
+         )
++        t3_status = status_for("codex", "T3 Code")
++        self.assertEqual(default_session_open_action(t3_status), SESSION_OPEN_APP)
++        with patch(
++            "sidepulse.session_actions.t3code_local_environment_id",
++            return_value="env-local",
++        ):
++            self.assertEqual(
++                session_open_target(t3_status, SESSION_OPEN_APP),
++                (
++                    "url",
++                    f"t3code://threads/env-local/{t3_status.session_id}",
++                ),
++            )
++        with patch(
++            "sidepulse.session_actions.t3code_local_environment_id",
++            return_value=None,
++        ):
++            self.assertEqual(
++                session_open_target(t3_status, SESSION_OPEN_APP),
++                ("application", "t3code"),
++            )
++        self.assertEqual(
++            session_open_action_label(t3_status, SESSION_OPEN_APP),
++            "Open T3 Code",
++        )
++        t3_claude = AgentStatus(
++            provider="claude",
++            agent_id="claude:session:t3-thread",
++            display_name="T3 Claude",
++            mode=AgentMode.WORKING,
++            updated_at=datetime.now(timezone.utc),
++            event_name="UserPromptSubmit",
++            session_id="t3-thread-id",
++            provider_session_id="claude-native-id",
++            cwd="/tmp/project",
++            origin="T3 Code",
++        )
++        self.assertEqual(default_session_open_action(t3_claude), SESSION_OPEN_APP)
++        self.assertEqual(
++            session_open_action_label(t3_claude, SESSION_OPEN_APP),
++            "Open T3 Code",
++        )
++        self.assertEqual(
++            session_resume_command(t3_claude),
++            "cd /tmp/project && claude --resume claude-native-id",
++        )
++        self.assertEqual(
++            session_vscode_link(t3_claude),
++            "vscode://anthropic.claude-code/open?session=claude-native-id",
++        )
++
+ 
+     def test_claude_session_actions_build_app_link_and_resume_command(self) -> None:
+         status = AgentStatus(
+diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
+index bf9b15c..78ffef4 100644
+--- a/tests/test_status_bar_ui.py
++++ b/tests/test_status_bar_ui.py
+@@ -92,6 +92,7 @@ def make_status(
+     cwd: str | None = "/Users/test/project",
+     origin: str | None = None,
+     stale: bool = False,
++    context_percent: float | None = None,
+     now: datetime | None = None,
+ ) -> AgentStatus:
+     now = now or datetime.now(timezone.utc)
+@@ -108,6 +109,7 @@ def make_status(
+         message="doing a thing",
+         origin=origin,
+         stale=stale,
++        context_percent=context_percent,
+     )
+ 
+ 
+@@ -943,5 +945,35 @@ class PureUiLogicTests(unittest.TestCase):
+         )
+ 
+ 
++class ContextUsageDisplayTests(unittest.TestCase):
++    def test_menu_title_shows_context_only_when_nearly_full(self):
++        quiet = make_status(context_percent=12.0)
++        full = make_status(context_percent=84.0)
++
++        self.assertNotIn("context", sb.native_session_menu_title(quiet))
++        self.assertIn("84% context", sb.native_session_menu_title(full))
++
++    def test_unknown_context_is_omitted(self):
++        self.assertNotIn("context", sb.native_session_menu_title(make_status()))
++        self.assertIsNone(sb.format_context_percent(make_status()))
++
++    def test_session_detail_always_reports_known_context(self):
++        detail = sb.session_detail_for_status(
++            make_status(context_percent=12.0),
++            datetime.now(timezone.utc),
++        )
++        self.assertIn("12% context", detail)
++
++    def test_context_suffix_does_not_defeat_title_disambiguation(self):
++        """Two rows with the same name must still disambiguate as usage drifts."""
++        first = make_status(agent_id="a", context_percent=80.0)
++        second = make_status(agent_id="b", context_percent=90.0)
++
++        self.assertEqual(
++            sb.session_title_collision_key(first),
++            sb.session_title_collision_key(second),
++        )
++
++
+ if __name__ == "__main__":
+     unittest.main()

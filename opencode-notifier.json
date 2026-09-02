@@ -1,0 +1,21 @@
+{
+  "sound": true,
+  "notification": true,
+  "suppressWhenFocused": true,
+  "events": {
+    "user_message": { "sound": false, "notification": false },
+    "subagent_complete": { "sound": false, "notification": false }
+  },
+  "sounds": {
+    "permission": "/Users/drewry.pope/.config/nix/sounds/tng_chirp2_clean.mp3",
+    "complete": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3",
+    "subagent_complete": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3",
+    "error": "/Users/drewry.pope/.config/nix/sounds/tos_chirp_2.mp3",
+    "question": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3",
+    "user_cancelled": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3",
+    "plan_exit": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3",
+    "session_started": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3",
+    "user_message": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3",
+    "client_connected": "/Users/drewry.pope/.config/nix/sounds/ent_communicator3.mp3"
+  }
+}

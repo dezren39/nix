@@ -319,10 +319,11 @@ index 6d77b0e..e16dd74 100644
          flexDirection="column"
          flexShrink={0}
        >
-@@ -1615,7 +1615,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+@@ -1631,8 +1631,8 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+             encrypted={opaque()}
            />
          </box>
-         <Show when={(!inMinimal() || expanded()) && summary().body}>
+         <Show when={!opaque() && (!inMinimal() || expanded()) && summary().body}>
 -          <box paddingLeft={inMinimal() ? 2 : 0} marginTop={1}>
 +          <box paddingLeft={0} marginTop={0}>
              <code

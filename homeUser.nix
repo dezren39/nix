@@ -7,12 +7,43 @@
   system,
   ...
 }:
+let
+  # The activation helper defaults to all providers; this config uses OpenCode only.
+  sidepulseProviders = [ "opencode" ];
+  mkSidePulseActivation =
+    {
+      providers ? [ "all" ],
+    }:
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      for provider in ${lib.escapeShellArgs providers}; do
+        run ${lib.getExe inputs.self.packages.${system}.sidepulse} setup "$provider" \
+          --sd-eject-guard-scope user
+      done
+    '';
+in
 lib.recursiveUpdate {
   home = lib.recursiveUpdate {
     stateVersion = "23.05";
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
       ".config/lootbox/lootbox.config.json".source = ./lootbox.config.json;
+      # Deliberately-inert ~/.gitconfig. Git reads ~/.config/git/config first and
+      # ~/.gitconfig second, so a stray file here silently overrides everything
+      # home-manager writes — which is exactly what happened: an unmanaged 555-byte
+      # ~/.gitconfig was overriding core.editor, safe.directory and pull.rebase.
+      # Owning it as a read-only store symlink keeps that from recurring.
+      # Side effect: `git config --global ...` now fails (read-only). That is
+      # intentional — edit gitSettings.nix instead.
+      ".gitconfig".text = ''
+        # Managed by nix — intentionally contains no settings.
+        #
+        # Real git configuration lives in:
+        #   ~/.config/nix/gitSettings.nix   (single source of truth)
+        #     -> ~/.config/git/config       (home-manager, per-user)
+        #     -> /etc/gitconfig             (nix-darwin, system-wide)
+        #
+        # This file exists only so a stray ~/.gitconfig cannot shadow those.
+      '';
       # npm: set global install prefix to a writable user directory
       ".npmrc".text = "prefix=~/.npm-global\n";
       # Toggle menu bar visibility (bind to skhd shortcut)
@@ -38,12 +69,12 @@ lib.recursiveUpdate {
       installPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.nodejs}/bin/npm install -g playwright@latest 2>/dev/null || true
       '';
-      installGhCopilot = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-        run ${pkgs.gh}/bin/gh extension install github/gh-copilot 2>/dev/null || run ${pkgs.gh}/bin/gh extension upgrade gh-copilot 2>/dev/null || true
-      '';
+      # installGhCopilot: gh copilot is now built into gh (>=2.65) and executes
+      # the native `copilot` binary from PATH (managed via copilot-cli cask).
       installPlannotator = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.curl}/bin/curl -fsSL https://plannotator.ai/install.sh | run ${pkgs.bash}/bin/bash 2>/dev/null || true
       '';
+      setupSidePulse = mkSidePulseActivation { providers = sidepulseProviders; };
       installAltTab = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         app="$HOME/Applications/AltTab.app"
         staging="$HOME/Applications/.AltTab.staging.app"
@@ -203,16 +234,11 @@ lib.recursiveUpdate {
      lfs = {
        enable = true;
      };
-     extraConfig = {
-       init.defaultBranch = "main";
-       core = {
-  	    editor = "vim";
-         autocrlf = "input";
-       };
-       commit.gpgsign = true;
-       pull.rebase = true;
-       rebase.autoStash = true;
-     };
+     # Single source of truth: ./gitSettings.nix, imported by homePrograms.nix
+     # as programs.git.settings. Do not re-declare keys here — this whole block
+     # sits inside the reference comment below and is inert, and duplicating
+     # settings is what produced the earlier extraConfig breakage.
+     settings = import ./gitSettings.nix;
    };
 
    alacritty = {

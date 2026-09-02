@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# spotlight-exclude-artifacts — drop Spotlight `.metadata_never_index` markers
+# into directories that are large, high-inode, and worthless to search.
+
+set -uo pipefail
+
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+. "$_self_dir/lib/common.sh"
+
+MARKER="$SPOTLIGHT_MARKER"   # from lib/common.sh
+
+usage() {
+  cat <<'EOF'
+spotlight-exclude-artifacts — mark directories as never-index for Spotlight
+
+USAGE
+  spotlight-exclude-artifacts [--auto] [--path DIR]   repos + system (default)
+  spotlight-exclude-artifacts --no-system [--path DIR] per-repo artifacts only
+  spotlight-exclude-artifacts --system                static paths only
+  spotlight-exclude-artifacts --dry-run               report, change nothing
+
+SCOPE (mutually exclusive; --auto is the default)
+  --auto      Default. Both halves. Passing it alongside --system or
+              --no-system is an error.
+  --no-system Repository half only: mark .git and build-artifact directories.
+              Skips every system-wide path.
+  --system    Verify the static path list only; no discovery. Fast.
+
+DISCOVERY (shared with clean.sh and git-maintain-repos)
+  --path DIR  Scan DIR only. May also be given positionally. Default: the full
+              shared scan set (all of ~, not just ~/git).
+  --recursive / --no-recursive / --depth N
+              How far down to look. --no-recursive == --depth 1.
+  --follow / --no-follow
+              Hop worktree -> real repo -> its other worktrees. Default:
+              follow under --auto, no-follow under --path.
+
+OPTIONS
+  --dry-run   Print what would be marked without writing
+  -h, --help  This help
+
+WHY
+  A marker applies recursively, so marking a directory covers everything below
+  it, and `find -prune` can stop there. That is what keeps --walk to a few
+  seconds over ~28 GB / ~536k files.
+
+RELATIONSHIP TO THE NIX CONFIG
+  configuration.nix already creates the static markers during activation --
+  with plain `touch`, so they are REAL root-owned files, not read-only
+  /nix/store symlinks. --system therefore re-asserts the same list rather than
+  owning it: it is a safety net for paths created since the last switch, and
+  for anything a cache-clearing run (./clean) deleted. It should normally
+  report everything as already present.
+
+  Keep the STATIC_PATHS list below in sync with configuration.nix.
+
+ROOT
+  Run under sudo to cover /var/root/*. Those paths are mode 700, so an
+  unprivileged run silently skips them; simple-rebuild.sh runs both.
+EOF
+}
+
+# Mirrors the marker loop in configuration.nix. Root-only entries are skipped
+# automatically when unprivileged, because [ -d ] fails on mode-700 dirs.
+STATIC_PATHS=(
+  "$HOME/.nix-defexpr"
+  "$HOME/.local/state/nix"
+  "$HOME/.cache"
+  "$HOME/.local/share/opencode"
+  "$HOME/.vscode"
+  "$HOME/.vscode-insiders"
+  "$HOME/.colima"
+  "$HOME/.bun"
+  "$HOME/.npm"
+  "$HOME/.cargo"
+  "$HOME/.rustup"
+  "$HOME/.gradle"
+  "$HOME/.m2"
+  "$HOME/Library/Caches"
+  "$HOME/Library/Developer"
+  "$HOME/Library/Containers"
+  "$HOME/Library/Application Support"
+  /Library/Caches
+  /Library/Developer
+  "/Library/Application Support"
+  /nix
+  /var/root/.cache
+  /var/root/Library/Caches
+  /var/root/Library/Developer
+  /var/root/.local/share
+  /var/root/.npm
+  /var/root/.cargo
+)
+
+# CACHE_NAMES + RISKY_NAMES + TRASH_NAMES come from lib/common.sh, so
+# the list lives in exactly one place. .git is added here because a repo object
+# store is worth excluding but is not an artifact clean.sh would ever delete.
+#
+# Git-TRACKED risky dirs are skipped: dropping an untracked marker file inside a
+# committed vendor/ would show up in every `git status`. Ignored/untracked ones
+# are fair game -- excluding from a search index is non-destructive.
+WALK_NAMES=(.git "${ALL_ARTIFACT_NAMES[@]}")
+
+DO_WALK=1
+DO_SYSTEM=1
+SCOPE_SET=0
+AUTO_SET=0
+DRY_RUN=0
+ROOT=""
+DEPTH_LIMIT=""
+RECURSIVE_SET=0
+FOLLOW=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --auto) AUTO_SET=1 ;;                        # names the default scope
+    --no-system) DO_WALK=1; DO_SYSTEM=0; SCOPE_SET=1 ;;
+    --system) DO_WALK=0; DO_SYSTEM=1; SCOPE_SET=1 ;;
+    --path) ROOT="${2:-}"; shift ;;
+    --recursive|--walk) DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
+    --no-recursive|--no-walk) DEPTH_LIMIT=1; RECURSIVE_SET=1 ;;
+    --depth) DEPTH_LIMIT="${2:-1}"; RECURSIVE_SET=1; shift ;;
+    --follow) FOLLOW=1 ;;
+    --no-follow) FOLLOW=0 ;;
+    --dry-run) DRY_RUN=1 ;;
+    -h|--help) usage; exit 0 ;;
+    -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)
+      if [ -z "$ROOT" ]; then ROOT="$1"; else echo "unexpected argument: $1" >&2; exit 2; fi
+      ;;
+  esac
+  shift
+done
+if [ "$AUTO_SET" = "1" ] && [ "$SCOPE_SET" = "1" ]; then
+  echo "spotlight-exclude-artifacts: --auto conflicts with --system/--no-system" >&2
+  echo "                            (--auto just names the default: system + repos)" >&2
+  exit 2
+fi
+
+created=0; existing=0; failed=0; skipped=0; needroot=0
+
+mark() {
+  local dir="$1"
+  if [ ! -d "$dir" ]; then skipped=$((skipped + 1)); return 0; fi
+  if [ -e "$dir/$MARKER" ]; then existing=$((existing + 1)); return 0; fi
+  if [ "$DRY_RUN" = "1" ]; then echo "  would mark: $dir"; created=$((created + 1)); return 0; fi
+  if touch "$dir/$MARKER" 2>/dev/null; then
+    created=$((created + 1))
+  elif [ "$(id -u)" -ne 0 ] && [ ! -w "$dir" ]; then
+    # Root-owned path reached by an unprivileged run. Expected, not an error:
+    # simple-rebuild.sh and the nix activation both run this as root as well.
+    needroot=$((needroot + 1))
+  else
+    echo "  warning: cannot write $dir/$MARKER" >&2
+    failed=$((failed + 1))
+  fi
+}
+
+if [ "$DO_SYSTEM" = "1" ]; then
+  echo "spotlight-exclude-artifacts: static paths ($([ "$(id -u)" -eq 0 ] && echo root || echo user))"
+  for d in "${STATIC_PATHS[@]}"; do mark "$d"; done
+fi
+
+if [ "$DO_WALK" = "1" ]; then
+  DARGS=()
+  if [ -n "$ROOT" ]; then DARGS+=(--path "$ROOT"); else DARGS+=(--auto); fi
+  [ -n "$DEPTH_LIMIT" ] && DARGS+=(--depth "$DEPTH_LIMIT")
+  [ -n "$FOLLOW" ] && { [ "$FOLLOW" = "1" ] && DARGS+=(--follow) || DARGS+=(--no-follow); }
+  echo "spotlight-exclude-artifacts: discovering repos${ROOT:+ under $ROOT}"
+
+  # One discovery pass emits both record kinds:
+  #   repo|worktree <TAB> PATH
+  #   FOUND <TAB> reason <TAB> status <TAB> PATH
+  # so repos and their artifact dirs are found with a single walk.
+  while IFS=$'\t' read -r f1 f2 f3 f4; do
+    case "$f1" in
+      repo|worktree)
+        mark "$f2/.git"
+        ;;
+      FOUND)
+        # Skip git-tracked risky dirs: an untracked marker inside a committed
+        # vendor/ would surface in every `git status`.
+        if [ "$f3" = "tracked" ]; then skipped=$((skipped + 1)); else mark "$f4"; fi
+        ;;
+    esac
+  done < <("$_self_dir/git-discover-repos" "${DARGS[@]}" --find all --status 2>/dev/null)
+fi
+
+printf 'spotlight-exclude-artifacts: %d marked, %d already, %d absent, %d need root, %d failed\n' \
+  "$created" "$existing" "$skipped" "$needroot" "$failed"
+exit 0

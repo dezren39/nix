@@ -1,0 +1,345 @@
+diff --git a/src/sidepulse/audit.py b/src/sidepulse/audit.py
+index c4fab92..53b34e9 100644
+--- a/src/sidepulse/audit.py
++++ b/src/sidepulse/audit.py
+@@ -14,6 +14,8 @@ from .providers import default_state_dir
+ 
+ 
+ STATUS_AUDIT_LOG_NAME = "event-status.jsonl"
++STATUS_AUDIT_MAX_BYTES = 5 * 1024 * 1024
++STATUS_AUDIT_BACKUP_COUNT = 3
+ STATUS_HISTORY_LOG_NAME = "status-history.jsonl"
+ RAW_PREVIEW_LIMIT = 2000
+ MESSAGE_PREVIEW_LIMIT = 240
+@@ -52,6 +54,7 @@ def append_status_audit_record(
+     target = path or default_status_audit_log_path()
+     try:
+         target.parent.mkdir(parents=True, exist_ok=True)
++        rotate_status_audit_log(target)
+         with target.open("a", encoding="utf-8") as handle:
+             handle.write(
+                 json.dumps(
+@@ -65,6 +68,31 @@ def append_status_audit_record(
+         pass
+ 
+ 
++def rotate_status_audit_log(
++    path: Path,
++    *,
++    max_bytes: int = STATUS_AUDIT_MAX_BYTES,
++    backup_count: int = STATUS_AUDIT_BACKUP_COUNT,
++) -> bool:
++    """Bound audit-log growth while retaining a few recent generations."""
++    if max_bytes <= 0 or backup_count <= 0:
++        return False
++    try:
++        if path.stat().st_size < max_bytes:
++            return False
++    except OSError:
++        return False
++
++    oldest = path.with_name(f"{path.name}.{backup_count}")
++    oldest.unlink(missing_ok=True)
++    for index in range(backup_count - 1, 0, -1):
++        source = path.with_name(f"{path.name}.{index}")
++        if source.exists():
++            source.replace(path.with_name(f"{path.name}.{index + 1}"))
++    path.replace(path.with_name(f"{path.name}.1"))
++    return True
++
++
+ def append_status_history_record(
+     record: dict[str, object],
+     *,
+diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
+index 88c6deb..0f32801 100644
+--- a/src/sidepulse/status_bar.py
++++ b/src/sidepulse/status_bar.py
+@@ -52,7 +52,15 @@ try:
+         NSWindowStyleMaskTitled,
+         NSVariableStatusItemLength,
+     )
+-    from Foundation import NSRunLoop, NSRunLoopCommonModes, NSObject, NSString, NSTimer, NSURL
++    from Foundation import (
++        NSProcessInfo,
++        NSRunLoop,
++        NSRunLoopCommonModes,
++        NSObject,
++        NSString,
++        NSTimer,
++        NSURL,
++    )
+ except ImportError as exc:  # pragma: no cover - only exercised on non-macOS setups.
+     raise SystemExit(
+         f"The status-bar app requires PyObjC/AppKit ({exc}):\n"
+@@ -77,6 +85,7 @@ from .audit import (
+     default_status_history_log_path,
+     export_status_audit_csv,
+     export_status_audit_html,
++    rotate_status_audit_log,
+     read_status_history_records,
+     status_history_record,
+ )
+@@ -595,6 +604,7 @@ class StatusBarController(NSObject):
+         self.setup_window = None
+         self.settings_fields = {}
+         self.settings_buttons = {}
++        self.settings_message_generation = 0
+         self.setup_fields = {}
+         self.setup_buttons = {}
+         self.last_snapshot = None
+@@ -647,8 +657,10 @@ class StatusBarController(NSObject):
+         return self
+ 
+     def applicationDidFinishLaunching_(self, _notification):
++        NSProcessInfo.processInfo().setProcessName_("SidePulse")
+         NSApp.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+         install_standard_edit_menu()
++        self.remove_unavailable_virtual_device()
+         log_status_bar("launching status item")
+         self.start_event_server()
+ 
+@@ -689,6 +701,22 @@ class StatusBarController(NSObject):
+         else:
+             self.virtual_status_device.hide()
+ 
++    def remove_unavailable_virtual_device(self) -> None:
++        if SCREEN_BAR_FEATURE_ENABLED:
++            return
++        has_virtual_device = any(
++            device.device_id == VIRTUAL_DEVICE_ID for device in self.settings.devices
++        )
++        if not self.settings.virtual_status_device_enabled and not has_virtual_device:
++            return
++        try:
++            self.settings = self.settings.with_virtual_status_device(False)
++            self.settings = self.settings.without_device(VIRTUAL_DEVICE_ID)
++            save_settings(self.settings)
++            log_status_bar("removed unavailable Screen Bar setting")
++        except Exception as exc:
++            log_status_bar(f"could not remove unavailable Screen Bar setting: {exc}")
++
+     @objc.IBAction
+     def refresh_(self, _sender):
+         try:
+@@ -1180,6 +1208,8 @@ class StatusBarController(NSObject):
+         NSApp.activateIgnoringOtherApps_(True)
+ 
+     def tabView_didSelectTabViewItem_(self, tab_view, tab_item) -> None:
++        self.settings_message_generation += 1
++        set_field_value(self.settings_fields.get("message"), "")
+         window = self.settings_window or tab_view.window()
+         if window is None:
+             return
+@@ -1583,9 +1613,22 @@ class StatusBarController(NSObject):
+             chart.setRecords_(records)
+ 
+     def set_settings_message(self, message: str) -> None:
++        self.settings_message_generation += 1
+         set_field_value(self.settings_fields.get("message"), message)
+         if message:
+             log_status_bar(f"settings: {message}")
++            NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
++                6.0,
++                self,
++                "clearSettingsMessage:",
++                self.settings_message_generation,
++                False,
++            )
++
++    @objc.IBAction
++    def clearSettingsMessage_(self, timer):
++        if int(timer.userInfo()) == self.settings_message_generation:
++            set_field_value(self.settings_fields.get("message"), "")
+ 
+     def set_session_terminal(
+         self,
+@@ -1625,6 +1668,15 @@ class StatusBarController(NSObject):
+     def exportDebugHtml_(self, _sender):
+         self.export_debug_log("html")
+ 
++    @objc.IBAction
++    def archiveDebugLog_(self, _sender):
++        path = default_status_audit_log_path()
++        if rotate_status_audit_log(path, max_bytes=1):
++            self.set_settings_message("Debug log archived and cleared.")
++        else:
++            self.set_settings_message("Debug log is already empty.")
++        self.refresh_settings_window()
++
+     @objc.IBAction
+     def refreshHistoryChart_(self, _sender):
+         self.refresh_history_chart()
+@@ -1849,6 +1901,7 @@ class StatusBarController(NSObject):
+         if not SCREEN_BAR_FEATURE_ENABLED:
+             try:
+                 self.settings = self.settings.with_virtual_status_device(False)
++                self.settings = self.settings.without_device(VIRTUAL_DEVICE_ID)
+                 save_settings(self.settings)
+             except Exception as exc:
+                 self.set_settings_message(f"Could not disable Screen Bar: {exc}")
+@@ -2945,8 +2998,14 @@ class StatusBarController(NSObject):
+             )
+         ]
+         if not devices:
++            self.set_settings_message("No connected SidePulse device is available for preview.")
+             return
+ 
++        self.set_settings_message(
++            f"Previewing {LID_ANIMATION_LABELS[kind]} on {len(devices)} device"
++            f"{'s' if len(devices) != 1 else ''}."
++        )
++
+         self.led_animation_token += 1
+         token = self.led_animation_token
+         duration = animation.duration_seconds + LID_ANIMATION_RESTORE_FUDGE_SECONDS
+@@ -3563,6 +3622,8 @@ def choose_debug_export_path(format_name: str) -> Path | None:
+     panel.setNameFieldStringValue_(f"sidepulse-agent-debug.{extension}")
+     if hasattr(panel, "setAllowedFileTypes_"):
+         panel.setAllowedFileTypes_([extension])
++    NSApp.activateIgnoringOtherApps_(True)
++    panel.orderFrontRegardless()
+     if panel.runModal() != 1:
+         return None
+     url = panel.URL()
+@@ -4548,6 +4609,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+     debug_log_status = add_label(diagnostics_tab, "", 32, 360, 588, 22)
+     add_button(diagnostics_tab, "Export CSV", 32, 318, 110, 28, target, "exportDebugCsv:")
+     add_button(diagnostics_tab, "Export HTML", 152, 318, 120, 28, target, "exportDebugHtml:")
++    add_button(diagnostics_tab, "Archive & Clear", 282, 318, 130, 28, target, "archiveDebugLog:")
+     add_separator(diagnostics_tab, 24, 280, tab_width - 48)
+     add_label(diagnostics_tab, "Settings File", 24, 246, 240, 24)
+     settings_path = add_label(diagnostics_tab, "", 32, 208, 588, 22)
+diff --git a/src/sidepulse/status_bar_launch.py b/src/sidepulse/status_bar_launch.py
+index 8f27934..c812327 100644
+--- a/src/sidepulse/status_bar_launch.py
++++ b/src/sidepulse/status_bar_launch.py
+@@ -17,7 +17,8 @@ LEGACY_LAUNCH_AGENT_LABEL = "com.sidepulse.agentstatus"
+ LEGACY_LAUNCH_AGENT_FILENAME = f"{LEGACY_LAUNCH_AGENT_LABEL}.plist"
+ PIXIEPULSE_LEGACY_LAUNCH_AGENT_LABEL = "com.pixiepulse.agentstatus"
+ PIXIEPULSE_LEGACY_LAUNCH_AGENT_FILENAME = f"{PIXIEPULSE_LEGACY_LAUNCH_AGENT_LABEL}.plist"
+-STATUS_BAR_DISPLAY_NAME = "SidePulse Status Bar"
++STATUS_BAR_DISPLAY_NAME = "SidePulse"
++STATUS_BAR_BUNDLE_ID = "io.sidepulse.statusbar"
+ 
+ 
+ @dataclass(frozen=True)
+@@ -45,7 +46,15 @@ def pixiepulse_legacy_launch_agent_path(home: Path | None = None) -> Path:
+ 
+ 
+ def status_bar_launcher_path(home: Path | None = None) -> Path:
+-    return default_user_data_dir(home) / "sidepulse" / "status-bar" / STATUS_BAR_DISPLAY_NAME
++    return (
++        default_user_data_dir(home)
++        / "sidepulse"
++        / "status-bar"
++        / f"{STATUS_BAR_DISPLAY_NAME}.app"
++        / "Contents"
++        / "MacOS"
++        / STATUS_BAR_DISPLAY_NAME
++    )
+ 
+ 
+ def launch_agent_installed(plist_path: Path | None = None) -> bool:
+@@ -164,9 +173,32 @@ def install_status_bar_launcher(
+     if changed:
+         target.write_bytes(data)
+     target.chmod(0o755)
++    info_path = target.parent.parent / "Info.plist"
++    info_data = plistlib.dumps(build_status_bar_bundle_info(), sort_keys=False)
++    info_existing = info_path.read_bytes() if info_path.exists() else None
++    if info_existing != info_data:
++        info_path.write_bytes(info_data)
++        changed = True
+     return changed
+ 
+ 
++def build_status_bar_bundle_info() -> dict[str, Any]:
++    return {
++        "CFBundleDevelopmentRegion": "en",
++        "CFBundleDisplayName": STATUS_BAR_DISPLAY_NAME,
++        "CFBundleExecutable": STATUS_BAR_DISPLAY_NAME,
++        "CFBundleIdentifier": STATUS_BAR_BUNDLE_ID,
++        "CFBundleInfoDictionaryVersion": "6.0",
++        "CFBundleName": STATUS_BAR_DISPLAY_NAME,
++        "CFBundlePackageType": "APPL",
++        "CFBundleShortVersionString": "0.1.0",
++        "CFBundleVersion": "1",
++        "LSMinimumSystemVersion": "13.0",
++        "LSUIElement": True,
++        "NSHighResolutionCapable": True,
++    }
++
++
+ def build_status_bar_launcher_script(
+     python_executable: Path | str | None = None,
+ ) -> str:
+diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
+index d27b9e9..a556384 100644
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -23,6 +23,7 @@ from sidepulse.audit import (
+     export_status_audit_html,
+     read_status_history_records,
+     read_status_audit_records,
++    rotate_status_audit_log,
+     status_history_record,
+ )
+ from sidepulse.battery import (
+@@ -197,6 +198,7 @@ from sidepulse.status_bar_launch import (
+     STATUS_BAR_DISPLAY_NAME,
+     build_launch_agent_plist,
+     build_status_bar_launcher_script,
++    build_status_bar_bundle_info,
+     install_launch_agent,
+     launch_agent_installed,
+ )
+@@ -629,6 +631,19 @@ class AgentMonitorTests(unittest.TestCase):
+             self.assertIn("hook_event,status", csv_path.read_text())
+             self.assertIn("SidePulse Agent Debug Log", html_path.read_text())
+ 
++    def test_status_audit_log_rotation_bounds_growth(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            log = Path(tmp) / "event-status.jsonl"
++            log.write_text("oldest")
++            self.assertTrue(rotate_status_audit_log(log, max_bytes=1, backup_count=2))
++            self.assertFalse(log.exists())
++            self.assertEqual(log.with_name("event-status.jsonl.1").read_text(), "oldest")
++
++            log.write_text("newer")
++            self.assertTrue(rotate_status_audit_log(log, max_bytes=1, backup_count=2))
++            self.assertEqual(log.with_name("event-status.jsonl.1").read_text(), "newer")
++            self.assertEqual(log.with_name("event-status.jsonl.2").read_text(), "oldest")
++
+     def test_status_history_record_includes_charger_power_and_sleep_state(self) -> None:
+         record = status_history_record(
+             agent_mode=AgentMode.WORKING.value,
+@@ -5933,8 +5948,10 @@ class AgentMonitorTests(unittest.TestCase):
+     def test_status_bar_launcher_uses_background_item_name(self) -> None:
+         script = build_status_bar_launcher_script(python_executable="/usr/bin/python3")
+ 
+-        self.assertEqual(STATUS_BAR_DISPLAY_NAME, "SidePulse Status Bar")
++        self.assertEqual(STATUS_BAR_DISPLAY_NAME, "SidePulse")
+         self.assertIn("exec /usr/bin/python3 -m sidepulse status-bar --foreground", script)
++        self.assertEqual(build_status_bar_bundle_info()["CFBundleIdentifier"], "io.sidepulse.statusbar")
++        self.assertTrue(build_status_bar_bundle_info()["LSUIElement"])
+ 
+     def test_status_bar_launch_agent_installed_checks_plist(self) -> None:
+         with tempfile.TemporaryDirectory() as tmp:
+@@ -6002,7 +6019,7 @@ class AgentMonitorTests(unittest.TestCase):
+             target = base / "io.sidepulse.agentstatus.plist"
+             legacy = base / "com.sidepulse.agentstatus.plist"
+             pixiepulse_legacy = base / "com.pixiepulse.agentstatus.plist"
+-            launcher = base / "SidePulse Status Bar"
++            launcher = base / "SidePulse.app" / "Contents" / "MacOS" / "SidePulse"
+             legacy.write_bytes(b"old")
+             pixiepulse_legacy.write_bytes(b"old")
+ 
+@@ -6022,6 +6039,7 @@ class AgentMonitorTests(unittest.TestCase):
+             self.assertTrue(result.changed)
+             self.assertTrue(target.exists())
+             self.assertTrue(launcher.exists())
++            self.assertTrue((base / "SidePulse.app" / "Contents" / "Info.plist").exists())
+             self.assertEqual(plistlib.loads(target.read_bytes())["ProgramArguments"], [str(launcher)])
+             self.assertFalse(legacy.exists())
+             self.assertFalse(pixiepulse_legacy.exists())

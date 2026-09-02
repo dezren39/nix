@@ -33,16 +33,26 @@ lib.recursiveUpdate {
     .lootbox/tmp/
   '';
 
-  # System gitconfig at /etc/gitconfig — tells git to use the patterns file
-  # Apple/brew git reads /etc/gitconfig by default; nix git needs the env var below
-  environment.etc."gitconfig".text = ''
-    [core]
-    	excludesFile = /etc/gitignore
-  '';
+  # System gitconfig at /etc/gitconfig, generated from the SAME single source of
+  # truth as the per-user config (gitSettings.nix, imported by homePrograms.nix
+  # as programs.git.settings). Putting it at system scope means every git
+  # invocation picks it up — the nix git, Apple's /usr/bin/git, and root during
+  # activation or clean.sh — not just this user's interactive shells.
+  # System scope is lowest precedence, so the user config still wins on conflict.
+  # One generated file, referenced twice. /etc/gitconfig is what git reads via
+  # GIT_CONFIG_SYSTEM; /var/root/.gitconfig is what root reads when sudo has
+  # stripped that variable. Symlinking both at the same store path means they
+  # cannot drift, and nothing is copied at activation time.
+  environment.etc."gitconfig".source = pkgs.writeText "gitconfig" (
+    lib.generators.toGitINI (
+      lib.recursiveUpdate (import ./gitSettings.nix) {
+        core.excludesFile = "/etc/gitignore";
+      }
+    )
+  );
 
   # Force nix-packaged git to read /etc/gitconfig (it normally reads $nixStore/etc/gitconfig)
-  environment.variables.GIT_CONFIG_SYSTEM = "/etc/gitconfig";
-  # List packages installed in system profile. To search by name, run:
+  environment.variables.GIT_CONFIG_SYSTEM = "/etc/gitconfig"; # List packages installed in system profile. To search by name, run:
   # $ nix-env -qaP | grep wget
 
   nixpkgs = {
@@ -323,6 +333,11 @@ lib.recursiveUpdate {
     # tapOptions
     onActivation = {
       autoUpdate = true;
+      # TODO: try to fix. "uninstall" would auto-remove casks dropped from
+      # casks.nix (exactly the drift this leaves behind: renamed casks such as
+      # handbrake -> handbrake-app leave BOTH installed), but nix-homebrew
+      # currently emits an obsolete --force-cleanup flag with it. Until then,
+      # removed casks are NOT uninstalled and ./clean only reports the drift.
       cleanup = "none"; # "uninstall" generates obsolete --force-cleanup flag
       upgrade = true;
       extraFlags = [
@@ -400,6 +415,56 @@ lib.recursiveUpdate {
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
     fi
 
+    # Root's git: /etc/gitconfig already applies at system scope, but root has no
+    # global config of its own, so `sudo git` and clean.sh's root git calls miss
+    # anything a future change puts at global scope only. Pin root's global scope
+    # to the same generated file.
+    ln -sfn /etc/gitconfig /var/root/.gitconfig
+
+
+    # =====================================================================
+    # Default browser
+    # =====================================================================
+    # macOS has no nix-darwin option for this: the default browser is a
+    # LaunchServices URL-scheme handler, stored PER USER in
+    # ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist
+    # Activation runs as root, so duti must be run as the primary user or it
+    # would set root's handlers instead.
+    #
+    # Declaring it here means an app reinstall (or a cask being removed and
+    # restored) can never silently leave the default pointing somewhere else.
+    # Idempotent: duti rewrites the same value and exits 0 when already set.
+    # Exception: re-asserting an ALREADY-correct https handler can return
+    # error -54 (LaunchServices refusing a redundant write). That is harmless
+    # and the handler stays correct, hence `|| true` rather than a hard fail.
+    #
+    # NOTE: LaunchServices keeps the handler keyed by bundle id even while the
+    # app is absent, so this survives uninstall/reinstall cycles by itself --
+    # this just guarantees it.
+    #
+    # Zen stable and Zen Twilight share bundle id app.zen-browser.zen, so the
+    # handler cannot distinguish them; macOS resolves it to whichever bundle it
+    # last registered. Prefer Twilight by re-registering it with lsregister so
+    # it wins, then assert the handler.
+    zen_app=""
+    for candidate in /Applications/Twilight.app /Applications/Zen.app; do
+      [ -d "$candidate" ] && { zen_app="$candidate"; break; }
+    done
+    if [ -n "$zen_app" ]; then
+      primary_uid_browser=$(/usr/bin/id -u ${config.system.primaryUser})
+      /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+        -f "$zen_app" 2>/dev/null || true
+      for scheme in http https; do
+        /usr/bin/sudo -u ${config.system.primaryUser} \
+          /usr/bin/launchctl asuser "$primary_uid_browser" \
+          ${pkgs.duti}/bin/duti -s app.zen-browser.zen "$scheme" 2>/dev/null || true
+      done
+      # HTML documents opened from Finder
+      /usr/bin/sudo -u ${config.system.primaryUser} \
+        /usr/bin/launchctl asuser "$primary_uid_browser" \
+        ${pkgs.duti}/bin/duti -s app.zen-browser.zen public.html all 2>/dev/null || true
+    fi
+
     # Run the guarded Colima startup check after every switch.
     primary_uid=$(/usr/bin/id -u ${config.system.primaryUser})
     /bin/launchctl asuser "$primary_uid" \
@@ -409,32 +474,67 @@ lib.recursiveUpdate {
     # =====================================================================
     # Spotlight indexing fixes
     # =====================================================================
+    # On Apple Silicon, `/` is the sealed, read-only Signed System Volume.
+    # Every writable user/data path lives on /System/Volumes/Data, so both the
+    # health check and the rebuild must target the data volume — running them
+    # against `/` is effectively a no-op.
+    spotlight_volume="/System/Volumes/Data"
 
-    # Disable Spotlight indexing on /nix (huge read-only store, never useful)
+    # Disable Spotlight indexing on /nix (huge read-only store, never useful).
+    # /nix is its own APFS volume, so the marker + mdutil cover the whole store,
+    # including the nix cache under /nix/var.
     if [ -d /nix ]; then
       /usr/bin/mdutil -i off /nix 2>/dev/null || true
       # Marker file tells Spotlight to never index this volume/directory
       /usr/bin/touch /nix/.metadata_never_index 2>/dev/null || true
     fi
 
-    # If Spotlight is stuck in transitioning state, rebuild the index
-    if /usr/bin/mdutil -s / 2>&1 | grep -q "kMDConfigSearchLevelTransitioning"; then
-      echo "Spotlight stuck in transitioning state — rebuilding index..."
-      /usr/bin/mdutil -E / 2>/dev/null || true
+    # If Spotlight is stuck in transitioning state, rebuild the index.
+    # Failures are reported rather than silently swallowed — a hidden failure
+    # here is indistinguishable from a healthy index.
+    if /usr/bin/mdutil -s "$spotlight_volume" 2>&1 | grep -q "kMDConfigSearchLevelTransitioning"; then
+      echo "Spotlight stuck in transitioning state — rebuilding index on $spotlight_volume..."
+      if ! /usr/bin/mdutil -E "$spotlight_volume"; then
+        echo "warning: Spotlight reindex failed on $spotlight_volume" >&2
+      fi
     fi
 
-    # Add .metadata_never_index to common dev/cache directories in $HOME
-    HOME_DIR="/Users/drewry.pope"
-    for dir in \
-      "$HOME_DIR/.nix-defexpr" \
-      "$HOME_DIR/.nix-profile" \
-      "$HOME_DIR/.local/state/nix" \
-      "$HOME_DIR/.cache" \
-      "$HOME_DIR/Library/Caches"; do
-      if [ -d "$dir" ]; then
-        /usr/bin/touch "$dir/.metadata_never_index" 2>/dev/null || true
-      fi
-    done
+    # Spotlight never-index markers + git system setup.
+    #
+    # Both helpers are referenced from the flake source, so they land in the nix
+    # store and activation never depends on the working copy's path. Each is run
+    # twice, because both are $HOME-relative and neither account can see the
+    # other's paths:
+    #   as root  -> /Library, /nix, /var/root/*  (and root's git config)
+    #   as user  -> $HOME/*                      (and the launchd scheduler)
+    #
+    # The markers are created with plain `touch`, i.e. REAL root-owned files
+    # rather than read-only store symlinks, so anything that clears caches (./clean
+    # wipes ~/Library/Caches outright) can delete them. Re-asserting them on every
+    # activation is the point.
+    spotlight_exclude=${./spotlight-exclude-artifacts}
+    git_maintain=${./git-maintain-repos}
+    as_user="/bin/launchctl asuser $primary_uid /usr/bin/sudo -u ${config.system.primaryUser}"
+    helper_env="/usr/bin/env PATH=/run/current-system/sw/bin:/usr/bin:/bin"
+
+    # exclude: --system re-asserts the static list only (~40 ms). Consider
+    # dropping --system to get the default --auto instead: it adds the per-repo
+    # walk for only ~3 s, and would mark newly-created repos automatically.
+    $helper_env /run/current-system/sw/bin/bash "$spotlight_exclude" --system || true
+    # maintain: --system only (~80 ms). Do NOT drop --system here -- the default
+    # scope is --auto, which walks every repo under ~/git and takes roughly 3
+    # minutes. Adding --deep on top would also expire reflogs and prune. Run
+    # `just git-maintain` / `just git-maintain-quick` deliberately instead.
+    $helper_env /run/current-system/sw/bin/bash "$git_maintain" --system || true
+
+    # shellcheck disable=SC2086
+    # same trade-off as above: --system ~40 ms, default --auto adds the ~3 s walk
+    $as_user $helper_env /run/current-system/sw/bin/bash "$spotlight_exclude" --system || true
+    # shellcheck disable=SC2086
+    # --system only. No scheduler is installed for root: macOS offers only
+    # launchd, and `git maintenance start` writes launchd *agents*, which
+    # require a GUI Aqua session that root does not have.
+    $as_user $helper_env /run/current-system/sw/bin/bash "$git_maintain" --system || true
 
     # Point xcode-select at full Xcode.app if installed (idempotent, instant)
     if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -445,6 +545,37 @@ lib.recursiveUpdate {
       /usr/bin/xcodebuild -runFirstLaunch 2>/dev/null || true
     fi
   '';
+
+  # Root-scoped git maintenance. `git maintenance start` only knows how to write
+  # launchd *Agents*, which need an Aqua session that root does not have, so git
+  # itself cannot schedule anything for root. A LaunchDaemon runs headless and
+  # can, invoking exactly what the user's agent does.
+  #
+  # This iterates ROOT's maintenance.repo list, which is empty unless root-owned
+  # repositories are registered, so today it is a no-op placeholder. The primary
+  # user's 60-odd repos are covered by their own launchd agent instead.
+  launchd.daemons.git-maintenance = {
+    serviceConfig = {
+      ProgramArguments = [
+        "/run/current-system/sw/bin/git"
+        "for-each-repo"
+        "--keep-going"
+        "--config=maintenance.repo"
+        "maintenance"
+        "run"
+        "--schedule=daily"
+      ];
+      StartCalendarInterval = [
+        {
+          Hour = 3;
+          Minute = 30;
+        }
+      ];
+      RunAtLoad = false;
+      StandardErrorPath = "/var/log/git-maintenance.err.log";
+      StandardOutPath = "/var/log/git-maintenance.out.log";
+    };
+  };
 
   # TODO: module launchd
   launchd.user.agents = {

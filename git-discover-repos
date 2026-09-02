@@ -1,0 +1,413 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# git-discover-repos — find every git repository and worktree, once, and print
+# them in a form the other scripts can consume.
+#
+# WHY THIS EXISTS
+#   clean.sh, git-maintain-repos and spotlight-exclude-artifacts each grew their
+#   own discovery. Two of them defaulted to ~/git and used a single find(1),
+#   which missed repos living directly in ~ under names like ez-stack and
+#   DeepFilterNet, worktrees under .worktrees/, and worktrees some tools stash
+#   inside .git/. This is the union of all three, implemented once.
+#
+# TWO INDEPENDENT AXES
+#   RECURSION  does the given path get walked to find repos inside it?
+#              --recursive (default) / --no-recursive
+#   FOLLOWING  once a repo or worktree is found, do we hop along git's own
+#              links -- `rev-parse --git-common-dir` from a worktree back to its
+#              real repo, and `worktree list` from a repo out to all of its
+#              worktrees -- and then keep discovering from there?
+#              --follow / --no-follow
+#
+#   They are genuinely separate: you can walk a tree without following links out
+#   of it, or point at one worktree and follow to its siblings without walking.
+#   --no-recursive --follow is rejected: with nothing to walk there is no seed
+#   to follow from beyond the path itself, so it would silently mean --follow
+#   only from one dir; say what you mean with --path plus --follow.
+#
+# DEFAULTS DIFFER BY MODE, deliberately
+#   --auto  (no --path)  recursive + follow   -- "everything on this machine"
+#   --path DIR           recursive + NO follow -- "just this, and what is in it"
+#
+# OUTPUT
+#   One record per line: TYPE<TAB>PATH
+#     repo      a real repository (.git is a directory, or a bare repo)
+#     worktree  a linked worktree (.git is a gitdir-pointer file)
+#   Filter with --repos-only / --worktrees-only. Order is stable (sorted).
+#
+#   Maintenance must run once per REAL repo: worktrees share the parent's object
+#   store, so running it per worktree repeats the same work N times.
+
+set -uo pipefail
+
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+. "$_self_dir/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+git-discover-repos — enumerate every git repository and worktree
+
+USAGE
+  git-discover-repos [--auto] [options]         whole machine (default)
+  git-discover-repos --path DIR [options]       one location
+  git-discover-repos --path DIR --follow        one location + everything linked
+
+SCOPE
+  --auto              Scan the full default set (below). Implies --follow.
+                      Conflicts with --path.
+  --path DIR          Scan DIR only. Implies --no-follow. May be repeated.
+                      May also be given positionally.
+
+RECURSION (how far down the path do we go?)
+  --recursive         Descend without limit. Default.
+  --no-recursive      Equivalent to --depth 1: the path itself and its direct
+                      children. `--path X --no-recursive` finds X/.trash but
+                      not X/a/b/.trash. (Depth 0 would only test whether X is
+                      itself named .trash, which is never what you want.)
+  --depth N           Explicit find(1) -maxdepth. 1 = path + direct children.
+
+FOLLOWING (do we hop along git's links to related repos/worktrees?)
+  --follow            worktree -> its real repo, repo -> all its worktrees,
+                      then keep discovering from whatever that turns up, until
+                      no new paths appear.
+  --no-follow         Stay put.
+
+FILTERING (output shape, orthogonal to scope)
+  --repos-only        Print only real repositories.
+  --worktrees-only    Print only linked worktrees.
+  --both              Print both, TYPE-tagged. Default.
+  --paths-only        Print bare paths with no TYPE column, for piping into
+                      xargs. (Orthogonal to --repos-only/--worktrees-only,
+                      which choose WHICH records are printed, not their shape.)
+  --bare-only         Print only bare repositories.
+  --no-bare           Exclude bare repositories. (They are included by default
+                      and tagged "repo" like any other; --bare-only narrows to
+                      just them, mirroring --repos-only/--worktrees-only.)
+
+FINDING ARTIFACTS TOO
+  --find NAME[,NAME]  Also emit artifact hits inside every discovered location,
+                      as  FOUND<TAB>REASON<TAB>STATUS<TAB>PATH
+                      Special values: cache, risky, trash, all
+  --status            For --find hits, ask git whether the dir is tracked /
+                      ignored / untracked. Costs one git call per hit.
+
+OTHER
+  --user USER         Scan USER's home instead of the caller's (needs root).
+  --print0            NUL-separate records instead of newline.
+  --count             Print only a summary count.
+  --dry-run           Describe the plan, discover nothing.
+  -h, --help          This help
+
+DEFAULT SCAN SET (--auto), mirroring clean.sh's rules
+  1. ~/.local/share/opencode/worktree                 (deep)
+  2. ~/<dir> where the name is all digits or contains "git"   (deep)
+  3. every dir/symlinked dir directly in ~, whatever its name, tested for being
+     a repo; if it is one, its .git/ and .worktrees/ are also scanned
+  Symlinked roots are resolved to physical paths first, so a repo reachable as
+  both ~/foo and ~/git/foo is reported once.
+EOF
+}
+
+MODE="auto"
+DEPTH_LIMIT=""
+FOLLOW=""            # empty = "mode decides"
+FILTER="both"
+INCLUDE_BARE=1
+FIND_SPEC=""
+WANT_STATUS=0
+PRINT0=0
+PATHS_ONLY=0
+COUNT_ONLY=0
+DRY_RUN=0
+TARGET_USER=""
+PATHS=()
+RECURSIVE_SET=0
+FOLLOW_SET=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --auto)           MODE="auto" ;;
+    --path)           MODE="path"; PATHS+=("${2:-}"); shift ;;
+    --recursive|--walk)       DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
+    --no-recursive|--no-walk) DEPTH_LIMIT=1;  RECURSIVE_SET=1 ;;
+    --depth)                  DEPTH_LIMIT="${2:-1}"; RECURSIVE_SET=1; shift ;;
+    --follow)         FOLLOW=1; FOLLOW_SET=1 ;;
+    --no-follow)      FOLLOW=0; FOLLOW_SET=1 ;;
+    --repos-only)     FILTER="repos" ;;
+    --worktrees-only) FILTER="worktrees" ;;
+    --both)           FILTER="both" ;;
+    --bare-only)      FILTER="bare" ;;
+    --paths-only)     PATHS_ONLY=1 ;;
+    --no-bare)        INCLUDE_BARE=0 ;;
+    --find)           FIND_SPEC="${2:-all}"; shift ;;
+    --status)         WANT_STATUS=1 ;;
+    --user)           TARGET_USER="${2:-}"; shift ;;
+    --print0)         PRINT0=1 ;;
+    --count)          COUNT_ONLY=1 ;;
+    --dry-run)        DRY_RUN=1 ;;
+    -h|--help)        usage; exit 0 ;;
+    -*)               echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)                MODE="path"; PATHS+=("$1") ;;
+  esac
+  shift
+done
+
+if [ "$DEPTH_LIMIT" = "1" ] && [ "${FOLLOW:-0}" = "1" ] && [ "$RECURSIVE_SET" = "1" ]; then
+  echo "git-discover-repos: --no-recursive conflicts with --follow" >&2
+  echo "                    (use --depth N with N>1 if you want a bounded walk plus following)" >&2
+  exit 2
+fi
+
+# find(1) depth fragment, shared by the repo walk and the artifact sweep.
+DEPTH_ARGS=()
+[ -n "$DEPTH_LIMIT" ] && DEPTH_ARGS=(-maxdepth "$DEPTH_LIMIT")
+
+# Mode-specific default for following, applied only if not set explicitly.
+if [ -z "$FOLLOW" ]; then
+  if [ "$MODE" = "auto" ]; then FOLLOW=1; else FOLLOW=0; fi
+fi
+
+# Resolve the home directory being scanned.
+if [ -n "$TARGET_USER" ]; then
+  SCAN_HOME="$(eval echo "~$TARGET_USER")"
+  [ -d "$SCAN_HOME" ] || { echo "git-discover-repos: no home for $TARGET_USER" >&2; exit 1; }
+else
+  SCAN_HOME="${HOME}"
+fi
+
+# git refuses to touch repos owned by another user; every consumer here is
+# read-only discovery, so assert safety rather than fail.
+git_q() { git -c safe.directory='*' "$@"; }
+
+canon() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"; }
+is_repo() { [ -e "$1/.git" ]; }
+is_numeric() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+
+build_name_expr PRUNE_EXPR "${ALL_ARTIFACT_NAMES[@]}"
+
+# ONE traversal produces both results. The walk already has to stop at every
+# artifact directory (so a vendored node_modules/*/.git is not mistaken for a
+# repo); printing at that -prune costs nothing and removes the need for the
+# separate artifact find that used to re-walk the whole tree.
+#
+#   \( artifacts \) -prune -print   ->  an artifact dir; do not descend
+#   -o -name .git -print            ->  a repo or worktree marker
+#
+# Consumers tell them apart by basename. .git and .worktrees are deliberately
+# NOT pruned: tools stash worktrees inside both.
+ARTIFACTS_FILE="$(mktemp)"
+scan_deep() {
+  [ -d "$1" ] || return 0
+  find -H "$1" "${DEPTH_ARGS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -print -o -name .git -print 2>/dev/null |
+    while IFS= read -r hit; do
+      case "$(basename "$hit")" in
+        .git) printf '%s\n' "${hit%/.git}" ;;
+        *)    printf '%s\n' "$hit" >> "$ARTIFACTS_FILE" ;;
+      esac
+    done
+}
+
+# A bare repo has no .git entry; the directory itself is the object store.
+is_bare_repo() {
+  [ -d "$1" ] || return 1
+  [ -f "$1/HEAD" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ]
+}
+
+SEEN_FILE="$(mktemp)"
+OUT_FILE="$(mktemp)"
+QUEUE_FILE="$(mktemp)"
+trap 'rm -f "$SEEN_FILE" "$OUT_FILE" "$QUEUE_FILE" "$ARTIFACTS_FILE"' EXIT
+
+seen() { grep -qxF "$1" "$SEEN_FILE" 2>/dev/null; }
+mark_seen() { printf '%s\n' "$1" >> "$SEEN_FILE"; }
+
+# classify PATH -> prints "repo" or "worktree", or nothing if neither
+classify() {
+  local d="$1"
+  if [ -f "$d/.git" ]; then echo worktree
+  elif [ -d "$d/.git" ]; then echo repo
+  elif is_bare_repo "$d"; then echo repo
+  fi
+}
+
+emit() {
+  local kind="$1" path="$2"
+  seen "$path" && return 0
+  mark_seen "$path"
+  printf '%s\t%s\n' "$kind" "$path" >> "$OUT_FILE"
+  [ "$FOLLOW" = "1" ] && printf '%s\n' "$path" >> "$QUEUE_FILE"
+  return 0
+}
+
+consider() {
+  local d="$1" kind
+  [ -d "$d" ] || return 0
+  kind="$(classify "$d")"
+  [ -z "$kind" ] && return 0
+  if [ "$kind" = "repo" ] && [ "$INCLUDE_BARE" = "0" ] && is_bare_repo "$d"; then return 0; fi
+  emit "$kind" "$d"
+}
+
+# ---------------------------------------------------------------------------
+# Seeding
+# ---------------------------------------------------------------------------
+seed_auto() {
+  scan_deep "$(canon "$SCAN_HOME/.local/share/opencode/worktree")"
+  local d b
+  for d in "$SCAN_HOME"/*/; do
+    d="${d%/}"; b="$(basename "$d")"
+    case "$b" in
+      *git*) scan_deep "$(canon "$d")" ;;
+      *)     is_numeric "$b" && scan_deep "$(canon "$d")" ;;
+    esac
+  done
+  for d in "$SCAN_HOME"/*/; do
+    d="${d%/}"
+    if is_repo "$d"; then
+      local c; c="$(canon "$d")"
+      printf '%s\n' "$c"
+      scan_deep "$c/.git"
+      scan_deep "$c/.worktrees"
+    fi
+  done
+}
+
+seed_path() {
+  local p c
+  for p in "${PATHS[@]}"; do
+    [ -d "$p" ] || { echo "git-discover-repos: not a directory: $p" >&2; continue; }
+    c="$(canon "$p")"
+    printf '%s\n' "$c"
+    scan_deep "$c"
+    scan_deep "$c/.git"
+    scan_deep "$c/.worktrees"
+  done
+}
+
+if [ "$DRY_RUN" = "1" ]; then
+  echo "git-discover-repos: plan"
+  echo "  mode:       $MODE"
+  echo "  depth:      ${DEPTH_LIMIT:-unlimited}"
+  echo "  follow:     $([ "$FOLLOW" = 1 ] && echo yes || echo no)"
+  echo "  filter:     $FILTER"
+  echo "  bare repos: $([ "$INCLUDE_BARE" = 1 ] && echo included || echo skipped)"
+  echo "  home:       $SCAN_HOME"
+  if [ "$MODE" = "auto" ]; then
+    echo "  roots:      ~/.local/share/opencode/worktree, ~/<numeric|*git*>, every repo directly in ~"
+  else
+    printf '  roots:      %s\n' "${PATHS[@]}"
+  fi
+  [ -n "$FIND_SPEC" ] && echo "  also find:  $FIND_SPEC"
+  exit 0
+fi
+
+if [ "$MODE" = "auto" ]; then seed_auto; else seed_path; fi | sort -u | while IFS= read -r d
+do
+  consider "$d"
+done
+
+# ---------------------------------------------------------------------------
+# Following: hop along git's own links until nothing new turns up.
+# ---------------------------------------------------------------------------
+if [ "$FOLLOW" = "1" ]; then
+  round=0
+  while [ -s "$QUEUE_FILE" ] && [ "$round" -lt 20 ]; do
+    round=$((round + 1))
+    CURRENT="$(mktemp)"
+    mv "$QUEUE_FILE" "$CURRENT"
+    : > "$QUEUE_FILE"
+    while IFS= read -r d; do
+      [ -d "$d" ] || continue
+      # worktree -> the real repository backing it
+      common="$(git_q -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+      if [ -n "$common" ] && [ -d "$common" ]; then
+        main="${common%/.git}"
+        [ "$main" = "$common" ] || consider "$main"
+        # a bare repo's common dir IS the repo
+        [ "$main" = "$common" ] && is_bare_repo "$common" && consider "$common"
+      fi
+      # repository -> every worktree attached to it
+      while IFS= read -r line; do
+        case "$line" in
+          worktree\ *) consider "${line#worktree }" ;;
+        esac
+      done < <(git_q -C "$d" worktree list --porcelain 2>/dev/null)
+    done < "$CURRENT"
+    rm -f "$CURRENT"
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# Emit
+# ---------------------------------------------------------------------------
+filter_out() {
+  case "$FILTER" in
+    repos)     awk -F'\t' '$1=="repo"' ;;
+    bare)      awk -F'\t' '$1=="repo"' | while IFS=$'\t' read -r k pth; do
+                 [ -f "$pth/HEAD" ] && [ -d "$pth/objects" ] && printf '%s\t%s\n' "$k" "$pth"
+               done ;;
+    worktrees) awk -F'\t' '$1=="worktree"' ;;
+    *)         cat ;;
+  esac
+}
+
+if [ "$COUNT_ONLY" = "1" ]; then
+  r=$(awk -F'\t' '$1=="repo"' "$OUT_FILE" | wc -l | tr -d ' ')
+  w=$(awk -F'\t' '$1=="worktree"' "$OUT_FILE" | wc -l | tr -d ' ')
+  echo "repos=$r worktrees=$w total=$((r + w))"
+  exit 0
+fi
+
+sort -u "$OUT_FILE" | filter_out \
+  | if [ "$PATHS_ONLY" = "1" ]; then cut -f2; else cat; fi \
+  | if [ "$PRINT0" = "1" ]; then tr '\n' '\0'; else cat; fi
+
+# ---------------------------------------------------------------------------
+# Optional artifact sweep inside every discovered location
+# ---------------------------------------------------------------------------
+if [ -n "$FIND_SPEC" ]; then
+  FIND_NAMES=()
+  IFS=',' read -r -a _specs <<< "$FIND_SPEC"
+  for _s in "${_specs[@]}"; do
+    case "$_s" in
+      cache) FIND_NAMES+=("${CACHE_NAMES[@]}") ;;
+      risky) FIND_NAMES+=("${RISKY_NAMES[@]}") ;;
+      trash) FIND_NAMES+=("${TRASH_NAMES[@]}") ;;
+      all)   FIND_NAMES+=("${ALL_ARTIFACT_NAMES[@]}") ;;
+      *)     FIND_NAMES+=("$_s") ;;
+    esac
+  done
+  build_name_expr FIND_EXPR "${FIND_NAMES[@]}"
+
+  reason_for() {
+    local b; b="$(basename "$1")"
+    local n
+    for n in "${TRASH_NAMES[@]}"; do [ "$b" = "$n" ] && { echo trash; return; }; done
+    for n in "${RISKY_NAMES[@]}"; do [ "$b" = "$n" ] && { echo risky; return; }; done
+    echo cache
+  }
+
+  status_for() {
+    [ "$WANT_STATUS" = "1" ] || { echo -; return; }
+    local d="$1" repo
+    repo="$(git_q -C "$d" rev-parse --show-toplevel 2>/dev/null)" || { echo unknown; return; }
+    [ -n "$(git_q -C "$repo" ls-files -- "$d" 2>/dev/null | head -1)" ] && { echo tracked; return; }
+    [ -n "$(git_q -C "$repo" diff --cached --name-only -- "$d" 2>/dev/null | head -1)" ] && { echo staged; return; }
+    [ -n "$(git_q -C "$repo" ls-files --others --exclude-standard -- "$d" 2>/dev/null | head -1)" ] && { echo untracked; return; }
+    echo ignored
+  }
+
+  # --walk descends the whole location; --no-walk looks only at the location
+  # and its direct children, so `--path X --no-walk` finds X/.trash but not
+  # X/a/b/.trash. -prune on match means a dist/ nested inside node_modules/ is
+  # never reported separately -- the parent already covers it.
+  while IFS=$'\t' read -r _kind loc; do
+    [ -d "$loc" ] || continue
+    while IFS= read -r hit; do
+      printf 'FOUND\t%s\t%s\t%s\n' "$(reason_for "$hit")" "$(status_for "$hit")" "$hit"
+    done < <(find "$loc" "${DEPTH_ARGS[@]}" \( -name .git -o -name .worktrees \) -prune -o \
+               -type d \( "${FIND_EXPR[@]}" \) -prune -print 2>/dev/null)
+  done < <(sort -u "$OUT_FILE")
+fi

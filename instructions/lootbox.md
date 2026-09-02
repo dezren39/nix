@@ -18,6 +18,10 @@ lootbox exec 'console.log(await tools.mcp_codedb.status({}))'
 
 ## Available MCP namespaces
 
+Lootbox is not required for every task; use it when an available MCP capability
+fits. Prefer the MCP namespace whose capabilities fit the task. For example,
+prefer CodeDB when its AST-aware codebase exploration fits.
+
 | Namespace           | Tools                                                                                                                                                                                                                                       | What it does                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `mcp_codedb`          | tree, outline, symbol, search, word, hot, deps, read, edit, changes, status, snapshot, bundle, projects, index, remote                                                                                                                      | Codebase exploration, symbol lookup, AST-aware search           |

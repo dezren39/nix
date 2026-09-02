@@ -308,21 +308,18 @@ in
     git = {
       enable = true;
       signing.format = null; # silence home-manager 25.05 deprecation warning (was defaulting to "openpgp")
-      settings = {
-        user = {
-          name = "Drewry Pope";
-          email = "drewry.pope@vertexinc.com"; # TODO: move work email out of default
-        };
-        extraConfig = {
-          init.defaultBranch = "main";
-          # pull.rebase = true; # commented out — prefer merge default
-          core = {
-            editor = "code-insiders";
-            autocrlf = "input";
-            bigFileThreshold = "50m";
-          };
-          safe.directory = "*";
-        };
+      # Single source of truth — shared with the reference block in homeUser.nix.
+      # `settings` IS the freeform gitconfig; see gitSettings.nix for why these
+      # keys must not be nested under `extraConfig`.
+      # Shared base, plus a user-only include. `git maintenance register` and
+      # `git config --global` must write somewhere, but ~/.config/git/config is
+      # a read-only /nix/store symlink (444 root:wheel in a sticky root:nixbld
+      # dir), so those writes fail. Registration is therefore pointed at a
+      # writable include file, which normal config resolution — and so the
+      # scheduler's `git for-each-repo --config=maintenance.repo` — still reads.
+      # Not added to /etc/gitconfig: "~" there would resolve to root's home.
+      settings = (import ./gitSettings.nix) // {
+        include.path = "~/.config/git/maintenance.config";
       };
       ignores = [
         ".DS_Store"
@@ -333,6 +330,10 @@ in
         # lootbox ephemeral dirs — committed scripts (.lootbox/scripts/) are fine
         ".lootbox/cache/"
         ".lootbox/tmp/"
+        # Spotlight exclusion markers dropped by ./spotlight-exclude-artifacts.
+        # Harmless in ignored dirs, but build/ dist/ vendor/ target/ are
+        # sometimes tracked, and the marker would otherwise show up untracked.
+        ".metadata_never_index"
       ];
     };
 

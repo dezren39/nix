@@ -9,6 +9,8 @@
     with pkgs;
     [
       colima
+      cargo-cache # `cargo cache -r all` in ./clean; ~/.cargo has no built-in pruner
+      duti # sets LaunchServices URL/UTI handlers; used to pin the default browser
       doggo
       docker-client
       uv
@@ -21,15 +23,16 @@
       # zen-browser
       _1password-cli
       act
-      # github-copilot-cli # removed: upstream end-of-life
-      # copilot-cli # removed: upstream end-of-life
+      # github-copilot-cli # Gen-1 npm CLI deprecated; replaced by native `copilot-cli` cask
+      # copilot-cli
       age
       dbeaver-bin
       yq-go
       # nixd # 2025-10-15 fixed in staging
       age-plugin-yubikey
       alacritty
-      ansible
+      # ansible # DISABLED 2026-08: ~2.1 GB closure, ~640 MB of it dependencies
+      # almost nothing else uses. Re-enable if you need it.
       arduino-cli
       # terraform
       powershell
@@ -86,6 +89,7 @@
       gh
       git
       git-filter-repo
+      git-lfs
       glow
       gnupg
       gnused
@@ -150,6 +154,8 @@
       # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
       inputs.self.packages.${system}.lootbox-link
       inputs.self.packages.${system}.opencode-share
+      inputs.self.packages.${system}.sidepulse
+      inputs.self.packages.${system}.sidepulse-setup
       openjdk
       openssh
       p7zip
@@ -222,7 +228,8 @@
       cargo-insta # snapshot testing
       zig
       swiftPackages.swift # provides swiftc
-      dotnet-sdk_9
+      # dotnet-sdk_9 # DISABLED 2026-08: ~1.2 GB closure, ~590 MB of near-private
+      # dependencies. Re-enable if you need .NET.
       inputs.just.packages.${system}.default
       # linker/binary diagnostic and fixing tools
       patchelf # fix ELF binaries (rpath, interpreter) - essential for Linux containers/cross-compile

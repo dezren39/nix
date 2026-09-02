@@ -35,19 +35,16 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
  function resolveRunInput(value?: string, piped?: string): string | undefined {
    if (!value) {
      return piped
-@@ -690,15 +717,35 @@ export const RunCommand = effectCmd({
+@@ -690,3 +717,5 @@ export const RunCommand = effectCmd({
            return false
          }
- 
 +        const requestAbort = new AbortController()
 +
          // Consume one subscribed event stream for the active session and mirror it
-         // to stdout/UI. `client` is passed explicitly because attach mode may
-         // rebind the SDK to the session's directory after the subscription is
-         // created, and replies issued from inside the loop must use that client.
+@@ -697,5 +726,17 @@ export const RunCommand = effectCmd({
          async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
            const toggles = new Map<string, boolean>()
-+          const sessions = new Set([sessionID])
+           const sessions = new Set([sessionID])
 +          const parent = async (id: string): Promise<string | undefined> => {
 +            try {
 +              const result = await client.session.get(
@@ -62,20 +59,19 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
 +          }
            let error: string | undefined
  
+@@ -702,4 +743,5 @@ export const RunCommand = effectCmd({
            for await (const event of events.stream) {
+-            if (event.type === "session.created" && event.properties.info.parentID) {
+-              if (sessions.has(event.properties.info.parentID)) sessions.add(event.properties.info.id)
 +            if (event.type === "session.created" || event.type === "session.updated") {
 +              const info = event.properties.info
 +              if (info.parentID && sessions.has(info.parentID)) sessions.add(info.id)
-+            }
-+
-             if (
-               event.type === "message.updated" &&
-               event.properties.sessionID === sessionID &&
-@@ -795,7 +842,14 @@ export const RunCommand = effectCmd({
+             }
+@@ -801,7 +843,14 @@ export const RunCommand = effectCmd({
  
              if (event.type === "permission.asked") {
                const permission = event.properties
--              if (permission.sessionID !== sessionID) continue
+-              if (!sessions.has(permission.sessionID)) continue
 +              const related = await isSessionInTree(parent, permission.sessionID, sessions).catch(async (error) => {
 +                requestAbort.abort(error)
 +                await client.session
@@ -87,7 +83,7 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
  
                if (auto) {
                  await client.permission.reply({
-@@ -838,14 +892,17 @@ export const RunCommand = effectCmd({
+@@ -845,14 +894,17 @@ export const RunCommand = effectCmd({
            }
  
            if (args.command) {
@@ -113,7 +109,7 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
              if (result.error) {
                if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
                process.exitCode = 1
-@@ -856,13 +913,16 @@ export const RunCommand = effectCmd({
+@@ -863,13 +915,16 @@ export const RunCommand = effectCmd({
            }
  
            const model = pick(args.model)

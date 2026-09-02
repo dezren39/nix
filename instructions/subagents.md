@@ -21,8 +21,20 @@ These are the commonly available types — others may be available depending on 
 | `general`      | General-purpose agent for researching complex questions and executing multi-step tasks in parallel. Can use all tools. Use for implementation, bug fixing, refactoring, running commands. |
 | `build`        | Full development agent with all tools enabled. Use for substantial implementation work, file operations, and system commands.                                                             |
 | `plan`         | Analysis and planning agent. Edits and bash require approval. Use for code review, architecture analysis, and creating plans without accidental changes.                                  |
-| `bootstrapper` | Analyzes a request and creates exploration branches with scopes. Use when planning or decomposing a complex task into parallel exploration paths.                                         |
-| `probe`        | Evaluates branch Q&A and decides whether to ask more or complete. Use for iterative refinement of answers and deep-dive investigations.                                                   |
+
+<!--
+Disabled agent types — kept for reference / easy re-enable.
+
+`bootstrapper` and `probe` are provided by the `octto` plugin, which is currently
+commented out in `plugin[]` in opencode.jsonc. Re-enable that plugin to restore them.
+
+| `bootstrapper` | Analyzes a request and creates exploration branches with scopes. Use when planning or decomposing a complex task into parallel exploration paths. |
+| `probe`        | Evaluates branch Q&A and decides whether to ask more or complete. Use for iterative refinement of answers and deep-dive investigations.           |
+
+The model/variant-specific subagents (`luna-medium`, `sol-low`, `sol-medium`,
+`sol-high`, `sol-xhigh`, `sol-max`, `fable-*`, `opus-5-*`, `terra-high`) are also
+commented out in the `agent` block of opencode.jsonc.
+-->
 
 ## Guidelines
 

@@ -1,0 +1,1848 @@
+diff --git a/README.md b/README.md
+index 86152bb..bb1aed8 100644
+--- a/README.md
++++ b/README.md
+@@ -484,6 +484,16 @@ The status-bar item shows one of four collapsed states:
+ | Done | The most recent active agent completed successfully. |
+ | Ask | An agent needs input, permission, or attention. |
+ 
++### Do Not Disturb
++
++Do Not Disturb keeps all physical SidePulse LEDs and the optional Screen Bar off while
++agent monitoring continues normally. Toggle it immediately from the menu-bar dropdown,
++or open **Settings... → Devices & LEDs** to use the same DND toggle and optionally set a
++recurring daily schedule such as `21:00`–`07:00`. The schedule switches the toggle on at
++the start time and off at the end time. You can override the toggle at any time; that
++choice remains in effect until the next scheduled boundary, including across app
++restarts. Overnight schedules that cross midnight are supported.
++
+ Click the status-bar item to expand the recent session list. Click a session
+ row to open that agent using the remembered choice for that provider. Use the
+ session's Open Options row to choose and remember another opener, such as the
+diff --git a/src/sidepulse/settings.py b/src/sidepulse/settings.py
+index 2f5bb74..11577c1 100644
+--- a/src/sidepulse/settings.py
++++ b/src/sidepulse/settings.py
+@@ -194,6 +194,8 @@ HISTORY_TIMEFRAME_CHOICES = (
+     HISTORY_TIMEFRAME_24H_SECONDS,
+     HISTORY_TIMEFRAME_48H_SECONDS,
+ )
++DEFAULT_DND_START_TIME = "22:00"
++DEFAULT_DND_END_TIME = "07:00"
+ 
+ 
+ @dataclass(frozen=True)
+@@ -331,6 +333,11 @@ class AgentMonitorSettings:
+     idle_timeout_seconds: float = DEFAULT_IDLE_TIMEOUT_SECONDS
+     sleep_prevention_min_battery_percent: float = DEFAULT_SLEEP_PREVENTION_MIN_BATTERY_PERCENT
+     history_timeframe_seconds: float = DEFAULT_HISTORY_TIMEFRAME_SECONDS
++    dnd_enabled: bool = False
++    dnd_schedule_enabled: bool = False
++    dnd_start_time: str = DEFAULT_DND_START_TIME
++    dnd_end_time: str = DEFAULT_DND_END_TIME
++    dnd_last_schedule_transition: str = ""
+     setup_screen_completed: bool = False
+ 
+     def transcript_enabled(self, provider: str) -> bool:
+@@ -801,6 +808,44 @@ class AgentMonitorSettings:
+     def with_history_timeframe(self, seconds: float) -> "AgentMonitorSettings":
+         return replace(self, history_timeframe_seconds=normalize_history_timeframe(seconds))
+ 
++    def with_dnd(
++        self,
++        *,
++        enabled: bool | None = None,
++        schedule_enabled: bool | None = None,
++        start_time: str | None = None,
++        end_time: str | None = None,
++        schedule_transition: str | None = None,
++    ) -> "AgentMonitorSettings":
++        return replace(
++            self,
++            dnd_enabled=(
++                self.dnd_enabled
++                if enabled is None
++                else bool(enabled)
++            ),
++            dnd_schedule_enabled=(
++                self.dnd_schedule_enabled
++                if schedule_enabled is None
++                else bool(schedule_enabled)
++            ),
++            dnd_start_time=(
++                self.dnd_start_time
++                if start_time is None
++                else normalize_dnd_time(start_time)
++            ),
++            dnd_end_time=(
++                self.dnd_end_time
++                if end_time is None
++                else normalize_dnd_time(end_time)
++            ),
++            dnd_last_schedule_transition=(
++                self.dnd_last_schedule_transition
++                if schedule_transition is None
++                else str(schedule_transition)
++            ),
++        )
++
+     def to_dict(self) -> dict[str, Any]:
+         return {
+             "led_display": self.led_display,
+@@ -836,22 +881,12 @@ class AgentMonitorSettings:
+             "history": {
+                 "timeframe_seconds": self.history_timeframe_seconds,
+             },
+-            "agent_animations": {
+-                mode: setting.to_dict()
+-                for mode, setting in sorted(self.agent_animations.items())
+-            },
+-            "custom_agent_animations": {
+-                animation_id: animation.to_dict()
+-                for animation_id, animation in sorted(
+-                    self.custom_agent_animations.items()
+-                )
+-            },
+-            "agent_animation_profiles": {
+-                profile_id: profile.to_dict()
+-                for profile_id, profile in sorted(
+-                    self.agent_animation_profiles.items()
+-                )
+-                if profile_id not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
++            "do_not_disturb": {
++                "enabled": self.dnd_enabled,
++                "schedule_enabled": self.dnd_schedule_enabled,
++                "start_time": self.dnd_start_time,
++                "end_time": self.dnd_end_time,
++                "last_schedule_transition": self.dnd_last_schedule_transition,
+             },
+             "setup_screen_completed": self.setup_screen_completed,
+         }
+@@ -911,6 +946,9 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
+     history = data.get("history")
+     if not isinstance(history, dict):
+         history = {}
++    dnd = data.get("do_not_disturb")
++    if not isinstance(dnd, dict):
++        dnd = {}
+ 
+     led_display = _led_display_setting(data.get("led_display"), LED_DISPLAY_AGENT)
+     session_open_preferences = _session_open_preferences(
+@@ -1017,6 +1055,22 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
+                 data.get("history_timeframe_seconds", DEFAULT_HISTORY_TIMEFRAME_SECONDS),
+             )
+         ),
++        dnd_enabled=_bool_setting(
++            dnd.get("enabled"),
++            _bool_setting(dnd.get("manual_enabled"), False),
++        ),
++        dnd_schedule_enabled=_bool_setting(dnd.get("schedule_enabled"), False),
++        dnd_start_time=_dnd_time_setting(
++            dnd.get("start_time"),
++            DEFAULT_DND_START_TIME,
++        ),
++        dnd_end_time=_dnd_time_setting(
++            dnd.get("end_time"),
++            DEFAULT_DND_END_TIME,
++        ),
++        dnd_last_schedule_transition=_string_setting(
++            dnd.get("last_schedule_transition")
++        ),
+         setup_screen_completed=_bool_setting(data.get("setup_screen_completed"), False),
+     )
+ 
+@@ -1454,6 +1508,27 @@ def _nonnegative_float_setting(value: object, default: float) -> float:
+     return default
+ 
+ 
++def normalize_dnd_time(value: str) -> str:
++    text = str(value).strip()
++    match = re.fullmatch(r"(\d{1,2}):(\d{2})", text)
++    if match is None:
++        raise ValueError("DND times must use 24-hour HH:MM format.")
++    hour = int(match.group(1))
++    minute = int(match.group(2))
++    if hour > 23 or minute > 59:
++        raise ValueError("DND times must use 24-hour HH:MM format.")
++    return f"{hour:02d}:{minute:02d}"
++
++
++def _dnd_time_setting(value: object, default: str) -> str:
++    if not isinstance(value, str):
++        return default
++    try:
++        return normalize_dnd_time(value)
++    except ValueError:
++        return default
++
++
+ def normalize_seconds_setting(value: object) -> float:
+     if isinstance(value, (int, float)):
+         return max(0.0, float(value))
+diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
+index f986d0b..c83b404 100644
+--- a/src/sidepulse/status_bar.py
++++ b/src/sidepulse/status_bar.py
+@@ -6,7 +6,7 @@ import subprocess
+ import threading
+ import time
+ from dataclasses import dataclass
+-from datetime import datetime, timezone
++from datetime import datetime, timedelta, timezone
+ from pathlib import Path
+ 
+ try:
+@@ -264,73 +264,75 @@ class StatusBarDevice:
+     reason: str = ""
+ 
+ 
+-class AnimationProgramTextView(NSTextView):
+-    """NSTextView with reliable edit shortcuts in an accessory application."""
++@dataclass(frozen=True)
++class DndScheduleTransition:
++    key: str
++    enabled: bool
+ 
+-    def performKeyEquivalent_(self, event):
+-        if int(event.modifierFlags()) & int(NSEventModifierFlagCommand):
+-            key = str(event.charactersIgnoringModifiers() or "").casefold()
+-            action = {
+-                "x": self.cut_,
+-                "c": self.copy_,
+-                "v": self.paste_,
+-                "a": self.selectAll_,
+-            }.get(key)
+-            if action is not None:
+-                action(None)
+-                return True
+-        return objc.super(AnimationProgramTextView, self).performKeyEquivalent_(event)
+ 
++def dnd_is_active(
++    settings: AgentMonitorSettings,
++    now: datetime | None = None,
++) -> bool:
++    return settings.dnd_enabled
+ 
+-class AgentAnimationMenuItemView(NSView):
+-    """Interactive menu row with a Screen Bar-rendered animation preview."""
+ 
+-    def initWithFrame_(self, frame):
+-        self = objc.super(AgentAnimationMenuItemView, self).initWithFrame_(frame)
+-        if self is not None:
+-            self.popup = None
+-            self.mode = None
+-            self.animation_id = None
+-            self.label = add_label(self, "", 10, 7, 106, 20)
+-            self.animation_preview = VirtualLedView.alloc().initWithFrame_(
+-                ((122, 2), (72, 28))
+-            )
+-            self.animation_preview.setCompactPreview_(True)
+-            self.addSubview_(self.animation_preview)
+-        return self
++def latest_dnd_schedule_transition(
++    settings: AgentMonitorSettings,
++    now: datetime | None = None,
++) -> DndScheduleTransition | None:
++    if not settings.dnd_schedule_enabled:
++        return None
+ 
+-    def configurePopup_mode_animation_label_program_(
+-        self,
+-        popup,
+-        mode,
+-        animation_id,
+-        label,
+-        program,
+-    ):
+-        self.popup = popup
+-        self.mode = str(mode)
+-        self.animation_id = str(animation_id)
+-        self.label.setStringValue_(str(label))
+-        self.animation_preview.setProgram_(str(program))
+-
+-    def mouseDown_(self, _event):
+-        popup = self.popup
+-        if popup is None:
+-            return
+-        for index in range(popup.numberOfItems()):
+-            item = popup.itemAtIndex_(index)
+-            payload = item.representedObject()
+-            if (
+-                isinstance(payload, dict)
+-                and payload.get("mode") == self.mode
+-                and payload.get("animation_id") == self.animation_id
+-            ):
+-                popup.selectItemAtIndex_(index)
+-                break
+-        target = popup.target()
+-        if target is not None:
+-            target.setAgentAnimationStyle_(popup)
+-        popup.menu().cancelTracking()
++    current = now or datetime.now().astimezone()
++    start_parts = tuple(int(part) for part in settings.dnd_start_time.split(":", 1))
++    end_parts = tuple(int(part) for part in settings.dnd_end_time.split(":", 1))
++    boundaries = [("start", start_parts, True)]
++    if start_parts != end_parts:
++        boundaries.append(("end", end_parts, False))
++
++    due: list[tuple[datetime, str, bool]] = []
++    for day_offset in (-1, 0):
++        day = current + timedelta(days=day_offset)
++        for label, (hour, minute), enabled in boundaries:
++            boundary = day.replace(hour=hour, minute=minute, second=0, microsecond=0)
++            if boundary <= current:
++                due.append((boundary, label, enabled))
++
++    boundary, label, enabled = max(due, key=lambda item: item[0])
++    key = f"{boundary:%Y-%m-%d}:{label}:{boundary:%H:%M}"
++    return DndScheduleTransition(key=key, enabled=enabled)
++
++
++def settings_after_dnd_schedule_transition(
++    settings: AgentMonitorSettings,
++    now: datetime | None = None,
++    *,
++    force: bool = False,
++) -> AgentMonitorSettings:
++    transition = latest_dnd_schedule_transition(settings, now)
++    if transition is None:
++        return settings
++    if not force and transition.key == settings.dnd_last_schedule_transition:
++        return settings
++    return settings.with_dnd(
++        enabled=transition.enabled,
++        schedule_transition=transition.key,
++    )
++
++
++def dnd_status_text(
++    settings: AgentMonitorSettings,
++    now: datetime | None = None,
++) -> str:
++    if settings.dnd_enabled:
++        status = "DND is on. LEDs are off."
++    else:
++        status = "DND is off."
++    if settings.dnd_schedule_enabled:
++        schedule = f"{settings.dnd_start_time}–{settings.dnd_end_time}"
++        return f"{status} Schedule: {schedule}."
++    return status
+ 
+ 
+ @dataclass(frozen=True)
+@@ -621,6 +623,8 @@ class StatusBarController(NSObject):
+         self.device_errors = {}
+         self.leds_enabled = True
+         self.led_sync_in_flight = False
++        self.last_dnd_active = None
++        self.dnd_off_targets = set()
+         self.last_led_error = None
+         self.last_led_display_kind = LED_DISPLAY_AGENT
+         self.last_connected_device_signature = None
+@@ -696,7 +700,11 @@ class StatusBarController(NSObject):
+             True,
+         )
+         self.show_setup_window_if_needed()
+-        if SCREEN_BAR_FEATURE_ENABLED and self.settings.virtual_status_device_enabled:
++        if (
++            SCREEN_BAR_FEATURE_ENABLED
++            and self.settings.virtual_status_device_enabled
++            and not dnd_is_active(self.settings)
++        ):
+             self.virtual_status_device.show()
+         else:
+             self.virtual_status_device.hide()
+@@ -719,6 +727,7 @@ class StatusBarController(NSObject):
+ 
+     @objc.IBAction
+     def refresh_(self, _sender):
++        self.apply_due_dnd_schedule()
+         try:
+             reconcile_t3code_sessions(self.monitor, self.t3code_monitor)
+             snapshot = self.monitor.snapshot(include_stale=False)
+@@ -993,79 +1002,16 @@ class StatusBarController(NSObject):
+         self.set_battery_power_preview(sender.state() == NSOnState)
+ 
+     @objc.IBAction
+-    def setAgentAnimationStyle_(self, sender):
+-        item = sender.selectedItem()
+-        payload = item.representedObject() if item is not None else None
+-        if not isinstance(payload, dict):
+-            return
+-        mode = payload.get("mode")
+-        animation_id = payload.get("animation_id")
+-        if animation_id == AGENT_ANIMATION_ADD_CUSTOM:
+-            self.show_agent_animation_editor(mode)
+-            return
+-        self.set_agent_animation_style(mode, animation_id)
+-
+-    @objc.IBAction
+-    def addCustomAgentAnimation_(self, _sender):
+-        self.show_agent_animation_editor(None)
+-
+-    @objc.IBAction
+-    def editAgentAnimation_(self, sender):
+-        self.show_agent_animation_editor(
+-            sender.representedObject(),
+-            edit_selected=True,
+-        )
+-
+-    @objc.IBAction
+-    def applyAgentAnimationProfile_(self, sender):
+-        item = sender.selectedItem()
+-        profile_id = item.representedObject() if item is not None else None
+-        self.apply_agent_animation_profile(
+-            str(profile_id) if profile_id is not None else None
+-        )
+-
+-    @objc.IBAction
+-    def showAgentAnimationProfileEditor_(self, _sender):
+-        self.show_agent_animation_profile_editor()
+-
+-    @objc.IBAction
+-    def saveAgentAnimationProfile_(self, _sender):
+-        self.save_agent_animation_profile()
++    def toggleDnd_(self, _sender):
++        self.set_dnd_enabled(not self.settings.dnd_enabled)
+ 
+     @objc.IBAction
+-    def cancelAgentAnimationProfile_(self, _sender):
+-        if self.agent_animation_profile_editor_window is not None:
+-            self.agent_animation_profile_editor_window.orderOut_(None)
++    def setDndFromCheckbox_(self, sender):
++        self.set_dnd_enabled(sender.state() == NSOnState)
+ 
+     @objc.IBAction
+-    def deleteAgentAnimationProfile_(self, _sender):
+-        self.delete_matching_agent_animation_profile()
+-
+-    @objc.IBAction
+-    def exportAgentAnimationProfile_(self, _sender):
+-        self.export_agent_animation_profile()
+-
+-    @objc.IBAction
+-    def importAgentAnimationProfile_(self, _sender):
+-        self.import_agent_animation_profile()
+-
+-    @objc.IBAction
+-    def showAgentAnimationOnDevice_(self, sender):
+-        self.show_agent_animation_on_device(sender.representedObject())
+-
+-    @objc.IBAction
+-    def showAgentAnimationEditorOnDevice_(self, _sender):
+-        self.show_agent_animation_editor_on_device()
+-
+-    @objc.IBAction
+-    def saveAgentAnimationCustom_(self, _sender):
+-        self.save_custom_agent_animation()
+-
+-    @objc.IBAction
+-    def cancelAgentAnimationCustom_(self, _sender):
+-        if self.agent_animation_editor_window is not None:
+-            self.agent_animation_editor_window.orderOut_(None)
+-        self.refresh_settings_window()
++    def saveDndSettings_(self, _sender):
++        self.save_dnd_schedule_from_fields()
+ 
+     @objc.IBAction
+     def saveAgentListTiming_(self, _sender):
+@@ -1516,8 +1462,24 @@ class StatusBarController(NSObject):
+             self.settings.battery_show_on_power_change,
+         )
+         set_checkbox_state(
+-            self.settings_buttons.get("lid_closed_led_idle"),
+-            self.settings.lid_closed_led_idle_enabled,
++            self.settings_buttons.get("dnd_enabled"),
++            self.settings.dnd_enabled,
++        )
++        set_checkbox_state(
++            self.settings_buttons.get("dnd_schedule"),
++            self.settings.dnd_schedule_enabled,
++        )
++        set_text_control_value(
++            self.settings_fields.get("dnd_start_time"),
++            self.settings.dnd_start_time,
++        )
++        set_text_control_value(
++            self.settings_fields.get("dnd_end_time"),
++            self.settings.dnd_end_time,
++        )
++        set_field_value(
++            self.settings_fields.get("dnd_status"),
++            dnd_status_text(self.settings),
+         )
+         for provider in ("codex", "claude", "grok"):
+             popup = self.settings_fields.get(f"{provider}_session_opener")
+@@ -1948,7 +1910,7 @@ class StatusBarController(NSObject):
+         except Exception as exc:
+             self.set_settings_message(f"Could not save Screen Bar: {exc}")
+             return
+-        if enabled:
++        if enabled and not dnd_is_active(self.settings):
+             self.virtual_status_device.show()
+         else:
+             self.virtual_status_device.hide()
+@@ -2139,423 +2101,83 @@ class StatusBarController(NSObject):
+         self.refresh_settings_window()
+         self.refresh_(None)
+ 
+-    def set_agent_animation_style(
+-        self,
+-        mode_value: str | None,
+-        animation_id: str | None,
+-    ) -> None:
++    def set_dnd_enabled(self, enabled: bool) -> None:
+         try:
+-            state = str(mode_value)
+-            if state not in ANIMATION_STATES:
+-                raise ValueError(f"Unknown animation state: {state}")
+-            if animation_id is None:
+-                return
+-            self.settings = self.settings.with_agent_animation(
+-                state,
+-                str(animation_id),
+-            )
++            self.settings = self.settings.with_dnd(enabled=enabled)
+             save_settings(self.settings)
+         except Exception as exc:
+-            self.set_settings_message(f"Could not save animation: {exc}")
++            self.set_settings_message(f"Could not save DND setting: {exc}")
+             self.settings = load_settings()
+             self.refresh_settings_window()
+             return
+ 
+-        self.reset_led_controllers_for_display_change()
+-        self.selected_agent_animation_profile_id = AGENT_ANIMATION_PROFILE_CUSTOM
+-        self.set_settings_message(
+-            f"{ANIMATION_STATE_LABELS[state]} animation: "
+-            f"{agent_animation_label(self.settings, str(animation_id))}."
+-        )
++        self.prepare_for_dnd_change()
++        self.set_settings_message(dnd_status_text(self.settings))
+         self.refresh_settings_window()
+         self.refresh_(None)
+ 
+-    def apply_agent_animation_profile(self, profile_id: str | None) -> None:
+-        if not profile_id or profile_id == AGENT_ANIMATION_PROFILE_CUSTOM:
+-            self.selected_agent_animation_profile_id = AGENT_ANIMATION_PROFILE_CUSTOM
+-            self.refresh_settings_window()
+-            return
++    def save_dnd_schedule_from_fields(self) -> None:
++        start_time = text_control_value(
++            self.settings_fields.get("dnd_start_time")
++        ).strip()
++        end_time = text_control_value(
++            self.settings_fields.get("dnd_end_time")
++        ).strip()
++        schedule_enabled = checkbox_is_on(
++            self.settings_buttons.get("dnd_schedule")
++        )
+         try:
+-            profile = self.settings.agent_animation_profiles.get(profile_id)
+-            if profile is None:
+-                raise ValueError(f"Unknown animation profile: {profile_id}")
+-            self.settings = self.settings.with_applied_agent_animation_profile(
+-                profile_id
++            self.settings = self.settings.with_dnd(
++                schedule_enabled=schedule_enabled,
++                start_time=start_time,
++                end_time=end_time,
++                schedule_transition="",
+             )
+-            label = profile.name
++            if schedule_enabled:
++                self.settings = settings_after_dnd_schedule_transition(
++                    self.settings,
++                    force=True,
++                )
+             save_settings(self.settings)
+         except Exception as exc:
+-            self.set_settings_message(f"Could not apply animation profile: {exc}")
++            self.set_settings_message(f"Could not save DND schedule: {exc}")
+             self.settings = load_settings()
+             self.refresh_settings_window()
+             return
+ 
+-        self.reset_led_controllers_for_display_change()
+-        self.selected_agent_animation_profile_id = profile_id
+-        self.set_settings_message(f"Animation profile applied: {label}.")
++        self.prepare_for_dnd_change()
++        self.set_settings_message(
++            f"DND schedule {'enabled' if schedule_enabled else 'disabled'}: "
++            f"{self.settings.dnd_start_time}–{self.settings.dnd_end_time}."
++        )
+         self.refresh_settings_window()
+         self.refresh_(None)
+ 
+-    def show_agent_animation_profile_editor(self) -> None:
+-        if self.agent_animation_profile_editor_window is None:
+-            self.agent_animation_profile_editor_window = (
+-                build_agent_animation_profile_editor_window(self)
+-            )
+-        set_field_value(self.agent_animation_profile_editor_name, "")
+-        self.agent_animation_profile_editor_window.makeKeyAndOrderFront_(None)
+-        NSApp.activateIgnoringOtherApps_(True)
+-
+-    def save_agent_animation_profile(self) -> None:
+-        name = text_control_value(self.agent_animation_profile_editor_name).strip()
+-        if not name:
+-            self.set_settings_message("Enter a profile name.")
+-            return
+-        try:
+-            profile_id = agent_animation_profile_id(
+-                name,
+-                self.settings.agent_animation_profiles,
+-            )
+-            self.settings = self.settings.with_agent_animation_profile(
+-                profile_id,
+-                name=name,
+-            )
+-            save_settings(self.settings)
+-        except Exception as exc:
+-            self.set_settings_message(f"Could not save animation profile: {exc}")
+-            return
+-
+-        self.agent_animation_profile_editor_window.orderOut_(None)
+-        self.selected_agent_animation_profile_id = profile_id
+-        self.set_settings_message(f"Animation profile saved: {name}.")
+-        self.refresh_settings_window()
+-
+-    def delete_matching_agent_animation_profile(self) -> None:
+-        profile_id = self.selected_agent_animation_profile_id
+-        if profile_id not in self.settings.agent_animation_profiles:
+-            self.set_settings_message("Choose a saved profile before deleting it.")
+-            return
+-        if profile_id in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS:
+-            self.set_settings_message("Built-in animation profiles cannot be deleted.")
+-            return
+-        name = self.settings.agent_animation_profiles[profile_id].name
+-        try:
+-            self.settings = self.settings.without_agent_animation_profile(profile_id)
+-            save_settings(self.settings)
+-        except Exception as exc:
+-            self.set_settings_message(f"Could not delete animation profile: {exc}")
+-            return
+-        self.selected_agent_animation_profile_id = AGENT_ANIMATION_PROFILE_CUSTOM
+-        self.set_settings_message(f"Animation profile deleted: {name}.")
+-        self.refresh_settings_window()
+-
+-    def export_agent_animation_profile(self) -> None:
+-        profile_id = self.selected_agent_animation_profile_id or None
+-        if profile_id is not None and profile_id not in self.settings.agent_animation_profiles:
+-            profile_id = None
+-        try:
+-            document = agent_animation_profile_document(self.settings, profile_id)
+-        except Exception as exc:
+-            self.set_settings_message(f"Could not prepare animation profile: {exc}")
+-            return
+-        path = choose_animation_profile_export_path(str(document["name"]))
+-        if path is None:
+-            return
+-        try:
+-            path.write_text(
+-                json.dumps(document, indent=2, sort_keys=True) + "\n",
+-                encoding="utf-8",
+-            )
+-        except Exception as exc:
+-            self.set_settings_message(f"Could not export animation profile: {exc}")
+-            return
+-        self.set_settings_message(f"Animation profile exported: {path.name}.")
++    def apply_due_dnd_schedule(self, now: datetime | None = None) -> bool:
++        updated = settings_after_dnd_schedule_transition(self.settings, now)
++        if updated == self.settings:
++            return False
+ 
+-    def import_agent_animation_profile(self) -> None:
+-        path = choose_animation_profile_import_path()
+-        if path is None:
+-            return
++        previous_enabled = self.settings.dnd_enabled
++        self.settings = updated
+         try:
+-            document = json.loads(path.read_text(encoding="utf-8"))
+-            raw_custom = document.get("custom_animations", {})
+-            if isinstance(raw_custom, dict):
+-                for raw in raw_custom.values():
+-                    if isinstance(raw, dict) and isinstance(raw.get("program"), str):
+-                        validate_agent_animation_program(raw["program"])
+-            self.settings, profile_id = with_imported_agent_animation_profile(
+-                self.settings,
+-                document,
+-            )
+             save_settings(self.settings)
+         except Exception as exc:
+-            self.set_settings_message(f"Could not import animation profile: {exc}")
+-            return
+-
+-        self.selected_agent_animation_profile_id = profile_id
+-        self.reset_led_controllers_for_display_change()
+-        profile = self.settings.agent_animation_profiles[profile_id]
+-        self.set_settings_message(f"Animation profile imported: {profile.name}.")
++            log_status_bar(f"dnd schedule save error: {exc}")
++        self.prepare_for_dnd_change()
+         self.refresh_settings_window()
+-        self.refresh_(None)
+-
+-    def show_agent_animation_on_device(self, mode_value: str | None) -> None:
+-        if not self.leds_enabled:
+-            self.set_settings_message("Connect LEDs before showing an animation.")
+-            return
+-        try:
+-            state = str(mode_value)
+-            if state not in ANIMATION_STATES:
+-                raise ValueError(f"Unknown animation state: {state}")
+-            animation = self.settings.agent_animation(state)
+-        except Exception as exc:
+-            self.set_settings_message(f"Could not show animation: {exc}")
+-            return
+-
+-        lid_kind = LID_KIND_BY_ANIMATION_STATE.get(state)
+-        if lid_kind is not None:
+-            self.play_lid_animation(lid_kind)
+-            self.set_settings_message(
+-                f"Showing {ANIMATION_STATE_LABELS[state]} on device."
+-            )
+-            return
+-
+-        mode = AgentMode(state)
+-
+-        devices = [
+-            device
+-            for device in self.status_bar_devices()
+-            if (
+-                device.connected
+-                and device.device_id != VIRTUAL_DEVICE_ID
+-                and device.display != LED_DISPLAY_CUSTOM
+-            )
+-        ]
+-        if not devices:
+-            self.set_settings_message("No connected agent-display device to show it on.")
+-            return
+-
+-        self.led_animation_token += 1
+-        token = self.led_animation_token
+-        self.led_animation_until_monotonic = (
+-            time.monotonic() + AGENT_ANIMATION_DEVICE_PREVIEW_SECONDS
+-        )
+-        self.set_settings_message(
+-            f"Showing {MODE_LABELS[mode]} on device for "
+-            f"{AGENT_ANIMATION_DEVICE_PREVIEW_SECONDS:g} seconds."
+-        )
+-        thread = threading.Thread(
+-            target=self.show_agent_animation_on_device_worker,
+-            args=(mode, animation.style, animation.custom_program, devices, token),
+-            daemon=True,
+-        )
+-        thread.start()
+-
+-    def show_agent_animation_on_device_worker(
+-        self,
+-        mode: AgentMode,
+-        animation_style: str,
+-        custom_program: str,
+-        devices: list[StatusBarDevice],
+-        token: int,
+-    ) -> None:
+-        for device in devices:
+-            try:
+-                result = write_mode_to_leds(
+-                    mode,
+-                    device_path=device.target,
+-                    brightness=device.brightness,
+-                    animation_style=animation_style,
+-                    custom_program=custom_program,
+-                )
+-                log_status_bar(
+-                    f"animation device preview={MODE_LABELS[mode]} "
+-                    f"device={device.name} target={result.target}"
+-                )
+-            except Exception as exc:
+-                log_status_bar(
+-                    f"animation device preview error {MODE_LABELS[mode]} "
+-                    f"device={device.name}: {exc}"
+-                )
+-        time.sleep(AGENT_ANIMATION_DEVICE_PREVIEW_SECONDS)
+-        self.performSelectorOnMainThread_withObject_waitUntilDone_(
+-            "restoreLedDisplay:",
+-            str(token),
+-            False,
+-        )
+-
+-    def show_agent_animation_editor(
+-        self,
+-        mode_value: str | None,
+-        *,
+-        edit_selected: bool = False,
+-    ) -> None:
+-        state = None
+-        if mode_value is not None:
+-            state = str(mode_value)
+-            if state not in ANIMATION_STATES:
+-                self.set_settings_message(f"Unknown animation state: {mode_value}")
+-                self.refresh_settings_window()
+-                return
+-        if self.agent_animation_editor_window is None:
+-            self.agent_animation_editor_window = build_agent_animation_editor_window(self)
+-        self.agent_animation_editor_mode = state
+-        self.agent_animation_editor_existing_id = None
+-        program = (
+-            animation_state_program(self.settings, state)
+-            if state is not None
+-            else program_for_agent_mode(AgentMode.WORKING, led_count=8)
+-        )
+-        title = "Add Custom Animation"
+-        name = ""
+-        if edit_selected and state is not None:
+-            animation_id = self.settings.agent_animation_id(state)
+-            custom = self.settings.custom_agent_animations.get(animation_id)
+-            if custom is not None:
+-                self.agent_animation_editor_existing_id = animation_id
+-                title = "Edit Custom Animation"
+-                name = custom.name
+-                program = custom.program
+-            else:
+-                title = "Clone Built-in Animation"
+-                name = f"{agent_animation_label(self.settings, animation_id)} Copy"
+-        self.agent_animation_editor_window.setTitle_(title)
+-        set_field_value(self.agent_animation_editor_name, name)
+-        set_text_control_value(self.agent_animation_editor_program, program)
+-        self.refresh_agent_animation_editor_preview()
+-        self.agent_animation_editor_window.makeKeyAndOrderFront_(None)
+-        self.start_agent_animation_preview_timer()
+-        NSApp.activateIgnoringOtherApps_(True)
+-
+-    def textDidChange_(self, notification) -> None:
+-        if notification.object() is self.agent_animation_editor_program:
+-            self.refresh_agent_animation_editor_preview()
+-
+-    def refresh_agent_animation_editor_preview(self) -> None:
+-        preview = self.agent_animation_editor_preview
+-        status = self.agent_animation_editor_preview_status
+-        if preview is None:
+-            return
+-        program = normalize_led_text(
+-            text_control_value(self.agent_animation_editor_program)
+-        )
+-        try:
+-            validate_agent_animation_program(program)
+-            preview.setProgram_(program)
+-            if preview.wasm_error:
+-                raise ValueError(preview.wasm_error)
+-        except Exception as exc:
+-            preview.setProgram_("off")
+-            if status is not None:
+-                status.setStringValue_(str(exc))
+-                status.setTextColor_(NSColor.systemRedColor())
+-            return
+-        if status is not None:
+-            status.setStringValue_("Updates as you type")
+-            status.setTextColor_(NSColor.secondaryLabelColor())
+-
+-    def show_agent_animation_editor_on_device(self) -> None:
+-        status = self.agent_animation_editor_preview_status
+-        try:
+-            if not self.leds_enabled:
+-                raise ValueError("Connect LEDs before showing this animation.")
+-            program = normalize_led_text(
+-                text_control_value(self.agent_animation_editor_program)
++        if previous_enabled != self.settings.dnd_enabled:
++            log_status_bar(
++                f"dnd schedule switched {'on' if self.settings.dnd_enabled else 'off'}"
+             )
+-            validate_agent_animation_program(program)
+-            devices = [
+-                device
+-                for device in self.status_bar_devices()
+-                if (
+-                    device.connected
+-                    and device.device_id != VIRTUAL_DEVICE_ID
+-                    and device.display != LED_DISPLAY_CUSTOM
+-                )
+-            ]
+-            if not devices:
+-                raise ValueError("No connected physical LED device found.")
+-        except Exception as exc:
+-            if status is not None:
+-                status.setStringValue_(str(exc))
+-                status.setTextColor_(NSColor.systemRedColor())
+-            return
++        return True
+ 
++    def prepare_for_dnd_change(self) -> None:
++        self.last_dnd_active = None
++        self.dnd_off_targets.clear()
+         self.led_animation_token += 1
+-        token = self.led_animation_token
+-        self.led_animation_until_monotonic = (
+-            time.monotonic() + AGENT_ANIMATION_EDITOR_DEVICE_PREVIEW_SECONDS
+-        )
+-        if status is not None:
+-            status.setStringValue_(
+-                f"Showing for {AGENT_ANIMATION_EDITOR_DEVICE_PREVIEW_SECONDS:g} seconds"
+-            )
+-            status.setTextColor_(NSColor.secondaryLabelColor())
+-        thread = threading.Thread(
+-            target=self.show_animation_program_on_device_worker,
+-            args=(program, devices, token),
+-            daemon=True,
+-        )
+-        thread.start()
+-
+-    def show_animation_program_on_device_worker(
+-        self,
+-        program: str,
+-        devices: list[StatusBarDevice],
+-        token: int,
+-    ) -> None:
+-        for device in devices:
+-            try:
+-                scaled_program = apply_brightness(program, device.brightness)
+-                target = write_led_program(
+-                    scaled_program,
+-                    device_path=device.target,
+-                )
+-                log_status_bar(
+-                    f"custom animation preview device={device.name} target={target}"
+-                )
+-            except Exception as exc:
+-                log_status_bar(
+-                    f"custom animation preview error {device.name}: {exc}"
+-                )
+-        time.sleep(AGENT_ANIMATION_EDITOR_DEVICE_PREVIEW_SECONDS)
+-        self.performSelectorOnMainThread_withObject_waitUntilDone_(
+-            "restoreLedDisplay:",
+-            str(token),
+-            False,
+-        )
+-
+-    def save_custom_agent_animation(self) -> None:
+-        mode = self.agent_animation_editor_mode
+-        existing_id = self.agent_animation_editor_existing_id
+-        name = text_control_value(self.agent_animation_editor_name).strip()
+-        program = normalize_led_text(
+-            text_control_value(self.agent_animation_editor_program)
+-        )
+-        try:
+-            if not name:
+-                raise ValueError("Animation name is required.")
+-            validate_agent_animation_program(program)
+-            animation_id = existing_id or custom_agent_animation_id(
+-                name, self.settings.custom_agent_animations
+-            )
+-            self.settings = self.settings.with_custom_agent_animation(
+-                animation_id,
+-                name=name,
+-                program=program,
+-            )
+-            if mode is not None:
+-                self.settings = self.settings.with_agent_animation(mode, animation_id)
+-            save_settings(self.settings)
+-        except Exception as exc:
+-            self.set_settings_message(f"Could not add custom animation: {exc}")
+-            return
+-
+-        self.agent_animation_editor_window.orderOut_(None)
+-        if mode is not None:
+-            self.selected_agent_animation_profile_id = AGENT_ANIMATION_PROFILE_CUSTOM
++        self.led_animation_until_monotonic = 0.0
+         self.reset_led_controllers_for_display_change()
+-        action = "updated" if existing_id is not None else "added"
+-        self.set_settings_message(f"Custom animation {action}: {name}.")
+-        self.refresh_settings_window()
+-        self.refresh_(None)
+ 
+     def read_battery_snapshot(self) -> BatterySnapshot | None:
+         try:
+@@ -2847,10 +2469,17 @@ class StatusBarController(NSObject):
+         if not self.leds_enabled:
+             return
+ 
+-        if self.led_idle_override_active():
+-            mode = AgentMode.IDLE_READY
+-            battery_snapshot = None
+-            display_kind = LED_DISPLAY_AGENT
++        dnd_active = dnd_is_active(self.settings)
++        if dnd_active != self.last_dnd_active:
++            self.last_dnd_active = dnd_active
++            self.dnd_off_targets.clear()
++            self.reset_led_controllers_for_display_change()
++            log_status_bar(f"dnd={'active' if dnd_active else 'inactive'}")
++
++        if dnd_active:
++            self.virtual_status_device.hide()
++            self.sync_dnd_leds()
++            return
+ 
+         self.sync_virtual_status_device(mode, battery_snapshot)
+ 
+@@ -2873,14 +2502,45 @@ class StatusBarController(NSObject):
+         )
+         thread.start()
+ 
+-    def resync_leds_from_last_snapshot(self) -> None:
+-        if self.last_snapshot is None:
++    def sync_dnd_leds(self) -> None:
++        if self.led_sync_in_flight:
+             return
+-        self.sync_leds(
+-            self.last_snapshot.aggregate.mode,
+-            self.last_battery_snapshot,
+-            self.active_led_display_kind(self.last_battery_snapshot),
++        self.led_sync_in_flight = True
++        thread = threading.Thread(
++            target=self.sync_dnd_leds_worker,
++            daemon=True,
+         )
++        thread.start()
++
++    def sync_dnd_leds_worker(self) -> None:
++        try:
++            self.sync_dnd_leds_now()
++        finally:
++            self.led_sync_in_flight = False
++
++    def sync_dnd_leds_now(self) -> None:
++        devices = [
++            device
++            for device in self.status_bar_devices()
++            if device.connected and device.device_id != VIRTUAL_DEVICE_ID
++        ]
++        active_errors: dict[str, str] = {}
++        for device in devices:
++            key = str(device.target)
++            if key in self.dnd_off_targets:
++                continue
++            try:
++                write_led_program("off", device_path=device.target)
++            except Exception as exc:
++                active_errors[device.device_id] = str(exc)
++                log_status_bar(f"dnd off error {device.name}: {exc}")
++                continue
++            self.dnd_off_targets.add(key)
++            self.device_errors.pop(device.device_id, None)
++            log_status_bar(f"dnd off device={device.name} target={device.target}")
++
++        self.device_errors.update(active_errors)
++        self.last_led_error = next(iter(self.device_errors.values()), None)
+ 
+     def sync_virtual_status_device(
+         self,
+@@ -2945,6 +2605,9 @@ class StatusBarController(NSObject):
+         battery_snapshot: BatterySnapshot | None,
+         display_kind: str,
+     ) -> None:
++        if dnd_is_active(self.settings):
++            self.sync_dnd_leds_now()
++            return
+         devices = [
+             device for device in self.status_bar_devices()
+             if device.connected and device.device_id != VIRTUAL_DEVICE_ID
+@@ -3010,7 +2673,7 @@ class StatusBarController(NSObject):
+         *,
+         animation: LedAnimationSetting | None = None,
+     ) -> None:
+-        if not self.leds_enabled:
++        if not self.leds_enabled or dnd_is_active(self.settings):
+             return
+         if animation is None:
+             state = (
+@@ -3113,6 +2776,7 @@ class StatusBarController(NSObject):
+ 
+     def connect_device(self) -> None:
+         self.leds_enabled = True
++        self.dnd_off_targets.clear()
+         self.status_bar_devices()
+         self.reset_led_controllers_for_display_change()
+         self.last_led_error = None
+@@ -3121,6 +2785,7 @@ class StatusBarController(NSObject):
+ 
+     def disconnect_device(self) -> None:
+         self.leds_enabled = False
++        self.dnd_off_targets.clear()
+         targets = self.current_led_targets()
+         if not targets:
+             targets = [
+@@ -3451,15 +3116,21 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+         menu.addItem_(virtual_toggle)
+ 
+     menu.addItem_(NSMenuItem.separatorItem())
+-    menu.addItem_(disabled_menu_item("Closed Lid"))
+-    lid_idle = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+-        "Idle LEDs When Lid Closed",
+-        "toggleLidClosedLedIdle:",
++    menu.addItem_(disabled_menu_item("Do Not Disturb"))
++    dnd_enabled = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
++        "DND On",
++        "toggleDnd:",
+         "",
+     )
+-    lid_idle.setTarget_(target)
+-    lid_idle.setState_(1 if target.settings.lid_closed_led_idle_enabled else 0)
+-    menu.addItem_(lid_idle)
++    dnd_enabled.setTarget_(target)
++    dnd_enabled.setState_(1 if target.settings.dnd_enabled else 0)
++    menu.addItem_(dnd_enabled)
++    if target.settings.dnd_schedule_enabled:
++        menu.addItem_(
++            disabled_menu_item(
++                f"Schedule: {target.settings.dnd_start_time}–{target.settings.dnd_end_time}"
++            )
++        )
+ 
+     menu.addItem_(NSMenuItem.separatorItem())
+     menu.addItem_(disabled_menu_item("Closed-Lid Sleep Prevention"))
+@@ -4528,15 +4199,51 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+         target,
+         "setBatteryPowerPreviewFromCheckbox:",
+     )
+-    lid_closed_led_idle = add_checkbox(
++    add_separator(devices_tab, 24, 282, tab_width - 48)
++    add_label(devices_tab, "Do Not Disturb", 24, 248, 240, 24)
++    dnd_enabled = add_checkbox(
+         devices_tab,
+-        "Idle LEDs while the lid is closed",
++        "DND On",
+         32,
+-        280,
+-        320,
++        210,
++        240,
+         24,
+         target,
+-        "setLidClosedLedIdleFromCheckbox:",
++        "setDndFromCheckbox:",
++    )
++    dnd_schedule = add_checkbox(
++        devices_tab,
++        "Use a daily schedule",
++        32,
++        174,
++        220,
++        24,
++        target,
++        "saveDndSettings:",
++    )
++    add_label(devices_tab, "From", 280, 176, 44, 22)
++    dnd_start_time = add_editable_field(devices_tab, "", 328, 174, 70, 24)
++    add_label(devices_tab, "until", 410, 176, 44, 22)
++    dnd_end_time = add_editable_field(devices_tab, "", 458, 174, 70, 24)
++    add_label(devices_tab, "24-hour time", 540, 176, 90, 22)
++    add_button(
++        devices_tab,
++        "Save Schedule",
++        328,
++        132,
++        124,
++        28,
++        target,
++        "saveDndSettings:",
++    )
++    dnd_status = add_label(devices_tab, "", 32, 94, 590, 22)
++    add_label(
++        devices_tab,
++        "The schedule switches this toggle on/off; you can override it at any time.",
++        32,
++        62,
++        590,
++        22,
+     )
+ 
+     add_label(agent_animations_tab, "Profile", 32, 360, 56, 24)
+@@ -4717,7 +4424,9 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+         "status_history_timeframe": history_timeframe,
+         "status_history_status": history_status,
+         "status_history_chart": history_chart,
+-        "agent_animation_profile": animation_profile,
++        "dnd_start_time": dnd_start_time,
++        "dnd_end_time": dnd_end_time,
++        "dnd_status": dnd_status,
+         "message": message,
+         "settings_path": settings_path,
+         **{
+@@ -4734,7 +4443,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+         "claude_transcripts": claude_transcripts,
+         "battery_leds": battery_leds,
+         "battery_power_preview": battery_power_preview,
+-        "lid_closed_led_idle": lid_closed_led_idle,
++        "dnd_enabled": dnd_enabled,
++        "dnd_schedule": dnd_schedule,
+     }
+     return window
+ 
+diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
+index 6940cea..b5f149f 100644
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -160,6 +160,8 @@ from sidepulse.settings import (
+     CLOSED_LID_AWAKE_AGENTS,
+     CLOSED_LID_AWAKE_ALWAYS,
+     CLOSED_LID_AWAKE_NEVER,
++    DEFAULT_DND_END_TIME,
++    DEFAULT_DND_START_TIME,
+     DEFAULT_IDLE_TIMEOUT_SECONDS,
+     DEFAULT_HISTORY_TIMEFRAME_SECONDS,
+     DEFAULT_RECENT_SESSION_RETENTION_SECONDS,
+@@ -1913,6 +1915,7 @@ class AgentMonitorTests(unittest.TestCase):
+             brightness=128,
+         )
+         fake = SimpleNamespace(
++            settings=AgentMonitorSettings(),
+             status_bar_devices=lambda remember=True: [device],
+             ensure_device_selection=lambda: None,
+             last_led_error="old",
+@@ -2042,6 +2045,123 @@ class AgentMonitorTests(unittest.TestCase):
+         self.assertNotIn("Sleep Helper Missing", titles)
+         self.assertIn("Setup...", titles)
+ 
++    def test_dnd_schedule_switches_the_toggle_at_overnight_boundaries(self) -> None:
++        try:
++            from sidepulse import status_bar
++        except SystemExit as exc:
++            self.skipTest(str(exc))
++
++        settings = AgentMonitorSettings().with_dnd(
++            schedule_enabled=True,
++            start_time="21:00",
++            end_time="07:00",
++        )
++        before_start = status_bar.settings_after_dnd_schedule_transition(
++            settings,
++            datetime(2026, 8, 17, 20, 59),
++            force=True,
++        )
++        self.assertFalse(before_start.dnd_enabled)
++
++        after_start = status_bar.settings_after_dnd_schedule_transition(
++            before_start,
++            datetime(2026, 8, 17, 21, 0),
++        )
++        self.assertTrue(after_start.dnd_enabled)
++
++        manual_override = after_start.with_dnd(enabled=False)
++        with tempfile.TemporaryDirectory() as tmp:
++            settings_path = Path(tmp) / "settings.json"
++            save_settings(manual_override, settings_path)
++            restarted = load_settings(settings_path)
++            before_end = status_bar.settings_after_dnd_schedule_transition(
++                restarted,
++                datetime(2026, 8, 18, 6, 59),
++            )
++        self.assertEqual(before_end, manual_override)
++        self.assertFalse(status_bar.dnd_is_active(before_end))
++
++        after_end = status_bar.settings_after_dnd_schedule_transition(
++            before_end,
++            datetime(2026, 8, 18, 7, 0),
++        )
++        self.assertFalse(after_end.dnd_enabled)
++        self.assertNotEqual(
++            after_end.dnd_last_schedule_transition,
++            before_end.dnd_last_schedule_transition,
++        )
++
++    def test_dnd_toggle_can_override_schedule_in_either_direction(self) -> None:
++        try:
++            from sidepulse import status_bar
++        except SystemExit as exc:
++            self.skipTest(str(exc))
++
++        settings = AgentMonitorSettings().with_dnd(
++            enabled=False,
++            schedule_enabled=True,
++            start_time="21:00",
++            end_time="07:00",
++        )
++        self.assertFalse(status_bar.dnd_is_active(settings, datetime(2026, 8, 17, 23, 0)))
++
++        settings = settings.with_dnd(enabled=True)
++        self.assertTrue(status_bar.dnd_is_active(settings, datetime(2026, 8, 17, 12, 0)))
++        self.assertIn("LEDs are off", status_bar.dnd_status_text(settings))
++
++    def test_dnd_writes_off_once_per_physical_device(self) -> None:
++        try:
++            from sidepulse import status_bar
++        except SystemExit as exc:
++            self.skipTest(str(exc))
++
++        device = status_bar.StatusBarDevice(
++            device_id="/Volumes/SidePulseDot",
++            name="SidePulse Dot",
++            root=Path("/Volumes/SidePulseDot"),
++            target=Path("/Volumes/SidePulseDot/LEDS.LED"),
++            connected=True,
++            display="agent",
++        )
++        fake = SimpleNamespace(
++            status_bar_devices=lambda: [device],
++            dnd_off_targets=set(),
++            device_errors={},
++            last_led_error=None,
++        )
++        with patch("sidepulse.status_bar.write_led_program", return_value=device.target) as write:
++            status_bar.StatusBarController.sync_dnd_leds_now(fake)
++            status_bar.StatusBarController.sync_dnd_leds_now(fake)
++
++        write.assert_called_once_with("off", device_path=device.target)
++        self.assertEqual(fake.dnd_off_targets, {str(device.target)})
++        self.assertIsNone(fake.last_led_error)
++
++    def test_status_bar_menu_shows_dnd_toggle_and_schedule(self) -> None:
++        try:
++            from sidepulse import status_bar
++        except SystemExit as exc:
++            self.skipTest(str(exc))
++
++        snapshot = SimpleNamespace(statuses=[], collected_at=datetime.now(timezone.utc))
++        target = SimpleNamespace(
++            settings=AgentMonitorSettings().with_dnd(
++                enabled=True,
++                schedule_enabled=True,
++            ),
++            closed_lid_awake=SimpleNamespace(last_error=None),
++            status_bar_devices=lambda: [],
++        )
++        menu = status_bar.build_menu(snapshot, status_bar.STATE_IDLE, target)
++        by_title = {
++            menu.itemAtIndex_(index).title(): menu.itemAtIndex_(index)
++            for index in range(menu.numberOfItems())
++            if menu.itemAtIndex_(index).title()
++        }
++
++        self.assertIn("Do Not Disturb", by_title)
++        self.assertEqual(by_title["DND On"].state(), 1)
++
+     def test_lid_animation_program_uses_device_brightness(self) -> None:
+         try:
+             from sidepulse import status_bar
+@@ -2171,13 +2291,15 @@ class AgentMonitorTests(unittest.TestCase):
+         self.assertIn("idle_timeout_minutes", target.settings_fields)
+         self.assertIn("sleep_prevention_min_battery_percent", target.settings_fields)
+         self.assertIn("status_history_timeframe", target.settings_fields)
+-        self.assertIn("agent_animation_lid_closed", target.settings_fields)
+-        self.assertIn("agent_animation_lid_open", target.settings_fields)
+-        for mode in status_bar.ANIMATION_UI_STATES:
+-            self.assertIn(f"agent_animation_{mode}", target.settings_fields)
+-            self.assertIn(
+-                f"agent_animation_preview_{mode}", target.settings_fields
+-            )
++        self.assertIn("dnd_start_time", target.settings_fields)
++        self.assertIn("dnd_end_time", target.settings_fields)
++        self.assertIn("dnd_status", target.settings_fields)
++        self.assertIn("dnd_enabled", target.settings_buttons)
++        self.assertIn("dnd_schedule", target.settings_buttons)
++        self.assertIn("closed_animation_program", target.settings_fields)
++        self.assertIn("closed_animation_duration", target.settings_fields)
++        self.assertIn("open_animation_program", target.settings_fields)
++        self.assertIn("open_animation_duration", target.settings_fields)
+         self.assertNotIn("closed_lid_system_override", target.settings_buttons)
+ 
+     def test_status_bar_validates_custom_agent_animation_program(self) -> None:
+@@ -5414,307 +5536,50 @@ class AgentMonitorTests(unittest.TestCase):
+             self.assertEqual(loaded.recent_session_retention_seconds, 36 * 60 * 60)
+             self.assertEqual(loaded.idle_timeout_seconds, 15 * 60)
+ 
+-    def test_settings_round_trip_agent_animations(self) -> None:
++    def test_settings_round_trip_dnd(self) -> None:
+         with tempfile.TemporaryDirectory() as tmp:
+             settings_path = Path(tmp) / "settings.json"
+-            settings = AgentMonitorSettings()
+-            settings = settings.with_agent_animation(
+-                AgentMode.WORKING,
+-                AGENT_ANIMATION_KITT,
+-            )
+-            settings = settings.with_agent_animation(
+-                AgentMode.BLOCKED_ERROR,
+-                AGENT_ANIMATION_CUSTOM,
+-                custom_program="off\n#FF0000 pulse\nrepeat",
++            settings = AgentMonitorSettings().with_dnd(
++                enabled=True,
++                schedule_enabled=True,
++                start_time="21:30",
++                end_time="6:15",
++                schedule_transition="2026-08-17:start:21:30",
+             )
+ 
+             save_settings(settings, settings_path)
+             loaded = load_settings(settings_path)
+ 
+-            saved_json = json.loads(settings_path.read_text())
+-            custom_metadata = next(
+-                iter(saved_json["custom_agent_animations"].values())
+-            )
+-            self.assertNotIn("program", custom_metadata)
+-            custom_path = settings_path.parent / "animations" / custom_metadata["file"]
+-            self.assertEqual(
+-                custom_path.read_text(),
+-                "off\n#FF0000 pulse\nrepeat\n",
+-            )
+-
+-            self.assertEqual(
+-                loaded.agent_animation(AgentMode.WORKING).style,
+-                AGENT_ANIMATION_KITT,
+-            )
+-            self.assertEqual(
+-                loaded.agent_animation(AgentMode.BLOCKED_ERROR).custom_program,
+-                "off\n#FF0000 pulse\nrepeat",
+-            )
+-            self.assertEqual(
+-                loaded.agent_animation(AgentMode.COMPLETED).style,
+-                AGENT_ANIMATION_CYAN_COMPLETE,
+-            )
+-
+-            custom_path.write_text("brightness 128\n#123456\n")
+-            reloaded = load_settings(settings_path)
+-            self.assertEqual(
+-                reloaded.agent_animation(AgentMode.BLOCKED_ERROR).custom_program,
+-                "brightness 128\n#123456",
+-            )
+-
+-    def test_agent_animation_catalog_is_shared_by_every_state(self) -> None:
+-        settings = AgentMonitorSettings()
+-        animation_id = custom_agent_animation_id(
+-            "Purple Sweep",
+-            settings.custom_agent_animations,
+-        )
+-        settings = settings.with_custom_agent_animation(
+-            animation_id,
+-            name="Purple Sweep",
+-            program="off\n#AA44FF 700ms pulse\nrepeat",
+-        )
+-
+-        expected = (
+-            AGENT_ANIMATION_SLOW_OFF,
+-            AGENT_ANIMATION_IMMEDIATE_OFF,
+-            AGENT_ANIMATION_IDLE_PULSE,
+-            AGENT_ANIMATION_CYAN_ROLL,
+-            AGENT_ANIMATION_CYAN_COMPLETE,
+-            AGENT_ANIMATION_AMBER_PULSE,
+-            AGENT_ANIMATION_SOLID_GREEN,
+-            AGENT_ANIMATION_KITT,
+-            AGENT_ANIMATION_KITT_RED,
+-            AGENT_ANIMATION_EMBER_IDLE,
+-            AGENT_ANIMATION_EMBER_TIDE,
+-            AGENT_ANIMATION_EMBER_ATTENTION,
+-            AGENT_ANIMATION_EMBER_COMPLETE,
+-            AGENT_ANIMATION_EMBER_LID_OPEN,
+-            AGENT_ANIMATION_PURPLE_IDLE,
+-            AGENT_ANIMATION_PURPLE_TIDE,
+-            AGENT_ANIMATION_PURPLE_ATTENTION,
+-            AGENT_ANIMATION_PURPLE_COMPLETE,
+-            AGENT_ANIMATION_PURPLE_LID_OPEN,
+-            AGENT_ANIMATION_NIGHT_RIDER,
+-            AGENT_ANIMATION_LID_OPEN,
+-            AGENT_ANIMATION_LID_CLOSED,
+-            animation_id,
+-        )
+-        self.assertEqual(settings.agent_animation_choices(), expected)
+-        for mode in ANIMATION_STATES:
+-            with self.subTest(mode=mode):
+-                selected = settings.with_agent_animation(mode, animation_id)
+-                self.assertEqual(selected.agent_animation_id(mode), animation_id)
+-                self.assertEqual(
+-                    selected.agent_animation(mode).custom_program,
+-                    "off\n#AA44FF 700ms pulse\nrepeat",
+-                )
+-
+-    def test_working_tool_and_long_task_share_one_animation_setting(self) -> None:
+-        settings = AgentMonitorSettings().with_agent_animation(
+-            AgentMode.TOOL_RUNNING,
+-            AGENT_ANIMATION_KITT,
+-        )
+-
+-        self.assertEqual(
+-            {
+-                settings.agent_animation_id(mode)
+-                for mode in AGENT_ANIMATION_WORKING_MODES
+-            },
+-            {AGENT_ANIMATION_KITT},
+-        )
+-
+-    def test_animation_profile_round_trip_includes_every_state(self) -> None:
+-        with tempfile.TemporaryDirectory() as tmp:
+-            settings_path = Path(tmp) / "settings.json"
+-            settings = AgentMonitorSettings()
+-            custom_id = custom_agent_animation_id(
+-                "Purple Sweep",
+-                settings.custom_agent_animations,
+-            )
+-            settings = settings.with_custom_agent_animation(
+-                custom_id,
+-                name="Purple Sweep",
+-                program="#AA44FF 700ms pulse\nrepeat",
+-            )
+-            for index, mode in enumerate(AgentMode):
+-                selection = custom_id if index % 2 else AGENT_ANIMATION_KITT
+-                settings = settings.with_agent_animation(mode, selection)
+-            profile_id = agent_animation_profile_id(
+-                "Focus",
+-                settings.agent_animation_profiles,
+-            )
+-            settings = settings.with_agent_animation_profile(
+-                profile_id,
+-                name="Focus",
+-            )
+-            save_settings(settings, settings_path)
+-
+-            loaded = load_settings(settings_path)
+-            profile = loaded.agent_animation_profiles[profile_id]
+-            self.assertEqual(set(profile.animations), set(ANIMATION_STATES))
+-            reset = loaded
+-            for mode in AgentMode:
+-                reset = reset.with_agent_animation(mode, AGENT_ANIMATION_DEFAULT)
+-            applied = reset.with_applied_agent_animation_profile(profile_id)
++            self.assertTrue(loaded.dnd_enabled)
++            self.assertTrue(loaded.dnd_schedule_enabled)
++            self.assertEqual(loaded.dnd_start_time, "21:30")
++            self.assertEqual(loaded.dnd_end_time, "06:15")
+             self.assertEqual(
+-                [applied.agent_animation_id(mode) for mode in AgentMode],
+-                [loaded.agent_animation_id(mode) for mode in AgentMode],
++                loaded.dnd_last_schedule_transition,
++                "2026-08-17:start:21:30",
+             )
+ 
+-    def test_cyan_is_the_default_builtin_profile(self) -> None:
++    def test_settings_dnd_defaults_and_validation(self) -> None:
+         settings = AgentMonitorSettings()
++        self.assertFalse(settings.dnd_enabled)
++        self.assertFalse(settings.dnd_schedule_enabled)
++        self.assertEqual(settings.dnd_start_time, DEFAULT_DND_START_TIME)
++        self.assertEqual(settings.dnd_end_time, DEFAULT_DND_END_TIME)
++        with self.assertRaises(ValueError):
++            settings.with_dnd(start_time="25:00")
++        with self.assertRaises(ValueError):
++            settings.with_dnd(end_time="night")
+ 
+-        self.assertEqual(
+-            settings.matching_agent_animation_profile_id(),
+-            AGENT_ANIMATION_PROFILE_CYAN,
+-        )
+-        self.assertEqual(
+-            [settings.agent_animation_id(mode) for mode in ANIMATION_STATES],
+-            [default_agent_animation_id(mode) for mode in ANIMATION_STATES],
+-        )
+-
+-        purple = settings.with_applied_agent_animation_profile(
+-            AGENT_ANIMATION_PROFILE_PURPLE
+-        )
+-        self.assertEqual(
+-            purple.matching_agent_animation_profile_id(),
+-            AGENT_ANIMATION_PROFILE_PURPLE,
+-        )
+-        self.assertEqual(
+-            purple.agent_animation_id(AgentMode.WORKING),
+-            AGENT_ANIMATION_PURPLE_TIDE,
+-        )
+-        self.assertEqual(
+-            purple.agent_animation_id(ANIMATION_STATE_LID_OPEN),
+-            AGENT_ANIMATION_PURPLE_LID_OPEN,
+-        )
+-        self.assertEqual(
+-            purple.agent_animation_id(ANIMATION_STATE_LID_CLOSED),
+-            AGENT_ANIMATION_LID_CLOSED,
+-        )
+-
+-    def test_shipped_profile_json_matches_builtin_profiles(self) -> None:
+-        profiles = builtin_agent_animation_profiles()
+-        expected = {
+-            "cyan": AGENT_ANIMATION_PROFILE_CYAN,
+-            "ember": AGENT_ANIMATION_PROFILE_EMBER,
+-            "purple": AGENT_ANIMATION_PROFILE_PURPLE,
+-        }
+-        for file_stem, profile_id in expected.items():
+-            with self.subTest(profile=file_stem):
+-                document = json.loads(
+-                    (
+-                        Path(__file__).parent.parent
+-                        / "profiles"
+-                        / f"{file_stem}.json"
+-                    ).read_text()
+-                )
+-                profile = profiles[profile_id]
+-                self.assertEqual(document["name"], profile.name)
+-                self.assertEqual(document["animations"], profile.animations)
+-                self.assertEqual(set(profile.animations), set(ANIMATION_STATES))
+-
+-    def test_builtin_profiles_keep_saved_animation_selections(self) -> None:
++    def test_settings_migrates_legacy_manual_dnd_toggle(self) -> None:
+         with tempfile.TemporaryDirectory() as tmp:
+             settings_path = Path(tmp) / "settings.json"
+             settings_path.write_text(
+-                json.dumps(
+-                    {
+-                        "agent_animations": {
+-                            AgentMode.IDLE_READY.value: {
+-                                "style": AGENT_ANIMATION_KITT,
+-                                "custom_program": "",
+-                            }
+-                        },
+-                        "agent_animation_profiles": {
+-                            "profile:default": {
+-                                "name": "Default",
+-                                "animations": {
+-                                    mode: default_agent_animation_id(mode)
+-                                    for mode in ANIMATION_STATES
+-                                },
+-                            }
+-                        },
+-                    }
+-                )
++                json.dumps({"do_not_disturb": {"manual_enabled": True}})
+             )
+ 
+             loaded = load_settings(settings_path)
+ 
+-        self.assertEqual(
+-            loaded.agent_animation_id(AgentMode.IDLE_READY),
+-            AGENT_ANIMATION_KITT,
+-        )
+-        self.assertEqual(
+-            set(loaded.agent_animation_profiles),
+-            {
+-                AGENT_ANIMATION_PROFILE_CYAN,
+-                AGENT_ANIMATION_PROFILE_EMBER,
+-                AGENT_ANIMATION_PROFILE_PURPLE,
+-            },
+-        )
+-
+-    def test_animation_profile_json_is_self_contained_and_importable(self) -> None:
+-        settings = AgentMonitorSettings()
+-        custom_id = custom_agent_animation_id(
+-            "Purple Sweep",
+-            settings.custom_agent_animations,
+-        )
+-        settings = settings.with_custom_agent_animation(
+-            custom_id,
+-            name="Purple Sweep",
+-            program="#AA44FF 700ms pulse\nrepeat",
+-        )
+-        for mode in AgentMode:
+-            settings = settings.with_agent_animation(mode, custom_id)
+-
+-        document = agent_animation_profile_document(settings)
+-
+-        self.assertEqual(document["format"], "sidepulse-animation-profile")
+-        self.assertEqual(document["version"], 1)
+-        self.assertEqual(document["name"], "Current")
+-        self.assertEqual(
+-            set(document["animations"]),
+-            set(ANIMATION_STATES),
+-        )
+-        self.assertEqual(
+-            document["custom_animations"][custom_id]["program"],
+-            "#AA44FF 700ms pulse\nrepeat",
+-        )
+-
+-        imported, profile_id = with_imported_agent_animation_profile(
+-            AgentMonitorSettings(),
+-            json.loads(json.dumps(document)),
+-        )
+-        self.assertIn(profile_id, imported.agent_animation_profiles)
+-        for mode in AgentMode:
+-            self.assertEqual(imported.agent_animation_id(mode), custom_id)
+-            self.assertEqual(
+-                imported.agent_animation(mode).custom_program,
+-                "#AA44FF 700ms pulse\nrepeat",
+-            )
+-
+-    def test_animation_profile_json_requires_all_agent_states(self) -> None:
+-        document = agent_animation_profile_document(AgentMonitorSettings())
+-        del document["animations"][AgentMode.UNKNOWN.value]
+-
+-        with self.assertRaisesRegex(ValueError, "every agent state"):
+-            with_imported_agent_animation_profile(
+-                AgentMonitorSettings(),
+-                document,
+-            )
+-
+-    def test_settings_do_not_migrate_pr_kitt_toggle(self) -> None:
+-        with tempfile.TemporaryDirectory() as tmp:
+-            settings_path = Path(tmp) / "settings.json"
+-            settings_path.write_text(json.dumps({"kitt_mode_enabled": True}))
+-
+-            loaded = load_settings(settings_path)
+-
+-            self.assertEqual(
+-                loaded.agent_animation(AgentMode.WORKING).style,
+-                AGENT_ANIMATION_CYAN_ROLL,
+-            )
++            self.assertTrue(loaded.dnd_enabled)
+ 
+     def test_settings_migrates_missing_agent_list_timing_to_defaults(self) -> None:
+         with tempfile.TemporaryDirectory() as tmp:
+diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
+index b262849..e33d8b5 100644
+--- a/tests/test_status_bar_ui.py
++++ b/tests/test_status_bar_ui.py
+@@ -636,162 +636,15 @@ class WindowBuildTests(StatusBarTestCase):
+             self.controller.settings_fields,
+             "settings window built no addressable fields; saving would be a no-op",
+         )
+-        for mode in sb.ANIMATION_UI_STATES:
+-            preview = self.controller.settings_fields[
+-                f"agent_animation_preview_{mode}"
+-            ]
+-            self.assertIsInstance(preview, vd.VirtualLedView)
+-        profile_popup = self.controller.settings_fields["agent_animation_profile"]
+-        self.assertEqual(str(profile_popup.titleOfSelectedItem()), "Cyan")
+-        self.assertEqual(
+-            [
+-                str(profile_popup.itemAtIndex_(index).title())
+-                for index in range(profile_popup.numberOfItems())
+-            ],
+-            ["Current", "Cyan", "Ember", "Purple"],
+-        )
+-        self.assertFalse(
+-            self.controller.settings_buttons[
+-                "delete_agent_animation_profile"
+-            ].isEnabled()
+-        )
+-
+-    def test_settings_window_has_profile_json_controls(self):
+-        window = sb.build_settings_window(self.controller)
+-        tab_view = next(
+-            view
+-            for view in window.contentView().subviews()
+-            if hasattr(view, "numberOfTabViewItems")
+-        )
+-        animations = next(
+-            tab_view.tabViewItemAtIndex_(index).view()
+-            for index in range(tab_view.numberOfTabViewItems())
+-            if str(tab_view.tabViewItemAtIndex_(index).identifier()) == "animations"
+-        )
+-        titles = {
+-            str(view.title())
+-            for view in walk_views(animations)
+-            if hasattr(view, "title")
+-        }
+-        self.assertIn("Export JSON", titles)
+-        self.assertIn("Import JSON", titles)
+-
+-    def test_settings_animation_previews_use_wasm_programs(self):
+-        window = sb.build_settings_window(self.controller)
+-        self.controller.settings_window = window
+-        self.controller.refresh_settings_window()
+-
+-        for mode in sb.ANIMATION_UI_STATES:
+-            with self.subTest(mode=mode):
+-                preview = self.controller.settings_fields[
+-                    f"agent_animation_preview_{mode}"
+-                ]
+-                self.assertTrue(preview.compact_preview)
+-                self.assertIsNotNone(preview.current_program)
+-                self.assertIsNotNone(preview.wasm_controller)
+-                self.assertIsNone(preview.wasm_error)
+-
+-        for state in (sb.ANIMATION_STATE_LID_OPEN, sb.ANIMATION_STATE_LID_CLOSED):
+-            preview = self.controller.settings_fields[
+-                f"agent_animation_preview_{state}"
+-            ]
+-            self.assertNotIn("repeat", preview.current_program)
+-            self.assertEqual(preview.rendered_program.splitlines()[-1], "repeat")
+-
+-        lid_closed_preview = self.controller.settings_fields[
+-            f"agent_animation_preview_{sb.ANIMATION_STATE_LID_CLOSED}"
+-        ]
+-        self.assertTrue(lid_closed_preview.current_program.startswith("0:#000000"))
+-        self.assertTrue(lid_closed_preview.rendered_program.startswith("#00E5FF\n"))
+-
+-    def test_every_state_popup_uses_the_same_animation_catalog(self):
+-        original_settings = self.controller.settings
+-        try:
+-            animation_id = "custom:purple-sweep"
+-            self.controller.settings = original_settings.with_custom_agent_animation(
+-                animation_id,
+-                name="Purple Sweep",
+-                program="#AA44FF 700ms pulse\nrepeat",
+-            )
+-            sb.build_settings_window(self.controller)
+-            catalogs = []
+-            for mode in sb.ANIMATION_UI_STATES:
+-                popup = self.controller.settings_fields[
+-                    f"agent_animation_{mode}"
+-                ]
+-                catalogs.append(
+-                    [
+-                        item.representedObject()["animation_id"]
+-                        for item in (
+-                            popup.itemAtIndex_(index)
+-                            for index in range(popup.numberOfItems())
+-                        )
+-                        if isinstance(item.representedObject(), dict)
+-                    ]
+-                )
+-            self.assertTrue(catalogs)
+-            self.assertTrue(all(catalog == catalogs[0] for catalog in catalogs))
+-            self.assertIn("kitt", catalogs[0])
+-            self.assertIn(animation_id, catalogs[0])
+-            self.assertEqual(catalogs[0][-1], "add-custom")
+-            working_popup = self.controller.settings_fields[
+-                f"agent_animation_{AgentMode.WORKING.value}"
+-            ]
+-            self.assertEqual(
+-                [
+-                    str(working_popup.itemAtIndex_(index).title())
+-                    for index in range(working_popup.numberOfItems())
+-                    if isinstance(
+-                        working_popup.itemAtIndex_(index).representedObject(),
+-                        dict,
+-                    )
+-                ],
+-                [
+-                    "Slow Off",
+-                    "Immediate Off",
+-                    "Idle Pulse",
+-                    "Cyan Roll",
+-                    "Cyan Complete",
+-                    "Amber Pulse",
+-                    "Solid Green",
+-                    "KITT Scanner",
+-                    "KITT Scanner Red",
+-                    "Ember Idle",
+-                    "Ember Tide",
+-                    "Ember Attention",
+-                    "Ember Complete",
+-                    "Ember Lid Open",
+-                    "Purple Idle",
+-                    "Purple Tide",
+-                    "Purple Attention",
+-                    "Purple Complete",
+-                    "Purple Lid Open",
+-                    "Night Rider",
+-                    "Lid Open Sweep",
+-                    "Lid Closed Sweep",
+-                    "Purple Sweep",
+-                    "Add Custom…",
+-                ],
+-            )
+-            animated_rows = [
+-                working_popup.itemAtIndex_(index).view()
+-                for index in range(working_popup.numberOfItems())
+-                if isinstance(
+-                    working_popup.itemAtIndex_(index).representedObject(),
+-                    dict,
+-                )
+-                and working_popup.itemAtIndex_(index).representedObject()[
+-                    "animation_id"
+-                ]
+-                != "add-custom"
+-            ]
+-            self.assertTrue(animated_rows)
+-            for row in animated_rows:
+-                self.assertIsInstance(row, sb.AgentAnimationMenuItemView)
+-                self.assertIsNotNone(row.animation_preview.wasm_controller)
+-                self.assertIsNone(row.animation_preview.wasm_error)
+-        finally:
+-            self.controller.settings = original_settings
++        for key in (
++            "dnd_start_time",
++            "dnd_end_time",
++            "dnd_status",
++        ):
++            self.assertIn(key, self.controller.settings_fields)
++        self.assertIn("dnd_enabled", self.controller.settings_buttons)
++        self.assertIn("dnd_schedule", self.controller.settings_buttons)
++        self.assertTrue(self.controller.settings_buttons["dnd_enabled"].isEnabled())
+ 
+     def test_settings_window_is_not_visible(self):
+         window = sb.build_settings_window(self.controller)

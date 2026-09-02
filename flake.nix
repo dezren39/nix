@@ -145,6 +145,10 @@ rec {
       url = "github:anomalyco/opencode/v2";
       inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     };
+    sidepulse-src = {
+      url = "github:inteliwear/sidepulse/main";
+      flake = false;
+    };
     # nixpkgs-helium = {
     #   # https://github.com/NixOS/nixpkgs/pull/498572
     #   url = "github:Nytelife26/nixpkgs/helium/init";
@@ -266,16 +270,28 @@ rec {
       let
         system = pkgs.stdenv.hostPlatform.system;
         bun-bin = pkgs.callPackage ./pkgs/bun-bin/package.nix { };
+        opencodeSrc = pkgs.applyPatches {
+          name = "opencode-src-${builtins.substring 0 7 inputs.opencode.rev}";
+          src = inputs.opencode;
+          patches = opencodePatches;
+        };
+        opencodeNodeModules = pkgs.callPackage "${opencodeSrc}/nix/node_modules.nix" (
+          {
+            bun = bun-bin;
+            rev = builtins.substring 0 7 inputs.opencode.rev;
+          }
+          // pkgs.lib.optionalAttrs (system == "aarch64-darwin") {
+            hash = "sha256-ObS50y/oy6fM9wSGUL/wx6O0+fTWHC04mXJNd7w/2Z0=";
+          }
+        );
       in
-      {
+      ({
         inherit bun-bin;
 
-        opencode = inputs.opencode.packages.${system}.opencode.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ opencodePatches;
-          nativeBuildInputs = map (p: if (p.pname or "") == "bun" then bun-bin else p) (
-            old.nativeBuildInputs or [ ]
-          );
-        });
+        opencode = pkgs.callPackage "${opencodeSrc}/nix/opencode.nix" {
+          bun = bun-bin;
+          node_modules = opencodeNodeModules;
+        };
 
         opencode2 = pkgs.callPackage ./pkgs/opencode2/package.nix {
           inherit bun-bin;
@@ -314,34 +330,81 @@ rec {
           inherit pkgs;
           symlinkerSrc = ./symlinker.sh;
         };
-      };
+      })
+      // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin (rec {
+        sidepulse-unwrapped = pkgs.callPackage ./pkgs/sidepulse {
+          sidepulseSrc = inputs.sidepulse-src;
+        };
+        sidepulse = pkgs.callPackage ./pkgs/sidepulse-setup {
+          sidepulseUnwrapped = sidepulse-unwrapped;
+          name = "sidepulse";
+          defaultToSetup = false;
+        };
+        sidepulse-setup = pkgs.callPackage ./pkgs/sidepulse-setup {
+          sidepulseUnwrapped = sidepulse-unwrapped;
+        };
+      });
 
     treefmtEval = eachSystem (pkgs: inputs.treefmt-nix.lib.evalModule pkgs ./treefmt.nix);
 
     packages = eachSystem mkPackages;
     formatter = eachSystem (pkgs: treefmtEval.${pkgs.stdenv.hostPlatform.system}.config.build.wrapper);
-    checks = eachSystem (pkgs: {
-      formatting = treefmtEval.${pkgs.stdenv.hostPlatform.system}.config.build.check inputs.self;
-      tidy =
-        let
-          selfPkgs = mkPackages pkgs;
-        in
-        pkgs.runCommandLocal "flake-tidy-check"
-          {
-            nativeBuildInputs = [ selfPkgs.flake-tidy ];
-            src = inputs.self;
-          }
-          ''
-            flake-tidy all --check --flake-dir $src
-            touch $out
-          '';
-    });
+    checks = eachSystem (
+      pkgs:
+      {
+        formatting = treefmtEval.${pkgs.stdenv.hostPlatform.system}.config.build.check inputs.self;
+        tidy =
+          let
+            selfPkgs = mkPackages pkgs;
+          in
+          pkgs.runCommandLocal "flake-tidy-check"
+            {
+              nativeBuildInputs = [ selfPkgs.flake-tidy ];
+              src = inputs.self;
+            }
+            ''
+              flake-tidy all --check --flake-dir $src
+              touch $out
+            '';
+      }
+      // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+        sidepulse = (mkPackages pkgs).sidepulse;
+        sidepulse-wrapper =
+          let
+            selfPkgs = mkPackages pkgs;
+          in
+          pkgs.runCommandLocal "sidepulse-wrapper-check"
+            {
+              nativeBuildInputs = [
+                pkgs.coreutils
+                pkgs.diffutils
+                pkgs.gnugrep
+              ];
+            }
+            ''
+              export HOME="$TMPDIR/home"
+
+              ${selfPkgs.sidepulse}/bin/sidepulse --setup opencode --dry-run --no-status-bar > opencode.log
+              grep -F 'opencode: would update' opencode.log
+
+              ${selfPkgs.sidepulse}/bin/sidepulse setup opencode --dry-run --no-status-bar > opencode-command.log
+              grep -F 'opencode: would update' opencode-command.log
+
+              ${selfPkgs.sidepulse-unwrapped}/bin/sidepulse agent-monitor install opencode
+              cp "$HOME/.config/opencode/plugins/sidepulse.js" first-opencode.js
+              ${selfPkgs.sidepulse-unwrapped}/bin/sidepulse agent-monitor install opencode
+              cmp first-opencode.js "$HOME/.config/opencode/plugins/sidepulse.js"
+
+              touch "$out"
+            '';
+      }
+    );
     apps = eachSystem (
       pkgs:
       let
         selfPkgs = mkPackages pkgs;
       in
-      {
+      ({
         flake-tidy = {
           type = "app";
           program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
@@ -370,6 +433,16 @@ rec {
           type = "app";
           program = "${selfPkgs.symlinker}/bin/symlinker";
         };
+      })
+      // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+        sidepulse = {
+          type = "app";
+          program = "${selfPkgs.sidepulse}/bin/sidepulse";
+        };
+        sidepulse-setup = {
+          type = "app";
+          program = "${selfPkgs.sidepulse-setup}/bin/sidepulse-setup";
+        };
       }
     );
     devShells = eachSystem (
@@ -387,6 +460,10 @@ rec {
             pkgs.nixfmt
             pkgs.git
             pkgs.gh
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+            selfPkgs.sidepulse
+            selfPkgs.sidepulse-setup
           ];
           shellHook = ''
             echo "devshell (${pkgs.stdenv.hostPlatform.system})"
