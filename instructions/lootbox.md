@@ -19,7 +19,8 @@ console.log(JSON.stringify(results, null, 2));
 | Namespace             | What it does                                                    |
 | --------------------- | --------------------------------------------------------------- |
 | `mcp_codedb`          | Codebase exploration, symbol lookup, AST-aware search           |
-| `mcp_fff`             | Frecency-ranked file search and content grep                    |
+| `mcp_fff`             | Frecency-ranked search over ~/git (26 repos)                     |
+| `mcp_fff_worktree`    | Same, over opencode worktrees (~/.local/share/opencode/worktree) |
 | `mcp_chrome_devtools` | Browser automation, UI verification, screenshots                |
 | `mcp_context7`        | Library documentation lookup (API refs, usage guides, examples) |
 

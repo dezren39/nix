@@ -10,6 +10,15 @@
         "CODEDB_NO_TELEMETRY": "1"
       }
     },
+    "fff-worktree": {
+      "command": "fff-mcp",
+      "args": [
+        "--no-update-check",
+        "--frecency-db", "/Users/drewry.pope/.local/share/fff/frecency.db",
+        "--history-db", "/Users/drewry.pope/.local/share/fff/history.db",
+        "/Users/drewry.pope/.local/share/opencode/worktree"
+      ]
+    },
     "fff": {
       "command": "fff-mcp",
       "args": [

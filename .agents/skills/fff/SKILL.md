@@ -13,16 +13,20 @@ the model unless this skill is loaded.
 
 ## Scope — check this first
 
-The lootbox daemon starts fff once with a fixed root of `~/git`. It indexes that
-tree and nothing else.
+Each fff process indexes exactly one root, fixed when the lootbox daemon starts.
+There are two, so pick the namespace that matches where you are working:
 
-- Working under `~/git`: `mcp_fff` is correct.
-- Anywhere else (`~/.config/nix`, opencode worktrees under
-  `~/.local/share/opencode/worktree`, `/tmp`): **fff returns 0 matches, not an
-  error.** Use opencode's built-in `grep`/`glob`, which follow the real session
-  directory.
+| namespace          | root                                |
+| ------------------ | ----------------------------------- |
+| `mcp_fff`          | `~/git` — the 26 source repos       |
+| `mcp_fff_worktree` | `~/.local/share/opencode/worktree`  |
 
-An empty fff result outside `~/git` means "not indexed", never "not present".
+Anywhere else — `~/.config/nix`, `/tmp`, anything outside those two trees —
+**fff returns 0 matches, not an error.** Use opencode's built-in `grep`/`glob`,
+which follow the real session directory.
+
+An empty fff result outside an indexed root means "not indexed", never
+"not present". If you are unsure which root you are in, run `pwd` first.
 
 ## Which tool
 
