@@ -21,16 +21,24 @@ console.log(JSON.stringify(results, null, 2));
 | Find a string in the directory you are in  | built-in `grep`/`glob` — not lootbox                |
 | Ranked search over the 26 repos in `~/git`   | `mcp_fff`                                         |
 | Ranked search over opencode worktrees      | `mcp_fff_worktree`                                |
+| Ranked search over this flake              | `mcp_fff_nix`                                     |
 | Where a symbol is defined, or who calls it | `mcp_codedb`                                      |
 | How one symbol reaches another; blast radius | `mcp_codebase_memory`                           |
 | How to use a third-party library           | `mcp_context7`                                    |
 | Load a page, click, screenshot, inspect    | `mcp_chrome_devtools`                             |
 
-Each fff process indexes exactly one root, fixed at daemon start: `mcp_fff` covers
-`~/git`, `mcp_fff_worktree` covers `~/.local/share/opencode/worktree`. Outside those
-two trees — including this flake at `~/.config/nix` — **fff returns 0 matches rather
-than an error**. Use the built-in `grep` there. Load the `fff` skill for the
-constraint syntax, which lootbox does not forward.
+Each fff process indexes exactly one root, fixed at daemon start:
+
+| namespace          | root                               |
+| ------------------ | ---------------------------------- |
+| `mcp_fff`          | `~/git` — 26 repos                 |
+| `mcp_fff_worktree` | `~/.local/share/opencode/worktree` |
+| `mcp_fff_nix`      | `~/.config/nix`                    |
+
+Outside all three, **fff returns 0 matches rather than an error** — use the built-in
+`grep`. Constraints filter a search and must be shaped like `*.ts`, `src/` (trailing
+slash), `schema.rs`, or `!test/`; bare words are treated as search text, not filters.
+Load the `fff` skill for the full syntax, which lootbox does not forward.
 
 `mcp_codedb` and `mcp_codebase_memory` both index per project and must be told to
 index a path before they answer for it. codedb is a flat symbol and trigram index;

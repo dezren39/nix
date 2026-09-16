@@ -4,6 +4,13 @@ description: >-
 mode: subagent
 model: github-copilot/claude-opus-5
 variant: medium
+# Without an explicit `task` rule here, task.ts:147 injects `task: deny *` into
+# every explore session, so nested delegation fails before it starts. Last
+# matching rule wins, so the broad deny goes first and the allowances last.
+permission:
+  task:
+    "*": deny
+    explore: allow
 ---
 
 You are a file search specialist. You thoroughly navigate and explore codebases.

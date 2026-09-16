@@ -32,6 +32,12 @@
   // model it exposes is allowed through. Re-enable any line below to pin again.
   // "enabled_providers": ["github-copilot"],
   "default_agent": "build",
+  // Default is 1, which makes task.ts:111 reject any task call from inside a
+  // subagent before it ever reaches the permission check. 2 lets one nesting
+  // level through (e.g. explore -> explore). Depth alone is not enough: the
+  // child session also gets an unconditional `task: deny` unless the subagent's
+  // own frontmatter declares a task rule (agent/subagent-permissions.ts:25).
+  "subagent_depth": 2,
   // "model": "github-copilot/gpt-5.6-sol",
   // "small_model": "github-copilot/gpt-5.6-terra",
   // Fallback for `small: true` calls (title generation). Unused in practice —

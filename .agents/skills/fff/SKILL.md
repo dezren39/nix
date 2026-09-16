@@ -20,8 +20,9 @@ There are two, so pick the namespace that matches where you are working:
 | ------------------ | ----------------------------------- |
 | `mcp_fff`          | `~/git` — the 26 source repos       |
 | `mcp_fff_worktree` | `~/.local/share/opencode/worktree`  |
+| `mcp_fff_nix`      | `~/.config/nix` — this flake        |
 
-Anywhere else — `~/.config/nix`, `/tmp`, anything outside those two trees —
+Anywhere else — `/tmp`, anything outside those three trees —
 **fff returns 0 matches, not an error.** Use opencode's built-in `grep`/`glob`,
 which follow the real session directory.
 
