@@ -14,7 +14,7 @@ the model unless this skill is loaded.
 ## Scope — check this first
 
 Each fff process indexes exactly one root, fixed when the lootbox daemon starts.
-There are two, so pick the namespace that matches where you are working:
+There are three, so pick the namespace that matches where you are working:
 
 | namespace          | root                                |
 | ------------------ | ----------------------------------- |

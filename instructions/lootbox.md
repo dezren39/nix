@@ -40,11 +40,22 @@ Outside all three, **fff returns 0 matches rather than an error** — use the bu
 slash), `schema.rs`, or `!test/`; bare words are treated as search text, not filters.
 Load the `fff` skill for the full syntax, which lootbox does not forward.
 
-`mcp_codedb` and `mcp_codebase_memory` both index per project and must be told to
-index a path before they answer for it. codedb is a flat symbol and trigram index;
-codebase-memory is a call graph, so prefer it only when the question is about
-relationships rather than locations. Its `search_graph` is BM25 — literal terms,
-no semantic matching — and its `semantic_query` is not worth using.
+`mcp_codedb` and `mcp_codebase_memory` both index per project. codedb is a flat
+symbol and trigram index; codebase-memory is a call graph, so prefer it only when
+the question is about relationships rather than locations. Its `search_graph` is
+BM25 — literal terms, no semantic matching — and its `semantic_query` is not worth
+using. It runs in the analysis profile: read-only, so it cannot index a new
+project — index from the CLI instead. Treat `check_index_coverage` as required
+before any claim that something does not exist.
+
+With codedb, reach for the structural tools first — `codedb_symbol` for a
+definition, `codedb_callers` for usages, `codedb_outline` before `codedb_read`.
+`codedb_search` is a substring fallback for when the symbol name is unknown, not
+the default. Edit with native tools, never `codedb_edit`.
+
+Use `mcp_context7` for any library, framework, SDK or CLI question even when the
+answer seems known, since training data lags releases; prefer it over web search
+for library docs. It has itself indexed, but not lootbox.
 
 Run `lootbox tools types <ns>` for the TypeScript signatures of a namespace, and
 `lootbox tools` to list namespaces.
