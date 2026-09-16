@@ -1,78 +1,34 @@
 All tools are accessed through lootbox. The launchd-managed server listens only on `http://127.0.0.1:9420`.
 
+Lootbox is not required for every task; use it when an available MCP capability fits.
+
 ## Always write scripts
 
-Write `.ts` scripts to `.lootbox/scripts/` for any tool usage. Only use `lootbox exec 'code'` for one-line checks. Scripts are reusable, testable, and composable.
+Write `.ts` scripts to `.lootbox/scripts/` and run them with `lootbox <script>.ts`.
+Scripts are reusable, testable, and composable. Use `lootbox exec 'code'` only for
+one-line checks.
 
-```bash
-# Write a script (preferred)
-cat > .lootbox/scripts/find-todos.ts << 'EOF'
+```typescript
+// .lootbox/scripts/find-todos.ts
 const results = await tools.mcp_fff.grep({ query: "TODO" });
 console.log(JSON.stringify(results, null, 2));
-EOF
-lootbox find-todos.ts
-
-# Inline only for quick checks
-lootbox exec 'console.log(await tools.mcp_codedb.status({}))'
 ```
 
 ## Available MCP namespaces
 
-Lootbox is not required for every task; use it when an available MCP capability
-fits. Prefer the MCP namespace whose capabilities fit the task. For example,
-prefer CodeDB when its AST-aware codebase exploration fits.
+| Namespace             | What it does                                                    |
+| --------------------- | --------------------------------------------------------------- |
+| `mcp_codedb`          | Codebase exploration, symbol lookup, AST-aware search           |
+| `mcp_fff`             | Frecency-ranked file search and content grep                    |
+| `mcp_chrome_devtools` | Browser automation, UI verification, screenshots                |
+| `mcp_context7`        | Library documentation lookup (API refs, usage guides, examples) |
 
-| Namespace           | Tools                                                                                                                                                                                                                                       | What it does                                                    |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `mcp_codedb`          | tree, outline, symbol, search, word, hot, deps, read, edit, changes, status, snapshot, bundle, projects, index, remote                                                                                                                      | Codebase exploration, symbol lookup, AST-aware search           |
-| `mcp_fff`             | grep, find_files, multi_grep                                                                                                                                                                                                                | Frecency-ranked file search and content grep                    |
-| `mcp_chrome_devtools` | navigate_page, take_screenshot, take_snapshot, click, fill, press_key, hover, type_text, evaluate_script, wait_for, upload_file, handle_dialog, list_console_messages, get_console_message, list_network_requests, get_network_request, ... | Browser automation, UI verification, screenshots                |
-| `mcp_context7`        | resolve_library_id, query_docs                                                                                                                                                                                                              | Library documentation lookup (API refs, usage guides, examples) |
-
-## Script patterns
-
-```typescript
-// .lootbox/scripts/search-code.ts — find definitions
-const sym = await tools.mcp_codedb.codedb_symbol({ name: "handleAuth" });
-console.log(sym);
-
-// .lootbox/scripts/check-ui.ts — browser verification
-await tools.mcp_chrome_devtools.navigate_page({ url: "http://localhost:3000" });
-const snap = await tools.mcp_chrome_devtools.take_snapshot({});
-console.log(snap);
-
-// .lootbox/scripts/lookup-docs.ts — library docs
-const lib = await tools.mcp_context7.resolve_library_id({ query: "how to use React hooks", libraryName: "react" });
-const docs = await tools.mcp_context7.query_docs({ libraryId: lib.libraryId, query: "useEffect cleanup" });
-console.log(docs);
-
-// .lootbox/scripts/multi-search.ts — chain tools
-const files = await tools.mcp_fff.grep({ query: "deprecated" });
-for (const f of files.matches || []) {
-  const outline = await tools.mcp_codedb.codedb_outline({ path: f.path });
-  console.log(f.path, outline);
-}
-```
-
-## Commands
-
-| Command                  | Description                           |
-| ------------------------ | ------------------------------------- |
-| `lootbox <script>.ts`      | Run a script from `.lootbox/scripts/`   |
-| `lootbox exec 'code'`      | Inline one-liner (use sparingly)      |
-| `lootbox tools`            | List namespaces                       |
-| `lootbox tools types <ns>` | TypeScript signatures for a namespace |
-| `lootbox scripts`          | List available scripts                |
-| `just lootbox-server`      | Start server                          |
-| `just lootbox-kill`        | Kill server                           |
-| `just update-lootbox`      | Rebuild pinned Lootbox and MCP CLIs   |
-| `just lootbox-check`       | Verify health, tools, and Deno scripts |
+Run `lootbox tools types <ns>` for the TypeScript signatures of a namespace, and
+`lootbox tools` to list namespaces. Prefer CodeDB when AST-aware exploration fits.
 
 ## Key notes
 
-- Config: `lootbox.config.json` at repo root, exposed globally at `~/.config/lootbox/lootbox.config.json`
-- Scripts: `.lootbox/scripts/` (committed to git)
-- Runtime: Nix provides Deno, codedb, and fff-mcp; `lootbox-update` builds pinned Lootbox commit `587a5a1` and installs pinned Chrome DevTools/Context7 MCP CLIs
-- Context7 authenticates through `mcp-remote`; never put secrets in config
-- `codedb_remote` (via `mcp_codedb.codedb_remote`) searches actual library source code; `mcp_context7` searches documentation
+- `mcp_codedb.codedb_remote` searches actual library source code; `mcp_context7` searches documentation
 - For codedb worktrees: call `mcp_codedb.index` with the worktree path first
+- Context7 authenticates through `mcp-remote`; never put secrets in config
+- `just lootbox-check` verifies health, tools, and Deno scripts
