@@ -11,7 +11,6 @@
     // "@openspoon/subtask2@latest",
     //"@tmegit/opencode-worktree-session@latest",
     "@mohak34/opencode-notifier@latest",
-    "@plannotator/opencode@latest",
     "opencode-pty@latest",
     //"opencode-devcontainers@latest",
     // "opencode-dir",
@@ -32,6 +31,10 @@
   // model it exposes is allowed through. Re-enable any line below to pin again.
   // "enabled_providers": ["github-copilot"],
   "default_agent": "build",
+  // plan is a built-in primary agent. agents/plan.md was an empty stub that
+  // never loaded, so disable the built-in explicitly rather than leaving a
+  // dead file implying it was handled.
+  "agent": { "plan": { "disable": true } },
   // Delegation topology. Enforced per-agent by the `task` rulesets in
   // agents/*.md, since opencode has no per-agent depth setting — subagent_depth
   // below is global. Tiers descend strictly, so the edge set is acyclic and
@@ -39,7 +42,7 @@
   //
   //   tier 0  build, plan                      (primary)
   //   tier 1  general, custom, explore
-  //   tier 2  general-2wide, custom-2wide
+  //   tier 2  general-2wide, custom-2wide, explore-2wide
   //   tier 3  general-wide, custom-wide, explore-wide
   //   tier 4  general-deep, custom-deep, explore-deep
   //
@@ -66,12 +69,12 @@
   // everywhere except explore, whose `"*": allow` is needed to clear the
   // built-in read-only ruleset and shadows it.
   //
-  // Longest chain is build -> general -> general-2wide -> general-wide ->
-  // general-deep -> explore -> explore-wide -> explore-deep, which puts the
-  // deepest task call at depth 6 and needs subagent_depth >= 7. 10 is a
-  // backstop for agents added outside this topology, not a control — the edge
-  // set is what bounds recursion. Default is 1, which rejects any task call
-  // from inside a subagent at task.ts:111 before the permission check runs.
+  // Longest chain is build -> general -> custom-2wide -> custom-wide ->
+  // custom-deep -> explore -> explore-2wide -> explore-wide -> explore-deep,
+  // which puts the deepest task call at depth 7 and needs subagent_depth >= 8.
+  // 10 is a backstop for agents added outside this topology, not a control —
+  // the edge set is what bounds recursion. Default is 1, which rejects any task
+  // call from inside a subagent at task.ts:111 before the permission check runs.
   //
   // Nothing tells an agent how deep it currently is — depth is computed only
   // inside the task call (task.ts:104-110) and surfaces as a tool error. The
