@@ -670,7 +670,7 @@ lib.recursiveUpdate {
         pkgs.deno
         pkgs.nodejs
         inputs.self.packages.${system}.codedb
-        inputs.self.packages.${system}.fff-mcp
+        pkgs.fff-mcp
       ];
       serviceConfig = {
         EnvironmentVariables.HOME = "/Users/drewry.pope";
@@ -681,7 +681,7 @@ lib.recursiveUpdate {
             pkgs.deno
             pkgs.nodejs
             inputs.self.packages.${system}.codedb
-            inputs.self.packages.${system}.fff-mcp
+            pkgs.fff-mcp
           ]
           + ":/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin"
         );

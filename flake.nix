@@ -311,7 +311,6 @@ rec {
           lib = pkgs.lib;
         };
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
-        fff-mcp = pkgs.callPackage ./pkgs/fff-mcp/package.nix { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
         lootbox-update = import ./pkgs/lootbox-update {
           inherit pkgs;

@@ -239,7 +239,7 @@
       darwin.trash # `trash` command — moves files to macOS Trash instead of permanent deletion
       inputs.self.packages.${system}.brew-repair
       inputs.self.packages.${system}.codedb
-      inputs.self.packages.${system}.fff-mcp
+      pkgs.fff-mcp
       inputs.self.packages.${system}.lootbox-update
     ]
     ++ [
