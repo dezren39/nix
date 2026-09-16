@@ -12,7 +12,11 @@
     },
     "fff": {
       "command": "fff-mcp",
-      "args": ["--no-update-check"]
+      "args": [
+        "--no-update-check",
+        "--frecency-db", "/Users/drewry.pope/.local/share/fff/frecency.db",
+        "--history-db", "/Users/drewry.pope/.local/share/fff/history.db"
+      ]
     },
     "chrome-devtools": {
       "command": "chrome-devtools-mcp",
