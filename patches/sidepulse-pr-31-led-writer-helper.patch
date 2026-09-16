@@ -1,0 +1,1107 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6af2a1b..3ca8c1a 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -63,7 +63,7 @@ where = ["src"]
+ include = ["sidepulse*", "agent_monitor*", "sidepulse_cli*"]
+ 
+ [tool.setuptools.package-data]
+-"sidepulse.resources" = ["sd_eject_guard.c", "sdled.wasm", "animations/*.LED"]
++"sidepulse.resources" = ["sd_eject_guard.c", "led_writer.c", "sdled.wasm", "animations/*.LED"]
+ 
+ [tool.setuptools_scm]
+ fallback_version = "0"
+diff --git a/src/sidepulse/cli.py b/src/sidepulse/cli.py
+index c7fed39..41e118a 100644
+--- a/src/sidepulse/cli.py
++++ b/src/sidepulse/cli.py
+@@ -1046,6 +1046,21 @@ def cmd_sidepulse_setup(args: argparse.Namespace) -> int:
+         return 1
+     print_sd_eject_guard_result(guard_result)
+ 
++    from .led_writer_launch import (
++        LED_WRITER_DISPLAY_NAME,
++        LedWriterInstallError,
++        install_led_writer,
++    )
++
++    try:
++        led_writer_result = install_led_writer(dry_run=args.dry_run)
++    except (LedWriterInstallError, OSError, subprocess.CalledProcessError) as exc:
++        # The in-process write still works wherever SidePulse inherits a grant,
++        # so a build failure here must not fail setup.
++        print(f"{LED_WRITER_DISPLAY_NAME}: not built ({exc})", file=sys.stderr)
++    else:
++        print_led_writer_result(led_writer_result)
++
+     if args.no_status_bar:
+         return 0
+ 
+@@ -1110,6 +1125,18 @@ def print_sd_eject_guard_result(result) -> None:
+         print(f"  removed legacy helper: {path}")
+ 
+ 
++def print_led_writer_result(result) -> None:
++    from .led_writer_launch import LED_WRITER_DISPLAY_NAME
++
++    if result.dry_run:
++        action = "would build" if result.changed else "would leave in place (up to date)"
++    else:
++        action = "built" if result.compiled else "already built"
++    print(f"{LED_WRITER_DISPLAY_NAME}: {action}")
++    print(f"  binary: {result.binary_path}")
++    print("  grant Removable Volumes to this binary if LED writes are denied")
++
++
+ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
+     parser = argparse.ArgumentParser(
+         prog=prog,
+diff --git a/src/sidepulse/device_writer.py b/src/sidepulse/device_writer.py
+index c2e748a..24cffcd 100644
+--- a/src/sidepulse/device_writer.py
++++ b/src/sidepulse/device_writer.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import errno
+ import os
+ import sys
+ from dataclasses import dataclass
+@@ -17,6 +18,11 @@ DEVICE_NAME_HINTS = (
+     "sidepulsedot",
+     "pulsedot",
+ )
++DENIED_ERRNOS = frozenset({errno.EPERM, errno.EACCES})
++
++# The grant hint names a path and a System Settings pane; it is useless after
++# the first time and the LED file is rewritten on every status change.
++_grant_hint_shown = False
+ 
+ 
+ class DeviceWriteError(RuntimeError):
+@@ -71,8 +77,26 @@ def write_text_synced(target: Path, text: str) -> None:
+     program until the data reaches the disk. Syncing is best effort: the
+     bytes are already handed to the OS once the file is closed, so a
+     filesystem that refuses to sync must not fail the write.
++
++    Writing in-process is the fast path and is what runs whenever SidePulse
++    inherits a Removable Volumes grant from its parent - a terminal, say. From
++    launchd there is no responsible app, macOS denies `/Volumes` with EPERM,
++    and the write is retried through a helper binary that lives at a fixed path
++    and can hold a grant of its own. If that helper is missing or is denied
++    too, the original error is raised unchanged.
+     """
+ 
++    try:
++        write_text_in_process(target, text)
++        return
++    except OSError as exc:
++        if exc.errno not in DENIED_ERRNOS:
++            raise
++        if not write_text_via_helper(target, text):
++            raise
++
++
++def write_text_in_process(target: Path, text: str) -> None:
+     is_new = not path_exists(target)
+     with target.open("w", encoding="utf-8") as handle:
+         handle.write(text)
+@@ -83,6 +107,51 @@ def write_text_synced(target: Path, text: str) -> None:
+         sync_directory(target.parent)
+ 
+ 
++def write_text_via_helper(target: Path, text: str) -> bool:
++    """Retry a denied write through the fixed-path native helper.
++
++    Returns True when the helper wrote the file. Returns False for every
++    failure, so the caller re-raises the error the in-process write already
++    produced and behaviour never regresses relative to not having a helper.
++    """
++
++    try:
++        from .led_writer_launch import (
++            LedWriterFailed,
++            LedWriterUnavailable,
++            run_led_writer,
++        )
++    except ImportError:
++        return False
++
++    try:
++        run_led_writer(target, text)
++    except LedWriterUnavailable:
++        return False
++    except LedWriterFailed as failure:
++        if failure.denied:
++            report_led_writer_denied()
++        return False
++    except OSError:
++        return False
++    return True
++
++
++def report_led_writer_denied() -> None:
++    """Name the exact binary the user has to grant, once per process."""
++
++    global _grant_hint_shown
++    if _grant_hint_shown:
++        return
++    _grant_hint_shown = True
++    try:
++        from .led_writer_launch import led_writer_grant_hint
++
++        print(led_writer_grant_hint(), file=sys.stderr, flush=True)
++    except Exception:
++        _grant_hint_shown = False
++
++
+ def sync_fd(fd: int) -> None:
+     try:
+         os.fsync(fd)
+diff --git a/src/sidepulse/led_writer_launch.py b/src/sidepulse/led_writer_launch.py
+new file mode 100644
+index 0000000..1470d21
+--- /dev/null
++++ b/src/sidepulse/led_writer_launch.py
+@@ -0,0 +1,270 @@
++"""Compile and install the fixed-path native LED writer helper.
++
++macOS gates `/Volumes/*` behind the `kTCCServiceSystemPolicyRemovableVolumes`
++TCC service. A launchd-spawned process has no responsible application, so it
++cannot raise the consent prompt and TCC denies it outright - the SidePulse Dot
++write fails with ``[Errno 1] Operation not permitted``.
++
++An explicit grant *is* honoured from launchd, but TCC keys grants to a binary
++path. SidePulse normally writes in-process, from an interpreter that lives in
++the Nix store at a hash-addressed path which changes on every rebuild, so the
++grant is invalidated within days. Wrapping the interpreter does not help
++either: the status-bar launcher `exec`s the interpreter, which replaces the
++process image, and attribution follows the final image.
++
++This module compiles ``resources/led_writer.c`` to a fixed path under the
++SidePulse data directory. The user grants Removable Volumes access to that path
++once; because the binary only changes when its own source changes, the grant
++survives interpreter and dependency rebuilds.
++"""
++
++from __future__ import annotations
++
++import hashlib
++import os
++import subprocess
++from dataclasses import dataclass
++from importlib.resources import as_file, files
++from pathlib import Path
++
++from .sd_eject_guard_launch import default_user_data_dir
++
++LED_WRITER_DISPLAY_NAME = "SidePulse LED Writer"
++LED_WRITER_BINARY_NAME = LED_WRITER_DISPLAY_NAME
++LED_WRITER_DIR_NAME = "led-writer"
++LED_WRITER_SOURCE_NAME = "led_writer.c"
++LED_WRITER_PATH_ENV = "SIDEPULSE_LED_WRITER"
++LED_WRITER_TIMEOUT_SECONDS = 15.0
++
++# Exit codes agreed with resources/led_writer.c.
++LED_WRITER_EXIT_OK = 0
++LED_WRITER_EXIT_USAGE = 2
++LED_WRITER_EXIT_INPUT = 3
++LED_WRITER_EXIT_DENIED = 4
++LED_WRITER_EXIT_IO = 5
++
++
++class LedWriterInstallError(RuntimeError):
++    """Compiling or installing the helper failed."""
++
++
++class LedWriterUnavailable(RuntimeError):
++    """The helper is not installed, or could not be executed at all."""
++
++
++class LedWriterFailed(RuntimeError):
++    """The helper ran but refused the write."""
++
++    def __init__(self, returncode: int, stderr: str) -> None:
++        detail = stderr.strip() or f"exit status {returncode}"
++        super().__init__(detail)
++        self.returncode = returncode
++        self.stderr = stderr.strip()
++
++    @property
++    def denied(self) -> bool:
++        """True when the write was refused by TCC or by file permissions."""
++
++        return self.returncode == LED_WRITER_EXIT_DENIED
++
++
++@dataclass(frozen=True)
++class LedWriterResult:
++    binary_path: Path
++    compiled: bool
++    changed: bool = False
++    dry_run: bool = False
++
++
++def led_writer_path(home: Path | None = None) -> Path:
++    """The path the helper is invoked from.
++
++    ``SIDEPULSE_LED_WRITER`` overrides it, mirroring how
++    ``SIDEPULSE_MOUNT_ROOTS`` overrides device discovery, so tests and unusual
++    installs can point at their own build.
++    """
++
++    override = os.environ.get(LED_WRITER_PATH_ENV)
++    if override and override.strip():
++        return Path(override).expanduser()
++    return default_led_writer_path(home)
++
++
++def default_led_writer_path(home: Path | None = None) -> Path:
++    return (
++        default_user_data_dir(home)
++        / "sidepulse"
++        / LED_WRITER_DIR_NAME
++        / LED_WRITER_BINARY_NAME
++    )
++
++
++def packaged_led_writer_source():
++    return files("sidepulse.resources").joinpath(LED_WRITER_SOURCE_NAME)
++
++
++def led_writer_stamp_path(binary_path: Path) -> Path:
++    return binary_path.with_name(f"{binary_path.name}.source-sha256")
++
++
++def source_digest(source_path: Path) -> str:
++    return hashlib.sha256(source_path.read_bytes()).hexdigest()
++
++
++def binary_needs_compile(binary_path: Path, source_path: Path) -> bool:
++    """Decide whether the helper has to be rebuilt.
++
++    Recompiling rewrites the binary, which changes its code directory hash and
++    therefore invalidates the Removable Volumes grant the whole helper exists
++    to keep. So this has to stay conservative: rebuild only when the source
++    really changed.
++
++    The recorded source digest is authoritative. ``importlib.resources`` may
++    hand back a freshly extracted copy of the source whose mtime is always
++    "now", which would make an mtime comparison rebuild on every run; the
++    digest does not care. The mtime comparison is only the fallback for a
++    binary installed before the stamp existed.
++    """
++
++    if not binary_path.exists():
++        return True
++
++    stamp = led_writer_stamp_path(binary_path)
++    try:
++        recorded = stamp.read_text(encoding="utf-8").strip()
++    except OSError:
++        recorded = ""
++    if recorded:
++        try:
++            return recorded != source_digest(source_path)
++        except OSError:
++            return True
++
++    try:
++        return binary_path.stat().st_mtime < source_path.stat().st_mtime
++    except OSError:
++        return True
++
++
++def compile_led_writer(source_path: Path, binary_path: Path) -> None:
++    """Build the helper and move it into place atomically."""
++
++    tmp_binary = binary_path.with_name(f"{binary_path.name}.tmp")
++    try:
++        subprocess.run(
++            ["clang", "-O2", "-o", str(tmp_binary), str(source_path)],
++            check=True,
++        )
++    except FileNotFoundError as exc:
++        raise LedWriterInstallError(
++            "clang is required to build the LED writer helper; "
++            "install the Xcode command line tools"
++        ) from exc
++    tmp_binary.chmod(0o755)
++    tmp_binary.replace(binary_path)
++    write_source_stamp(binary_path, source_path)
++
++
++def write_source_stamp(binary_path: Path, source_path: Path) -> None:
++    stamp = led_writer_stamp_path(binary_path)
++    try:
++        stamp.write_text(f"{source_digest(source_path)}\n", encoding="utf-8")
++    except OSError:
++        # The stamp is an optimisation; without it the mtime comparison still
++        # works for a normal filesystem install.
++        pass
++
++
++def install_led_writer(
++    *,
++    binary_path: Path | None = None,
++    source_path: Path | None = None,
++    dry_run: bool = False,
++) -> LedWriterResult:
++    """Install the helper if it is missing or out of date.
++
++    Idempotent by design: an up-to-date binary is left byte-for-byte and
++    mtime-for-mtime alone, so repeated ``sidepulse setup`` runs never disturb
++    the Removable Volumes grant.
++    """
++
++    target = binary_path or led_writer_path()
++    source = source_path if source_path is not None else packaged_led_writer_source()
++    context = as_file(source) if not isinstance(source, Path) else _path_context(source)
++    with context as resolved_source:
++        needs_compile = binary_needs_compile(target, resolved_source)
++        if dry_run:
++            return LedWriterResult(
++                binary_path=target,
++                compiled=False,
++                changed=needs_compile,
++                dry_run=True,
++            )
++        if not needs_compile:
++            return LedWriterResult(binary_path=target, compiled=False, changed=False)
++
++        try:
++            target.parent.mkdir(parents=True, exist_ok=True)
++        except OSError as exc:
++            raise LedWriterInstallError(
++                f"cannot create {target.parent}: {exc}"
++            ) from exc
++        compile_led_writer(resolved_source, target)
++        target.chmod(0o755)
++    return LedWriterResult(binary_path=target, compiled=True, changed=True)
++
++
++def run_led_writer(target: Path, text: str, *, binary_path: Path | None = None) -> Path:
++    """Write ``text`` to ``target`` through the fixed-path helper.
++
++    The payload travels on stdin so LED programs never appear in the process
++    table.
++    """
++
++    helper = binary_path or led_writer_path()
++    if not helper.exists():
++        raise LedWriterUnavailable(
++            f"the {LED_WRITER_DISPLAY_NAME} helper is not installed at {helper}; "
++            "run `sidepulse setup` to build it"
++        )
++
++    try:
++        completed = subprocess.run(
++            [str(helper), str(target)],
++            input=text.encode("utf-8"),
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            timeout=LED_WRITER_TIMEOUT_SECONDS,
++        )
++    except (OSError, subprocess.SubprocessError) as exc:
++        raise LedWriterUnavailable(f"cannot run {helper}: {exc}") from exc
++
++    if completed.returncode != LED_WRITER_EXIT_OK:
++        raise LedWriterFailed(
++            completed.returncode,
++            completed.stderr.decode("utf-8", errors="replace"),
++        )
++    return target
++
++
++def led_writer_grant_hint(helper: Path | None = None) -> str:
++    """The one message worth showing when even the helper is denied."""
++
++    path = helper or led_writer_path()
++    return (
++        f"{LED_WRITER_DISPLAY_NAME}: macOS is blocking writes to the SidePulse "
++        "device. Open System Settings > Privacy & Security > Files and Folders, "
++        f'find "{LED_WRITER_BINARY_NAME}", and enable Removable Volumes. '
++        f"If it is not listed, add it manually: {path}"
++    )
++
++
++class _path_context:
++    def __init__(self, path: Path) -> None:
++        self.path = path
++
++    def __enter__(self) -> Path:
++        return self.path
++
++    def __exit__(self, *_exc: object) -> None:
++        return None
+diff --git a/src/sidepulse/resources/led_writer.c b/src/sidepulse/resources/led_writer.c
+new file mode 100644
+index 0000000..f3bf5c7
+--- /dev/null
++++ b/src/sidepulse/resources/led_writer.c
+@@ -0,0 +1,211 @@
++// SidePulse LED Writer - write an LED program to a mounted SidePulse volume.
++//
++// SidePulse talks to SidePulse Pro / SidePulse Dot by writing LEDS.LED on the
++// device's FAT volume: the firmware snoops the FAT LBA writes, so the file
++// write *is* the protocol. macOS gates every path under /Volumes behind the
++// `kTCCServiceSystemPolicyRemovableVolumes` TCC service. A launchd-spawned
++// process has no responsible app and cannot show the consent prompt, so TCC
++// auto-denies it and open(2) fails with EPERM.
++//
++// Explicit grants *are* honoured from launchd, but TCC keys them to the
++// binary's path (and code identity). SidePulse normally issues the write from
++// the interpreter itself, which lives at /nix/store/<hash>/bin/python3.x and
++// changes on every rebuild, so a grant is invalidated within days. This helper
++// lives at a fixed path under the SidePulse data directory and only changes
++// when this source file changes, so a single grant keeps working.
++//
++// The payload is read from stdin, never from argv, so LED programs stay out of
++// the process table.
++//
++// Build: clang -O2 -o "SidePulse LED Writer" led_writer.c
++// Run:   printf 'off' | ./"SidePulse LED Writer" /Volumes/PulseDot/LEDS.LED
++//
++// Exit status:
++//   0  wrote the payload
++//   2  usage error (wrong argument count, empty path)
++//   3  could not read stdin, or the payload exceeded the size cap
++//   4  filesystem denied the write (EPERM / EACCES) - this is the TCC case
++//   5  any other filesystem error
++// Failures always print "<op> <path>: <strerror> (errno=<n>)" to stderr so the
++// caller can recover the real errno.
++
++#include <errno.h>
++#include <fcntl.h>
++#include <libgen.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++// LED programs are capped at 512 bytes by the device, and the only other
++// payload SidePulse writes is an empty keepalive file. 64 KiB leaves room to
++// spare while refusing to buffer anything absurd.
++#define MAX_PAYLOAD_BYTES (64 * 1024)
++#define INITIAL_BUFFER_BYTES 4096
++
++#define EXIT_OK 0
++#define EXIT_USAGE 2
++#define EXIT_INPUT 3
++#define EXIT_DENIED 4
++#define EXIT_IO 5
++
++#ifndef O_DIRECTORY
++#define O_DIRECTORY 0
++#endif
++
++static const char *k_program_name = "sidepulse-led-writer";
++
++static int report_errno(const char *operation, const char *path, int saved_errno) {
++    fprintf(stderr, "%s: %s %s: %s (errno=%d)\n", k_program_name, operation, path,
++            strerror(saved_errno), saved_errno);
++    if (saved_errno == EPERM || saved_errno == EACCES)
++        return EXIT_DENIED;
++    return EXIT_IO;
++}
++
++// Read the whole payload from stdin. Returns NULL and sets errno on failure;
++// an over-long payload reports EFBIG. The returned buffer may be NULL-sized
++// only when malloc fails, so a zero-length payload still yields a valid
++// pointer.
++static char *read_payload(size_t *out_length) {
++    size_t capacity = INITIAL_BUFFER_BYTES;
++    size_t length = 0;
++    char *buffer = malloc(capacity);
++    if (buffer == NULL)
++        return NULL;
++
++    for (;;) {
++        if (length == capacity) {
++            if (capacity > MAX_PAYLOAD_BYTES) {
++                free(buffer);
++                errno = EFBIG;
++                return NULL;
++            }
++            size_t next = capacity * 2;
++            if (next > (size_t)MAX_PAYLOAD_BYTES + 1)
++                next = (size_t)MAX_PAYLOAD_BYTES + 1;
++            if (next == capacity) {
++                free(buffer);
++                errno = EFBIG;
++                return NULL;
++            }
++            char *grown = realloc(buffer, next);
++            if (grown == NULL) {
++                free(buffer);
++                return NULL;
++            }
++            buffer = grown;
++            capacity = next;
++        }
++
++        ssize_t taken = read(STDIN_FILENO, buffer + length, capacity - length);
++        if (taken < 0) {
++            if (errno == EINTR)
++                continue;
++            free(buffer);
++            return NULL;
++        }
++        if (taken == 0)
++            break;
++        length += (size_t)taken;
++        if (length > MAX_PAYLOAD_BYTES) {
++            free(buffer);
++            errno = EFBIG;
++            return NULL;
++        }
++    }
++
++    *out_length = length;
++    return buffer;
++}
++
++static int write_all(int fd, const char *data, size_t length) {
++    size_t written = 0;
++    while (written < length) {
++        ssize_t taken = write(fd, data + written, length - written);
++        if (taken < 0) {
++            if (errno == EINTR)
++                continue;
++            return -1;
++        }
++        if (taken == 0) {
++            errno = EIO;
++            return -1;
++        }
++        written += (size_t)taken;
++    }
++    return 0;
++}
++
++// Flush a brand-new file's directory entry. Best effort, exactly like the
++// Python `sync_directory` helper this mirrors: a filesystem that refuses must
++// not fail the write.
++static void sync_parent_directory(const char *path) {
++    char *copy = strdup(path);
++    if (copy == NULL)
++        return;
++    const char *directory = dirname(copy);
++    if (directory != NULL) {
++        int fd = open(directory, O_RDONLY | O_DIRECTORY);
++        if (fd < 0 && O_DIRECTORY != 0)
++            fd = open(directory, O_RDONLY);
++        if (fd >= 0) {
++            (void)fsync(fd);
++            (void)close(fd);
++        }
++    }
++    free(copy);
++}
++
++int main(int argc, char **argv) {
++    if (argc != 2 || argv[1][0] == '\0') {
++        fprintf(stderr, "usage: %s <target-path>   (payload is read from stdin)\n",
++                argc > 0 && argv[0] != NULL ? argv[0] : k_program_name);
++        return EXIT_USAGE;
++    }
++
++    const char *target = argv[1];
++    size_t length = 0;
++    char *payload = read_payload(&length);
++    if (payload == NULL) {
++        int saved = errno;
++        fprintf(stderr, "%s: read payload from stdin: %s (errno=%d)\n", k_program_name,
++                strerror(saved), saved);
++        return EXIT_INPUT;
++    }
++
++    struct stat existing;
++    int is_new = stat(target, &existing) != 0;
++
++    int fd = open(target, O_WRONLY | O_CREAT | O_TRUNC, 0666);
++    if (fd < 0) {
++        int saved = errno;
++        free(payload);
++        return report_errno("open", target, saved);
++    }
++
++    if (write_all(fd, payload, length) != 0) {
++        int saved = errno;
++        (void)close(fd);
++        free(payload);
++        return report_errno("write", target, saved);
++    }
++    free(payload);
++
++    // Removable devices buffer writes, so the LED firmware may not see the
++    // program until the data reaches the disk. Syncing is best effort: the
++    // bytes are already handed to the OS, so a filesystem that refuses to sync
++    // must not fail the write.
++    (void)fsync(fd);
++
++    if (close(fd) != 0) {
++        int saved = errno;
++        return report_errno("close", target, saved);
++    }
++
++    if (is_new)
++        sync_parent_directory(target);
++
++    return EXIT_OK;
++}
+diff --git a/tests/test_led_writer.py b/tests/test_led_writer.py
+new file mode 100644
+index 0000000..2f6b336
+--- /dev/null
++++ b/tests/test_led_writer.py
+@@ -0,0 +1,365 @@
++"""Tests for the fixed-path native LED writer helper.
++
++The helper exists so a Removable Volumes TCC grant can outlive interpreter
++rebuilds. Two properties matter more than the write itself and are pinned
++here: recompiling only when the source actually changes (a rebuild changes the
++code directory hash and revokes the grant), and never regressing the
++in-process write when the helper is absent or denied.
++"""
++
++from __future__ import annotations
++
++import errno
++import hashlib
++import io
++import os
++import shutil
++import subprocess
++import tempfile
++import unittest
++from contextlib import redirect_stderr
++from importlib.resources import as_file
++from pathlib import Path
++from unittest.mock import patch
++
++from sidepulse import device_writer
++from sidepulse.led_writer_launch import (
++    LED_WRITER_BINARY_NAME,
++    LED_WRITER_EXIT_DENIED,
++    LED_WRITER_EXIT_INPUT,
++    LED_WRITER_EXIT_USAGE,
++    LED_WRITER_PATH_ENV,
++    LedWriterFailed,
++    LedWriterUnavailable,
++    default_led_writer_path,
++    install_led_writer,
++    led_writer_grant_hint,
++    led_writer_path,
++    led_writer_stamp_path,
++    packaged_led_writer_source,
++    run_led_writer,
++)
++
++CLANG = shutil.which("clang")
++
++
++def packaged_source_bytes() -> bytes:
++    with as_file(packaged_led_writer_source()) as path:
++        return Path(path).read_bytes()
++
++
++class LedWriterPathTests(unittest.TestCase):
++    def test_default_path_is_stable_and_outside_the_nix_store(self) -> None:
++        path = default_led_writer_path(home=Path("/Users/alice"))
++
++        self.assertEqual(
++            path,
++            Path("/Users/alice/.local/share/sidepulse/led-writer") / LED_WRITER_BINARY_NAME,
++        )
++        self.assertNotIn("/nix/store/", str(path))
++
++    def test_environment_variable_overrides_the_helper_path(self) -> None:
++        with patch.dict(os.environ, {LED_WRITER_PATH_ENV: "~/custom/led-writer"}):
++            self.assertEqual(led_writer_path(), Path("~/custom/led-writer").expanduser())
++
++    def test_blank_environment_variable_falls_back_to_the_default(self) -> None:
++        with patch.dict(os.environ, {LED_WRITER_PATH_ENV: "   "}):
++            self.assertEqual(led_writer_path(), default_led_writer_path())
++
++    def test_grant_hint_names_the_exact_binary_to_authorise(self) -> None:
++        hint = led_writer_grant_hint(Path("/tmp/holder/SidePulse LED Writer"))
++
++        self.assertIn("Removable Volumes", hint)
++        self.assertIn("/tmp/holder/SidePulse LED Writer", hint)
++
++    def test_source_ships_as_a_package_resource(self) -> None:
++        self.assertIn(b"kTCCServiceSystemPolicyRemovableVolumes", packaged_source_bytes())
++
++
++@unittest.skipIf(CLANG is None, "clang is unavailable")
++class LedWriterCompileTests(unittest.TestCase):
++    def setUp(self) -> None:
++        self._tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(self._tmp.cleanup)
++        self.root = Path(self._tmp.name)
++        self.binary = self.root / "bin" / LED_WRITER_BINARY_NAME
++
++    def build(self) -> Path:
++        return install_led_writer(binary_path=self.binary).binary_path
++
++    def local_source(self, suffix: str = "") -> Path:
++        source = self.root / "led_writer.c"
++        source.write_bytes(packaged_source_bytes() + suffix.encode("utf-8"))
++        return source
++
++    def test_source_compiles_to_an_executable(self) -> None:
++        result = install_led_writer(binary_path=self.binary)
++
++        self.assertTrue(result.compiled)
++        self.assertTrue(result.changed)
++        self.assertTrue(self.binary.exists())
++        self.assertTrue(os.access(self.binary, os.X_OK))
++
++    def test_second_install_leaves_the_binary_untouched(self) -> None:
++        self.build()
++        before = self.binary.stat()
++        before_bytes = self.binary.read_bytes()
++
++        result = install_led_writer(binary_path=self.binary)
++
++        after = self.binary.stat()
++        self.assertFalse(result.compiled)
++        self.assertFalse(result.changed)
++        # Rebuilding would change the code directory hash and revoke the TCC
++        # grant that the fixed path exists to preserve.
++        self.assertEqual(before.st_mtime_ns, after.st_mtime_ns)
++        self.assertEqual(before.st_ino, after.st_ino)
++        self.assertEqual(before_bytes, self.binary.read_bytes())
++
++    def test_a_fresh_source_mtime_alone_does_not_force_a_rebuild(self) -> None:
++        self.build()
++        before = self.binary.stat().st_mtime_ns
++        source = self.local_source()
++        os.utime(source, None)
++
++        result = install_led_writer(binary_path=self.binary, source_path=source)
++
++        self.assertFalse(result.compiled)
++        self.assertEqual(before, self.binary.stat().st_mtime_ns)
++
++    def test_changed_source_triggers_a_rebuild(self) -> None:
++        self.build()
++        source = self.local_source("\n// cache buster\n")
++
++        result = install_led_writer(binary_path=self.binary, source_path=source)
++
++        self.assertTrue(result.compiled)
++        self.assertEqual(
++            led_writer_stamp_path(self.binary).read_text().strip(),
++            hashlib.sha256(source.read_bytes()).hexdigest(),
++        )
++
++    def test_dry_run_reports_without_building(self) -> None:
++        result = install_led_writer(binary_path=self.binary, dry_run=True)
++
++        self.assertTrue(result.dry_run)
++        self.assertTrue(result.changed)
++        self.assertFalse(self.binary.exists())
++
++    def test_helper_writes_a_new_program_file(self) -> None:
++        helper = self.build()
++        device = self.root / "device"
++        device.mkdir()
++        target = device / "LEDS.LED"
++
++        self.assertEqual(run_led_writer(target, "off\n#FF00FF pulse", binary_path=helper), target)
++        self.assertEqual(target.read_bytes(), b"off\n#FF00FF pulse")
++
++    def test_a_new_file_still_writes_when_the_directory_cannot_be_synced(self) -> None:
++        # A new file also gets its directory entry flushed, but that sync is
++        # best effort: an unreadable parent must not fail the write.
++        helper = self.build()
++        device = self.root / "write-only"
++        device.mkdir()
++        device.chmod(0o300)
++        self.addCleanup(device.chmod, 0o700)
++
++        run_led_writer(device / "LEDS.LED", "off", binary_path=helper)
++
++        device.chmod(0o700)
++        self.assertEqual((device / "LEDS.LED").read_text(), "off")
++
++    def test_helper_truncates_an_existing_program(self) -> None:
++        helper = self.build()
++        target = self.root / "LEDS.LED"
++        target.write_text("a much longer previous program")
++
++        run_led_writer(target, "off", binary_path=helper)
++
++        self.assertEqual(target.read_text(), "off")
++
++    def test_helper_reads_the_payload_from_stdin_not_argv(self) -> None:
++        helper = self.build()
++        target = self.root / "LEDS.LED"
++
++        completed = subprocess.run(
++            [str(helper), str(target)],
++            input=b"#00FF00 solid",
++            capture_output=True,
++        )
++
++        self.assertEqual(completed.returncode, 0)
++        self.assertEqual(target.read_bytes(), b"#00FF00 solid")
++
++    def test_helper_reports_a_denied_target(self) -> None:
++        helper = self.build()
++        locked = self.root / "locked"
++        locked.mkdir()
++        locked.chmod(0o500)
++        self.addCleanup(locked.chmod, 0o700)
++
++        with self.assertRaises(LedWriterFailed) as caught:
++            run_led_writer(locked / "LEDS.LED", "off", binary_path=helper)
++
++        failure = caught.exception
++        self.assertTrue(failure.denied)
++        self.assertEqual(failure.returncode, LED_WRITER_EXIT_DENIED)
++        self.assertIn("LEDS.LED", failure.stderr)
++        self.assertIn(f"errno={errno.EACCES}", failure.stderr)
++
++    def test_helper_reports_a_missing_directory_without_claiming_denial(self) -> None:
++        helper = self.build()
++
++        with self.assertRaises(LedWriterFailed) as caught:
++            run_led_writer(self.root / "absent" / "LEDS.LED", "off", binary_path=helper)
++
++        self.assertFalse(caught.exception.denied)
++        self.assertIn(f"errno={errno.ENOENT}", caught.exception.stderr)
++
++    def test_helper_rejects_a_missing_target_argument(self) -> None:
++        helper = self.build()
++
++        completed = subprocess.run([str(helper)], input=b"off", capture_output=True)
++
++        self.assertEqual(completed.returncode, LED_WRITER_EXIT_USAGE)
++        self.assertIn(b"usage:", completed.stderr)
++
++    def test_helper_refuses_an_absurd_payload(self) -> None:
++        helper = self.build()
++        target = self.root / "LEDS.LED"
++
++        completed = subprocess.run(
++            [str(helper), str(target)],
++            input=b"a" * (1024 * 1024),
++            capture_output=True,
++        )
++
++        self.assertEqual(completed.returncode, LED_WRITER_EXIT_INPUT)
++        self.assertIn(b"errno=", completed.stderr)
++
++
++class LedWriterRunnerTests(unittest.TestCase):
++    def test_missing_helper_raises_unavailable(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            with self.assertRaises(LedWriterUnavailable) as caught:
++                run_led_writer(
++                    Path(tmp) / "LEDS.LED",
++                    "off",
++                    binary_path=Path(tmp) / "absent-helper",
++                )
++
++        self.assertIn("absent-helper", str(caught.exception))
++
++
++class DeviceWriterFallbackTests(unittest.TestCase):
++    def setUp(self) -> None:
++        device_writer._grant_hint_shown = False
++        self.addCleanup(setattr, device_writer, "_grant_hint_shown", False)
++
++    @staticmethod
++    def denied(*_args, **_kwargs):
++        raise PermissionError(errno.EPERM, "Operation not permitted")
++
++    def test_in_process_write_stays_the_fast_path(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            target = Path(tmp) / "LEDS.LED"
++
++            with patch.object(device_writer, "write_text_via_helper") as helper:
++                device_writer.write_text_synced(target, "off")
++
++            helper.assert_not_called()
++            self.assertEqual(target.read_text(), "off")
++
++    def test_denied_write_falls_back_to_the_helper(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            target = Path(tmp) / "LEDS.LED"
++            written: list[tuple[Path, str]] = []
++
++            def fake_helper(path: Path, text: str) -> bool:
++                written.append((path, text))
++                path.write_text(text)
++                return True
++
++            with (
++                patch.object(device_writer, "write_text_in_process", self.denied),
++                patch.object(device_writer, "write_text_via_helper", fake_helper),
++            ):
++                device_writer.write_text_synced(target, "#FF00FF pulse")
++
++            self.assertEqual(written, [(target, "#FF00FF pulse")])
++            self.assertEqual(target.read_text(), "#FF00FF pulse")
++
++    def test_eacces_also_falls_back(self) -> None:
++        def refused(*_args, **_kwargs):
++            raise PermissionError(errno.EACCES, "Permission denied")
++
++        calls: list[int] = []
++        with tempfile.TemporaryDirectory() as tmp:
++            with (
++                patch.object(device_writer, "write_text_in_process", refused),
++                patch.object(
++                    device_writer,
++                    "write_text_via_helper",
++                    lambda *_args: bool(calls.append(1)) or True,
++                ),
++            ):
++                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
++
++        self.assertEqual(len(calls), 1)
++
++    def test_other_errors_never_reach_the_helper(self) -> None:
++        def out_of_space(*_args, **_kwargs):
++            raise OSError(errno.ENOSPC, "No space left on device")
++
++        with tempfile.TemporaryDirectory() as tmp:
++            with (
++                patch.object(device_writer, "write_text_in_process", out_of_space),
++                patch.object(device_writer, "write_text_via_helper") as helper,
++                self.assertRaises(OSError) as caught,
++            ):
++                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
++
++            helper.assert_not_called()
++            self.assertEqual(caught.exception.errno, errno.ENOSPC)
++
++    def test_absent_helper_surfaces_the_original_error(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            with (
++                patch.dict(os.environ, {LED_WRITER_PATH_ENV: str(Path(tmp) / "absent")}),
++                patch.object(device_writer, "write_text_in_process", self.denied),
++                self.assertRaises(PermissionError) as caught,
++            ):
++                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
++
++            self.assertEqual(caught.exception.errno, errno.EPERM)
++
++    def test_denied_helper_surfaces_the_original_error_and_reports_once(self) -> None:
++        def deny(*_args, **_kwargs):
++            raise LedWriterFailed(LED_WRITER_EXIT_DENIED, "open: Operation not permitted")
++
++        with tempfile.TemporaryDirectory() as tmp:
++            with (
++                patch.object(device_writer, "write_text_in_process", self.denied),
++                patch("sidepulse.led_writer_launch.run_led_writer", deny),
++                patch.object(device_writer, "report_led_writer_denied") as report,
++                self.assertRaises(PermissionError),
++            ):
++                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
++
++            report.assert_called_once_with()
++
++    def test_grant_hint_is_printed_once_per_process(self) -> None:
++        stream = io.StringIO()
++
++        with redirect_stderr(stream):
++            device_writer.report_led_writer_denied()
++            device_writer.report_led_writer_denied()
++            device_writer.report_led_writer_denied()
++
++        rendered = stream.getvalue()
++        self.assertEqual(rendered.count("Removable Volumes"), 1)
++        self.assertIn(LED_WRITER_BINARY_NAME, rendered)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
+index 3314ba5..3a92182 100644
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -4584,6 +4584,12 @@ class AgentMonitorTests(unittest.TestCase):
+             cleanup_removed=None,
+             cleanup_skipped=None,
+         )
++        led_writer_result = SimpleNamespace(
++            binary_path=Path("/tmp/SidePulse LED Writer"),
++            compiled=True,
++            changed=True,
++            dry_run=False,
++        )
+         service_result = SimpleNamespace(
+             path=Path("/tmp/io.sidepulse.service.plist"),
+             changed=True,
+@@ -4617,6 +4623,10 @@ class AgentMonitorTests(unittest.TestCase):
+                 "sidepulse.sd_eject_guard_launch.install_sd_eject_guard",
+                 return_value=guard_result,
+             ) as guard,
++            patch(
++                "sidepulse.led_writer_launch.install_led_writer",
++                return_value=led_writer_result,
++            ) as led_writer,
+             patch(
+                 "sidepulse.status_bar_launch.install_launch_agent",
+                 return_value=launch_result,
+@@ -4632,6 +4642,7 @@ class AgentMonitorTests(unittest.TestCase):
+         junie.assert_called_once()
+         opencode.assert_called_once()
+         guard.assert_called_once_with(scope="auto", dry_run=False)
++        led_writer.assert_called_once_with(dry_run=False)
+         launch.assert_called_once_with(start=True)
+         service.assert_called_once_with(start=True, dry_run=False)
+ 
+@@ -4655,6 +4666,12 @@ class AgentMonitorTests(unittest.TestCase):
+             cleanup_removed=None,
+             cleanup_skipped=None,
+         )
++        led_writer_result = SimpleNamespace(
++            binary_path=Path("/tmp/SidePulse LED Writer"),
++            compiled=True,
++            changed=True,
++            dry_run=False,
++        )
+         service_result = SimpleNamespace(
+             path=Path("/tmp/io.sidepulse.service.plist"),
+             changed=False,
+@@ -4675,12 +4692,17 @@ class AgentMonitorTests(unittest.TestCase):
+                 "sidepulse.sd_eject_guard_launch.install_sd_eject_guard",
+                 return_value=guard_result,
+             ) as guard,
++            patch(
++                "sidepulse.led_writer_launch.install_led_writer",
++                return_value=led_writer_result,
++            ) as led_writer,
+             patch("sidepulse.status_bar_launch.install_launch_agent") as launch,
+         ):
+             result = cli_module.cmd_sidepulse_setup(args)
+ 
+         self.assertEqual(result, 0)
+         guard.assert_called_once_with(scope="user", dry_run=False)
++        led_writer.assert_called_once_with(dry_run=False)
+         launch.assert_not_called()
+ 
+     def test_sidepulse_setup_is_cli_only_on_linux(self) -> None:
+@@ -4705,6 +4727,7 @@ class AgentMonitorTests(unittest.TestCase):
+             patch.object(cli_module, "install_hook_results", return_value=[hook_result]),
+             patch("sidepulse.service_launch.install_service", return_value=service_result) as service,
+             patch("sidepulse.sd_eject_guard_launch.install_sd_eject_guard") as guard,
++            patch("sidepulse.led_writer_launch.install_led_writer") as led_writer,
+             patch("sidepulse.status_bar_launch.install_launch_agent") as launch,
+             patch("builtins.print") as output,
+         ):
+@@ -4712,6 +4735,7 @@ class AgentMonitorTests(unittest.TestCase):
+ 
+         self.assertEqual(result, 0)
+         guard.assert_not_called()
++        led_writer.assert_not_called()
+         launch.assert_not_called()
+         service.assert_called_once_with(start=True, dry_run=False)
+         rendered = "\n".join(" ".join(map(str, call.args)) for call in output.call_args_list)

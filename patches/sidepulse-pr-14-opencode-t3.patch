@@ -1,17 +1,17 @@
 diff --git a/README.md b/README.md
-index 0f4122f..eeaa66b 100644
+index a8264ff..445009f 100644
 --- a/README.md
 +++ b/README.md
-@@ -116,7 +116,7 @@ SidePulse Pro and SidePulse Dot.
+@@ -203,7 +203,7 @@ SidePulse Pro and SidePulse Dot.
  
  #### AI Agent Monitoring
  
--SidePulse can monitor AI agents such as Codex, Claude, and Grok through hooks, then
-+SidePulse can monitor AI agents such as Codex, Claude, Grok, and OpenCode through hooks, then
+-SidePulse can monitor AI agents such as Codex, Claude, Grok, Cursor, and Junie through hooks, then
++SidePulse can monitor AI agents such as Codex, Claude, Grok, Cursor, Junie, and OpenCode through hooks, then
  translate the current agent state into a small, glanceable LED status.
  
  Agent status modes:
-@@ -196,6 +196,21 @@ The monitor currently supports:
+@@ -283,6 +283,21 @@ The monitor currently supports:
  | Codex | `~/.codex/config.toml` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/codex.jsonl` |
  | Claude | `~/.claude/settings.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/claude.jsonl` |
  | Grok | `~/.grok/hooks/sidepulse.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/grok.jsonl` |
@@ -33,140 +33,107 @@ index 0f4122f..eeaa66b 100644
  
  #### Local reply classifier (Apple Silicon)
  
-@@ -271,11 +286,12 @@ Set up this Mac explicitly after package install:
- sidepulse setup
+@@ -359,10 +374,11 @@ sidepulse setup
  ```
  
--`sidepulse setup` installs or refreshes Codex, Claude, and Grok hooks, installs
-+`sidepulse setup` installs or refreshes Codex, Claude, Grok, and OpenCode hooks, installs
- SidePulse Pro Eject Prevention, writes the status-bar LaunchAgent, starts both helpers
- immediately, and enables them at login. This is intentionally an explicit
- command instead of a `pip install` side effect. To set up only one provider, use
--`sidepulse setup codex`, `sidepulse setup claude`, or `sidepulse setup grok`.
-+`sidepulse setup codex`, `sidepulse setup claude`, `sidepulse setup grok`, or
-+`sidepulse setup opencode`.
+ `sidepulse setup` installs or refreshes all supported agent hooks, including
+-Junie CLI, installs SidePulse Pro Eject Prevention, writes the status-bar
+-LaunchAgent, starts both helpers immediately, and enables them at login. This is
+-intentionally an explicit command instead of a `pip install` side effect. To set
+-up only one provider, pass its name, for example `sidepulse setup junie`.
++Junie CLI and OpenCode, installs SidePulse Pro Eject Prevention, writes the
++status-bar LaunchAgent, starts both helpers immediately, and enables them at
++login. This is intentionally an explicit command instead of a `pip install` side
++effect. To set up only one provider, pass its name, for example
++`sidepulse setup junie` or `sidepulse setup opencode`.
  To skip the status-bar app but still install hooks and SidePulse Pro Eject Prevention, use
  `sidepulse setup --no-status-bar`.
  
-@@ -332,6 +348,7 @@ sidepulse agent-monitor install
- sidepulse agent-monitor install codex
- sidepulse agent-monitor install claude
+@@ -421,6 +437,7 @@ sidepulse agent-monitor install claude
  sidepulse agent-monitor install grok
+ sidepulse agent-monitor install cursor
+ sidepulse agent-monitor install junie
 +sidepulse agent-monitor install opencode
  ```
  
  Each hook invokes a small, standard-library-only Python entry point. It writes
-@@ -495,7 +512,7 @@ firmware/websim `sdled.wasm` engine, then AppKit only draws the returned RGB
+@@ -591,7 +608,7 @@ firmware/websim `sdled.wasm` engine, then AppKit only draws the returned RGB
  frames.
  
  Open `Settings...` from the dropdown to manage agent integrations. The settings
--window can install or uninstall Codex, Claude, and Grok hooks. The transcript
-+window can install or uninstall Codex, Claude, Grok, and OpenCode hooks. The transcript
+-window can install or uninstall Codex, Claude, Grok, and Junie hooks. The transcript
++window can install or uninstall Codex, Claude, Grok, Junie, and OpenCode hooks. The transcript
  checkboxes control the file-based CLI/debug fallback; the status-bar app gets
  live updates from the local hook event socket. Settings are stored at
  `${XDG_CONFIG_HOME:-~/.config}/sidepulse/agent-monitor/settings.json`.
 diff --git a/src/sidepulse/cli.py b/src/sidepulse/cli.py
-index ca8f460..cad4819 100644
+index 480fe6e..c7fed39 100644
 --- a/src/sidepulse/cli.py
 +++ b/src/sidepulse/cli.py
-@@ -24,10 +24,12 @@ from .install import (
-     install_codex_hooks,
+@@ -38,11 +38,13 @@ from .install import (
      install_cursor_hooks,
      install_grok_hooks,
+     install_junie_hooks,
 +    install_opencode_hooks,
      uninstall_claude_hooks,
      uninstall_codex_hooks,
      uninstall_cursor_hooks,
      uninstall_grok_hooks,
+     uninstall_junie_hooks,
 +    uninstall_opencode_hooks,
  )
  from .led_status import AgentLedController, LedStatusWrite
- from .lid_sleep import (
-@@ -42,6 +44,7 @@ from .providers import (
-     detect_claude_config,
-     detect_codex_config,
-     detect_grok_config,
-+    detect_opencode_config,
-     detect_log_path,
-     default_log_path,
- )
-@@ -99,6 +102,7 @@ def build_sidepulse_parser() -> argparse.ArgumentParser:
-     setup.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
-     setup.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+ from .links import (
+@@ -151,6 +153,7 @@ def build_sidepulse_parser() -> argparse.ArgumentParser:
      setup.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
+     setup.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
+     setup.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
 +    setup.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
      setup.add_argument("--dry-run", action="store_true", help="Show what would change.")
      setup.add_argument(
          "--sd-eject-guard-scope",
-@@ -642,20 +646,22 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
-     )
-     status_bar.set_defaults(func=cmd_status_bar)
- 
--    install = subparsers.add_parser("install", help="Install Codex, Claude, and/or Grok monitor hooks.")
-+    install = subparsers.add_parser("install", help="Install supported agent monitor hooks.")
-     install.add_argument("provider", choices=("all", *HOOK_PROVIDERS), nargs="?", default="all")
-     install.add_argument("--log-dir", type=Path, help="Directory for provider JSONL files.")
-     install.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
-     install.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+@@ -1173,6 +1176,7 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
      install.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
+     install.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
+     install.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
 +    install.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
      install.add_argument("--dry-run", action="store_true", help="Show what would change.")
      install.set_defaults(func=cmd_install)
  
--    uninstall = subparsers.add_parser("uninstall", help="Remove Codex, Claude, and/or Grok monitor hooks.")
-+    uninstall = subparsers.add_parser("uninstall", help="Remove supported agent monitor hooks.")
-     uninstall.add_argument("provider", choices=("all", *HOOK_PROVIDERS), nargs="?", default="all")
-     uninstall.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
-     uninstall.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+@@ -1183,6 +1187,7 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
      uninstall.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
+     uninstall.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
+     uninstall.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
 +    uninstall.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
      uninstall.add_argument("--dry-run", action="store_true", help="Show what would change.")
      uninstall.set_defaults(func=cmd_uninstall)
  
-@@ -697,10 +703,16 @@ def add_status_args(parser: argparse.ArgumentParser, include_json: bool = True)
-     parser.add_argument("--codex-log", type=Path, help="Codex JSONL log path.")
-     parser.add_argument("--claude-log", type=Path, help="Claude JSONL log path.")
+@@ -1226,6 +1231,7 @@ def add_status_args(parser: argparse.ArgumentParser, include_json: bool = True)
      parser.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
+     parser.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
+     parser.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
 +    parser.add_argument("--opencode-log", type=Path, help="OpenCode JSONL log path.")
  
  
  def cmd_doctor(args: argparse.Namespace) -> int:
--    configs = [detect_codex_config(), detect_claude_config(), detect_grok_config()]
-+    configs = [
-+        detect_codex_config(),
-+        detect_claude_config(),
-+        detect_grok_config(),
-+        detect_opencode_config(),
-+    ]
-     payload = {"providers": [config.to_dict() for config in configs]}
-     if args.json:
-         print(json.dumps(payload, indent=2))
-@@ -821,8 +833,10 @@ def install_hook_results(args: argparse.Namespace):
-             results.append(install_claude_hooks(log_path=log_path, dry_run=args.dry_run))
-         elif provider == "cursor":
-             results.append(install_cursor_hooks(log_path=log_path, dry_run=args.dry_run))
--        else:
-+        elif provider == "grok":
+@@ -1354,6 +1360,7 @@ def install_hook_results(args: argparse.Namespace):
              results.append(install_grok_hooks(log_path=log_path, dry_run=args.dry_run))
-+        else:
+         else:
+             results.append(install_junie_hooks(log_path=log_path, dry_run=args.dry_run))
 +            results.append(install_opencode_hooks(log_path=log_path, dry_run=args.dry_run))
      return results
  
  
-@@ -849,8 +863,10 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
-             results.append(uninstall_claude_hooks(log_path=log_path, dry_run=args.dry_run))
-         elif provider == "cursor":
-             results.append(uninstall_cursor_hooks(log_path=log_path, dry_run=args.dry_run))
--        else:
-+        elif provider == "grok":
+@@ -1384,6 +1391,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
              results.append(uninstall_grok_hooks(log_path=log_path, dry_run=args.dry_run))
-+        else:
+         else:
+             results.append(uninstall_junie_hooks(log_path=log_path, dry_run=args.dry_run))
 +            results.append(uninstall_opencode_hooks(log_path=log_path, dry_run=args.dry_run))
  
      for result in results:
          action = "would remove" if args.dry_run and result.changed else "removed"
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
-index 267d42e..c537dc2 100644
+index c0d087a..00d8502 100644
 --- a/src/sidepulse/collector.py
 +++ b/src/sidepulse/collector.py
 @@ -4,7 +4,7 @@ import json
@@ -321,16 +288,16 @@ index 267d42e..c537dc2 100644
      def _recent_transcript_files(self, root: Path, *, limit: int) -> tuple[Path, ...]:
          key = (str(root), limit)
          now = time.monotonic()
-@@ -398,6 +469,8 @@ class LiveAgentMonitor:
+@@ -400,6 +471,8 @@ class LiveAgentMonitor:
          self.metadata_by_session: dict[str, StatusMetadata] = {}
          self.metadata_by_status: dict[str, StatusMetadata] = {}
          self.pending_permissions_by_key: dict[str, set[str]] = {}
 +        self._ignored_status_keys: set[str] = set()
 +        self._pending_t3_hooks: dict[tuple[str, str], AgentStatus] = {}
          self.load_latest_state()
+         self.reconcile_recovery_sources()
  
-     def ingest_record(self, record: HookEvent) -> None:
-@@ -407,10 +480,36 @@ class LiveAgentMonitor:
+@@ -410,10 +483,36 @@ class LiveAgentMonitor:
                  self.metadata_by_session,
                  self.metadata_by_status,
              )
@@ -367,7 +334,7 @@ index 267d42e..c537dc2 100644
              track_pending_permissions(record, self.pending_permissions_by_key)
              previous = self.statuses_by_key.get(status.agent_id)
              if should_ignore_status_transition(
-@@ -422,6 +521,112 @@ class LiveAgentMonitor:
+@@ -425,6 +524,112 @@ class LiveAgentMonitor:
              self.statuses_by_key[status.agent_id] = status
              self.write_latest_state()
  
@@ -480,7 +447,7 @@ index 267d42e..c537dc2 100644
      def snapshot(self, include_stale: bool = False) -> MonitorSnapshot:
          now = datetime.now(timezone.utc)
          with self.lock:
-@@ -474,6 +679,170 @@ class LiveAgentMonitor:
+@@ -503,6 +708,170 @@ class LiveAgentMonitor:
              pass
  
  
@@ -651,10 +618,10 @@ index 267d42e..c537dc2 100644
  def default_sources(settings: AgentMonitorSettings | None = None) -> tuple[SourceSpec, ...]:
      active_settings = load_settings() if settings is None else settings
      sources = [
-@@ -485,6 +854,10 @@ def default_sources(settings: AgentMonitorSettings | None = None) -> tuple[Sourc
-     if active_settings.claude_transcripts_enabled:
+@@ -515,6 +884,10 @@ def default_sources(settings: AgentMonitorSettings | None = None) -> tuple[Sourc
          sources.append(SourceSpec(CLAUDE_TRANSCRIPT_PROVIDER, Path.home() / ".claude" / "projects"))
      sources.append(SourceSpec("grok", detect_log_path("grok")))
+     sources.append(SourceSpec("junie", detect_log_path("junie")))
 +    sources.append(SourceSpec("opencode", detect_log_path("opencode")))
 +    t3code_logs = default_t3code_event_log_dir()
 +    if t3code_logs.exists():
@@ -662,7 +629,7 @@ index 267d42e..c537dc2 100644
      return unique_sources(sources)
  
  
-@@ -519,6 +892,351 @@ def recent_transcript_files(
+@@ -549,6 +922,351 @@ def recent_transcript_files(
      return files[:limit]
  
  
@@ -1014,7 +981,7 @@ index 267d42e..c537dc2 100644
  def safe_mtime(path: Path) -> float:
      try:
          return path.stat().st_mtime
-@@ -705,6 +1423,29 @@ def codex_transcript_event(
+@@ -735,6 +1453,29 @@ def codex_transcript_event(
              message=message,
          )
  
@@ -1044,7 +1011,7 @@ index 267d42e..c537dc2 100644
      return None
  
  
-@@ -949,6 +1690,27 @@ def _string_or_none(value: object) -> str | None:
+@@ -979,6 +1720,27 @@ def _string_or_none(value: object) -> str | None:
      return value if isinstance(value, str) and value else None
  
  
@@ -1072,7 +1039,7 @@ index 267d42e..c537dc2 100644
  def metadata_for_record(
      record: HookEvent,
      metadata_by_session: dict[str, StatusMetadata],
-@@ -971,6 +1733,15 @@ def metadata_for_record(
+@@ -1001,6 +1763,15 @@ def metadata_for_record(
          cwd=status_metadata.cwd or session_metadata.cwd,
          title=status_metadata.title or session_metadata.title,
          origin=status_metadata.origin or session_metadata.origin,
@@ -1088,7 +1055,7 @@ index 267d42e..c537dc2 100644
      )
  
  
-@@ -986,6 +1757,14 @@ def update_metadata(metadata: StatusMetadata, record: HookEvent) -> None:
+@@ -1016,6 +1787,14 @@ def update_metadata(metadata: StatusMetadata, record: HookEvent) -> None:
      if origin:
          metadata.origin = origin
  
@@ -1103,7 +1070,7 @@ index 267d42e..c537dc2 100644
  
  def is_provider_session_title(record: HookEvent, title: str) -> bool:
      if record.provider == "codex":
-@@ -1021,10 +1800,15 @@ def status_from_event(record: HookEvent, metadata: StatusMetadata | None = None)
+@@ -1051,10 +1830,15 @@ def status_from_event(record: HookEvent, metadata: StatusMetadata | None = None)
          updated_at=record.logged_at,
          event_name=record.event_name,
          session_id=record.session_id,
@@ -1120,7 +1087,7 @@ index 267d42e..c537dc2 100644
      )
  
  
-@@ -1317,16 +2101,24 @@ def agent_status_from_dict(data: object) -> AgentStatus | None:
+@@ -1350,16 +2134,24 @@ def agent_status_from_dict(data: object) -> AgentStatus | None:
              updated_at=updated_at,
              event_name=str(data["event_name"]),
              session_id=session_id,
@@ -1145,7 +1112,7 @@ index 267d42e..c537dc2 100644
  def status_counts_active(status: AgentStatus) -> bool:
      return status.mode not in {AgentMode.COMPLETED, AgentMode.IDLE_READY}
  
-@@ -1388,10 +2180,12 @@ def should_ignore_status_transition(
+@@ -1421,10 +2213,12 @@ def should_ignore_status_transition(
  
  
  def should_ignore_record(record: HookEvent, metadata: StatusMetadata) -> bool:
@@ -1161,7 +1128,7 @@ index 267d42e..c537dc2 100644
      text = " ".join(
          part
          for part in (
-@@ -1405,11 +2199,46 @@ def should_ignore_record(record: HookEvent, metadata: StatusMetadata) -> bool:
+@@ -1438,11 +2232,46 @@ def should_ignore_record(record: HookEvent, metadata: StatusMetadata) -> bool:
      if not text:
          return False
  
@@ -1210,7 +1177,7 @@ index 267d42e..c537dc2 100644
  
  
  def read_recent_lines(path: Path, max_lines: int) -> list[str]:
-@@ -1439,39 +2268,13 @@ def read_recent_lines(path: Path, max_lines: int) -> list[str]:
+@@ -1472,39 +2301,13 @@ def read_recent_lines(path: Path, max_lines: int) -> list[str]:
  def _replace_stale(status: AgentStatus, stale: bool) -> AgentStatus:
      if status.stale == stale:
          return status
@@ -1252,7 +1219,7 @@ index 267d42e..c537dc2 100644
  
  
  def title_from_event(record: HookEvent) -> str | None:
-@@ -1480,6 +2283,10 @@ def title_from_event(record: HookEvent) -> str | None:
+@@ -1513,6 +2316,10 @@ def title_from_event(record: HookEvent) -> str | None:
          if title:
              return title
  
@@ -1264,21 +1231,29 @@ index 267d42e..c537dc2 100644
          return None
      return summarize_prompt(record.raw.get("prompt"))
 diff --git a/src/sidepulse/install.py b/src/sidepulse/install.py
-index 4d5669b..4ec9b01 100644
+index edc390e..79c7f0d 100644
 --- a/src/sidepulse/install.py
 +++ b/src/sidepulse/install.py
-@@ -21,6 +21,7 @@ from .providers import (
-     CURSOR_EVENTS,
-     GROK_EVENTS,
+@@ -15,6 +15,7 @@ from datetime import datetime, timezone
+ from pathlib import Path
+ from typing import Any
+ 
++from .ipc import HOOK_EVENT_SEND_TIMEOUT_SECONDS, MAX_EVENT_BYTES
+ from .providers import (
+     CLAUDE_EVENTS,
+     CODEX_EVENTS,
+@@ -23,6 +24,7 @@ from .providers import (
+     JUNIE_EVENTS,
+     JUNIE_MONITOR_EVENTS,
      default_cursor_hook_config_path,
 +    default_opencode_plugin_path,
      default_grok_hook_config_path,
+     default_junie_hook_config_path,
      detect_log_path,
- )
-@@ -169,6 +170,88 @@ def install_grok_hooks(
-     return InstallResult("grok", config, target_log, changed, backup, dry_run)
+@@ -203,6 +205,179 @@ def install_junie_hooks(
+         target_log.touch(exist_ok=True)
  
- 
+     return InstallResult("junie", config, target_log, changed, backup, dry_run)
 +def install_opencode_hooks(
 +    log_path: Path | None = None,
 +    config_path: Path | None = None,
@@ -1305,11 +1280,109 @@ index 4d5669b..4ec9b01 100644
 +
 +def opencode_plugin_source(log_path: Path) -> str:
 +    encoded_log = json.dumps(str(log_path.expanduser()))
++    socket_timeout_ms = int(HOOK_EVENT_SEND_TIMEOUT_SECONDS * 1000)
 +    return f'''// sidepulse-opencode-plugin
 +import {{ appendFile, mkdir }} from "node:fs/promises"
-+import {{ dirname }} from "node:path"
++import {{ connect }} from "node:net"
++import {{ homedir }} from "node:os"
++import {{ dirname, join }} from "node:path"
 +
 +const SIDEPULSE_LOG = {encoded_log}
++const SIDEPULSE_SOCKET_NAME = "events.sock"
++const SIDEPULSE_SOCKET_TIMEOUT_MS = {socket_timeout_ms}
++const SIDEPULSE_MAX_EVENT_BYTES = {MAX_EVENT_BYTES}
++
++// Mirrors sidepulse.ipc.candidate_event_socket_paths: XDG_STATE_HOME wins when the
++// shell exports it, and the plain home path is always tried too because the status
++// bar LaunchAgent does not inherit XDG_STATE_HOME.
++function socketCandidates() {{
++  const targets = []
++  const add = (value) => {{
++    if (typeof value === "string" && value.length > 0 && !targets.includes(value)) {{
++      targets.push(value)
++    }}
++  }}
++  const stateHome = process.env.XDG_STATE_HOME
++  if (stateHome) add(join(stateHome, "sidepulse", "agent-monitor", SIDEPULSE_SOCKET_NAME))
++  let home = process.env.HOME
++  if (!home) {{
++    try {{
++      home = homedir()
++    }} catch {{
++      home = ""
++    }}
++  }}
++  if (home) add(join(home, ".local", "state", "sidepulse", "agent-monitor", SIDEPULSE_SOCKET_NAME))
++  add(join(dirname(SIDEPULSE_LOG), SIDEPULSE_SOCKET_NAME))
++  return targets
++}}
++
++// Resolves false instead of rejecting for every failure mode: no listener, a stale
++// socket file, a wedged server, or a partial write.
++function writeEventSocket(target, message) {{
++  return new Promise((resolve) => {{
++    let socket
++    try {{
++      socket = connect(target)
++    }} catch {{
++      resolve(false)
++      return
++    }}
++    let flushed = false
++    let settled = false
++    let guard
++    const settle = (ok) => {{
++      if (settled) return
++      settled = true
++      clearTimeout(guard)
++      resolve(ok)
++    }}
++    const abort = () => {{
++      try {{
++        socket.destroy()
++      }} catch {{
++        // Already torn down.
++      }}
++      settle(false)
++    }}
++    guard = setTimeout(abort, SIDEPULSE_SOCKET_TIMEOUT_MS)
++    guard.unref?.()
++    socket.on("error", abort)
++    socket.on("close", () => settle(flushed))
++    socket.on("connect", () => {{
++      try {{
++        socket.end(message, () => {{
++          flushed = true
++        }})
++      }} catch {{
++        abort()
++      }}
++    }})
++  }})
++}}
++
++// Live push to the status bar. The JSONL log above stays the recovery source; this
++// is what makes the status bar react without waiting for a reconcile.
++async function notifySidePulse(payload) {{
++  try {{
++    const message = JSON.stringify({{ provider: "opencode", line: payload }})
++    if (Buffer.byteLength(message, "utf8") > SIDEPULSE_MAX_EVENT_BYTES) return
++    for (const target of socketCandidates()) {{
++      if (await writeEventSocket(target, message)) return
++    }}
++  }} catch {{
++    // Monitoring must never interrupt an OpenCode session.
++  }}
++}}
++
++async function appendSidePulseLog(payload) {{
++  try {{
++    await mkdir(dirname(SIDEPULSE_LOG), {{ recursive: true }})
++    await appendFile(SIDEPULSE_LOG, JSON.stringify(payload) + "\\n", "utf8")
++  }} catch {{
++    // Monitoring must never interrupt an OpenCode session.
++  }}
++}}
 +
 +function firstString(...values) {{
 +  return values.find((value) => typeof value === "string" && value.length > 0)
@@ -1350,21 +1423,14 @@ index 4d5669b..4ec9b01 100644
 +        : {{ agent_origin: "OpenCode", agent_origin_kind: "opencode_app" }}),
 +    }}
 +    if (!payload.session_id) return
-+    try {{
-+      await mkdir(dirname(SIDEPULSE_LOG), {{ recursive: true }})
-+      await appendFile(SIDEPULSE_LOG, JSON.stringify(payload) + "\\n", "utf8")
-+    }} catch {{
-+      // Monitoring must never interrupt an OpenCode session.
-+    }}
++    await Promise.all([appendSidePulseLog(payload), notifySidePulse(payload)])
 +  }},
 +}})
 +'''
-+
-+
+ 
+ 
  def uninstall_codex_hooks(
-     log_path: Path | None = None,
-     config_path: Path | None = None,
-@@ -418,6 +501,22 @@ def remove_cursor_hook_entries(entries: list[Any]) -> list[Any]:
+@@ -480,6 +655,22 @@ def remove_cursor_hook_entries(entries: list[Any]) -> list[Any]:
      ]
  
  
@@ -1427,7 +1493,7 @@ index 1cc71c2..cea11ff 100644
 +        "opencode": "OpenCode",
      }.get(provider, provider.title())
 diff --git a/src/sidepulse/origin.py b/src/sidepulse/origin.py
-index 3f87a73..2df52e3 100644
+index 1e7c514..dcd9a45 100644
 --- a/src/sidepulse/origin.py
 +++ b/src/sidepulse/origin.py
 @@ -10,6 +10,21 @@ from typing import Any, Mapping
@@ -1477,16 +1543,16 @@ index 3f87a73..2df52e3 100644
      term_program = str(env.get("TERM_PROGRAM") or "").strip().lower()
      if term_program == "vscode" or any(key.startswith("VSCODE_") for key in env):
          return surface_origin(provider, "vscode", "env:VSCODE")
-@@ -94,6 +120,8 @@ def origin_from_environment(provider: str, env: Mapping[str, str]) -> AgentOrigi
+@@ -96,6 +122,8 @@ def origin_from_environment(provider: str, env: Mapping[str, str]) -> AgentOrigi
              return surface_origin(provider, "app", "env:__CFBundleIdentifier")
-         if provider == "grok" and "grok" in bundle_id:
-             return surface_origin(provider, "app", "env:__CFBundleIdentifier")
+         if provider == "junie" and "jetbrains" in bundle_id:
+             return surface_origin(provider, "ide", "env:__CFBundleIdentifier")
 +        if provider == "opencode" and "opencode" in bundle_id:
 +            return surface_origin(provider, "app", "env:__CFBundleIdentifier")
  
      return None
  
-@@ -104,6 +132,12 @@ def origin_from_processes(
+@@ -106,6 +134,12 @@ def origin_from_processes(
  ) -> AgentOrigin | None:
      haystack = "\n".join(f"{info.comm}\n{info.command}" for info in processes).lower()
  
@@ -1499,25 +1565,25 @@ index 3f87a73..2df52e3 100644
      if any(token in haystack for token in ("visual studio code.app", "code helper", "vscode")):
          return surface_origin(provider, "vscode", "process:Visual Studio Code")
      if "cursor.app" in haystack or "cursor helper" in haystack:
-@@ -119,6 +153,8 @@ def origin_from_processes(
-         return surface_origin(provider, "app", "process:Claude.app")
-     if provider == "grok" and "grok.app" in haystack:
-         return surface_origin(provider, "app", "process:Grok.app")
+@@ -136,6 +170,8 @@ def origin_from_processes(
+         )
+     ):
+         return surface_origin(provider, "ide", "process:JetBrains IDE")
 +    if provider == "opencode" and "opencode.app" in haystack:
 +        return surface_origin(provider, "app", "process:OpenCode.app")
  
      for info in processes:
          basename = process_basename(info)
-@@ -128,6 +164,8 @@ def origin_from_processes(
-             return surface_origin(provider, "cli", "process:claude")
-         if provider == "grok" and basename == "grok":
+@@ -147,6 +183,8 @@ def origin_from_processes(
              return surface_origin(provider, "cli", "process:grok")
+         if provider == "junie" and basename == "junie":
+             return surface_origin(provider, "cli", "process:junie")
 +        if provider == "opencode" and basename == "opencode":
 +            return surface_origin(provider, "cli", "process:opencode")
  
      return None
  
-@@ -139,19 +177,29 @@ def surface_origin(provider: str, surface: str, source: str) -> AgentOrigin:
+@@ -158,22 +196,32 @@ def surface_origin(provider: str, surface: str, source: str) -> AgentOrigin:
          ("codex", "vscode"): "Codex in VS Code",
          ("codex", "cursor"): "Codex in Cursor",
          ("codex", "windsurf"): "Codex in Windsurf",
@@ -1537,6 +1603,9 @@ index 3f87a73..2df52e3 100644
          ("grok", "windsurf"): "Grok in Windsurf",
 +        ("grok", "t3code"): "T3 Code",
          ("grok", "transcript"): "Grok Transcript",
+         ("junie", "cli"): "Junie CLI",
+         ("junie", "ide"): "Junie in JetBrains IDE",
+         ("junie", "transcript"): "Junie Transcript",
 +        ("opencode", "app"): "OpenCode",
 +        ("opencode", "cli"): "OpenCode CLI",
 +        ("opencode", "vscode"): "OpenCode in VS Code",
@@ -1547,7 +1616,7 @@ index 3f87a73..2df52e3 100644
      }
      label = labels.get((provider, surface), provider_label(provider))
      return AgentOrigin(
-@@ -227,16 +275,53 @@ def terminal_environment(env: Mapping[str, str]) -> bool:
+@@ -249,16 +297,53 @@ def terminal_environment(env: Mapping[str, str]) -> bool:
      return bool(term_program and term_program.lower() != "vscode")
  
  
@@ -1605,15 +1674,14 @@ index 3f87a73..2df52e3 100644
  
  
 diff --git a/src/sidepulse/providers.py b/src/sidepulse/providers.py
-index 516ec6c..cf3fdcc 100644
+index d7e5c42..deb8c02 100644
 --- a/src/sidepulse/providers.py
 +++ b/src/sidepulse/providers.py
-@@ -74,8 +74,22 @@ CURSOR_EVENTS = (
-     "stop",
+@@ -90,9 +90,23 @@ JUNIE_MONITOR_EVENTS = tuple(
+     event for event in JUNIE_EVENTS if event != "PermissionRequest"
  )
  
--HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor")
--KNOWN_EVENTS = tuple(dict.fromkeys(CODEX_EVENTS + CLAUDE_EVENTS + GROK_EVENTS))
+-HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor", "junie")
 +OPENCODE_EVENTS = (
 +    "SessionStart",
 +    "UserPromptSubmit",
@@ -1626,22 +1694,24 @@ index 516ec6c..cf3fdcc 100644
 +    "SessionEnd",
 +)
 +
-+HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor", "opencode")
-+KNOWN_EVENTS = tuple(
-+    dict.fromkeys(CODEX_EVENTS + CLAUDE_EVENTS + GROK_EVENTS + OPENCODE_EVENTS)
-+)
++HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor", "junie", "opencode")
+ KNOWN_EVENTS = tuple(
+-    dict.fromkeys(CODEX_EVENTS + CLAUDE_EVENTS + GROK_EVENTS + JUNIE_EVENTS)
++    dict.fromkeys(
++        CODEX_EVENTS + CLAUDE_EVENTS + GROK_EVENTS + JUNIE_EVENTS + OPENCODE_EVENTS
++    )
+ )
  
  
- @dataclass(frozen=True)
-@@ -134,6 +148,7 @@ def detect_provider_configs(home: Path | None = None) -> list[ProviderConfig]:
-         detect_claude_config(home),
+@@ -153,6 +167,7 @@ def detect_provider_configs(home: Path | None = None) -> list[ProviderConfig]:
          detect_grok_config(home),
          detect_cursor_config(home),
+         detect_junie_config(home),
 +        detect_opencode_config(home),
      ]
  
  
-@@ -335,6 +350,44 @@ def _paths_from_cursor_entries(entries: list[Any]) -> list[Path]:
+@@ -412,6 +427,44 @@ def _paths_from_cursor_entries(entries: list[Any]) -> list[Path]:
      return paths
  
  
@@ -1686,16 +1756,16 @@ index 516ec6c..cf3fdcc 100644
  def detect_log_path(provider: str, home: Path | None = None) -> Path:
      if provider == "codex":
          config = detect_codex_config(home)
-@@ -344,6 +397,8 @@ def detect_log_path(provider: str, home: Path | None = None) -> Path:
-         config = detect_grok_config(home)
-     elif provider == "cursor":
+@@ -423,6 +476,8 @@ def detect_log_path(provider: str, home: Path | None = None) -> Path:
          config = detect_cursor_config(home)
+     elif provider == "junie":
+         config = detect_junie_config(home)
 +    elif provider == "opencode":
 +        config = detect_opencode_config(home)
      else:
          config = ProviderConfig(provider, default_log_path(provider, home), False, False, (), ())
      if config.log_paths:
-@@ -442,6 +497,14 @@ def canonical_event_name(value: Any) -> str | None:
+@@ -527,6 +582,14 @@ def canonical_event_name(value: Any) -> str | None:
              "pre_compact": "PreCompact",
              "post_compact": "PostCompact",
              "stop_failure": "StopFailure",
@@ -1711,7 +1781,7 @@ index 516ec6c..cf3fdcc 100644
      )
      return aliases.get(normalized)
 diff --git a/src/sidepulse/session_actions.py b/src/sidepulse/session_actions.py
-index a337b61..fcdd951 100644
+index 528ae2a..d849e61 100644
 --- a/src/sidepulse/session_actions.py
 +++ b/src/sidepulse/session_actions.py
 @@ -13,11 +13,16 @@ SESSION_OPEN_CHOICES = (SESSION_OPEN_APP, SESSION_OPEN_TERMINAL, SESSION_OPEN_VS
@@ -1732,7 +1802,7 @@ index a337b61..fcdd951 100644
  
      if provider == "codex" and session_id:
          return f"codex://threads/{quote(session_id, safe='')}"
-@@ -27,28 +32,29 @@ def session_deep_link(status: AgentStatus) -> str | None:
+@@ -27,30 +32,31 @@ def session_deep_link(status: AgentStatus) -> str | None:
  
  
  def session_vscode_link(status: AgentStatus) -> str | None:
@@ -1766,12 +1836,14 @@ index a337b61..fcdd951 100644
 -    if provider == "grok":
 +    if provider == "grok" and session_id:
          return f"cd {cwd} && grok --resume {session_id}"
+     if provider == "junie":
+         return f"cd {cwd} && junie --session-id={session_id} --resume"
 +    if provider == "opencode" and session_id:
 +        return f"cd {cwd} && opencode --session {session_id}"
      return None
  
  
-@@ -59,9 +65,19 @@ def default_session_open_action(status: AgentStatus) -> str:
+@@ -61,9 +67,19 @@ def default_session_open_action(status: AgentStatus) -> str:
      return SESSION_OPEN_TERMINAL
  
  
@@ -1791,7 +1863,7 @@ index a337b61..fcdd951 100644
          if any(surface in origin for surface in SESSION_OPEN_VSCODE_SURFACES):
              return (SESSION_OPEN_VSCODE, SESSION_OPEN_APP, SESSION_OPEN_TERMINAL)
          if any(surface in origin for surface in SESSION_OPEN_TERMINAL_SURFACES):
-@@ -80,8 +96,48 @@ def normalized_origin(origin: str | None) -> str:
+@@ -82,8 +98,48 @@ def normalized_origin(origin: str | None) -> str:
      return " ".join(str(origin or "").strip().lower().replace("-", " ").split())
  
  
@@ -1840,7 +1912,7 @@ index a337b61..fcdd951 100644
          url = session_deep_link(status)
          return ("url", url) if url else None
      if action == SESSION_OPEN_VSCODE:
-@@ -100,6 +156,8 @@ def available_session_open_actions(status: AgentStatus) -> tuple[str, ...]:
+@@ -102,6 +158,8 @@ def available_session_open_actions(status: AgentStatus) -> tuple[str, ...]:
  def session_open_action_label(status: AgentStatus, action: str) -> str:
      provider = status.provider.lower()
      if action == SESSION_OPEN_APP:
@@ -1850,60 +1922,63 @@ index a337b61..fcdd951 100644
              return "Open in Codex"
          if provider == "claude":
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index c789b32..88c6deb 100644
+index 90b98aa..b3e0fe6 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -80,7 +80,14 @@ from .audit import (
+@@ -83,7 +83,15 @@ from .audit import (
      read_status_history_records,
      status_history_record,
  )
--from .collector import LiveAgentMonitor, SourceSpec
+-from .collector import LiveAgentMonitor, SourceSpec, default_sources
 +from .collector import (
 +    T3CODE_PROVIDER,
 +    AgentMonitor,
 +    LiveAgentMonitor,
 +    SourceSpec,
++    default_sources,
 +    default_t3code_event_log_dir,
 +    read_recent_lines,
 +)
  from .device_writer import (
      DEFAULT_FILE_NAME,
      MOUNT_ROOT,
-@@ -99,9 +106,11 @@ from .install import (
-     install_claude_hooks,
-     install_codex_hooks,
+@@ -104,11 +112,13 @@ from .install import (
+     install_cursor_hooks,
      install_grok_hooks,
+     install_junie_hooks,
 +    install_opencode_hooks,
      uninstall_claude_hooks,
      uninstall_codex_hooks,
+     uninstall_cursor_hooks,
      uninstall_grok_hooks,
+     uninstall_junie_hooks,
 +    uninstall_opencode_hooks,
  )
  from .led_status import (
      AgentLedController,
-@@ -134,6 +143,8 @@ from .providers import (
-     detect_claude_config,
-     detect_codex_config,
+@@ -144,6 +154,8 @@ from .providers import (
+     detect_cursor_config,
      detect_grok_config,
+     detect_junie_config,
 +    detect_opencode_config,
 +    detect_log_path,
      default_state_dir,
      parse_log_line,
  )
-@@ -343,8 +354,12 @@ STATUS_BAR_KEEPALIVE_VOLUME_NAMES = (
+@@ -357,8 +369,12 @@ STATUS_BAR_KEEPALIVE_VOLUME_NAMES = (
  STATUS_BAR_REFRESH_SECONDS = 15.0
  STATUS_BAR_DEVICE_POLL_SECONDS = 2.0
  STATUS_BAR_SESSION_HISTORY_LIMIT = 10
 +# Below this the number is noise; above it the session is close enough to a
 +# compaction that it is worth seeing without opening the submenu.
 +CONTEXT_PERCENT_MENU_THRESHOLD = 70.0
- SCREEN_BAR_FEATURE_ENABLED = True
+ SIDEPULSE_NOTCH_FEATURE_ENABLED = True
  STATUS_BAR_MAX_LINES_PER_SOURCE = 500
 +STATUS_BAR_STARTUP_REPLAY_LINES = 200
  SETTINGS_WINDOW_WIDTH = 680
  SETTINGS_WINDOW_HEIGHT = 560
  SETTINGS_ANIMATIONS_WINDOW_WIDTH = 720
-@@ -508,6 +523,46 @@ def format_percent_value(value: float | int) -> str:
+@@ -522,6 +538,46 @@ def format_percent_value(value: float | int) -> str:
      return f"{number:.1f}%"
  
  
@@ -1950,7 +2025,7 @@ index c789b32..88c6deb 100644
  class StatusBarController(NSObject):
      def init(self):
          self = objc.super(StatusBarController, self).init()
-@@ -516,6 +571,7 @@ class StatusBarController(NSObject):
+@@ -530,6 +586,7 @@ class StatusBarController(NSObject):
  
          self.settings = load_settings()
          self.monitor = self.build_monitor()
@@ -1958,7 +2033,7 @@ index c789b32..88c6deb 100644
          self.event_server = None
          self.status_item = None
          self.timer = None
-@@ -636,6 +692,7 @@ class StatusBarController(NSObject):
+@@ -651,6 +708,7 @@ class StatusBarController(NSObject):
      @objc.IBAction
      def refresh_(self, _sender):
          try:
@@ -1966,22 +2041,20 @@ index c789b32..88c6deb 100644
              snapshot = self.monitor.snapshot(include_stale=False)
          except Exception as exc:
              log_status_bar(f"refresh error: {exc}")
-@@ -863,6 +920,14 @@ class StatusBarController(NSObject):
-     def uninstallGrokHooks_(self, _sender):
-         self.update_hooks("grok", install=False)
- 
-+    @objc.IBAction
+@@ -893,6 +951,12 @@ class StatusBarController(NSObject):
+     @objc.IBAction
+     def uninstallJunieHooks_(self, _sender):
+         self.update_hooks("junie", install=False)
 +    def installOpenCodeHooks_(self, _sender):
 +        self.update_hooks("opencode", install=True)
 +
 +    @objc.IBAction
 +    def uninstallOpenCodeHooks_(self, _sender):
 +        self.update_hooks("opencode", install=False)
-+
+ 
      @objc.IBAction
      def toggleCodexTranscripts_(self, sender):
-         self.set_transcript_monitoring("codex", sender.state() == NSOnState)
-@@ -1054,8 +1119,15 @@ class StatusBarController(NSObject):
+@@ -1090,8 +1154,15 @@ class StatusBarController(NSObject):
              latest_state_path=default_latest_state_path(),
          )
  
@@ -1997,7 +2070,7 @@ index c789b32..88c6deb 100644
  
      def start_event_server(self) -> None:
          self.stop_event_server()
-@@ -1212,6 +1284,13 @@ class StatusBarController(NSObject):
+@@ -1248,6 +1319,13 @@ class StatusBarController(NSObject):
          launch_installed = launch_agent_installed()
          eject_installed = sd_eject_guard_installed()
          sleep_installed = sleep_helper_installed()
@@ -2011,7 +2084,7 @@ index c789b32..88c6deb 100644
  
          set_field_value(
              self.setup_fields.get("launch_status"),
-@@ -1225,9 +1304,14 @@ class StatusBarController(NSObject):
+@@ -1261,9 +1339,14 @@ class StatusBarController(NSObject):
              self.setup_fields.get("sleep_status"),
              "Installed" if sleep_installed else "Needs administrator setup",
          )
@@ -2026,7 +2099,7 @@ index c789b32..88c6deb 100644
          eject_uninstall = self.setup_buttons.get("eject_guard_uninstall")
          if eject_uninstall is not None:
              eject_uninstall.setEnabled_(eject_installed)
-@@ -1244,6 +1328,22 @@ class StatusBarController(NSObject):
+@@ -1280,6 +1363,22 @@ class StatusBarController(NSObject):
          errors: list[str] = []
          opened_sleep_installer = False
  
@@ -2049,17 +2122,17 @@ index c789b32..88c6deb 100644
          if checkbox_is_on(self.setup_buttons.get("launch")) and not launch_agent_installed():
              try:
                  result = install_launch_agent(start=False)
-@@ -1328,6 +1428,7 @@ class StatusBarController(NSObject):
-         codex = detect_codex_config()
-         claude = detect_claude_config()
+@@ -1366,6 +1465,7 @@ class StatusBarController(NSObject):
          grok = detect_grok_config()
+         cursor = detect_cursor_config()
+         junie = detect_junie_config()
 +        opencode = detect_opencode_config()
          set_field_value(
              self.settings_fields.get("codex_hook_status"),
              hook_status_text(codex),
-@@ -1340,6 +1441,14 @@ class StatusBarController(NSObject):
-             self.settings_fields.get("grok_hook_status"),
-             hook_status_text(grok),
+@@ -1386,6 +1486,14 @@ class StatusBarController(NSObject):
+             self.settings_fields.get("junie_hook_status"),
+             hook_status_text(junie),
          )
 +        set_field_value(
 +            self.settings_fields.get("opencode_hook_status"),
@@ -2072,7 +2145,7 @@ index c789b32..88c6deb 100644
          set_field_value(
              self.settings_fields.get("settings_path"),
              f"Settings: {default_settings_path()}",
-@@ -1393,7 +1502,7 @@ class StatusBarController(NSObject):
+@@ -1439,7 +1547,7 @@ class StatusBarController(NSObject):
                  and self.selected_agent_animation_profile_id
                  not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
              )
@@ -2081,20 +2154,16 @@ index c789b32..88c6deb 100644
              popup = self.settings_fields.get(f"{provider}_session_opener")
              if popup is not None:
                  refresh_provider_opener_popup(
-@@ -1544,19 +1653,23 @@ class StatusBarController(NSObject):
-                 result = install_claude_hooks()
-             elif provider == "claude":
-                 result = uninstall_claude_hooks()
--            elif install:
-+            elif provider == "grok" and install:
-                 result = install_grok_hooks()
--            else:
-+            elif provider == "grok":
-                 result = uninstall_grok_hooks()
-+            elif install:
+@@ -1602,17 +1710,21 @@ class StatusBarController(NSObject):
+                 result = install_junie_hooks()
+             elif provider == "junie":
+                 result = uninstall_junie_hooks()
++            elif provider == "opencode" and install:
 +                result = install_opencode_hooks()
-+            else:
++            elif provider == "opencode":
 +                result = uninstall_opencode_hooks()
+             else:
+                 raise ValueError(f"Unsupported hook provider: {provider}")
          except Exception as exc:
 -            self.set_settings_message(f"{provider.title()} hooks failed: {exc}")
 +            self.set_settings_message(f"{provider_label(provider)} hooks failed: {exc}")
@@ -2109,7 +2178,7 @@ index c789b32..88c6deb 100644
          self.reload_monitor()
          self.refresh_settings_window()
          self.refresh_(None)
-@@ -1899,6 +2012,8 @@ class StatusBarController(NSObject):
+@@ -1995,6 +2107,8 @@ class StatusBarController(NSObject):
          kind, value = target
          if kind == "url":
              open_url(value)
@@ -2118,7 +2187,7 @@ index c789b32..88c6deb 100644
          elif kind == "terminal":
              open_terminal_command(
                  value,
-@@ -3346,7 +3461,7 @@ def build_brightness_slider_item(
+@@ -3543,7 +3657,7 @@ def build_brightness_slider_item(
  
  def build_setup_window(target: StatusBarController) -> NSWindow:
      width = 620
@@ -2127,7 +2196,7 @@ index c789b32..88c6deb 100644
      style = (
          NSWindowStyleMaskTitled
          | NSWindowStyleMaskClosable
-@@ -3363,8 +3478,21 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3560,8 +3674,21 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
      window.center()
      content = window.contentView()
  
@@ -2151,7 +2220,7 @@ index c789b32..88c6deb 100644
  
      launch = add_checkbox(
          content,
-@@ -3415,6 +3543,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3612,6 +3739,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
          "launch_status": launch_status,
          "eject_status": eject_status,
          "sleep_status": sleep_status,
@@ -2159,7 +2228,7 @@ index c789b32..88c6deb 100644
          "message": message,
      }
      target.setup_buttons = {
-@@ -3422,6 +3551,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3619,6 +3747,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
          "eject_guard": eject_guard,
          "eject_guard_uninstall": eject_uninstall,
          "sleep_helper": sleep_helper,
@@ -2167,10 +2236,10 @@ index c789b32..88c6deb 100644
      }
      return window
  
-@@ -4178,6 +4308,14 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
-     agent_animations_tab = animations_tab
+@@ -4394,6 +4523,14 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+     value_width = primary_action_x - value_x - 5
  
-     add_label(agents_tab, "Agent Hooks", 24, 398, 200, 24)
+     add_label(agents_tab, "Agent Hooks", section_x, 398, 200, 24)
 +    t3code_status = add_label(
 +        agents_tab,
 +        "T3 Code: automatic · uses the selected agent's hooks",
@@ -2179,33 +2248,43 @@ index c789b32..88c6deb 100644
 +        390,
 +        20,
 +    )
-     add_label(agents_tab, "Codex", 32, 360, 80, 22)
-     codex_status = add_label(agents_tab, "", 130, 360, 240, 22)
-     add_button(agents_tab, "Install", 400, 356, 90, 28, target, "installCodexHooks:")
-@@ -4193,7 +4331,12 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
-     add_button(agents_tab, "Install", 400, 288, 90, 28, target, "installGrokHooks:")
-     add_button(agents_tab, "Uninstall", 500, 288, 100, 28, target, "uninstallGrokHooks:")
  
--    add_separator(agents_tab, 24, 258, tab_width - 48)
-+    add_label(agents_tab, "OpenCode", 32, 258, 80, 22)
-+    opencode_status = add_label(agents_tab, "", 130, 258, 240, 22)
-+    add_button(agents_tab, "Install", 400, 254, 90, 28, target, "installOpenCodeHooks:")
-+    add_button(agents_tab, "Uninstall", 500, 254, 100, 28, target, "uninstallOpenCodeHooks:")
-+
-+    add_separator(agents_tab, 24, 246, tab_width - 48)
-     add_label(agents_tab, "Session Opening", 24, 224, 240, 24)
-     add_label(agents_tab, "Codex", 32, 188, 100, 22)
-     codex_opener = add_provider_opener_popup(agents_tab, "codex", 160, 186, target)
-@@ -4415,6 +4558,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
-         "codex_hook_status": codex_status,
-         "claude_hook_status": claude_status,
+     def add_hook_row(
+         title: str,
+@@ -4429,16 +4566,19 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+         "Codex", 364, "installCodexHooks:", "uninstallCodexHooks:"
+     )
+     claude_status = add_hook_row(
+-        "Claude", 338, "installClaudeHooks:", "uninstallClaudeHooks:"
++        "Claude", 342, "installClaudeHooks:", "uninstallClaudeHooks:"
+     )
+     grok_status = add_hook_row(
+-        "Grok", 312, "installGrokHooks:", "uninstallGrokHooks:"
++        "Grok", 320, "installGrokHooks:", "uninstallGrokHooks:"
+     )
+     cursor_status = add_hook_row(
+-        "Cursor", 286, "installCursorHooks:", "uninstallCursorHooks:"
++        "Cursor", 298, "installCursorHooks:", "uninstallCursorHooks:"
+     )
+     junie_status = add_hook_row(
+-        "Junie", 260, "installJunieHooks:", "uninstallJunieHooks:"
++        "Junie", 276, "installJunieHooks:", "uninstallJunieHooks:"
++    )
++    opencode_status = add_hook_row(
++        "OpenCode", 254, "installOpenCodeHooks:", "uninstallOpenCodeHooks:"
+     )
+ 
+     add_separator(agents_tab, section_x, 246, tab_width - 48)
+@@ -4685,6 +4825,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "grok_hook_status": grok_status,
+         "cursor_hook_status": cursor_status,
+         "junie_hook_status": junie_status,
 +        "opencode_hook_status": opencode_status,
 +        "t3code_hook_status": t3code_status,
          "debug_log_status": debug_log_status,
          "codex_session_opener": codex_opener,
          "claude_session_opener": claude_opener,
-@@ -4914,7 +5059,10 @@ def provider_open_action_label(provider: str, action: str, settings=None) -> str
+@@ -5192,7 +5334,10 @@ def provider_open_action_label(provider: str, action: str, settings=None) -> str
          return "VS Code"
      if action == SESSION_OPEN_TERMINAL:
          return "Resume in Terminal"
@@ -2217,7 +2296,7 @@ index c789b32..88c6deb 100644
  
  
  def refresh_provider_opener_popup(popup, provider: str, action: str, settings) -> None:
-@@ -5337,16 +5485,53 @@ def build_session_menu_item(
+@@ -5635,16 +5780,53 @@ def build_session_menu_item(
      return item
  
  
@@ -2272,7 +2351,7 @@ index c789b32..88c6deb 100644
  def build_session_options_menu(
      status: AgentStatus,
      now: datetime,
-@@ -5431,6 +5616,8 @@ def session_origin_icon_for_status(status: AgentStatus):
+@@ -5729,6 +5911,8 @@ def session_origin_icon_for_status(status: AgentStatus):
      host_icon = host_icon_for_origin(status.origin)
      if host_icon is None:
          return provider_icon
@@ -2281,7 +2360,7 @@ index c789b32..88c6deb 100644
      return composite_app_icons(host_icon, provider_icon)
  
  
-@@ -5476,7 +5663,16 @@ def host_icon_for_origin(origin: str | None):
+@@ -5774,7 +5958,16 @@ def host_icon_for_origin(origin: str | None):
      if normalized in _origin_icon_cache:
          return _origin_icon_cache[normalized]
      image = None
@@ -2299,7 +2378,7 @@ index c789b32..88c6deb 100644
          image = first_app_icon(
              (
                  "/Applications/Visual Studio Code.app",
-@@ -5718,7 +5914,7 @@ def session_title_collision_keys(statuses: list[AgentStatus]) -> set[tuple[str,
+@@ -6016,7 +6209,7 @@ def session_title_collision_keys(statuses: list[AgentStatus]) -> set[tuple[str,
  def session_title_collision_key(status: AgentStatus) -> tuple[str, str]:
      return (
          status.provider.lower(),
@@ -2308,7 +2387,7 @@ index c789b32..88c6deb 100644
      )
  
  
-@@ -5772,6 +5968,9 @@ def session_detail_for_status(status: AgentStatus, now: datetime) -> str:
+@@ -6070,6 +6263,9 @@ def session_detail_for_status(status: AgentStatus, now: datetime) -> str:
          details.append(status.origin)
      if status.tool_name:
          details.append(status.tool_name)
@@ -2318,7 +2397,7 @@ index c789b32..88c6deb 100644
      return " · ".join(details)
  
  
-@@ -5876,6 +6075,22 @@ def open_url(url: str) -> None:
+@@ -6174,6 +6370,22 @@ def open_url(url: str) -> None:
          NSWorkspace.sharedWorkspace().openURL_(ns_url)
  
  
@@ -2355,22 +2434,36 @@ index 5eb5889..e4205ce 100644
  
  
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 5e2ef24..d27b9e9 100644
+index c017cb6..91c7f39 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -4,6 +4,7 @@ import json
+@@ -4,6 +4,8 @@ import json
  import os
  import plistlib
  import re
 +import shutil
++import socket
  import subprocess
  import sys
  import tempfile
-@@ -55,9 +56,11 @@ from sidepulse.install import (
+@@ -50,15 +52,23 @@ from sidepulse.device_writer import (
+     write_led_program,
+ )
+ from sidepulse.hook import format_hook_payload, routed_hook_payload, write_hook_payload
+-from sidepulse.ipc import HookEventServer, send_hook_event
++from sidepulse.ipc import (
++    HOOK_EVENT_SEND_TIMEOUT_SECONDS,
++    MAX_EVENT_BYTES,
++    HookEventServer,
++    send_hook_event,
++)
+ from sidepulse.install import (
+     hook_command,
      install_claude_hooks,
      install_codex_hooks,
      install_grok_hooks,
 +    install_opencode_hooks,
++    opencode_plugin_source,
      uninstall_claude_hooks,
      uninstall_codex_hooks,
      uninstall_grok_hooks,
@@ -2378,7 +2471,7 @@ index 5e2ef24..d27b9e9 100644
      update_codex_trusted_hashes,
  )
  from sidepulse.keep_awake import KeepAwakeController, status_file_for_target
-@@ -86,10 +89,11 @@ from sidepulse.lid_sleep import (
+@@ -87,11 +97,12 @@ from sidepulse.lid_sleep import (
      run_sudo_pmset_disablesleep,
      sleep_helper_sudoers_rule,
  )
@@ -2387,12 +2480,13 @@ index 5e2ef24..d27b9e9 100644
 +from sidepulse.models import AgentMode, AgentStatus, AggregateStatus, HookEvent
 +from sidepulse.origin import ProcessInfo, origin_from_environment, origin_from_processes
  from sidepulse.providers import (
+     detect_codex_config_from_text,
      detect_grok_config,
 +    detect_opencode_config,
      default_log_path,
      default_state_dir,
      parse_log_line,
-@@ -115,6 +119,7 @@ from sidepulse.session_actions import (
+@@ -117,6 +128,7 @@ from sidepulse.session_actions import (
      SESSION_OPEN_VSCODE,
      default_session_open_action,
      session_deep_link,
@@ -2400,7 +2494,7 @@ index 5e2ef24..d27b9e9 100644
      session_open_target,
      session_resume_command,
      session_vscode_link,
-@@ -357,6 +362,137 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -359,6 +371,291 @@ class AgentMonitorTests(unittest.TestCase):
              "Claude Code CLI",
          )
  
@@ -2477,6 +2571,7 @@ index 5e2ef24..d27b9e9 100644
 +            self.assertIn("sidepulse-opencode-plugin", plugin.read_text())
 +            self.assertIn(str(log), plugin.read_text())
 +            self.assertIn("T3_MCP_BEARER_TOKEN", plugin.read_text())
++            self.assertIn("events.sock", plugin.read_text())
 +
 +            detected = detect_opencode_config(base)
 +            self.assertTrue(detected.hooks_enabled)
@@ -2503,6 +2598,42 @@ index 5e2ef24..d27b9e9 100644
 +
 +            self.assertEqual(plugin.read_text(), "export const ExistingPlugin = true\n")
 +
++    def test_opencode_plugin_source_logs_and_pushes_to_event_socket(self) -> None:
++        source = opencode_plugin_source(Path("/tmp/state/opencode.jsonl"))
++
++        # The JSONL log stays the recovery/reconciliation source.
++        self.assertIn('const SIDEPULSE_LOG = "/tmp/state/opencode.jsonl"', source)
++        self.assertIn("appendFile(SIDEPULSE_LOG", source)
++
++        # ...and every event is also pushed live to the hook event socket, using the
++        # same wire format and candidate paths as sidepulse.ipc.send_hook_event.
++        self.assertIn('from "node:net"', source)
++        self.assertIn('const SIDEPULSE_SOCKET_NAME = "events.sock"', source)
++        self.assertIn('JSON.stringify({ provider: "opencode", line: payload })', source)
++        self.assertIn("process.env.XDG_STATE_HOME", source)
++        self.assertIn('".local", "state", "sidepulse", "agent-monitor"', source)
++        self.assertIn(
++            f"const SIDEPULSE_SOCKET_TIMEOUT_MS = {int(HOOK_EVENT_SEND_TIMEOUT_SECONDS * 1000)}",
++            source,
++        )
++        self.assertIn(f"const SIDEPULSE_MAX_EVENT_BYTES = {MAX_EVENT_BYTES}", source)
++
++        # No hardcoded developer home ever ends up in the generated plugin.
++        self.assertNotIn("/Users/", source)
++
++        # Socket failures must be contained: the connect is guarded, every failure
++        # path resolves instead of rejecting, and the whole push is wrapped.
++        self.assertIn("function writeEventSocket(target, message) {", source)
++        self.assertIn("return new Promise((resolve) => {", source)
++        self.assertIn("socket = connect(target)\n    } catch {", source)
++        self.assertIn('socket.on("error", abort)', source)
++        self.assertIn("setTimeout(abort, SIDEPULSE_SOCKET_TIMEOUT_MS)", source)
++        notify = source.split("async function notifySidePulse(payload) {", 1)[1]
++        notify = notify.split("\nasync function appendSidePulseLog", 1)[0]
++        self.assertIn("await writeEventSocket(target, message)", notify)
++        self.assertIn("} catch {", notify)
++        self.assertNotIn("throw", notify)
++
 +    @unittest.skipUnless(shutil.which("node"), "Node is required for OpenCode plugin test")
 +    def test_opencode_plugin_emits_t3_busy_and_idle_events(self) -> None:
 +        with tempfile.TemporaryDirectory() as tmp:
@@ -2520,7 +2651,13 @@ index 5e2ef24..d27b9e9 100644
 +                'await hooks.event({event: {type: "session.status", properties: {sessionID: "open-session", status: {type: "busy"}}}})\n'
 +                'await hooks.event({event: {type: "session.idle", properties: {sessionID: "open-session"}}})\n'
 +            )
-+            env = {**os.environ, "T3CODE_HOME": str(base / "t3")}
++            # A real home would let the plugin reach the developer's own status bar.
++            env = {
++                **os.environ,
++                "T3CODE_HOME": str(base / "t3"),
++                "HOME": str(base / "home"),
++                "XDG_STATE_HOME": str(base / "home" / "state"),
++            }
 +            completed = subprocess.run(
 +                [shutil.which("node"), str(runner)],
 +                check=False,
@@ -2535,10 +2672,121 @@ index 5e2ef24..d27b9e9 100644
 +            self.assertEqual([item["event_name"] for item in payloads], ["session.status", "session.idle"])
 +            self.assertTrue(all(item["agent_origin"] == "T3 Code" for item in payloads))
 +
++    @unittest.skipUnless(shutil.which("node"), "Node is required for OpenCode plugin test")
++    def test_opencode_plugin_pushes_events_to_running_hook_event_server(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            plugin = base / "sidepulse.mjs"
++            log = base / "state" / "opencode.jsonl"
++            install_opencode_hooks(log_path=log, config_path=plugin)
++
++            socket_path = log.parent / "events.sock"
++            if len(str(socket_path).encode()) > 100:
++                self.skipTest("temp dir exceeds the Darwin AF_UNIX path limit")
++
++            received: list[tuple[str, dict]] = []
++            server = HookEventServer(
++                lambda provider, line: received.append((provider, line)),
++                socket_path=socket_path,
++            )
++            server.start()
++            try:
++                runner = base / "run-plugin.mjs"
++                runner.write_text(
++                    'import { SidePulsePlugin } from "./sidepulse.mjs"\n'
++                    'const hooks = await SidePulsePlugin({directory: "/tmp/project", worktree: "/tmp/project"})\n'
++                    'await hooks.event({event: {type: "session.status", properties: {sessionID: "live-session", status: {type: "busy"}}}})\n'
++                    'await hooks.event({event: {type: "session.idle", properties: {sessionID: "live-session"}}})\n'
++                )
++                env = {
++                    **os.environ,
++                    "HOME": str(base / "home"),
++                    "XDG_STATE_HOME": str(base / "home" / "state"),
++                }
++                completed = subprocess.run(
++                    [shutil.which("node"), str(runner)],
++                    check=False,
++                    stdout=subprocess.PIPE,
++                    stderr=subprocess.PIPE,
++                    text=True,
++                    env=env,
++                )
++                self.assertEqual(completed.returncode, 0, completed.stderr)
++
++                deadline = time.monotonic() + 5
++                while len(received) < 2 and time.monotonic() < deadline:
++                    time.sleep(0.02)
++            finally:
++                server.stop()
++
++            self.assertEqual([provider for provider, _ in received], ["opencode", "opencode"])
++            self.assertEqual(
++                [line["event_name"] for _, line in received],
++                ["session.status", "session.idle"],
++            )
++            self.assertTrue(all(line["session_id"] == "live-session" for _, line in received))
++
++            # The socket push never replaces the recovery log.
++            logged = [json.loads(line) for line in log.read_text().splitlines()]
++            self.assertEqual([item["event_name"] for item in logged], ["session.status", "session.idle"])
++
++            # And what the server hands to the status bar parses as a real event.
++            record = parse_log_line(received[0][0], json.dumps(received[0][1]))
++            self.assertIsNotNone(record)
++            self.assertEqual(record.session_id, "live-session")
++
++    @unittest.skipUnless(shutil.which("node"), "Node is required for OpenCode plugin test")
++    def test_opencode_plugin_survives_missing_and_dead_event_socket(self) -> None:
++        for label, make_socket in (("missing", False), ("stale", True)):
++            with self.subTest(socket=label), tempfile.TemporaryDirectory() as tmp:
++                base = Path(tmp)
++                plugin = base / "sidepulse.mjs"
++                log = base / "state" / "opencode.jsonl"
++                install_opencode_hooks(log_path=log, config_path=plugin)
++
++                if make_socket:
++                    # A socket file with nobody listening: connect fails with ECONNREFUSED.
++                    dead_path = log.parent / "events.sock"
++                    if len(str(dead_path).encode()) > 100:
++                        self.skipTest("temp dir exceeds the Darwin AF_UNIX path limit")
++                    dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
++                    dead.bind(str(dead_path))
++                    dead.close()
++
++                runner = base / "run-plugin.mjs"
++                runner.write_text(
++                    'import { SidePulsePlugin } from "./sidepulse.mjs"\n'
++                    'process.on("unhandledRejection", (error) => { console.error("unhandled", error); process.exit(3) })\n'
++                    'process.on("uncaughtException", (error) => { console.error("uncaught", error); process.exit(4) })\n'
++                    'const hooks = await SidePulsePlugin({directory: "/tmp/project", worktree: "/tmp/project"})\n'
++                    'await hooks.event({event: {type: "session.idle", properties: {sessionID: "lonely-session"}}})\n'
++                    'console.log("survived")\n'
++                )
++                env = {
++                    **os.environ,
++                    "HOME": str(base / "home"),
++                    "XDG_STATE_HOME": str(base / "home" / "state"),
++                }
++                completed = subprocess.run(
++                    [shutil.which("node"), str(runner)],
++                    check=False,
++                    stdout=subprocess.PIPE,
++                    stderr=subprocess.PIPE,
++                    text=True,
++                    timeout=60,
++                    env=env,
++                )
++                self.assertEqual(completed.returncode, 0, completed.stderr)
++                self.assertIn("survived", completed.stdout)
++
++                # The event still reached the recovery log even with no listener.
++                logged = [json.loads(line) for line in log.read_text().splitlines()]
++                self.assertEqual([item["event_name"] for item in logged], ["session.idle"])
++
      def test_grok_log_line_normalizes_camel_case_payload(self) -> None:
          record = parse_log_line(
              "grok",
-@@ -446,6 +582,10 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -448,6 +745,10 @@ class AgentMonitorTests(unittest.TestCase):
  
              with (
                  patch("sidepulse.hook.detect_log_path", return_value=grok),
@@ -2549,7 +2797,7 @@ index 5e2ef24..d27b9e9 100644
                  patch.dict(os.environ, {"TERM_PROGRAM": "Apple_Terminal"}, clear=True),
              ):
                  provider, path, line = routed_hook_payload("claude", claude, payload)
-@@ -784,6 +924,27 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -927,6 +1228,27 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertEqual(image.size().width, 24)
          self.assertEqual(image.size().height, 18)
  
@@ -2577,7 +2825,7 @@ index 5e2ef24..d27b9e9 100644
      def test_status_bar_session_row_icon_combines_status_and_origin(self) -> None:
          try:
              from sidepulse import status_bar
-@@ -1909,6 +2070,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2195,6 +2517,7 @@ class AgentMonitorTests(unittest.TestCase):
              },
          )
          self.assertIn("debug_log_status", target.settings_fields)
@@ -2585,7 +2833,7 @@ index 5e2ef24..d27b9e9 100644
          self.assertIn("status_history_status", target.settings_fields)
          self.assertIn("status_history_chart", target.settings_fields)
          self.assertIn("session_terminal", target.settings_fields)
-@@ -2184,9 +2346,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2476,9 +2799,11 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertIn("eject_guard", target.setup_buttons)
          self.assertIn("eject_guard_uninstall", target.setup_buttons)
          self.assertIn("sleep_helper", target.setup_buttons)
@@ -2597,7 +2845,7 @@ index 5e2ef24..d27b9e9 100644
  
      def test_first_launch_setup_window_only_shows_until_completed(self) -> None:
          try:
-@@ -3608,6 +3772,13 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -3911,6 +4236,13 @@ class AgentMonitorTests(unittest.TestCase):
              changed=True,
              backup_path=None,
          )
@@ -2611,10 +2859,10 @@ index 5e2ef24..d27b9e9 100644
          launch_result = SimpleNamespace(
              plist_path=Path("/tmp/io.sidepulse.agentstatus.plist"),
              changed=True,
-@@ -3633,6 +3804,11 @@ class AgentMonitorTests(unittest.TestCase):
-                 return_value=cursor_result,
+@@ -3950,6 +4282,11 @@ class AgentMonitorTests(unittest.TestCase):
              ) as cursor,
              patch.object(cli_module, "install_grok_hooks", return_value=grok_result) as grok,
+             patch.object(cli_module, "install_junie_hooks", return_value=junie_result) as junie,
 +            patch.object(
 +                cli_module,
 +                "install_opencode_hooks",
@@ -2623,15 +2871,15 @@ index 5e2ef24..d27b9e9 100644
              patch(
                  "sidepulse.sd_eject_guard_launch.install_sd_eject_guard",
                  return_value=guard_result,
-@@ -3649,6 +3825,7 @@ class AgentMonitorTests(unittest.TestCase):
-         claude.assert_called_once()
+@@ -3967,6 +4304,7 @@ class AgentMonitorTests(unittest.TestCase):
          cursor.assert_called_once()
          grok.assert_called_once()
+         junie.assert_called_once()
 +        opencode.assert_called_once()
          guard.assert_called_once_with(scope="auto", dry_run=False)
          launch.assert_called_once_with(start=True)
- 
-@@ -6615,6 +6792,69 @@ class AgentMonitorTests(unittest.TestCase):
+         service.assert_called_once_with(start=True, dry_run=False)
+@@ -7039,6 +7377,69 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(snapshot.aggregate.mode, AgentMode.IDLE_READY)
              self.assertEqual(snapshot.statuses, ())
  
@@ -2701,7 +2949,7 @@ index 5e2ef24..d27b9e9 100644
      def test_codex_transcript_fallback_marks_recent_user_turn_active(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
              root = Path(tmp)
-@@ -6911,6 +7151,897 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -7335,6 +7736,897 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(snapshot.aggregate.mode, AgentMode.COMPLETED)
              self.assertEqual(snapshot.statuses[0].event_name, "Stop")
  
@@ -3599,7 +3847,7 @@ index 5e2ef24..d27b9e9 100644
      def test_claude_transcript_fallback_marks_tool_calls_running(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
              root = Path(tmp)
-@@ -7647,6 +8778,57 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
+@@ -8071,6 +9363,57 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
              default_session_open_action(status_for("codex", "Codex UI")),
              SESSION_OPEN_APP,
          )
@@ -3658,10 +3906,10 @@ index 5e2ef24..d27b9e9 100644
      def test_claude_session_actions_build_app_link_and_resume_command(self) -> None:
          status = AgentStatus(
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index bf9b15c..78ffef4 100644
+index 54a35ad..8daaf12 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
-@@ -92,6 +92,7 @@ def make_status(
+@@ -94,6 +94,7 @@ def make_status(
      cwd: str | None = "/Users/test/project",
      origin: str | None = None,
      stale: bool = False,
@@ -3669,7 +3917,7 @@ index bf9b15c..78ffef4 100644
      now: datetime | None = None,
  ) -> AgentStatus:
      now = now or datetime.now(timezone.utc)
-@@ -108,6 +109,7 @@ def make_status(
+@@ -110,6 +111,7 @@ def make_status(
          message="doing a thing",
          origin=origin,
          stale=stale,
@@ -3677,7 +3925,7 @@ index bf9b15c..78ffef4 100644
      )
  
  
-@@ -943,5 +945,35 @@ class PureUiLogicTests(unittest.TestCase):
+@@ -1031,5 +1033,35 @@ class PureUiLogicTests(unittest.TestCase):
          )
  
  

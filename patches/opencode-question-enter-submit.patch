@@ -1,0 +1,121 @@
+diff --git a/packages/tui/src/routes/session/question.tsx b/packages/tui/src/routes/session/question.tsx
+index 59eea0c..a5a1a73 100644
+--- a/packages/tui/src/routes/session/question.tsx
++++ b/packages/tui/src/routes/session/question.tsx
+@@ -134,6 +134,57 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+     pick(opt.label)
+   }
+ 
++  // Commit the custom "Type your own answer" text. Shared by the textarea's
++  // onSubmit prop and the declarative return binding. The textarea's onSubmit
++  // is the primary path: a focused @opentui textarea consumes Enter internally
++  // (inserting a newline / firing onSubmit) before the key ever reaches the
++  // question-mode keymap, so the `key: "return"` binding below never fires
++  // while editing. Wiring onSubmit — the same approach the working run-mode
++  // footer (cli/cmd/run/footer.question.tsx) uses — is what actually lets a
++  // typed custom answer be submitted. Terminal-agnostic: it fixes the "Enter
++  // does nothing but add newlines" trap on Kitty-keyboard terminals (Ghostty,
++  // kitty, WezTerm) where Enter arrives as an enhanced CSI-u sequence.
++  function commitEdit() {
++    const text = textarea?.plainText?.trim() ?? ""
++    const prev = store.custom[store.tab]
++
++    if (!text) {
++      if (prev) {
++        const inputs = [...store.custom]
++        inputs[store.tab] = ""
++        setStore("custom", inputs)
++
++        const answers = [...store.answers]
++        answers[store.tab] = (answers[store.tab] ?? []).filter((x) => x !== prev)
++        setStore("answers", answers)
++      }
++      setStore("editing", false)
++      return
++    }
++
++    if (multi()) {
++      const inputs = [...store.custom]
++      inputs[store.tab] = text
++      setStore("custom", inputs)
++
++      const existing = store.answers[store.tab] ?? []
++      const next = [...existing]
++      if (prev) {
++        const index = next.indexOf(prev)
++        if (index !== -1) next.splice(index, 1)
++      }
++      if (!next.includes(text)) next.push(text)
++      const answers = [...store.answers]
++      answers[store.tab] = next
++      setStore("answers", answers)
++      setStore("editing", false)
++      return
++    }
++
++    pick(text, true)
++    setStore("editing", false)
++  }
++
+   onMount(() => {
+     const popMode = modeStack.push(QUESTION_MODE)
+     onCleanup(popMode)
+@@ -182,46 +233,10 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+         key: "return",
+         desc: "Submit answer edit",
+         group: "Question",
+-        cmd: () => {
+-          const text = textarea?.plainText?.trim() ?? ""
+-          const prev = store.custom[store.tab]
+-
+-          if (!text) {
+-            if (prev) {
+-              const inputs = [...store.custom]
+-              inputs[store.tab] = ""
+-              setStore("custom", inputs)
+-
+-              const answers = [...store.answers]
+-              answers[store.tab] = (answers[store.tab] ?? []).filter((x) => x !== prev)
+-              setStore("answers", answers)
+-            }
+-            setStore("editing", false)
+-            return
+-          }
+-
+-          if (multi()) {
+-            const inputs = [...store.custom]
+-            inputs[store.tab] = text
+-            setStore("custom", inputs)
+-
+-            const existing = store.answers[store.tab] ?? []
+-            const next = [...existing]
+-            if (prev) {
+-              const index = next.indexOf(prev)
+-              if (index !== -1) next.splice(index, 1)
+-            }
+-            if (!next.includes(text)) next.push(text)
+-            const answers = [...store.answers]
+-            answers[store.tab] = next
+-            setStore("answers", answers)
+-            setStore("editing", false)
+-            return
+-          }
+-
+-          pick(text, true)
+-          setStore("editing", false)
+-        },
++        // Fallback only. On terminals without the Kitty keyboard protocol the
++        // textarea may let Enter propagate here; on Kitty-keyboard terminals it
++        // is consumed by the textarea (see commitEdit / the onSubmit prop).
++        cmd: () => commitEdit(),
+       },
+       ...tuiConfig.keybinds.get("app.exit"),
+     ],
+@@ -481,6 +496,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+                         focusedTextColor={theme.text}
+                         cursorColor={theme.primary}
+                         cursorStyle={tuiConfig.cursor}
++                        onSubmit={() => commitEdit()}
+                       />
+                     </box>
+                   </Show>

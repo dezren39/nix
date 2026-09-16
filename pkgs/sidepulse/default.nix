@@ -20,6 +20,7 @@ python3Packages.buildPythonApplication rec {
     ./../../patches/sidepulse-pr-28-dnd.patch
     ./../../patches/sidepulse-pr-29-kitt.patch
     ./../../patches/sidepulse-pr-30-stuck-status.patch
+    ./../../patches/sidepulse-pr-31-led-writer-helper.patch
   ];
 
   # WebKit is not imported and ScriptingBridge is guarded as an optional
@@ -28,6 +29,8 @@ python3Packages.buildPythonApplication rec {
   dependencies = [
     python3Packages.pyobjc-framework-Cocoa
     python3Packages.pyobjc-framework-Quartz
+    # Upstream added `qrcode` for the iPhone-pairing QR codes in `links.py`.
+    python3Packages.qrcode
   ];
 
   nativeBuildInputs = [
@@ -46,6 +49,7 @@ python3Packages.buildPythonApplication rec {
   disabledTests = [
     # Nix build paths exceed Darwin's AF_UNIX socket-path limit.
     "test_hook_event_server_receives_socket_message"
+    "test_notification_is_nonblocking_and_contains_no_event_data"
     # These assertions target pre-stack behavior or need a writable macOS user home.
     "test_sidepulse_setup_installs_hooks_guard_and_status_bar"
     "test_status_bar_launcher_uses_background_item_name"
@@ -62,9 +66,6 @@ python3Packages.buildPythonApplication rec {
     "test_declared_frameworks_are_actually_installed"
     "test_every_shipped_module_imports_after_plain_install"
     "test_status_bar_imports_after_plain_install"
-    # Current-main animation tests target the animation API replaced by PR #29.
-    "test_status_bar_settings_window_has_lid_animation_controls"
-    "test_status_bar_show_agent_animation_on_device_writes_and_restores"
     "test_structured_t3_helper_operation_removes_live_session"
     "test_t3code_canonical_sessions_replace_duplicate_hook_rows"
     "test_t3code_origin_hooks_stay_pending_until_canonical_row"

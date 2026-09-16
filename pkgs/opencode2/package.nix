@@ -53,7 +53,7 @@ let
     dontFixup = true;
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-QTqlwmugYh+iu5Sh/Hxv01NXH/OhzcQ8ObVUbA9A8AM=";
+    outputHash = "sha256-qxb371dCf7WG09VvQE+HZ/x3EURpFIr11bdnQwGTHhw=";
   };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
@@ -98,6 +98,12 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     runHook preInstall
     mkdir -p $out
     cp -R packages/cli/dist/cli-*/bin $out/
+    # Upstream v2 renamed the compiled binary to `opencode` (commit bb564f96a,
+    # "feat(cli): rename command to opencode"). Keep exposing it as `opencode2`
+    # so it does not collide with the `opencode` package on PATH.
+    if [ -e $out/bin/opencode ] && [ ! -e $out/bin/opencode2 ]; then
+      mv $out/bin/opencode $out/bin/opencode2
+    fi
     wrapProgram $out/bin/opencode2 \
       --prefix PATH : ${lib.makeBinPath ([ ripgrep ] ++ lib.optional platform.isDarwin sysctl)}
     runHook postInstall

@@ -599,7 +599,7 @@ fi  # DO_CACHES
 if [ "$DO_REPOS" = "1" ]; then
 
 DARGS=()
-if [ -n "$TARGET_PATH" ]; then DARGS+=(--path "$TARGET_PATH"); else DARGS+=(--auto); fi
+if [ -n "$TARGET_PATH" ]; then DARGS+=(--path "$TARGET_PATH"); else DARGS+=(--auto --user "$CALLER_USER"); fi
 [ -n "$DEPTH_LIMIT" ] && DARGS+=(--depth "$DEPTH_LIMIT")
 [ -n "$FOLLOW" ] && { [ "$FOLLOW" = "1" ] && DARGS+=(--follow) || DARGS+=(--no-follow); }
 
@@ -639,6 +639,9 @@ repo_is_idle() {
 mark_dir() {
   local d="$1"
   [ -d "$d" ] || return 0
+  # App static trees may be committed or feed flat-static manifests. Never add
+  # an untracked Spotlight marker to them.
+  [ "${d##*/}" = "static" ] && return 0
   [ -e "$d/$SPOTLIGHT_MARKER" ] && return 0
   if [ "$DRY_RUN" = "1" ]; then echo "  would mark: ${d/#$HOME/\~}"; MARKED=$((MARKED + 1)); return 0; fi
   spotlight_mark "$d" "$CALLER_USER" && MARKED=$((MARKED + 1))
@@ -726,12 +729,50 @@ if [ -z "$TARGET_PATH" ]; then
   done
 fi
 
+# Recovery only: caller-repository maintenance runs as CALLER_USER, so this
+# should be redundant. Limit any repair to Git metadata, never source trees.
+git_metadata_needs_repair() {
+  [ -n "$(find "$1" ! -user "$CALLER_USER" -print -quit 2>/dev/null)" ]
+}
+
+repair_git_ownership() {
+  local kind path git_dir pointer caller_uid repaired=0
+  caller_uid="$(id -u "$CALLER_USER")"
+  while IFS=$'\t' read -r kind path; do
+    [ -d "$path" ] || continue
+    if [ -f "$path/HEAD" ] && [ -d "$path/objects" ] && [ -d "$path/refs" ]; then
+      git_dir="$path"
+    elif [ -f "$path/.git" ]; then
+      pointer="$path/.git"
+      git_dir="$(git -c safe.directory='*' -C "$path" rev-parse --absolute-git-dir 2>/dev/null)"
+      [ -n "$git_dir" ] || { warn "could not resolve gitdir for $path"; continue; }
+    elif [ -d "$path/.git" ]; then
+      git_dir="$path/.git"
+    else
+      continue
+    fi
+    [ -d "$git_dir" ] || continue
+    if { [ -n "${pointer:-}" ] && [ "$(stat -f '%u' "$pointer" 2>/dev/null)" != "$caller_uid" ]; } || git_metadata_needs_repair "$git_dir"; then
+      if [ "$DRY_RUN" = "1" ]; then
+        echo "  would repair Git ownership: ${git_dir/#$CALLER_USER_HOME/\~}"
+      else
+        [ -z "${pointer:-}" ] || chown -h "$CALLER_USER" "$pointer" 2>/dev/null || warn "could not repair $pointer"
+        chown -R -h -P "$CALLER_USER" "$git_dir" 2>/dev/null || warn "could not repair $git_dir"
+      fi
+      repaired=$((repaired + 1))
+    fi
+    pointer=""
+  done < <(awk -F'\t' '$1=="repo"||$1=="worktree"{print $1"\t"$2}' "$DISCOVERY_FILE")
+  [ "$repaired" -gt 0 ] && echo "   $repaired Git metadata directories ownership repaired"
+}
+
 # --- git maintenance, last: it is the slowest step --------------------------
 if [ "$DO_MAINTENANCE" = "1" ] && [ "$n_repos" -gt 0 ]; then
+  repair_git_ownership
   echo "🔧 git maintenance ($MAINT_DEPTH) across $n_repos repos"
   while IFS= read -r repo; do
     [ -d "$repo" ] || continue
-    run "$SELF_DIR/git-maintain-repos" --path "$repo" --no-recursive --no-system \
+    run as_user "$SELF_DIR/git-maintain-repos" --path "$repo" --no-recursive --no-system \
       "$MAINT_DEPTH" --clean-orphans || warn "maintenance failed for $repo"
   done < "$REPOS_ONLY_FILE"
 fi

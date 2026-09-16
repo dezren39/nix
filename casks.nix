@@ -74,7 +74,7 @@ _: {
     "telegram"
     "usb-overdrive"
     # "vivaldi"
-    "visual-studio-code"
+    # "visual-studio-code" # removed 2026-09: reclaiming disk (extensions ~9.7 GB); using opencode
     # "visual-studio-code@insiders" # removed 2026-08: 13 GB of duplicate extensions vs stable
     "vlc"
     "webex"

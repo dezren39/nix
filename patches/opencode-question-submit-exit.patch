@@ -1,0 +1,93 @@
+diff --git a/packages/tui/src/routes/session/question.tsx b/packages/tui/src/routes/session/question.tsx
+index 5ab467a35..59eea0ccf 100644
+--- a/packages/tui/src/routes/session/question.tsx
++++ b/packages/tui/src/routes/session/question.tsx
+@@ -100,6 +100,15 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+   function selectTab(index: number) {
+     setStore("tab", index)
+     setStore("selected", 0)
++    // Leaving a tab always ends custom-answer editing. Without this, clicking
++    // another tab (including "Confirm") while the textarea is focused leaves
++    // `editing` set on a tab whose editing bindings are inactive, which
++    // disables every keyboard binding in question mode and traps the user.
++    setStore("editing", false)
++  }
++
++  function advance() {
++    selectTab((store.tab + 1) % tabs())
+   }
+ 
+   function selectOption() {
+@@ -132,8 +141,19 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+ 
+   useBindings(() => ({
+     mode: QUESTION_MODE,
+-    enabled: store.editing && !confirm(),
++    enabled: store.editing,
+     commands: [
++      {
++        // Question mode replaces the base keymap layer, so the global
++        // `app.exit` binding (ctrl+c / ctrl+d) is inactive here. Without this
++        // the custom-answer textarea swallows ctrl+c entirely.
++        name: "app.exit",
++        title: "Reject question",
++        category: "Question",
++        run() {
++          reject()
++        },
++      },
+       {
+         name: "prompt.clear",
+         title: "Clear answer edit",
+@@ -203,6 +223,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+           setStore("editing", false)
+         },
+       },
++      ...tuiConfig.keybinds.get("app.exit"),
+     ],
+   }))
+ 
+@@ -277,7 +298,25 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+               },
+               { key: "down", desc: "Next answer", group: "Question", cmd: () => moveTo((store.selected + 1) % total) },
+               { key: "j", desc: "Next answer", group: "Question", cmd: () => moveTo((store.selected + 1) % total) },
+-              { key: "return", desc: "Select answer", group: "Question", cmd: () => selectOption() },
++              // Multi-select: space toggles, return advances to the next tab
++              // (the last tab is "Confirm", where return submits). Upstream
++              // binds return to toggle with no way to move on, which leaves
++              // multi-select questions impossible to submit from the keyboard.
++              ...(multi()
++                ? [{ key: "space", desc: "Toggle answer", group: "Question", cmd: () => selectOption() }]
++                : []),
++              {
++                key: "return",
++                desc: multi() ? "Next question" : "Select answer",
++                group: "Question",
++                cmd: () => {
++                  if (multi() && !other()) {
++                    advance()
++                    return
++                  }
++                  selectOption()
++                },
++              },
+               { key: "escape", desc: "Reject question", group: "Question", cmd: () => reject() },
+               ...tuiConfig.keybinds.get("app.exit"),
+             ]),
+@@ -498,10 +537,15 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+               {"↑↓"} <span style={{ fg: theme.textMuted }}>select</span>
+             </text>
+           </Show>
++          <Show when={!confirm() && multi()}>
++            <text fg={theme.text}>
++              space <span style={{ fg: theme.textMuted }}>toggle</span>
++            </text>
++          </Show>
+           <text fg={theme.text}>
+             enter{" "}
+             <span style={{ fg: theme.textMuted }}>
+-              {confirm() ? "submit" : multi() ? "toggle" : single() ? "submit" : "confirm"}
++              {confirm() ? "submit" : multi() ? (other() ? "edit" : "next") : single() ? "submit" : "confirm"}
+             </span>
+           </text>
+ 

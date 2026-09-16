@@ -238,6 +238,77 @@ Likely upstream-equivalence signals that require the human gate:
   footer tracking is merged;
 - nested permission prompts are centrally routed to the root session.
 
+### `patches/opencode-question-submit-exit.patch`
+
+Intent: make the `question` tool prompt escapable and multi-select questions
+submittable. Upstream `dev` leaves multi-select impossible to submit from the
+keyboard and swallows ctrl+c while the custom-answer textarea is focused.
+
+Required behavior:
+
+- `selectTab` clears `editing`, so changing tabs (including by mouse) can never
+  leave `editing` set on a tab whose editing layer is inactive. Without this both
+  binding layers are disabled at once and every key, including ctrl+c, is dead.
+- The editing layer registers an `app.exit` command bound to `reject()` and
+  includes `tuiConfig.keybinds.get("app.exit")`, so ctrl+c/ctrl+d dismiss the
+  question instead of being swallowed. Question mode replaces the base keymap
+  layer, so the global `app.exit` binding is otherwise inactive.
+- The editing layer is enabled on `store.editing` alone, not
+  `store.editing && !confirm()`.
+- Multi-select binds `space` to toggle, matching the `dialog.mcp.toggle` and
+  `plugins.toggle` convention.
+- Multi-select binds `return` to advance to the next tab, whose last tab is
+  "Confirm", where `return` submits. `return` still opens the editor when the
+  "Type your own answer" row is selected.
+- Single-select `return` behavior is unchanged.
+- `escape` continues to reject from the non-editing layer and to cancel the edit
+  from the editing layer.
+- The footer advertises `space toggle` for multi-select and reports `enter` as
+  `next`/`edit`/`submit`/`confirm` as appropriate.
+
+Likely upstream-equivalence signals that require the human gate:
+
+- anomalyco/opencode#43376, #33848, #30393, or #28112 are fixed on the tracked
+  branch;
+- anomalyco/opencode#42493 (`packages/tui/src/routes/session/form.tsx`, currently
+  `v2`-only) or an equivalent question form rewrite lands on `dev`;
+- question mode stops replacing the base keymap layer, restoring the global
+  `app.exit` binding.
+
+### `patches/opencode-question-enter-submit.patch`
+
+Applied immediately after `opencode-question-submit-exit.patch` and generated
+against its post-image. Repairs a separate Enter-handling defect in the same
+component.
+
+Intent: a focused `@opentui` textarea consumes Enter internally before the key
+reaches the question-mode keymap, so the declarative `key: "return"` binding in
+the editing layer never fires and a typed custom answer cannot be submitted.
+This is most visible on terminals that negotiate the Kitty keyboard protocol
+(Ghostty, kitty, WezTerm), where Enter arrives as an enhanced CSI-u sequence and
+only ever inserts newlines.
+
+Required behavior:
+
+- The commit logic is factored into a single `commitEdit()` helper rather than
+  living inline in the `return` binding.
+- The custom-answer `<textarea>` passes `onSubmit={() => commitEdit()}`. This is
+  the primary submit path and mirrors `packages/opencode/src/cli/cmd/run/
+  footer.question.tsx`, which already binds `onSubmit` to its `saveCustom`.
+- The editing layer's `key: "return"` binding is retained as a fallback for
+  terminals where the textarea lets Enter propagate, and delegates to the same
+  `commitEdit()`.
+- Empty-input, multi-select, and single-select commit semantics are unchanged
+  from the pre-patch inline implementation.
+
+Likely upstream-equivalence signals that require the human gate:
+
+- `question.tsx` adopts `onSubmit` on the custom-answer textarea;
+- the question prompt is rebuilt on the run-mode footer component, which already
+  handles this correctly;
+- `@opentui` stops consuming Enter in focused textareas, or the keymap gains
+  priority over focused-renderable key handling.
+
 ## Update workflow
 
 ### 1. Protect current work

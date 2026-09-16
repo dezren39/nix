@@ -101,7 +101,7 @@ lib.recursiveUpdate {
       '';
     };
     sessionVariables = {
-      EDITOR = "code-insiders";
+      EDITOR = "zed";
       LANG = "en_US.UTF-8";
       COPILOT_MODEL = "claude-opus-4.5";
       OPENCODE_EXPERIMENTAL = "1";

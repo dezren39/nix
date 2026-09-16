@@ -154,9 +154,10 @@ in
         window-decoration = false;
       };
     };
-    vscode = {
-      enable = true;
-    };
+    # vscode disabled 2026-09: reclaiming disk; using opencode
+    # vscode = {
+    #   enable = true;
+    # };
 
     bash = {
       enable = true;
@@ -275,9 +276,10 @@ in
       };
     };
     # fastfetch: fast system info display (neofetch replacement)
-    fastfetch = {
-      enable = true;
-    };
+    # fastfetch disabled 2026-09-15: reclaiming disk
+    # fastfetch = {
+    #   enable = true;
+    # };
     # fzf: fuzzy finder with shell integration (file finder, directory jumper, Ctrl+T/Alt+C)
     fzf = {
       enable = true;

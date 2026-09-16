@@ -47,6 +47,14 @@ lib.recursiveUpdate {
     lib.generators.toGitINI (
       lib.recursiveUpdate (import ./gitSettings.nix) {
         core.excludesFile = "/etc/gitignore";
+        # System scope is read by ROOT (activation, the git-maintenance daemon,
+        # clean.sh, `sudo git`). When root runs git with core.fsmonitor=true it
+        # spawns the fsmonitor daemon and leaves root-owned cookie files in every
+        # repo, which then block `rm` (repo deletion needs sudo). Disable it for
+        # the system/root config only — the user's global ~/.config/git/config
+        # still sets core.fsmonitor = true and wins by precedence, so interactive
+        # user git keeps the fast daemon.
+        core.fsmonitor = false;
       }
     )
   );
@@ -395,6 +403,41 @@ lib.recursiveUpdate {
         rm -rf "/opt/homebrew/Caskroom/$stale"
       fi
     done
+  '';
+
+  # SidePulse's lid-closed LED feature needs passwordless `pmset -a disablesleep`.
+  # Upstream ships this as a GUI prompt that opens Terminal and asks for a sudo
+  # password (`sidepulse status-bar install-sleep-helper`). Installing the same
+  # rule here makes it reproducible and removes the interactive step.
+  #
+  # Deliberately NOT environment.etc: that symlinks through /etc/static, and
+  # nix-darwin refuses to take over an /etc path that already exists as a real
+  # file -- which this one does, because the GUI installer already wrote it.
+  # Writing it directly also lets us match upstream's bytes exactly and validate
+  # with visudo before moving it into place.
+  #
+  # Must stay byte-identical to sleep_helper_sudoers_rule() in
+  # src/sidepulse/lid_sleep.py, or sidepulse decides the file drifted and
+  # re-prompts on every launch.
+  system.activationScripts.extraActivation.text = ''
+    sidepulseSudoers=/etc/sudoers.d/sidepulse-disablesleep
+    sidepulseRule='${config.system.primaryUser} ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 0, /usr/bin/pmset -a disablesleep 1'
+
+    if [ "$(cat "$sidepulseSudoers" 2>/dev/null)" != "$sidepulseRule" ]; then
+      echo "installing $sidepulseSudoers" >&2
+      sidepulseTmp="$(/usr/bin/mktemp /etc/sudoers.d/.sidepulse-disablesleep.XXXXXX)"
+      printf '%s\n' "$sidepulseRule" > "$sidepulseTmp"
+      /usr/sbin/chown root:wheel "$sidepulseTmp"
+      /bin/chmod 0440 "$sidepulseTmp"
+      # Never install a sudoers file that does not parse -- a bad one can lock
+      # sudo out entirely.
+      if /usr/sbin/visudo -cf "$sidepulseTmp" >/dev/null; then
+        /bin/mv "$sidepulseTmp" "$sidepulseSudoers"
+      else
+        /bin/rm -f "$sidepulseTmp"
+        echo "sidepulse sudoers rule failed visudo validation; not installed" >&2
+      fi
+    fi
   '';
 
   system.activationScripts.postActivation.text = ''

@@ -1,0 +1,17 @@
+diff --git a/packages/tui/src/routes/session/permission.tsx b/packages/tui/src/routes/session/permission.tsx
+index e0fcda5..8699794 100644
+--- a/packages/tui/src/routes/session/permission.tsx
++++ b/packages/tui/src/routes/session/permission.tsx
+@@ -509,6 +509,12 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
+           focusedTextColor={theme.text}
+           cursorColor={theme.primary}
+           cursorStyle={tuiConfig.cursor}
++          // A focused @opentui textarea consumes Enter internally before the
++          // key reaches the `key: "return"` binding above, so on Kitty-keyboard
++          // terminals (Ghostty, kitty, WezTerm) the reject reason could never be
++          // confirmed. Wire onSubmit — the same fix as question.tsx and the
++          // run-mode footers — so Enter submits the rejection.
++          onSubmit={() => props.onConfirm(input.plainText)}
+         />
+         <box flexDirection="row" gap={2} flexShrink={0}>
+           <text fg={theme.text}>

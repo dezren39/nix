@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# symlink-agents — link this repo's agents/ into the opencode config dir.
+#
+# opencode globs "{agent,agents}/**/*.md" relative to each config dir
+# (config/agent.ts:12). ~/.config/opencode is a symlink to ~/.opencode, which
+# holds per-item symlinks back into this repo (command, commands, instructions,
+# opencode.jsonc). This adds `agents` to that set so agent definitions are
+# tracked in git rather than living loose in the config dir.
+#
+# NOTE: the glob is recursive, so agents/foo/bar.md loads as an agent named
+# "foo/bar" -- there is no way to nest a prompts/ library under agents/.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: symlink-agents [--dry-run|-n] [--help|-h]
+
+Symlink this repository's agents/ directory into ~/.opencode/agents.
+
+Options:
+  -n, --dry-run  Show changes without modifying the filesystem
+  -h, --help     Show this help
+EOF
+}
+
+DRY_RUN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|--dry-run) DRY_RUN=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC="$SELF_DIR/agents"
+DEST_PARENT="${HOME}/.opencode"
+DEST="$DEST_PARENT/agents"
+
+[ -d "$SRC" ] || { echo "no agents/ directory at $SRC" >&2; exit 1; }
+[ -d "$DEST_PARENT" ] || { echo "no $DEST_PARENT — is opencode configured?" >&2; exit 1; }
+
+run() { if [ "$DRY_RUN" -eq 1 ]; then echo "[dry-run] $*"; else "$@"; fi; }
+
+if [ -L "$DEST" ]; then
+  current="$(readlink "$DEST")"
+  if [ "$current" = "$SRC" ]; then
+    echo "already linked: $DEST -> $SRC"
+    exit 0
+  fi
+  echo "warning: $DEST points elsewhere ($current); leaving it alone" >&2
+  exit 1
+fi
+
+if [ -e "$DEST" ]; then
+  echo "warning: $DEST exists and is not a symlink; leaving it alone" >&2
+  exit 1
+fi
+
+echo "link: $DEST -> $SRC"
+run ln -s -- "$SRC" "$DEST"
+[ "$DRY_RUN" -eq 1 ] && echo "Dry run complete; no changes made."

@@ -1,8 +1,8 @@
 diff --git a/README.md b/README.md
-index eeaa66b..86152bb 100644
+index 445009f..68ba045 100644
 --- a/README.md
 +++ b/README.md
-@@ -500,6 +500,11 @@ battery status. When agent status is selected, `Show Battery on Plug/Unplug`
+@@ -596,6 +596,11 @@ battery status. When agent status is selected, `Show Battery on Plug/Unplug`
  can briefly show the battery animation for seven seconds after the power source
  changes.
  
@@ -11,10 +11,10 @@ index eeaa66b..86152bb 100644
 +LEDs to Idle in one click, which is the quick way out of a stale Ask or Done
 +state. Live agents reappear on their next hook event.
 +
- The Devices section also offers **Add Screen Bar**, an optional virtual
+ The Devices section also offers **Add SidePulse Notch**, an optional virtual
  eight-LED device. It appears as a notch-shaped status-bar overlay that covers
  the camera island/notch footprint and adds a straight 5 px LED band along the
-@@ -521,6 +526,12 @@ Settings can export the hook decision log as CSV or HTML. This log lives at
+@@ -624,6 +629,12 @@ Settings can export the hook decision log as CSV or HTML. This log lives at
  `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/event-status.jsonl`
  and shows the path from provider hook event to interpreted SidePulse status.
  
@@ -28,122 +28,19 @@ index eeaa66b..86152bb 100644
  prevention policy:
  
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
-index c537dc2..a37aac1 100644
+index 00d8502..30fc320 100644
 --- a/src/sidepulse/collector.py
 +++ b/src/sidepulse/collector.py
-@@ -521,111 +521,20 @@ class LiveAgentMonitor:
-             self.statuses_by_key[status.agent_id] = status
-             self.write_latest_state()
- 
--    def reconcile_statuses(
--        self,
--        statuses: Iterable[AgentStatus],
--        *,
--        replaces_origin: str | None = None,
--    ) -> int:
--        """Merge newer fallback statuses without overriding newer live events.
--
--        ``replaces_origin`` names an origin whose live rows the incoming
--        statuses are authoritative for. A host such as T3 Code reports the same
--        session under its own thread id, so the agent's own hooks would
--        otherwise leave a duplicate row behind.
--        """
--
--        changed = 0
--        with self.lock:
--            canonical_keys: set[str] = set()
--            canonical_provider_sessions: set[tuple[str, str]] = set()
--            canonical_by_native: dict[tuple[str, str], str] = {}
--            for status in statuses:
--                canonical_keys.add(status.agent_id)
--                if status.provider_session_id:
--                    pair = (status.provider, status.provider_session_id)
--                    canonical_provider_sessions.add(pair)
--                    canonical_by_native[pair] = status.agent_id
--                previous = self.statuses_by_key.get(status.agent_id)
--                if previous is not None and previous.updated_at >= status.updated_at:
--                    continue
--                self.statuses_by_key[status.agent_id] = status
--                changed += 1
--            if replaces_origin:
--                if canonical_keys:
--                    wanted = replaces_origin.strip().casefold()
--                    for key, status in list(self.statuses_by_key.items()):
--                        if key in canonical_keys:
--                            continue
--                        same_provider_session = bool(
--                            status.session_id
--                            and (status.provider, status.session_id)
--                            in canonical_provider_sessions
--                        )
--                        if (
--                            (status.origin or "").strip().casefold() == wanted
--                            or same_provider_session
--                        ):
--                            host_id = canonical_by_native.get(
--                                (status.provider, status.session_id or "")
--                            )
--                            if host_id and host_id in self.statuses_by_key:
--                                host = self.statuses_by_key[host_id]
--                                merged = merge_live_hook_into_t3(host, status)
--                                if merged != host:
--                                    self.statuses_by_key[host_id] = merged
--                            del self.statuses_by_key[key]
--                            changed += 1
--                changed += self._apply_pending_t3_hooks(canonical_by_native, canonical_keys)
--            if changed:
--                self.write_latest_state()
--        return changed
+@@ -629,6 +629,20 @@ class LiveAgentMonitor:
+     def _drop_pending_t3_hooks_for(self, record: HookEvent) -> None:
+         if record.session_id:
+             self._pending_t3_hooks.pop((record.provider, record.session_id), None)
 +    def clear_statuses(self) -> int:
 +        """Forget every tracked agent session and persist the empty state.
- 
--    def _apply_pending_t3_hooks(
--        self,
--        canonical_by_native: dict[tuple[str, str], str],
--        canonical_keys: set[str],
--    ) -> int:
--        """Fold buffered T3-hosted hooks into canonical rows, or surface them.
--
--        Hooks can beat T3's event log by a moment. Holding them off the menu
--        avoids a Claude/Cursor flash that is deleted on the next reconcile.
++
 +        Live agents re-register on their next hook event; this only drops what
 +        the monitor is currently holding.
-         """
--
--        if not self._pending_t3_hooks:
--            return 0
--        changed = 0
--        if not canonical_keys:
--            for hook in self._pending_t3_hooks.values():
--                if hook.agent_id in self._ignored_status_keys:
--                    continue
--                self.statuses_by_key[hook.agent_id] = hook
--                changed += 1
--            self._pending_t3_hooks.clear()
--            return changed
--
--        for pair, hook in list(self._pending_t3_hooks.items()):
--            if hook.agent_id in self._ignored_status_keys:
--                del self._pending_t3_hooks[pair]
--                changed += 1
--                continue
--            host_id = canonical_by_native.get(pair)
--            if host_id is None and hook.session_id:
--                host_id = canonical_by_native.get((hook.provider, hook.session_id))
--            if host_id is None or host_id not in self.statuses_by_key:
--                continue
--            host = self.statuses_by_key[host_id]
--            merged = merge_live_hook_into_t3(host, hook)
--            if merged != host:
--                self.statuses_by_key[host_id] = merged
--                changed += 1
--            del self._pending_t3_hooks[pair]
--            changed += 1
--        return changed
--
--    def _drop_pending_t3_hooks_for(self, record: HookEvent) -> None:
--        if record.session_id:
--            self._pending_t3_hooks.pop((record.provider, record.session_id), None)
++        """
 +        with self.lock:
 +            cleared = len(self.statuses_by_key)
 +            self.statuses_by_key.clear()
@@ -197,10 +94,10 @@ index 426e89f..2f5bb74 100644
              data.get("lid_closed_animation"),
              default_lid_animation(LID_ANIMATION_CLOSED),
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index 0f32801..f986d0b 100644
+index b524515..dc8564c 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -972,6 +972,18 @@ class StatusBarController(NSObject):
+@@ -1002,6 +1002,18 @@ class StatusBarController(NSObject):
      def setBatteryLedDisplayFromCheckbox_(self, sender):
          self.set_battery_led_display(sender.state() == NSOnState)
  
@@ -219,49 +116,18 @@ index 0f32801..f986d0b 100644
      @objc.IBAction
      def toggleBatteryPowerPreview_(self, _sender):
          self.set_battery_power_preview(not self.settings.battery_show_on_power_change)
-@@ -1503,36 +1515,11 @@ class StatusBarController(NSObject):
-             self.settings_buttons.get("battery_power_preview"),
-             self.settings.battery_show_on_power_change,
-         )
--        for mode_value in ANIMATION_UI_STATES:
--            popup = self.settings_fields.get(f"agent_animation_{mode_value}")
--            if popup is not None:
--                refresh_agent_animation_popup(
--                    popup,
--                    mode_value,
--                    self.settings,
--                    self.settings.agent_animation_id(mode_value),
--                )
--            preview = self.settings_fields.get(
--                f"agent_animation_preview_{mode_value}"
--            )
--            if preview is not None:
--                preview.setProgram_(animation_state_program(self.settings, mode_value))
--        profile_popup = self.settings_fields.get("agent_animation_profile")
--        if profile_popup is not None:
--            refresh_agent_animation_profile_popup(
--                profile_popup,
--                self.settings,
--                self.selected_agent_animation_profile_id,
--            )
--        delete_profile = self.settings_buttons.get("delete_agent_animation_profile")
--        if delete_profile is not None:
--            delete_profile.setEnabled_(
--                self.selected_agent_animation_profile_id
--                in self.settings.agent_animation_profiles
--                and self.selected_agent_animation_profile_id
--                not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
--            )
--        for provider in ("codex", "claude", "grok", "opencode"):
+@@ -1577,6 +1589,10 @@ class StatusBarController(NSObject):
+                 and self.selected_agent_animation_profile_id
+                 not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
+             )
 +        set_checkbox_state(
 +            self.settings_buttons.get("lid_closed_led_idle"),
 +            self.settings.lid_closed_led_idle_enabled,
 +        )
-+        for provider in ("codex", "claude", "grok"):
+         for provider in ("codex", "claude", "grok", "opencode"):
              popup = self.settings_fields.get(f"{provider}_session_opener")
              if popup is not None:
-                 refresh_provider_opener_popup(
-@@ -1801,6 +1788,44 @@ class StatusBarController(NSObject):
+@@ -1856,6 +1872,44 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          self.refresh_(None)
  
@@ -306,7 +172,7 @@ index 0f32801..f986d0b 100644
      def set_device_display(self, device_id: str | None, display: str) -> None:
          if not device_id:
              return
-@@ -2634,9 +2659,15 @@ class StatusBarController(NSObject):
+@@ -2731,9 +2785,15 @@ class StatusBarController(NSObject):
  
          self.last_status_history_error = None
  
@@ -322,7 +188,7 @@ index 0f32801..f986d0b 100644
          if self.settings.led_display == LED_DISPLAY_BATTERY:
              return LED_DISPLAY_BATTERY
          if snapshot is not None and time.monotonic() < self.battery_preview_until:
-@@ -2799,6 +2830,8 @@ class StatusBarController(NSObject):
+@@ -2925,6 +2985,8 @@ class StatusBarController(NSObject):
      ) -> str:
          if device.display == LED_DISPLAY_CUSTOM:
              return LED_DISPLAY_CUSTOM
@@ -331,7 +197,7 @@ index 0f32801..f986d0b 100644
          if device.display == LED_DISPLAY_BATTERY:
              return LED_DISPLAY_BATTERY
          if battery_snapshot is not None and time.monotonic() < self.battery_preview_until:
-@@ -2814,6 +2847,11 @@ class StatusBarController(NSObject):
+@@ -2940,6 +3002,11 @@ class StatusBarController(NSObject):
          if not self.leds_enabled:
              return
  
@@ -343,7 +209,7 @@ index 0f32801..f986d0b 100644
          self.sync_virtual_status_device(mode, battery_snapshot)
  
          if self.lid_closed_led_hold_active:
-@@ -2835,6 +2873,15 @@ class StatusBarController(NSObject):
+@@ -2961,6 +3028,15 @@ class StatusBarController(NSObject):
          )
          thread.start()
  
@@ -359,7 +225,7 @@ index 0f32801..f986d0b 100644
      def sync_virtual_status_device(
          self,
          mode: AgentMode,
-@@ -3220,6 +3267,13 @@ class StatusBarController(NSObject):
+@@ -3398,6 +3474,13 @@ class StatusBarController(NSObject):
          else:
              self.lid_closed_led_hold_active = False
          self.play_lid_animation(kind)
@@ -373,7 +239,7 @@ index 0f32801..f986d0b 100644
  
      @objc.IBAction
      def pollDevices_(self, _sender):
-@@ -3371,6 +3425,14 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -3553,6 +3636,14 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
                  )
              )
  
@@ -388,7 +254,7 @@ index 0f32801..f986d0b 100644
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Devices"))
      devices = target.status_bar_devices()
-@@ -3388,6 +3450,17 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -3569,6 +3660,17 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
          virtual_toggle.setTarget_(target)
          menu.addItem_(virtual_toggle)
  
@@ -406,7 +272,7 @@ index 0f32801..f986d0b 100644
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Closed-Lid Sleep Prevention"))
      for policy in SLEEP_PREVENTION_CHOICES:
-@@ -4455,6 +4528,16 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4720,6 +4822,16 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          target,
          "setBatteryPowerPreviewFromCheckbox:",
      )
@@ -423,20 +289,19 @@ index 0f32801..f986d0b 100644
  
      add_label(agent_animations_tab, "Profile", 32, 360, 56, 24)
      animation_profile = add_agent_animation_profile_popup(
-@@ -4651,7 +4734,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
-         "claude_transcripts": claude_transcripts,
+@@ -4919,6 +5031,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "battery_leds": battery_leds,
          "battery_power_preview": battery_power_preview,
--        "delete_agent_animation_profile": delete_animation_profile,
+         "delete_agent_animation_profile": delete_animation_profile,
 +        "lid_closed_led_idle": lid_closed_led_idle,
      }
      return window
  
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index a556384..6940cea 100644
+index 807270d..f8e732e 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -849,6 +849,83 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -851,12 +851,49 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(reloaded.snapshot().aggregate.mode, AgentMode.TOOL_RUNNING)
              self.assertEqual(reloaded.snapshot().statuses[0].origin, "Codex UI")
  
@@ -476,51 +341,17 @@ index a556384..6940cea 100644
 +            self.assertEqual(reloaded.snapshot().aggregate.mode, AgentMode.IDLE_READY)
 +            self.assertEqual(monitor.clear_statuses(), 0)
 +
-+    def test_status_bar_startup_replay_ingests_recent_debug_logs(self) -> None:
-+        try:
-+            from sidepulse import status_bar
-+        except SystemExit as exc:
-+            self.skipTest(str(exc))
+     def test_codex_interrupt_clears_active_status_and_permissions(self) -> None:
+         for active_event in ("UserPromptSubmit", "PreToolUse", "PermissionRequest"):
+             with self.subTest(active_event=active_event), tempfile.TemporaryDirectory() as tmp:
+                 latest = Path(tmp) / "latest.json"
+                 monitor = LiveAgentMonitor(latest_state_path=latest)
+ 
 +
-+        with tempfile.TemporaryDirectory() as tmp:
-+            base = Path(tmp)
-+            log = base / "codex.jsonl"
-+            session_id = "eeeeeeee-ffff-7aaa-8bbb-cccccccccccc"
-+            log.write_text(
-+                json.dumps(
-+                    {
-+                        "logged_at": datetime.now(timezone.utc).isoformat(),
-+                        "event": {
-+                            "hook_event_name": "UserPromptSubmit",
-+                            "session_id": session_id,
-+                            "cwd": "/tmp/project",
-+                            "prompt": "startup replay should restore this",
-+                        },
-+                    }
-+                )
-+                + "\n"
-+            )
-+            monitor = LiveAgentMonitor()
-+
-+            with patch(
-+                "sidepulse.status_bar.detect_log_path",
-+                return_value=log,
-+            ):
-+                replayed = status_bar.replay_recent_debug_logs(
-+                    monitor,
-+                    providers=("codex",),
-+                    max_lines=20,
-+                )
-+
-+            snapshot = monitor.snapshot()
-+            self.assertEqual(replayed, 1)
-+            self.assertEqual(snapshot.aggregate.mode, AgentMode.WORKING)
-+            self.assertIn("startup replay", snapshot.statuses[0].display_name)
-+
-     def test_status_bar_session_menu_title_is_task_and_project(self) -> None:
-         try:
-             from sidepulse import status_bar
-@@ -5839,6 +5916,13 @@ class AgentMonitorTests(unittest.TestCase):
+                 def ingest(event_name):
+                     record = parse_log_line("codex", json.dumps({
+                         "logged_at": datetime.now(timezone.utc).isoformat(),
+@@ -6263,6 +6300,13 @@ class AgentMonitorTests(unittest.TestCase):
              loaded_enabled = load_settings(settings_path)
              self.assertTrue(loaded_enabled.closed_lid_system_override_enabled)
  
@@ -534,7 +365,7 @@ index a556384..6940cea 100644
              completed = settings.with_setup_screen_completed(True)
              save_settings(completed, settings_path)
              loaded_completed = load_settings(settings_path)
-@@ -5855,6 +5939,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6279,6 +6323,7 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(loaded.sleep_prevention_min_battery_percent, 20)
              self.assertEqual(loaded.history_timeframe_seconds, DEFAULT_HISTORY_TIMEFRAME_SECONDS)
              self.assertFalse(loaded.closed_lid_system_override_enabled)
@@ -543,7 +374,7 @@ index a556384..6940cea 100644
              self.assertEqual(
                  loaded.lid_animation(LID_ANIMATION_CLOSED),
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index 78ffef4..b262849 100644
+index 8daaf12..a31b6dd 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
 @@ -20,6 +20,8 @@ import ast
@@ -555,15 +386,7 @@ index 78ffef4..b262849 100644
  import unittest
  from datetime import datetime, timedelta, timezone
  from pathlib import Path
-@@ -72,6 +74,7 @@ from sidepulse import status_bar as sb  # noqa: E402
- from sidepulse import virtual_device as vd  # noqa: E402
- from sidepulse.collector import MonitorSnapshot, SourceSpec  # noqa: E402
- from sidepulse.models import AgentMode, AgentStatus, AggregateStatus  # noqa: E402
-+from sidepulse.settings import AgentMonitorSettings  # noqa: E402
- 
- 
- # A selector literal: camelCase identifier ending in a single colon.
-@@ -882,6 +885,211 @@ class IconTests(StatusBarTestCase):
+@@ -970,6 +972,211 @@ class IconTests(StatusBarTestCase):
                  )
  
  

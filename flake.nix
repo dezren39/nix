@@ -263,6 +263,10 @@ rec {
       ./patches/opencode-agent-variant-defaults.patch
       ./patches/opencode-run-descendant-permissions.patch
       ./patches/opencode-nested-subagent-prompts.patch
+      ./patches/opencode-question-submit-exit.patch
+      ./patches/opencode-question-enter-submit.patch
+      ./patches/opencode-permission-enter-submit.patch
+      ./patches/opencode-numpad-enter.patch
     ];
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
@@ -281,7 +285,7 @@ rec {
             rev = builtins.substring 0 7 inputs.opencode.rev;
           }
           // pkgs.lib.optionalAttrs (system == "aarch64-darwin") {
-            hash = "sha256-ObS50y/oy6fM9wSGUL/wx6O0+fTWHC04mXJNd7w/2Z0=";
+            hash = "sha256-/njY2BbhqncqQ+gODoTmhBJKTT22VCFAhh8L3kwgHfU=";
           }
         );
       in

@@ -96,6 +96,16 @@
     renames = "copies";
   };
 
+  # difftastic (structural / syntax-aware diff) shorthands. `difft` ships with
+  # the difftastic package. Kept as aliases rather than a global diff.external so
+  # plain `git diff` stays line-based (safe for scripts / pipes / other tools).
+  alias = {
+    dft = "!GIT_EXTERNAL_DIFF=difft git diff"; # structural diff, working tree
+    dfts = "!GIT_EXTERNAL_DIFF=difft git diff --staged"; # structural diff, staged
+    dl = "!GIT_EXTERNAL_DIFF=difft git log -p --ext-diff"; # log with structural patches
+    dshow = "!GIT_EXTERNAL_DIFF=difft git show --ext-diff"; # show a commit structurally
+  };
+
   # Object-store performance. gc.auto is NOT disabled globally — it is set
   # per-repo by ./git-maintain-repos, so repos outside that script keep their
   # normal safety net.

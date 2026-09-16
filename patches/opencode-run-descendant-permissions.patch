@@ -1,6 +1,7 @@
-diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cmd/run.ts
---- a/packages/opencode/src/cli/cmd/run.ts
-+++ b/packages/opencode/src/cli/cmd/run.ts
+diff --git i/packages/opencode/src/cli/cmd/run.ts w/packages/opencode/src/cli/cmd/run.ts
+index cccc25501..a432bb13b 100644
+--- i/packages/opencode/src/cli/cmd/run.ts
++++ w/packages/opencode/src/cli/cmd/run.ts
 @@ -37,6 +37,33 @@ function pick(value: string | undefined): ModelInput | undefined {
    } as ModelInput
  }
@@ -35,13 +36,16 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
  function resolveRunInput(value?: string, piped?: string): string | undefined {
    if (!value) {
      return piped
-@@ -690,3 +717,5 @@ export const RunCommand = effectCmd({
+@@ -690,6 +717,8 @@ export const RunCommand = effectCmd({
            return false
          }
+ 
 +        const requestAbort = new AbortController()
 +
          // Consume one subscribed event stream for the active session and mirror it
-@@ -697,5 +726,17 @@ export const RunCommand = effectCmd({
+         // to stdout/UI. `client` is passed explicitly because attach mode may
+         // rebind the SDK to the session's directory after the subscription is
+@@ -697,11 +726,24 @@ export const RunCommand = effectCmd({
          async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
            const toggles = new Map<string, boolean>()
            const sessions = new Set([sessionID])
@@ -59,7 +63,6 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
 +          }
            let error: string | undefined
  
-@@ -702,4 +743,5 @@ export const RunCommand = effectCmd({
            for await (const event of events.stream) {
 -            if (event.type === "session.created" && event.properties.info.parentID) {
 -              if (sessions.has(event.properties.info.parentID)) sessions.add(event.properties.info.id)
@@ -67,7 +70,9 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
 +              const info = event.properties.info
 +              if (info.parentID && sessions.has(info.parentID)) sessions.add(info.id)
              }
-@@ -801,7 +843,14 @@ export const RunCommand = effectCmd({
+ 
+             if (
+@@ -800,7 +842,14 @@ export const RunCommand = effectCmd({
  
              if (event.type === "permission.asked") {
                const permission = event.properties
@@ -83,7 +88,7 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
  
                if (auto) {
                  await client.permission.reply({
-@@ -845,14 +894,17 @@ export const RunCommand = effectCmd({
+@@ -843,14 +892,17 @@ export const RunCommand = effectCmd({
            }
  
            if (args.command) {
@@ -109,7 +114,7 @@ diff --git a/packages/opencode/src/cli/cmd/run.ts b/packages/opencode/src/cli/cm
              if (result.error) {
                if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
                process.exitCode = 1
-@@ -863,13 +915,16 @@ export const RunCommand = effectCmd({
+@@ -861,13 +913,16 @@ export const RunCommand = effectCmd({
            }
  
            const model = pick(args.model)

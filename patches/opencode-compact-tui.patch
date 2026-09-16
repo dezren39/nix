@@ -1,8 +1,8 @@
-diff --git a/packages/tui/src/component/prompt/index.tsx b/packages/tui/src/component/prompt/index.tsx
-index 115c102..9f1d2b6 100644
---- a/packages/tui/src/component/prompt/index.tsx
-+++ b/packages/tui/src/component/prompt/index.tsx
-@@ -1355,9 +1355,9 @@ export function Prompt(props: PromptProps) {
+diff --git i/packages/tui/src/component/prompt/index.tsx w/packages/tui/src/component/prompt/index.tsx
+index c48c75173..fd7ed6513 100644
+--- i/packages/tui/src/component/prompt/index.tsx
++++ w/packages/tui/src/component/prompt/index.tsx
+@@ -1358,9 +1358,9 @@ export function Prompt(props: PromptProps) {
            }}
          >
            <box
@@ -15,8 +15,8 @@ index 115c102..9f1d2b6 100644
              flexShrink={0}
              backgroundColor={theme.backgroundElement}
              flexGrow={1}
-@@ -1436,8 +1436,8 @@ export function Prompt(props: PromptProps) {
-               cursorColor={props.disabled ? theme.backgroundElement : theme.text}
+@@ -1441,8 +1441,8 @@ export function Prompt(props: PromptProps) {
+               cursorStyle={tuiConfig.cursor}
                syntaxStyle={syntax()}
              />
 -            <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
@@ -26,7 +26,7 @@ index 115c102..9f1d2b6 100644
                  <Show when={local.agent.current()} fallback={<box height={1} />}>
                    {(agent) => (
                      <>
-@@ -1448,7 +1448,7 @@ export function Prompt(props: PromptProps) {
+@@ -1453,7 +1453,7 @@ export function Prompt(props: PromptProps) {
                          <text fg={fadeColor(theme.textMuted, agentMetaAlpha())}>auto</text>
                        </Show>
                        <Show when={store.mode === "normal"}>
@@ -35,7 +35,7 @@ index 115c102..9f1d2b6 100644
                            <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>
                            <text
                              flexShrink={0}
-@@ -1472,7 +1472,7 @@ export function Prompt(props: PromptProps) {
+@@ -1477,7 +1477,7 @@ export function Prompt(props: PromptProps) {
                  </Show>
                </box>
                <Show when={hasRightContent()}>
@@ -44,7 +44,7 @@ index 115c102..9f1d2b6 100644
                    {props.right}
                  </box>
                </Show>
-@@ -1510,17 +1510,17 @@ export function Prompt(props: PromptProps) {
+@@ -1515,17 +1515,17 @@ export function Prompt(props: PromptProps) {
              <Match when={status().type !== "idle"}>
                <box
                  flexDirection="row"
@@ -65,7 +65,7 @@ index 115c102..9f1d2b6 100644
                      {(() => {
                        const retry = createMemo(() => {
                          const s = status()
-@@ -1589,14 +1589,14 @@ export function Prompt(props: PromptProps) {
+@@ -1594,14 +1594,14 @@ export function Prompt(props: PromptProps) {
              </Match>
              <Match when={workspace.notice()}>
                {(notice) => (
@@ -82,7 +82,7 @@ index 115c102..9f1d2b6 100644
                    <Show when={workspace.creating()}>
                      <Spinner color={theme.accent} />
                    </Show>
-@@ -1624,7 +1624,7 @@ export function Prompt(props: PromptProps) {
+@@ -1629,7 +1629,7 @@ export function Prompt(props: PromptProps) {
              </Match>
              <Match when={move.progress()}>
                {(progress) => (
@@ -91,7 +91,7 @@ index 115c102..9f1d2b6 100644
                    <Spinner color={theme.accent}>
                      {progress()}
                      <span style={{ fg: theme.textMuted }}>{".".repeat(move.creatingDots())}</span>
-@@ -1633,7 +1633,7 @@ export function Prompt(props: PromptProps) {
+@@ -1638,7 +1638,7 @@ export function Prompt(props: PromptProps) {
                )}
              </Match>
              <Match when={move.pendingNew()}>
@@ -100,10 +100,10 @@ index 115c102..9f1d2b6 100644
                  <text fg={theme.accent}>(new working copy)</text>
                </box>
              </Match>
-diff --git a/packages/tui/src/feature-plugins/home/footer.tsx b/packages/tui/src/feature-plugins/home/footer.tsx
-index 41bee5d..93b98b4 100644
---- a/packages/tui/src/feature-plugins/home/footer.tsx
-+++ b/packages/tui/src/feature-plugins/home/footer.tsx
+diff --git i/packages/tui/src/feature-plugins/home/footer.tsx w/packages/tui/src/feature-plugins/home/footer.tsx
+index 41bee5da5..93b98b42a 100644
+--- i/packages/tui/src/feature-plugins/home/footer.tsx
++++ w/packages/tui/src/feature-plugins/home/footer.tsx
 @@ -33,7 +33,7 @@ function Mcp(props: { api: TuiPluginApi }) {
  
    return (
@@ -128,10 +128,10 @@ index 41bee5d..93b98b4 100644
        flexDirection="row"
        flexShrink={0}
        gap={2}
-diff --git a/packages/tui/src/feature-plugins/sidebar/footer.tsx b/packages/tui/src/feature-plugins/sidebar/footer.tsx
-index c59046a..e2ed35c 100644
---- a/packages/tui/src/feature-plugins/sidebar/footer.tsx
-+++ b/packages/tui/src/feature-plugins/sidebar/footer.tsx
+diff --git i/packages/tui/src/feature-plugins/sidebar/footer.tsx w/packages/tui/src/feature-plugins/sidebar/footer.tsx
+index c59046a01..e2ed35c8e 100644
+--- i/packages/tui/src/feature-plugins/sidebar/footer.tsx
++++ w/packages/tui/src/feature-plugins/sidebar/footer.tsx
 @@ -30,21 +30,21 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
    })
  
@@ -170,10 +170,10 @@ index c59046a..e2ed35c 100644
                <text fg={theme().text}>Connect provider</text>
                <text fg={theme().textMuted}>/connect</text>
              </box>
-diff --git a/packages/tui/src/routes/home.tsx b/packages/tui/src/routes/home.tsx
-index d4145e2..535cc87 100644
---- a/packages/tui/src/routes/home.tsx
-+++ b/packages/tui/src/routes/home.tsx
+diff --git i/packages/tui/src/routes/home.tsx w/packages/tui/src/routes/home.tsx
+index d4145e2d8..535cc87fc 100644
+--- i/packages/tui/src/routes/home.tsx
++++ w/packages/tui/src/routes/home.tsx
 @@ -69,7 +69,7 @@ export function Home() {
  
    return (
@@ -192,11 +192,11 @@ index d4145e2..535cc87 100644
            <pluginRuntime.Slot name="home_prompt" mode="replace" ref={bind}>
              <Prompt ref={bind} right={<pluginRuntime.Slot name="home_prompt_right" />} placeholders={placeholder} />
            </pluginRuntime.Slot>
-diff --git a/packages/tui/src/routes/session/index.tsx b/packages/tui/src/routes/session/index.tsx
-index 6d77b0e..e16dd74 100644
---- a/packages/tui/src/routes/session/index.tsx
-+++ b/packages/tui/src/routes/session/index.tsx
-@@ -246,7 +246,7 @@ export function Session() {
+diff --git i/packages/tui/src/routes/session/index.tsx w/packages/tui/src/routes/session/index.tsx
+index 2b54f2167..78c2d0bad 100644
+--- i/packages/tui/src/routes/session/index.tsx
++++ w/packages/tui/src/routes/session/index.tsx
+@@ -253,7 +253,7 @@ export function Session() {
    })
  
    const dimensions = useTerminalDimensions()
@@ -205,7 +205,7 @@ index 6d77b0e..e16dd74 100644
    const [sidebarOpen, setSidebarOpen] = createSignal(false)
    const [conceal, setConceal] = createSignal(true)
    const thinking = useThinkingMode()
-@@ -1163,7 +1163,7 @@ export function Session() {
+@@ -1175,7 +1175,7 @@ export function Session() {
          }}
        >
          <box flexDirection="row" flexGrow={1} minHeight={0}>
@@ -214,7 +214,7 @@ index 6d77b0e..e16dd74 100644
              <Show when={session()}>
                <scrollbox
                  ref={(r) => (scroll = r)}
-@@ -1209,16 +1209,16 @@ export function Session() {
+@@ -1221,16 +1221,16 @@ export function Session() {
                                onMouseOver={() => setHover(true)}
                                onMouseOut={() => setHover(false)}
                                onMouseUp={handleUnrevert}
@@ -235,7 +235,7 @@ index 6d77b0e..e16dd74 100644
                                  backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
                                >
                                  <text fg={theme.textMuted}>{revert()!.reverted.length} message reverted</text>
-@@ -1226,7 +1226,7 @@ export function Session() {
+@@ -1238,7 +1238,7 @@ export function Session() {
                                    <span style={{ fg: theme.text }}>{redoShortcut()}</span> or /redo to restore
                                  </text>
                                  <Show when={revert()!.diffFiles?.length}>
@@ -244,7 +244,7 @@ index 6d77b0e..e16dd74 100644
                                      <For each={revert()!.diffFiles}>
                                        {(file) => (
                                          <text fg={theme.text}>
-@@ -1396,15 +1396,15 @@ function UserMessage(props: {
+@@ -1410,15 +1410,15 @@ function UserMessage(props: {
                setHover(false)
              }}
              onMouseUp={props.onMouseUp}
@@ -264,7 +264,7 @@ index 6d77b0e..e16dd74 100644
                  <For each={files()}>
                    {(file) => {
                      const directory = file.mime === "application/x-directory"
-@@ -1441,7 +1441,7 @@ function UserMessage(props: {
+@@ -1455,7 +1455,7 @@ function UserMessage(props: {
        </Show>
        <Show when={compaction()}>
          <box
@@ -273,7 +273,7 @@ index 6d77b0e..e16dd74 100644
            border={["top"]}
            title=" Compaction "
            titleAlignment="center"
-@@ -1493,7 +1493,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1507,7 +1507,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
          }}
        </For>
        <Show when={props.parts.some((x) => x.type === "tool" && x.tool === "task")}>
@@ -282,7 +282,7 @@ index 6d77b0e..e16dd74 100644
            <text fg={theme.text}>
              {childShortcut()}
              <span style={{ fg: theme.textMuted }}> view subagents</span>
-@@ -1520,10 +1520,10 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1534,10 +1534,10 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
          <box
            ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
            border={["left"]}
@@ -297,7 +297,7 @@ index 6d77b0e..e16dd74 100644
            backgroundColor={theme.backgroundPanel}
            customBorderChars={SplitBorder.customBorderChars}
            borderColor={theme.error}
-@@ -1533,8 +1533,8 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
+@@ -1547,8 +1547,8 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
        </Show>
        <Switch>
          <Match when={props.last || final() || props.message.error?.name === "MessageAbortedError"}>
@@ -308,8 +308,8 @@ index 6d77b0e..e16dd74 100644
                <span
                  style={{
                    fg:
-@@ -1600,8 +1600,8 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
-     <Show when={content()}>
+@@ -1615,8 +1615,8 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
+     <Show when={content() || opaque()}>
        <box
          ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
 -        paddingLeft={3}
@@ -319,8 +319,7 @@ index 6d77b0e..e16dd74 100644
          flexDirection="column"
          flexShrink={0}
        >
-@@ -1631,8 +1631,8 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
-             encrypted={opaque()}
+@@ -1631,7 +1631,7 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
            />
          </box>
          <Show when={!opaque() && (!inMinimal() || expanded()) && summary().body}>
@@ -329,7 +328,7 @@ index 6d77b0e..e16dd74 100644
              <code
                filetype="markdown"
                drawUnstyledText={false}
-@@ -1681,7 +1681,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
+@@ -1688,7 +1688,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
    const { theme, syntax } = useTheme()
    return (
      <Show when={props.part.text.trim()}>
@@ -338,7 +337,7 @@ index 6d77b0e..e16dd74 100644
          <markdown
            syntaxStyle={syntax()}
            streaming={true}
-@@ -1815,7 +1815,7 @@ function GenericTool(props: ToolProps) {
+@@ -1822,7 +1822,7 @@ function GenericTool(props: ToolProps) {
          part={props.part}
          onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
        >
@@ -347,7 +346,7 @@ index 6d77b0e..e16dd74 100644
            <text fg={theme.text}>{limited()}</text>
            <Show when={collapsed().overflow}>
              <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
-@@ -1925,7 +1925,7 @@ export function InlineToolRow(props: {
+@@ -1932,7 +1932,7 @@ export function InlineToolRow(props: {
  }) {
    return (
      <box
@@ -356,7 +355,7 @@ index 6d77b0e..e16dd74 100644
        onMouseOver={props.onMouseOver}
        onMouseOut={props.onMouseOut}
        onMouseUp={props.onMouseUp}
-@@ -1947,7 +1947,7 @@ export function InlineToolRow(props: {
+@@ -1954,7 +1954,7 @@ export function InlineToolRow(props: {
            <Show
              fallback={
                <text
@@ -365,7 +364,7 @@ index 6d77b0e..e16dd74 100644
                  fg={props.color}
                  attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
                >
-@@ -1999,11 +1999,11 @@ function BlockTool(props: {
+@@ -2006,11 +2006,11 @@ function BlockTool(props: {
      <box
        ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
        border={["left"]}
@@ -382,7 +381,7 @@ index 6d77b0e..e16dd74 100644
        backgroundColor={hover() ? theme.backgroundMenu : theme.backgroundPanel}
        customBorderChars={SplitBorder.customBorderChars}
        borderColor={theme.background}
-@@ -2019,7 +2019,7 @@ function BlockTool(props: {
+@@ -2026,7 +2026,7 @@ function BlockTool(props: {
            <Show
              when={props.spinner}
              fallback={
@@ -391,7 +390,7 @@ index 6d77b0e..e16dd74 100644
                  {title()}
                </text>
              }
-@@ -2073,7 +2073,7 @@ function Shell(props: ToolProps) {
+@@ -2080,7 +2080,7 @@ function Shell(props: ToolProps) {
            part={props.part}
            onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
          >
@@ -400,7 +399,7 @@ index 6d77b0e..e16dd74 100644
              <Show when={isRunning()} fallback={<text fg={theme.text}>$ {stringValue(props.input.command)}</text>}>
                <Spinner color={theme.text}>{stringValue(props.input.command)}</Spinner>
              </Show>
-@@ -2106,7 +2106,7 @@ function Write(props: ToolProps) {
+@@ -2113,7 +2113,7 @@ function Write(props: ToolProps) {
      <Switch>
        <Match when={props.metadata.diagnostics !== undefined}>
          <BlockTool title={"# Wrote " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
@@ -409,7 +408,7 @@ index 6d77b0e..e16dd74 100644
              <code
                conceal={false}
                fg={theme.text}
-@@ -2405,7 +2405,7 @@ function Edit(props: ToolProps) {
+@@ -2407,7 +2407,7 @@ function Edit(props: ToolProps) {
      <Switch>
        <Match when={stringValue(props.metadata.diff) !== undefined}>
          <BlockTool title={"← Edit " + pathFormatter.format(stringValue(props.input.filePath))} part={props.part}>
@@ -418,7 +417,7 @@ index 6d77b0e..e16dd74 100644
              <diff
                diff={diffContent()}
                view={view()}
-@@ -2453,7 +2453,7 @@ function ApplyPatch(props: ToolProps) {
+@@ -2455,7 +2455,7 @@ function ApplyPatch(props: ToolProps) {
  
    function Diff(p: { diff: string; filePath: string }) {
      return (
@@ -427,7 +426,7 @@ index 6d77b0e..e16dd74 100644
          <diff
            diff={p.diff}
            view={view()}
-@@ -2555,7 +2555,7 @@ function Question(props: ToolProps) {
+@@ -2551,7 +2551,7 @@ function Question(props: ToolProps) {
      <Switch>
        <Match when={answers()}>
          <BlockTool title="# Questions" part={props.part}>
@@ -436,10 +435,10 @@ index 6d77b0e..e16dd74 100644
              <For each={questions()}>
                {(q, i) => (
                  <box flexDirection="column">
-diff --git a/packages/tui/src/routes/session/permission.tsx b/packages/tui/src/routes/session/permission.tsx
-index 766ed3c..308e600 100644
---- a/packages/tui/src/routes/session/permission.tsx
-+++ b/packages/tui/src/routes/session/permission.tsx
+diff --git i/packages/tui/src/routes/session/permission.tsx w/packages/tui/src/routes/session/permission.tsx
+index fbe3aacbe..e0fcda5df 100644
+--- i/packages/tui/src/routes/session/permission.tsx
++++ w/packages/tui/src/routes/session/permission.tsx
 @@ -51,6 +51,7 @@ function EditBody(props: { request: PermissionRequest }) {
            height="100%"
            scrollAcceleration={scrollAcceleration()}
@@ -448,10 +447,10 @@ index 766ed3c..308e600 100644
              trackOptions: {
                backgroundColor: theme.background,
                foregroundColor: theme.borderActive,
-diff --git a/packages/tui/src/routes/session/sidebar.tsx b/packages/tui/src/routes/session/sidebar.tsx
-index 0c5d2b3..ea15397 100644
---- a/packages/tui/src/routes/session/sidebar.tsx
-+++ b/packages/tui/src/routes/session/sidebar.tsx
+diff --git i/packages/tui/src/routes/session/sidebar.tsx w/packages/tui/src/routes/session/sidebar.tsx
+index 0c5d2b313..ea1539720 100644
+--- i/packages/tui/src/routes/session/sidebar.tsx
++++ w/packages/tui/src/routes/session/sidebar.tsx
 @@ -29,23 +29,24 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
          backgroundColor={theme.backgroundPanel}
          width={42}

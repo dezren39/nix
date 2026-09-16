@@ -1,0 +1,225 @@
+diff --git a/packages/opencode/src/cli/cmd/run/footer.command.tsx b/packages/opencode/src/cli/cmd/run/footer.command.tsx
+index 3176c17..6a0afcc 100644
+--- a/packages/opencode/src/cli/cmd/run/footer.command.tsx
++++ b/packages/opencode/src/cli/cmd/run/footer.command.tsx
+@@ -177,7 +177,7 @@ function handleKey(input: {
+     return
+   }
+ 
+-  if (name === "return") {
++  if (name === "return" || name === "kpenter") {
+     input.event.preventDefault()
+     input.select()
+     return
+diff --git a/packages/opencode/src/cli/cmd/run/footer.permission.tsx b/packages/opencode/src/cli/cmd/run/footer.permission.tsx
+index 70cc206..60fd6e8 100644
+--- a/packages/opencode/src/cli/cmd/run/footer.permission.tsx
++++ b/packages/opencode/src/cli/cmd/run/footer.permission.tsx
+@@ -242,7 +242,7 @@ export function RunPermissionBody(props: {
+       return
+     }
+ 
+-    if (event.name === "return") {
++    if (event.name === "return" || event.name === "kpenter") {
+       run(state().selected)
+       event.preventDefault()
+       return
+diff --git a/packages/opencode/src/cli/cmd/run/footer.question.tsx b/packages/opencode/src/cli/cmd/run/footer.question.tsx
+index 6b0b40b..2a037d7 100644
+--- a/packages/opencode/src/cli/cmd/run/footer.question.tsx
++++ b/packages/opencode/src/cli/cmd/run/footer.question.tsx
+@@ -201,7 +201,7 @@ export function RunQuestionBody(props: {
+     }
+ 
+     if (questionConfirm(props.request, cur)) {
+-      if (event.name === "return") {
++      if (event.name === "return" || event.name === "kpenter") {
+         submit()
+         event.preventDefault()
+         return
+@@ -235,7 +235,7 @@ export function RunQuestionBody(props: {
+       return
+     }
+ 
+-    if (event.name === "return") {
++    if (event.name === "return" || event.name === "kpenter") {
+       select()
+       event.preventDefault()
+       return
+diff --git a/packages/tui/src/component/dialog-debug.tsx b/packages/tui/src/component/dialog-debug.tsx
+index 21554aa..5182beb 100644
+--- a/packages/tui/src/component/dialog-debug.tsx
++++ b/packages/tui/src/component/dialog-debug.tsx
+@@ -47,7 +47,7 @@ export function DialogDebug() {
+   }
+ 
+   useBindings(() => ({
+-    bindings: [{ key: "return", desc: "Copy debug info", group: "Dialog", cmd: copy }],
++    bindings: [{ key: "return,kpenter", desc: "Copy debug info", group: "Dialog", cmd: copy }],
+   }))
+ 
+   return (
+diff --git a/packages/tui/src/component/dialog-retry-action.tsx b/packages/tui/src/component/dialog-retry-action.tsx
+index b52a6e9..ae96fdd 100644
+--- a/packages/tui/src/component/dialog-retry-action.tsx
++++ b/packages/tui/src/component/dialog-retry-action.tsx
+@@ -65,7 +65,7 @@ export function DialogRetryAction(props: DialogRetryActionProps) {
+         cmd: () => setSelected((value) => (value === "action" ? "dismiss" : "action")),
+       },
+       {
+-        key: "return",
++        key: "return,kpenter",
+         desc: "Confirm retry option",
+         group: "Dialog",
+         cmd: () => {
+diff --git a/packages/tui/src/component/dialog-session-delete-failed.tsx b/packages/tui/src/component/dialog-session-delete-failed.tsx
+index f3617a5..025ad14 100644
+--- a/packages/tui/src/component/dialog-session-delete-failed.tsx
++++ b/packages/tui/src/component/dialog-session-delete-failed.tsx
+@@ -42,7 +42,7 @@ export function DialogSessionDeleteFailed(props: {
+ 
+   useBindings(() => ({
+     bindings: [
+-      { key: "return", desc: "Confirm recovery option", group: "Dialog", cmd: () => void confirm() },
++      { key: "return,kpenter", desc: "Confirm recovery option", group: "Dialog", cmd: () => void confirm() },
+       { key: "left", desc: "Delete broken session", group: "Dialog", cmd: () => setStore("active", "delete") },
+       { key: "up", desc: "Delete broken session", group: "Dialog", cmd: () => setStore("active", "delete") },
+       { key: "right", desc: "Restore broken session", group: "Dialog", cmd: () => setStore("active", "restore") },
+diff --git a/packages/tui/src/component/dialog-workspace-unavailable.tsx b/packages/tui/src/component/dialog-workspace-unavailable.tsx
+index 3181bd8..8fea279 100644
+--- a/packages/tui/src/component/dialog-workspace-unavailable.tsx
++++ b/packages/tui/src/component/dialog-workspace-unavailable.tsx
+@@ -25,7 +25,7 @@ export function DialogWorkspaceUnavailable(props: { onRestore?: () => boolean |
+ 
+   useBindings(() => ({
+     bindings: [
+-      { key: "return", desc: "Confirm workspace option", group: "Dialog", cmd: () => void confirm() },
++      { key: "return,kpenter", desc: "Confirm workspace option", group: "Dialog", cmd: () => void confirm() },
+       { key: "left", desc: "Cancel workspace restore", group: "Dialog", cmd: () => setStore("active", "cancel") },
+       { key: "right", desc: "Restore workspace", group: "Dialog", cmd: () => setStore("active", "restore") },
+     ],
+diff --git a/packages/tui/src/config/keybind.ts b/packages/tui/src/config/keybind.ts
+index 5dd7e4b..59a102a 100644
+--- a/packages/tui/src/config/keybind.ts
++++ b/packages/tui/src/config/keybind.ts
+@@ -160,7 +160,7 @@ export const Definitions = {
+ 
+   input_clear: keybind("ctrl+c", "Clear input field"),
+   input_paste: keybind({ key: "ctrl+v", preventDefault: false }, "Paste from clipboard"),
+-  input_submit: keybind("return", "Submit input"),
++  input_submit: keybind("return,kpenter", "Submit input"),
+   input_newline: keybind("shift+return,ctrl+return,alt+return,ctrl+j", "Insert newline in input"),
+   input_move_left: keybind("left,ctrl+b", "Move cursor left in input"),
+   input_move_right: keybind("right,ctrl+f", "Move cursor right in input"),
+@@ -205,8 +205,8 @@ export const Definitions = {
+   "dialog.select.page_down": keybind("pagedown", "Move down one page in dialog"),
+   "dialog.select.home": keybind("home", "Move to first dialog item"),
+   "dialog.select.end": keybind("end", "Move to last dialog item"),
+-  "dialog.select.submit": keybind("return", "Submit selected dialog item"),
+-  "dialog.prompt.submit": keybind("return", "Submit dialog prompt"),
++  "dialog.select.submit": keybind("return,kpenter", "Submit selected dialog item"),
++  "dialog.prompt.submit": keybind("return,kpenter", "Submit dialog prompt"),
+   "dialog.mcp.toggle": keybind("space", "Toggle MCP in MCP dialog"),
+   "dialog.move_session.new": keybind("ctrl+m", "New project copy"),
+   "dialog.move_session.delete": keybind("ctrl+d", "Delete project copy"),
+@@ -214,7 +214,7 @@ export const Definitions = {
+   "prompt.autocomplete.prev": keybind("up,ctrl+p", "Move to previous autocomplete item"),
+   "prompt.autocomplete.next": keybind("down,ctrl+n", "Move to next autocomplete item"),
+   "prompt.autocomplete.hide": keybind("escape", "Hide autocomplete"),
+-  "prompt.autocomplete.select": keybind("return", "Select autocomplete item"),
++  "prompt.autocomplete.select": keybind("return,kpenter", "Select autocomplete item"),
+   "prompt.autocomplete.complete": keybind("tab", "Complete autocomplete item"),
+   "permission.prompt.fullscreen": keybind("ctrl+f", "Toggle permission prompt fullscreen"),
+   "plugins.toggle": keybind("space", "Toggle plugin"),
+diff --git a/packages/tui/src/routes/session/permission.tsx b/packages/tui/src/routes/session/permission.tsx
+index 8699794..c610f2d 100644
+--- a/packages/tui/src/routes/session/permission.tsx
++++ b/packages/tui/src/routes/session/permission.tsx
+@@ -463,7 +463,7 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
+       { key: "escape", desc: "Cancel permission rejection", group: "Permission", cmd: () => props.onCancel() },
+       ...tuiConfig.keybinds.get("app.exit"),
+       {
+-        key: "return",
++        key: "return,kpenter",
+         desc: "Confirm permission rejection",
+         group: "Permission",
+         cmd: () => props.onConfirm(input.plainText),
+@@ -613,7 +613,7 @@ function Prompt<const T extends Record<string, string>>(props: {
+         },
+       },
+       {
+-        key: "return",
++        key: "return,kpenter",
+         desc: "Select permission option",
+         group: "Permission",
+         cmd: () => props.onSelect(store.selected),
+diff --git a/packages/tui/src/routes/session/question.tsx b/packages/tui/src/routes/session/question.tsx
+index a5a1a73..36d40c6 100644
+--- a/packages/tui/src/routes/session/question.tsx
++++ b/packages/tui/src/routes/session/question.tsx
+@@ -230,7 +230,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+       },
+       ...tuiConfig.keybinds.get("prompt.clear"),
+       {
+-        key: "return",
++        key: "return,kpenter",
+         desc: "Submit answer edit",
+         group: "Question",
+         // Fallback only. On terminals without the Kitty keyboard protocol the
+@@ -285,7 +285,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+         },
+         ...(confirm()
+           ? [
+-              { key: "return", desc: "Submit answer", group: "Question", cmd: () => submit() },
++              { key: "return,kpenter", desc: "Submit answer", group: "Question", cmd: () => submit() },
+               { key: "escape", desc: "Reject question", group: "Question", cmd: () => reject() },
+               ...tuiConfig.keybinds.get("app.exit"),
+             ]
+@@ -321,7 +321,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
+                 ? [{ key: "space", desc: "Toggle answer", group: "Question", cmd: () => selectOption() }]
+                 : []),
+               {
+-                key: "return",
++                key: "return,kpenter",
+                 desc: multi() ? "Next question" : "Select answer",
+                 group: "Question",
+                 cmd: () => {
+diff --git a/packages/tui/src/ui/dialog-alert.tsx b/packages/tui/src/ui/dialog-alert.tsx
+index 9fe15de..8a6fbde 100644
+--- a/packages/tui/src/ui/dialog-alert.tsx
++++ b/packages/tui/src/ui/dialog-alert.tsx
+@@ -16,7 +16,7 @@ export function DialogAlert(props: DialogAlertProps) {
+   useBindings(() => ({
+     bindings: [
+       {
+-        key: "return",
++        key: "return,kpenter",
+         desc: "Confirm alert",
+         group: "Dialog",
+         cmd: () => {
+diff --git a/packages/tui/src/ui/dialog-confirm.tsx b/packages/tui/src/ui/dialog-confirm.tsx
+index a09847a..02cb46c 100644
+--- a/packages/tui/src/ui/dialog-confirm.tsx
++++ b/packages/tui/src/ui/dialog-confirm.tsx
+@@ -26,7 +26,7 @@ export function DialogConfirm(props: DialogConfirmProps) {
+   useBindings(() => ({
+     bindings: [
+       {
+-        key: "return",
++        key: "return,kpenter",
+         desc: "Confirm dialog selection",
+         group: "Dialog",
+         cmd: () => {
+diff --git a/packages/tui/src/ui/dialog-help.tsx b/packages/tui/src/ui/dialog-help.tsx
+index 1d49d60..82aed34 100644
+--- a/packages/tui/src/ui/dialog-help.tsx
++++ b/packages/tui/src/ui/dialog-help.tsx
+@@ -10,7 +10,7 @@ export function DialogHelp() {
+ 
+   useBindings(() => ({
+     bindings: [
+-      { key: "return", desc: "Close help", group: "Dialog", cmd: () => dialog.clear() },
++      { key: "return,kpenter", desc: "Close help", group: "Dialog", cmd: () => dialog.clear() },
+       { key: "escape", desc: "Close help", group: "Dialog", cmd: () => dialog.clear() },
+     ],
+   }))

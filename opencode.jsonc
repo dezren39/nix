@@ -34,6 +34,11 @@
   "default_agent": "build",
   // "model": "github-copilot/gpt-5.6-sol",
   // "small_model": "github-copilot/gpt-5.6-terra",
+  // Fallback for `small: true` calls (title generation). Unused in practice —
+  // agent.title sets its own model, which takes precedence at prompt.ts:216.
+  // Set anyway so a future small-call path can't silently fall through to the
+  // family-priority picker: ["gemini-flash", "gpt-nano", "claude-haiku"].
+  "small_model": "github-copilot/claude-opus-5",
   // "provider": {
   //   "github-copilot": {
       // Disable models per policy: any gpt < 5.6, any claude < 4.8, and all Gemini,
@@ -153,127 +158,29 @@
       // },
     // },
   // },
-  "agent": {
-    "build": {
-      "mode": "all",
-      // "model": "github-copilot/gpt-5.6-sol",
-      // "variant": "high",
+  "permission": {
+    "read": "allow",
+    "edit": "allow",
+    "external_directory": "allow",
+    // Gate the `custom` delegate. task.ts:120-122 passes the subagent_type as
+    // the permission pattern, so this matches per-agent. Enforced, not
+    // advisory: the model cannot invoke custom without an explicit approval.
+    // Replying "always" allows it for the rest of the session only — that lives
+    // in an in-memory approved list (permission/index.ts:146), never persisted.
+    "task": {
+      "custom": "ask",
     },
-    "plan": {
-      // "model": "github-copilot/claude-fable-5",
-      // "variant": "high",
-      "permission": {
-        "edit": "allow",
-        "bash": "allow",
-        "task": {
-          "*": "allow",
-        },
-      },
-    },
-    // "general": {
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "medium",
-    // },
-    // "explore": {
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "medium",
-    // },
-    // "compaction": {
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "medium",
-    // },
-    // "luna-medium": {
-    //   "description": "Fast, low-cost worker for bounded utility tasks, extraction, formatting, and simple transformations. Relative capability 57/100; about 5s completion; about $0.39 per CursorBench task.",
-    //   "mode": "subagent",
-    //   "model": "github-copilot/gpt-5.6-luna",
-    //   "variant": "medium",
-    // },
-    // "terra-high": {
-    //   "description": "Fast tool-heavy worker for codebase exploration, terminal tasks, and routine implementation. Relative capability 72/100; about 7s completion; about $0.89 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/gpt-5.6-terra",
-    //   "variant": "high",
-    // },
-    // "sol-low": {
-    //   "description": "Low-effort Sol subagent for quick, straightforward coding and research tasks.",
-    //   "mode": "subagent",
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "low",
-    //   "disable": true,
-    // },
-    // "sol-medium": {
-    //   "description": "Efficient strong coding worker for general implementation and debugging with low latency. Relative capability 80/100; about 14s completion; about $1.95 per CursorBench task.",
-    //   "mode": "subagent",
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "medium",
-    // },
-    // "sol-high": {
-    //   "description": "Strong interactive coding worker for difficult debugging, terminal agents, and multi-step implementation. Relative capability 86/100; about 17s completion; about $2.79 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "high",
-    // },
-    // "sol-xhigh": {
-    //   "description": "Primary-only advanced reasoning agent for hard agentic tasks that need predictable sub-minute execution. Relative capability 94/100; about 39s completion; about $3.88 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "xhigh",
-    // },
-    // "sol-max": {
-    //   "description": "Primary-only maximum-effort Sol agent for frontier tasks where quality matters more than latency. Relative capability 98/100; about 135s completion; about $5.69 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/gpt-5.6-sol",
-    //   "variant": "max",
-    // },
-    // "fable-low": {
-    //   "description": "Fast primary agent for difficult repository bugs, diagnosis, and first-pass patch correctness. Relative capability 88/100; roughly 10-22s completion with variable latency; about $4.46 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-fable-5",
-    //   "variant": "low",
-    // },
-    // "fable-medium": {
-    //   "description": "Primary coding agent for hard multi-file engineering with balanced Fable cost and depth. Relative capability 92/100; roughly 12-43s completion with high variance; about $6.80 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-fable-5",
-    //   "variant": "medium",
-    // },
-    // "opus-5-med": {
-    //   "description": "Opus 5 primary agent for complex implementation, debugging, and research tasks.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-opus-5",
-    //   "variant": "medium",
-    // },
-    // "opus-5-high": {
-    //   "description": "Opus 5 agent for high-effort implementation, architecture, and deep review.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-opus-5",
-    //   "variant": "high",
-    // },
-    // "fable-high": {
-    //   "description": "Primary-only quality-first agent for architecture, migrations, difficult patches, and deep review. Relative capability 95/100; roughly 13-39s completion with variable latency; about $8.77 per CursorBench task.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-fable-5",
-    //   "variant": "high",
-    // },
-    // "fable-xhigh": {
-    //   "description": "Primary-only advanced reasoning Fable agent for architecture, migrations, difficult patches, and deep review.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-fable-5",
-    //   "variant": "xhigh",
-    // },
-    // "fable-max": {
-    //   "description": "Primary-only maximum-effort Fable agent for the most demanding architecture, implementation, and review tasks.",
-    //   "mode": "primary",
-    //   "model": "github-copilot/claude-fable-5",
-    //   "variant": "max",
-    // },
-    // "title": {
-    //   "model": "github-copilot/gpt-5.6-luna",
-    //   "variant": "medium",
-    // },
-    // Summary computes snapshot/file diffs without making an LLM call.
-    // "summary": {},
   },
+  // Agents are defined in agents/*.md (frontmatter = the same ConfigAgentV1
+  // schema as this file). Install with ./symlink-agents, which links
+  // ~/.opencode/agents -> this repo's agents/ so they are tracked in git.
+  //
+  // Why markdown rather than here: explore/compaction/title/summary each carry
+  // a built-in prompt, and the merge is `item.prompt = value.prompt ?? item.prompt`.
+  // A markdown body is assigned unconditionally (config/agent.ts:27), so those
+  // four keep their prompt verbatim in the file; build/general/custom have empty
+  // bodies and fall through to the model's default prompt.
+
   // "agent": {
   // "build": {
   //   "mode": "subagent",
@@ -308,7 +215,10 @@
   // },
   "instructions": [
     "~/.config/opencode/instructions/lootbox.md",
-    "~/.config/opencode/instructions/subagents.md",
+    // subagents.md archived to instructions/archive/ — it named agents
+    // (explore/general/plan) that the trimmed agent set no longer defines, so it
+    // was describing a topology that does not exist. Re-add only if rewritten
+    // to match the current agents.
   ],
   "compaction": {
     "reserved": 8192,

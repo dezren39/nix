@@ -51,11 +51,382 @@ index c4fab92..53b34e9 100644
  def append_status_history_record(
      record: dict[str, object],
      *,
+diff --git a/src/sidepulse/launchctl.py b/src/sidepulse/launchctl.py
+new file mode 100644
+index 0000000..e91fea1
+--- /dev/null
++++ b/src/sidepulse/launchctl.py
+@@ -0,0 +1,176 @@
++"""Bounded ``launchctl`` invocations.
++
++``launchctl bootout`` does not return until every process in the job has
++exited. A status-bar process that is slow to notice SIGTERM -- or that
++launchd never manages to signal -- therefore wedges the caller for as long
++as the job stays alive. ``sidepulse setup`` runs on every home-manager
++activation, so an unbounded ``bootout`` turns a routine ``switch`` into a
++multi-minute (observed: 22 minute) hang.
++
++Every helper here is bounded. When ``bootout`` overruns its timeout the
++job's own PID is looked up through ``launchctl print`` and signalled
++directly (SIGTERM, then SIGKILL), after which ``bootout`` is retried once.
++Teardown never raises and never blocks indefinitely: a stale job is
++recoverable, a hung activation is not.
++"""
++
++from __future__ import annotations
++
++import os
++import re
++import signal
++import subprocess
++import sys
++import time
++from pathlib import Path
++from typing import Any, Sequence
++
++# `launchctl bootout` normally completes in milliseconds. Anything beyond a
++# few seconds means the job is refusing to die, not that the machine is busy.
++LAUNCHCTL_TIMEOUT_SECONDS = 12.0
++# `launchctl print` is a pure query and should be near-instant.
++LAUNCHCTL_QUERY_TIMEOUT_SECONDS = 10.0
++SIGTERM_GRACE_SECONDS = 3.0
++SIGKILL_GRACE_SECONDS = 2.0
++_POLL_INTERVAL_SECONDS = 0.05
++
++_PID_PATTERN = re.compile(r"^\s*pid\s*=\s*(\d+)\s*$", re.MULTILINE)
++
++
++def warn(message: str) -> None:
++    """Report a teardown problem without failing the caller."""
++
++    print(f"sidepulse: {message}", file=sys.stderr)
++
++
++def _describe(args: Sequence[Any]) -> str:
++    return " ".join(str(part) for part in args)
++
++
++def run_launchctl(
++    args: Sequence[Any],
++    *,
++    timeout: float = LAUNCHCTL_TIMEOUT_SECONDS,
++    check: bool = False,
++    quiet: bool = True,
++    **kwargs: Any,
++) -> subprocess.CompletedProcess[Any] | None:
++    """Run ``launchctl`` with a hard timeout.
++
++    Returns the completed process, or ``None`` when the call timed out (the
++    child is killed by ``subprocess.run`` before the exception surfaces) or
++    when ``launchctl`` itself could not be executed.
++    """
++
++    if quiet:
++        kwargs.setdefault("stdout", subprocess.DEVNULL)
++        kwargs.setdefault("stderr", subprocess.DEVNULL)
++    command = [str(part) for part in args]
++    try:
++        return subprocess.run(command, check=check, timeout=timeout, **kwargs)
++    except subprocess.TimeoutExpired:
++        warn(f"`{_describe(command)}` did not finish within {timeout:g}s")
++        return None
++    except OSError as error:  # launchctl missing, or not permitted to exec
++        warn(f"`{_describe(command)}` could not be run: {error}")
++        return None
++
++
++def service_pid(target: str) -> int | None:
++    """Return the PID launchd reports for ``domain/label``, if any."""
++
++    result = run_launchctl(
++        ["launchctl", "print", target],
++        timeout=LAUNCHCTL_QUERY_TIMEOUT_SECONDS,
++        quiet=False,
++        capture_output=True,
++        text=True,
++    )
++    if result is None or result.returncode != 0:
++        return None
++    match = _PID_PATTERN.search(result.stdout or "")
++    if match is None:
++        return None
++    try:
++        pid = int(match.group(1))
++    except ValueError:  # pragma: no cover - guarded by the regex
++        return None
++    return pid if pid > 1 else None
++
++
++def process_alive(pid: int) -> bool:
++    try:
++        os.kill(pid, 0)
++    except ProcessLookupError:
++        return False
++    except PermissionError:
++        return True
++    except OSError:
++        return True
++    return True
++
++
++def _wait_for_exit(pid: int, grace: float) -> bool:
++    deadline = time.monotonic() + grace
++    while True:
++        if not process_alive(pid):
++            return True
++        if time.monotonic() >= deadline:
++            return False
++        time.sleep(_POLL_INTERVAL_SECONDS)
++
++
++def terminate_service_process(target: str) -> bool:
++    """Signal the job's process directly. Returns True when it is gone."""
++
++    pid = service_pid(target)
++    if pid is None:
++        warn(f"could not determine a pid for {target}")
++        return False
++    for sig, grace in (
++        (signal.SIGTERM, SIGTERM_GRACE_SECONDS),
++        (signal.SIGKILL, SIGKILL_GRACE_SECONDS),
++    ):
++        try:
++            os.kill(pid, sig)
++        except ProcessLookupError:
++            return True
++        except OSError as error:
++            warn(f"could not signal pid {pid} for {target}: {error}")
++            return not process_alive(pid)
++        if _wait_for_exit(pid, grace):
++            return True
++        warn(f"pid {pid} for {target} ignored {sig.name}")
++    return not process_alive(pid)
++
++
++def bootout_service(
++    domain: str,
++    plist_path: Path | str,
++    label: str | None = None,
++    *,
++    timeout: float = LAUNCHCTL_TIMEOUT_SECONDS,
++) -> bool:
++    """Boot a job out of ``domain`` without ever blocking indefinitely.
++
++    The fast path is a single ``launchctl bootout`` exactly as before. Only
++    when that call overruns ``timeout`` is the job's process signalled and
++    the bootout retried. Always returns; never raises.
++    """
++
++    args = ["launchctl", "bootout", domain, str(plist_path)]
++    result = run_launchctl(args, timeout=timeout)
++    if result is not None:
++        return result.returncode == 0
++
++    target = f"{domain}/{label}" if label else domain
++    warn(f"escalating teardown of {target} after a stuck `launchctl bootout`")
++    terminate_service_process(target)
++    retry = run_launchctl(args, timeout=timeout)
++    if retry is not None and retry.returncode == 0:
++        return True
++    warn(
++        f"could not boot out {target}; continuing with a possibly stale job "
++        "rather than blocking setup"
++    )
++    return False
+diff --git a/src/sidepulse/sd_eject_guard_launch.py b/src/sidepulse/sd_eject_guard_launch.py
+index f9acea2..80519d7 100644
+--- a/src/sidepulse/sd_eject_guard_launch.py
++++ b/src/sidepulse/sd_eject_guard_launch.py
+@@ -8,6 +8,7 @@ from importlib.resources import as_file, files
+ from pathlib import Path
+ from typing import Any, Literal
+ 
++from .launchctl import bootout_service, run_launchctl
+ from .providers import default_state_dir
+ 
+ SD_EJECT_GUARD_LABEL = "io.sidepulse.sdejectguard"
+@@ -534,10 +535,24 @@ def restart_sd_eject_guard(
+ ) -> None:
+     domain = launch_domain(scope)
+     bootout_sd_eject_guard(plist_path, scope)
+-    subprocess.run(["launchctl", "bootstrap", domain, str(plist_path)], check=True)
+-    subprocess.run(
++    bootstrap = run_launchctl(
++        ["launchctl", "bootstrap", domain, str(plist_path)],
++        quiet=False,
++        capture_output=True,
++        text=True,
++    )
++    kickstart = run_launchctl(
+         ["launchctl", "kickstart", "-k", f"{domain}/{SD_EJECT_GUARD_LABEL}"],
+-        check=False,
++    )
++    if bootstrap is not None and bootstrap.returncode == 0:
++        return
++    if kickstart is not None and kickstart.returncode == 0:
++        return
++    detail = (bootstrap.stderr or "").strip() if bootstrap is not None else "timed out"
++    raise subprocess.CalledProcessError(
++        bootstrap.returncode if bootstrap is not None else 1,
++        ["launchctl", "bootstrap", domain, str(plist_path)],
++        stderr=detail,
+     )
+ 
+ 
+@@ -545,12 +560,7 @@ def bootout_sd_eject_guard(
+     plist_path: Path,
+     scope: ResolvedSdEjectGuardScope,
+ ) -> None:
+-    subprocess.run(
+-        ["launchctl", "bootout", launch_domain(scope), str(plist_path)],
+-        stdout=subprocess.DEVNULL,
+-        stderr=subprocess.DEVNULL,
+-        check=False,
+-    )
++    bootout_service(launch_domain(scope), plist_path, SD_EJECT_GUARD_LABEL)
+ 
+ 
+ def launch_domain(scope: ResolvedSdEjectGuardScope) -> str:
+diff --git a/src/sidepulse/service_launch.py b/src/sidepulse/service_launch.py
+index 5cec58b..ffeb895 100644
+--- a/src/sidepulse/service_launch.py
++++ b/src/sidepulse/service_launch.py
+@@ -8,7 +8,9 @@ import sys
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
++from .launchctl import bootout_service, run_launchctl
+ from .providers import default_state_dir
++from .status_bar_launch import out_of_prefix_path_entries
+ 
+ 
+ SERVICE_LABEL = "io.sidepulse.service"
+@@ -26,6 +28,26 @@ def service_command() -> list[str]:
+     return [sys.executable, "-m", "sidepulse", "service", "run"]
+ 
+ 
++def service_environment() -> dict[str, str]:
++    """Environment the supervisor must set for `service_command()` to import.
++
++    `service_command()` re-invokes `sys.executable -m sidepulse`, which bypasses
++    the console-script wrapper that spliced the install directories into
++    `sys.path`. Without restoring them the service dies instantly with
++    "No module named sidepulse" and, under `KeepAlive`, crash-loops forever.
++    """
++    environment = {
++        "PATH": os.environ.get(
++            "PATH",
++            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
++        ),
++    }
++    runtime_path = out_of_prefix_path_entries()
++    if runtime_path:
++        environment["PYTHONPATH"] = os.pathsep.join(runtime_path)
++    return environment
++
++
+ def install_service(*, start: bool = True, dry_run: bool = False) -> ServiceInstallResult:
+     if sys.platform == "darwin":
+         return install_launch_agent(start=start, dry_run=dry_run)
+@@ -45,12 +67,7 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
+         "StandardOutPath": str(state / "service.out.log"),
+         "StandardErrorPath": str(state / "service.err.log"),
+         "WorkingDirectory": str(Path.home()),
+-        "EnvironmentVariables": {
+-            "PATH": os.environ.get(
+-                "PATH",
+-                "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+-            ),
+-        },
++        "EnvironmentVariables": service_environment(),
+     }
+     data = plistlib.dumps(payload, sort_keys=False)
+     existing = path.read_bytes() if path.exists() else None
+@@ -64,20 +81,19 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
+     started = False
+     if start:
+         domain = f"gui/{subprocess.check_output(['id', '-u'], text=True).strip()}"
+-        subprocess.run(
+-            ["launchctl", "bootout", domain, str(path)],
+-            check=False,
+-            stdout=subprocess.DEVNULL,
+-            stderr=subprocess.DEVNULL,
+-        )
+-        result = subprocess.run(
++        bootout_service(domain, path, SERVICE_LABEL)
++        result = run_launchctl(
+             ["launchctl", "bootstrap", domain, str(path)],
+-            check=False,
++            quiet=False,
+             capture_output=True,
+             text=True,
+         )
+-        started = result.returncode == 0
+-        detail = result.stderr.strip() if not started else ""
++        if result is None:
++            started = False
++            detail = "`launchctl bootstrap` timed out"
++        else:
++            started = result.returncode == 0
++            detail = (result.stderr or "").strip() if not started else ""
+     else:
+         detail = ""
+     return ServiceInstallResult(path, changed, started, detail)
+@@ -86,11 +102,18 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
+ def install_systemd_user_service(*, start: bool, dry_run: bool) -> ServiceInstallResult:
+     path = Path.home() / ".config" / "systemd" / "user" / "sidepulse.service"
+     command = " ".join(systemd_quote(part) for part in service_command())
++    runtime_path = out_of_prefix_path_entries()
++    environment = (
++        f"Environment={systemd_quote('PYTHONPATH=' + os.pathsep.join(runtime_path))}\n"
++        if runtime_path
++        else ""
++    )
+     text = (
+         "[Unit]\n"
+         "Description=SidePulse background agent\n"
+         "After=network-online.target\n\n"
+         "[Service]\n"
++        f"{environment}"
+         f"ExecStart={command}\n"
+         "Restart=on-failure\n"
+         "RestartSec=2\n\n"
+@@ -147,13 +170,7 @@ def stop_service() -> bool:
+     if sys.platform == "darwin":
+         path = Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
+         domain = f"gui/{subprocess.check_output(['id', '-u'], text=True).strip()}"
+-        result = subprocess.run(
+-            ["launchctl", "bootout", domain, str(path)],
+-            check=False,
+-            stdout=subprocess.DEVNULL,
+-            stderr=subprocess.DEVNULL,
+-        )
+-        return result.returncode == 0
++        return bootout_service(domain, path, SERVICE_LABEL)
+     systemctl = shutil.which("systemctl")
+     if systemctl is None:
+         return False
+@@ -169,13 +186,10 @@ def stop_service() -> bool:
+ def service_is_running() -> bool:
+     if sys.platform == "darwin":
+         domain = f"gui/{subprocess.check_output(['id', '-u'], text=True).strip()}"
+-        result = subprocess.run(
++        result = run_launchctl(
+             ["launchctl", "print", f"{domain}/{SERVICE_LABEL}"],
+-            check=False,
+-            stdout=subprocess.DEVNULL,
+-            stderr=subprocess.DEVNULL,
+         )
+-        return result.returncode == 0
++        return result is not None and result.returncode == 0
+     systemctl = shutil.which("systemctl")
+     if systemctl is None:
+         return False
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index 88c6deb..0f32801 100644
+index b3e0fe6..c81481d 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -52,7 +52,15 @@ try:
+@@ -55,7 +55,15 @@ try:
          NSWindowStyleMaskTitled,
          NSVariableStatusItemLength,
      )
@@ -72,7 +443,7 @@ index 88c6deb..0f32801 100644
  except ImportError as exc:  # pragma: no cover - only exercised on non-macOS setups.
      raise SystemExit(
          f"The status-bar app requires PyObjC/AppKit ({exc}):\n"
-@@ -77,6 +85,7 @@ from .audit import (
+@@ -80,6 +88,7 @@ from .audit import (
      default_status_history_log_path,
      export_status_audit_csv,
      export_status_audit_html,
@@ -80,7 +451,7 @@ index 88c6deb..0f32801 100644
      read_status_history_records,
      status_history_record,
  )
-@@ -595,6 +604,7 @@ class StatusBarController(NSObject):
+@@ -610,6 +619,7 @@ class StatusBarController(NSObject):
          self.setup_window = None
          self.settings_fields = {}
          self.settings_buttons = {}
@@ -88,7 +459,7 @@ index 88c6deb..0f32801 100644
          self.setup_fields = {}
          self.setup_buttons = {}
          self.last_snapshot = None
-@@ -647,8 +657,10 @@ class StatusBarController(NSObject):
+@@ -663,8 +673,10 @@ class StatusBarController(NSObject):
          return self
  
      def applicationDidFinishLaunching_(self, _notification):
@@ -99,12 +470,12 @@ index 88c6deb..0f32801 100644
          log_status_bar("launching status item")
          self.start_event_server()
  
-@@ -689,6 +701,22 @@ class StatusBarController(NSObject):
+@@ -705,6 +717,22 @@ class StatusBarController(NSObject):
          else:
              self.virtual_status_device.hide()
  
 +    def remove_unavailable_virtual_device(self) -> None:
-+        if SCREEN_BAR_FEATURE_ENABLED:
++        if SIDEPULSE_NOTCH_FEATURE_ENABLED:
 +            return
 +        has_virtual_device = any(
 +            device.device_id == VIRTUAL_DEVICE_ID for device in self.settings.devices
@@ -115,14 +486,14 @@ index 88c6deb..0f32801 100644
 +            self.settings = self.settings.with_virtual_status_device(False)
 +            self.settings = self.settings.without_device(VIRTUAL_DEVICE_ID)
 +            save_settings(self.settings)
-+            log_status_bar("removed unavailable Screen Bar setting")
++            log_status_bar("removed unavailable SidePulse Notch setting")
 +        except Exception as exc:
-+            log_status_bar(f"could not remove unavailable Screen Bar setting: {exc}")
++            log_status_bar(f"could not remove unavailable SidePulse Notch setting: {exc}")
 +
      @objc.IBAction
      def refresh_(self, _sender):
          try:
-@@ -1180,6 +1208,8 @@ class StatusBarController(NSObject):
+@@ -1215,6 +1243,8 @@ class StatusBarController(NSObject):
          NSApp.activateIgnoringOtherApps_(True)
  
      def tabView_didSelectTabViewItem_(self, tab_view, tab_item) -> None:
@@ -131,7 +502,7 @@ index 88c6deb..0f32801 100644
          window = self.settings_window or tab_view.window()
          if window is None:
              return
-@@ -1583,9 +1613,22 @@ class StatusBarController(NSObject):
+@@ -1628,9 +1658,22 @@ class StatusBarController(NSObject):
              chart.setRecords_(records)
  
      def set_settings_message(self, message: str) -> None:
@@ -154,7 +525,7 @@ index 88c6deb..0f32801 100644
  
      def set_session_terminal(
          self,
-@@ -1625,6 +1668,15 @@ class StatusBarController(NSObject):
+@@ -1670,6 +1713,15 @@ class StatusBarController(NSObject):
      def exportDebugHtml_(self, _sender):
          self.export_debug_log("html")
  
@@ -170,15 +541,15 @@ index 88c6deb..0f32801 100644
      @objc.IBAction
      def refreshHistoryChart_(self, _sender):
          self.refresh_history_chart()
-@@ -1849,6 +1901,7 @@ class StatusBarController(NSObject):
-         if not SCREEN_BAR_FEATURE_ENABLED:
+@@ -1912,6 +1964,7 @@ class StatusBarController(NSObject):
+         if not SIDEPULSE_NOTCH_FEATURE_ENABLED:
              try:
                  self.settings = self.settings.with_virtual_status_device(False)
 +                self.settings = self.settings.without_device(VIRTUAL_DEVICE_ID)
                  save_settings(self.settings)
              except Exception as exc:
-                 self.set_settings_message(f"Could not disable Screen Bar: {exc}")
-@@ -2945,8 +2998,14 @@ class StatusBarController(NSObject):
+                 self.set_settings_message(f"Could not disable SidePulse Notch: {exc}")
+@@ -3119,8 +3172,14 @@ class StatusBarController(NSObject):
              )
          ]
          if not devices:
@@ -193,7 +564,7 @@ index 88c6deb..0f32801 100644
          self.led_animation_token += 1
          token = self.led_animation_token
          duration = animation.duration_seconds + LID_ANIMATION_RESTORE_FUDGE_SECONDS
-@@ -3563,6 +3622,8 @@ def choose_debug_export_path(format_name: str) -> Path | None:
+@@ -3771,6 +3830,8 @@ def choose_debug_export_path(format_name: str) -> Path | None:
      panel.setNameFieldStringValue_(f"sidepulse-agent-debug.{extension}")
      if hasattr(panel, "setAllowedFileTypes_"):
          panel.setAllowedFileTypes_([extension])
@@ -202,7 +573,7 @@ index 88c6deb..0f32801 100644
      if panel.runModal() != 1:
          return None
      url = panel.URL()
-@@ -4548,6 +4609,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4813,6 +4874,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
      debug_log_status = add_label(diagnostics_tab, "", 32, 360, 588, 22)
      add_button(diagnostics_tab, "Export CSV", 32, 318, 110, 28, target, "exportDebugCsv:")
      add_button(diagnostics_tab, "Export HTML", 152, 318, 120, 28, target, "exportDebugHtml:")
@@ -210,11 +581,34 @@ index 88c6deb..0f32801 100644
      add_separator(diagnostics_tab, 24, 280, tab_width - 48)
      add_label(diagnostics_tab, "Settings File", 24, 246, 240, 24)
      settings_path = add_label(diagnostics_tab, "", 32, 208, 588, 22)
+@@ -5565,9 +5627,12 @@ def open_terminal_setup_command(command: str, *, filename: str = "install-sleep-
+             'echo "macOS may ask for your administrator password."',
+             'echo ""',
+             command,
+-            "status=$?",
++            # `status` is a read-only special variable in zsh (an alias for $?),
++            # so assigning to it aborts the script and misreports success as
++            # failure. Use a plain name instead.
++            "rc=$?",
+             'echo ""',
+-            'if [ "$status" -eq 0 ]; then',
++            'if [ "$rc" -eq 0 ]; then',
+             '  echo "Done. You can close this window."',
+             "else",
+             '  echo "Setup failed. Leave this window open if you want to inspect it."',
 diff --git a/src/sidepulse/status_bar_launch.py b/src/sidepulse/status_bar_launch.py
-index 8f27934..c812327 100644
+index 8f27934..6d6339c 100644
 --- a/src/sidepulse/status_bar_launch.py
 +++ b/src/sidepulse/status_bar_launch.py
-@@ -17,7 +17,8 @@ LEGACY_LAUNCH_AGENT_LABEL = "com.sidepulse.agentstatus"
+@@ -9,6 +9,7 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any
+ 
++from .launchctl import bootout_service, run_launchctl
+ from .providers import default_state_dir
+ 
+ LAUNCH_AGENT_LABEL = "io.sidepulse.agentstatus"
+@@ -17,7 +18,8 @@ LEGACY_LAUNCH_AGENT_LABEL = "com.sidepulse.agentstatus"
  LEGACY_LAUNCH_AGENT_FILENAME = f"{LEGACY_LAUNCH_AGENT_LABEL}.plist"
  PIXIEPULSE_LEGACY_LAUNCH_AGENT_LABEL = "com.pixiepulse.agentstatus"
  PIXIEPULSE_LEGACY_LAUNCH_AGENT_FILENAME = f"{PIXIEPULSE_LEGACY_LAUNCH_AGENT_LABEL}.plist"
@@ -224,7 +618,7 @@ index 8f27934..c812327 100644
  
  
  @dataclass(frozen=True)
-@@ -45,7 +46,15 @@ def pixiepulse_legacy_launch_agent_path(home: Path | None = None) -> Path:
+@@ -45,7 +47,15 @@ def pixiepulse_legacy_launch_agent_path(home: Path | None = None) -> Path:
  
  
  def status_bar_launcher_path(home: Path | None = None) -> Path:
@@ -241,7 +635,7 @@ index 8f27934..c812327 100644
  
  
  def launch_agent_installed(plist_path: Path | None = None) -> bool:
-@@ -164,9 +173,32 @@ def install_status_bar_launcher(
+@@ -164,9 +174,79 @@ def install_status_bar_launcher(
      if changed:
          target.write_bytes(data)
      target.chmod(0o755)
@@ -271,14 +665,358 @@ index 8f27934..c812327 100644
 +    }
 +
 +
++def out_of_prefix_path_entries() -> list[str]:
++    """Return `sys.path` directories a bare `sys.executable` cannot find itself.
++
++    Console-script wrappers (nixpkgs, pipx, `pip install --target`) keep the
++    installed distributions outside the interpreter's own prefix and splice them
++    into `sys.path` at run time. The generated launcher re-invokes
++    `sys.executable -m sidepulse` directly, which skips that splicing and dies
++    with "No module named sidepulse". Capturing the out-of-prefix entries lets
++    the launcher restore them through `PYTHONPATH`.
++
++    For ordinary in-prefix installs (system Python, venv, Homebrew) nothing is
++    out of prefix, so this returns an empty list and the launcher is unchanged.
++    """
++    prefixes = tuple(
++        os.path.realpath(prefix)
++        for prefix in (
++            sys.prefix,
++            sys.base_prefix,
++            sys.exec_prefix,
++            sys.base_exec_prefix,
++        )
++        if prefix
++    )
++    # sys.path[0] is the running script's directory (or the cwd). It is an
++    # artifact of how setup was invoked, never part of the install layout.
++    script_dir = os.path.realpath(sys.path[0]) if sys.path and sys.path[0] else None
++
++    entries: list[str] = []
++    seen: set[str] = set()
++    for raw in sys.path:
++        if not raw:
++            continue
++        resolved = os.path.realpath(raw)
++        if resolved in seen or resolved == script_dir:
++            continue
++        if not os.path.isdir(resolved):
++            continue
++        if any(
++            resolved == prefix or resolved.startswith(prefix + os.sep)
++            for prefix in prefixes
++        ):
++            continue
++        seen.add(resolved)
++        entries.append(resolved)
++    return entries
++
++
  def build_status_bar_launcher_script(
      python_executable: Path | str | None = None,
  ) -> str:
+@@ -176,35 +256,48 @@ def build_status_bar_launcher_script(
+     else:
+         command = [executable, "-m", "sidepulse", "status-bar", "--foreground"]
+     quoted = " ".join(shlex.quote(part) for part in command)
+-    return "\n".join(
+-        [
+-            "#!/bin/sh",
+-            "export PYTHONUNBUFFERED=1",
+-            f"exec {quoted}",
+-            "",
+-        ]
+-    )
++    lines = ["#!/bin/sh", "export PYTHONUNBUFFERED=1"]
++    if python_executable is None:
++        # An explicit interpreter owns its own sys.path; only repair the
++        # implicit `sys.executable` case.
++        runtime_path = out_of_prefix_path_entries()
++        if runtime_path:
++            lines.append(
++                f"export PYTHONPATH={shlex.quote(os.pathsep.join(runtime_path))}"
++            )
++    lines.extend([f"exec {quoted}", ""])
++    return "\n".join(lines)
+ 
+ 
+ def restart_launch_agent(plist_path: Path) -> None:
++    domain = launch_domain()
+     bootout_launch_agent(plist_path)
+-    subprocess.run(
+-        ["launchctl", "bootstrap", launch_domain(), str(plist_path)],
+-        check=True,
++    bootstrap = run_launchctl(
++        ["launchctl", "bootstrap", domain, str(plist_path)],
++        quiet=False,
++        capture_output=True,
++        text=True,
+     )
+-    subprocess.run(
+-        ["launchctl", "kickstart", "-k", f"{launch_domain()}/{LAUNCH_AGENT_LABEL}"],
+-        check=False,
++    kickstart = run_launchctl(
++        ["launchctl", "kickstart", "-k", f"{domain}/{LAUNCH_AGENT_LABEL}"],
++    )
++    if bootstrap is not None and bootstrap.returncode == 0:
++        return
++    # A job that could not be booted out is still loaded, so `bootstrap`
++    # fails with "service already bootstrapped" while `kickstart -k` restarts
++    # it correctly. Only a failure of *both* means the agent is not running.
++    if kickstart is not None and kickstart.returncode == 0:
++        return
++    detail = (bootstrap.stderr or "").strip() if bootstrap is not None else "timed out"
++    raise subprocess.CalledProcessError(
++        bootstrap.returncode if bootstrap is not None else 1,
++        ["launchctl", "bootstrap", domain, str(plist_path)],
++        stderr=detail,
+     )
+ 
+ 
+ def bootout_launch_agent(plist_path: Path) -> None:
+-    subprocess.run(
+-        ["launchctl", "bootout", launch_domain(), str(plist_path)],
+-        stdout=subprocess.DEVNULL,
+-        stderr=subprocess.DEVNULL,
+-        check=False,
+-    )
++    bootout_service(launch_domain(), plist_path, LAUNCH_AGENT_LABEL)
+ 
+ 
+ def remove_legacy_launch_agent(plist_path: Path | None = None) -> bool:
+diff --git a/tests/test_launchctl_teardown.py b/tests/test_launchctl_teardown.py
+new file mode 100644
+index 0000000..1f3014c
+--- /dev/null
++++ b/tests/test_launchctl_teardown.py
+@@ -0,0 +1,222 @@
++"""Teardown on the `sidepulse setup` path must be bounded and self-healing.
++
++`launchctl bootout` blocks until the job's processes exit, so a status bar
++that launchd fails to signal used to wedge `sidepulse setup` indefinitely
++(observed: 22 minutes during a nix-darwin activation). These tests pin the
++bounded behaviour: the fast path is unchanged, a stuck bootout escalates to
++SIGTERM then SIGKILL, and nothing on the path raises or blocks.
++"""
++
++from __future__ import annotations
++
++import subprocess
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++
++from sidepulse import launchctl, status_bar_launch
++
++
++def _completed(command, returncode=0, stdout="", stderr=""):
++    return subprocess.CompletedProcess(command, returncode, stdout, stderr)
++
++
++class BoundedBootoutTests(unittest.TestCase):
++    def test_prompt_bootout_does_not_escalate(self) -> None:
++        calls: list[list[str]] = []
++
++        def fake_run(command, *args, **kwargs):
++            calls.append(list(command))
++            self.assertIn("timeout", kwargs)
++            self.assertIsNotNone(kwargs["timeout"])
++            return _completed(command, 0)
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.launchctl.os.kill") as kill,
++        ):
++            ok = launchctl.bootout_service("gui/501", Path("/tmp/a.plist"), "io.x")
++
++        self.assertTrue(ok)
++        self.assertEqual(calls, [["launchctl", "bootout", "gui/501", "/tmp/a.plist"]])
++        kill.assert_not_called()
++
++    def test_failed_but_prompt_bootout_does_not_escalate(self) -> None:
++        # A job that was never loaded exits non-zero. That is the common case
++        # on first install and must not trigger any signalling.
++        calls: list[list[str]] = []
++
++        def fake_run(command, *args, **kwargs):
++            calls.append(list(command))
++            return _completed(command, 3)
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.launchctl.os.kill") as kill,
++        ):
++            ok = launchctl.bootout_service("gui/501", Path("/tmp/a.plist"), "io.x")
++
++        self.assertFalse(ok)
++        self.assertEqual(len(calls), 1)
++        kill.assert_not_called()
++
++    def test_timed_out_bootout_escalates_to_sigterm(self) -> None:
++        calls: list[list[str]] = []
++
++        def fake_run(command, *args, **kwargs):
++            calls.append(list(command))
++            if command[1] == "bootout" and len(calls) == 1:
++                raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 1))
++            if command[1] == "print":
++                return _completed(command, 0, stdout="state = running\n\tpid = 4242\n")
++            return _completed(command, 0)
++
++        signalled: list[tuple[int, int]] = []
++
++        def fake_kill(pid, sig):
++            signalled.append((pid, sig))
++            if sig == 0:
++                raise ProcessLookupError
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.launchctl.os.kill", side_effect=fake_kill),
++        ):
++            ok = launchctl.bootout_service("gui/501", Path("/tmp/a.plist"), "io.x")
++
++        self.assertTrue(ok)
++        self.assertEqual([c[1] for c in calls], ["bootout", "print", "bootout"])
++        self.assertEqual(signalled[0], (4242, 15))
++        self.assertNotIn(9, [sig for _, sig in signalled])
++
++    def test_unkillable_job_escalates_to_sigkill_and_still_returns(self) -> None:
++        calls: list[list[str]] = []
++
++        def fake_run(command, *args, **kwargs):
++            calls.append(list(command))
++            if command[1] == "bootout":
++                raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 1))
++            if command[1] == "print":
++                return _completed(command, 0, stdout="\tpid = 4242\n")
++            return _completed(command, 0)
++
++        signalled: list[int] = []
++
++        def fake_kill(pid, sig):
++            signalled.append(sig)  # never raises: the process refuses to die
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.launchctl.os.kill", side_effect=fake_kill),
++            patch("sidepulse.launchctl.time.sleep"),
++            patch("sidepulse.launchctl.time.monotonic", side_effect=range(0, 10_000)),
++            patch("sidepulse.launchctl.warn") as warn,
++        ):
++            ok = launchctl.bootout_service("gui/501", Path("/tmp/a.plist"), "io.x")
++
++        self.assertFalse(ok)
++        self.assertIn(15, signalled)
++        self.assertIn(9, signalled)
++        self.assertEqual([c[1] for c in calls], ["bootout", "print", "bootout"])
++        self.assertTrue(
++            any("could not boot out" in str(call.args[0]) for call in warn.call_args_list),
++            warn.call_args_list,
++        )
++
++    def test_missing_pid_still_retries_and_returns(self) -> None:
++        def fake_run(command, *args, **kwargs):
++            if command[1] == "bootout":
++                raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 1))
++            return _completed(command, 1, stdout="")
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.launchctl.os.kill") as kill,
++            patch("sidepulse.launchctl.warn"),
++        ):
++            ok = launchctl.bootout_service("gui/501", Path("/tmp/a.plist"), "io.x")
++
++        self.assertFalse(ok)
++        kill.assert_not_called()
++
++    def test_launchctl_missing_is_not_fatal(self) -> None:
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=OSError("nope")),
++            patch("sidepulse.launchctl.warn"),
++        ):
++            self.assertFalse(
++                launchctl.bootout_service("gui/501", Path("/tmp/a.plist"), "io.x")
++            )
++
++    def test_every_launchctl_call_is_bounded(self) -> None:
++        seen: list[dict] = []
++
++        def fake_run(command, *args, **kwargs):
++            seen.append(kwargs)
++            return _completed(command, 0)
++
++        with patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run):
++            launchctl.run_launchctl(["launchctl", "print", "gui/501/io.x"])
++            launchctl.service_pid("gui/501/io.x")
++
++        self.assertTrue(seen)
++        for kwargs in seen:
++            self.assertIsInstance(kwargs.get("timeout"), (int, float))
++            self.assertGreater(kwargs["timeout"], 0)
++
++
++class RestartLaunchAgentTests(unittest.TestCase):
++    def test_restart_passes_timeouts_and_does_not_raise(self) -> None:
++        calls: list[list[str]] = []
++
++        def fake_run(command, *args, **kwargs):
++            calls.append(list(command))
++            self.assertIsInstance(kwargs.get("timeout"), (int, float))
++            return _completed(command, 0)
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.status_bar_launch.launch_domain", return_value="gui/501"),
++        ):
++            status_bar_launch.restart_launch_agent(Path("/tmp/a.plist"))
++
++        self.assertEqual(
++            [c[1] for c in calls], ["bootout", "bootstrap", "kickstart"]
++        )
++
++    def test_restart_survives_a_stuck_bootout(self) -> None:
++        # bootout wedges, the job cannot be signalled away, bootstrap then
++        # fails because the job is still loaded -- `kickstart -k` recovers it
++        # and setup continues.
++        def fake_run(command, *args, **kwargs):
++            if command[1] == "bootout":
++                raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 1))
++            if command[1] == "print":
++                return _completed(command, 1)
++            if command[1] == "bootstrap":
++                return _completed(command, 5, stderr="Bootstrap failed: 37")
++            return _completed(command, 0)
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.status_bar_launch.launch_domain", return_value="gui/501"),
++            patch("sidepulse.launchctl.warn"),
++        ):
++            status_bar_launch.restart_launch_agent(Path("/tmp/a.plist"))
++
++    def test_restart_raises_only_when_bootstrap_and_kickstart_both_fail(self) -> None:
++        def fake_run(command, *args, **kwargs):
++            if command[1] == "bootout":
++                return _completed(command, 0)
++            return _completed(command, 5, stderr="Bootstrap failed: 5")
++
++        with (
++            patch("sidepulse.launchctl.subprocess.run", side_effect=fake_run),
++            patch("sidepulse.status_bar_launch.launch_domain", return_value="gui/501"),
++        ):
++            with self.assertRaises(subprocess.CalledProcessError):
++                status_bar_launch.restart_launch_agent(Path("/tmp/a.plist"))
++
++
++if __name__ == "__main__":  # pragma: no cover
++    unittest.main()
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index d27b9e9..a556384 100644
+index 91c7f39..be478ee 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -23,6 +23,7 @@ from sidepulse.audit import (
+@@ -24,6 +24,7 @@ from sidepulse.audit import (
      export_status_audit_html,
      read_status_history_records,
      read_status_audit_records,
@@ -286,15 +1024,16 @@ index d27b9e9..a556384 100644
      status_history_record,
  )
  from sidepulse.battery import (
-@@ -197,6 +198,7 @@ from sidepulse.status_bar_launch import (
+@@ -206,6 +207,8 @@ from sidepulse.status_bar_launch import (
      STATUS_BAR_DISPLAY_NAME,
      build_launch_agent_plist,
      build_status_bar_launcher_script,
++    out_of_prefix_path_entries,
 +    build_status_bar_bundle_info,
      install_launch_agent,
      launch_agent_installed,
  )
-@@ -629,6 +631,19 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -792,6 +795,19 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertIn("hook_event,status", csv_path.read_text())
              self.assertIn("SidePulse Agent Debug Log", html_path.read_text())
  
@@ -314,7 +1053,52 @@ index d27b9e9..a556384 100644
      def test_status_history_record_includes_charger_power_and_sleep_state(self) -> None:
          record = status_history_record(
              agent_mode=AgentMode.WORKING.value,
-@@ -5933,8 +5948,10 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2838,6 +2854,44 @@ class AgentMonitorTests(unittest.TestCase):
+             popen.assert_called_once()
+             self.assertEqual(popen.call_args.args[0][0], "/usr/bin/open")
+ 
++    def test_setup_terminal_installer_avoids_zsh_readonly_variables(self) -> None:
++        """The generated .command runs under zsh, where several variable names
++        are read-only specials. Assigning to one aborts the script and makes it
++        report failure even when the install succeeded."""
++        try:
++            from sidepulse import status_bar
++        except SystemExit as exc:
++            self.skipTest(str(exc))
++
++        with tempfile.TemporaryDirectory() as tmp:
++            state_dir = Path(tmp)
++            with (
++                patch("sidepulse.status_bar.default_state_dir", return_value=state_dir),
++                patch("sidepulse.status_bar.subprocess.Popen"),
++            ):
++                script = status_bar.open_terminal_setup_command("echo hello")
++
++            body = script.read_text()
++            self.assertTrue(body.startswith("#!/bin/zsh"))
++            # zsh read-only specials. `status` is an alias for `?`.
++            for name in ("status", "options", "argv", "ARGC", "pipestatus"):
++                self.assertNotRegex(
++                    body,
++                    rf"(?m)^\s*{name}=",
++                    f"assigns to zsh read-only special ${name}",
++                )
++            # The exit status must still be captured and branched on.
++            self.assertIn("rc=$?", body)
++            self.assertIn('if [ "$rc" -eq 0 ]; then', body)
++
++            if shutil.which("zsh"):
++                proc = subprocess.run(
++                    ["zsh", "-n", str(script)],
++                    capture_output=True,
++                    text=True,
++                )
++                self.assertEqual(proc.returncode, 0, proc.stderr)
++
+     def test_status_bar_open_terminal_command_uses_selected_terminal(self) -> None:
+         try:
+             from sidepulse import status_bar
+@@ -6518,8 +6572,119 @@ class AgentMonitorTests(unittest.TestCase):
      def test_status_bar_launcher_uses_background_item_name(self) -> None:
          script = build_status_bar_launcher_script(python_executable="/usr/bin/python3")
  
@@ -323,10 +1107,119 @@ index d27b9e9..a556384 100644
          self.assertIn("exec /usr/bin/python3 -m sidepulse status-bar --foreground", script)
 +        self.assertEqual(build_status_bar_bundle_info()["CFBundleIdentifier"], "io.sidepulse.statusbar")
 +        self.assertTrue(build_status_bar_bundle_info()["LSUIElement"])
++
++    def test_status_bar_launcher_exports_out_of_prefix_sys_path(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            prefix = Path(tmp) / "python3"
++            in_prefix = prefix / "lib" / "python3.14" / "site-packages"
++            in_prefix.mkdir(parents=True)
++            external = Path(tmp) / "store" / "sidepulse" / "site-packages"
++            external.mkdir(parents=True)
++            expected = os.path.realpath(str(external))
++
++            with patch("sidepulse.status_bar_launch.sys.prefix", str(prefix)), patch(
++                "sidepulse.status_bar_launch.sys.base_prefix", str(prefix)
++            ), patch("sidepulse.status_bar_launch.sys.exec_prefix", str(prefix)), patch(
++                "sidepulse.status_bar_launch.sys.base_exec_prefix", str(prefix)
++            ), patch(
++                "sidepulse.status_bar_launch.sys.executable",
++                str(prefix / "bin" / "python3.14"),
++            ), patch(
++                "sidepulse.status_bar_launch.sys.path",
++                ["", str(in_prefix), str(external)],
++            ):
++                entries = out_of_prefix_path_entries()
++                script = build_status_bar_launcher_script()
++
++        self.assertEqual(entries, [expected])
++        self.assertIn(f"export PYTHONPATH={expected}\n", script)
++        self.assertNotIn(str(in_prefix), script)
++        self.assertLess(script.index("export PYTHONPATH="), script.index("exec "))
++
++    def test_status_bar_launcher_omits_pythonpath_for_in_prefix_installs(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            prefix = Path(tmp) / "python3"
++            in_prefix = prefix / "lib" / "python3.14" / "site-packages"
++            in_prefix.mkdir(parents=True)
++
++            with patch("sidepulse.status_bar_launch.sys.prefix", str(prefix)), patch(
++                "sidepulse.status_bar_launch.sys.base_prefix", str(prefix)
++            ), patch("sidepulse.status_bar_launch.sys.exec_prefix", str(prefix)), patch(
++                "sidepulse.status_bar_launch.sys.base_exec_prefix", str(prefix)
++            ), patch(
++                "sidepulse.status_bar_launch.sys.executable",
++                str(prefix / "bin" / "python3.14"),
++            ), patch(
++                "sidepulse.status_bar_launch.sys.path", ["", str(in_prefix)]
++            ):
++                entries = out_of_prefix_path_entries()
++                script = build_status_bar_launcher_script()
++
++        self.assertEqual(entries, [])
++        self.assertNotIn("PYTHONPATH", script)
++
++    def test_status_bar_launcher_trusts_an_explicit_interpreter(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            with patch("sidepulse.status_bar_launch.sys.path", ["", tmp]):
++                script = build_status_bar_launcher_script(
++                    python_executable="/usr/bin/python3"
++                )
++
++        self.assertNotIn("PYTHONPATH", script)
++        self.assertIn("exec /usr/bin/python3 -m sidepulse status-bar --foreground", script)
++
++    def test_background_service_environment_restores_out_of_prefix_path(self) -> None:
++        from sidepulse.service_launch import service_environment
++
++        with tempfile.TemporaryDirectory() as tmp:
++            prefix = Path(tmp) / "python3"
++            in_prefix = prefix / "lib" / "python3.14" / "site-packages"
++            in_prefix.mkdir(parents=True)
++            external = Path(tmp) / "store" / "sidepulse" / "site-packages"
++            external.mkdir(parents=True)
++            expected = os.path.realpath(str(external))
++
++            with patch("sidepulse.status_bar_launch.sys.prefix", str(prefix)), patch(
++                "sidepulse.status_bar_launch.sys.base_prefix", str(prefix)
++            ), patch("sidepulse.status_bar_launch.sys.exec_prefix", str(prefix)), patch(
++                "sidepulse.status_bar_launch.sys.base_exec_prefix", str(prefix)
++            ), patch(
++                "sidepulse.status_bar_launch.sys.path",
++                ["", str(in_prefix), str(external)],
++            ):
++                environment = service_environment()
++
++        self.assertEqual(environment["PYTHONPATH"], expected)
++        self.assertIn("PATH", environment)
++
++    def test_status_bar_feature_flags_all_resolve(self) -> None:
++        """Guard against stale references to renamed feature-flag constants.
++
++        `applicationDidFinishLaunching_` runs inside an AppKit delegate, where a
++        NameError is swallowed by the run loop: the app stays alive but never
++        installs its status item or event server. A patch that kept referring to
++        the removed `SCREEN_BAR_FEATURE_ENABLED` broke the app exactly that way,
++        with no entry in any log.
++        """
++        import ast
++        import sidepulse.status_bar as status_bar_module
++
++        source = Path(status_bar_module.__file__).read_text(encoding="utf-8")
++        referenced = {
++            node.id
++            for node in ast.walk(ast.parse(source))
++            if isinstance(node, ast.Name) and node.id.endswith("_FEATURE_ENABLED")
++        }
++
++        self.assertIn("SIDEPULSE_NOTCH_FEATURE_ENABLED", referenced)
++        undefined = sorted(
++            name for name in referenced if not hasattr(status_bar_module, name)
++        )
++        self.assertEqual(undefined, [])
  
      def test_status_bar_launch_agent_installed_checks_plist(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
-@@ -6002,7 +6019,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6587,7 +6752,7 @@ class AgentMonitorTests(unittest.TestCase):
              target = base / "io.sidepulse.agentstatus.plist"
              legacy = base / "com.sidepulse.agentstatus.plist"
              pixiepulse_legacy = base / "com.pixiepulse.agentstatus.plist"
@@ -335,7 +1228,7 @@ index d27b9e9..a556384 100644
              legacy.write_bytes(b"old")
              pixiepulse_legacy.write_bytes(b"old")
  
-@@ -6022,6 +6039,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6607,6 +6772,7 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertTrue(result.changed)
              self.assertTrue(target.exists())
              self.assertTrue(launcher.exists())
