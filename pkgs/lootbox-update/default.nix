@@ -5,7 +5,7 @@
 }:
 let
   revision = "587a5a1b2694d0d00168665d8f1a536bc54e0f1a";
-  installID = "${revision}-deno29-global-config-loopback-ui-pinned-mcps-v2";
+  installID = "${revision}-deno29-global-config-loopback-ui-pinned-mcps-v3";
 in
 pkgs.writeShellApplication {
   name = "lootbox-update";
@@ -67,7 +67,7 @@ pkgs.writeShellApplication {
 
       npm install --prefix "$tmp/npm" --omit=dev --ignore-scripts \
         chrome-devtools-mcp@1.9.0 \
-        mcp-remote@0.1.38
+        mcp-remote@0.14.2
 
       install -m755 "$tmp/source/lootbox" "$install_dir/.lootbox.new"
       mv -f "$install_dir/.lootbox.new" "$binary"
