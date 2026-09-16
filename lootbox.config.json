@@ -3,6 +3,10 @@
   "serverUrl": "ws://127.0.0.1:9420/ws",
   "lootboxRoot": "/Users/drewry.pope/.config/nix/.lootbox",
   "mcpServers": {
+    "codebase-memory": {
+      "command": "codebase-memory-mcp",
+      "args": ["--tool-profile=analysis"]
+    },
     "codedb": {
       "command": "codedb",
       "args": ["mcp"],

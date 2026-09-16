@@ -670,6 +670,7 @@ lib.recursiveUpdate {
         pkgs.deno
         pkgs.nodejs
         inputs.self.packages.${system}.codedb
+        pkgs.codebase-memory-mcp
         pkgs.fff-mcp
       ];
       serviceConfig = {
@@ -681,6 +682,7 @@ lib.recursiveUpdate {
             pkgs.deno
             pkgs.nodejs
             inputs.self.packages.${system}.codedb
+            pkgs.codebase-memory-mcp
             pkgs.fff-mcp
           ]
           + ":/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin"
