@@ -4,13 +4,15 @@ description: >-
 mode: subagent
 model: github-copilot/claude-opus-5
 variant: medium
-# Without an explicit `task` rule here, task.ts:147 injects `task: deny *` into
-# every explore session, so nested delegation fails before it starts. Last
-# matching rule wins, so the broad deny goes first and the allowances last.
+# Two separate gates deny `task` here by default: the built-in explore ruleset
+# is `"*": deny` plus a read-only allowlist (agent/agent.ts:196-207), and
+# task.ts:147 injects a session-level `task: deny *` into any subagent whose own
+# ruleset omits a task rule. Declaring the key here clears both. Last matching
+# rule wins, so the `custom` gate from opencode.jsonc is restated after `*`.
 permission:
   task:
-    "*": deny
-    explore: allow
+    "*": allow
+    custom: ask
 ---
 
 You are a file search specialist. You thoroughly navigate and explore codebases.

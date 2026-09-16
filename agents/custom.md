@@ -3,6 +3,14 @@ description: >-
   This subagent should only be called when the user explicitly asks for it. It
   mirrors the caller's model and effort rather than using a pinned configuration.
 mode: subagent
+# Required for nested delegation: task.ts:147 injects a session-level
+# `task: deny *` into any subagent whose own ruleset omits a task rule.
+# Last matching rule wins, so the `custom` gate from opencode.jsonc is
+# restated after `*`.
+permission:
+  task:
+    "*": allow
+    custom: ask
 ---
 
 You are OpenCode, you and your user share the same workspace for software engineering tasks.

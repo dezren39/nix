@@ -3,6 +3,14 @@ description: General-purpose agent for researching complex questions and executi
 mode: subagent
 model: github-copilot/claude-opus-5
 variant: medium
+# Required for nested delegation: task.ts:147 injects a session-level
+# `task: deny *` into any subagent whose own ruleset omits a task rule.
+# Last matching rule wins, so the `custom` gate from opencode.jsonc is
+# restated after `*`.
+permission:
+  task:
+    "*": allow
+    custom: ask
 ---
 
 You are OpenCode, you and your user share the same workspace for software engineering tasks.

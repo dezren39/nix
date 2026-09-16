@@ -48,6 +48,36 @@ lootbox-kill:
 [group('lootbox')]
 lootbox-restart: lootbox-kill lootbox-server
 
+# Log in to Context7 (free tier: 1000 calls/month vs a lower anonymous limit)
+[group('lootbox')]
+context7-login:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bin="$HOME/.local/share/lootbox/npm/node_modules/.bin/mcp-remote"
+    [ -x "$bin" ] || { echo "mcp-remote missing; run 'just update-lootbox' first" >&2; exit 1; }
+    auth="$HOME/.mcp-auth"
+    echo "Starting mcp-remote; a browser window will open for Context7 (Clerk)."
+    echo "Complete the sign-in, then this returns automatically."
+    # mcp-remote is a stdio MCP server: it exits the moment stdin closes, which
+    # would abort the OAuth callback. Hold stdin open with a FIFO instead.
+    fifo=$(mktemp -u); mkfifo "$fifo"
+    exec 3<>"$fifo"; rm -f "$fifo"
+    "$bin" https://mcp.context7.com/mcp <&3 >/dev/null 2>&1 &
+    pid=$!
+    trap 'kill "$pid" 2>/dev/null || true; exec 3>&-' EXIT
+    for _ in $(seq 1 120); do
+        if find "$auth" -name '*token*' -newermt '-10 minutes' 2>/dev/null | grep -q .; then
+            echo "Authenticated. Credentials cached under $auth."
+            echo "Restart lootbox to pick it up: just lootbox-restart"
+            exit 0
+        fi
+        kill -0 "$pid" 2>/dev/null || { echo "mcp-remote exited early" >&2; exit 1; }
+        sleep 1
+    done
+    echo "Timed out after 120s without seeing cached credentials." >&2
+    echo "Context7 still works anonymously; this only raises the rate limit." >&2
+    exit 1
+
 # Verify server health, configured namespaces, and Deno script execution
 [group('lootbox')]
 lootbox-check:
@@ -56,7 +86,8 @@ lootbox-check:
     curl -fsS http://127.0.0.1:9420/health
     namespaces=$("$HOME/.local/bin/lootbox" tools)
     printf '%s\n' "$namespaces"
-    for namespace in mcp_codedb mcp_fff mcp_chrome_devtools mcp_context7; do
+    for namespace in mcp_codedb mcp_codebase_memory mcp_fff mcp_fff_worktree \
+                     mcp_fff_nix mcp_chrome_devtools mcp_context7; do
         grep -q "$namespace" <<<"$namespaces"
     done
     "$HOME/.local/bin/lootbox" exec 'console.log("lootbox script execution ok")'

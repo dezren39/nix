@@ -33,11 +33,15 @@
   // "enabled_providers": ["github-copilot"],
   "default_agent": "build",
   // Default is 1, which makes task.ts:111 reject any task call from inside a
-  // subagent before it ever reaches the permission check. 2 lets one nesting
-  // level through (e.g. explore -> explore). Depth alone is not enough: the
-  // child session also gets an unconditional `task: deny` unless the subagent's
-  // own frontmatter declares a task rule (agent/subagent-permissions.ts:25).
-  "subagent_depth": 2,
+  // subagent before it ever reaches the permission check. 5 allows four levels
+  // of nesting below the root session. Depth alone is not enough: the child
+  // session also gets an unconditional `task: deny` unless the subagent's own
+  // frontmatter declares a task rule (agent/subagent-permissions.ts:25), so
+  // agents/{explore,general,custom}.md each carry one.
+  //
+  // Nothing tells an agent how deep it currently is — depth is computed only
+  // inside the task call (task.ts:104-110) and surfaces as a tool error.
+  "subagent_depth": 5,
   // "model": "github-copilot/gpt-5.6-sol",
   // "small_model": "github-copilot/gpt-5.6-terra",
   // Fallback for `small: true` calls (title generation). Unused in practice —
