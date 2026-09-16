@@ -4,11 +4,11 @@
 }:
 stdenvNoCC.mkDerivation {
   pname = "codedb";
-  version = "0.2.5830";
+  version = "0.2.5855";
 
   src = fetchurl {
-    url = "https://github.com/justrach/codedb/releases/download/v0.2.5830/codedb-darwin-arm64";
-    hash = "sha256-K3htdATPjqeYV9zToGfTVJPmfT61I+oetYEBA97ASM0=";
+    url = "https://github.com/justrach/codedb/releases/download/v0.2.5855/codedb-darwin-arm64";
+    hash = "sha256-/EUhPRFXgCvUaldRoPYYGoc7C9jcRPmf81lYl6oOk40=";
   };
 
   dontUnpack = true;

@@ -4,11 +4,11 @@
 }:
 stdenvNoCC.mkDerivation {
   pname = "fff-mcp";
-  version = "0.9.6";
+  version = "0.10.6";
 
   src = fetchurl {
-    url = "https://github.com/dmtrKovalenko/fff/releases/download/v0.9.6/fff-mcp-aarch64-apple-darwin";
-    hash = "sha256-Kaf63q+wYvPllUsauMaeFNyiT14GHNjTseobqzhaN1Q=";
+    url = "https://github.com/dmtrKovalenko/fff/releases/download/v0.10.6/fff-mcp-aarch64-apple-darwin";
+    hash = "sha256-AuD1f1uI+mmElPMQ2ABaDDTVvaWh/NBpUgs1+OIxmJI=";
   };
 
   dontUnpack = true;
