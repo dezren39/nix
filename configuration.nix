@@ -63,6 +63,20 @@ lib.recursiveUpdate {
   environment.variables.GIT_CONFIG_SYSTEM = "/etc/gitconfig"; # List packages installed in system profile. To search by name, run:
   # $ nix-env -qaP | grep wget
 
+  # opencode clamps output tokens to OUTPUT_TOKEN_MAX = 32_000
+  # (provider/transform.ts:18), which is half what Opus 5 actually supports.
+  # Thinking counts against max_tokens, so at high effort that makes
+  # stop_reason: "max_tokens" twice as likely as it needs to be.
+  #
+  # The value is applied as Math.min(model.limit.output, this), so an absurdly
+  # large number simply means "every model gets its own native ceiling" —
+  # 64k for Opus 5, 128k for the gpt-5.x family — with no way to exceed it.
+  #
+  # Note this does NOT disturb the compaction reserve: that is
+  # `Math.min(COMPACTION_BUFFER, maxOutputTokens(...))` (session/overflow.ts:14),
+  # so it stays pinned at 20_000 either way.
+  environment.variables.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = "999999999";
+
   nixpkgs = {
     # TODO: module nixpkgs
     hostPlatform = "aarch64-darwin";
