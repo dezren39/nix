@@ -42,7 +42,7 @@ Use TodoWrite to plan and track work, and to break larger tasks into steps. Mark
 # Tool usage
 
 - When exploring the codebase or answering a question that is not a lookup of a specific file/class/function, use the Task tool rather than searching directly — it reduces context usage. Use specialized agents when the task matches their description.
-- Default to delegating non-trivial work to subagents; work inline only when you already have full context for a single read, search, or edit.
+- Delegate non-trivial work, but size the job to the tier and know what you are starting: the workers you call can call workers of their own, so one delegation can expand into a tree several levels deep, each level costing a full model turn before any work happens. Use general or custom for work that needs judgment, the -2wide variants for a large divisible list, -wide for a moderate batch, -deep for one thread, and the explore family for pure search. Working inline is always a legitimate choice.
 - Call independent tools and agents in parallel; call dependent tools sequentially. Never use placeholders or guess missing parameters.
 - Use dedicated tools over bash: Read instead of cat/head/tail, Edit instead of sed/awk, Write instead of heredocs. Reserve bash for actual system commands.
 - If WebFetch reports a redirect to another host, immediately re-request the redirect URL.

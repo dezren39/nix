@@ -32,16 +32,51 @@
   // model it exposes is allowed through. Re-enable any line below to pin again.
   // "enabled_providers": ["github-copilot"],
   "default_agent": "build",
-  // Default is 1, which makes task.ts:111 reject any task call from inside a
-  // subagent before it ever reaches the permission check. 5 allows four levels
-  // of nesting below the root session. Depth alone is not enough: the child
-  // session also gets an unconditional `task: deny` unless the subagent's own
-  // frontmatter declares a task rule (agent/subagent-permissions.ts:25), so
-  // agents/{explore,general,custom}.md each carry one.
+  // Delegation topology. Enforced per-agent by the `task` rulesets in
+  // agents/*.md, since opencode has no per-agent depth setting — subagent_depth
+  // below is global. Tiers descend strictly, so the edge set is acyclic and
+  // recursion terminates structurally rather than by exhausting a counter:
+  //
+  //   tier 0  build, plan                      (primary)
+  //   tier 1  general, custom, explore
+  //   tier 2  general-2wide, custom-2wide
+  //   tier 3  general-wide, custom-wide, explore-wide
+  //   tier 4  general-deep, custom-deep, explore-deep
+  //
+  // The `-2wide` / `-wide` / `-deep` suffixes ARE the tier, and the rulesets
+  // match on them rather than on agent names: tier 2 allows `"*-wide"` and
+  // `"*-deep"`, tier 3 allows `"*-deep"` and `"explore*"`, tier 4 allows only
+  // `"explore*"`. Wildcard.match compiles `*` to `.*` anchored at both ends
+  // (util/wildcard.ts:3-13), so `"*-wide"` matches general-wide but not
+  // general-2wide, and `"explore-*"` matches the variants but not explore
+  // itself. Name a new worker with the right suffix and it slots in with no
+  // edits elsewhere; name it anything else and nothing can reach it.
+  //
+  // An agent may call anything in a strictly lower tier, across families —
+  // general-2wide may call custom-wide. Two carve-outs: toplevel general and
+  // custom do not call each other or themselves, and the explore family is a
+  // closed descending chain (everything may call into it; it never calls out).
+  // explore-deep is the only terminal node.
+  //
+  // build and plan carry no `task` rule of their own: the shared default
+  // `"*": allow` (agent/agent.ts:119) already lets them reach every subagent,
+  // which is the orchestrator role. Built-in plan additionally denies `general`
+  // (agent/agent.ts:163-165). Every agent below them is deny-by-default with
+  // explicit allows, so adding a global `task: { x: "deny" }` here still holds
+  // everywhere except explore, whose `"*": allow` is needed to clear the
+  // built-in read-only ruleset and shadows it.
+  //
+  // Longest chain is build -> general -> general-2wide -> general-wide ->
+  // general-deep -> explore -> explore-wide -> explore-deep, which puts the
+  // deepest task call at depth 6 and needs subagent_depth >= 7. 10 is a
+  // backstop for agents added outside this topology, not a control — the edge
+  // set is what bounds recursion. Default is 1, which rejects any task call
+  // from inside a subagent at task.ts:111 before the permission check runs.
   //
   // Nothing tells an agent how deep it currently is — depth is computed only
-  // inside the task call (task.ts:104-110) and surfaces as a tool error.
-  "subagent_depth": 5,
+  // inside the task call (task.ts:104-110) and surfaces as a tool error. The
+  // topology is what keeps agents from discovering the limit by hitting it.
+  "subagent_depth": 10,
   // "model": "github-copilot/gpt-5.6-sol",
   // "small_model": "github-copilot/gpt-5.6-terra",
   // Fallback for `small: true` calls (title generation). Unused in practice —

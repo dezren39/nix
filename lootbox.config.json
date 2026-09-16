@@ -5,7 +5,7 @@
   "mcpServers": {
     "codebase-memory": {
       "command": "codebase-memory-mcp",
-      "args": ["--tool-profile=analysis"]
+      "args": []
     },
     "codedb": {
       "command": "codedb",
