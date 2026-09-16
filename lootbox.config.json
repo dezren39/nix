@@ -15,7 +15,8 @@
       "args": [
         "--no-update-check",
         "--frecency-db", "/Users/drewry.pope/.local/share/fff/frecency.db",
-        "--history-db", "/Users/drewry.pope/.local/share/fff/history.db"
+        "--history-db", "/Users/drewry.pope/.local/share/fff/history.db",
+        "/Users/drewry.pope/git"
       ]
     },
     "chrome-devtools": {
