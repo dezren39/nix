@@ -60,6 +60,7 @@ lib.recursiveUpdate {
   );
 
   # Force nix-packaged git to read /etc/gitconfig (it normally reads $nixStore/etc/gitconfig)
+  environment.variables.COPILOT_MODEL = "claude-opus-5";
   environment.variables.GIT_CONFIG_SYSTEM = "/etc/gitconfig"; # List packages installed in system profile. To search by name, run:
   # $ nix-env -qaP | grep wget
 
@@ -671,7 +672,7 @@ lib.recursiveUpdate {
   launchd.user.envVariables = {
     EDITOR = "zed --wait";
     LANG = "en_US.UTF-8";
-    COPILOT_MODEL = "claude-opus-4.5";
+    COPILOT_MODEL = "claude-opus-5";
     GIT_CONFIG_SYSTEM = "/etc/gitconfig";
     GOPATH = "/Users/drewry.pope/go";
     GOBIN = "/Users/drewry.pope/go/bin";

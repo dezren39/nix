@@ -288,14 +288,35 @@ rec {
             hash = "sha256-/njY2BbhqncqQ+gODoTmhBJKTT22VCFAhh8L3kwgHfU=";
           }
         );
+        # opencode resolves these once at startup (effect/runtime-flags.ts), and
+        # a process started outside a login shell never sees the profile that
+        # home-manager writes. Baking them into the binary makes them hold in
+        # every launch context. `--set-default` rather than `--set` so
+        # `OPENCODE_EXPERIMENTAL=0 opencode` still works for bisecting.
+        opencodeEnvFlags = [
+          "--set-default OPENCODE_EXPERIMENTAL 1"
+          "--set-default OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX 999999999"
+          "--set-default OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS 300000"
+          "--set-default OPENCODE_EXPERIMENTAL_LSP_TY 1"
+        ];
       in
       ({
         inherit bun-bin;
 
-        opencode = pkgs.callPackage "${opencodeSrc}/nix/opencode.nix" {
-          bun = bun-bin;
-          node_modules = opencodeNodeModules;
-        };
+        # Upstream already wrapProgram's $out/bin/opencode for PATH, so this is
+        # a second wrapper. makeWrapper handles the collision by appending "_"
+        # to the hidden name, leaving .opencode-wrapped_ beside it.
+        opencode =
+          (pkgs.callPackage "${opencodeSrc}/nix/opencode.nix" {
+            bun = bun-bin;
+            node_modules = opencodeNodeModules;
+          }).overrideAttrs
+            (old: {
+              postFixup = (old.postFixup or "") + ''
+                wrapProgram $out/bin/opencode \
+                  ${pkgs.lib.concatStringsSep " \\\n  " opencodeEnvFlags}
+              '';
+            });
 
         opencode2 = pkgs.callPackage ./pkgs/opencode2/package.nix {
           inherit bun-bin;

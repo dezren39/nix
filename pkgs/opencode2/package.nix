@@ -105,7 +105,11 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       mv $out/bin/opencode $out/bin/opencode2
     fi
     wrapProgram $out/bin/opencode2 \
-      --prefix PATH : ${lib.makeBinPath ([ ripgrep ] ++ lib.optional platform.isDarwin sysctl)}
+      --prefix PATH : ${lib.makeBinPath ([ ripgrep ] ++ lib.optional platform.isDarwin sysctl)} \
+      --set-default OPENCODE_EXPERIMENTAL 1 \
+      --set-default OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX 999999999 \
+      --set-default OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS 300000 \
+      --set-default OPENCODE_EXPERIMENTAL_LSP_TY 1
     runHook postInstall
   '';
 

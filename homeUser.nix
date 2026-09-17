@@ -107,8 +107,15 @@ lib.recursiveUpdate {
       # buffer. git is unaffected here only because core.editor is set to vim.
       EDITOR = "zed --wait";
       LANG = "en_US.UTF-8";
-      COPILOT_MODEL = "claude-opus-4.5";
+      COPILOT_MODEL = "claude-opus-5";
+      # Redundant with environment.variables, launchd.user.envVariables, and the
+      # wrapProgram flags baked into the opencode binaries themselves. The
+      # wrapper is the one that actually guarantees them; these three cover the
+      # case where opencode is invoked some other way, and cost nothing.
       OPENCODE_EXPERIMENTAL = "1";
+      OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = "999999999";
+      OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS = "300000";
+      OPENCODE_EXPERIMENTAL_LSP_TY = "1";
 
       # Go: user-local install directory
       GOPATH = "$HOME/go";
