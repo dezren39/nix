@@ -662,7 +662,19 @@ lib.recursiveUpdate {
   # which never source a shell profile. opencode reads its runtime flags once at
   # startup (effect/runtime-flags.ts), so a process launched outside a login
   # shell silently loses background subagents, websearch, and the token caps.
+  #
+  # Mirrors homeUser.nix sessionVariables and the environment.variables above.
+  # launchd does NOT expand shell syntax, so GOPATH/GOBIN are written out with
+  # the home directory literal rather than "$HOME/go"; the HIST* variables are
+  # deliberately omitted because they only mean anything to an interactive
+  # shell, which already gets them from the profile.
   launchd.user.envVariables = {
+    EDITOR = "zed";
+    LANG = "en_US.UTF-8";
+    COPILOT_MODEL = "claude-opus-4.5";
+    GIT_CONFIG_SYSTEM = "/etc/gitconfig";
+    GOPATH = "/Users/drewry.pope/go";
+    GOBIN = "/Users/drewry.pope/go/bin";
     OPENCODE_EXPERIMENTAL = "1";
     OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = "999999999";
     OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS = "300000";
