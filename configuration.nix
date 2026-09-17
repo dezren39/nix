@@ -669,7 +669,7 @@ lib.recursiveUpdate {
   # deliberately omitted because they only mean anything to an interactive
   # shell, which already gets them from the profile.
   launchd.user.envVariables = {
-    EDITOR = "zed";
+    EDITOR = "zed --wait";
     LANG = "en_US.UTF-8";
     COPILOT_MODEL = "claude-opus-4.5";
     GIT_CONFIG_SYSTEM = "/etc/gitconfig";

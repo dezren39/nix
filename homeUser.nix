@@ -101,7 +101,11 @@ lib.recursiveUpdate {
       '';
     };
     sessionVariables = {
-      EDITOR = "zed";
+      # `--wait` is required for EDITOR: zed's CLI returns immediately
+      # otherwise, so anything that shells out to $EDITOR and reads the file
+      # back (crontab, visudo, `gh pr create`) sees an empty or unmodified
+      # buffer. git is unaffected here only because core.editor is set to vim.
+      EDITOR = "zed --wait";
       LANG = "en_US.UTF-8";
       COPILOT_MODEL = "claude-opus-4.5";
       OPENCODE_EXPERIMENTAL = "1";
