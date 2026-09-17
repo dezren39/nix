@@ -26,6 +26,13 @@
     // "@knikolov/opencode-plugin-simple-memory@latest",
     // "opencode-mem@latest",
     "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz",
+    // plugins/tool-definitions.ts is NOT listed here. A relative spec resolves
+    // against dirname() of the config file opencode loaded (config/plugin.ts:48),
+    // which is ~/.config/opencode, not this repo. It is symlinked into
+    // ~/.config/opencode/plugin/ instead, where opencode auto-discovers it —
+    // the same mechanism tokenscope uses above. Relink with:
+    //   ln -sfn ~/.config/nix/plugins/tool-definitions.ts \
+    //           ~/.config/opencode/plugin/tool-definitions.ts
   ],
   // Provider/model restrictions disabled — every authenticated provider and every
   // model it exposes is allowed through. Re-enable any line below to pin again.
@@ -207,9 +214,26 @@
     // },
   // },
   "permission": {
-    "read": "allow",
+    // read/lsp denied globally: `cat -n` covers reading, and codedb +
+    // codebase-memory cover what lsp answered (definitions, callers, call
+    // graph). Denying with pattern "*" is what actually removes a tool from the
+    // request - permission/index.ts:204-213 requires the last matching rule to
+    // be `"*": deny` before session/llm/request.ts:207 drops it.
+    "read": "deny",
+    "lsp": "deny",
+    // A literal `todowrite` key here satisfies subagent-permissions.ts:19, which
+    // tests `rule.permission === "todowrite"` with `===`. Without it every
+    // subagent session gets an injected `todowrite: deny *`. One global line
+    // replaces a per-agent frontmatter entry on all 12.
+    "todowrite": "allow",
     "edit": "allow",
     "external_directory": "allow",
+    // plan_enter/plan_exit only exist to suggest switching to/from the plan
+    // agent (tool/plan-enter.txt). Unused here, and the shared defaults already
+    // deny them for every agent except build and plan, so denying globally just
+    // drops the two descriptions from build's payload (~297 tokens).
+    "plan_enter": "deny",
+    "plan_exit": "deny",
     // Gate the `custom` delegate. task.ts:120-122 passes the subagent_type as
     // the permission pattern, so this matches per-agent. Enforced, not
     // advisory: the model cannot invoke custom without an explicit approval.

@@ -3,6 +3,12 @@ description: The default agent. Executes tools based on configured permissions.
 mode: primary
 model: github-copilot/claude-opus-5
 variant: medium
+permission:
+  task:
+    "*": deny
+    explore: allow
+    general: allow
+    custom: ask
 ---
 
 You are OpenCode, you and your user share the same workspace for software engineering tasks.
