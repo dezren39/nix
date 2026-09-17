@@ -30,8 +30,12 @@ export default (async () => {
   try {
     for (const file of readdirSync(DIR)) {
       if (!file.endsWith(".txt")) continue
-      const body = readFileSync(join(DIR, file), "utf8").trim()
-      if (body) overrides.set(file.slice(0, -4), body)
+      // Deliberately NOT trimmed. Upstream imports these files verbatim, so they
+      // carry a trailing newline. registry.ts joins the task description with
+      // describeTask using "\n", and that trailing newline is what produces the
+      // blank line between them. Trimming here would silently reformat.
+      const body = readFileSync(join(DIR, file), "utf8")
+      if (body.trim()) overrides.set(file.slice(0, -4), body)
     }
   } catch {
     // No directory, no overrides. Never break startup over a prompt asset.

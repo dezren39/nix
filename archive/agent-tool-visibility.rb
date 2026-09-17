@@ -6,10 +6,10 @@
 # Run from the repo root: ruby archive/agent-tool-visibility.rb
 require 'yaml'
 def wm(i,p); Regexp.new("\\A"+p.gsub(/[.+^${}()|\[\]\\]/){|c| "\\"+c}.gsub('*','.*').gsub('?','.')+"\\z",Regexp::MULTILINE).match?(i); end
-TOK = {"edit"=>342,"write"=>155,"apply_patch"=>274,"todowrite"=>503,"task"=>576,"read"=>289,"grep"=>164,
+TOK = {"edit"=>342,"write"=>155,"todowrite"=>503,"task"=>576,"read"=>289,"grep"=>164,
        "glob"=>129,"bash"=>317,"lsp"=>325,"skill"=>99,"webfetch"=>187,"websearch"=>258,"question"=>164,
        "plan_enter"=>153,"plan_exit"=>144}
-EDITS = %w[edit write apply_patch]
+EDITS = %w[edit write apply_patch]  # apply_patch omitted from TOK: registry.ts sends it only to gpt-* models
 # shared defaults (agent/agent.ts:119-135) then user global (opencode.jsonc) then frontmatter
 DEFAULTS = [["*","*","allow"],["doom_loop","*","ask"],["question","*","deny"],["plan_enter","*","deny"],["plan_exit","*","deny"]]
 # per-agent built-in layers, agent/agent.ts:140-215, merged between defaults and user
