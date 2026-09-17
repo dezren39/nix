@@ -379,16 +379,19 @@ lib.recursiveUpdate {
     # tapOptions
     onActivation = {
       autoUpdate = true;
-      # TODO: try to fix. "uninstall" would auto-remove casks dropped from
-      # casks.nix (exactly the drift this leaves behind: renamed casks such as
-      # handbrake -> handbrake-app leave BOTH installed), but nix-homebrew
-      # currently emits an obsolete --force-cleanup flag with it. Until then,
-      # removed casks are NOT uninstalled and ./clean only reports the drift.
-      cleanup = "none"; # "uninstall" generates obsolete --force-cleanup flag
+      # Homebrew removed the `--cleanup` switch outright ("Calling the
+      # `--cleanup` switch is disabled! There is no replacement."), which made
+      # every activation fail. `--force-cleanup` is a different flag and is
+      # still accepted — `brew bundle install --help` lists it — so the original
+      # reason for pinning cleanup to "none" no longer holds. Left at "none"
+      # anyway because switching to "uninstall" starts removing casks dropped
+      # from casks.nix, which is a behavior change, not a build fix. The known
+      # drift stands: renamed casks (handbrake -> handbrake-app) leave BOTH
+      # installed, and ./clean only reports it.
+      cleanup = "none";
       upgrade = true;
       extraFlags = [
         "--verbose"
-        "--cleanup"
         "--force"
       ];
     };
