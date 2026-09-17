@@ -87,7 +87,13 @@
   // inside the task call (task.ts:104-110) and surfaces as a tool error. The
   // topology is what keeps agents from discovering the limit by hitting it.
   "subagent_depth": 10,
-  // "model": "github-copilot/gpt-5.6-sol",
+  // Last-resort default, read only at provider.ts:2010 (`if (cfg.model)`).
+  // Unreachable today: every agent in agents/*.md pins claude-opus-5 except the
+  // custom family, which inherits the caller's model by design
+  // (task.ts:181-184), and default_agent is build, which pins. Set anyway so an
+  // agent added later without a `model:` can't fall through to the
+  // family-priority picker.
+  "model": "github-copilot/claude-opus-5",
   // "small_model": "github-copilot/gpt-5.6-terra",
   // Fallback for `small: true` calls (title generation). Unused in practice —
   // agent.title sets its own model, which takes precedence at prompt.ts:216.
