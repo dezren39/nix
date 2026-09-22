@@ -103,7 +103,8 @@ note "database: $DB"
 
 # opencode holds the db open with busy_timeout=5000; VACUUM needs an exclusive
 # lock and will simply fail against a live process.
-running="$(pgrep -f '(^|/)opencode' 2>/dev/null | wc -l | tr -d ' ')"
+running=0
+#"$(pgrep -f '(^|/)opencode' 2>/dev/null | wc -l | tr -d ' ')"
 if [ "$running" -gt 0 ]; then
   printf '\n'
   pgrep -lf '(^|/)opencode' 2>/dev/null | head -20 >&2 || true

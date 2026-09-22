@@ -439,22 +439,34 @@ new file mode 100644
 index 0000000..f3bf5c7
 --- /dev/null
 +++ b/src/sidepulse/resources/led_writer.c
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,335 @@
 +// SidePulse LED Writer - write an LED program to a mounted SidePulse volume.
 +//
 +// SidePulse talks to SidePulse Pro / SidePulse Dot by writing LEDS.LED on the
 +// device's FAT volume: the firmware snoops the FAT LBA writes, so the file
 +// write *is* the protocol. macOS gates every path under /Volumes behind the
-+// `kTCCServiceSystemPolicyRemovableVolumes` TCC service. A launchd-spawned
-+// process has no responsible app and cannot show the consent prompt, so TCC
-+// auto-denies it and open(2) fails with EPERM.
++// `kTCCServiceSystemPolicyRemovableVolumes` TCC service, so open(2) fails with
++// EPERM until something holds a grant.
 +//
-+// Explicit grants *are* honoured from launchd, but TCC keys them to the
-+// binary's path (and code identity). SidePulse normally issues the write from
-+// the interpreter itself, which lives at /nix/store/<hash>/bin/python3.x and
-+// changes on every rebuild, so a grant is invalidated within days. This helper
-+// lives at a fixed path under the SidePulse data directory and only changes
-+// when this source file changes, so a single grant keeps working.
++// TCC charges a removable-volume access to the *responsible process*, which by
++// default is whoever spawned this helper - not the helper itself. Under the
++// SidePulse LaunchAgent that responsible process is the Python interpreter, at
++// /nix/store/<hash>/bin/python3.x, a path that moves on every rebuild. So the
++// grant this helper exists to hold was never actually being asked for: the
++// consent prompt named the interpreter, and once that recorded a denial macOS
++// stopped prompting entirely and every LED write failed silently.
++//
++// The fix is `responsibility_spawnattrs_setdisclaim`. When the write is denied
++// we re-spawn ourselves with the disclaim flag set, which makes the child its
++// own TCC subject. The prompt then names "SidePulse LED Writer" at its fixed
++// path under the SidePulse data directory, and the resulting grant is keyed to
++// that path, surviving interpreter and dependency rebuilds. A recursion guard
++// in the environment keeps this to a single retry.
++//
++// Once the grant exists the fast path needs no disclaim at all: an explicit
++// grant on the accessing binary is honoured even when the responsible process
++// is denied. The retry is therefore only paid on the first write, or after the
++// grant lapses (helper rebuilt, path moved, TCC reset).
 +//
 +// The payload is read from stdin, never from argv, so LED programs stay out of
 +// the process table.
@@ -474,11 +486,24 @@ index 0000000..f3bf5c7
 +#include <errno.h>
 +#include <fcntl.h>
 +#include <libgen.h>
++#include <limits.h>
++#include <mach-o/dyld.h>
++#include <signal.h>
++#include <spawn.h>
++#include <stdint.h>
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
 +#include <sys/stat.h>
++#include <sys/wait.h>
 +#include <unistd.h>
++
++// Private Libsystem call. Setting the disclaim flag on a spawn attribute makes
++// the spawned process its own TCC subject instead of charging its accesses to
++// whichever process happens to be responsible for this one. Declared by hand
++// because no SDK header exposes it.
++extern int responsibility_spawnattrs_setdisclaim(posix_spawnattr_t *attr, int disclaim);
++extern char **environ;
 +
 +// LED programs are capped at 512 bytes by the device, and the only other
 +// payload SidePulse writes is an empty keepalive file. 64 KiB leaves room to
@@ -497,6 +522,10 @@ index 0000000..f3bf5c7
 +#endif
 +
 +static const char *k_program_name = "sidepulse-led-writer";
++
++// Set on the child of the disclaimed re-spawn. Its only job is to stop the
++// retry from recursing: the child must fail outright rather than spawn again.
++static const char *k_disclaim_guard_env = "SIDEPULSE_LED_WRITER_DISCLAIMED";
 +
 +static int report_errno(const char *operation, const char *path, int saved_errno) {
 +    fprintf(stderr, "%s: %s %s: %s (errno=%d)\n", k_program_name, operation, path,
@@ -600,6 +629,90 @@ index 0000000..f3bf5c7
 +    free(copy);
 +}
 +
++// Re-run this same binary as its own TCC subject, handing it the payload over
++// a pipe.
++//
++// `responsibility_spawnattrs_setdisclaim` detaches the child from this
++// process's responsibility chain, so TCC evaluates the child on its own code
++// identity and path rather than charging the access to whoever spawned us.
++// That is what raises a prompt naming "SidePulse LED Writer", and what makes
++// the resulting grant durable across rebuilds.
++//
++// Returns 0 when the child ran, storing its exit status in *out_status.
++// Returns -1 when the retry could not be attempted at all, which leaves the
++// caller free to report its original errno diagnosis unchanged.
++static int retry_disclaimed(const char *target, const char *payload, size_t length,
++                            int *out_status) {
++    char self_path[PATH_MAX];
++    uint32_t self_size = (uint32_t)sizeof(self_path);
++    if (_NSGetExecutablePath(self_path, &self_size) != 0)
++        return -1;
++
++    char resolved[PATH_MAX];
++    const char *executable = realpath(self_path, resolved) != NULL ? resolved : self_path;
++
++    int payload_pipe[2];
++    if (pipe(payload_pipe) != 0)
++        return -1;
++
++    posix_spawnattr_t attr;
++    if (posix_spawnattr_init(&attr) != 0) {
++        (void)close(payload_pipe[0]);
++        (void)close(payload_pipe[1]);
++        return -1;
++    }
++    if (responsibility_spawnattrs_setdisclaim(&attr, 1) != 0) {
++        (void)posix_spawnattr_destroy(&attr);
++        (void)close(payload_pipe[0]);
++        (void)close(payload_pipe[1]);
++        return -1;
++    }
++
++    posix_spawn_file_actions_t actions;
++    if (posix_spawn_file_actions_init(&actions) != 0) {
++        (void)posix_spawnattr_destroy(&attr);
++        (void)close(payload_pipe[0]);
++        (void)close(payload_pipe[1]);
++        return -1;
++    }
++    (void)posix_spawn_file_actions_adddup2(&actions, payload_pipe[0], STDIN_FILENO);
++    (void)posix_spawn_file_actions_addclose(&actions, payload_pipe[1]);
++
++    // The child inherits environ, so setting the guard here is how the child
++    // learns not to spawn again. Nothing in this process reads it back.
++    (void)setenv(k_disclaim_guard_env, "1", 1);
++
++    char *const args[] = {(char *)executable, (char *)target, NULL};
++    pid_t child = 0;
++    int spawned = posix_spawn(&child, executable, &actions, &attr, args, environ);
++
++    (void)posix_spawn_file_actions_destroy(&actions);
++    (void)posix_spawnattr_destroy(&attr);
++    (void)close(payload_pipe[0]);
++
++    if (spawned != 0) {
++        (void)close(payload_pipe[1]);
++        return -1;
++    }
++
++    // A child that exits before draining the pipe would otherwise raise
++    // SIGPIPE here and lose its real exit status.
++    void (*previous_sigpipe)(int) = signal(SIGPIPE, SIG_IGN);
++    (void)write_all(payload_pipe[1], payload, length);
++    (void)close(payload_pipe[1]);
++    if (previous_sigpipe != SIG_ERR)
++        (void)signal(SIGPIPE, previous_sigpipe);
++
++    int status = 0;
++    while (waitpid(child, &status, 0) < 0) {
++        if (errno != EINTR)
++            return -1;
++    }
++
++    *out_status = WIFEXITED(status) ? WEXITSTATUS(status) : EXIT_IO;
++    return 0;
++}
++
 +int main(int argc, char **argv) {
 +    if (argc != 2 || argv[1][0] == '\0') {
 +        fprintf(stderr, "usage: %s <target-path>   (payload is read from stdin)\n",
@@ -623,6 +736,17 @@ index 0000000..f3bf5c7
 +    int fd = open(target, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 +    if (fd < 0) {
 +        int saved = errno;
++        // The TCC case. Retry as our own subject so the consent prompt names
++        // this binary, and the grant lands on a fixed path that outlives the
++        // interpreter's nix store hash.
++        if ((saved == EPERM || saved == EACCES) &&
++            getenv(k_disclaim_guard_env) == NULL) {
++            int retry_status = 0;
++            if (retry_disclaimed(target, payload, length, &retry_status) == 0) {
++                free(payload);
++                return retry_status;
++            }
++        }
 +        free(payload);
 +        return report_errno("open", target, saved);
 +    }

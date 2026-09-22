@@ -271,16 +271,22 @@ sidepulse-grant-leds:
     #!/usr/bin/env bash
     set -euo pipefail
     # LED writes go to /Volumes/PulseDot, which macOS gates behind "Removable
-    # Volumes". A launchd job has no responsible app, so it cannot prompt and is
-    # auto-denied -- which is why the LEDs silently never worked. Running the
-    # helper from YOUR terminal gives TCC a GUI-attributable parent, so the
-    # prompt actually appears. Click Allow once; the launchd jobs then inherit
-    # the grant by path.
+    # Volumes". TCC charges that access to the *responsible process*, which by
+    # default is whoever spawned the helper rather than the helper itself. Run
+    # from a terminal that already holds the grant, the write simply inherits
+    # it and no grant is recorded for the helper at all -- which is how this
+    # recipe used to print "Granted" while having changed precisely nothing,
+    # leaving the launchd jobs denied and the LEDs dark.
     #
-    # The helper lives outside the nix store on purpose, so the grant survives
-    # rebuilds instead of breaking every time python's store hash moves.
+    # The helper now re-spawns itself with the TCC disclaim flag when a write
+    # is denied, so the consent prompt names "SidePulse LED Writer" and the
+    # grant is keyed to its fixed path, surviving rebuilds that move python's
+    # nix store hash. This recipe verifies that row exists rather than
+    # trusting an exit status that cannot distinguish the two cases.
     helper="${SIDEPULSE_LED_WRITER:-$HOME/.local/share/sidepulse/led-writer/SidePulse LED Writer}"
     target="${SIDEPULSE_LED_TARGET:-/Volumes/PulseDot/LEDS.LED}"
+    tcc_db="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+    service="kTCCServiceSystemPolicyRemovableVolumes"
 
     if [ ! -x "$helper" ]; then
       echo "LED writer not built: $helper" >&2
@@ -301,18 +307,53 @@ sidepulse-grant-leds:
 
     # Round-trip the existing bytes so the LED state is not disturbed.
     current="$(cat "$target" 2>/dev/null || true)"
-    if printf '%s' "$current" | "$helper" "$target"; then
-      echo
-      echo "Granted -- the helper can write the LED device."
-      echo "The sidepulse launchd jobs will now work without further prompts."
-    else
-      echo
-      echo "Still denied." >&2
-      echo "If no prompt appeared, a Deny was already recorded. Fix it in:" >&2
-      echo "  System Settings > Privacy & Security > Files and Folders" >&2
-      echo "  -> 'SidePulse LED Writer' -> enable Removable Volumes" >&2
+    write_status=0
+    printf '%s' "$current" | "$helper" "$target" || write_status=$?
+
+    # The recorded grant is what matters, not the write succeeding: a write can
+    # succeed purely by inheriting this terminal's access while every launchd
+    # job stays denied. Only a row keyed to the helper's own path proves the
+    # grant will outlive this shell.
+    if [ ! -r "$tcc_db" ]; then
+      echo "Could not read TCC.db to confirm the grant:" >&2
+      echo "  $tcc_db" >&2
+      echo "Give this terminal Full Disk Access and re-run to verify." >&2
       exit 1
     fi
+
+    granted="$(sqlite3 "$tcc_db" \
+      "select auth_value from access where service='$service' and client='$helper';" \
+      2>/dev/null || true)"
+
+    case "$granted" in
+      2)
+        echo
+        echo "Granted -- 'SidePulse LED Writer' holds Removable Volumes by path."
+        echo "The sidepulse launchd jobs will now work without further prompts."
+        ;;
+      "")
+        echo
+        echo "No grant is recorded for the helper." >&2
+        if [ "$write_status" -eq 0 ]; then
+          echo "The write succeeded by inheriting this terminal's own access," >&2
+          echo "which the launchd jobs do not share. Nothing was granted." >&2
+        else
+          echo "The write also failed (exit $write_status)." >&2
+        fi
+        echo "Re-run; if no prompt appears, check System Settings >" >&2
+        echo "Privacy & Security > Files and Folders." >&2
+        exit 1
+        ;;
+      *)
+        echo
+        echo "Denied (auth_value=$granted):" >&2
+        echo "  $helper" >&2
+        echo "macOS will not prompt again while a denial is recorded. Clear it in" >&2
+        echo "System Settings > Privacy & Security > Files and Folders" >&2
+        echo "  -> 'SidePulse LED Writer' -> enable Removable Volumes" >&2
+        exit 1
+        ;;
+    esac
 
 # =============================================================================
 # OpenCode storage
