@@ -114,6 +114,157 @@ index 0000000..f4e68ce
 +
 +    def agent_ids(self) -> frozenset[str]:
 +        return frozenset(self._latched)
+diff --git c/src/sidepulse/install.py i/src/sidepulse/install.py
+index 79c7f0d..2278fbd 100644
+--- c/src/sidepulse/install.py
++++ i/src/sidepulse/install.py
+@@ -344,39 +344,122 @@ function sessionId(event) {{
+   return firstString(p.sessionID, p.sessionId, p.session_id, p.id, p.info?.id, p.session?.id)
+ }}
+ 
++// Task-tool subagents are full OpenCode sessions carrying `info.parentID`, so
++// without this they arrive indistinguishable from top-level work and inflate
++// every "how much is running" signal. SidePulse already excludes rows keyed
++// `<provider>:agent:<id>`, and it derives that key from `agent_id`, so tagging
++// a child session is all it takes to have it treated as a subagent.
++//
++// `session.updated` is the reliable source rather than `session.created`: it
++// fires on every touch and always carries a complete `info`, so a subagent
++// resumed by task_id (which publishes no `created`) is still classified.
++const parentBySession = new Map()
++
++function rememberLineage(event) {{
++  const info = event?.properties?.info
++  if (!info || typeof info.id !== "string") return
++  const parent = typeof info.parentID === "string" && info.parentID.length > 0
++    ? info.parentID
++    : null
++  parentBySession.set(info.id, parent)
++}}
++
++function agentIdFor(sessionID) {{
++  // Unknown lineage is treated as top-level. Mislabelling a real session as a
++  // subagent would silently drop it from the aggregate, which is the worse
++  // failure of the two.
++  return parentBySession.get(sessionID) ? sessionID : undefined
++}}
++
+ function eventName(event) {{
+   if (event?.type === "session.status") {{
+     const status = event.properties?.status?.type ?? event.properties?.status
++    // The status union is idle | busy | retry. Retry is still work in flight,
++    // just degraded, so it stays busy rather than reading as finished.
+     if (status === "idle") return "session.idle"
++    if (status === "busy" || status === "retry") return "session.status"
++    // An unrecognised status must not be guessed into "busy"; dropping it
++    // leaves the previous state standing, which is the conservative choice.
++    return undefined
+   }}
+   return event?.type
+ }}
+ 
+-export const SidePulsePlugin = async ({{ directory, worktree }}) => ({{
+-  event: async ({{ event }}) => {{
+-    const name = eventName(event)
+-    if (!name || ![
+-      "session.created", "session.status", "session.idle", "session.error",
+-      "permission.asked", "permission.replied", "tool.execute.before", "tool.execute.after"
+-    ].includes(name)) return
++// `tool.execute.before` / `tool.execute.after` are NOT bus events - they are
++// separate plugin hooks. Subscribing to them as events, as this plugin used to,
++// could never fire, which is why no OpenCode session ever reached TOOL_RUNNING.
++const OBSERVED_EVENTS = [
++  "session.created",
++  "session.updated",
++  "session.status",
++  "session.idle",
++  "session.error",
++  "permission.asked",
++  "permission.replied",
++]
+ 
+-    const properties = event.properties ?? {{}}
+-    const payload = {{
+-      event_name: name,
+-      session_id: sessionId(event),
+-      cwd: firstString(properties.cwd, properties.directory, worktree, directory),
+-      tool_name: firstString(properties.tool, properties.toolName),
+-      message: firstString(properties.message, properties.error?.message),
+-      timestamp: new Date().toISOString(),
+-      ...(process.env.T3CODE_HOME || process.env.T3_CODE || process.env.T3CODE ||
+-          process.env.T3_MCP_BEARER_TOKEN
+-        ? {{ agent_origin: "T3 Code", agent_origin_kind: "opencode_t3code" }}
+-        : {{ agent_origin: "OpenCode", agent_origin_kind: "opencode_app" }}),
+-    }}
+-    if (!payload.session_id) return
+-    await Promise.all([appendSidePulseLog(payload), notifySidePulse(payload)])
+-  }},
+-}})
++const ORIGIN = process.env.T3CODE_HOME || process.env.T3_CODE || process.env.T3CODE ||
++  process.env.T3_MCP_BEARER_TOKEN
++  ? {{ agent_origin: "T3 Code", agent_origin_kind: "opencode_t3code" }}
++  : {{ agent_origin: "OpenCode", agent_origin_kind: "opencode_app" }}
++
++async function emit(payload) {{
++  if (!payload.session_id) return
++  await Promise.all([appendSidePulseLog(payload), notifySidePulse(payload)])
++}}
++
++export const SidePulsePlugin = async ({{ directory, worktree }}) => {{
++  const cwd = firstString(worktree, directory)
++  return {{
++    event: async ({{ event }}) => {{
++      // Lineage is recorded before the filter so that `session.updated`, which
++      // is never forwarded itself, still teaches us who the parents are.
++      rememberLineage(event)
++
++      const name = eventName(event)
++      if (!name || !OBSERVED_EVENTS.includes(name) || name === "session.updated") return
++
++      const properties = event.properties ?? {{}}
++      const session_id = sessionId(event)
++      await emit({{
++        event_name: name,
++        session_id,
++        agent_id: agentIdFor(session_id),
++        cwd: firstString(properties.cwd, properties.directory, cwd),
++        tool_name: firstString(properties.tool, properties.toolName),
++        message: firstString(properties.message, properties.error?.message),
++        timestamp: new Date().toISOString(),
++        ...ORIGIN,
++      }})
++    }},
++
++    // These are the real tool signals. Without them nothing ever distinguishes
++    // "the model is thinking" from "a tool is running", so SidePulse's
++    // TOOL_RUNNING mode was unreachable for OpenCode.
++    "tool.execute.before": async (input) => {{
++      await emit({{
++        event_name: "tool.execute.before",
++        session_id: input?.sessionID,
++        agent_id: agentIdFor(input?.sessionID),
++        cwd,
++        tool_name: input?.tool,
++        timestamp: new Date().toISOString(),
++        ...ORIGIN,
++      }})
++    }},
++    "tool.execute.after": async (input) => {{
++      await emit({{
++        event_name: "tool.execute.after",
++        session_id: input?.sessionID,
++        agent_id: agentIdFor(input?.sessionID),
++        cwd,
++        tool_name: input?.tool,
++        timestamp: new Date().toISOString(),
++        ...ORIGIN,
++      }})
++    }},
++  }}
++}}
+ '''
+ 
+ 
 diff --git c/src/sidepulse/led_status.py i/src/sidepulse/led_status.py
 index cafb2dc..52edb22 100644
 --- c/src/sidepulse/led_status.py
@@ -639,10 +790,10 @@ index 42e53d5..04a3f8e 100644
          AGENT_ANIMATION_EMBER_IDLE: "Ember Idle",
 diff --git c/tests/test_led_signals.py i/tests/test_led_signals.py
 new file mode 100644
-index 0000000..68ffc4a
+index 0000000..d3bb12f
 --- /dev/null
 +++ i/tests/test_led_signals.py
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,341 @@
 +"""Tests for the error/concurrency LED signals.
 +
 +These cover the three behaviours that were previously impossible to express:
@@ -899,6 +1050,91 @@ index 0000000..68ffc4a
 +def test_quiet_hours_override_is_not_configurable():
 +    """DND suppression is policy, not a setting, so nothing can switch it off."""
 +    assert not hasattr(AgentMonitorSettings(), "dnd_error_override")
++
++
++# --- OpenCode subagent + status fidelity (generated plugin) ------------------
++
++
++def plugin_source() -> str:
++    from pathlib import Path as _P
++
++    from sidepulse.install import opencode_plugin_source
++
++    return opencode_plugin_source(_P("/tmp/sidepulse-test/opencode.jsonl"))
++
++
++def test_plugin_tags_child_sessions_so_sidepulse_treats_them_as_subagents():
++    """A Task subagent is a full session; only agent_id marks it as nested."""
++    src = plugin_source()
++    assert "parentBySession" in src
++    assert "info.parentID" in src
++    assert "agent_id: agentIdFor(" in src
++
++
++def test_plugin_learns_lineage_from_session_updated_not_only_created():
++    # A subagent resumed by task_id publishes no session.created, so relying on
++    # it alone would silently leave those sessions counted as top-level.
++    src = plugin_source()
++    assert '"session.updated"' in src
++    assert "rememberLineage(event)" in src
++
++
++def test_plugin_no_longer_subscribes_to_tool_events_as_bus_events():
++    """tool.execute.* are hooks, not events; subscribing could never fire."""
++    src = plugin_source()
++    observed = src.split("const OBSERVED_EVENTS = [")[1].split("]")[0]
++    assert "tool.execute" not in observed
++
++
++def test_plugin_registers_real_tool_hooks():
++    src = plugin_source()
++    assert '"tool.execute.before": async (input)' in src
++    assert '"tool.execute.after": async (input)' in src
++    assert "tool_name: input?.tool" in src
++
++
++def test_plugin_treats_retry_as_still_working_and_drops_unknown_status():
++    src = plugin_source()
++    assert 'status === "busy" || status === "retry"' in src
++    # The unknown-status arm must return undefined rather than defaulting busy.
++    assert "return undefined" in src
++
++
++def test_sidepulse_maps_the_tool_events_the_plugin_now_emits():
++    from sidepulse.providers import canonical_event_name
++
++    assert canonical_event_name("tool.execute.before") == "PreToolUse"
++    assert canonical_event_name("tool.execute.after") == "PostToolUse"
++    # And the status names the plugin still emits.
++    assert canonical_event_name("session.status") == "UserPromptSubmit"
++    assert canonical_event_name("session.idle") == "Stop"
++
++
++def test_status_key_routes_agent_id_to_a_subagent_row():
++    """This is the mechanism the whole subagent fix relies on."""
++    from datetime import datetime, timezone
++
++    from sidepulse.models import HookEvent
++
++    child = HookEvent(
++        provider="opencode",
++        logged_at=datetime.now(timezone.utc),
++        event_name="UserPromptSubmit",
++        raw={},
++        session_id="ses_child",
++        agent_id="ses_child",
++    )
++    top = HookEvent(
++        provider="opencode",
++        logged_at=datetime.now(timezone.utc),
++        event_name="UserPromptSubmit",
++        raw={},
++        session_id="ses_top",
++    )
++    assert child.status_key == "opencode:agent:ses_child"
++    assert top.status_key == "opencode:session:ses_top"
++    assert ":agent:" in child.status_key, "excluded from active_count"
++    assert ":agent:" not in top.status_key, "counted in active_count"
 diff --git c/tests/test_sidepulse.py i/tests/test_sidepulse.py
 index 3a92182..b65bdde 100644
 --- c/tests/test_sidepulse.py
