@@ -21,6 +21,7 @@ python3Packages.buildPythonApplication rec {
     ./../../patches/sidepulse-pr-29-kitt.patch
     ./../../patches/sidepulse-pr-30-stuck-status.patch
     ./../../patches/sidepulse-pr-31-led-writer-helper.patch
+    ./../../patches/sidepulse-pr-32-led-error-and-concurrency.patch
   ];
 
   # WebKit is not imported and ScriptingBridge is guarded as an optional

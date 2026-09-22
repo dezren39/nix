@@ -1,0 +1,977 @@
+diff --git c/src/sidepulse/error_latch.py i/src/sidepulse/error_latch.py
+new file mode 100644
+index 0000000..f4e68ce
+--- /dev/null
++++ i/src/sidepulse/error_latch.py
+@@ -0,0 +1,110 @@
++"""Keep a failed session's error visible until it is dealt with.
++
++An agent that fails reports ``BLOCKED_ERROR`` once and then, usually within a
++second, reports itself idle again. ``aggregate_status`` only ever looks at the
++*current* mode of each session, so the error owned the LED for a single refresh
++and was then overwritten by cyan or off. In practice that is indistinguishable
++from never having failed: if you were not looking at the device in that exact
++second, the failure is gone.
++
++This module latches the error instead. Once a session has failed it stays
++latched until one of two things happens:
++
++* the session disappears from the monitor entirely - it was closed, or aged
++  out via ``idle_timeout_seconds`` / ``recent_session_retention_seconds``; or
++* the user acknowledges it, which is the "handled" case.
++
++Acknowledgement records the timestamp of the error that was cleared rather than
++simply forgetting the session. A session that keeps reporting ``BLOCKED_ERROR``
++would otherwise re-latch on the very next refresh and the acknowledgement would
++appear to do nothing, while a genuinely *new* failure after an acknowledgement
++still has to light the device back up. Comparing against the acknowledged
++timestamp distinguishes those two cases.
++"""
++
++from __future__ import annotations
++
++from collections.abc import Iterable
++from dataclasses import dataclass
++from datetime import datetime
++
++from .models import AgentMode, AgentStatus
++
++
++@dataclass(frozen=True)
++class LatchedError:
++    agent_id: str
++    display_name: str
++    first_seen: datetime
++    last_seen: datetime
++    message: str | None = None
++
++
++class SessionErrorLatch:
++    """Remembers which sessions are in a failed state."""
++
++    def __init__(self) -> None:
++        self._latched: dict[str, LatchedError] = {}
++        self._acknowledged_through: dict[str, datetime] = {}
++
++    def update(self, statuses: Iterable[AgentStatus]) -> None:
++        """Fold the current snapshot into the latch."""
++
++        present: dict[str, AgentStatus] = {
++            status.agent_id: status for status in statuses
++        }
++
++        # A session that is no longer reported has been closed or aged out, so
++        # neither its error nor its acknowledgement is meaningful any more.
++        # Dropping the acknowledgement too keeps this dict from growing without
++        # bound across a long-running status bar.
++        for agent_id in tuple(self._latched):
++            if agent_id not in present:
++                del self._latched[agent_id]
++        for agent_id in tuple(self._acknowledged_through):
++            if agent_id not in present:
++                del self._acknowledged_through[agent_id]
++
++        for agent_id, status in present.items():
++            if status.mode is not AgentMode.BLOCKED_ERROR:
++                continue
++            acknowledged = self._acknowledged_through.get(agent_id)
++            if acknowledged is not None and status.updated_at <= acknowledged:
++                continue
++            existing = self._latched.get(agent_id)
++            self._latched[agent_id] = LatchedError(
++                agent_id=agent_id,
++                display_name=status.display_name,
++                first_seen=existing.first_seen if existing else status.updated_at,
++                last_seen=status.updated_at,
++                message=status.message or (existing.message if existing else None),
++            )
++
++    def acknowledge(self) -> int:
++        """Mark every latched error handled. Returns how many were cleared."""
++
++        cleared = len(self._latched)
++        for agent_id, entry in self._latched.items():
++            self._acknowledged_through[agent_id] = entry.last_seen
++        self._latched.clear()
++        return cleared
++
++    def forget(self, agent_id: str) -> None:
++        self._latched.pop(agent_id, None)
++        self._acknowledged_through.pop(agent_id, None)
++
++    @property
++    def active(self) -> bool:
++        return bool(self._latched)
++
++    @property
++    def count(self) -> int:
++        return len(self._latched)
++
++    def entries(self) -> tuple[LatchedError, ...]:
++        return tuple(
++            sorted(self._latched.values(), key=lambda entry: entry.first_seen)
++        )
++
++    def agent_ids(self) -> frozenset[str]:
++        return frozenset(self._latched)
+diff --git c/src/sidepulse/led_status.py i/src/sidepulse/led_status.py
+index cafb2dc..52edb22 100644
+--- c/src/sidepulse/led_status.py
++++ i/src/sidepulse/led_status.py
+@@ -22,6 +22,7 @@ class LedDisplayState(str, Enum):
+     WORKING = "working"
+     DONE = "done"
+     ASK = "ask"
++    ERROR = "error"
+ 
+ 
+ LED_STATE_LABELS: dict[LedDisplayState, str] = {
+@@ -29,6 +30,7 @@ LED_STATE_LABELS: dict[LedDisplayState, str] = {
+     LedDisplayState.WORKING: "Working",
+     LedDisplayState.DONE: "Done",
+     LedDisplayState.ASK: "Ask",
++    LedDisplayState.ERROR: "Error",
+ }
+ 
+ 
+@@ -36,6 +38,18 @@ ASK_AMBER = "#FF3A00"
+ WORKING_CYAN = "#00E5FF"
+ KITT_RED = "#FF1800"
+ DONE_GREEN = "#00FF66"
++ERROR_RED = "#FF0010"
++
++# How far the working animation speeds up as concurrent sessions pile on. The
++# device has two LEDs on a Dot, so tempo is the only channel with enough
++# resolution to express "how much is going on" without colliding with the
++# colour vocabulary (amber asks, red errors, green done).
++#
++# The curve is deliberately front-loaded: going 1 -> 2 sessions is the most
++# informative step, and past ~5 the difference stops being legible, so it
++# clamps rather than accelerating into a blur.
++CONCURRENCY_TEMPO_SCALE: tuple[float, ...] = (1.0, 0.74, 0.58, 0.48, 0.40)
++MIN_TEMPO_SCALE = CONCURRENCY_TEMPO_SCALE[-1]
+ DEVICE_LED_COUNTS = {
+     "sidepulsedot": 2,
+     "pulsedot": 2,
+@@ -73,8 +87,74 @@ class LedStatusWrite:
+         return LED_STATE_LABELS[self.state]
+ 
+ 
++def tempo_scale_for_active_count(active_count: int) -> float:
++    """Duration multiplier for `active_count` concurrently working sessions.
++
++    Smaller is faster. One session runs the animation at its authored speed so
++    the single-agent case looks exactly as it always has.
++    """
++
++    index = max(1, int(active_count or 1)) - 1
++    if index >= len(CONCURRENCY_TEMPO_SCALE):
++        return MIN_TEMPO_SCALE
++    return CONCURRENCY_TEMPO_SCALE[index]
++
++
++# Durations look like `760ms`, `0ms`, `1.6s`. Colours (`#00E5FF`) and bare
++# counts (`brightness 128`) carry no unit, so they are left alone.
++_DURATION_PATTERN = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(ms|s)(?![\w])")
++
++# Below roughly two display frames an animation stops reading as a pulse and
++# starts reading as flicker, so scaled durations are floored rather than
++# allowed to collapse.
++MIN_SCALED_DURATION_MS = 40.0
++
++
++def scale_program_durations(program: str, scale: float) -> str:
++    """Rescale every duration in an LED program, preserving its units.
++
++    This works on the authored program text rather than on a parsed model
++    because programs also arrive from user-authored files and custom
++    animations, where round-tripping through a parser would lose formatting.
++    """
++
++    if scale == 1.0:
++        return program
++
++    def rescale(match: re.Match[str]) -> str:
++        value = float(match.group(1))
++        unit = match.group(2)
++        milliseconds = value * (1000.0 if unit == "s" else 1.0)
++        scaled = milliseconds * scale
++        # A zero delay is a real instruction ("start immediately"), not a
++        # duration to stretch, so it must survive scaling untouched.
++        if milliseconds > 0.0:
++            scaled = max(scaled, MIN_SCALED_DURATION_MS)
++        if unit == "s":
++            seconds = scaled / 1000.0
++            text = f"{seconds:.3f}".rstrip("0").rstrip(".")
++            return f"{text or '0'}s"
++        return f"{int(round(scaled))}ms"
++
++    return _DURATION_PATTERN.sub(rescale, program)
++
++
++def mode_overrides_quiet_hours(mode: AgentMode) -> bool:
++    """Modes that stay visible even while Do Not Disturb is suppressing LEDs.
++
++    Only a failure qualifies. Quiet hours are exactly when nobody is watching
++    the terminal, so silencing the one signal that says a run is dead defeats
++    the point of latching it. Everything else - working, waiting, done - goes
++    dark as DND intends.
++    """
++
++    return mode is AgentMode.BLOCKED_ERROR
++
++
+ def display_state_for_mode(mode: AgentMode) -> LedDisplayState:
+-    if mode in {AgentMode.WAITING_FOR_INPUT, AgentMode.BLOCKED_ERROR}:
++    if mode == AgentMode.BLOCKED_ERROR:
++        return LedDisplayState.ERROR
++    if mode == AgentMode.WAITING_FOR_INPUT:
+         return LedDisplayState.ASK
+     if mode in {
+         AgentMode.WORKING,
+@@ -92,15 +172,28 @@ def program_for_display_state(
+     *,
+     led_count: int = 8,
+     brightness: int | float = 255,
++    active_count: int = 1,
+ ) -> str:
+     if state == LedDisplayState.IDLE:
+         return "off"
+     if state == LedDisplayState.ASK:
+         return apply_brightness(builtin_animation_program("amber-pulse", led_count), brightness)
++    if state == LedDisplayState.ERROR:
++        return apply_brightness(builtin_animation_program("error-red", led_count), brightness)
+     if state == LedDisplayState.DONE:
+-        return apply_brightness(builtin_animation_program("solid-green", led_count), brightness)
++        # A single non-repeating solid was trivially missed: if you looked
++        # away for the second it was on screen, the run may as well not
++        # have finished. This repeats for as long as COMPLETED is held.
++        return apply_brightness(builtin_animation_program("success-flash", led_count), brightness)
+     if state == LedDisplayState.WORKING:
+-        return apply_brightness(builtin_animation_program("cyan-roll", led_count), brightness)
++        # Only the working animation reacts to load. An error or a permission
++        # prompt means "come here now", and speeding those up by how busy the
++        # machine happens to be would muddle an already urgent signal.
++        program = scale_program_durations(
++            builtin_animation_program("cyan-roll", led_count),
++            tempo_scale_for_active_count(active_count),
++        )
++        return apply_brightness(program, brightness)
+     raise ValueError(f"Unknown LED display state: {state}")
+ 
+ 
+@@ -111,6 +204,7 @@ def program_for_agent_mode(
+     brightness: int | float = 255,
+     animation_style: str = "default",
+     custom_program: str = "",
++    active_count: int = 1,
+ ) -> str:
+     state = display_state_for_mode(mode)
+     if animation_style == "custom":
+@@ -129,6 +223,19 @@ def program_for_agent_mode(
+             LedDisplayState.WORKING,
+             led_count=led_count,
+             brightness=brightness,
++            active_count=active_count,
++        )
++    if animation_style == "success-flash":
++        return program_for_display_state(
++            LedDisplayState.DONE,
++            led_count=led_count,
++            brightness=brightness,
++        )
++    if animation_style == "error-red":
++        return program_for_display_state(
++            LedDisplayState.ERROR,
++            led_count=led_count,
++            brightness=brightness,
+         )
+     if animation_style == "amber-pulse":
+         return program_for_display_state(
+@@ -180,6 +287,7 @@ def program_for_agent_mode(
+         state,
+         led_count=led_count,
+         brightness=brightness,
++        active_count=active_count,
+     )
+ 
+ 
+@@ -250,6 +358,7 @@ def write_mode_to_leds(
+     brightness: int | float = 255,
+     animation_style: str = "default",
+     custom_program: str = "",
++    active_count: int = 1,
+ ) -> LedStatusWrite:
+     target = resolve_target_path(device_path=device_path, file_name=file_name)
+     state = display_state_for_mode(mode)
+@@ -259,6 +368,7 @@ def write_mode_to_leds(
+         brightness=brightness,
+         animation_style=animation_style,
+         custom_program=custom_program,
++        active_count=active_count,
+     )
+     written_target = write_led_program(
+         program,
+@@ -334,7 +444,7 @@ class AgentLedController:
+         self.brightness = normalize_brightness(brightness)
+         self.last_state: LedDisplayState | None = None
+         self.last_brightness: int | None = None
+-        self.last_animation_signature: tuple[str, str] | None = None
++        self.last_animation_signature: tuple[str, str, float] | None = None
+         self.last_program: str | None = None
+         self.last_error: str | None = None
+         self.last_target: Path | None = None
+@@ -365,12 +475,23 @@ class AgentLedController:
+         *,
+         animation_style: str = "default",
+         custom_program: str = "",
++        active_count: int = 1,
+     ) -> LedStatusWrite:
+         state = display_state_for_mode(mode)
+         brightness = normalize_brightness(self.brightness)
++        # The tempo belongs in the change signature, not just in the program:
++        # session count changes while the mode stays WORKING, and without it
++        # here the faster animation would be computed and then discarded as
++        # "unchanged".
++        tempo = (
++            tempo_scale_for_active_count(active_count)
++            if state == LedDisplayState.WORKING
++            else 1.0
++        )
+         animation_signature = (
+             animation_style,
+             custom_program if animation_style == "custom" else "",
++            tempo,
+         )
+         now = time.monotonic()
+         if (
+@@ -411,6 +532,7 @@ class AgentLedController:
+                 brightness=brightness,
+                 animation_style=animation_style,
+                 custom_program=custom_program,
++                active_count=active_count,
+             )
+         except (DeviceWriteError, OSError) as exc:
+             self.last_state = state
+diff --git c/src/sidepulse/resources/animations/error-red.LED i/src/sidepulse/resources/animations/error-red.LED
+new file mode 100644
+index 0000000..f73cc84
+--- /dev/null
++++ i/src/sidepulse/resources/animations/error-red.LED
+@@ -0,0 +1,6 @@
++off 60ms
++#FF0010 120ms
++off 120ms
++#FF0010 120ms
++off 700ms
++repeat
+diff --git c/src/sidepulse/resources/animations/success-flash.LED i/src/sidepulse/resources/animations/success-flash.LED
+new file mode 100644
+index 0000000..ec25eaf
+--- /dev/null
++++ i/src/sidepulse/resources/animations/success-flash.LED
+@@ -0,0 +1,4 @@
++off 40ms
++#00FF66 110ms
++off 640ms ease-out
++repeat
+diff --git c/src/sidepulse/settings.py i/src/sidepulse/settings.py
+index 045ad29..370b566 100644
+--- c/src/sidepulse/settings.py
++++ i/src/sidepulse/settings.py
+@@ -42,6 +42,8 @@ AGENT_ANIMATION_CYAN_ROLL = "cyan-roll"
+ AGENT_ANIMATION_CYAN_COMPLETE = "cyan-complete"
+ AGENT_ANIMATION_AMBER_PULSE = "amber-pulse"
+ AGENT_ANIMATION_SOLID_GREEN = "solid-green"
++AGENT_ANIMATION_ERROR_RED = "error-red"
++AGENT_ANIMATION_SUCCESS_FLASH = "success-flash"
+ AGENT_ANIMATION_KITT = "kitt"
+ AGENT_ANIMATION_KITT_RED = "kitt-red"
+ AGENT_ANIMATION_EMBER_IDLE = "ember-idle"
+@@ -81,6 +83,8 @@ AGENT_ANIMATION_BUILT_INS = (
+     AGENT_ANIMATION_CYAN_COMPLETE,
+     AGENT_ANIMATION_AMBER_PULSE,
+     AGENT_ANIMATION_SOLID_GREEN,
++    AGENT_ANIMATION_ERROR_RED,
++    AGENT_ANIMATION_SUCCESS_FLASH,
+     AGENT_ANIMATION_KITT,
+     AGENT_ANIMATION_KITT_RED,
+     AGENT_ANIMATION_EMBER_IDLE,
+diff --git c/src/sidepulse/status_bar.py i/src/sidepulse/status_bar.py
+index 42e53d5..04a3f8e 100644
+--- c/src/sidepulse/status_bar.py
++++ i/src/sidepulse/status_bar.py
+@@ -134,10 +134,12 @@ from .led_status import (
+     apply_brightness,
+     brightness_percent,
+     normalize_brightness,
++    mode_overrides_quiet_hours,
+     normalized_device_name,
+     program_for_agent_mode,
+     write_mode_to_leds,
+ )
++from .error_latch import SessionErrorLatch
+ from .links import IOSLink, load_ios_links, remove_ios_link, send_ios_program
+ from .virtual_device import (
+     FRAME_INTERVAL,
+@@ -198,6 +200,8 @@ from .settings import (
+     AGENT_ANIMATION_EMBER_TIDE,
+     AGENT_ANIMATION_IDLE_PULSE,
+     AGENT_ANIMATION_KITT,
++    AGENT_ANIMATION_ERROR_RED,
++    AGENT_ANIMATION_SUCCESS_FLASH,
+     AGENT_ANIMATION_KITT_RED,
+     AGENT_ANIMATION_LID_CLOSED,
+     AGENT_ANIMATION_LID_OPEN,
+@@ -361,6 +365,22 @@ def dnd_is_active(
+     return settings.dnd_enabled
+ 
+ 
++def dnd_suppresses_mode(
++    settings: AgentMonitorSettings,
++    mode: AgentMode,
++) -> bool:
++    """Whether Do Not Disturb should blank the device for this mode.
++
++    Kept module-level alongside ``dnd_is_active`` rather than as a controller
++    method: it needs nothing but the settings, and the linked-phone sync paths
++    call it with lightweight stand-ins for the controller.
++    """
++
++    if not dnd_is_active(settings):
++        return False
++    return not mode_overrides_quiet_hours(mode)
++
++
+ def latest_dnd_schedule_transition(
+     settings: AgentMonitorSettings,
+     now: datetime | None = None,
+@@ -707,6 +727,9 @@ class StatusBarController(NSObject):
+         self.last_led_display_kind_by_device = {}
+         self.device_errors = {}
+         self.leds_enabled = True
++        # Survives individual snapshots so a failure stays lit after the
++        # session has gone back to reporting itself idle.
++        self.error_latch = SessionErrorLatch()
+         self.led_sync_in_flight = False
+         self.last_dnd_active = None
+         self.dnd_off_targets = set()
+@@ -853,10 +876,12 @@ class StatusBarController(NSObject):
+             battery_snapshot,
+             mac_sleep_snapshot,
+         )
++        self.error_latch.update(snapshot.statuses)
+         self.sync_leds(
+-            snapshot.aggregate.mode,
++            self.led_mode_for_aggregate(snapshot.aggregate.mode),
+             battery_snapshot,
+             self.active_led_display_kind(battery_snapshot),
++            snapshot.aggregate.active_count,
+         )
+ 
+     @objc.IBAction
+@@ -1121,6 +1146,10 @@ class StatusBarController(NSObject):
+     def clearAgents_(self, _sender):
+         self.clear_agents()
+ 
++    @objc.IBAction
++    def acknowledgeErrors_(self, _sender):
++        self.acknowledge_errors()
++
+     @objc.IBAction
+     def toggleBatteryPowerPreview_(self, _sender):
+         self.set_battery_power_preview(not self.settings.battery_show_on_power_change)
+@@ -2028,6 +2057,21 @@ class StatusBarController(NSObject):
+         self.refresh_settings_window()
+         self.refresh_(None)
+ 
++    def acknowledge_errors(self) -> None:
++        """Mark every latched session error handled and repaint."""
++
++        cleared = self.error_latch.acknowledge()
++        if not cleared:
++            self.set_settings_message("No session errors to clear.")
++            return
++        log_status_bar(f"session errors acknowledged count={cleared}")
++        self.set_settings_message(
++            f"Cleared {cleared} session error{'' if cleared == 1 else 's'}."
++        )
++        # The latch no longer forces BLOCKED_ERROR, so repaint from whatever
++        # the sessions are actually reporting now.
++        self.resync_leds_from_last_snapshot()
++
+     def clear_agents(self) -> None:
+         try:
+             cleared = self.monitor.clear_statuses()
+@@ -2146,9 +2190,10 @@ class StatusBarController(NSObject):
+         self.refresh_settings_window()
+         if self.last_snapshot is not None:
+             self.sync_leds(
+-                self.last_snapshot.aggregate.mode,
++                self.led_mode_for_aggregate(self.last_snapshot.aggregate.mode),
+                 self.last_battery_snapshot,
+                 self.active_led_display_kind(self.last_battery_snapshot),
++                self.last_snapshot.aggregate.active_count,
+             )
+ 
+     def set_virtual_status_device(self, enabled: bool) -> None:
+@@ -3208,11 +3253,24 @@ class StatusBarController(NSObject):
+             return LED_DISPLAY_BATTERY
+         return LED_DISPLAY_AGENT
+ 
++    def led_mode_for_aggregate(self, mode: AgentMode) -> AgentMode:
++        """A latched failure outranks whatever the sessions currently report.
++
++        BLOCKED_ERROR is already the highest-priority mode in MODE_PRIORITY, so
++        this only matters once the failing session has moved on and the
++        aggregate has drifted back to working or idle.
++        """
++
++        if self.error_latch.active:
++            return AgentMode.BLOCKED_ERROR
++        return mode
++
+     def sync_leds(
+         self,
+         mode: AgentMode,
+         battery_snapshot: BatterySnapshot | None,
+         display_kind: str,
++        active_count: int = 1,
+     ) -> None:
+         if not self.leds_enabled:
+             return
+@@ -3228,7 +3286,7 @@ class StatusBarController(NSObject):
+             self.reset_led_controllers_for_display_change()
+             log_status_bar(f"dnd={'active' if dnd_active else 'inactive'}")
+ 
+-        if dnd_active:
++        if dnd_suppresses_mode(self.settings, mode):
+             self.virtual_status_device.hide()
+             self.sync_dnd_leds()
+             return
+@@ -3249,7 +3307,7 @@ class StatusBarController(NSObject):
+         self.led_sync_in_flight = True
+         thread = threading.Thread(
+             target=self.sync_leds_worker,
+-            args=(mode, battery_snapshot, display_kind),
++            args=(mode, battery_snapshot, display_kind, active_count),
+             daemon=True,
+         )
+         thread.start()
+@@ -3258,9 +3316,10 @@ class StatusBarController(NSObject):
+         if self.last_snapshot is None:
+             return
+         self.sync_leds(
+-            self.last_snapshot.aggregate.mode,
++            self.led_mode_for_aggregate(self.last_snapshot.aggregate.mode),
+             self.last_battery_snapshot,
+             self.active_led_display_kind(self.last_battery_snapshot),
++            self.last_snapshot.aggregate.active_count,
+         )
+     def sync_dnd_leds(self) -> None:
+         if self.led_sync_in_flight:
+@@ -3353,9 +3412,10 @@ class StatusBarController(NSObject):
+         mode: AgentMode,
+         battery_snapshot: BatterySnapshot | None,
+         display_kind: str,
++        active_count: int = 1,
+     ) -> None:
+         try:
+-            self.sync_leds_now(mode, battery_snapshot, display_kind)
++            self.sync_leds_now(mode, battery_snapshot, display_kind, active_count)
+         finally:
+             self.led_sync_in_flight = False
+ 
+@@ -3364,8 +3424,9 @@ class StatusBarController(NSObject):
+         mode: AgentMode,
+         battery_snapshot: BatterySnapshot | None,
+         display_kind: str,
++        active_count: int = 1,
+     ) -> None:
+-        if dnd_is_active(self.settings):
++        if dnd_suppresses_mode(self.settings, mode):
+             self.sync_dnd_leds_now()
+             return
+         devices = [
+@@ -3414,6 +3475,7 @@ class StatusBarController(NSObject):
+                             brightness=255,
+                             animation_style=animation.style,
+                             custom_program=animation.custom_program,
++                            active_count=active_count,
+                         )
+                     except DeviceWriteError as exc:
+                         active_errors[device.device_id] = str(exc)
+@@ -3456,6 +3518,7 @@ class StatusBarController(NSObject):
+                     mode,
+                     animation_style=animation.style,
+                     custom_program=animation.custom_program,
++                    active_count=active_count,
+                 )
+                 label = f"{device.name} {result.label}"
+ 
+@@ -3914,6 +3977,18 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+         clear_agents.setTarget_(target)
+         menu.addItem_(clear_agents)
+ 
++        # Only offered when there is something to acknowledge, so the menu does
++        # not grow a permanently dead entry.
++        latched = target.error_latch.count
++        if latched:
++            acknowledge = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
++                f"Clear {latched} Session Error{'' if latched == 1 else 's'}",
++                "acknowledgeErrors:",
++                "",
++            )
++            acknowledge.setTarget_(target)
++            menu.addItem_(acknowledge)
++
+     menu.addItem_(NSMenuItem.separatorItem())
+     menu.addItem_(disabled_menu_item("Devices"))
+     devices = target.status_bar_devices()
+@@ -5638,6 +5713,8 @@ def agent_animation_label(settings: AgentMonitorSettings, animation_id: str) ->
+         AGENT_ANIMATION_CYAN_COMPLETE: "Cyan Complete",
+         AGENT_ANIMATION_AMBER_PULSE: "Amber Pulse",
+         AGENT_ANIMATION_SOLID_GREEN: "Solid Green",
++        AGENT_ANIMATION_ERROR_RED: "Error Alarm",
++        AGENT_ANIMATION_SUCCESS_FLASH: "Success Flash",
+         AGENT_ANIMATION_KITT: "KITT Scanner",
+         AGENT_ANIMATION_KITT_RED: "KITT Scanner Red",
+         AGENT_ANIMATION_EMBER_IDLE: "Ember Idle",
+diff --git c/tests/test_led_signals.py i/tests/test_led_signals.py
+new file mode 100644
+index 0000000..68ffc4a
+--- /dev/null
++++ i/tests/test_led_signals.py
+@@ -0,0 +1,256 @@
++"""Tests for the error/concurrency LED signals.
++
++These cover the three behaviours that were previously impossible to express:
++a failure that is visually distinct from a permission prompt, a failure that
++outlives the single refresh it was reported in, and an animation that reflects
++how many sessions are actually running.
++"""
++
++from __future__ import annotations
++
++import re
++from datetime import datetime, timedelta, timezone
++
++import pytest
++
++from sidepulse.error_latch import SessionErrorLatch
++from sidepulse.led_status import (
++    CONCURRENCY_TEMPO_SCALE,
++    MIN_SCALED_DURATION_MS,
++    LedDisplayState,
++    display_state_for_mode,
++    program_for_display_state,
++    mode_overrides_quiet_hours,
++    scale_program_durations,
++    tempo_scale_for_active_count,
++)
++from sidepulse.models import AgentMode
++from sidepulse.settings import AgentMonitorSettings
++
++BASE_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
++
++
++def status(
++    agent_id: str,
++    mode: AgentMode,
++    *,
++    offset_seconds: float = 0.0,
++    message: str | None = None,
++):
++    from sidepulse.models import AgentStatus
++
++    return AgentStatus(
++        provider="opencode",
++        agent_id=agent_id,
++        display_name=agent_id,
++        mode=mode,
++        updated_at=BASE_TIME + timedelta(seconds=offset_seconds),
++        event_name="StopFailure" if mode is AgentMode.BLOCKED_ERROR else "Stop",
++        message=message,
++    )
++
++
++def durations_ms(program: str) -> list[float]:
++    found = []
++    for value, unit in re.findall(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(ms|s)(?![\w])", program):
++        found.append(float(value) * (1000.0 if unit == "s" else 1.0))
++    return found
++
++
++# --- error is its own display state -----------------------------------------
++
++
++def test_blocked_error_no_longer_collapses_into_ask():
++    assert display_state_for_mode(AgentMode.BLOCKED_ERROR) is LedDisplayState.ERROR
++    assert display_state_for_mode(AgentMode.WAITING_FOR_INPUT) is LedDisplayState.ASK
++
++
++def test_error_and_ask_render_different_programs():
++    error = program_for_display_state(LedDisplayState.ERROR, led_count=2)
++    ask = program_for_display_state(LedDisplayState.ASK, led_count=2)
++    assert error != ask
++    assert "#FF0010" in error
++
++
++# --- concurrency drives tempo -----------------------------------------------
++
++
++def test_single_session_runs_at_authored_speed():
++    assert tempo_scale_for_active_count(1) == 1.0
++    # Zero and None-ish counts must not accelerate anything.
++    assert tempo_scale_for_active_count(0) == 1.0
++
++
++def test_tempo_accelerates_then_clamps():
++    scales = [tempo_scale_for_active_count(n) for n in range(1, 9)]
++    assert scales[:len(CONCURRENCY_TEMPO_SCALE)] == list(CONCURRENCY_TEMPO_SCALE)
++    # Monotonically faster, never inverting.
++    assert all(later <= earlier for earlier, later in zip(scales, scales[1:]))
++    # And it stops accelerating rather than running away.
++    assert scales[-1] == CONCURRENCY_TEMPO_SCALE[-1]
++
++
++def test_more_sessions_produce_a_strictly_faster_working_program():
++    one = program_for_display_state(LedDisplayState.WORKING, led_count=2, active_count=1)
++    many = program_for_display_state(LedDisplayState.WORKING, led_count=2, active_count=5)
++    assert one != many
++    slow, fast = durations_ms(one), durations_ms(many)
++    assert len(slow) == len(fast)
++    # Every non-zero duration shrinks; zero delays stay pinned at zero.
++    for before, after in zip(slow, fast):
++        if before == 0.0:
++            assert after == 0.0
++        else:
++            assert after < before
++
++
++def test_error_program_ignores_session_count():
++    """An alarm must not change meaning because the machine got busy."""
++    quiet = program_for_display_state(LedDisplayState.ERROR, led_count=2, active_count=1)
++    busy = program_for_display_state(LedDisplayState.ERROR, led_count=2, active_count=8)
++    assert quiet == busy
++
++
++# --- duration rescaling -----------------------------------------------------
++
++
++def test_scale_preserves_units_and_zero_delays():
++    scaled = scale_program_durations("off 320ms cosine\n0:#00E5FF 760ms pulse 0ms", 0.5)
++    assert "160ms" in scaled
++    assert "380ms" in scaled
++    assert "0ms" in scaled
++
++
++def test_scale_handles_second_units():
++    assert "0.8s" in scale_program_durations("#FF3A00 1.6s pulse", 0.5)
++
++
++def test_scale_floors_at_a_visible_duration():
++    scaled = scale_program_durations("off 100ms", 0.001)
++    assert durations_ms(scaled) == [MIN_SCALED_DURATION_MS]
++
++
++def test_identity_scale_is_a_noop():
++    program = "off 320ms cosine\n0:#00E5FF 760ms pulse 0ms\nrepeat"
++    assert scale_program_durations(program, 1.0) == program
++
++
++# --- the latch --------------------------------------------------------------
++
++
++def test_error_survives_the_session_going_idle_again():
++    latch = SessionErrorLatch()
++    latch.update([status("a", AgentMode.BLOCKED_ERROR)])
++    assert latch.active
++
++    # This is the exact sequence that used to erase the failure.
++    latch.update([status("a", AgentMode.IDLE_READY, offset_seconds=1)])
++    assert latch.active, "a failure must not be erased by the next snapshot"
++
++
++def test_closing_the_session_clears_it():
++    latch = SessionErrorLatch()
++    latch.update([status("a", AgentMode.BLOCKED_ERROR)])
++    latch.update([])
++    assert not latch.active
++
++
++def test_acknowledge_clears_and_does_not_immediately_relatch():
++    latch = SessionErrorLatch()
++    failing = status("a", AgentMode.BLOCKED_ERROR)
++    latch.update([failing])
++    assert latch.acknowledge() == 1
++    assert not latch.active
++
++    # A session stuck reporting the same error must stay quiet once handled.
++    latch.update([failing])
++    assert not latch.active
++
++
++def test_a_newer_failure_relatches_after_acknowledgement():
++    latch = SessionErrorLatch()
++    latch.update([status("a", AgentMode.BLOCKED_ERROR)])
++    latch.acknowledge()
++    latch.update([status("a", AgentMode.BLOCKED_ERROR, offset_seconds=30)])
++    assert latch.active, "a new failure after acknowledgement must light up again"
++
++
++def test_latch_tracks_several_sessions_independently():
++    latch = SessionErrorLatch()
++    latch.update([
++        status("a", AgentMode.BLOCKED_ERROR),
++        status("b", AgentMode.WORKING),
++        status("c", AgentMode.BLOCKED_ERROR),
++    ])
++    assert latch.count == 2
++    assert latch.agent_ids() == frozenset({"a", "c"})
++
++    latch.update([status("a", AgentMode.IDLE_READY, offset_seconds=5)])
++    assert latch.agent_ids() == frozenset({"a"}), "c is gone, a is latched"
++
++
++def test_first_seen_is_kept_across_repeated_failures():
++    latch = SessionErrorLatch()
++    latch.update([status("a", AgentMode.BLOCKED_ERROR)])
++    latch.update([status("a", AgentMode.BLOCKED_ERROR, offset_seconds=10)])
++    entry = latch.entries()[0]
++    assert entry.first_seen == BASE_TIME
++    assert entry.last_seen == BASE_TIME + timedelta(seconds=10)
++
++
++def test_acknowledged_session_is_forgotten_once_it_closes():
++    latch = SessionErrorLatch()
++    latch.update([status("a", AgentMode.BLOCKED_ERROR)])
++    latch.acknowledge()
++    latch.update([])
++    # Reusing the id later must behave like a fresh session, not a suppressed one.
++    latch.update([status("a", AgentMode.BLOCKED_ERROR)])
++    assert latch.active
++
++
++# --- completion is its own signal -------------------------------------------
++
++
++def test_done_repeats_instead_of_firing_once():
++    """A single non-repeating solid was missable; this one holds."""
++    done = program_for_display_state(LedDisplayState.DONE, led_count=2)
++    assert done.strip().splitlines()[-1] == "repeat"
++    assert "#00FF66" in done
++
++
++def test_done_is_distinguishable_from_error():
++    done = program_for_display_state(LedDisplayState.DONE, led_count=2)
++    error = program_for_display_state(LedDisplayState.ERROR, led_count=2)
++    # Different colour and a different number of pulses per cycle, so the two
++    # are not just "a blinking light".
++    assert done != error
++    assert done.count("#00FF66") == 1, "success is one flash"
++    assert error.count("#FF0010") == 2, "error is a double blink"
++
++
++def test_done_ignores_session_count():
++    quiet = program_for_display_state(LedDisplayState.DONE, led_count=2, active_count=1)
++    busy = program_for_display_state(LedDisplayState.DONE, led_count=2, active_count=7)
++    assert quiet == busy
++
++
++# --- DND policy -------------------------------------------------------------
++
++
++def test_only_errors_survive_quiet_hours():
++    assert mode_overrides_quiet_hours(AgentMode.BLOCKED_ERROR) is True
++    for mode in (
++        AgentMode.WORKING,
++        AgentMode.TOOL_RUNNING,
++        AgentMode.LONG_TASK_PROGRESS,
++        AgentMode.WAITING_FOR_INPUT,
++        AgentMode.COMPLETED,
++        AgentMode.IDLE_READY,
++        AgentMode.UNKNOWN,
++    ):
++        assert mode_overrides_quiet_hours(mode) is False, mode
++
++
++def test_quiet_hours_override_is_not_configurable():
++    """DND suppression is policy, not a setting, so nothing can switch it off."""
++    assert not hasattr(AgentMonitorSettings(), "dnd_error_override")
+diff --git c/tests/test_sidepulse.py i/tests/test_sidepulse.py
+index 3a92182..b65bdde 100644
+--- c/tests/test_sidepulse.py
++++ i/tests/test_sidepulse.py
+@@ -148,6 +148,7 @@ from sidepulse.settings import (
+     AGENT_ANIMATION_EMBER_IDLE,
+     AGENT_ANIMATION_EMBER_LID_OPEN,
+     AGENT_ANIMATION_EMBER_TIDE,
++    AGENT_ANIMATION_ERROR_RED,
+     AGENT_ANIMATION_IDLE_PULSE,
+     AGENT_ANIMATION_KITT,
+     AGENT_ANIMATION_KITT_RED,
+@@ -165,6 +166,7 @@ from sidepulse.settings import (
+     AGENT_ANIMATION_PURPLE_LID_OPEN,
+     AGENT_ANIMATION_PURPLE_TIDE,
+     AGENT_ANIMATION_SOLID_GREEN,
++    AGENT_ANIMATION_SUCCESS_FLASH,
+     AGENT_ANIMATION_WORKING_MODES,
+     CLOSED_LID_AWAKE_AGENTS,
+     CLOSED_LID_AWAKE_ALWAYS,
+@@ -1849,6 +1851,7 @@ class AgentMonitorTests(unittest.TestCase):
+             settings=AgentMonitorSettings(),
+             closed_lid_awake=SimpleNamespace(last_error=None),
+             status_bar_devices=lambda: [],
++            error_latch=SimpleNamespace(count=0),
+         )
+ 
+         menu = status_bar.build_menu(snapshot, status_bar.STATE_DONE, target)
+@@ -2669,6 +2672,7 @@ class AgentMonitorTests(unittest.TestCase):
+             ),
+             closed_lid_awake=SimpleNamespace(last_error=None),
+             status_bar_devices=lambda: [],
++            error_latch=SimpleNamespace(count=0),
+         )
+         menu = status_bar.build_menu(snapshot, status_bar.STATE_IDLE, target)
+         by_title = {
+@@ -6322,6 +6326,8 @@ class AgentMonitorTests(unittest.TestCase):
+             AGENT_ANIMATION_CYAN_COMPLETE,
+             AGENT_ANIMATION_AMBER_PULSE,
+             AGENT_ANIMATION_SOLID_GREEN,
++            AGENT_ANIMATION_ERROR_RED,
++            AGENT_ANIMATION_SUCCESS_FLASH,
+             AGENT_ANIMATION_KITT,
+             AGENT_ANIMATION_KITT_RED,
+             AGENT_ANIMATION_EMBER_IDLE,
+diff --git c/tests/test_status_bar_ui.py i/tests/test_status_bar_ui.py
+index 9ddc921..08f01fa 100644
+--- c/tests/test_status_bar_ui.py
++++ i/tests/test_status_bar_ui.py
+@@ -841,6 +841,8 @@ class WindowBuildTests(StatusBarTestCase):
+                     "Cyan Complete",
+                     "Amber Pulse",
+                     "Solid Green",
++                    "Error Alarm",
++                    "Success Flash",
+                     "KITT Scanner",
+                     "KITT Scanner Red",
+                     "Ember Idle",
+@@ -1133,7 +1135,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
+         seen = []
+         done = threading.Event()
+ 
+-        def capture(mode, battery_snapshot, display_kind):
++        def capture(mode, battery_snapshot, display_kind, active_count=1):
+             seen.append((mode, battery_snapshot, display_kind))
+             done.set()
+ 
+@@ -1157,7 +1159,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
+         seen = []
+         done = threading.Event()
+ 
+-        def capture(mode, battery_snapshot, display_kind):
++        def capture(mode, battery_snapshot, display_kind, active_count=1):
+             seen.append((mode, display_kind))
+             done.set()
+ 
