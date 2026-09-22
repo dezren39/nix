@@ -1,9 +1,143 @@
+diff --git c/src/sidepulse/collector.py i/src/sidepulse/collector.py
+index 1215a2b..ec5512f 100644
+--- c/src/sidepulse/collector.py
++++ i/src/sidepulse/collector.py
+@@ -69,6 +69,8 @@ class StatusMetadata:
+     origin: str | None = None
+     provider_session_id: str | None = None
+     context_percent: float | None = None
++    parent_session_id: str | None = None
++    last_user_prompt_at: datetime | None = None
+ 
+ 
+ @dataclass(frozen=True)
+@@ -1795,9 +1797,24 @@ def metadata_for_record(
+             if status_metadata.context_percent is not None
+             else session_metadata.context_percent
+         ),
++        parent_session_id=(
++            status_metadata.parent_session_id or session_metadata.parent_session_id
++        ),
++        last_user_prompt_at=_latest(
++            status_metadata.last_user_prompt_at,
++            session_metadata.last_user_prompt_at,
++        ),
+     )
+ 
+ 
++def _latest(left: datetime | None, right: datetime | None) -> datetime | None:
++    if left is None:
++        return right
++    if right is None:
++        return left
++    return max(left, right)
++
++
+ def update_metadata(metadata: StatusMetadata, record: HookEvent) -> None:
+     if record.cwd:
+         metadata.cwd = record.cwd
+@@ -1818,6 +1835,17 @@ def update_metadata(metadata: StatusMetadata, record: HookEvent) -> None:
+     if isinstance(context_percent, (int, float)):
+         metadata.context_percent = float(context_percent)
+ 
++    parent_session_id = _string_or_none(record.raw.get("parent_session_id"))
++    if parent_session_id:
++        metadata.parent_session_id = parent_session_id
++
++    # A real human prompt, flagged by the provider hook. Distinct from the
++    # session going busy, which happens constantly and for many reasons.
++    if record.raw.get("sidepulse_user_prompt"):
++        previous = metadata.last_user_prompt_at
++        if previous is None or record.logged_at > previous:
++            metadata.last_user_prompt_at = record.logged_at
++
+ 
+ def is_provider_session_title(record: HookEvent, title: str) -> bool:
+     if record.provider == "codex":
+@@ -1862,6 +1890,8 @@ def status_from_event(record: HookEvent, metadata: StatusMetadata | None = None)
+         message=record.message,
+         origin=record.origin or metadata.origin or origin_label_from_payload(record.provider, record.raw),
+         context_percent=metadata.context_percent,
++        parent_session_id=metadata.parent_session_id,
++        last_user_prompt_at=metadata.last_user_prompt_at,
+     )
+ 
+ 
+diff --git c/src/sidepulse/completion.py i/src/sidepulse/completion.py
+new file mode 100644
+index 0000000..725aea4
+--- /dev/null
++++ i/src/sidepulse/completion.py
+@@ -0,0 +1,63 @@
++"""Announce a primary session finishing, rather than waiting for silence.
++
++``COMPLETED`` sits at priority 6 in ``MODE_PRIORITY``, below ``WORKING`` at 5.
++That is correct for a steady-state display - while anything is still running,
++"working" is the honest summary - but it means the green completion animation
++only ever appears once *everything* has stopped. With several sessions in
++flight, finishing one produces no signal at all, which is exactly the moment
++you most want to know about.
++
++So completion is treated as an event instead of a state: when a top-level
++session transitions into ``COMPLETED``, the device plays the success animation
++for a few seconds and then falls back to whatever the aggregate says. This
++mirrors how the battery preview and the lid animations already borrow the LEDs
++for a moment without owning them.
++
++Subagents are excluded deliberately. They finish constantly and in bursts, and
++a flash per subagent would turn the device into a strobe that says nothing
++about the work you actually asked for.
++"""
++
++from __future__ import annotations
++
++from collections.abc import Iterable
++
++from .models import AgentMode, AgentStatus
++
++# Long enough to notice across a room, short enough that a burst of sessions
++# finishing together does not hold the LEDs hostage from live work.
++COMPLETION_PULSE_SECONDS = 4.0
++
++
++class CompletionWatcher:
++    """Detects top-level sessions newly entering COMPLETED."""
++
++    def __init__(self) -> None:
++        self._completed: set[str] = set()
++
++    def newly_completed(self, statuses: Iterable[AgentStatus]) -> tuple[str, ...]:
++        """Return the agent ids that have just finished.
++
++        Only reports a session the first time it is seen completed; a session
++        sitting in COMPLETED across many snapshots fires once. Sessions that go
++        back to work are re-armed, so a follow-up turn can announce itself.
++        """
++
++        rows = [row for row in statuses if ":agent:" not in row.agent_id]
++        present = {row.agent_id for row in rows}
++
++        fresh: list[str] = []
++        for row in rows:
++            if row.mode is AgentMode.COMPLETED:
++                if row.agent_id not in self._completed:
++                    self._completed.add(row.agent_id)
++                    fresh.append(row.agent_id)
++            else:
++                # Re-arm: this session is working again, so its next completion
++                # is a new event worth showing.
++                self._completed.discard(row.agent_id)
++
++        # Forget sessions that have left the monitor entirely, so the set does
++        # not grow without bound over a long-lived status bar.
++        self._completed &= present
++        return tuple(fresh)
 diff --git c/src/sidepulse/error_latch.py i/src/sidepulse/error_latch.py
 new file mode 100644
-index 0000000..f4e68ce
+index 0000000..5eab2da
 --- /dev/null
 +++ i/src/sidepulse/error_latch.py
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,163 @@
 +"""Keep a failed session's error visible until it is dealt with.
 +
 +An agent that fails reports ``BLOCKED_ERROR`` once and then, usually within a
@@ -17,8 +151,15 @@ index 0000000..f4e68ce
 +latched until one of two things happens:
 +
 +* the session disappears from the monitor entirely - it was closed, or aged
-+  out via ``idle_timeout_seconds`` / ``recent_session_retention_seconds``; or
-+* the user acknowledges it, which is the "handled" case.
++  out via ``idle_timeout_seconds`` / ``recent_session_retention_seconds``;
++* a human prompts the session again, which is the everyday "handled" case; or
++* the user acknowledges it from the menu.
++
++The prompt rule is what makes a failed *subagent* tractable. A subagent that
++dies never runs again and never receives input of its own, so on its own terms
++its error could never clear. But its parent will be prompted again, and that is
++the moment the human has demonstrably moved past the failure - so a prompt to a
++session also clears errors latched against everything descended from it.
 +
 +Acknowledgement records the timestamp of the error that was cleared rather than
 +simply forgetting the session. A session that keeps reporting ``BLOCKED_ERROR``
@@ -44,6 +185,7 @@ index 0000000..f4e68ce
 +    first_seen: datetime
 +    last_seen: datetime
 +    message: str | None = None
++    session_id: str | None = None
 +
 +
 +class SessionErrorLatch:
@@ -56,9 +198,9 @@ index 0000000..f4e68ce
 +    def update(self, statuses: Iterable[AgentStatus]) -> None:
 +        """Fold the current snapshot into the latch."""
 +
-+        present: dict[str, AgentStatus] = {
-+            status.agent_id: status for status in statuses
-+        }
++        rows = list(statuses)
++        present: dict[str, AgentStatus] = {status.agent_id: status for status in rows}
++        prompted = self._prompt_times(rows)
 +
 +        # A session that is no longer reported has been closed or aged out, so
 +        # neither its error nor its acknowledgement is meaningful any more.
@@ -84,7 +226,52 @@ index 0000000..f4e68ce
 +                first_seen=existing.first_seen if existing else status.updated_at,
 +                last_seen=status.updated_at,
 +                message=status.message or (existing.message if existing else None),
++                session_id=status.session_id,
 +            )
++
++        # Finally, drop anything the human has already responded to. This runs
++        # after latching so that a failure arriving in the same snapshot as an
++        # older prompt is still shown.
++        for agent_id, entry in tuple(self._latched.items()):
++            responded_at = prompted.get(entry.session_id or "")
++            if responded_at is not None and responded_at > entry.last_seen:
++                del self._latched[agent_id]
++
++    def _prompt_times(self, rows: list[AgentStatus]) -> dict[str, datetime]:
++        """Latest human prompt per session, propagated down to descendants.
++
++        A prompt to a parent counts for its children, transitively, because a
++        subagent cannot be prompted directly. Depth is bounded by walking with
++        a seen-set, so a malformed cycle in the reported lineage cannot hang
++        the status bar.
++        """
++
++        direct: dict[str, datetime] = {}
++        parents: dict[str, str] = {}
++        for row in rows:
++            if not row.session_id:
++                continue
++            if row.last_user_prompt_at is not None:
++                current = direct.get(row.session_id)
++                if current is None or row.last_user_prompt_at > current:
++                    direct[row.session_id] = row.last_user_prompt_at
++            if row.parent_session_id:
++                parents[row.session_id] = row.parent_session_id
++
++        effective = dict(direct)
++        for session_id in parents:
++            best = effective.get(session_id)
++            seen = {session_id}
++            cursor = parents.get(session_id)
++            while cursor and cursor not in seen:
++                seen.add(cursor)
++                candidate = direct.get(cursor)
++                if candidate is not None and (best is None or candidate > best):
++                    best = candidate
++                cursor = parents.get(cursor)
++            if best is not None:
++                effective[session_id] = best
++        return effective
 +
 +    def acknowledge(self) -> int:
 +        """Mark every latched error handled. Returns how many were cleared."""
@@ -115,10 +302,10 @@ index 0000000..f4e68ce
 +    def agent_ids(self) -> frozenset[str]:
 +        return frozenset(self._latched)
 diff --git c/src/sidepulse/install.py i/src/sidepulse/install.py
-index 79c7f0d..2278fbd 100644
+index 79c7f0d..cd74766 100644
 --- c/src/sidepulse/install.py
 +++ i/src/sidepulse/install.py
-@@ -344,39 +344,122 @@ function sessionId(event) {{
+@@ -344,39 +344,162 @@ function sessionId(event) {{
    return firstString(p.sessionID, p.sessionId, p.session_id, p.id, p.info?.id, p.session?.id)
  }}
  
@@ -149,6 +336,21 @@ index 79c7f0d..2278fbd 100644
 +  return parentBySession.get(sessionID) ? sessionID : undefined
 +}}
 +
++function parentOf(sessionID) {{
++  return parentBySession.get(sessionID) || undefined
++}}
++
++// A human actually typing is a different thing from the session becoming busy,
++// which happens constantly and for many reasons. SidePulse uses this to decide
++// that a failure has been seen and dealt with, so it must only fire for real
++// input. `message.updated` carries the authored message, and role is the
++// discriminator.
++function isUserPrompt(event) {{
++  if (event?.type !== "message.updated") return false
++  const info = event.properties?.info
++  return info?.role === "user" || info?.type === "user"
++}}
++
  function eventName(event) {{
    if (event?.type === "session.status") {{
      const status = event.properties?.status?.type ?? event.properties?.status
@@ -173,9 +375,12 @@ index 79c7f0d..2278fbd 100644
 +// `tool.execute.before` / `tool.execute.after` are NOT bus events - they are
 +// separate plugin hooks. Subscribing to them as events, as this plugin used to,
 +// could never fire, which is why no OpenCode session ever reached TOOL_RUNNING.
-+const OBSERVED_EVENTS = [
++// Only these are forwarded. `session.updated` and `message.updated` are read
++// for context above - lineage and user prompts respectively - but never
++// forwarded themselves: between them they account for hundreds of thousands of
++// events per day, and none of them change what the LEDs should show.
++const FORWARDED_EVENTS = [
 +  "session.created",
-+  "session.updated",
 +  "session.status",
 +  "session.idle",
 +  "session.error",
@@ -218,8 +423,27 @@ index 79c7f0d..2278fbd 100644
 +      // is never forwarded itself, still teaches us who the parents are.
 +      rememberLineage(event)
 +
++      // A genuine user prompt. Reported as a busy-equivalent so the mode is
++      // unchanged, but flagged so SidePulse can treat it as "the human has
++      // responded" and retire any latched error for this session and its
++      // subagents.
++      if (isUserPrompt(event)) {{
++        const promptSession = sessionId(event)
++        await emit({{
++          event_name: "session.status",
++          session_id: promptSession,
++          agent_id: agentIdFor(promptSession),
++          parent_session_id: parentOf(promptSession),
++          sidepulse_user_prompt: true,
++          cwd,
++          timestamp: new Date().toISOString(),
++          ...ORIGIN,
++        }})
++        return
++      }}
++
 +      const name = eventName(event)
-+      if (!name || !OBSERVED_EVENTS.includes(name) || name === "session.updated") return
++      if (!name || !FORWARDED_EVENTS.includes(name)) return
 +
 +      const properties = event.properties ?? {{}}
 +      const session_id = sessionId(event)
@@ -227,6 +451,7 @@ index 79c7f0d..2278fbd 100644
 +        event_name: name,
 +        session_id,
 +        agent_id: agentIdFor(session_id),
++        parent_session_id: parentOf(session_id),
 +        cwd: firstString(properties.cwd, properties.directory, cwd),
 +        tool_name: firstString(properties.tool, properties.toolName),
 +        message: firstString(properties.message, properties.error?.message),
@@ -243,6 +468,7 @@ index 79c7f0d..2278fbd 100644
 +        event_name: "tool.execute.before",
 +        session_id: input?.sessionID,
 +        agent_id: agentIdFor(input?.sessionID),
++        parent_session_id: parentOf(input?.sessionID),
 +        cwd,
 +        tool_name: input?.tool,
 +        timestamp: new Date().toISOString(),
@@ -254,6 +480,7 @@ index 79c7f0d..2278fbd 100644
 +        event_name: "tool.execute.after",
 +        session_id: input?.sessionID,
 +        agent_id: agentIdFor(input?.sessionID),
++        parent_session_id: parentOf(input?.sessionID),
 +        cwd,
 +        tool_name: input?.tool,
 +        timestamp: new Date().toISOString(),
@@ -504,6 +731,23 @@ index cafb2dc..52edb22 100644
              )
          except (DeviceWriteError, OSError) as exc:
              self.last_state = state
+diff --git c/src/sidepulse/models.py i/src/sidepulse/models.py
+index cea11ff..0c3ee91 100644
+--- c/src/sidepulse/models.py
++++ i/src/sidepulse/models.py
+@@ -80,6 +80,12 @@ class AgentStatus:
+     origin: str | None = None
+     stale: bool = False
+     context_percent: float | None = None
++    # The session this one was spawned from, when the provider reports it.
++    # Used to clear a dead subagent's error once its parent moves on.
++    parent_session_id: str | None = None
++    # When a human last actually prompted this session, as distinct from
++    # the session merely becoming busy.
++    last_user_prompt_at: datetime | None = None
+ 
+     @property
+     def priority(self) -> int:
 diff --git c/src/sidepulse/resources/animations/error-red.LED i/src/sidepulse/resources/animations/error-red.LED
 new file mode 100644
 index 0000000..f73cc84
@@ -549,10 +793,10 @@ index 045ad29..370b566 100644
      AGENT_ANIMATION_KITT_RED,
      AGENT_ANIMATION_EMBER_IDLE,
 diff --git c/src/sidepulse/status_bar.py i/src/sidepulse/status_bar.py
-index 42e53d5..04a3f8e 100644
+index 42e53d5..39f463a 100644
 --- c/src/sidepulse/status_bar.py
 +++ i/src/sidepulse/status_bar.py
-@@ -134,10 +134,12 @@ from .led_status import (
+@@ -134,10 +134,13 @@ from .led_status import (
      apply_brightness,
      brightness_percent,
      normalize_brightness,
@@ -561,11 +805,12 @@ index 42e53d5..04a3f8e 100644
      program_for_agent_mode,
      write_mode_to_leds,
  )
++from .completion import COMPLETION_PULSE_SECONDS, CompletionWatcher
 +from .error_latch import SessionErrorLatch
  from .links import IOSLink, load_ios_links, remove_ios_link, send_ios_program
  from .virtual_device import (
      FRAME_INTERVAL,
-@@ -198,6 +200,8 @@ from .settings import (
+@@ -198,6 +201,8 @@ from .settings import (
      AGENT_ANIMATION_EMBER_TIDE,
      AGENT_ANIMATION_IDLE_PULSE,
      AGENT_ANIMATION_KITT,
@@ -574,7 +819,7 @@ index 42e53d5..04a3f8e 100644
      AGENT_ANIMATION_KITT_RED,
      AGENT_ANIMATION_LID_CLOSED,
      AGENT_ANIMATION_LID_OPEN,
-@@ -361,6 +365,22 @@ def dnd_is_active(
+@@ -361,6 +366,22 @@ def dnd_is_active(
      return settings.dnd_enabled
  
  
@@ -597,21 +842,26 @@ index 42e53d5..04a3f8e 100644
  def latest_dnd_schedule_transition(
      settings: AgentMonitorSettings,
      now: datetime | None = None,
-@@ -707,6 +727,9 @@ class StatusBarController(NSObject):
+@@ -707,6 +728,13 @@ class StatusBarController(NSObject):
          self.last_led_display_kind_by_device = {}
          self.device_errors = {}
          self.leds_enabled = True
 +        # Survives individual snapshots so a failure stays lit after the
 +        # session has gone back to reporting itself idle.
 +        self.error_latch = SessionErrorLatch()
++        # Completion is announced as a transient pulse rather than a mode,
++        # because COMPLETED loses to WORKING in the aggregate.
++        self.completion_watcher = CompletionWatcher()
++        self.completion_pulse_until = 0.0
          self.led_sync_in_flight = False
          self.last_dnd_active = None
          self.dnd_off_targets = set()
-@@ -853,10 +876,12 @@ class StatusBarController(NSObject):
+@@ -853,10 +881,13 @@ class StatusBarController(NSObject):
              battery_snapshot,
              mac_sleep_snapshot,
          )
 +        self.error_latch.update(snapshot.statuses)
++        self.note_completions(snapshot)
          self.sync_leds(
 -            snapshot.aggregate.mode,
 +            self.led_mode_for_aggregate(snapshot.aggregate.mode),
@@ -621,7 +871,7 @@ index 42e53d5..04a3f8e 100644
          )
  
      @objc.IBAction
-@@ -1121,6 +1146,10 @@ class StatusBarController(NSObject):
+@@ -1121,6 +1152,10 @@ class StatusBarController(NSObject):
      def clearAgents_(self, _sender):
          self.clear_agents()
  
@@ -632,7 +882,7 @@ index 42e53d5..04a3f8e 100644
      @objc.IBAction
      def toggleBatteryPowerPreview_(self, _sender):
          self.set_battery_power_preview(not self.settings.battery_show_on_power_change)
-@@ -2028,6 +2057,21 @@ class StatusBarController(NSObject):
+@@ -2028,6 +2063,21 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          self.refresh_(None)
  
@@ -654,7 +904,7 @@ index 42e53d5..04a3f8e 100644
      def clear_agents(self) -> None:
          try:
              cleared = self.monitor.clear_statuses()
-@@ -2146,9 +2190,10 @@ class StatusBarController(NSObject):
+@@ -2146,9 +2196,10 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          if self.last_snapshot is not None:
              self.sync_leds(
@@ -666,21 +916,37 @@ index 42e53d5..04a3f8e 100644
              )
  
      def set_virtual_status_device(self, enabled: bool) -> None:
-@@ -3208,11 +3253,24 @@ class StatusBarController(NSObject):
+@@ -3208,11 +3259,40 @@ class StatusBarController(NSObject):
              return LED_DISPLAY_BATTERY
          return LED_DISPLAY_AGENT
  
 +    def led_mode_for_aggregate(self, mode: AgentMode) -> AgentMode:
-+        """A latched failure outranks whatever the sessions currently report.
++        """Resolve what the LEDs should show, in order of precedence.
 +
-+        BLOCKED_ERROR is already the highest-priority mode in MODE_PRIORITY, so
-+        this only matters once the failing session has moved on and the
-+        aggregate has drifted back to working or idle.
++        A latched failure outranks everything: BLOCKED_ERROR is already the
++        highest-priority mode in MODE_PRIORITY, so this only matters once the
++        failing session has moved on and the aggregate has drifted back to
++        working or idle.
++
++        Below that sits the completion pulse, which briefly overrides an
++        otherwise-busy aggregate so that finishing one session among several is
++        still visible.
 +        """
 +
 +        if self.error_latch.active:
 +            return AgentMode.BLOCKED_ERROR
++        if time.monotonic() < self.completion_pulse_until:
++            return AgentMode.COMPLETED
 +        return mode
++
++    def note_completions(self, snapshot) -> None:
++        """Start a completion pulse when a top-level session has just finished."""
++
++        finished = self.completion_watcher.newly_completed(snapshot.statuses)
++        if not finished:
++            return
++        self.completion_pulse_until = time.monotonic() + COMPLETION_PULSE_SECONDS
++        log_status_bar(f"completion pulse count={len(finished)}")
 +
      def sync_leds(
          self,
@@ -691,7 +957,7 @@ index 42e53d5..04a3f8e 100644
      ) -> None:
          if not self.leds_enabled:
              return
-@@ -3228,7 +3286,7 @@ class StatusBarController(NSObject):
+@@ -3228,7 +3308,7 @@ class StatusBarController(NSObject):
              self.reset_led_controllers_for_display_change()
              log_status_bar(f"dnd={'active' if dnd_active else 'inactive'}")
  
@@ -700,7 +966,7 @@ index 42e53d5..04a3f8e 100644
              self.virtual_status_device.hide()
              self.sync_dnd_leds()
              return
-@@ -3249,7 +3307,7 @@ class StatusBarController(NSObject):
+@@ -3249,7 +3329,7 @@ class StatusBarController(NSObject):
          self.led_sync_in_flight = True
          thread = threading.Thread(
              target=self.sync_leds_worker,
@@ -709,7 +975,7 @@ index 42e53d5..04a3f8e 100644
              daemon=True,
          )
          thread.start()
-@@ -3258,9 +3316,10 @@ class StatusBarController(NSObject):
+@@ -3258,9 +3338,10 @@ class StatusBarController(NSObject):
          if self.last_snapshot is None:
              return
          self.sync_leds(
@@ -721,7 +987,7 @@ index 42e53d5..04a3f8e 100644
          )
      def sync_dnd_leds(self) -> None:
          if self.led_sync_in_flight:
-@@ -3353,9 +3412,10 @@ class StatusBarController(NSObject):
+@@ -3353,9 +3434,10 @@ class StatusBarController(NSObject):
          mode: AgentMode,
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
@@ -733,7 +999,7 @@ index 42e53d5..04a3f8e 100644
          finally:
              self.led_sync_in_flight = False
  
-@@ -3364,8 +3424,9 @@ class StatusBarController(NSObject):
+@@ -3364,8 +3446,9 @@ class StatusBarController(NSObject):
          mode: AgentMode,
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
@@ -744,7 +1010,7 @@ index 42e53d5..04a3f8e 100644
              self.sync_dnd_leds_now()
              return
          devices = [
-@@ -3414,6 +3475,7 @@ class StatusBarController(NSObject):
+@@ -3414,6 +3497,7 @@ class StatusBarController(NSObject):
                              brightness=255,
                              animation_style=animation.style,
                              custom_program=animation.custom_program,
@@ -752,7 +1018,7 @@ index 42e53d5..04a3f8e 100644
                          )
                      except DeviceWriteError as exc:
                          active_errors[device.device_id] = str(exc)
-@@ -3456,6 +3518,7 @@ class StatusBarController(NSObject):
+@@ -3456,6 +3540,7 @@ class StatusBarController(NSObject):
                      mode,
                      animation_style=animation.style,
                      custom_program=animation.custom_program,
@@ -760,7 +1026,7 @@ index 42e53d5..04a3f8e 100644
                  )
                  label = f"{device.name} {result.label}"
  
-@@ -3914,6 +3977,18 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -3914,6 +3999,18 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
          clear_agents.setTarget_(target)
          menu.addItem_(clear_agents)
  
@@ -779,7 +1045,7 @@ index 42e53d5..04a3f8e 100644
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Devices"))
      devices = target.status_bar_devices()
-@@ -5638,6 +5713,8 @@ def agent_animation_label(settings: AgentMonitorSettings, animation_id: str) ->
+@@ -5638,6 +5735,8 @@ def agent_animation_label(settings: AgentMonitorSettings, animation_id: str) ->
          AGENT_ANIMATION_CYAN_COMPLETE: "Cyan Complete",
          AGENT_ANIMATION_AMBER_PULSE: "Amber Pulse",
          AGENT_ANIMATION_SOLID_GREEN: "Solid Green",
@@ -790,10 +1056,10 @@ index 42e53d5..04a3f8e 100644
          AGENT_ANIMATION_EMBER_IDLE: "Ember Idle",
 diff --git c/tests/test_led_signals.py i/tests/test_led_signals.py
 new file mode 100644
-index 0000000..d3bb12f
+index 0000000..2663e9c
 --- /dev/null
 +++ i/tests/test_led_signals.py
-@@ -0,0 +1,341 @@
+@@ -0,0 +1,496 @@
 +"""Tests for the error/concurrency LED signals.
 +
 +These cover the three behaviours that were previously impossible to express:
@@ -832,6 +1098,9 @@ index 0000000..d3bb12f
 +    *,
 +    offset_seconds: float = 0.0,
 +    message: str | None = None,
++    session_id: str | None = None,
++    parent_session_id: str | None = None,
++    prompted_at: float | None = None,
 +):
 +    from sidepulse.models import AgentStatus
 +
@@ -843,6 +1112,11 @@ index 0000000..d3bb12f
 +        updated_at=BASE_TIME + timedelta(seconds=offset_seconds),
 +        event_name="StopFailure" if mode is AgentMode.BLOCKED_ERROR else "Stop",
 +        message=message,
++        session_id=session_id if session_id is not None else agent_id,
++        parent_session_id=parent_session_id,
++        last_user_prompt_at=(
++            None if prompted_at is None else BASE_TIME + timedelta(seconds=prompted_at)
++        ),
 +    )
 +
 +
@@ -1071,19 +1345,20 @@ index 0000000..d3bb12f
 +    assert "agent_id: agentIdFor(" in src
 +
 +
-+def test_plugin_learns_lineage_from_session_updated_not_only_created():
++def test_plugin_learns_lineage_from_any_event_carrying_info():
 +    # A subagent resumed by task_id publishes no session.created, so relying on
-+    # it alone would silently leave those sessions counted as top-level.
++    # it alone would leave those sessions counted as top-level. Lineage is read
++    # from every event, before the forwarding filter can discard it.
 +    src = plugin_source()
-+    assert '"session.updated"' in src
-+    assert "rememberLineage(event)" in src
++    body = src.split("event: async ({ event }) => {")[1]
++    assert body.index("rememberLineage(event)") < body.index("FORWARDED_EVENTS")
 +
 +
 +def test_plugin_no_longer_subscribes_to_tool_events_as_bus_events():
 +    """tool.execute.* are hooks, not events; subscribing could never fire."""
 +    src = plugin_source()
-+    observed = src.split("const OBSERVED_EVENTS = [")[1].split("]")[0]
-+    assert "tool.execute" not in observed
++    forwarded = src.split("const FORWARDED_EVENTS = [")[1].split("]")[0]
++    assert "tool.execute" not in forwarded
 +
 +
 +def test_plugin_registers_real_tool_hooks():
@@ -1135,6 +1410,152 @@ index 0000000..d3bb12f
 +    assert top.status_key == "opencode:session:ses_top"
 +    assert ":agent:" in child.status_key, "excluded from active_count"
 +    assert ":agent:" not in top.status_key, "counted in active_count"
++
++
++# --- clearing an error by responding to it ----------------------------------
++
++
++def test_a_new_user_prompt_clears_that_sessions_error():
++    latch = SessionErrorLatch()
++    latch.update([status("a", AgentMode.BLOCKED_ERROR)])
++    assert latch.active
++    latch.update([status("a", AgentMode.IDLE_READY, offset_seconds=5, prompted_at=5)])
++    assert not latch.active
++
++
++def test_a_prompt_older_than_the_error_does_not_clear_it():
++    latch = SessionErrorLatch()
++    # Human typed at t=1, the run died at t=10. The error is the newer fact.
++    latch.update([status("a", AgentMode.BLOCKED_ERROR, offset_seconds=10, prompted_at=1)])
++    assert latch.active
++
++
++def test_prompting_the_parent_clears_a_dead_subagents_error():
++    """The case that motivated this: a subagent cannot be prompted directly."""
++    latch = SessionErrorLatch()
++    child = status(
++        "opencode:agent:child", AgentMode.BLOCKED_ERROR,
++        session_id="child", parent_session_id="parent",
++    )
++    parent = status("opencode:session:parent", AgentMode.WORKING, session_id="parent")
++    latch.update([child, parent])
++    assert latch.active, "a subagent failure must be visible"
++
++    # The human replies to the parent; the child never runs again.
++    latch.update([
++        status("opencode:agent:child", AgentMode.BLOCKED_ERROR,
++               session_id="child", parent_session_id="parent"),
++        status("opencode:session:parent", AgentMode.WORKING,
++               session_id="parent", offset_seconds=30, prompted_at=30),
++    ])
++    assert not latch.active
++
++
++def test_parent_prompt_propagates_through_nested_subagents():
++    latch = SessionErrorLatch()
++    rows = [
++        status("opencode:agent:grandchild", AgentMode.BLOCKED_ERROR,
++               session_id="grandchild", parent_session_id="child"),
++        status("opencode:agent:child", AgentMode.WORKING,
++               session_id="child", parent_session_id="root"),
++        status("opencode:session:root", AgentMode.WORKING, session_id="root"),
++    ]
++    latch.update(rows)
++    assert latch.active
++
++    rows[2] = status("opencode:session:root", AgentMode.WORKING,
++                     session_id="root", offset_seconds=60, prompted_at=60)
++    latch.update(rows)
++    assert not latch.active, "a prompt at the root must reach any depth"
++
++
++def test_lineage_cycle_cannot_hang_the_status_bar():
++    latch = SessionErrorLatch()
++    latch.update([
++        status("a", AgentMode.BLOCKED_ERROR, session_id="a", parent_session_id="b"),
++        status("b", AgentMode.WORKING, session_id="b", parent_session_id="a"),
++    ])
++    assert latch.active
++
++
++# --- completion pulse -------------------------------------------------------
++
++
++def test_completion_fires_once_per_finish():
++    from sidepulse.completion import CompletionWatcher
++
++    w = CompletionWatcher()
++    done = status("opencode:session:a", AgentMode.COMPLETED, session_id="a")
++    assert w.newly_completed([done]) == ("opencode:session:a",)
++    assert w.newly_completed([done]) == (), "must not re-fire while it sits completed"
++
++
++def test_completion_rearms_when_the_session_works_again():
++    from sidepulse.completion import CompletionWatcher
++
++    w = CompletionWatcher()
++    a = "opencode:session:a"
++    w.newly_completed([status(a, AgentMode.COMPLETED, session_id="a")])
++    w.newly_completed([status(a, AgentMode.WORKING, session_id="a")])
++    assert w.newly_completed([status(a, AgentMode.COMPLETED, session_id="a")]) == (a,)
++
++
++def test_completion_ignores_subagents():
++    """Subagents finish in bursts; flashing for each would be a strobe."""
++    from sidepulse.completion import CompletionWatcher
++
++    w = CompletionWatcher()
++    rows = [
++        status("opencode:agent:c1", AgentMode.COMPLETED, session_id="c1"),
++        status("opencode:agent:c2", AgentMode.COMPLETED, session_id="c2"),
++    ]
++    assert w.newly_completed(rows) == ()
++
++
++def test_completion_is_visible_even_while_other_sessions_work():
++    """The whole point: COMPLETED loses to WORKING in the aggregate."""
++    from sidepulse.completion import CompletionWatcher
++    from sidepulse.models import MODE_PRIORITY
++
++    assert MODE_PRIORITY[AgentMode.COMPLETED] > MODE_PRIORITY[AgentMode.WORKING]
++    w = CompletionWatcher()
++    finished = w.newly_completed([
++        status("opencode:session:a", AgentMode.COMPLETED, session_id="a"),
++        status("opencode:session:b", AgentMode.WORKING, session_id="b"),
++    ])
++    assert finished == ("opencode:session:a",)
++
++
++def test_completion_forgets_sessions_that_disappear():
++    from sidepulse.completion import CompletionWatcher
++
++    w = CompletionWatcher()
++    a = "opencode:session:a"
++    w.newly_completed([status(a, AgentMode.COMPLETED, session_id="a")])
++    w.newly_completed([])
++    assert w.newly_completed([status(a, AgentMode.COMPLETED, session_id="a")]) == (a,)
++
++
++# --- plugin: prompts and lineage --------------------------------------------
++
++
++def test_plugin_flags_only_real_user_messages():
++    src = plugin_source()
++    assert 'info?.role === "user"' in src
++    assert "sidepulse_user_prompt: true" in src
++
++
++def test_plugin_does_not_forward_high_volume_context_events():
++    """message.updated/session.updated are read for context, never forwarded."""
++    src = plugin_source()
++    forwarded = src.split("const FORWARDED_EVENTS = [")[1].split("]")[0]
++    assert "message.updated" not in forwarded
++    assert "session.updated" not in forwarded
++
++
++def test_plugin_forwards_parent_session_id():
++    src = plugin_source()
++    assert "parent_session_id: parentOf(" in src
 diff --git c/tests/test_sidepulse.py i/tests/test_sidepulse.py
 index 3a92182..b65bdde 100644
 --- c/tests/test_sidepulse.py

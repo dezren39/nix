@@ -234,6 +234,71 @@
     "todowrite": "allow",
     "edit": "allow",
     "external_directory": "allow",
+    // Worktrees share one `origin` with their parent clone, so a single
+    // `git remote set-url` silently retargets EVERY worktree at once. That has
+    // already happened here: origin was repointed at an unrelated repository
+    // mid-session, and a push from any of ~57 worktrees would have gone to the
+    // wrong place. No session has a legitimate reason to rewrite a remote.
+    //
+    // Ordering matters: permission/index.ts evaluates the LAST matching rule,
+    // so the broad allow goes first and the narrow denies after it.
+    "bash": {
+      "*": "allow",
+      // Rewriting or removing a configured remote.
+      "*git remote set-url*": "deny",
+      "*git remote remove*": "deny",
+      "*git remote rename*": "deny",
+      "*git remote rm*": "deny",
+      // Adding a remote is occasionally legitimate (a fork), but it is also how
+      // a wrong push target gets introduced. Make it a conscious decision.
+      "*git remote add*": "ask",
+      // Same class of hazard via config rather than the porcelain command.
+      "*git config*remote.*url*": "deny",
+      // Destructive history/worktree operations the house rules already forbid.
+      // Denying them here makes the rule enforced rather than advisory.
+      "*git push*--force*": "deny",
+      "*git push*-f *": "deny",
+      "*git reset --hard*": "deny",
+      // `git checkout <ref> -- <path>` overwrites a path from another ref. It is
+      // genuinely useful for recovering a file, but it silently destroys
+      // uncommitted work in that path. Commented out for now — pathspec checkout
+      // is rare enough that the specific denies below cover the real hazard, and
+      // this broad rule prompts on forms that are already handled.
+      //
+      // If re-enabled, it MUST stay above the specific denies: the last matching
+      // rule wins, so placing it after would silently downgrade every one of
+      // them to a prompt.
+      // "*git checkout*--*": "ask",
+      // Discarding uncommitted work. This is the exact mechanism that silently
+      // destroyed a regression test in a shared worktree — recovered only
+      // because a reviewer noticed it missing from the diff. `git checkout` on a
+      // BRANCH stays allowed; only the pathspec forms that overwrite the working
+      // tree are blocked.
+      "*git checkout -- *": "deny",
+      "*git checkout .*": "deny",
+      "*git restore*": "deny",
+      // Forced branch switches discard every uncommitted change in the tree.
+      // Plain `git checkout <branch>` REFUSES when that would lose work, which
+      // is the safety these flags turn off — so the unforced forms stay allowed
+      // and only the override is blocked. `git switch` is the modern spelling of
+      // the same hazard and needs the same treatment.
+      "*git checkout -f*": "deny",
+      "*git checkout --force*": "deny",
+      "*git switch*--discard-changes*": "deny",
+      "*git switch -f*": "deny",
+      "*git switch --force*": "deny",
+      // Deletes untracked files outright. In a shared tree those untracked files
+      // are frequently another agent's in-flight work.
+      "*git clean*-f*": "deny",
+      "*git clean*-x*": "deny",
+      // Recoverable, but in a shared worktree it makes work vanish from under
+      // whoever else is in there. Worth a conscious decision.
+      "*git stash*": "ask",
+      // Can orphan commits that were never pushed.
+      "*git branch -D*": "ask",
+      "*git branch -d*": "ask",
+      "*git worktree remove*--force*": "ask",
+    },
     // plan_enter/plan_exit only exist to suggest switching to/from the plan
     // agent (tool/plan-enter.txt). Unused here, and the shared defaults already
     // deny them for every agent except build and plan, so denying globally just
@@ -293,6 +358,11 @@
   // },
   "instructions": [
     "~/.config/opencode/instructions/lootbox.md",
+    // Worktrees must not be created under /var/folders/.../T/ — macOS sweeps it
+    // and has already destroyed ~3000 tracked files mid-session. The environment
+    // block advertises that path as "pre-approved", which is about permissions,
+    // not durability; agents were taking it as a worktree location.
+    "~/.config/opencode/instructions/worktrees.md",
     // subagents.md archived to instructions/archive/ — it named agents
     // (explore/general/plan) that the trimmed agent set no longer defines, so it
     // was describing a topology that does not exist. Re-add only if rewritten
