@@ -298,6 +298,45 @@ rec {
           "--set-default OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX 999999999"
           "--set-default OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS 300000"
           "--set-default OPENCODE_EXPERIMENTAL_LSP_TY 1"
+          # macOS TMPDIR is /var/folders/<...>/T/, which the OS sweeps
+          # periodically. opencode advertises `$TMPDIR/opencode` to agents as the
+          # pre-approved scratch path, and agents read that as somewhere to put
+          # things — including git worktrees. A sweep then deletes tracked files
+          # out from under active work: ~3000 files across several worktrees in
+          # one session, silently, while `git status` still reported clean from a
+          # stale fsmonitor index.
+          #
+          # Scoped to the opencode wrapper on purpose. Setting TMPDIR in
+          # environment.variables or launchd.user.envVariables would retarget it
+          # for nix builds and every other program on the machine, which is a far
+          # larger blast radius than the problem warrants.
+          #
+          # There is a plugin (~/.config/opencode/plugin/durable-tmpdir.ts) that
+          # sets this via the shell.env hook, but that only reaches shells the
+          # tool spawns — the path opencode prints in the bash tool description is
+          # read from the process environment at startup, so only the wrapper
+          # fixes the advertisement itself. Belt and braces.
+          #
+          # `--run` and NOT `--set-default`/`--set`, for two reasons, both read
+          # off make-wrapper.sh rather than assumed:
+          #
+          #   1. `--set-default` emits `export VAR=${VAR-value}` (line 133), which
+          #      only fires when the variable is UNSET. macOS always sets TMPDIR,
+          #      so it would be a silent no-op here.
+          #   2. Both `--set` and `--set-default` quote the value with `${value@Q}`,
+          #      so `$HOME` would be written literally and never expand.
+          #
+          # `--run` emits its argument verbatim into the wrapper (line 145), so
+          # the shell expands `$HOME` at exec time and the mkdir is guaranteed to
+          # run before the binary starts. Still overridable for bisecting, in
+          # keeping with the --set-default rationale above: the parameter
+          # expansion below honours a TMPDIR the caller set explicitly.
+          #
+          # mkdir is referenced by absolute store path because the wrapper runs
+          # before the binary and sets its own PATH; a bare `mkdir` resolves
+          # against that PATH and fails with "command not found", which the
+          # versionCheckHook catches at build time.
+          ''--run 'export TMPDIR="''${OPENCODE_TMPDIR:-$HOME/.local/share/opencode/tmp}"; ${pkgs.coreutils}/bin/mkdir -p "$TMPDIR"' ''
         ];
       in
       ({
@@ -312,6 +351,16 @@ rec {
             node_modules = opencodeNodeModules;
           }).overrideAttrs
             (old: {
+              # Upstream builds with makeBinaryWrapper, whose wrapProgram is the
+              # C implementation and rejects `--run` ("makeCWrapper: Unknown
+              # argument --run"). The TMPDIR flag above needs runtime shell
+              # expansion of $HOME, which only the shell wrapper can do, so pull
+              # in makeShellWrapper. Appending it puts its setup hook after
+              # makeBinaryWrapper's, and the later hook is the one that defines
+              # wrapProgram.
+              nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
+                pkgs.makeShellWrapper
+              ];
               postFixup = (old.postFixup or "") + ''
                 wrapProgram $out/bin/opencode \
                   ${pkgs.lib.concatStringsSep " \\\n  " opencodeEnvFlags}

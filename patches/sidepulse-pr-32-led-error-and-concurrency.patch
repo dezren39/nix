@@ -1,3 +1,17 @@
+diff --git c/profiles/cyan.json i/profiles/cyan.json
+index 5deda21..3ce7ec1 100644
+--- c/profiles/cyan.json
++++ i/profiles/cyan.json
+@@ -1,7 +1,7 @@
+ {
+   "animations": {
+-    "blocked_error": "amber-pulse",
+-    "completed": "cyan-complete",
++    "blocked_error": "error-red",
++    "completed": "success-flash",
+     "idle_ready": "idle-pulse",
+     "lid_closed": "lid-closed",
+     "lid_open": "lid-open",
 diff --git c/src/sidepulse/collector.py i/src/sidepulse/collector.py
 index 1215a2b..ec5512f 100644
 --- c/src/sidepulse/collector.py
@@ -748,6 +762,16 @@ index cea11ff..0c3ee91 100644
  
      @property
      def priority(self) -> int:
+diff --git c/src/sidepulse/resources/animations/ember-complete.LED i/src/sidepulse/resources/animations/ember-complete.LED
+index 10fd005..5851626 100644
+--- c/src/sidepulse/resources/animations/ember-complete.LED
++++ i/src/sidepulse/resources/animations/ember-complete.LED
+@@ -1 +1,4 @@
+-#F23819 320ms cosine
++off 40ms
++#F23819 110ms
++off 640ms ease-out
++repeat
 diff --git c/src/sidepulse/resources/animations/error-red.LED i/src/sidepulse/resources/animations/error-red.LED
 new file mode 100644
 index 0000000..f73cc84
@@ -760,6 +784,16 @@ index 0000000..f73cc84
 +#FF0010 120ms
 +off 700ms
 +repeat
+diff --git c/src/sidepulse/resources/animations/purple-complete.LED i/src/sidepulse/resources/animations/purple-complete.LED
+index b1433c6..ee92cd2 100644
+--- c/src/sidepulse/resources/animations/purple-complete.LED
++++ i/src/sidepulse/resources/animations/purple-complete.LED
+@@ -1 +1,4 @@
+-#FF00FF 320ms cosine
++off 40ms
++#FF00FF 110ms
++off 640ms ease-out
++repeat
 diff --git c/src/sidepulse/resources/animations/success-flash.LED i/src/sidepulse/resources/animations/success-flash.LED
 new file mode 100644
 index 0000000..ec25eaf
@@ -771,7 +805,7 @@ index 0000000..ec25eaf
 +off 640ms ease-out
 +repeat
 diff --git c/src/sidepulse/settings.py i/src/sidepulse/settings.py
-index 045ad29..370b566 100644
+index 045ad29..687207e 100644
 --- c/src/sidepulse/settings.py
 +++ i/src/sidepulse/settings.py
 @@ -42,6 +42,8 @@ AGENT_ANIMATION_CYAN_ROLL = "cyan-roll"
@@ -792,6 +826,28 @@ index 045ad29..370b566 100644
      AGENT_ANIMATION_KITT,
      AGENT_ANIMATION_KITT_RED,
      AGENT_ANIMATION_EMBER_IDLE,
+@@ -119,13 +123,16 @@ def default_agent_animation_id(mode: AgentMode | str) -> str:
+         AgentMode.LONG_TASK_PROGRESS.value,
+     }:
+         return AGENT_ANIMATION_CYAN_ROLL
+-    if key in {
+-        AgentMode.WAITING_FOR_INPUT.value,
+-        AgentMode.BLOCKED_ERROR.value,
+-    }:
++    if key == AgentMode.WAITING_FOR_INPUT.value:
+         return AGENT_ANIMATION_AMBER_PULSE
++    # A failure used to share amber with "waiting for input", which made a dead
++    # run indistinguishable from a permission prompt. This is the table the
++    # status bar actually consults - `display_state_for_mode` only supplies the
++    # label - so the split has to be made here to reach the device.
++    if key == AgentMode.BLOCKED_ERROR.value:
++        return AGENT_ANIMATION_ERROR_RED
+     if key == AgentMode.COMPLETED.value:
+-        return AGENT_ANIMATION_CYAN_COMPLETE
++        return AGENT_ANIMATION_SUCCESS_FLASH
+     if key == ANIMATION_STATE_LID_OPEN:
+         return AGENT_ANIMATION_LID_OPEN
+     if key == ANIMATION_STATE_LID_CLOSED:
 diff --git c/src/sidepulse/status_bar.py i/src/sidepulse/status_bar.py
 index 42e53d5..39f463a 100644
 --- c/src/sidepulse/status_bar.py
@@ -1056,10 +1112,10 @@ index 42e53d5..39f463a 100644
          AGENT_ANIMATION_EMBER_IDLE: "Ember Idle",
 diff --git c/tests/test_led_signals.py i/tests/test_led_signals.py
 new file mode 100644
-index 0000000..2663e9c
+index 0000000..5efef37
 --- /dev/null
 +++ i/tests/test_led_signals.py
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,543 @@
 +"""Tests for the error/concurrency LED signals.
 +
 +These cover the three behaviours that were previously impossible to express:
@@ -1556,8 +1612,55 @@ index 0000000..2663e9c
 +def test_plugin_forwards_parent_session_id():
 +    src = plugin_source()
 +    assert "parent_session_id: parentOf(" in src
++
++
++# --- the settings table is what actually reaches the device -----------------
++
++
++def test_default_animation_table_sends_errors_to_red_not_amber():
++    """The bug this pins: display_state_for_mode only supplies the label.
++
++    status_bar resolves `settings.agent_animation(mode).style` and passes a
++    concrete style to program_for_agent_mode, which short-circuits the display
++    state entirely. Splitting ERROR from ASK in led_status alone left errors
++    rendering amber on the device while the log correctly said "Error".
++    """
++    from sidepulse.settings import (
++        AGENT_ANIMATION_AMBER_PULSE,
++        AGENT_ANIMATION_ERROR_RED,
++        AGENT_ANIMATION_SUCCESS_FLASH,
++        default_agent_animation_id,
++    )
++
++    assert default_agent_animation_id(AgentMode.BLOCKED_ERROR) == AGENT_ANIMATION_ERROR_RED
++    assert default_agent_animation_id(AgentMode.WAITING_FOR_INPUT) == AGENT_ANIMATION_AMBER_PULSE
++    assert default_agent_animation_id(AgentMode.COMPLETED) == AGENT_ANIMATION_SUCCESS_FLASH
++
++
++def test_error_and_ask_render_differently_through_the_settings_path():
++    """End-to-end through the path status_bar actually takes."""
++    from sidepulse.led_status import program_for_agent_mode
++    from sidepulse.settings import AgentMonitorSettings
++
++    settings = AgentMonitorSettings()
++
++    def rendered(mode):
++        animation = settings.agent_animation(mode)
++        return program_for_agent_mode(
++            mode, led_count=2, animation_style=animation.style,
++            custom_program=animation.custom_program,
++        )
++
++    error = rendered(AgentMode.BLOCKED_ERROR)
++    ask = rendered(AgentMode.WAITING_FOR_INPUT)
++    done = rendered(AgentMode.COMPLETED)
++
++    assert "#FF0010" in error and "#FF3A00" not in error, "error must not be amber"
++    assert "#FF3A00" in ask
++    assert "#00FF66" in done
++    assert len({error, ask, done}) == 3
 diff --git c/tests/test_sidepulse.py i/tests/test_sidepulse.py
-index 3a92182..b65bdde 100644
+index 3a92182..4a51042 100644
 --- c/tests/test_sidepulse.py
 +++ i/tests/test_sidepulse.py
 @@ -148,6 +148,7 @@ from sidepulse.settings import (
@@ -1592,6 +1695,42 @@ index 3a92182..b65bdde 100644
          )
          menu = status_bar.build_menu(snapshot, status_bar.STATE_IDLE, target)
          by_title = {
+@@ -4925,7 +4929,7 @@ class AgentMonitorTests(unittest.TestCase):
+         )
+         self.assertEqual(
+             program_for_display_state(LedDisplayState.DONE),
+-            "#00FF66 320ms cosine",
++            "off 40ms\n#00FF66 110ms\noff 640ms ease-out\nrepeat",
+         )
+         self.assertIn("#FF3A00 1.6s pulse", program_for_display_state(LedDisplayState.ASK))
+         self.assertEqual(
+@@ -5049,7 +5053,7 @@ class AgentMonitorTests(unittest.TestCase):
+         )
+         self.assertEqual(
+             builtin_animation_program(AGENT_ANIMATION_PURPLE_COMPLETE, 8),
+-            "#FF00FF 320ms cosine",
++            "off 40ms\n#FF00FF 110ms\noff 640ms ease-out\nrepeat",
+         )
+         self.assertIn(
+             "#FF00FF 220ms ease",
+@@ -5092,7 +5096,7 @@ class AgentMonitorTests(unittest.TestCase):
+                 AGENT_ANIMATION_PURPLE_ATTENTION,
+             ),
+             (
+-                AGENT_ANIMATION_CYAN_COMPLETE,
++                AGENT_ANIMATION_SUCCESS_FLASH,
+                 AGENT_ANIMATION_EMBER_COMPLETE,
+                 AGENT_ANIMATION_PURPLE_COMPLETE,
+             ),
+@@ -6292,7 +6296,7 @@ class AgentMonitorTests(unittest.TestCase):
+             )
+             self.assertEqual(
+                 loaded.agent_animation(AgentMode.COMPLETED).style,
+-                AGENT_ANIMATION_CYAN_COMPLETE,
++                AGENT_ANIMATION_SUCCESS_FLASH,
+             )
+ 
+             custom_path.write_text("brightness 128\n#123456\n")
 @@ -6322,6 +6326,8 @@ class AgentMonitorTests(unittest.TestCase):
              AGENT_ANIMATION_CYAN_COMPLETE,
              AGENT_ANIMATION_AMBER_PULSE,
