@@ -1,0 +1,853 @@
+diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
+--- a/src/sidepulse/collector.py	2026-09-25 03:00:02
++++ b/src/sidepulse/collector.py	2026-09-25 03:19:57
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import json
++import os
+ import re
+ import threading
+ import time
+@@ -55,7 +56,84 @@
+ IDLE_VISIBLE_SECONDS = 0.0
+ POST_TOOL_WORKING_VISIBLE_SECONDS = 2 * 60.0
+ 
++# Modes that are addressed to a person, and therefore cannot be aged out.
++#
++# Every other mode describes the machine, and for those a timeout is honest:
++# a session that last said "working" an hour ago is not working any more, so
++# retiring the row makes the display more accurate, not less.
++#
++# A failure and a permission prompt are different in kind. They are questions
++# put to a human, and an hour of being ignored does not answer either one - the
++# run is still dead, the prompt is still waiting. Expiring them turned the
++# device dark while the thing it existed to report was still true, which is the
++# one failure a status light must not have. So these two never go stale, at
++# either of the two places staleness is decided.
++#
++# They do not become unclearable. A latched error is retired by prompting the
++# session, by "Acknowledge errors" in the menu, or by the session leaving the
++# monitor; a waiting row is retired the moment the session reports anything
++# else, and "Clear agents" empties the monitor outright. What is gone is only
++# the silent expiry-by-clock.
++MODES_AWAITING_A_HUMAN = frozenset(
++    {
++        AgentMode.BLOCKED_ERROR,
++        AgentMode.WAITING_FOR_INPUT,
++    }
++)
+ 
++
++def mode_awaits_a_human(mode: AgentMode) -> bool:
++    """Whether this mode is a question for a person rather than a machine state."""
++
++    return mode in MODES_AWAITING_A_HUMAN
++
++
++def process_is_alive(pid: int | None) -> bool:
++    """Whether `pid` still names a running process. Unknown counts as alive.
++
++    `signal 0` performs the permission and existence checks without delivering
++    anything. `PermissionError` means the process exists but belongs to someone
++    else, which is still existence - the answer this is asked for.
++
++    An unknown pid returns True so that providers which report no pid keep the
++    behaviour they had before liveness was consulted at all.
++    """
++
++    if pid is None:
++        return True
++    try:
++        os.kill(pid, 0)
++    except ProcessLookupError:
++        return False
++    except PermissionError:
++        return True
++    except OSError:
++        # An unexpected errno is not evidence of death, and guessing "dead"
++        # here would silently discard a real prompt.
++        return True
++    return True
++
++
++def status_awaits_a_reachable_human(status: AgentStatus) -> bool:
++    """Whether this row is a live question somebody could still answer.
++
++    A prompt or a failure never expires on a clock, because being ignored for
++    an hour does not answer either one. But that reasoning assumes the session
++    is still there to answer *to*. Close the terminal and the harness dies
++    mid-prompt: the last thing it ever said was "waiting for input", and
++    without this the device would sit amber forever over a session that no
++    longer exists, with no event coming to correct it.
++
++    A dead owner is therefore the one thing that puts these rows back on the
++    ordinary timeout. Note the failure mode is deliberately one-sided: a
++    recycled pid makes a dead session look alive and the row lingers, which is
++    the old behaviour and merely a missed improvement - whereas treating a live
++    session as dead would throw away a prompt that matters.
++    """
++
++    return mode_awaits_a_human(status.mode) and process_is_alive(status.agent_pid)
++
++
+ @dataclass(frozen=True)
+ class SourceSpec:
+     provider: str
+@@ -437,6 +515,8 @@
+         return records
+ 
+     def is_stale_status(self, status: AgentStatus, now: datetime) -> bool:
++        if status_awaits_a_reachable_human(status):
++            return False
+         age = status.age_seconds(now)
+         if status.mode == AgentMode.COMPLETED and self.completed_visible_seconds >= 0:
+             return age > self.completed_visible_seconds
+@@ -1892,9 +1972,26 @@
+         context_percent=metadata.context_percent,
+         parent_session_id=metadata.parent_session_id,
+         last_user_prompt_at=metadata.last_user_prompt_at,
++        agent_pid=_agent_pid_from_raw(record.raw),
+     )
+ 
+ 
++def _agent_pid_from_raw(raw: dict[str, Any]) -> int | None:
++    """PID of the agent process, when the provider reports one."""
++
++    for key in ("agent_pid", "agentPid"):
++        value = raw.get(key)
++        if isinstance(value, bool):
++            continue
++        if isinstance(value, int) and value > 0:
++            return value
++        if isinstance(value, str) and value.strip().isdigit():
++            parsed = int(value.strip())
++            if parsed > 0:
++                return parsed
++    return None
++
++
+ def mode_for_event(record: HookEvent) -> AgentMode | None:
+     event = record.event_name
+     raw = record.raw
+@@ -2147,6 +2244,8 @@
+     completed_visible_seconds: float,
+     idle_visible_seconds: float,
+ ) -> bool:
++    if status_awaits_a_reachable_human(status):
++        return False
+     age = status.age_seconds(now)
+     if status.mode == AgentMode.COMPLETED and completed_visible_seconds >= 0:
+         return age > completed_visible_seconds
+@@ -2297,6 +2396,9 @@
+     ):
+         return True
+ 
++    if failure_would_be_erased_by_silence(previous, current):
++        return True
++
+     return (
+         previous is not None
+         and previous.mode == AgentMode.WAITING_FOR_INPUT
+@@ -2306,6 +2408,32 @@
+     )
+ 
+ 
++def failure_would_be_erased_by_silence(
++    previous: AgentStatus | None,
++    current: AgentStatus,
++) -> bool:
++    """Whether `current` is a failed session merely going quiet.
++
++    Every harness reports a failure and then, within the same second, reports
++    the session idle - that is what "the run stopped" means. The collector
++    keeps only the newest record per session, and the status bar samples every
++    15s, so the failure and the idle that follows it almost always land in the
++    same sample. The idle wins, the row reads "completed", and an API error,
++    an auth failure or a crashed provider call is displayed as a successful
++    finish. The error latch cannot help: it only ever sees the sampled row, so
++    a failure it never observes is a failure it cannot latch.
++
++    Going quiet is not recovering, so a stop does not overwrite a failure.
++    Anything that shows the session actually moving again - a new prompt, a
++    tool call, a permission request - is a real transition and is allowed
++    through, which is what keeps this from latching forever on its own.
++    """
++
++    if previous is None or previous.mode is not AgentMode.BLOCKED_ERROR:
++        return False
++    return current.mode in {AgentMode.COMPLETED, AgentMode.IDLE_READY}
++
++
+ def should_ignore_record(record: HookEvent, metadata: StatusMetadata) -> bool:
+     raw = record.raw
+     if _string_or_none(raw.get("agent_internal_operation")) in {
+@@ -2360,12 +2488,48 @@
+     statuses_by_key: dict[str, AgentStatus],
+     ignored_status_keys: set[str],
+ ) -> bool:
++    if record_deletes_session(record):
++        # A deleted session is gone, not finished, so it is removed rather than
++        # transitioned. Nothing it was mid-way through saying survives: a
++        # prompt nobody can answer and a failure nobody can act on are both
++        # noise once the session they belonged to has been thrown away.
++        agent_id = record.status_key
++        ignored_status_keys.add(agent_id)
++        statuses_by_key.pop(agent_id, None)
++        _drop_descendant_rows(record, statuses_by_key, ignored_status_keys)
++        return True
+     if not should_ignore_record(record, metadata):
+         return False
+     agent_id = record.status_key
+     ignored_status_keys.add(agent_id)
+     statuses_by_key.pop(agent_id, None)
+     return True
++
++
++def record_deletes_session(record: HookEvent) -> bool:
++    return record.event_name == "SessionDeleted"
++
++
++def _drop_descendant_rows(
++    record: HookEvent,
++    statuses_by_key: dict[str, AgentStatus],
++    ignored_status_keys: set[str],
++) -> None:
++    """Remove the deleted session's subagent rows along with it.
++
++    Subagents are keyed separately and never receive a deletion of their own,
++    so without this a deleted parent leaves its children behind - and a child
++    stuck in WAITING_FOR_INPUT would hold the device amber on behalf of a
++    session that no longer exists.
++    """
++
++    session_id = record.session_id
++    if not session_id:
++        return
++    for key, status in tuple(statuses_by_key.items()):
++        if status.session_id == session_id or status.parent_session_id == session_id:
++            ignored_status_keys.add(key)
++            statuses_by_key.pop(key, None)
+ 
+ 
+ def read_recent_lines(path: Path, max_lines: int) -> list[str]:
+diff -ruN base33/src/sidepulse/install.py work/src/sidepulse/install.py
+--- a/src/sidepulse/install.py	2026-09-25 03:00:02
++++ b/src/sidepulse/install.py	2026-09-25 03:20:15
+@@ -386,6 +386,50 @@
+   return info?.role === "user" || info?.type === "user"
+ }}
+ 
++// Errors that must not light the device red, split by which event carried
++// them, because the same error name means different things on each.
++//
++// `session.error` fires for `ContextOverflowError` in *both* the fatal and the
++// recoverable case, and the recoverable one is the common one: the session hit
++// the window, auto-compaction takes over, the run continues. Treating that as
++// a failure would light red every time a long session compacted. Only the
++// fatal variant also records the error on the assistant message, so it is
++// ignored here and caught below on `message.updated`, where it is unambiguous.
++//
++// `MessageAbortedError` is the user pressing escape, on either event. That is
++// an instruction, not a failure, and a signal that now persists until
++// acknowledged must not fire every time somebody interrupts an agent.
++const SESSION_ERROR_IGNORED = new Set(["ContextOverflowError", "MessageAbortedError"])
++const MESSAGE_ERROR_IGNORED = new Set(["MessageAbortedError"])
++
++function errorName(error) {{
++  return typeof error?.name === "string" ? error.name : undefined
++}}
++
++function isReportableError(error, ignored) {{
++  if (!error) return false
++  const name = errorName(error)
++  // An unnamed error is still an error; only known-benign names are dropped.
++  return !name || !ignored.has(name)
++}}
++
++// A failure recorded on the assistant message itself.
++//
++// This is not redundant with `session.error`. `StructuredOutputError` sets the
++// message error and never publishes `session.error` at all, so a subscriber
++// watching only that event reports the run as having finished normally. The
++// fatal half of `ContextOverflowError` arrives here too, which is what makes
++// ignoring it on `session.error` safe.
++//
++// `message.updated` is otherwise far too noisy to forward - it fires on every
++// token - so the error field is the whole filter.
++function assistantErrorEvent(event) {{
++  if (event?.type !== "message.updated") return undefined
++  const info = event.properties?.info
++  if (info?.role !== "assistant") return undefined
++  return isReportableError(info?.error, MESSAGE_ERROR_IGNORED) ? info.error : undefined
++}}
++
+ function eventName(event) {{
+   if (event?.type === "session.status") {{
+     const status = event.properties?.status?.type ?? event.properties?.status
+@@ -397,25 +441,48 @@
+     // leaves the previous state standing, which is the conservative choice.
+     return undefined
+   }}
++  if (
++    event?.type === "session.error" &&
++    !isReportableError(event.properties?.error, SESSION_ERROR_IGNORED)
++  ) {{
++    return undefined
++  }}
+   return event?.type
+ }}
+ 
+ // `tool.execute.before` / `tool.execute.after` are NOT bus events - they are
+ // separate plugin hooks. Subscribing to them as events, as this plugin used to,
+ // could never fire, which is why no OpenCode session ever reached TOOL_RUNNING.
+-// Only these are forwarded. `session.updated` and `message.updated` are read
+-// for context above - lineage and user prompts respectively - but never
+-// forwarded themselves: between them they account for hundreds of thousands of
+-// events per day, and none of them change what the LEDs should show.
++// Only these are forwarded. `session.updated` is read for context above -
++// lineage - but never forwarded itself: it accounts for hundreds of thousands
++// of events per day and none of them change what the LEDs should show.
++// `message.updated` is read for two narrow things, user prompts and assistant
++// errors, and is never forwarded wholesale for the same reason.
++//
++// `session.next.*` are the second, newer session runner. Forwarding both
++// pipelines is deliberate: whichever one is live, a stopped run reports it.
+ const FORWARDED_EVENTS = [
+   "session.created",
+   "session.status",
+   "session.idle",
+   "session.error",
++  "session.next.step.failed",
++  "session.next.tool.failed",
++  "session.deleted",
+   "permission.asked",
+   "permission.replied",
+ ]
+ 
++// The pid of the process that owns these sessions.
++//
++// A prompt and a failure are questions put to a human, and SidePulse holds
++// them on the device until they are answered rather than timing them out.
++// That is only safe while somebody can still answer: closing the terminal
++// kills this process mid-prompt and no further event is ever sent, so without
++// a liveness handle the device would hold a question from a session that no
++// longer exists. Read once - it cannot change for the life of the plugin.
++const AGENT_PID = typeof process?.pid === "number" ? process.pid : undefined
++
+ const ORIGIN = process.env.T3CODE_HOME || process.env.T3_CODE || process.env.T3CODE ||
+   process.env.T3_MCP_BEARER_TOKEN
+   ? {{ agent_origin: "T3 Code", agent_origin_kind: "opencode_t3code" }}
+@@ -423,6 +490,7 @@
+ 
+ async function emit(payload) {{
+   if (!payload.session_id) return
++  if (AGENT_PID !== undefined && payload.agent_pid === undefined) payload.agent_pid = AGENT_PID
+   await Promise.all([appendSidePulseLog(payload), notifySidePulse(payload)])
+ }}
+ 
+@@ -446,6 +514,26 @@
+           agent_id: agentIdFor(promptSession),
+           parent_session_id: parentOf(promptSession),
+           sidepulse_user_prompt: true,
++          cwd,
++          timestamp: new Date().toISOString(),
++          ...ORIGIN,
++        }})
++        return
++      }}
++
++      // A failure the session recorded on its own message. Reported under the
++      // same event name as `session.error` so SidePulse needs no new mapping,
++      // and harmlessly duplicated when both fire for one failure - the mode is
++      // identical either way.
++      const assistantError = assistantErrorEvent(event)
++      if (assistantError) {{
++        const errorSession = sessionId(event)
++        await emit({{
++          event_name: "session.error",
++          session_id: errorSession,
++          agent_id: agentIdFor(errorSession),
++          parent_session_id: parentOf(errorSession),
++          message: firstString(assistantError.data?.message, errorName(assistantError)),
+           cwd,
+           timestamp: new Date().toISOString(),
+           ...ORIGIN,
+diff -ruN base33/src/sidepulse/models.py work/src/sidepulse/models.py
+--- a/src/sidepulse/models.py	2026-09-25 03:00:02
++++ b/src/sidepulse/models.py	2026-09-25 03:18:34
+@@ -86,6 +86,14 @@
+     # When a human last actually prompted this session, as distinct from
+     # the session merely becoming busy.
+     last_user_prompt_at: datetime | None = None
++    # PID of the harness process that owns this session, when it reports one.
++    #
++    # Only used to answer "is this session still reachable at all". A prompt
++    # or a failure is a question put to a human, and questions from a process
++    # that no longer exists cannot be answered - closing the terminal is the
++    # answer. Absent for providers that report through short-lived hook
++    # subprocesses, where the pid would describe the hook rather than the agent.
++    agent_pid: int | None = None
+ 
+     @property
+     def priority(self) -> int:
+diff -ruN base33/src/sidepulse/providers.py work/src/sidepulse/providers.py
+--- a/src/sidepulse/providers.py	2026-09-25 03:00:02
++++ b/src/sidepulse/providers.py	2026-09-25 03:19:41
+@@ -100,6 +100,7 @@
+     "Stop",
+     "StopFailure",
+     "SessionEnd",
++    "SessionDeleted",
+ )
+ 
+ HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor", "junie", "opencode")
+@@ -586,6 +587,16 @@
+             "session_status": "UserPromptSubmit",
+             "session_idle": "Stop",
+             "session_error": "StopFailure",
++            # OpenCode's second session runner reports a stopped run under its
++            # own event names rather than `session.error`. Whichever pipeline is
++            # live, a failure has to reach the device.
++            "session_next_step_failed": "StopFailure",
++            "session_next_tool_failed": "StopFailure",
++            # An explicitly deleted session is gone, not finished. It gets its
++            # own event because "removed" and "completed" have to stay
++            # distinguishable: a failure survives a completion, but nothing
++            # should survive the session it belonged to being deleted.
++            "session_deleted": "SessionDeleted",
+             "permission_asked": "PermissionRequest",
+             "permission_replied": "PostToolUse",
+             "tool_execute_before": "PreToolUse",
+diff -ruN base33/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
+--- a/src/sidepulse/status_bar.py	2026-09-25 03:00:02
++++ b/src/sidepulse/status_bar.py	2026-09-25 03:02:32
+@@ -99,6 +99,7 @@
+     SourceSpec,
+     default_sources,
+     default_t3code_event_log_dir,
++    mode_awaits_a_human,
+     read_recent_lines,
+ )
+ from .device_writer import (
+@@ -3286,11 +3287,23 @@
+         still visible. It is held until the user is visibly back at a terminal
+         rather than timed out blind, so this can outlast the old fixed pulse by
+         minutes - see `pollCompletionHold_`.
++
++        That hold is deliberately *not* allowed to cover a mode that is itself
++        addressed to the user. A permission prompt is a request to act now; a
++        completion is news about something already finished. Once prompts
++        stopped expiring on a timer, a five-minute hold could sit on top of a
++        live prompt for its whole duration, which would be a worse display than
++        the one it replaced.
++
++        Note this cannot be expressed with MODE_PRIORITY: WORKING ranks *above*
++        COMPLETED there, and overriding working sessions is the entire reason
++        the completion signal exists. The exemption is specifically the modes
++        that are waiting on a person.
+         """
+ 
+         if self.error_latch.active:
+             return AgentMode.BLOCKED_ERROR
+-        if time.monotonic() < self.completion_pulse_until:
++        if time.monotonic() < self.completion_pulse_until and not mode_awaits_a_human(mode):
+             return AgentMode.COMPLETED
+         return mode
+ 
+diff -ruN base33/tests/test_awaiting_human.py work/tests/test_awaiting_human.py
+--- a/tests/test_awaiting_human.py	1969-12-31 18:00:00
++++ b/tests/test_awaiting_human.py	2026-09-25 03:20:58
+@@ -0,0 +1,392 @@
++"""Signals addressed to a person do not expire on a clock."""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from sidepulse.collector import mode_awaits_a_human, status_is_stale
++from sidepulse.models import MODE_PRIORITY, AgentMode, AgentStatus
++
++NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
++
++# Far past every timeout in the product: the idle timeout is an hour and the
++# recent-session retention is 48h.
++ANCIENT = NOW - timedelta(days=7)
++
++
++def row(mode: AgentMode, updated_at: datetime = ANCIENT) -> AgentStatus:
++    return AgentStatus(
++        provider="opencode",
++        agent_id="ses_1",
++        display_name="repo",
++        mode=mode,
++        event_name="x",
++        updated_at=updated_at,
++    )
++
++
++def is_stale(mode: AgentMode, updated_at: datetime = ANCIENT) -> bool:
++    return status_is_stale(
++        row(mode, updated_at),
++        NOW,
++        stale_after_seconds=3600.0,
++        tool_running_timeout_seconds=0.0,
++        completed_visible_seconds=1200.0,
++        idle_visible_seconds=0.0,
++    )
++
++
++class AwaitingHumanTests(unittest.TestCase):
++    def test_a_failure_never_goes_stale(self):
++        # A week-old dead run is still a dead run.
++        self.assertFalse(is_stale(AgentMode.BLOCKED_ERROR))
++
++    def test_a_permission_prompt_never_goes_stale(self):
++        self.assertFalse(is_stale(AgentMode.WAITING_FOR_INPUT))
++
++    def test_machine_states_still_expire(self):
++        # The timeout is right for these: an hour later they are simply untrue.
++        for mode in (
++            AgentMode.WORKING,
++            AgentMode.TOOL_RUNNING,
++            AgentMode.LONG_TASK_PROGRESS,
++            AgentMode.COMPLETED,
++            AgentMode.IDLE_READY,
++            AgentMode.UNKNOWN,
++        ):
++            self.assertTrue(is_stale(mode), mode)
++
++    def test_only_the_two_human_facing_modes_are_exempt(self):
++        exempt = {mode for mode in AgentMode if mode_awaits_a_human(mode)}
++        self.assertEqual(
++            exempt,
++            {AgentMode.BLOCKED_ERROR, AgentMode.WAITING_FOR_INPUT},
++        )
++
++    def test_fresh_rows_are_not_stale_either(self):
++        self.assertFalse(is_stale(AgentMode.WORKING, NOW))
++
++    def test_monitor_and_function_agree(self):
++        # Two independent copies of this rule exist; a fix to one that misses
++        # the other would leave the LEDs and the menu disagreeing.
++        from sidepulse.collector import AgentMonitor
++
++        monitor = AgentMonitor(
++            sources=(),
++            stale_after_seconds=3600.0,
++            completed_visible_seconds=1200.0,
++            idle_visible_seconds=0.0,
++        )
++        for mode in AgentMode:
++            self.assertEqual(
++                monitor.is_stale_status(row(mode), NOW),
++                is_stale(mode),
++                mode,
++            )
++
++
++class CompletionHoldPriorityTests(unittest.TestCase):
++    """A held completion must not sit on top of something more urgent."""
++
++    def test_the_hold_defers_to_modes_awaiting_a_human(self):
++        for mode in (AgentMode.BLOCKED_ERROR, AgentMode.WAITING_FOR_INPUT):
++            self.assertTrue(mode_awaits_a_human(mode), mode)
++
++    def test_the_hold_still_covers_ordinary_work(self):
++        # These are the modes the hold is *supposed* to override, which is the
++        # whole reason the completion signal exists.
++        for mode in (
++            AgentMode.WORKING,
++            AgentMode.TOOL_RUNNING,
++            AgentMode.LONG_TASK_PROGRESS,
++            AgentMode.IDLE_READY,
++            AgentMode.UNKNOWN,
++        ):
++            self.assertFalse(mode_awaits_a_human(mode), mode)
++
++    def test_mode_priority_cannot_express_this_exemption(self):
++        # Guards the comment in `led_mode_for_aggregate`: WORKING ranks above
++        # COMPLETED, so a priority comparison would suppress the completion
++        # signal in exactly the case it was built for. If this ever stops being
++        # true, that code can be simplified - but not before.
++        self.assertLess(
++            MODE_PRIORITY[AgentMode.WORKING],
++            MODE_PRIORITY[AgentMode.COMPLETED],
++        )
++
++
++class FailureSurvivesSilenceTests(unittest.TestCase):
++    """A run that died must not be redrawn as a run that finished."""
++
++    def transition(self, previous: AgentStatus, current: AgentStatus) -> bool:
++        from sidepulse.collector import should_ignore_status_transition
++
++        return should_ignore_status_transition(previous, current, set())
++
++    def status(self, mode: AgentMode, event: str, offset: int = 0) -> AgentStatus:
++        return AgentStatus(
++            provider="opencode",
++            agent_id="ses_1",
++            display_name="repo",
++            mode=mode,
++            event_name=event,
++            updated_at=NOW + timedelta(seconds=offset),
++        )
++
++    def setUp(self):
++        self.failed = self.status(AgentMode.BLOCKED_ERROR, "StopFailure")
++
++    def test_the_idle_that_follows_a_failure_does_not_erase_it(self):
++        # This is the real-world sequence: every harness reports the error and
++        # then immediately reports the session idle. Both land in one 15s
++        # sample, and before this the idle won and the failure was invisible.
++        for event in ("Stop", "SessionEnd"):
++            self.assertTrue(
++                self.transition(self.failed, self.status(AgentMode.COMPLETED, event, 1)),
++                event,
++            )
++
++    def test_a_session_restart_does_not_erase_a_failure(self):
++        self.assertTrue(
++            self.transition(self.failed, self.status(AgentMode.IDLE_READY, "SessionStart", 1))
++        )
++
++    def test_real_activity_clears_the_failure(self):
++        # Otherwise the row could never recover on its own.
++        for mode, event in (
++            (AgentMode.WORKING, "UserPromptSubmit"),
++            (AgentMode.TOOL_RUNNING, "PreToolUse"),
++            (AgentMode.WAITING_FOR_INPUT, "PermissionRequest"),
++        ):
++            self.assertFalse(
++                self.transition(self.failed, self.status(mode, event, 1)),
++                event,
++            )
++
++    def test_a_later_failure_replaces_an_earlier_one(self):
++        self.assertFalse(
++            self.transition(self.failed, self.status(AgentMode.BLOCKED_ERROR, "StopFailure", 1))
++        )
++
++    def test_an_ordinary_completion_is_untouched(self):
++        # The guard must be scoped to failures; a session that simply finishes
++        # still has to be able to report that it finished.
++        working = self.status(AgentMode.WORKING, "UserPromptSubmit")
++        self.assertFalse(
++            self.transition(working, self.status(AgentMode.COMPLETED, "Stop", 1))
++        )
++
++    def test_no_previous_status_is_not_a_failure(self):
++        from sidepulse.collector import failure_would_be_erased_by_silence
++
++        self.assertFalse(
++            failure_would_be_erased_by_silence(None, self.status(AgentMode.COMPLETED, "Stop"))
++        )
++
++
++class OpenCodeErrorSurfaceTests(unittest.TestCase):
++    """Every failure that stops a run has to reach the device."""
++
++    def plugin_source(self) -> str:
++        from pathlib import Path
++
++        from sidepulse.install import opencode_plugin_source
++
++        return opencode_plugin_source(Path("/tmp/sidepulse-test.jsonl"))
++
++    def test_both_session_runners_report_failures(self):
++        # OpenCode has two session pipelines; only one publishes
++        # `session.error`. Forwarding just that one loses every failure on the
++        # other.
++        source = self.plugin_source()
++        for event in ("session.error", "session.next.step.failed", "session.next.tool.failed"):
++            self.assertIn(event, source, event)
++
++    def test_assistant_message_errors_are_watched(self):
++        # StructuredOutputError never publishes `session.error` at all - it is
++        # only ever recorded on the assistant message - so a session.error-only
++        # subscriber reports a failed run as a clean finish.
++        source = self.plugin_source()
++        self.assertIn("assistantErrorEvent", source)
++        self.assertIn('info?.role !== "assistant"', source)
++
++    def test_deliberate_interrupts_are_not_failures(self):
++        # Pressing escape is an instruction. With failures now persisting until
++        # acknowledged, treating it as an error would light red on every
++        # interrupt.
++        self.assertIn("MessageAbortedError", self.plugin_source())
++
++    def test_recoverable_context_overflow_is_not_a_failure(self):
++        # Auto-compaction publishes session.error and then carries on; only the
++        # fatal variant also marks the assistant message.
++        source = self.plugin_source()
++        self.assertIn("SESSION_ERROR_IGNORED", source)
++        self.assertIn("ContextOverflowError", source)
++
++    def test_failure_events_map_to_blocked_error(self):
++        from sidepulse.collector import mode_for_event
++        from sidepulse.models import HookEvent
++        from sidepulse.providers import canonical_event_name
++
++        for raw_name in (
++            "session.error",
++            "session.next.step.failed",
++            "session.next.tool.failed",
++        ):
++            canonical = canonical_event_name(raw_name)
++            self.assertEqual(canonical, "StopFailure", raw_name)
++            record = HookEvent(
++                provider="opencode",
++                logged_at=NOW,
++                event_name=canonical,
++                raw={},
++                session_id="ses_1",
++            )
++            self.assertEqual(mode_for_event(record), AgentMode.BLOCKED_ERROR, raw_name)
++
++
++class ClosedSessionTests(unittest.TestCase):
++    """A question nobody can answer any more must stop being asked.
++
++    Prompts and failures no longer expire on a clock, which is only safe while
++    the session is still there to answer to. These are the two ways it stops
++    being there.
++    """
++
++    def stale(self, status: AgentStatus) -> bool:
++        return status_is_stale(
++            status,
++            NOW,
++            stale_after_seconds=3600.0,
++            tool_running_timeout_seconds=0.0,
++            completed_visible_seconds=1200.0,
++            idle_visible_seconds=0.0,
++        )
++
++    def row(self, mode: AgentMode, pid: int | None) -> AgentStatus:
++        return AgentStatus(
++            provider="opencode",
++            agent_id="ses_1",
++            display_name="repo",
++            mode=mode,
++            event_name="PermissionRequest",
++            updated_at=ANCIENT,
++            session_id="ses_1",
++            agent_pid=pid,
++        )
++
++    def dead_pid(self) -> int:
++        import subprocess
++
++        process = subprocess.Popen(["/usr/bin/true"])
++        process.wait()
++        return process.pid
++
++    def test_a_closed_terminal_releases_the_prompt(self):
++        # The harness died mid-prompt and no further event is ever coming.
++        dead = self.dead_pid()
++        for mode in (AgentMode.WAITING_FOR_INPUT, AgentMode.BLOCKED_ERROR):
++            self.assertTrue(self.stale(self.row(mode, dead)), mode)
++
++    def test_a_live_session_still_persists_indefinitely(self):
++        import os
++
++        for mode in (AgentMode.WAITING_FOR_INPUT, AgentMode.BLOCKED_ERROR):
++            self.assertFalse(self.stale(self.row(mode, os.getpid())), mode)
++
++    def test_a_provider_without_a_pid_keeps_persisting(self):
++        # Hook-based providers run short-lived subprocesses, so their pid would
++        # describe the hook rather than the agent. Absent must not read as dead.
++        for mode in (AgentMode.WAITING_FOR_INPUT, AgentMode.BLOCKED_ERROR):
++            self.assertFalse(self.stale(self.row(mode, None)), mode)
++
++    def test_unknown_pid_counts_as_alive(self):
++        from sidepulse.collector import process_is_alive
++
++        self.assertTrue(process_is_alive(None))
++
++    def test_a_deleted_session_is_removed_not_completed(self):
++        from sidepulse.collector import StatusMetadata, mark_ignored_session
++        from sidepulse.models import HookEvent
++
++        statuses = {"opencode:session:ses_1": self.row(AgentMode.WAITING_FOR_INPUT, None)}
++        ignored: set[str] = set()
++        record = HookEvent(
++            provider="opencode",
++            logged_at=NOW,
++            event_name="SessionDeleted",
++            raw={},
++            session_id="ses_1",
++        )
++        self.assertTrue(
++            mark_ignored_session(record, StatusMetadata(), statuses, ignored)
++        )
++        self.assertEqual(statuses, {})
++        self.assertIn("opencode:session:ses_1", ignored)
++
++    def test_deleting_a_session_takes_its_subagents_with_it(self):
++        # Subagents never receive a deletion of their own, and one stuck
++        # waiting would hold the device amber for a session that is gone.
++        from sidepulse.collector import StatusMetadata, mark_ignored_session
++        from sidepulse.models import HookEvent
++
++        child = AgentStatus(
++            provider="opencode",
++            agent_id="opencode:agent:ses_2",
++            display_name="child",
++            mode=AgentMode.WAITING_FOR_INPUT,
++            event_name="PermissionRequest",
++            updated_at=ANCIENT,
++            session_id="ses_2",
++            parent_session_id="ses_1",
++        )
++        statuses = {
++            "opencode:session:ses_1": self.row(AgentMode.WAITING_FOR_INPUT, None),
++            "opencode:agent:ses_2": child,
++        }
++        record = HookEvent(
++            provider="opencode",
++            logged_at=NOW,
++            event_name="SessionDeleted",
++            raw={},
++            session_id="ses_1",
++        )
++        mark_ignored_session(record, StatusMetadata(), statuses, set())
++        self.assertEqual(statuses, {})
++
++    def test_deletion_is_mapped_distinctly_from_completion(self):
++        # "Removed" and "finished" must stay tellable apart: a failure survives
++        # a completion, but nothing survives deletion.
++        from sidepulse.providers import canonical_event_name
++
++        self.assertEqual(canonical_event_name("session.deleted"), "SessionDeleted")
++        self.assertNotEqual(
++            canonical_event_name("session.deleted"),
++            canonical_event_name("session.idle"),
++        )
++
++    def test_the_plugin_reports_a_pid_and_deletions(self):
++        from pathlib import Path
++
++        from sidepulse.install import opencode_plugin_source
++
++        source = opencode_plugin_source(Path("/tmp/sidepulse-test.jsonl"))
++        self.assertIn("AGENT_PID", source)
++        self.assertIn("agent_pid", source)
++        self.assertIn("session.deleted", source)
++
++    def test_pid_is_parsed_from_either_spelling(self):
++        from sidepulse.collector import _agent_pid_from_raw
++
++        self.assertEqual(_agent_pid_from_raw({"agent_pid": 42}), 42)
++        self.assertEqual(_agent_pid_from_raw({"agentPid": "42"}), 42)
++        self.assertIsNone(_agent_pid_from_raw({}))
++        self.assertIsNone(_agent_pid_from_raw({"agent_pid": 0}))
++        self.assertIsNone(_agent_pid_from_raw({"agent_pid": -1}))
++        # `True` is an int in Python; it is not a pid.
++        self.assertIsNone(_agent_pid_from_raw({"agent_pid": True}))
++
++
++if __name__ == "__main__":
++    unittest.main()

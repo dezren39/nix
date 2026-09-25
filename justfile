@@ -265,6 +265,20 @@ share-dry *args:
 sidepulse-setup *args:
     nix run .#sidepulse-setup -- {{args}}
 
+# Play the three multi-signal LED layouts on a connected device, 30s each.
+# Stops the status-bar app for the duration and restarts it afterwards.
+# See docs/sidepulse-leds.md for what each layout does and why.
+[group('sidepulse')]
+sidepulse-led-demo *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Run against the built package rather than whatever is installed, so the
+    # demo shows the layouts as patched here even before a `just switch`.
+    pkg="$(nix build --no-link --print-out-paths .#sidepulse-unwrapped)"
+    site="$(echo "$pkg"/lib/python*/site-packages)"
+    python="$(head -1 "$pkg/bin/.sidepulse-wrapped" | sed 's|^#!||')"
+    PYTHONPATH="$site" "$python" scripts/sidepulse-led-demo.py {{args}}
+
 # Trigger the one-time macOS permission prompt for SidePulse LED writes.
 [group('sidepulse')]
 sidepulse-grant-leds:

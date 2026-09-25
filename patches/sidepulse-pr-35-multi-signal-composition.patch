@@ -1,0 +1,3302 @@
+diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
+--- a/src/sidepulse/compose.py	1969-12-31 18:00:00
++++ b/src/sidepulse/compose.py	2026-09-25 15:15:26
+@@ -0,0 +1,1674 @@
++"""Show several things at once on a two-LED device.
++
++The aggregate has always answered "what is the single most urgent thing?" and
++painted that. With errors and prompts no longer expiring on a clock, several of
++them are routinely true at the same moment, and priority alone throws the rest
++away: a failure hides a pending permission prompt indefinitely, and you only
++learn about the prompt once you have dealt with the failure.
++
++This module composes one LEDS.LED program that carries the whole set.
++
++Signals, not names
++------------------
++
++Layouts are written against a *ranked list of signals with a tier*, never
++against "red" or "error". A layout asks which signals are present, which of
++them demand action and which are ambient, and lays those out. Adding a fifth
++signal, or recolouring one, needs no change to any layout.
++
++The tier is the part that stops layouts from special-casing. "Error and ask
++behave differently from done and busy" is true, but it is not a fact about
++errors - it is a fact about whether the signal is *asking the user to do
++something*. `TIER_DEMAND` and `TIER_AMBIENT` name that directly, so `beacon`
++can say "demand blinks, ambient glows" without ever mentioning a colour.
++
++What the hardware allows, and does not
++--------------------------------------
++
++The device runs the program by itself; the host writes it once and walks away.
++Everything in the *static* layouts therefore has to be one program, under 512
++bytes and 20 lines, with a single global `repeat` and no loop nesting. See
++docs/sidepulse-leds.md for the probes behind each of those limits.
++
++Two layouts (`drift`, `live`) deliberately break that contract and are driven
++by the host instead, which buys cadences a single static program cannot
++express. They cost a device write per tick, so they are opt-in and rate
++limited.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++
++MAX_PROGRAM_BYTES = 512
++MAX_PROGRAM_LINES = 20
++
++BLACK = "#000000"
++
++# --- signals ---------------------------------------------------------------
++
++TIER_DEMAND = "demand"
++TIER_AMBIENT = "ambient"
++
++
++# How a signal announces itself when it first appears.
++#
++# `signature` replays the authored animation, for signals whose rhythm is part
++# of their identity - the error's double blink says "failure" before the colour
++# has even registered, and smoothing it into a breath would throw that away.
++#
++# `breath` is a single slow swell in the signal's colour. Most animations are
++# built to repeat in the background, so replaying them verbatim as an
++# announcement is either too brief to notice (the done blip is 110ms) or too
++# busy. A breath is unmistakably "something just happened".
++ARRIVAL_STYLE_SIGNATURE = "signature"
++ARRIVAL_STYLE_BREATH = "breath"
++
++
++@dataclass(frozen=True)
++class StatusSignal:
++    """One thing the device can report.
++
++    `rank` orders urgency, lowest first. `tier` says whether the signal is a
++    request aimed at the user or background information; layouts branch on the
++    tier rather than on which signal it happens to be.
++    """
++
++    key: str
++    color: str
++    rank: int
++    tier: str
++    label: str
++    arrival_style: str = ARRIVAL_STYLE_BREATH
++
++
++SIGNAL_ERROR = "error"
++SIGNAL_ASK = "ask"
++SIGNAL_DONE = "done"
++SIGNAL_BUSY = "busy"
++
++SIGNALS: dict[str, StatusSignal] = {
++    # Pure red rather than the shipped #FF0010: that had a blue tint pushing it
++    # toward crimson, and dropping it reads as a truer red without changing the
++    # separation from amber (which differs only in green).
++    SIGNAL_ERROR: StatusSignal(
++        SIGNAL_ERROR, "#FF0000", 1, TIER_DEMAND, "failed", ARRIVAL_STYLE_SIGNATURE
++    ),
++    # Moved from #FF3A00, which differed from red by 58/255 of green and
++    # nothing else - so on a dimmed LED the two became the same colour long
++    # before they became invisible. At 45% the old pair had a spread of 19;
++    # this has 55. Chosen between #FF3A00 (indistinguishable) and #FFA000
++    # (legible but too yellow to read as a warning).
++    SIGNAL_ASK: StatusSignal(SIGNAL_ASK, "#FF7A00", 2, TIER_DEMAND, "waiting on you"),
++    SIGNAL_DONE: StatusSignal(SIGNAL_DONE, "#00FF66", 3, TIER_AMBIENT, "finished"),
++    SIGNAL_BUSY: StatusSignal(SIGNAL_BUSY, "#8800FF", 4, TIER_AMBIENT, "working"),
++}
++
++SIGNAL_ORDER = tuple(
++    signal.key for signal in sorted(SIGNALS.values(), key=lambda s: s.rank)
++)
++SIGNAL_COLORS = {key: signal.color for key, signal in SIGNALS.items()}
++
++
++def order_signals(signals) -> tuple[str, ...]:
++    """Normalise to rank order, dropping unknowns and duplicates."""
++
++    present = {str(signal) for signal in signals}
++    return tuple(key for key in SIGNAL_ORDER if key in present)
++
++
++def signals_in_tier(signals: tuple[str, ...], tier: str) -> tuple[str, ...]:
++    return tuple(key for key in signals if SIGNALS[key].tier == tier)
++
++
++# --- easing ----------------------------------------------------------------
++
++EASINGS = (
++    "linear",
++    "ease",
++    "ease-in",
++    "ease-out",
++    "ease-in-out",
++    "cosine",
++    "pulse",
++    "none",
++)
++
++
++def _easing(value: object, default: str) -> str:
++    return value if isinstance(value, str) and value in EASINGS else default
++
++
++def _direction(value: object, default: str) -> str:
++    return value if isinstance(value, str) and value in DIRECTIONS else default
++
++
++# --- modes -----------------------------------------------------------------
++
++MULTI_SIGNAL_PRIORITY = "priority"
++MULTI_SIGNAL_ROUND_ROBIN = "round-robin"
++MULTI_SIGNAL_SPLIT = "split"
++MULTI_SIGNAL_PAIRED = "paired"
++MULTI_SIGNAL_ORBIT = "orbit"
++MULTI_SIGNAL_DEPTH = "depth"
++MULTI_SIGNAL_BEACON = "beacon"
++MULTI_SIGNAL_TIDE = "tide"
++MULTI_SIGNAL_DRIFT = "drift"
++MULTI_SIGNAL_LIVE = "live"
++
++# Layouts the host has to keep feeding. Everything else is written once.
++MULTI_SIGNAL_DYNAMIC_MODES = (MULTI_SIGNAL_DRIFT, MULTI_SIGNAL_LIVE)
++
++MULTI_SIGNAL_MODES = (
++    MULTI_SIGNAL_PRIORITY,
++    MULTI_SIGNAL_ROUND_ROBIN,
++    MULTI_SIGNAL_SPLIT,
++    MULTI_SIGNAL_PAIRED,
++    MULTI_SIGNAL_ORBIT,
++    MULTI_SIGNAL_DEPTH,
++    MULTI_SIGNAL_BEACON,
++    MULTI_SIGNAL_TIDE,
++    MULTI_SIGNAL_DRIFT,
++    MULTI_SIGNAL_LIVE,
++)
++
++
++def mode_is_dynamic(mode: str) -> bool:
++    return mode in MULTI_SIGNAL_DYNAMIC_MODES
++
++
++# Compact motifs, whole-device, used by `round-robin` when more than one signal
++# is showing. Each is the authored animation reduced to its recognisable
++# gesture: the error's double blink, the ask's breathe, the done's single blip.
++COMPACT_MOTIFS: dict[str, tuple[str, ...]] = {
++    SIGNAL_ERROR: (
++        "{color} 120ms none",
++        "off 120ms none",
++        "{color} 120ms none",
++        "off 360ms none",
++    ),
++    SIGNAL_ASK: ("{color} 700ms pulse", "off 120ms none"),
++    SIGNAL_DONE: ("{color} 110ms none", "off 500ms ease-out"),
++    SIGNAL_BUSY: ("{color} 700ms pulse", "off 120ms none"),
++}
++
++# --- timing ----------------------------------------------------------------
++
++MIN_TIMING_MS = 20
++MAX_TIMING_MS = 65535
++
++DEFAULT_HOLD_MS = 140
++DEFAULT_GAP_MS = 420
++DEFAULT_SWELL_MS = 900
++DEFAULT_STAGGER_MS = 450
++DEFAULT_ROLL_MS = 1400
++# How long `orbit` takes to fade into each new pair of colours, and with what
++# curve. Short enough not to stall the revolution, long enough not to snap.
++DEFAULT_RESEED_MS = 320
++DEFAULT_RESEED_EASING = "cosine"
++DEFAULT_PUSH_MS = 700
++DEFAULT_MOTIF_SCALE = 1.0
++MIN_MOTIF_SCALE = 0.25
++MAX_MOTIF_SCALE = 8.0
++
++# A single dial over every duration in every layout. Each layout's numbers are
++# tuned relative to each other - a blink is shorter than the gap after it, a
++# swell longer than a blink - and those relationships are the design. Scaling
++# them together changes the pace without disturbing any of that, which is what
++# "the whole thing is too fast" actually asks for. Above 1 is slower.
++#
++# The default is not 1. The per-layout numbers below read naturally as a
++# design - 140ms blink, 420ms gap, 900ms swell - but on an LED a foot from
++# your face, at the edge of vision, every one of them was too quick. Rather
++# than multiply each constant through and lose the legibility of the ratios,
++# the pace lives here.
++DEFAULT_TEMPO = 2.5
++MIN_TEMPO = 0.25
++MAX_TEMPO = 6.0
++DEFAULT_EASING = "none"
++# Which way colours travel across the device in the rotating layouts.
++DIRECTION_BACK_TO_FRONT = "back-to-front"
++DIRECTION_FRONT_TO_BACK = "front-to-back"
++DIRECTIONS = (DIRECTION_BACK_TO_FRONT, DIRECTION_FRONT_TO_BACK)
++DEFAULT_DIRECTION = DIRECTION_BACK_TO_FRONT
++DEFAULT_MASTER_BRIGHTNESS = 255
++DEFAULT_AMBIENT_LEVEL = 0.28
++# How brightly a demand-tier signal is drawn. Full strength is not always
++# right: when the *only* difference between tiers is intensity, an urgent
++# colour at 255 does not read as "urgent", it reads as "glare", and the eye
++# stops distinguishing it from the next one. Pulling it down keeps the ratio
++# that carries the meaning while making the whole thing easier to sit beside.
++DEFAULT_DEMAND_LEVEL = 1.0
++
++# A demand-tier signal shown as *context* rather than as the blink - which
++# happens when two urgent things are live and only one can be on the front at a
++# time. Glowing it at the ambient level would say it is background, which it is
++# not; glowing it at full would compete with the blink.
++#
++# This is an absolute level rather than a fraction of `demand_level`, because
++# what it has to protect is *hue*, not proportion. Dimming scales every channel
++# equally, so two colours that differ only in one channel - red and amber
++# differ by 58/255 of green and nothing else - become indistinguishable well
++# before they become invisible. At 32% that 58 is down to 19 and the back LED
++# simply reads as dim red.
++DEFAULT_GLOW_LEVEL = 0.45
++
++# How much of the frame the back LED spends *travelling* to its next colour.
++#
++# Split by tier on the reasoning that an urgent colour on the back wants to
++# arrive and be recognised, where an ambient one wants to drift. A short fade
++# reaches the colour early and holds it, so it reads as itself; a long one
++# spends most of the frame partway between two hues, which is what makes two
++# similar colours blur into one.
++DEFAULT_GLOW_FADE_URGENT = 0.4
++DEFAULT_GLOW_FADE_AMBIENT = 1.0
++
++# How many blink frames the glow takes to travel between two colours.
++#
++# The blink and the sweep share a timeline, because a line lasts as long as its
++# longest segment - so simply giving the back a longer fade would stretch the
++# front's blink with it. Spreading one colour change over several frames, with
++# an interpolated colour at each step, is the only way to run the two at
++# different speeds on one device.
++#
++# 1 means the glow changes colour on every blink, which ties the two rates
++# together. Above that the sweep slows while the blink keeps its pace.
++DEFAULT_GLOW_STEPS = 1
++MAX_GLOW_STEPS = 6
++
++# Hold the *cycle* length constant instead of the step length.
++#
++# With a fixed step, a layout's pace depends on how many signals happen to be
++# live: four colours at 2.7s each come round every 10.8s, but two come round
++# every 5.4s. Fewer signals therefore read as *busier*, which is backwards -
++# less is happening. Dividing a target cycle by the signal count inverts that:
++# each step stretches as signals leave and tightens as they arrive, so the
++# rhythm of the device stays put while its contents change.
++#
++# Zero disables it and `hold_ms` is used directly.
++DEFAULT_CYCLE_MS = 0
++
++# Per-LED output correction, applied after every other level.
++#
++# The two LEDs on a Dot are not equivalent output devices. They face opposite
++# ways: one shines directly at you and saturates toward white in the middle of
++# its die at high values, losing hue exactly where the signal matters most; the
++# other shines onto whatever the device is resting on, losing light to the
++# surface and picking up a colour cast from it. They want opposite corrections,
++# which no single level can express.
++#
++# With this, a level means the same *perceived* thing in either position, and
++# the numbers elsewhere stop being compensation-by-feel for a physical
++# asymmetry. Defaults to no correction, because the right values depend on the
++# device, the surface and the room - they have to be dialled in by eye.
++# Calibrated on a SidePulse Dot standing on a desk. These are a property of the
++# device, the surface under it and the room - not of the software - so they are
++# the one set of defaults here that will not suit someone else's setup.
++#
++# The whole correction sits on the front because the back has a hard ceiling at
++# 255 and several colours already reach it while still reading dim. Boosting
++# the constrained side works until it saturates and then fails silently, and
++# differently for every colour; attenuating the unconstrained side always
++# works. See docs/sidepulse-modes.md for the measurements.
++DEFAULT_LED_GAIN = (0.48, 1.0)
++MIN_LED_GAIN = 0.1
++MAX_LED_GAIN = 2.0
++
++# Per-channel correction, per LED. `led_gain` scales all three channels
++# together and so preserves hue by construction - which is right for a
++# brightness difference, and useless for a *colour* one.
++#
++# The two LEDs do differ in colour, not only in level: one is seen directly and
++# one through whatever the device is resting on, which absorbs some wavelengths
++# more than others. Correcting that needs the channels moved independently -
++# lifting green on the LED that reads too red, say - and there is no way to
++# express it as a single multiplier.
++#
++# Ordered R, G, B. Defaults to no correction; the right values are a property
++# of the device and the surface, so they have to be found by eye.
++DEFAULT_LED_CHANNEL_GAIN = ((1.0, 0.876, 1.0), (1.0, 1.0, 1.0))
++MIN_LEVEL = 0.02
++MAX_LEVEL = 1.0
++
++# Per-layout departures from the base, applied before any user override.
++BUILT_IN_MODE_TIMING: dict[str, dict[str, object]] = {
++    MULTI_SIGNAL_SPLIT: {
++        # Both LEDs are usually lit and nothing fades, so this is the layout
++        # most continuously *present* - which makes running it at full the
++        # harshest option of the set. Slightly below `paired`, whose pulse
++        # peaks briefly and can afford more.
++        "demand_level": 0.75,
++        "ambient_level": 0.26,
++    },
++    # Two colours at once need longer on screen to be read as two, and the
++    # swell needs room to actually swell: at a short hold a `pulse` has no
++    # time to rise and fall, so it lands as a blink with soft edges rather
++    # than as a breath. The dark gap is correspondingly short - the pulse
++    # already returns to black on its own, so the gap only separates pairs.
++    MULTI_SIGNAL_PAIRED: {
++        "hold_ms": 820,
++        "gap_ms": 260,
++        "easing": "pulse",
++        # Both LEDs are lit at once, so position carries no urgency and
++        # intensity has to. Brighter than `tide`, which never goes dark, and
++        # dimmer than nothing - a pulse peaks briefly so it can afford more.
++        "demand_level": 0.78,
++        "ambient_level": 0.26,
++    },
++    MULTI_SIGNAL_ORBIT: {
++        # A roll is one continuous motion, so its "hold" is the whole
++        # revolution.
++        "easing": "linear",
++        # The slowest of any layout, and slower than `depth` despite showing
++        # brighter colours. Continuous motion reads faster than discrete
++        # blinking at the same nominal duration, because there is no dark gap
++        # punctuating it - the eye has nothing to measure the pace against.
++        "tempo": 4.5,
++    },
++    # A wash should never snap; cosine is the smoothest transition available.
++    MULTI_SIGNAL_TIDE: {
++        "hold_ms": 900,
++        "easing": "cosine",
++        # Never dark means never resting, so both levels sit lower than in the
++        # blinking layouts - and the gap between them is what carries urgency
++        # once darkness is not available to do it.
++        "demand_level": 0.8,
++        "ambient_level": 0.22,
++        # The wash holds its cycle rather than its step, so two colours drift
++        # slowly and four move briskly - the device keeps one rhythm whatever
++        # is happening on it. Chosen so two signals land at an effective tempo
++        # of 4.5; the rest follows, because a constant cycle is strictly 1/n.
++        "cycle_ms": 2700,
++        "tempo": 3.0,
++    },
++    # The glow underneath has to settle rather than flick on.
++    # The glow needs room to travel between colours, so the blink it sits
++    # under has to slow down with it - at the base 140ms the sweep would be
++    # over before the eye found it.
++    MULTI_SIGNAL_BEACON: {
++        "hold_ms": 700,
++        "gap_ms": 260,
++        "easing": "ease-out",
++        # The blink is the signal here, so it stays brighter than `depth`'s -
++        # but not at full, which on a device this close reads as glare rather
++        # than as urgency.
++        "demand_level": 0.72,
++        # The blink is at the right pace but the sweep underneath is not, so
++        # the glow takes two frames per colour instead of one. Same effect as
++        # running the back at a slower tempo, which a shared timeline cannot
++        # otherwise express.
++        "glow_steps": 2,
++    },
++    # Dimness is only legible against something brighter, and a whole-device
++    # rotation shows one colour at a time - so the only available reference is
++    # the *previous* frame. That makes both the dwell and the contrast
++    # load-bearing: too quick and the eye has nothing to compare, too shallow
++    # and there is nothing to notice.
++    MULTI_SIGNAL_DEPTH: {
++        "hold_ms": 700,
++        "gap_ms": 260,
++        # `pulse` rises to the colour and back down within the dwell, so the
++        # frame ends where the next one starts. With `ease-out` the colour was
++        # eased *in* and then cut to black by the `none` on the gap line, which
++        # put a hard drop at the peak of every frame - the one moment the eye
++        # was already looking at.
++        "easing": "pulse",
++        # Raised from 0.12 after the per-LED calibration: that number was set
++        # while the front ran unattenuated and the back was clamping, so the
++        # ambient being judged then is not the ambient seen now. Perceived
++        # brightness is roughly gamma-2.2, so a small step at the dark end
++        # lands harder than the figure suggests.
++        "ambient_level": 0.15,
++        "demand_level": 0.62,
++        # Slower than everything else, and for a structural reason: this is the
++        # only layout where brightness *is* the message, so the eye has to
++        # compare a frame against the one before it rather than read a colour
++        # outright. That comparison needs dwell, and needs more of it the
++        # dimmer the frames get.
++        "tempo": 4.0,
++    },
++}
++
++
++def _clamp_ms(value: object, default: int) -> int:
++    try:
++        number = int(round(float(value)))
++    except (TypeError, ValueError):
++        return default
++    return max(MIN_TIMING_MS, min(MAX_TIMING_MS, number))
++
++
++def _clamp_scale(value: object, default: float) -> float:
++    try:
++        number = float(value)
++    except (TypeError, ValueError):
++        return default
++    return max(MIN_MOTIF_SCALE, min(MAX_MOTIF_SCALE, number))
++
++
++def _clamp_tempo(value: object, default: float) -> float:
++    try:
++        number = float(value)
++    except (TypeError, ValueError):
++        return default
++    return max(MIN_TEMPO, min(MAX_TEMPO, number))
++
++
++def _clamp_level(value: object, default: float) -> float:
++    try:
++        number = float(value)
++    except (TypeError, ValueError):
++        return default
++    return max(MIN_LEVEL, min(MAX_LEVEL, number))
++
++
++def _clamp_brightness(value: object, default: int) -> int:
++    try:
++        number = int(round(float(value)))
++    except (TypeError, ValueError):
++        return default
++    return max(1, min(255, number))
++
++
++TIMING_KEYS = frozenset(
++    {
++        "hold_ms",
++        "gap_ms",
++        "swell_ms",
++        "stagger_ms",
++        "roll_ms",
++        "push_ms",
++        "reseed_ms",
++        "reseed_easing",
++        "motif_scale",
++        "tempo",
++        "easing",
++        "master_brightness",
++        "ambient_level",
++        "demand_level",
++        "glow_level",
++        "glow_fade_urgent",
++        "glow_fade_ambient",
++        "glow_steps",
++        "cycle_ms",
++        "led_gain",
++        "led_channel_gain",
++        "direction",
++    }
++)
++
++
++@dataclass(frozen=True)
++class ModeTiming:
++    """Every tunable, already resolved for one layout."""
++
++    hold_ms: int = DEFAULT_HOLD_MS
++    gap_ms: int = DEFAULT_GAP_MS
++    swell_ms: int = DEFAULT_SWELL_MS
++    stagger_ms: int = DEFAULT_STAGGER_MS
++    roll_ms: int = DEFAULT_ROLL_MS
++    push_ms: int = DEFAULT_PUSH_MS
++    reseed_ms: int = DEFAULT_RESEED_MS
++    motif_scale: float = DEFAULT_MOTIF_SCALE
++    tempo: float = DEFAULT_TEMPO
++    easing: str = DEFAULT_EASING
++    reseed_easing: str = DEFAULT_RESEED_EASING
++    master_brightness: int = DEFAULT_MASTER_BRIGHTNESS
++    ambient_level: float = DEFAULT_AMBIENT_LEVEL
++    demand_level: float = DEFAULT_DEMAND_LEVEL
++    glow_level: float = DEFAULT_GLOW_LEVEL
++    glow_fade_urgent: float = DEFAULT_GLOW_FADE_URGENT
++    glow_fade_ambient: float = DEFAULT_GLOW_FADE_AMBIENT
++    glow_steps: int = DEFAULT_GLOW_STEPS
++    cycle_ms: int = DEFAULT_CYCLE_MS
++    led_gain: tuple[float, ...] = DEFAULT_LED_GAIN
++    led_channel_gain: tuple[tuple[float, ...], ...] = DEFAULT_LED_CHANNEL_GAIN
++    direction: str = DEFAULT_DIRECTION
++
++
++@dataclass(frozen=True)
++class MultiSignalTiming:
++    """Base timings plus per-layout overrides.
++
++    Three layers, each falling through to the next: a layout's override, then
++    the user's base, then the built-in default. So setting `hold_ms` once
++    changes every layout that has not deliberately departed from it, and a
++    layout override stays a statement about that layout only.
++    """
++
++    hold_ms: int = DEFAULT_HOLD_MS
++    gap_ms: int = DEFAULT_GAP_MS
++    swell_ms: int = DEFAULT_SWELL_MS
++    stagger_ms: int = DEFAULT_STAGGER_MS
++    roll_ms: int = DEFAULT_ROLL_MS
++    push_ms: int = DEFAULT_PUSH_MS
++    reseed_ms: int = DEFAULT_RESEED_MS
++    motif_scale: float = DEFAULT_MOTIF_SCALE
++    tempo: float = DEFAULT_TEMPO
++    easing: str = DEFAULT_EASING
++    reseed_easing: str = DEFAULT_RESEED_EASING
++    master_brightness: int = DEFAULT_MASTER_BRIGHTNESS
++    ambient_level: float = DEFAULT_AMBIENT_LEVEL
++    demand_level: float = DEFAULT_DEMAND_LEVEL
++    glow_level: float = DEFAULT_GLOW_LEVEL
++    glow_fade_urgent: float = DEFAULT_GLOW_FADE_URGENT
++    glow_fade_ambient: float = DEFAULT_GLOW_FADE_AMBIENT
++    glow_steps: int = DEFAULT_GLOW_STEPS
++    cycle_ms: int = DEFAULT_CYCLE_MS
++    led_gain: tuple[float, ...] = DEFAULT_LED_GAIN
++    led_channel_gain: tuple[tuple[float, ...], ...] = DEFAULT_LED_CHANNEL_GAIN
++    direction: str = DEFAULT_DIRECTION
++    overrides: dict[str, dict[str, object]] = field(default_factory=dict)
++
++    def for_mode(self, mode: str) -> ModeTiming:
++        override = dict(BUILT_IN_MODE_TIMING.get(mode, {}))
++        # A user override for a layout replaces the built-in departure rather
++        # than merging with it, so what is written is what is used.
++        if mode in self.overrides:
++            override.update(self.overrides[mode])
++        # Read after merging: a built-in per-mode pace was previously ignored
++        # because only user overrides were consulted here.
++        tempo = _clamp_tempo(override.get("tempo", self.tempo), self.tempo)
++
++        def paced(value: object, fallback: int) -> int:
++            # Clamped after scaling, so a slow tempo cannot push a duration
++            # past what the device will parse.
++            return _clamp_ms(round(_clamp_ms(value, fallback) * tempo), fallback)
++
++        return ModeTiming(
++            hold_ms=paced(override.get("hold_ms"), self.hold_ms),
++            gap_ms=paced(override.get("gap_ms"), self.gap_ms),
++            swell_ms=paced(override.get("swell_ms"), self.swell_ms),
++            stagger_ms=paced(override.get("stagger_ms"), self.stagger_ms),
++            roll_ms=paced(override.get("roll_ms"), self.roll_ms),
++            push_ms=_clamp_ms(override.get("push_ms"), self.push_ms),
++            reseed_ms=paced(override.get("reseed_ms"), self.reseed_ms),
++            reseed_easing=_easing(
++                override.get("reseed_easing"), self.reseed_easing
++            ),
++            motif_scale=_clamp_scale(override.get("motif_scale"), self.motif_scale),
++            tempo=tempo,
++            easing=_easing(override.get("easing"), self.easing),
++            master_brightness=_clamp_brightness(
++                override.get("master_brightness"), self.master_brightness
++            ),
++            ambient_level=_clamp_level(
++                override.get("ambient_level"), self.ambient_level
++            ),
++            demand_level=_clamp_level(
++                override.get("demand_level"), self.demand_level
++            ),
++            glow_level=_clamp_level(override.get("glow_level"), self.glow_level),
++            glow_fade_urgent=_clamp_level(
++                override.get("glow_fade_urgent"), self.glow_fade_urgent
++            ),
++            glow_fade_ambient=_clamp_level(
++                override.get("glow_fade_ambient"), self.glow_fade_ambient
++            ),
++            glow_steps=_clamp_steps(override.get("glow_steps"), self.glow_steps),
++            cycle_ms=(
++                paced(override.get("cycle_ms"), self.cycle_ms)
++                if (override.get("cycle_ms") or self.cycle_ms)
++                else 0
++            ),
++            led_gain=_led_gain_setting(override.get("led_gain"), self.led_gain),
++            led_channel_gain=_led_channel_gain_setting(
++                override.get("led_channel_gain"), self.led_channel_gain
++            ),
++            direction=_direction(override.get("direction"), self.direction),
++        )
++
++    @classmethod
++    def from_mapping(cls, data: object) -> "MultiSignalTiming":
++        """Read a settings block, ignoring anything malformed.
++
++        Hand-edited settings are the expected source, so one bad value falls
++        back to its default rather than discarding the whole block.
++        """
++
++        if not isinstance(data, dict):
++            return cls()
++        overrides: dict[str, dict[str, object]] = {}
++        for mode in MULTI_SIGNAL_MODES:
++            block = data.get(mode)
++            if isinstance(block, dict):
++                overrides[mode] = {
++                    key: value for key, value in block.items() if key in TIMING_KEYS
++                }
++        return cls(
++            hold_ms=_clamp_ms(data.get("hold_ms"), DEFAULT_HOLD_MS),
++            gap_ms=_clamp_ms(data.get("gap_ms"), DEFAULT_GAP_MS),
++            swell_ms=_clamp_ms(data.get("swell_ms"), DEFAULT_SWELL_MS),
++            stagger_ms=_clamp_ms(data.get("stagger_ms"), DEFAULT_STAGGER_MS),
++            roll_ms=_clamp_ms(data.get("roll_ms"), DEFAULT_ROLL_MS),
++            push_ms=_clamp_ms(data.get("push_ms"), DEFAULT_PUSH_MS),
++            reseed_ms=_clamp_ms(data.get("reseed_ms"), DEFAULT_RESEED_MS),
++            reseed_easing=_easing(data.get("reseed_easing"), DEFAULT_RESEED_EASING),
++            motif_scale=_clamp_scale(data.get("motif_scale"), DEFAULT_MOTIF_SCALE),
++            tempo=_clamp_tempo(data.get("tempo"), DEFAULT_TEMPO),
++            easing=_easing(data.get("easing"), DEFAULT_EASING),
++            master_brightness=_clamp_brightness(
++                data.get("master_brightness"), DEFAULT_MASTER_BRIGHTNESS
++            ),
++            ambient_level=_clamp_level(
++                data.get("ambient_level"), DEFAULT_AMBIENT_LEVEL
++            ),
++            demand_level=_clamp_level(
++                data.get("demand_level"), DEFAULT_DEMAND_LEVEL
++            ),
++            glow_level=_clamp_level(data.get("glow_level"), DEFAULT_GLOW_LEVEL),
++            glow_fade_urgent=_clamp_level(
++                data.get("glow_fade_urgent"), DEFAULT_GLOW_FADE_URGENT
++            ),
++            glow_fade_ambient=_clamp_level(
++                data.get("glow_fade_ambient"), DEFAULT_GLOW_FADE_AMBIENT
++            ),
++            glow_steps=_clamp_steps(data.get("glow_steps"), DEFAULT_GLOW_STEPS),
++            cycle_ms=_clamp_ms(data.get("cycle_ms"), DEFAULT_CYCLE_MS)
++            if data.get("cycle_ms")
++            else DEFAULT_CYCLE_MS,
++            led_gain=_led_gain_setting(data.get("led_gain"), DEFAULT_LED_GAIN),
++            led_channel_gain=_led_channel_gain_setting(
++                data.get("led_channel_gain"), DEFAULT_LED_CHANNEL_GAIN
++            ),
++            direction=_direction(data.get("direction"), DEFAULT_DIRECTION),
++            overrides=overrides,
++        )
++
++    def to_dict(self) -> dict[str, object]:
++        out: dict[str, object] = {
++            "hold_ms": self.hold_ms,
++            "gap_ms": self.gap_ms,
++            "swell_ms": self.swell_ms,
++            "stagger_ms": self.stagger_ms,
++            "roll_ms": self.roll_ms,
++            "push_ms": self.push_ms,
++            "reseed_ms": self.reseed_ms,
++            "reseed_easing": self.reseed_easing,
++            "motif_scale": self.motif_scale,
++            "tempo": self.tempo,
++            "easing": self.easing,
++            "master_brightness": self.master_brightness,
++            "ambient_level": self.ambient_level,
++            "demand_level": self.demand_level,
++            "glow_level": self.glow_level,
++            "glow_fade_urgent": self.glow_fade_urgent,
++            "glow_fade_ambient": self.glow_fade_ambient,
++            "glow_steps": self.glow_steps,
++            "cycle_ms": self.cycle_ms,
++            "led_gain": list(self.led_gain),
++            "led_channel_gain": [list(row) for row in self.led_channel_gain],
++            "direction": self.direction,
++        }
++        for mode, block in sorted(self.overrides.items()):
++            if block:
++                out[mode] = dict(block)
++        return out
++
++
++def _led_gain_setting(value: object, default: tuple[float, ...]) -> tuple[float, ...]:
++    if not isinstance(value, (list, tuple)) or not value:
++        return default
++    return tuple(
++        _clamp_gain(item, default[index] if index < len(default) else 1.0)
++        for index, item in enumerate(value)
++    )
++
++
++def _led_channel_gain_setting(value: object, default) -> tuple:
++    if not isinstance(value, (list, tuple)) or not value:
++        return default
++    rows = []
++    for index, row in enumerate(value):
++        fallback = default[index] if index < len(default) else (1.0, 1.0, 1.0)
++        if not isinstance(row, (list, tuple)):
++            rows.append(fallback)
++            continue
++        rows.append(
++            tuple(
++                _clamp_gain(item, fallback[pos] if pos < len(fallback) else 1.0)
++                for pos, item in enumerate(row[:3])
++            )
++            or fallback
++        )
++    return tuple(rows)
++
++
++DEFAULT_TIMING = MultiSignalTiming()
++
++
++def _clamp_steps(value: object, default: int) -> int:
++    try:
++        number = int(value)
++    except (TypeError, ValueError):
++        return default
++    return max(1, min(MAX_GLOW_STEPS, number))
++
++
++def _clamp_gain(value: object, default: float) -> float:
++    try:
++        number = float(value)
++    except (TypeError, ValueError):
++        return default
++    return max(MIN_LED_GAIN, min(MAX_LED_GAIN, number))
++
++
++def blend(start: str, end: str, position: float) -> str:
++    """A colour `position` of the way from `start` to `end`."""
++
++    def channels(value: str) -> list[int]:
++        value = value.lstrip("#")
++        return [int(value[pos : pos + 2], 16) for pos in (0, 2, 4)]
++
++    mixed = [
++        max(0, min(255, int(round(a + (b - a) * position))))
++        for a, b in zip(channels(start), channels(end))
++    ]
++    return "#{:02X}{:02X}{:02X}".format(*mixed)
++
++
++def dim(color: str, level: float) -> str:
++    """Scale a colour toward black.
++
++    Per-colour rather than via the `brightness` keyword, because brightness is
++    a global multiplier: it cannot make one LED dim while another stays full,
++    which is exactly what the tiered layouts need.
++    """
++
++    text = color.lstrip("#")
++    channels = [int(text[index : index + 2], 16) for index in (0, 2, 4)]
++    scaled = [max(0, min(255, int(round(value * level)))) for value in channels]
++    return "#{:02X}{:02X}{:02X}".format(*scaled)
++
++
++def scale_channels(color: str, factors) -> str:
++    """Scale R, G and B independently, clamped."""
++
++    text = color.lstrip("#")
++    channels = [int(text[pos : pos + 2], 16) for pos in (0, 2, 4)]
++    scaled = [
++        max(0, min(255, int(round(value * factor))))
++        for value, factor in zip(channels, factors)
++    ]
++    return "#{:02X}{:02X}{:02X}".format(*scaled)
++
++
++def led_factors(index: int, clock: ModeTiming) -> tuple[float, float, float]:
++    """The R/G/B multipliers for one LED: overall gain times channel gain."""
++
++    gains = clock.led_gain or DEFAULT_LED_GAIN
++    gain = gains[index] if index < len(gains) else 1.0
++    rows = clock.led_channel_gain or DEFAULT_LED_CHANNEL_GAIN
++    row = rows[index] if index < len(rows) else (1.0, 1.0, 1.0)
++    row = tuple(row) + (1.0,) * (3 - len(row))
++    return (gain * row[0], gain * row[1], gain * row[2])
++
++
++def led(color: str, index: int, clock: ModeTiming) -> str:
++    """A colour as it should be written to one specific LED."""
++
++    factors = led_factors(index, clock)
++    if factors == (1.0, 1.0, 1.0):
++        return color
++    return scale_channels(color, factors)
++
++
++def device(color: str, clock: ModeTiming) -> str:
++    """A colour for a whole-device line.
++
++    Written as a plain colour when the LEDs need no correction, and as a
++    position-indexed colour list when they do - which costs bytes but is the
++    only way to give two LEDs different values on one line.
++    """
++
++    if all(
++        led_factors(index, clock) == (1.0, 1.0, 1.0) for index in (0, 1)
++    ):
++        return color
++    return f"{color} {color}"
++
++
++@dataclass(frozen=True)
++class ComposedProgram:
++    program: str
++    signals: tuple[str, ...]
++    mode: str
++
++    @property
++    def byte_length(self) -> int:
++        return len(self.program.encode("utf-8"))
++
++    @property
++    def line_count(self) -> int:
++        return len([line for line in self.program.splitlines() if line.strip()])
++
++    def fits(self) -> bool:
++        return (
++            self.byte_length <= MAX_PROGRAM_BYTES
++            and self.line_count <= MAX_PROGRAM_LINES
++        )
++
++
++def compose_program(
++    signals,
++    *,
++    mode: str = MULTI_SIGNAL_PRIORITY,
++    breathe: bool = False,
++    timing: MultiSignalTiming | None = None,
++    native_programs: dict[str, str] | None = None,
++    phase: int = 0,
++) -> ComposedProgram:
++    """Build one program showing `signals`, laid out according to `mode`.
++
++    `native_programs` supplies each signal's authored animation. A lone signal
++    always uses its native program, whatever the layout: a composition of one
++    is just that signal, and the authored version is the one tuned to look
++    right.
++
++    `phase` advances the host-driven layouts. Static layouts ignore it, so the
++    same call is safe either way.
++    """
++
++    ordered = order_signals(signals)
++    native = native_programs or {}
++    clock = (timing or DEFAULT_TIMING).for_mode(mode)
++
++    if not ordered:
++        return ComposedProgram(program="off", signals=(), mode=mode)
++
++    if len(ordered) == 1 or mode == MULTI_SIGNAL_PRIORITY:
++        top = ordered[0]
++        program = native.get(top) or _rotation((top,), clock)
++        return ComposedProgram(program=program, signals=(top,), mode=mode)
++
++    builder = _BUILDERS.get(mode)
++    if builder is None:
++        raise ValueError(f"Unknown multi-signal mode: {mode}")
++    if breathe and mode in _BREATHING:
++        builder = _BREATHING[mode]
++    program = _with_master_brightness(builder(ordered, clock, phase), clock)
++
++    composed = ComposedProgram(program=program, signals=ordered, mode=mode)
++    if composed.fits():
++        return composed
++
++    # Rather than let the device reject an oversized program - which blinks all
++    # LEDs red six times and would read as a failure that did not happen - drop
++    # the least urgent signal and try again.
++    return compose_program(
++        ordered[:-1],
++        mode=mode,
++        breathe=breathe,
++        timing=timing,
++        native_programs=native_programs,
++        phase=phase,
++    )
++
++
++def _with_master_brightness(program: str, clock: ModeTiming) -> str:
++    if clock.master_brightness >= 255:
++        return program
++    return f"brightness {clock.master_brightness}\n{program}"
++
++
++def step_ms(clock: ModeTiming, count: int) -> int:
++    """How long one step lasts, holding the cycle constant when asked.
++
++    Without this a layout speeds up as signals leave, because the same step
++    length covers fewer of them. Dividing the cycle by the count keeps the
++    device's rhythm steady and lets the contents change underneath it.
++    """
++
++    if clock.cycle_ms <= 0 or count <= 0:
++        return clock.hold_ms
++    return max(MIN_TIMING_MS, min(MAX_TIMING_MS, round(clock.cycle_ms / count)))
++
++
++def _loop(lines: list[str]) -> str:
++    return "\n".join(lines + ["repeat"])
++
++
++# --- static layouts --------------------------------------------------------
++
++
++def _rotation(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """round-robin: each signal's authored gesture in turn, whole device."""
++
++    lines: list[str] = []
++    for key in signals:
++        color = SIGNAL_COLORS[key]
++        lines.extend(step.format(color=color) for step in COMPACT_MOTIFS[key])
++    program = _loop(lines)
++    if clock.motif_scale != 1.0:
++        from .led_status import scale_program_durations
++
++        program = scale_program_durations(program, clock.motif_scale)
++    return program
++
++
++def _split(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """split: urgent in front, quiet behind, both lit, changing on the beat.
++
++    The front carries the demand-tier signals and the back the ambient ones, so
++    which LED a colour appears on says what *kind* of thing it is rather than
++    where it landed in the priority order.
++
++    Both stay lit and each side advances through its own pool independently -
++    the front cycling what is urgent, the back cycling what is merely true. The
++    two sides therefore fall in and out of step whenever the pools are
++    different lengths, which is the closest a single static program gets to two
++    independent rhythms.
++
++    Nothing fades: `none` snaps to the next colour and holds it. The other
++    layouts breathe or sweep; this one simply *is* two colours, changing on a
++    beat.
++
++    With a single urgent signal the front blinks instead of holding. A lone
++    colour sitting steady has no rhythm of its own and stops registering as a
++    demand at all - it just becomes part of the background it is supposed to
++    stand out from. Cycling between two urgent colours provides that rhythm by
++    itself, so the blink is only needed when there is nothing to cycle with.
++    The back is untouched either way: only the front is darkened, and an
++    unassigned LED holds its colour.
++    """
++
++    demand = signals_in_tier(signals, TIER_DEMAND)
++    ambient = signals_in_tier(signals, TIER_AMBIENT)
++    front_pool = demand or signals
++    back_pool = ambient or (signals[1:] if len(signals) > 1 else signals)
++    # With nothing urgent, both sides fall back to the same pool and would show
++    # the identical colour on both LEDs - two LEDs saying one thing. Offsetting
++    # the back by one makes them show different members of that pool, so the
++    # quiet state still uses the whole device.
++    back_offset = 1 if front_pool == back_pool and len(back_pool) > 1 else 0
++    # A demand signal shown as context keeps the demoted level rather than
++    # dropping to ambient, same as `beacon`.
++    back_level = clock.ambient_level if ambient else clock.glow_level
++    # With nothing urgent live, the front is holding an ambient signal and has
++    # no claim on the demand level - the whole device is quiet, so both sides
++    # should say so. Otherwise the same colour would look urgent on one LED and
++    # not on the other.
++    front_level = clock.demand_level if demand else clock.ambient_level
++
++    # The gap is folded into the dwell rather than spent on darkness, so
++    # removing the dark does not double the rate.
++    dwell = min(MAX_TIMING_MS, clock.hold_ms + clock.gap_ms)
++
++    # Enough frames for both pools to return to their starting pair at once.
++    from math import lcm
++
++    # Several urgent signals and nothing else: there is no quiet half to hold
++    # steady, so the two sides stop meaning "urgent" and "background" and the
++    # layout has nothing left to say by position. Alternating them across the
++    # device restores a rhythm, and says "these two, in turn" rather than
++    # parking two similar colours side by side where they blur together.
++    alternate_urgent = len(demand) > 1 and not ambient
++    if alternate_urgent:
++        half = max(MIN_TIMING_MS, dwell // 2)
++        lines = []
++        for index, key in enumerate(demand):
++            lit = dim(SIGNAL_COLORS[key], clock.demand_level)
++            if index % 2 == 0:
++                lines.append(f"0:{lit} {half}ms none; 1:{BLACK} {half}ms none")
++            else:
++                lines.append(f"0:{BLACK} {half}ms none; 1:{lit} {half}ms none")
++        return _loop(lines)
++
++    frames = lcm(max(1, len(front_pool)), max(1, len(back_pool)))
++    blink_front = len(front_pool) == 1
++    lines: list[str] = []
++    for index in range(frames):
++        front = dim(
++            SIGNAL_COLORS[front_pool[index % len(front_pool)]], front_level
++        )
++        back = dim(
++            SIGNAL_COLORS[back_pool[(index + back_offset) % len(back_pool)]],
++            back_level,
++        )
++        if blink_front:
++            lines.append(
++                f"0:{front} {clock.hold_ms}ms none; 1:{back} {clock.hold_ms}ms none"
++            )
++            lines.append(f"0:{BLACK} {clock.gap_ms}ms none")
++        else:
++            lines.append(f"0:{front} {dwell}ms none; 1:{back} {dwell}ms none")
++    return _loop(lines)
++
++
++def _paired(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """paired: two colours lit at once, rotating through every signal.
++
++    A sliding window rather than fixed pairs. Frame `i` puts signal `i` on the
++    front and signal `i+1` on the back, so on the next frame that second colour
++    has moved to the front: each signal enters at the back and travels forward,
++    and every signal is seen twice per cycle, once in each position.
++
++    Fixed pairs (red+amber, then green+purple) showed the same colour in the
++    same place forever, which read as two alternating states rather than as one
++    rotation. The travel is what makes it legible as a cycle through everything.
++
++    `direction` reverses it, so colours run front to back instead.
++    """
++
++    hold, ease = clock.hold_ms, clock.easing
++    count = len(signals)
++    lines: list[str] = []
++    for index in range(count):
++        near = _tier_color(signals[index], clock)
++        far = _tier_color(signals[(index + 1) % count], clock)
++        front, back = (near, far)
++        if clock.direction == DIRECTION_FRONT_TO_BACK:
++            front, back = back, front
++        lines.append(
++            f"{front} {back} {hold}ms {ease}"
++        )
++        lines.append(f"off {clock.gap_ms}ms none")
++    return _loop(lines)
++
++
++def _orbit(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """orbit: colours circulating continuously, every signal taking a turn.
++
++    `roll` rotates whatever is currently visible through one full wraparound,
++    so a seed plus a roll is a complete circulating animation in two lines.
++
++    Seeding once would be cheaper still, but on a two-LED device a seed only
++    ever lights two colours - so with four signals live the two least urgent
++    would never appear at all, which defeats the point of composing. Instead
++    the seed advances as a sliding window: each revolution re-seeds with the
++    next pair, sharing one colour with the previous pair so the handover has
++    something in common rather than being a cut.
++
++    That re-seed is itself eased rather than instantaneous. A bare seed line
++    snaps, and after a smooth revolution a snap is the only thing the eye
++    notices; `reseed_ms` of easing folds the change into the motion.
++
++    On an eight-LED Pro the whole set fits one seed and this reduces to a
++    single continuous revolution, which is what it should be.
++    """
++
++    count = len(signals)
++    lines: list[str] = []
++    for index in range(count):
++        near = SIGNAL_COLORS[signals[index]]
++        far = SIGNAL_COLORS[signals[(index + 1) % count]]
++        front, back = (near, far)
++        if clock.direction == DIRECTION_FRONT_TO_BACK:
++            front, back = back, front
++        lines.append(
++            f"{front} {back} "
++            f"{clock.reseed_ms}ms {clock.reseed_easing}"
++        )
++        lines.append(f"roll {clock.roll_ms}ms {clock.easing}")
++    return _loop(lines)
++
++
++def _depth(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """depth: everything in turn, but urgency sets intensity.
++
++    A rotation where demand-tier signals burn at full strength and ambient ones
++    are dimmed toward black. Glance at it and the bright flashes tell you
++    whether anything needs you; look longer and the dim ones tell you what else
++    is going on.
++    """
++
++    lines: list[str] = []
++    for key in signals:
++        level = (
++            clock.ambient_level
++            if SIGNALS[key].tier == TIER_AMBIENT
++            else clock.demand_level
++        )
++        lines.append(
++            f"{dim(SIGNAL_COLORS[key], level)} "
++            f"{clock.hold_ms}ms {clock.easing}"
++        )
++        lines.append(f"off {clock.gap_ms}ms none")
++    return _loop(lines)
++
++
++def _beacon(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """beacon: what is asking for you blinks, the rest glows underneath.
++
++    The front LED blinks through the **demand-tier** signals, one per frame -
++    so two urgent things both get seen rather than the second hiding behind the
++    first. The back LED never goes out: it cross-fades through the ambient
++    signals, dimmed, so the glow is a slow sweep rather than a sequence of held
++    states.
++
++    With nothing demanding attention there is no beacon to light, and blinking
++    the least-bad news at you would be a lie about its urgency - so the layout
++    steps aside and becomes the wash instead. The device only blinks when
++    something actually wants you.
++
++    Only the front is darkened between blinks. An unassigned LED holds its
++    colour, so the glow survives the dark half for free.
++    """
++
++    demand = signals_in_tier(signals, TIER_DEMAND)
++    hold, ease = clock.hold_ms, clock.easing
++
++    if not demand:
++        # Nothing wants you, so nothing blinks - but the wash that replaces the
++        # blink stays at the glow level. Rendering it at full would mean the
++        # device got *brighter* the moment the urgent thing cleared, which is
++        # exactly backwards.
++        count = len(signals)
++        lines = []
++        for index in range(count):
++            near = dim(SIGNAL_COLORS[signals[index]], clock.ambient_level)
++            far = dim(SIGNAL_COLORS[signals[(index + 1) % count]], clock.ambient_level)
++            front, back = (near, far)
++            if clock.direction == DIRECTION_FRONT_TO_BACK:
++                front, back = back, front
++            lines.append(
++                f"{front} {back} {hold}ms {ease}"
++            )
++        return _loop(lines)
++
++    ambient = signals_in_tier(signals, TIER_AMBIENT)
++    # With no ambient signals the demand colours glow for each other, offset by
++    # one so the two LEDs never show the same colour at once.
++    glow, offset = (ambient, 0) if ambient else (demand, 1)
++    urgent_glow = not ambient
++    glow_level = max(
++        clock.ambient_level, clock.glow_level if urgent_glow else clock.ambient_level
++    )
++    # An urgent colour on the back arrives early and holds, so it is seen as
++    # itself; an ambient one drifts across the whole frame.
++    fade = round(
++        hold * (clock.glow_fade_urgent if urgent_glow else clock.glow_fade_ambient)
++    )
++    fade = max(MIN_TIMING_MS, min(hold, fade))
++
++    steps = max(1, clock.glow_steps)
++    frames = max(len(demand), len(glow) * steps)
++    lines = []
++    for index in range(frames):
++        lead = dim(SIGNAL_COLORS[demand[index % len(demand)]], clock.demand_level)
++        # The glow advances once every `steps` frames, interpolating on the way
++        # so a slower sweep still reads as travel rather than as a hold.
++        slot = (index // steps + offset) % len(glow)
++        previous = glow[(slot - 1) % len(glow)]
++        toward = dim(SIGNAL_COLORS[glow[slot]], glow_level)
++        position = (index % steps + 1) / steps
++        mixed = blend(dim(SIGNAL_COLORS[previous], glow_level), toward, position)
++        under = mixed
++        lines.append(f"0:{lead} {hold}ms {ease}; 1:{under} {fade}ms cosine")
++        lines.append(f"0:{BLACK} {clock.gap_ms}ms {ease}")
++    return _loop(lines)
++
++
++def _tide(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """tide: a wash that never goes dark, with the two LEDs offset.
++
++    Each colour cross-fades into the next with `cosine`, the smoothest
++    transition the DSL has. No blink and no gap anywhere.
++
++    The two LEDs are deliberately one step apart in the sequence rather than
++    showing the same colour: the front carries where the wash *is* and the back
++    carries where it came from, so a colour visibly travels across the device
++    instead of both ends changing in lockstep. Setting both to one colour threw
++    away the only spatial dimension a two-LED device has, and made a four-signal
++    wash indistinguishable from a single colour cycling.
++
++    Each colour is drawn at its tier's level. This is the one layout that is
++    never off, so it is also the one where constant full brightness is most
++    tiring - and with no darkness to punctuate it, intensity is the only thing
++    left to say which of the colours matters. The wash brightens as it reaches
++    something urgent and settles as it passes.
++    """
++
++    count = len(signals)
++    hold = step_ms(clock, count)
++    lines: list[str] = []
++    for index in range(count):
++        near = _tier_color(signals[index], clock)
++        far = _tier_color(signals[(index + 1) % count], clock)
++        front, back = (near, far)
++        if clock.direction == DIRECTION_FRONT_TO_BACK:
++            front, back = back, front
++        lines.append(
++            f"{front} {back} {hold}ms {clock.easing}"
++        )
++    return _loop(lines)
++
++
++def _tier_color(key: str, clock: ModeTiming) -> str:
++    """A signal's colour drawn at its tier's intensity."""
++
++    level = (
++        clock.ambient_level
++        if SIGNALS[key].tier == TIER_AMBIENT
++        else clock.demand_level
++    )
++    return dim(SIGNAL_COLORS[key], level)
++
++
++# --- breathing variants ----------------------------------------------------
++
++
++def _breathe_frame(front: str, back: str, clock: ModeTiming) -> str:
++    return (
++        f"0:{front} {clock.swell_ms}ms pulse 0ms; "
++        f"1:{back} {clock.swell_ms}ms pulse {clock.stagger_ms}ms"
++    )
++
++
++def _breathe_rotation(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    return _loop(
++        [
++            _breathe_frame(SIGNAL_COLORS[key], SIGNAL_COLORS[key], clock)
++            for key in signals
++        ]
++    )
++
++
++def _breathe_split(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    lead = SIGNAL_COLORS[signals[0]]
++    return _loop(
++        [_breathe_frame(lead, SIGNAL_COLORS[key], clock) for key in signals[1:]]
++    )
++
++
++def _breathe_paired(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    lines: list[str] = []
++    for index in range(0, len(signals), 2):
++        pair = signals[index : index + 2]
++        first = SIGNAL_COLORS[pair[0]]
++        second = SIGNAL_COLORS[pair[1]] if len(pair) > 1 else first
++        lines.append(_breathe_frame(first, second, clock))
++    return _loop(lines)
++
++
++def _breathe_beacon(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    lead = SIGNAL_COLORS[signals[0]]
++    glow = signals_in_tier(signals, TIER_AMBIENT) or signals[1:]
++    return _loop(
++        [
++            _breathe_frame(lead, dim(SIGNAL_COLORS[key], clock.ambient_level), clock)
++            for key in glow
++        ]
++    )
++
++
++# --- host-driven layouts ---------------------------------------------------
++
++# How many frames of the virtual timeline each `drift` push carries. Two frames
++# per push keeps the program tiny while leaving the device something to play if
++# the next push is late.
++DRIFT_FRAMES_PER_PUSH = 2
++
++# Periods, in frames, assigned by rank. Chosen coprime so the combined pattern
++# takes their product to repeat rather than their (much smaller) common factor.
++DRIFT_PERIODS = (2, 3, 5, 7)
++
++
++def drift_period_for(rank_index: int) -> int:
++    return DRIFT_PERIODS[min(rank_index, len(DRIFT_PERIODS) - 1)]
++
++
++def _drift(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """drift: independent rhythms that go genuinely out of phase.
++
++    A single static program cannot do this. The device has one global loop, so
++    everything in it resyncs every cycle; the longest non-repeating pattern
++    that fits in 20 lines is about eleven seconds.
++
++    So the timeline lives on the host instead. Each signal is assigned a period
++    in frames by rank - 2, 3, 5, 7, deliberately coprime - and is lit on frames
++    divisible by it. The host advances `phase` and pushes the next couple of
++    frames. With four signals the pattern repeats after 2x3x5x7 = 210 frames,
++    around two and a half minutes, which is long enough that nobody sees it.
++
++    Front carries demand-tier signals, back carries ambient, so the two halves
++    of the device drift against each other rather than the colours smearing.
++    """
++
++    demand = signals_in_tier(signals, TIER_DEMAND)
++    ambient = signals_in_tier(signals, TIER_AMBIENT)
++    lines: list[str] = []
++    for step in range(DRIFT_FRAMES_PER_PUSH):
++        frame = phase * DRIFT_FRAMES_PER_PUSH + step
++        front = _drift_pick(demand, frame)
++        back = _drift_pick(ambient, frame)
++        lines.append(
++            f"0:{front} {clock.hold_ms}ms {clock.easing}; "
++            f"1:{back} {clock.hold_ms}ms {clock.easing}"
++        )
++        lines.append(f"off {clock.gap_ms}ms none")
++    return _loop(lines)
++
++
++def _drift_pick(group: tuple[str, ...], frame: int) -> str:
++    """The colour this half of the device shows on `frame`, or black."""
++
++    for index, key in enumerate(group):
++        if frame % drift_period_for(SIGNALS[key].rank - 1) == 0:
++            return SIGNAL_COLORS[key]
++    return BLACK
++
++
++def _live(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
++    """live: every signal on its own clock, recomputed every push.
++
++    Where `drift` keeps a shared frame grid, this gives each signal a real
++    independent cadence - its authored cycle length, unquantised - and asks,
++    at the moment of each push, what every LED should be showing right now.
++    The answer is a one-line program, so the write is as small as the format
++    allows.
++
++    This is the layout that does what a single static program provably cannot,
++    and it pays for it with a device write per tick. `push_ms` is the dial: at
++    the 700ms default it is roughly one write per second.
++    """
++
++    demand = signals_in_tier(signals, TIER_DEMAND) or signals
++    ambient = signals_in_tier(signals, TIER_AMBIENT) or signals
++    now = phase * clock.push_ms
++    front = _live_pick(demand, now)
++    back = _live_pick(ambient, now)
++    return _loop(
++        [
++            f"0:{front} {clock.push_ms}ms {clock.easing}; "
++            f"1:{back} {clock.push_ms}ms {clock.easing}"
++        ]
++    )
++
++
++# Each signal's own cycle length in `live`, in milliseconds. These are the
++# authored cadences from the device's own animations, so a signal keeps the
++# rhythm it has when it is alone.
++LIVE_CYCLE_MS = {
++    SIGNAL_ERROR: 1120,
++    SIGNAL_ASK: 1600,
++    SIGNAL_DONE: 790,
++    SIGNAL_BUSY: 1800,
++}
++
++
++def _live_pick(group: tuple[str, ...], now_ms: int) -> str:
++    """Whichever signal in `group` is inside the lit part of its own cycle."""
++
++    for key in group:
++        cycle = LIVE_CYCLE_MS[key]
++        if (now_ms % cycle) < cycle // 2:
++            return SIGNAL_COLORS[key]
++    return BLACK
++
++
++_BUILDERS = {
++    MULTI_SIGNAL_ROUND_ROBIN: _rotation,
++    MULTI_SIGNAL_SPLIT: _split,
++    MULTI_SIGNAL_PAIRED: _paired,
++    MULTI_SIGNAL_ORBIT: _orbit,
++    MULTI_SIGNAL_DEPTH: _depth,
++    MULTI_SIGNAL_BEACON: _beacon,
++    MULTI_SIGNAL_TIDE: _tide,
++    MULTI_SIGNAL_DRIFT: _drift,
++    MULTI_SIGNAL_LIVE: _live,
++}
++
++_BREATHING = {
++    MULTI_SIGNAL_ROUND_ROBIN: _breathe_rotation,
++    MULTI_SIGNAL_SPLIT: _breathe_split,
++    MULTI_SIGNAL_PAIRED: _breathe_paired,
++    MULTI_SIGNAL_BEACON: _breathe_beacon,
++}
++
++
++# --- arrivals --------------------------------------------------------------
++
++# How many times a newly-arrived signal plays its own animation before folding
++# into the composition. Keyed by tier, not by name: something asking you to act
++# earns a second pass, something merely reporting does not.
++# Every arrival plays exactly once. A second pass reads as the signal having
++# *started* rather than as an announcement, and at these lengths one is plenty.
++ARRIVAL_REPEATS = {TIER_DEMAND: 1, TIER_AMBIENT: 1}
++
++# How long an arrival breath takes to rise and fall. Demand-tier signals get a
++# longer one - not louder, just held a beat more, which is the difference
++# between "look at this" and "for your information".
++ARRIVAL_BREATH_MS = {TIER_DEMAND: 2600, TIER_AMBIENT: 1800}
++
++# Where an arrival sits between its tier level and the demand level.
++#
++# An announcement has to be noticed, so playing an ambient signal at its
++# ambient level would defeat the point - `busy` lives at 15-28% and would
++# announce itself at a brightness the eye is trained to ignore. Playing it at
++# full contradicts the tier system just as badly, and on the front LED lands
++# squarely in the saturation that washes colour to white.
++#
++# Demand-tier arrivals use the demand level unchanged; ambient ones are lifted
++# halfway toward it. Loud enough to interrupt, quiet enough to still be the
++# thing it is.
++ARRIVAL_AMBIENT_LIFT = 0.5
++
++# A lone repetition of a very short animation is easy to miss entirely, so an
++# arrival is held at least this long regardless of how brief its cycle is.
++MIN_ARRIVAL_MS = 700
++
++# And no arrival may hold the device for longer than this, however long the
++# authored animation is. An arrival is an announcement, not a takeover.
++MAX_ARRIVAL_MS = 5000
++
++_DURATION = None
++
++
++def program_cycle_ms(program: str) -> int:
++    """How long one pass of `program` takes.
++
++    A line lasts as long as its longest delay-plus-duration, so the cycle is
++    the sum of those. Measured from the authored text rather than assumed,
++    because these programs can come from a user's own custom animation.
++    """
++
++    global _DURATION
++    if _DURATION is None:
++        import re
++
++        _DURATION = re.compile(r"(\d+(?:\.\d+)?)\s*(ms|s)")
++    total = 0.0
++    for line in program.splitlines():
++        stripped = line.strip()
++        if not stripped or stripped.startswith("repeat"):
++            continue
++        longest = 0.0
++        for segment in stripped.split(";"):
++            found = [
++                float(value) * (1000.0 if unit == "s" else 1.0)
++                for value, unit in _DURATION.findall(segment)
++            ]
++            # Two numbers on a segment are a duration and a delay; the segment
++            # finishes at their sum. One is just a duration. None is a single
++            # 60Hz frame.
++            longest = max(longest, sum(found) if found else 16.7)
++        total += longest
++    return int(round(total))
++
++
++@dataclass(frozen=True)
++class ArrivalPlan:
++    signal: str
++    program: str
++    duration_ms: int
++
++
++def arrival_level(signal: str, clock: ModeTiming) -> float:
++    """How bright a signal announces itself."""
++
++    if SIGNALS[signal].tier == TIER_DEMAND:
++        return clock.demand_level
++    return clock.ambient_level + (
++        (clock.demand_level - clock.ambient_level) * ARRIVAL_AMBIENT_LIFT
++    )
++
++
++def apply_led_correction(program: str, clock: ModeTiming) -> str:
++    """Put a finished program through the per-LED correction.
++
++    This is the single place the device's asymmetry is compensated for, and it
++    runs on *every* program - the composed layouts, the authored animation
++    played when one signal is live, and the arrival announcements. Correcting
++    inside each composer instead meant three separate paths, and the two that
++    were added later (arrivals, then solo animations) each silently missed it.
++
++    An indexed colour already names an LED, so it gets that LED's factors. A
++    whole-device colour is expanded into a position-indexed pair, which is the
++    only way to give two LEDs different values on one line.
++
++    Idempotent only in the sense that a no-op correction leaves the text
++    untouched; applying it twice with a real correction would square it, so it
++    belongs at the write boundary and nowhere else.
++    """
++
++    return _rewrite_colors(program, lambda color: color, clock)
++
++
++def _correct_colors(program: str, level: float, clock: ModeTiming) -> str:
++    """Put every colour in a program through the same level and per-LED gain.
++
++    Arrivals predate both mechanisms and were bypassing them, so an
++    announcement ignored the tier levels *and* the per-LED correction - showing
++    the uncorrected front/back mismatch in the middle of an otherwise corrected
++    display.
++
++    Index-prefixed colours (`0:#FF0010`) are left alone: those already name one
++    LED, and rewriting them as a colour list would be a syntax error.
++    """
++
++    return _rewrite_colors(program, lambda color: dim(color, level), clock)
++
++
++def _rewrite_colors(program: str, transform, clock: ModeTiming) -> str:
++    """Apply `transform` then the per-LED correction to every colour."""
++
++    import re
++
++    def replace(match: re.Match[str]) -> str:
++        shifted = transform(match.group(2))
++        if match.group(1):
++            # Already names one LED, so it gets that LED's factors. Expanding
++            # it into a colour list would be a syntax error the device rejects.
++            index = int(match.group(1)[0])
++            return f"{match.group(1)}{led(shifted, index, clock)}"
++        return device(shifted, clock)
++
++    return re.sub(r"(\d:)?(#[0-9A-Fa-f]{6})", replace, program)
++
++
++def arrival_plan(
++    signal: str,
++    native_program: str,
++    *,
++    timing: MultiSignalTiming | None = None,
++    mode: str = MULTI_SIGNAL_PRIORITY,
++    repeats: dict[str, int] | None = None,
++) -> ArrivalPlan | None:
++    """The program a just-arrived signal plays before joining the rotation.
++
++    Uses the DSL's bounded `repeat N`, which runs the animation N times and
++    then holds - so the device stops on its own and the host only has to write
++    the composition once the time is up.
++
++    Note the format allows exactly one `repeat` per program, so "play twice
++    then loop the composition" cannot be a single program. That is the whole
++    reason this is two writes and a timer rather than one clever program.
++    """
++
++    key = str(signal)
++    if key not in SIGNALS:
++        return None
++    if not native_program and SIGNALS[key].arrival_style == ARRIVAL_STYLE_SIGNATURE:
++        return None
++    signal = SIGNALS[key]
++    counts = repeats or ARRIVAL_REPEATS
++    times = max(1, int(counts.get(signal.tier, 1)))
++    clock = (timing or DEFAULT_TIMING).for_mode(mode)
++    level = arrival_level(key, clock)
++
++    if signal.arrival_style == ARRIVAL_STYLE_BREATH:
++        swell = ARRIVAL_BREATH_MS.get(signal.tier, ARRIVAL_BREATH_MS[TIER_AMBIENT])
++        lines = ["off", f"{dim(signal.color, level)} {swell}ms pulse"]
++    else:
++        lines = [
++            _correct_colors(line, level, clock)
++            for line in _arrival_gesture(native_program)
++        ]
++    if not lines:
++        return None
++    if lines and lines[-1].strip().startswith("repeat"):
++        lines[-1] = f"repeat {times}"
++    else:
++        lines.append(f"repeat {times}")
++    program = "\n".join(lines)
++    duration = max(MIN_ARRIVAL_MS, program_cycle_ms(program) * times)
++    return ArrivalPlan(
++        signal=key, program=program, duration_ms=min(MAX_ARRIVAL_MS, duration)
++    )
++
++
++def _arrival_gesture(program: str) -> list[str]:
++    """An animation reduced to the part a person would recognise.
++
++    Silence at either end of a looping animation is its *spacing*, not its
++    gesture. Leading darkness is periodicity - the two-minute purple heartbeat
++    is dark for 120 seconds and then breathes once - and trailing darkness is
++    the rest between repetitions, which as a one-shot announcement is just dead
++    air before the rotation resumes. Both are dropped.
++
++    Pauses *inside* the gesture stay: the beat between the error's two blinks
++    is what makes it a double blink rather than two blinks.
++    """
++
++    lines = [
++        line
++        for line in program.splitlines()
++        if line.strip() and not line.strip().startswith("repeat")
++    ]
++    while lines and lines[0].strip().startswith("off"):
++        lines.pop(0)
++    while lines and lines[-1].strip().startswith("off"):
++        lines.pop()
++    return lines
++
++
++def new_arrivals(previous, current) -> tuple[str, ...]:
++    """Every signal in `current` that was not in `previous`, most urgent first.
++
++    All of them, not just the winner. Several signals routinely appear in the
++    same snapshot - a run fails and another finishes in the same second - and
++    announcing only the most urgent means the quieter ones are never seen to
++    arrive at all. They are played in turn instead, so each still gets its
++    moment and the order still says which mattered most.
++    """
++
++    fresh = set(order_signals(current)) - set(order_signals(previous or ()))
++    return tuple(key for key in SIGNAL_ORDER if key in fresh)
++
++
++def newest_arrival(previous, current) -> str | None:
++    """The most urgent signal in `current` that was not in `previous`."""
++
++    arrivals = new_arrivals(previous, current)
++    return arrivals[0] if arrivals else None
++
++
++def arrival_queue(
++    previous,
++    current,
++    natives,
++    *,
++    timing: MultiSignalTiming | None = None,
++    mode: str = MULTI_SIGNAL_PRIORITY,
++) -> tuple[ArrivalPlan, ...]:
++    """A plan per newly-arrived signal, in the order they should be played."""
++
++    plans = []
++    for key in new_arrivals(previous, current):
++        plan = arrival_plan(
++            key, (natives or {}).get(key, ""), timing=timing, mode=mode
++        )
++        if plan is not None:
++            plans.append(plan)
++    return tuple(plans)
+diff -ruN base34/src/sidepulse/led_status.py work/src/sidepulse/led_status.py
+--- a/src/sidepulse/led_status.py	2026-09-25 07:11:35
++++ b/src/sidepulse/led_status.py	2026-09-25 15:17:57
+@@ -359,7 +359,16 @@
+     animation_style: str = "default",
+     custom_program: str = "",
+     active_count: int = 1,
++    transform=None,
+ ) -> LedStatusWrite:
++    """Write the program for `mode`, optionally adjusted on the way out.
++
++    `transform` is the last thing to touch a program before it reaches a
++    device. It exists so per-device corrections - which are a property of the
++    hardware, not of any animation - live in one place instead of being applied
++    by each producer, where the ones added later kept missing it.
++    """
++
+     target = resolve_target_path(device_path=device_path, file_name=file_name)
+     state = display_state_for_mode(mode)
+     program = program_for_agent_mode(
+@@ -370,6 +379,8 @@
+         custom_program=custom_program,
+         active_count=active_count,
+     )
++    if transform is not None:
++        program = transform(program)
+     written_target = write_led_program(
+         program,
+         device_path=target,
+@@ -436,7 +447,12 @@
+         dry_run: bool = False,
+         error_retry_seconds: float = 10.0,
+         brightness: int | float = 255,
++        transform=None,
+     ) -> None:
++        # Applied to every program this controller writes. Per-device
++        # corrections belong here rather than in each producer, so a producer
++        # added later cannot silently miss them.
++        self.transform = transform
+         self.device_path = device_path
+         self.file_name = file_name
+         self.dry_run = dry_run
+@@ -533,6 +549,7 @@
+                 animation_style=animation_style,
+                 custom_program=custom_program,
+                 active_count=active_count,
++                transform=self.transform,
+             )
+         except (DeviceWriteError, OSError) as exc:
+             self.last_state = state
+diff -ruN base34/src/sidepulse/resources/animations/amber-pulse.LED work/src/sidepulse/resources/animations/amber-pulse.LED
+--- a/src/sidepulse/resources/animations/amber-pulse.LED	2026-09-25 07:11:35
++++ b/src/sidepulse/resources/animations/amber-pulse.LED	2026-09-25 15:14:05
+@@ -1,3 +1,3 @@
+ off
+-#FF3A00 1.6s pulse
++#FF7A00 1.6s pulse
+ repeat
+diff -ruN base34/src/sidepulse/resources/animations/error-red.LED work/src/sidepulse/resources/animations/error-red.LED
+--- a/src/sidepulse/resources/animations/error-red.LED	2026-09-25 07:11:35
++++ b/src/sidepulse/resources/animations/error-red.LED	2026-09-25 15:14:05
+@@ -1,6 +1,6 @@
+ off 60ms
+-#FF0010 120ms
++#FF0000 120ms
+ off 120ms
+-#FF0010 120ms
++#FF0000 120ms
+ off 700ms
+ repeat
+diff -ruN base34/src/sidepulse/settings.py work/src/sidepulse/settings.py
+--- a/src/sidepulse/settings.py	2026-09-25 07:11:35
++++ b/src/sidepulse/settings.py	2026-09-25 15:04:23
+@@ -8,6 +8,12 @@
+ from typing import Any
+ 
+ from .battery import DEFAULT_POWER_CHANGE_PREVIEW_SECONDS
++from .compose import (
++    MULTI_SIGNAL_BEACON,
++    MULTI_SIGNAL_MODES,
++    MULTI_SIGNAL_PRIORITY,
++    MultiSignalTiming,
++)
+ from .models import AgentMode
+ from .session_actions import SESSION_OPEN_CHOICES, SESSION_OPEN_TERMINAL
+ 
+@@ -207,6 +213,14 @@
+ # settings loading does not have to import the status-bar half of the app.
+ DEFAULT_COMPLETION_HOLD_MAX_SECONDS = 300.0
+ DEFAULT_COMPLETION_HOLD_SUSTAINED_INPUT_SECONDS = 2.5
++# How the device behaves when several signals are true at once. Defaults to the
++# historical behaviour - paint the most urgent one and drop the rest - so the
++# composition modes are opt-in rather than a surprise after an update.
++# `beacon` rather than the historical `priority`: it is the only layout whose
++# structure states the demand/ambient split outright - one thing blinks because
++# it wants you, everything else glows because it is merely true - and it is the
++# one that stops blinking entirely when nothing needs you.
++DEFAULT_MULTI_SIGNAL_MODE = MULTI_SIGNAL_BEACON
+ 
+ 
+ @dataclass(frozen=True)
+@@ -355,6 +369,10 @@
+         DEFAULT_COMPLETION_HOLD_SUSTAINED_INPUT_SECONDS
+     )
+     completion_hold_extra_bundle_ids: tuple[str, ...] = ()
++    multi_signal_mode: str = DEFAULT_MULTI_SIGNAL_MODE
++    multi_signal_breathe: bool = False
++    multi_signal_arrivals: bool = True
++    multi_signal_timing: MultiSignalTiming = field(default_factory=MultiSignalTiming)
+     setup_screen_completed: bool = False
+ 
+     def transcript_enabled(self, provider: str) -> bool:
+@@ -922,6 +940,12 @@
+                 "end_time": self.dnd_end_time,
+                 "last_schedule_transition": self.dnd_last_schedule_transition,
+             },
++            "multi_signal": {
++                "mode": self.multi_signal_mode,
++                "breathe": self.multi_signal_breathe,
++                "arrivals": self.multi_signal_arrivals,
++                "timing": self.multi_signal_timing.to_dict(),
++            },
+             "completion_hold": {
+                 "enabled": self.completion_hold_enabled,
+                 "max_seconds": self.completion_hold_max_seconds,
+@@ -992,6 +1016,9 @@
+     completion_hold = data.get("completion_hold")
+     if not isinstance(completion_hold, dict):
+         completion_hold = {}
++    multi_signal = data.get("multi_signal")
++    if not isinstance(multi_signal, dict):
++        multi_signal = {}
+ 
+     led_display = _led_display_setting(data.get("led_display"), LED_DISPLAY_AGENT)
+     session_open_preferences = _session_open_preferences(
+@@ -1127,6 +1154,10 @@
+         completion_hold_extra_bundle_ids=_string_tuple_setting(
+             completion_hold.get("extra_bundle_ids")
+         ),
++        multi_signal_mode=_multi_signal_mode_setting(multi_signal.get("mode")),
++        multi_signal_breathe=_bool_setting(multi_signal.get("breathe"), False),
++        multi_signal_arrivals=_bool_setting(multi_signal.get("arrivals"), True),
++        multi_signal_timing=MultiSignalTiming.from_mapping(multi_signal.get("timing")),
+     )
+ 
+ 
+@@ -1448,6 +1479,14 @@
+ 
+ def _string_setting(value: object) -> str:
+     return value if isinstance(value, str) else ""
++
++
++def _multi_signal_mode_setting(value: object) -> str:
++    """An unrecognised mode falls back rather than failing the whole load."""
++
++    if isinstance(value, str) and value.strip() in MULTI_SIGNAL_MODES:
++        return value.strip()
++    return DEFAULT_MULTI_SIGNAL_MODE
+ 
+ 
+ def _string_tuple_setting(value: object) -> tuple[str, ...]:
+diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
+--- a/src/sidepulse/status_bar.py	2026-09-25 07:11:35
++++ b/src/sidepulse/status_bar.py	2026-09-25 15:18:14
+@@ -147,6 +147,18 @@
+     CompletionWatcher,
+ )
+ from .presence import AttentionWatcher, frontmost_bundle_id, seconds_since_last_input
++from .compose import (
++    MULTI_SIGNAL_PRIORITY,
++    mode_is_dynamic,
++    arrival_queue,
++    apply_led_correction,
++    SIGNAL_ASK,
++    SIGNAL_BUSY,
++    SIGNAL_DONE,
++    SIGNAL_ERROR,
++    compose_program,
++    order_signals,
++)
+ from .error_latch import SessionErrorLatch
+ from .links import IOSLink, load_ios_links, remove_ios_link, send_ios_program
+ from .virtual_device import (
+@@ -198,6 +210,8 @@
+     ANIMATION_STATE_LID_OPEN,
+     ANIMATION_STATES,
+     AGENT_ANIMATION_ADD_CUSTOM,
++    AGENT_ANIMATION_CUSTOM,
++    AgentAnimationSetting,
+     AGENT_ANIMATION_AMBER_PULSE,
+     AGENT_ANIMATION_CYAN_COMPLETE,
+     AGENT_ANIMATION_CYAN_ROLL,
+@@ -749,6 +763,20 @@
+         # while a hold is live, so an idle Mac polls nothing.
+         self.attention_watcher = AttentionWatcher()
+         self.completion_hold_timer = None
++        # Everything currently true, not just the winner. Recomputed each
++        # refresh and consulted when the device program is resolved.
++        self.active_signals: tuple[str, ...] = ()
++        # Host-driven layouts advance a phase and are re-pushed on a timer.
++        # The timer only exists while such a layout is actually showing more
++        # than one signal, so every other configuration costs nothing.
++        self.multi_signal_phase = 0
++        self.multi_signal_timer = None
++        # A newly-arrived signal announces itself before joining the rotation.
++        self.previous_signals: tuple[str, ...] = ()
++        self.arrival = None
++        self.arrival_until = 0.0
++        self.arrival_timer = None
++        self.arrival_pending: tuple = ()
+         self.led_sync_in_flight = False
+         self.last_dnd_active = None
+         self.dnd_off_targets = set()
+@@ -897,6 +925,8 @@
+         )
+         self.error_latch.update(snapshot.statuses)
+         self.note_completions(snapshot)
++        self.note_signal_arrivals(self.active_signals_for(snapshot))
++        self.sync_multi_signal_driver()
+         self.sync_leds(
+             self.led_mode_for_aggregate(snapshot.aggregate.mode),
+             battery_snapshot,
+@@ -1334,6 +1364,9 @@
+     def applicationWillTerminate_(self, _notification):
+         self.stop_agent_animation_preview_timer()
+         self.stop_completion_hold_timer()
++        self.stop_multi_signal_driver()
++        self.arrival_pending = ()
++        self.stop_arrival_timer()
+         self.stop_event_server()
+         self.closed_lid_awake.release()
+         self.keep_awake.release()
+@@ -3111,6 +3144,11 @@
+             self.agent_led_controllers_by_device[device.device_id] = controller
+         controller.device_path = device.target
+         controller.brightness = device.brightness
++        # Rebound every time rather than once at construction: the correction
++        # is read from settings, which the user can change while running.
++        controller.transform = lambda program: correct_for_device(
++            self.settings, program
++        )
+         return controller
+ 
+     def battery_controller_for_device(self, device: StatusBarDevice) -> BatteryLedController:
+@@ -3389,6 +3427,190 @@
+             snapshot.aggregate.active_count,
+         )
+ 
++    def note_signal_arrivals(self, signals: tuple[str, ...]) -> None:
++        """Let a just-arrived signal play its own animation before it joins.
++
++        Without this a new failure appears only as "the rotation now has four
++        colours instead of three", which is exactly the miss the completion
++        hold exists to prevent for a finished run. The arrival borrows the
++        device for one or two passes of the signal's authored animation - two
++        if it is asking the user to act - and then hands it back.
++        """
++
++        previous = self.previous_signals
++        self.previous_signals = signals
++        self.active_signals = signals
++        if not self.settings.multi_signal_arrivals:
++            return
++        if self.settings.multi_signal_mode == MULTI_SIGNAL_PRIORITY:
++            # Priority already shows the most urgent signal on its own, so an
++            # arrival would be announcing what is about to be displayed anyway.
++            return
++        if len(signals) < 2:
++            return
++        natives = {
++            key: self.native_program_for_signal(key) for key in SIGNAL_AGENT_MODES
++        }
++        queue = arrival_queue(
++            previous,
++            signals,
++            natives,
++            timing=self.settings.multi_signal_timing,
++            mode=self.settings.multi_signal_mode,
++        )
++        if not queue:
++            return
++        # Queued rather than collapsed to the winner: several signals routinely
++        # arrive in one snapshot, and announcing only the most urgent means the
++        # quieter ones are never seen to arrive at all.
++        self.arrival_pending = queue[1:]
++        self.begin_arrival(queue[0])
++
++    def begin_arrival(self, plan) -> None:
++        self.arrival = plan
++        self.arrival_until = time.monotonic() + plan.duration_ms / 1000.0
++        self.start_arrival_timer(plan.duration_ms / 1000.0)
++        log_status_bar(f"arrival {plan.signal} for {plan.duration_ms}ms")
++
++    def native_program_for_signal(self, key: str) -> str:
++        """The authored animation for the mode this signal stands for."""
++
++        mode = SIGNAL_AGENT_MODES.get(key)
++        if mode is None:
++            return ""
++        animation = self.settings.agent_animation(mode)
++        try:
++            return program_for_agent_mode(
++                mode,
++                led_count=2,
++                brightness=255,
++                animation_style=animation.style,
++                custom_program=animation.custom_program,
++            )
++        except DeviceWriteError:
++            return ""
++
++    def arrival_active(self) -> bool:
++        return self.arrival is not None and time.monotonic() < self.arrival_until
++
++    def start_arrival_timer(self, seconds: float) -> None:
++        self.arrival_pending = ()
++        self.stop_arrival_timer()
++        self.arrival_timer = (
++            NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
++                max(0.05, seconds),
++                self,
++                "finishArrival:",
++                None,
++                False,
++            )
++        )
++
++    def stop_arrival_timer(self) -> None:
++        timer = self.arrival_timer
++        self.arrival_timer = None
++        if timer is not None:
++            timer.invalidate()
++
++    def finishArrival_(self, _sender):
++        """Hand the device back to the composition."""
++
++        self.arrival = None
++        self.arrival_until = 0.0
++        self.arrival_timer = None
++        self.arrival_pending: tuple = ()
++        self.resync_leds_from_last_snapshot()
++
++    def multi_signal_driver_wanted(self) -> bool:
++        """Whether the current layout needs the host to keep feeding it."""
++
++        return (
++            self.leds_enabled
++            and mode_is_dynamic(self.settings.multi_signal_mode)
++            and len(self.active_signals) >= 2
++        )
++
++    def sync_multi_signal_driver(self) -> None:
++        """Start or stop the push timer to match the current layout."""
++
++        wanted = self.multi_signal_driver_wanted()
++        if wanted and self.multi_signal_timer is None:
++            interval = (
++                self.settings.multi_signal_timing.for_mode(
++                    self.settings.multi_signal_mode
++                ).push_ms
++                / 1000.0
++            )
++            self.multi_signal_timer = (
++                NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
++                    max(0.05, interval),
++                    self,
++                    "pollMultiSignal:",
++                    None,
++                    True,
++                )
++            )
++            log_status_bar(
++                f"multi-signal driver started mode={self.settings.multi_signal_mode} "
++                f"interval={interval:g}s"
++            )
++        elif not wanted and self.multi_signal_timer is not None:
++            self.stop_multi_signal_driver()
++
++    def stop_multi_signal_driver(self) -> None:
++        timer = self.multi_signal_timer
++        self.multi_signal_timer = None
++        if timer is not None:
++            timer.invalidate()
++            log_status_bar("multi-signal driver stopped")
++
++    def pollMultiSignal_(self, _sender):
++        """Advance the phase and re-push. One device write per tick.
++
++        The write itself is still suppressed when the program is unchanged, so
++        a layout that happens to produce the same frame twice costs nothing but
++        the recomputation.
++        """
++
++        self.multi_signal_phase += 1
++        self.resync_leds_from_last_snapshot()
++
++    def active_signals_for(self, snapshot) -> tuple[str, ...]:
++        """Everything the device has something to say about right now.
++
++        The aggregate answers "what is most urgent"; this answers "what is
++        true". They differ precisely when more than one thing is waiting, which
++        is the case the composition modes exist for.
++        """
++
++        signals: set[str] = set()
++        if self.error_latch.active:
++            signals.add(SIGNAL_ERROR)
++        modes = {status.mode for status in snapshot.statuses}
++        if AgentMode.BLOCKED_ERROR in modes:
++            signals.add(SIGNAL_ERROR)
++        if AgentMode.WAITING_FOR_INPUT in modes:
++            signals.add(SIGNAL_ASK)
++        if time.monotonic() < self.completion_pulse_until or AgentMode.COMPLETED in modes:
++            signals.add(SIGNAL_DONE)
++        if modes & {
++            AgentMode.WORKING,
++            AgentMode.TOOL_RUNNING,
++            AgentMode.LONG_TASK_PROGRESS,
++        }:
++            signals.add(SIGNAL_BUSY)
++        return order_signals(signals)
++
++    def agent_animation_for_display(self, mode: AgentMode):
++        if self.arrival_active():
++            return AgentAnimationSetting(
++                style=AGENT_ANIMATION_CUSTOM,
++                custom_program=self.arrival.program,
++            )
++        return resolve_agent_animation(
++            self.settings, self.active_signals, mode, self.multi_signal_phase
++        )
++
+     def sync_leds(
+         self,
+         mode: AgentMode,
+@@ -3517,14 +3739,22 @@
+                 )
+             )
+         else:
+-            animation = self.settings.agent_animation(mode)
++            animation = resolve_agent_animation(
++                self.settings,
++                getattr(self, "active_signals", ()),
++                mode,
++                getattr(self, "multi_signal_phase", 0),
++            )
+             try:
+-                program = program_for_agent_mode(
+-                    mode,
+-                    led_count=8,
+-                    brightness=device.brightness,
+-                    animation_style=animation.style,
+-                    custom_program=animation.custom_program,
++                program = correct_for_device(
++                    self.settings,
++                    program_for_agent_mode(
++                        mode,
++                        led_count=8,
++                        brightness=device.brightness,
++                        animation_style=animation.style,
++                        custom_program=animation.custom_program,
++                    ),
+                 )
+             except DeviceWriteError as exc:
+                 log_status_bar(f"virtual animation error {MODE_LABELS[mode]}: {exc}")
+@@ -3591,15 +3821,23 @@
+                     )
+                     label = f"{device.name} Battery {battery_snapshot.percent}%"
+                 else:
+-                    animation = self.settings.agent_animation(mode)
++                    animation = resolve_agent_animation(
++                        self.settings,
++                        getattr(self, "active_signals", ()),
++                        mode,
++                        getattr(self, "multi_signal_phase", 0),
++                    )
+                     try:
+-                        program = program_for_agent_mode(
+-                            mode,
+-                            led_count=8,
+-                            brightness=255,
+-                            animation_style=animation.style,
+-                            custom_program=animation.custom_program,
+-                            active_count=active_count,
++                        program = correct_for_device(
++                            self.settings,
++                            program_for_agent_mode(
++                                mode,
++                                led_count=8,
++                                brightness=255,
++                                animation_style=animation.style,
++                                custom_program=animation.custom_program,
++                                active_count=active_count,
++                            ),
+                         )
+                     except DeviceWriteError as exc:
+                         active_errors[device.device_id] = str(exc)
+@@ -3637,7 +3875,11 @@
+                     f"{format_watts(battery_snapshot.adapter_power)}"
+                 )
+             else:
+-                animation = self.settings.agent_animation(mode)
++                animation = resolve_agent_animation(
++                    self.settings,
++                    getattr(self, "active_signals", ()),
++                    mode,
++                )
+                 result = self.agent_controller_for_device(device).sync_mode(
+                     mode,
+                     animation_style=animation.style,
+@@ -6895,6 +7137,63 @@
+     statuses = coalesced_menu_statuses(menu_statuses(snapshot, settings))
+     statuses.sort(key=lambda status: (status.priority, -status.updated_at.timestamp()))
+     return statuses[:limit]
++
++
++# Which agent mode each signal stands for, so an arrival can look up the
++# animation the user actually configured rather than a hardcoded colour.
++SIGNAL_AGENT_MODES = {
++    SIGNAL_ERROR: AgentMode.BLOCKED_ERROR,
++    SIGNAL_ASK: AgentMode.WAITING_FOR_INPUT,
++    SIGNAL_DONE: AgentMode.COMPLETED,
++    SIGNAL_BUSY: AgentMode.WORKING,
++}
++
++
++def correct_for_device(settings, program: str) -> str:
++    """The one place a program is adjusted for the device's asymmetry.
++
++    Every program passes through here on its way to an LED - the composed
++    layouts, the authored animation played when a single signal is live, the
++    arrival announcements and the battery preview alike. Correcting inside each
++    producer instead meant several paths, and the ones added later each missed
++    it silently.
++    """
++
++    timing = getattr(settings, "multi_signal_timing", None)
++    if timing is None or not program:
++        return program
++    mode = getattr(settings, "multi_signal_mode", MULTI_SIGNAL_PRIORITY)
++    return apply_led_correction(program, timing.for_mode(mode))
++
++
++def resolve_agent_animation(settings, signals, mode: AgentMode, phase: int = 0):
++    """The animation to paint, composing when several signals are live.
++
++    A single signal always resolves through the ordinary settings lookup, so
++    the authored animation - including a user's own custom program, such as the
++    two-minute purple heartbeat - is used untouched. Composition only takes
++    over when priority would otherwise be throwing information away.
++
++    Deliberately a plain function rather than a method: the LED sync paths are
++    also driven directly, by tests and by the remote-link sender, with stand-ins
++    for the app object that carry settings and nothing else.
++    """
++
++    composition = getattr(settings, "multi_signal_mode", MULTI_SIGNAL_PRIORITY)
++    ordered = order_signals(signals or ())
++    if composition == MULTI_SIGNAL_PRIORITY or len(ordered) < 2:
++        return settings.agent_animation(mode)
++    composed = compose_program(
++        ordered,
++        mode=composition,
++        breathe=getattr(settings, "multi_signal_breathe", False),
++        timing=getattr(settings, "multi_signal_timing", None),
++        phase=phase,
++    )
++    return AgentAnimationSetting(
++        style=AGENT_ANIMATION_CUSTOM,
++        custom_program=composed.program,
++    )
+ 
+ 
+ def menu_statuses(snapshot, settings=None) -> tuple[AgentStatus, ...]:
+diff -ruN base34/tests/test_multi_signal.py work/tests/test_multi_signal.py
+--- a/tests/test_multi_signal.py	1969-12-31 18:00:00
++++ b/tests/test_multi_signal.py	2026-09-25 15:18:47
+@@ -0,0 +1,1046 @@
++"""Several signals at once, inside what the device will actually accept."""
++
++from __future__ import annotations
++
++import itertools
++import json
++import tempfile
++import unittest
++from pathlib import Path
++
++from sidepulse.compose import (
++    BLACK,
++    MULTI_SIGNAL_BEACON,
++    MULTI_SIGNAL_DEPTH,
++    MULTI_SIGNAL_DYNAMIC_MODES,
++    MULTI_SIGNAL_ORBIT,
++    MULTI_SIGNAL_TIDE,
++    MultiSignalTiming,
++    SIGNAL_COLORS,
++    TIER_AMBIENT,
++    TIER_DEMAND,
++    MAX_PROGRAM_BYTES,
++    MAX_PROGRAM_LINES,
++    MULTI_SIGNAL_MODES,
++    MULTI_SIGNAL_PAIRED,
++    MULTI_SIGNAL_PRIORITY,
++    MULTI_SIGNAL_ROUND_ROBIN,
++    MULTI_SIGNAL_SPLIT,
++    SIGNAL_ASK,
++    SIGNAL_BUSY,
++    SIGNAL_DONE,
++    SIGNAL_ERROR,
++    SIGNAL_ORDER,
++    compose_program,
++    order_signals,
++)
++
++# The shipped defaults include a per-LED correction calibrated on real
++# hardware, which rewrites every colour. Tests about *layout* - which signal
++# lands on which LED, in what order - use an uncorrected device so they assert
++# the composition rather than the calibration.
++PLAIN = None  # set below, once MultiSignalTiming is imported
++
++
++COMPOSITION_MODES = tuple(
++    mode for mode in MULTI_SIGNAL_MODES if mode != MULTI_SIGNAL_PRIORITY
++)
++BLINK_BREATHE_MODES = (
++    MULTI_SIGNAL_ROUND_ROBIN,
++    MULTI_SIGNAL_SPLIT,
++    MULTI_SIGNAL_PAIRED,
++)
++
++PLAIN = MultiSignalTiming(
++    led_gain=(1.0, 1.0), led_channel_gain=((1.0, 1.0, 1.0), (1.0, 1.0, 1.0))
++)
++
++
++def plain_clock(mode):
++    return PLAIN.for_mode(mode)
++
++
++def every_combination():
++    for size in range(1, len(SIGNAL_ORDER) + 1):
++        yield from itertools.combinations(SIGNAL_ORDER, size)
++
++
++class DeviceBudgetTests(unittest.TestCase):
++    """The device rejects an oversized program by blinking red six times.
++
++    That would read as a failure that never happened, so every combination the
++    app can produce is checked against both limits here rather than discovered
++    on the hardware.
++    """
++
++    def test_every_combination_fits(self):
++        for breathe in (False, True):
++            for mode in COMPOSITION_MODES:
++                for signals in every_combination():
++                    composed = compose_program(signals, mode=mode, breathe=breathe)
++                    self.assertTrue(composed.fits(), f"{mode} {signals} breathe={breathe}")
++                    self.assertLessEqual(composed.byte_length, MAX_PROGRAM_BYTES)
++                    self.assertLessEqual(composed.line_count, MAX_PROGRAM_LINES)
++
++    def test_every_combination_ends_in_repeat(self):
++        # Without it the program plays once and the device holds the last
++        # frame, which would silently freeze the status display.
++        for mode in COMPOSITION_MODES:
++            for signals in every_combination():
++                if len(signals) < 2:
++                    continue
++                program = compose_program(signals, mode=mode).program
++                self.assertEqual(program.splitlines()[-1].strip(), "repeat")
++
++    def test_no_indexed_off(self):
++        # `off` is device-wide and rejects an index; `1:off` is a parse error,
++        # not a dim LED. Darkness on one LED has to be an explicit black.
++        for mode in COMPOSITION_MODES:
++            for signals in every_combination():
++                program = compose_program(signals, mode=mode).program
++                for line in program.splitlines():
++                    for segment in line.split(";"):
++                        segment = segment.strip()
++                        if ":" in segment:
++                            self.assertNotIn(
++                                "off",
++                                segment.split(":", 1)[1],
++                                f"{mode} {signals}: {line}",
++                            )
++
++
++class SignalOrderingTests(unittest.TestCase):
++    def test_order_is_by_urgency(self):
++        self.assertEqual(
++            order_signals({SIGNAL_BUSY, SIGNAL_DONE, SIGNAL_ASK, SIGNAL_ERROR}),
++            (SIGNAL_ERROR, SIGNAL_ASK, SIGNAL_DONE, SIGNAL_BUSY),
++        )
++
++    def test_unknown_and_duplicate_signals_are_dropped(self):
++        self.assertEqual(order_signals(["nonsense", SIGNAL_ASK, SIGNAL_ASK]), (SIGNAL_ASK,))
++
++    def test_no_signals_is_darkness(self):
++        self.assertEqual(compose_program([], mode=MULTI_SIGNAL_ROUND_ROBIN).program, "off")
++
++
++class NativeProgramTests(unittest.TestCase):
++    """One signal must look exactly as it always has."""
++
++    def test_a_lone_signal_uses_its_authored_program(self):
++        native = {SIGNAL_BUSY: "off 60s none\noff 60s none\n#8800FF 1.6s pulse\nrepeat"}
++        for mode in MULTI_SIGNAL_MODES:
++            composed = compose_program([SIGNAL_BUSY], mode=mode, native_programs=native)
++            self.assertEqual(composed.program, native[SIGNAL_BUSY], mode)
++
++    def test_priority_mode_shows_only_the_most_urgent(self):
++        native = {SIGNAL_ERROR: "ERROR-PROGRAM", SIGNAL_ASK: "ASK-PROGRAM"}
++        composed = compose_program(
++            [SIGNAL_ASK, SIGNAL_ERROR],
++            mode=MULTI_SIGNAL_PRIORITY,
++            native_programs=native,
++        )
++        self.assertEqual(composed.program, "ERROR-PROGRAM")
++        self.assertEqual(composed.signals, (SIGNAL_ERROR,))
++
++
++class CompositionShapeTests(unittest.TestCase):
++    def test_round_robin_mentions_every_colour(self):
++        from sidepulse.compose import SIGNAL_COLORS
++
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_ROUND_ROBIN).program
++        for signal in SIGNAL_ORDER:
++            self.assertIn(SIGNAL_COLORS[signal], program, signal)
++
++    def test_orbit_gives_every_signal_a_turn(self):
++        # A single seed only ever lights two LEDs, so on a Dot the two least
++        # urgent signals would never appear at all.
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_ORBIT).program
++        for key in SIGNAL_ORDER:
++            self.assertIn(SIGNAL_COLORS[key], program, key)
++
++    def test_orbit_seeds_before_every_roll(self):
++        # `roll` rotates whatever is currently visible, so a roll that is not
++        # preceded by a seed just rotates the previous pair again.
++        lines = [
++            l
++            for l in compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_ORBIT).program.splitlines()
++            if l != "repeat"
++        ]
++        self.assertEqual(len(lines) % 2, 0)
++        for index in range(0, len(lines), 2):
++            self.assertTrue(lines[index].startswith("#"), lines[index])
++            self.assertTrue(lines[index + 1].startswith("roll "), lines[index + 1])
++
++    def test_orbit_handover_is_eased_not_snapped(self):
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_ORBIT).program
++        seeds = [l for l in program.splitlines() if l.startswith("#")]
++        for line in seeds:
++            # A bare seed is instantaneous; after a smooth revolution that snap
++            # is the only thing the eye catches.
++            self.assertRegex(line, r"\d+ms \w+$")
++
++    def test_depth_draws_each_tier_at_its_own_level(self):
++        from sidepulse.compose import SIGNALS, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_DEPTH)
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_DEPTH).program
++        for key in SIGNAL_ORDER:
++            level = (
++                clock.ambient_level
++                if SIGNALS[key].tier == TIER_AMBIENT
++                else clock.demand_level
++            )
++            self.assertIn(dim(SIGNAL_COLORS[key], level), program, key)
++
++    def test_depth_keeps_demand_clearly_above_ambient(self):
++        # Intensity is the *only* thing carrying meaning in this layout, so the
++        # ratio between the tiers is the whole design. Toning demand down must
++        # not collapse it.
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_DEPTH)
++        self.assertGreater(clock.demand_level, clock.ambient_level * 3)
++        self.assertLess(clock.demand_level, 1.0)
++
++    def test_depth_does_not_cut_from_its_peak(self):
++        # `pulse` returns to the start colour within the dwell, so the frame
++        # ends where the next begins. Easing *in* and then cutting to black put
++        # a hard drop at the one moment the eye was already looking.
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_DEPTH).program
++        for line in program.splitlines():
++            if line.startswith("#"):
++                self.assertTrue(line.endswith("pulse"), line)
++
++    def test_beacon_keeps_the_lead_on_the_front_led(self):
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = PLAIN.for_mode(MULTI_SIGNAL_BEACON)
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_BEACON, timing=PLAIN).program
++        self.assertIn(
++            f"0:{dim(SIGNAL_COLORS[SIGNAL_ERROR], clock.demand_level)}", program
++        )
++        # Neither the blink nor the glow runs at full: on a device this close,
++        # full reads as glare rather than as urgency.
++        self.assertNotIn(SIGNAL_COLORS[SIGNAL_ERROR], program)
++        self.assertNotIn(SIGNAL_COLORS[SIGNAL_DONE], program)
++
++    def test_beacon_does_not_brighten_when_urgency_clears(self):
++        # The wash that replaces the blink stays at the glow level. Rendering
++        # it at full would mean the device got brighter the moment the urgent
++        # thing went away, which is exactly backwards.
++        calm = compose_program(
++            (SIGNAL_DONE, SIGNAL_BUSY), mode=MULTI_SIGNAL_BEACON
++        ).program
++        for key in (SIGNAL_DONE, SIGNAL_BUSY):
++            self.assertNotIn(SIGNAL_COLORS[key], calm, key)
++
++    def test_a_demoted_urgent_signal_glows_above_ambient(self):
++        # Two urgent things, only one can blink at a time. Glowing the other at
++        # the ambient level would call it background, which it is not.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_BEACON)
++        self.assertGreater(clock.glow_level, clock.ambient_level)
++        self.assertLess(clock.glow_level, clock.demand_level)
++        program = compose_program(
++            (SIGNAL_ERROR, SIGNAL_ASK), mode=MULTI_SIGNAL_BEACON
++        ).program
++        self.assertIn(f"1:{dim(SIGNAL_COLORS[SIGNAL_ASK], clock.glow_level)}", program)
++
++    def test_the_glow_level_protects_hue_not_just_visibility(self):
++        # Dimming scales every channel equally, so two colours differing in one
++        # channel - red and amber differ by 58/255 of green and nothing else -
++        # stop being distinguishable long before they stop being visible.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_BEACON)
++
++        def spread(level):
++            def rgb(value):
++                value = value.lstrip("#")
++                return [int(value[i : i + 2], 16) for i in (0, 2, 4)]
++
++            a = rgb(dim(SIGNAL_COLORS[SIGNAL_ERROR], level))
++            b = rgb(dim(SIGNAL_COLORS[SIGNAL_ASK], level))
++            return max(abs(x - y) for x, y in zip(a, b))
++
++        self.assertGreater(spread(clock.glow_level), spread(clock.ambient_level))
++
++    def test_an_urgent_glow_arrives_faster_than_an_ambient_one(self):
++        # It wants to be recognised as itself; an ambient colour wants to
++        # drift. A long fade spends most of the frame partway between hues,
++        # which is what makes two similar colours blur into one.
++        import re
++
++        urgent = compose_program(
++            (SIGNAL_ERROR, SIGNAL_ASK), mode=MULTI_SIGNAL_BEACON
++        ).program
++        calm = compose_program(
++            (SIGNAL_ERROR, SIGNAL_DONE), mode=MULTI_SIGNAL_BEACON
++        ).program
++
++        def back_fade(program):
++            return int(re.search(r"1:#\w+ (\d+)ms", program).group(1))
++
++        self.assertLess(back_fade(urgent), back_fade(calm))
++
++    def test_tide_never_goes_dark(self):
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_TIDE).program
++        self.assertNotIn("off", program)
++        self.assertNotIn(BLACK, program)
++        self.assertIn("cosine", program)
++
++    def test_tide_dims_by_tier(self):
++        # With no darkness to punctuate it, intensity is the only thing left to
++        # say which colour matters.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_TIDE)
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_TIDE).program
++        self.assertIn(dim(SIGNAL_COLORS[SIGNAL_ERROR], clock.demand_level), program)
++        self.assertIn(dim(SIGNAL_COLORS[SIGNAL_DONE], clock.ambient_level), program)
++        self.assertGreater(clock.demand_level, clock.ambient_level * 2)
++
++    def test_tide_runs_below_full(self):
++        # This is the one layout that is never off, so it is the one where
++        # constant full brightness is most tiring.
++        from sidepulse.compose import MultiSignalTiming
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_TIDE)
++        self.assertLess(clock.demand_level, 1.0)
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_TIDE).program
++        for key in SIGNAL_ORDER:
++            self.assertNotIn(SIGNAL_COLORS[key], program, key)
++
++    def test_tide_offsets_the_two_leds(self):
++        # Both LEDs on one colour throws away the only spatial dimension a
++        # two-LED device has, and makes a four-signal wash look like one colour
++        # cycling. Front and back must be one step apart.
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_TIDE, timing=PLAIN).program
++        frames = [l for l in program.splitlines() if l.startswith("#")]
++        for line in frames:
++            front, back = line.split()[0], line.split()[1]
++            self.assertNotEqual(front, back)
++        for index, line in enumerate(frames):
++            back = line.split()[1]
++            nxt_front = frames[(index + 1) % len(frames)].split()[0]
++            self.assertEqual(back, nxt_front, "the wash must travel")
++
++    def test_beacon_glow_sweeps_rather_than_steps(self):
++        # A stepped glow reads as a second, slower blinker competing with the
++        # first; a swept one reads as background.
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_BEACON).program
++        glow = [seg for line in program.splitlines() for seg in line.split(";") if "1:" in seg]
++        self.assertTrue(glow)
++        for segment in glow:
++            self.assertIn("cosine", segment)
++
++    def test_beacon_blinks_every_urgent_signal(self):
++        # Two urgent things at once: the second must not hide behind the first.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = PLAIN.for_mode(MULTI_SIGNAL_BEACON)
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_BEACON, timing=PLAIN).program
++        for key in (SIGNAL_ERROR, SIGNAL_ASK):
++            self.assertIn(f"0:{dim(SIGNAL_COLORS[key], clock.demand_level)}", program, key)
++
++    def test_beacon_sweeps_the_ambient_tier(self):
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_BEACON)
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_BEACON).program
++        for key in (SIGNAL_DONE, SIGNAL_BUSY):
++            self.assertIn(f"1:{dim(SIGNAL_COLORS[key], clock.ambient_level)}", program, key)
++
++    def test_beacon_stops_blinking_when_nothing_is_urgent(self):
++        # Blinking the least-bad news would be a lie about its urgency, so the
++        # layout steps aside and becomes the wash.
++        program = compose_program(
++            (SIGNAL_DONE, SIGNAL_BUSY), mode=MULTI_SIGNAL_BEACON
++        ).program
++        self.assertNotIn("0:", program)
++        self.assertNotIn("#000000", program)
++
++    def test_beacon_without_ambient_glows_the_other_urgent_colour(self):
++        program = compose_program(
++            (SIGNAL_ERROR, SIGNAL_ASK), mode=MULTI_SIGNAL_BEACON
++        ).program
++        # Offset by one, so the two LEDs never show the same colour at once.
++        for line in program.splitlines():
++            if line.startswith("0:") and ";" in line:
++                front = line.split(";")[0].split(":")[1].split()[0]
++                back = line.split(";")[1].split(":")[1].split()[0]
++                self.assertNotEqual(front, back)
++
++    def test_dynamic_modes_change_with_phase(self):
++        # If a host-driven layout ignored the phase it would push the same
++        # program forever and cost writes for nothing.
++        for mode in MULTI_SIGNAL_DYNAMIC_MODES:
++            seen = {
++                compose_program(SIGNAL_ORDER, mode=mode, phase=phase).program
++                for phase in range(12)
++            }
++            self.assertGreater(len(seen), 1, mode)
++
++    def test_static_modes_ignore_phase(self):
++        for mode in COMPOSITION_MODES:
++            if mode in MULTI_SIGNAL_DYNAMIC_MODES:
++                continue
++            first = compose_program(SIGNAL_ORDER, mode=mode, phase=0).program
++            later = compose_program(SIGNAL_ORDER, mode=mode, phase=99).program
++            self.assertEqual(first, later, mode)
++
++    def test_drift_periods_are_coprime(self):
++        from math import gcd
++
++        from sidepulse.compose import DRIFT_PERIODS
++
++        for i, a in enumerate(DRIFT_PERIODS):
++            for b in DRIFT_PERIODS[i + 1 :]:
++                self.assertEqual(gcd(a, b), 1, f"{a},{b}")
++
++    def test_master_brightness_is_emitted_only_when_reduced(self):
++        full = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_TIDE).program
++        self.assertNotIn("brightness", full)
++        dimmed = compose_program(
++            SIGNAL_ORDER,
++            mode=MULTI_SIGNAL_TIDE,
++            timing=MultiSignalTiming(master_brightness=80),
++        ).program
++        self.assertTrue(dimmed.startswith("brightness 80"))
++
++    def test_easing_is_validated(self):
++        from sidepulse.compose import DEFAULT_EASING
++
++        timing = MultiSignalTiming.from_mapping({"easing": "wobble"})
++        self.assertEqual(timing.for_mode(MULTI_SIGNAL_SPLIT).easing, DEFAULT_EASING)
++        timing = MultiSignalTiming.from_mapping({"easing": "cosine"})
++        self.assertEqual(timing.for_mode(MULTI_SIGNAL_SPLIT).easing, "cosine")
++
++    def test_tiers_not_names_drive_the_tiered_layouts(self):
++        # A layout must not care which signal is which, only its tier.
++        from sidepulse.compose import SIGNALS
++
++        self.assertEqual(
++            {k for k, v in SIGNALS.items() if v.tier == TIER_DEMAND},
++            {SIGNAL_ERROR, SIGNAL_ASK},
++        )
++        self.assertEqual(
++            {k for k, v in SIGNALS.items() if v.tier == TIER_AMBIENT},
++            {SIGNAL_DONE, SIGNAL_BUSY},
++        )
++
++    def test_split_puts_demand_in_front_and_ambient_behind(self):
++        # Which LED a colour lands on now says what *kind* of thing it is. The
++        # old rule used the first signal as "lead", which put a permission
++        # prompt on the back rotating with finished runs.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = PLAIN.for_mode(MULTI_SIGNAL_SPLIT)
++        program = compose_program(
++            [SIGNAL_ERROR, SIGNAL_DONE, SIGNAL_BUSY], mode=MULTI_SIGNAL_SPLIT, timing=PLAIN
++        ).program
++        self.assertIn(
++            f"0:{dim(SIGNAL_COLORS[SIGNAL_ERROR], clock.demand_level)}", program
++        )
++        for key in (SIGNAL_DONE, SIGNAL_BUSY):
++            self.assertIn(
++                f"1:{dim(SIGNAL_COLORS[key], clock.ambient_level)}", program, key
++            )
++
++    def test_split_holds_both_when_several_things_are_urgent(self):
++        # Cycling between two urgent colours is its own rhythm, so nothing
++        # needs to blink.
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_SPLIT).program
++        self.assertNotIn("off", program)
++        self.assertNotIn(BLACK, program)
++
++    def test_split_blinks_a_lone_urgent_signal(self):
++        # A single colour sitting steady has no rhythm of its own and stops
++        # reading as a demand - it becomes the background it should stand out
++        # from.
++        program = compose_program(
++            [SIGNAL_ERROR, SIGNAL_DONE, SIGNAL_BUSY], mode=MULTI_SIGNAL_SPLIT
++        ).program
++        dark = [l for l in program.splitlines() if l.startswith(f"0:{BLACK}")]
++        self.assertTrue(dark)
++        # Only the front is darkened; an unassigned LED holds its colour.
++        for line in dark:
++            self.assertNotIn("1:", line)
++
++    def test_split_advances_each_side_independently(self):
++        # Pools of different lengths fall in and out of step, which is the
++        # closest a single static program gets to two independent rhythms.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_SPLIT)
++        program = compose_program(
++            [SIGNAL_ERROR, SIGNAL_ASK, SIGNAL_BUSY], mode=MULTI_SIGNAL_SPLIT
++        ).program
++        frames = [l for l in program.splitlines() if l.startswith("0:")]
++        fronts = {line.split(";")[0] for line in frames}
++        backs = {line.split(";")[1] for line in frames}
++        # Two urgent signals cycle in front while one ambient holds behind.
++        self.assertEqual(len(fronts), 2)
++        self.assertEqual(len(backs), 1)
++
++    def test_split_frames_cover_both_pools(self):
++        from math import lcm
++
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_SPLIT).program
++        frames = [l for l in program.splitlines() if l.startswith("0:")]
++        self.assertEqual(len(frames), lcm(2, 2))
++
++    def test_paired_lights_two_colours_at_once(self):
++        # Written as a colour list rather than two indexed segments: same
++        # result, about 40% fewer bytes.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = PLAIN.for_mode(MULTI_SIGNAL_PAIRED)
++        program = compose_program(
++            [SIGNAL_ERROR, SIGNAL_ASK],
++            mode=MULTI_SIGNAL_PAIRED,
++            timing=PLAIN,
++        ).program
++        first = dim(SIGNAL_COLORS[SIGNAL_ERROR], clock.demand_level)
++        second = dim(SIGNAL_COLORS[SIGNAL_ASK], clock.demand_level)
++        self.assertIn(f"{first} {second}", program)
++
++    def test_paired_dims_by_tier(self):
++        # Both LEDs are lit at once, so position carries no urgency and
++        # intensity has to.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_PAIRED)
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_PAIRED).program
++        self.assertIn(dim(SIGNAL_COLORS[SIGNAL_ERROR], clock.demand_level), program)
++        self.assertIn(dim(SIGNAL_COLORS[SIGNAL_DONE], clock.ambient_level), program)
++        for key in SIGNAL_ORDER:
++            self.assertNotIn(SIGNAL_COLORS[key], program, key)
++
++    def test_paired_rotates_every_signal_through_both_positions(self):
++        # A sliding window, not fixed pairs: a colour on the back this frame is
++        # on the front next frame, which is what makes it read as travel.
++        program = compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_PAIRED, timing=PLAIN).program
++        frames = [l for l in program.splitlines() if l.startswith("#")]
++        self.assertEqual(len(frames), len(SIGNAL_ORDER))
++        for index, line in enumerate(frames):
++            front, back = line.split()[0], line.split()[1]
++            nxt = frames[(index + 1) % len(frames)].split()[0]
++            self.assertEqual(back, nxt, "back colour must lead the next front")
++
++    def test_paired_direction_reverses_travel(self):
++        from sidepulse.compose import DIRECTION_FRONT_TO_BACK, MultiSignalTiming
++
++        timing = MultiSignalTiming(
++            direction=DIRECTION_FRONT_TO_BACK,
++            led_gain=(1.0, 1.0),
++            led_channel_gain=((1.0, 1.0, 1.0), (1.0, 1.0, 1.0)),
++        )
++        program = compose_program(
++            SIGNAL_ORDER, mode=MULTI_SIGNAL_PAIRED, timing=timing
++        ).program
++        frames = [l for l in program.splitlines() if l.startswith("#")]
++        for index, line in enumerate(frames):
++            front = line.split()[0]
++            nxt_back = frames[(index + 1) % len(frames)].split()[1]
++            self.assertEqual(front, nxt_back, "front colour must lead the next back")
++
++    def test_direction_is_validated(self):
++        from sidepulse.compose import DEFAULT_DIRECTION, MultiSignalTiming
++
++        timing = MultiSignalTiming.from_mapping({"direction": "sideways"})
++        self.assertEqual(
++            timing.for_mode(MULTI_SIGNAL_PAIRED).direction, DEFAULT_DIRECTION
++        )
++
++    def test_every_signal_appears_in_paired(self):
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_PAIRED)
++        keys = (SIGNAL_ERROR, SIGNAL_ASK, SIGNAL_DONE)
++        program = compose_program(keys, mode=MULTI_SIGNAL_PAIRED).program
++        for key in keys:
++            from sidepulse.compose import SIGNALS, TIER_AMBIENT
++
++            level = (
++                clock.ambient_level
++                if SIGNALS[key].tier == TIER_AMBIENT
++                else clock.demand_level
++            )
++            self.assertIn(dim(SIGNAL_COLORS[key], level), program, key)
++
++
++class BreathingTests(unittest.TestCase):
++    """The staggered front/back swell, offered for every layout."""
++
++    def test_breathing_staggers_the_back_led(self):
++        # The gesture is the delay: front rises, back follows a beat later.
++        for mode in BLINK_BREATHE_MODES:
++            program = compose_program(
++                [SIGNAL_ERROR, SIGNAL_ASK], mode=mode, breathe=True
++            ).program
++            for line in program.splitlines():
++                if line == "repeat":
++                    continue
++                front, back = line.split(";")
++                self.assertIn("pulse 0ms", front, mode)
++                self.assertNotIn("pulse 0ms", back, mode)
++
++    def test_breathing_needs_no_dark_gap(self):
++        # `pulse` returns to its start colour on its own, so an explicit gap
++        # line would only stretch the cycle without changing what is seen.
++        for mode in BLINK_BREATHE_MODES:
++            program = compose_program(
++                [SIGNAL_ERROR, SIGNAL_ASK], mode=mode, breathe=True
++            ).program
++            self.assertNotIn("off ", program, mode)
++
++    def test_breathing_is_slower_than_blinking(self):
++        from sidepulse.compose import MultiSignalTiming
++
++        # Only for the layouts that actually offer a breathing variant;
++        # `tide` is already a slow wash and sets hold to the swell length.
++        timing = MultiSignalTiming()
++        for mode in BLINK_BREATHE_MODES:
++            resolved = timing.for_mode(mode)
++            self.assertGreater(resolved.swell_ms, resolved.hold_ms, mode)
++
++    def test_a_lone_signal_still_uses_its_authored_program(self):
++        native = {SIGNAL_BUSY: "NATIVE"}
++        for mode in COMPOSITION_MODES:
++            composed = compose_program(
++                [SIGNAL_BUSY], mode=mode, breathe=True, native_programs=native
++            )
++            self.assertEqual(composed.program, "NATIVE", mode)
++
++
++class TimingTests(unittest.TestCase):
++    """Base values, per-layout overrides, and the clamps that keep them legal."""
++
++    def test_defaults_reproduce_the_shipped_programs(self):
++        # The timing block was extracted from constants; extracting it must not
++        # have changed a single frame.
++        from sidepulse.compose import MultiSignalTiming
++
++        for mode in COMPOSITION_MODES:
++            for breathe in (False, True):
++                a = compose_program(SIGNAL_ORDER, mode=mode, breathe=breathe).program
++                b = compose_program(
++                    SIGNAL_ORDER,
++                    mode=mode,
++                    breathe=breathe,
++                    timing=MultiSignalTiming(),
++                ).program
++                self.assertEqual(a, b, f"{mode} breathe={breathe}")
++
++    def test_a_base_value_reaches_layouts_that_have_not_departed(self):
++        from sidepulse.compose import MultiSignalTiming
++
++        timing = MultiSignalTiming(hold_ms=333, tempo=1.0)
++        self.assertEqual(timing.for_mode(MULTI_SIGNAL_SPLIT).hold_ms, 333)
++        # `paired` carries a built-in departure, so the base does not reach it.
++        from sidepulse.compose import BUILT_IN_MODE_TIMING
++
++        self.assertEqual(
++            timing.for_mode(MULTI_SIGNAL_PAIRED).hold_ms,
++            BUILT_IN_MODE_TIMING[MULTI_SIGNAL_PAIRED]["hold_ms"],
++        )
++
++    def test_an_explicit_override_beats_the_built_in_departure(self):
++        from sidepulse.compose import MultiSignalTiming
++
++        timing = MultiSignalTiming(
++            tempo=1.0, overrides={MULTI_SIGNAL_PAIRED: {"hold_ms": 111}}
++        )
++        self.assertEqual(timing.for_mode(MULTI_SIGNAL_PAIRED).hold_ms, 111)
++
++    def test_values_are_clamped_to_what_the_device_accepts(self):
++        from sidepulse.compose import MAX_TIMING_MS, MIN_TIMING_MS, MultiSignalTiming
++
++        timing = MultiSignalTiming.from_mapping(
++            {"hold_ms": 0, "gap_ms": 10_000_000, "tempo": 1.0}
++        )
++        resolved = timing.for_mode(MULTI_SIGNAL_SPLIT)
++        self.assertEqual(resolved.hold_ms, MIN_TIMING_MS)
++        # The DSL rejects anything past 65535ms outright.
++        self.assertEqual(resolved.gap_ms, MAX_TIMING_MS)
++
++    def test_malformed_values_fall_back_rather_than_failing(self):
++        from sidepulse.compose import DEFAULT_HOLD_MS, MultiSignalTiming
++
++        timing = MultiSignalTiming.from_mapping(
++            {"hold_ms": "soon", "split": "nope", "tempo": 1.0}
++        )
++        self.assertEqual(timing.for_mode(MULTI_SIGNAL_SPLIT).hold_ms, DEFAULT_HOLD_MS)
++
++    def test_the_default_pace_is_the_tuned_one(self):
++        # The per-layout constants read naturally as a design, but on an LED at
++        # the edge of vision every one of them was too quick. The pace lives in
++        # `tempo` so the ratios between them stay legible in the source.
++        from sidepulse.compose import DEFAULT_TEMPO, MultiSignalTiming
++
++        self.assertGreater(DEFAULT_TEMPO, 1.0)
++        fast = MultiSignalTiming(tempo=1.0).for_mode(MULTI_SIGNAL_PAIRED)
++        shipped = MultiSignalTiming().for_mode(MULTI_SIGNAL_PAIRED)
++        self.assertEqual(shipped.hold_ms, round(fast.hold_ms * DEFAULT_TEMPO))
++
++    def test_a_layout_can_carry_its_own_pace(self):
++        # `tempo` used to be read only from user overrides, so a built-in
++        # per-layout pace was accepted, stored and silently ignored.
++        from sidepulse.compose import BUILT_IN_MODE_TIMING, MultiSignalTiming
++
++        self.assertIn("tempo", BUILT_IN_MODE_TIMING[MULTI_SIGNAL_DEPTH])
++        timing = MultiSignalTiming()
++        self.assertGreater(
++            timing.for_mode(MULTI_SIGNAL_DEPTH).tempo,
++            timing.for_mode(MULTI_SIGNAL_BEACON).tempo,
++        )
++        # And it has to actually reach the durations.
++        self.assertGreater(
++            timing.for_mode(MULTI_SIGNAL_DEPTH).hold_ms,
++            timing.for_mode(MULTI_SIGNAL_BEACON).hold_ms,
++        )
++
++    def test_a_user_override_still_beats_a_built_in_pace(self):
++        from sidepulse.compose import MultiSignalTiming
++
++        timing = MultiSignalTiming(overrides={MULTI_SIGNAL_DEPTH: {"tempo": 1.0}})
++        self.assertEqual(timing.for_mode(MULTI_SIGNAL_DEPTH).tempo, 1.0)
++
++    def test_depth_keeps_the_widest_contrast(self):
++        # Brightness is its only channel, so it earns more separation than the
++        # layouts that also carry urgency by position or motion.
++        from sidepulse.compose import MultiSignalTiming
++
++        timing = MultiSignalTiming()
++        depth = timing.for_mode(MULTI_SIGNAL_DEPTH)
++        for mode in (MULTI_SIGNAL_PAIRED, MULTI_SIGNAL_BEACON, MULTI_SIGNAL_TIDE):
++            other = timing.for_mode(mode)
++            self.assertGreater(
++                depth.demand_level / depth.ambient_level,
++                other.demand_level / other.ambient_level,
++                mode,
++            )
++
++    def test_tempo_scales_every_duration_together(self):
++        from sidepulse.compose import MultiSignalTiming
++
++        one = MultiSignalTiming(tempo=1.0).for_mode(MULTI_SIGNAL_BEACON)
++        two = MultiSignalTiming(tempo=2.0).for_mode(MULTI_SIGNAL_BEACON)
++        for field in ("hold_ms", "gap_ms", "swell_ms", "roll_ms"):
++            self.assertEqual(
++                getattr(two, field), round(getattr(one, field) * 2), field
++            )
++
++    def test_extreme_timings_still_fit_the_device(self):
++        # Longer durations mean more digits, so the byte budget has to be
++        # re-checked at the extremes rather than only at the defaults.
++        from sidepulse.compose import MAX_TIMING_MS, MultiSignalTiming
++
++        timing = MultiSignalTiming(
++            hold_ms=MAX_TIMING_MS,
++            gap_ms=MAX_TIMING_MS,
++            swell_ms=MAX_TIMING_MS,
++            stagger_ms=MAX_TIMING_MS,
++        )
++        for mode in COMPOSITION_MODES:
++            for breathe in (False, True):
++                composed = compose_program(
++                    SIGNAL_ORDER, mode=mode, breathe=breathe, timing=timing
++                )
++                self.assertTrue(composed.fits(), f"{mode} breathe={breathe}")
++
++    def test_timing_round_trips_through_settings(self):
++        from sidepulse.compose import MultiSignalTiming
++
++        original = MultiSignalTiming(
++            hold_ms=222, tempo=1.0, overrides={MULTI_SIGNAL_SPLIT: {"gap_ms": 800}}
++        )
++        restored = MultiSignalTiming.from_mapping(original.to_dict())
++        self.assertEqual(restored.hold_ms, 222)
++        self.assertEqual(restored.for_mode(MULTI_SIGNAL_SPLIT).gap_ms, 800)
++
++
++class ShippedDefaultsTests(unittest.TestCase):
++    """The values chosen on hardware, so a later edit has to be deliberate."""
++
++    def test_signal_colours_are_separable_when_dimmed(self):
++        # Dimming scales every channel equally, so two colours differing in one
++        # channel stop being distinguishable long before they stop being
++        # visible. Red and amber are the pair at risk.
++        from sidepulse.compose import MultiSignalTiming, dim
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_BEACON)
++
++        def spread(level):
++            def rgb(value):
++                value = value.lstrip("#")
++                return [int(value[i : i + 2], 16) for i in (0, 2, 4)]
++
++            a = rgb(dim(SIGNAL_COLORS[SIGNAL_ERROR], level))
++            b = rgb(dim(SIGNAL_COLORS[SIGNAL_ASK], level))
++            return max(abs(x - y) for x, y in zip(a, b))
++
++        # The original pair managed 19 at the glow level, which read as one
++        # colour on the device.
++        self.assertGreater(spread(clock.glow_level), 40)
++
++    def test_the_correction_sits_on_the_front_led(self):
++        # The back has a hard ceiling at 255 that several colours already
++        # reach, so boosting it fails silently and differently per colour.
++        from sidepulse.compose import DEFAULT_LED_GAIN
++
++        front, back = DEFAULT_LED_GAIN
++        self.assertLess(front, 1.0)
++        self.assertEqual(back, 1.0)
++
++    def test_nothing_clamps_at_the_shipped_correction(self):
++        # The point of correcting on the front: every colour gets the same
++        # ratio instead of whichever one the ceiling allowed.
++        from sidepulse.compose import MultiSignalTiming, dim, led
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_BEACON)
++        for key in SIGNAL_ORDER:
++            back = led(dim(SIGNAL_COLORS[key], 1.0), 1, clock).lstrip("#")
++            channels = [int(back[i : i + 2], 16) for i in (0, 2, 4)]
++            source = SIGNAL_COLORS[key].lstrip("#")
++            expected = [int(source[i : i + 2], 16) for i in (0, 2, 4)]
++            self.assertEqual(channels, expected, key)
++
++
++class MultiSignalSettingTests(unittest.TestCase):
++    def load(self, data):
++        from sidepulse.settings import load_settings
++
++        with tempfile.TemporaryDirectory() as tmp:
++            path = Path(tmp) / "settings.json"
++            path.write_text(json.dumps(data), encoding="utf-8")
++            return load_settings(path)
++
++    def test_default_is_beacon(self):
++        # Chosen after comparing every layout on hardware: it is the only one
++        # whose structure states the demand/ambient split outright, and the
++        # only one that stops blinking entirely when nothing needs the user.
++        from sidepulse.compose import MULTI_SIGNAL_BEACON
++
++        self.assertEqual(self.load({}).multi_signal_mode, MULTI_SIGNAL_BEACON)
++
++    def test_every_mode_round_trips(self):
++        for mode in MULTI_SIGNAL_MODES:
++            restored = self.load({"multi_signal": {"mode": mode}})
++            self.assertEqual(restored.multi_signal_mode, mode)
++
++    def test_an_unknown_mode_falls_back_instead_of_failing(self):
++        from sidepulse.compose import MULTI_SIGNAL_BEACON
++
++        restored = self.load({"multi_signal": {"mode": "disco"}})
++        self.assertEqual(restored.multi_signal_mode, MULTI_SIGNAL_BEACON)
++
++    def test_breathe_defaults_off_and_round_trips(self):
++        self.assertFalse(self.load({}).multi_signal_breathe)
++        self.assertTrue(
++            self.load({"multi_signal": {"breathe": True}}).multi_signal_breathe
++        )
++
++
++class ArrivalTests(unittest.TestCase):
++    """A new signal announces itself before joining the rotation."""
++
++    ERROR = "off 60ms\n#FF0010 120ms\noff 120ms\n#FF0010 120ms\noff 700ms\nrepeat"
++    DONE = "off 40ms\n#00FF66 110ms\noff 640ms ease-out\nrepeat"
++    HEARTBEAT = "off 60s none\noff 60s none\n#8800FF 1.6s pulse\nrepeat"
++
++    def test_every_arrival_plays_once(self):
++        from sidepulse.compose import arrival_plan
++
++        for key, native in (
++            (SIGNAL_ERROR, self.ERROR),
++            (SIGNAL_ASK, ""),
++            (SIGNAL_DONE, self.DONE),
++            (SIGNAL_BUSY, self.HEARTBEAT),
++        ):
++            self.assertTrue(
++                arrival_plan(key, native).program.endswith("repeat 1"), key
++            )
++
++    def test_error_keeps_its_signature_others_breathe(self):
++        from sidepulse.compose import (
++            ARRIVAL_STYLE_BREATH,
++            ARRIVAL_STYLE_SIGNATURE,
++            SIGNALS,
++            arrival_plan,
++        )
++
++        # The double blink says "failure" before the colour registers;
++        # smoothing it into a breath would throw that away.
++        self.assertEqual(SIGNALS[SIGNAL_ERROR].arrival_style, ARRIVAL_STYLE_SIGNATURE)
++        self.assertIn("off 120ms", arrival_plan(SIGNAL_ERROR, self.ERROR).program)
++        for key in (SIGNAL_ASK, SIGNAL_DONE, SIGNAL_BUSY):
++            self.assertEqual(SIGNALS[key].arrival_style, ARRIVAL_STYLE_BREATH)
++            self.assertIn("pulse", arrival_plan(key, "").program, key)
++
++    def test_a_demand_breath_is_held_longer_than_an_ambient_one(self):
++        from sidepulse.compose import arrival_plan
++
++        ask = arrival_plan(SIGNAL_ASK, "").duration_ms
++        done = arrival_plan(SIGNAL_DONE, self.DONE).duration_ms
++        self.assertGreater(ask, done)
++
++    def test_a_breath_arrival_needs_no_authored_program(self):
++        # The done animation is a 110ms blip; replaying it as an announcement
++        # would be too brief to notice, so the breath is synthesised instead.
++        from sidepulse.compose import arrival_plan
++
++        self.assertIsNotNone(arrival_plan(SIGNAL_DONE, ""))
++
++    def test_leading_silence_never_reaches_an_arrival(self):
++        # The heartbeat is dark for two minutes and then breathes once.
++        # Announcing a new signal with two minutes of nothing would be worse
++        # than not announcing it.
++        from sidepulse.compose import arrival_plan
++
++        plan = arrival_plan(SIGNAL_BUSY, self.HEARTBEAT)
++        self.assertNotIn("60s", plan.program)
++        self.assertIn("pulse", plan.program)
++
++    def test_signature_arrivals_still_drop_leading_silence(self):
++        from sidepulse.compose import _arrival_gesture
++
++        self.assertEqual(_arrival_gesture("off 5s\n#FF0010 120ms")[0], "#FF0010 120ms")
++
++    def test_pauses_inside_an_animation_survive(self):
++        # The beat between the error's two blinks is the gesture, not silence.
++        from sidepulse.compose import arrival_plan
++
++        self.assertIn("off 120ms", arrival_plan(SIGNAL_ERROR, self.ERROR).program)
++
++    def test_an_arrival_is_bounded(self):
++        from sidepulse.compose import MAX_ARRIVAL_MS, MIN_ARRIVAL_MS, arrival_plan
++
++        for key, native in (
++            (SIGNAL_ERROR, self.ERROR),
++            (SIGNAL_DONE, self.DONE),
++            (SIGNAL_BUSY, self.HEARTBEAT),
++        ):
++            plan = arrival_plan(key, native)
++            self.assertGreaterEqual(plan.duration_ms, MIN_ARRIVAL_MS, key)
++            self.assertLessEqual(plan.duration_ms, MAX_ARRIVAL_MS, key)
++
++    def test_every_arrival_is_queued_not_just_the_winner(self):
++        # Several signals routinely arrive in one snapshot - a run fails while
++        # another finishes. Announcing only the most urgent means the quieter
++        # ones are never seen to arrive at all.
++        from sidepulse.compose import arrival_queue
++
++        natives = {SIGNAL_ERROR: self.ERROR, SIGNAL_DONE: self.DONE}
++        queue = arrival_queue((SIGNAL_BUSY,), SIGNAL_ORDER, natives)
++        self.assertEqual(
++            [plan.signal for plan in queue], [SIGNAL_ERROR, SIGNAL_ASK, SIGNAL_DONE]
++        )
++
++    def test_the_queue_is_ordered_by_urgency(self):
++        from sidepulse.compose import arrival_queue
++
++        queue = arrival_queue((), (SIGNAL_BUSY, SIGNAL_ERROR), {SIGNAL_ERROR: self.ERROR})
++        self.assertEqual(queue[0].signal, SIGNAL_ERROR)
++
++    def test_trailing_silence_is_dropped_too(self):
++        # The error animation ends with a 700ms rest before it loops. As a
++        # one-shot announcement that is dead air before the rotation resumes.
++        from sidepulse.compose import arrival_plan
++
++        program = arrival_plan(SIGNAL_ERROR, self.ERROR).program
++        self.assertFalse(program.splitlines()[-2].strip().startswith("off"))
++
++    def test_an_arrival_respects_its_tier(self):
++        # Arrivals predated the tier levels and bypassed them: an ambient
++        # signal announced itself at 100%, roughly seven times its normal
++        # brightness.
++        from sidepulse.compose import MultiSignalTiming, arrival_plan
++
++        for key in SIGNAL_ORDER:
++            plan = arrival_plan(
++                key,
++                self.ERROR if key == SIGNAL_ERROR else "",
++                timing=MultiSignalTiming(),
++                mode=MULTI_SIGNAL_BEACON,
++            )
++            self.assertNotIn(SIGNAL_COLORS[key], plan.program, key)
++
++    def test_the_led_correction_is_applied_once_at_the_boundary(self):
++        # Producers emit uncorrected colours and one pass corrects them on the
++        # way to the device. Correcting inside each producer meant several
++        # paths, and the ones added later kept missing it.
++        from sidepulse.compose import (
++            MultiSignalTiming,
++            apply_led_correction,
++            arrival_plan,
++        )
++
++        timing = MultiSignalTiming(led_gain=(0.5, 1.0))
++        clock = timing.for_mode(MULTI_SIGNAL_BEACON)
++        for produced in (
++            compose_program(SIGNAL_ORDER, mode=MULTI_SIGNAL_BEACON).program,
++            arrival_plan(SIGNAL_DONE, "", mode=MULTI_SIGNAL_BEACON).program,
++            "off\n#FF7A00 1.6s pulse\nrepeat",
++        ):
++            corrected = apply_led_correction(produced, clock)
++            self.assertNotEqual(corrected, produced)
++            # A whole-device colour becomes a per-LED pair; an indexed one
++            # keeps its index and gets that LED's factors.
++            for line in corrected.splitlines():
++                if line.startswith("#"):
++                    self.assertEqual(line.count("#"), 2, line)
++
++    def test_an_ambient_arrival_is_lifted_but_not_to_full(self):
++        from sidepulse.compose import MultiSignalTiming, arrival_level
++
++        clock = MultiSignalTiming().for_mode(MULTI_SIGNAL_BEACON)
++        ambient = arrival_level(SIGNAL_DONE, clock)
++        demand = arrival_level(SIGNAL_ERROR, clock)
++        self.assertGreater(ambient, clock.ambient_level)
++        self.assertLess(ambient, demand)
++        self.assertEqual(demand, clock.demand_level)
++        self.assertLess(demand, 1.0)
++
++    def test_indexed_colours_are_not_rewritten_as_lists(self):
++        # `0:#FF0010` already names one LED; turning it into a colour list
++        # would be a syntax error the device rejects outright.
++        from sidepulse.compose import MultiSignalTiming, _correct_colors
++
++        clock = MultiSignalTiming(led_gain=(0.5, 1.0)).for_mode(MULTI_SIGNAL_BEACON)
++        out = _correct_colors("0:#FF0010 120ms; 1:#00FF66 120ms", 0.7, clock)
++        self.assertEqual(out.count("#"), 2)
++
++    def test_the_most_urgent_arrival_wins(self):
++        from sidepulse.compose import newest_arrival
++
++        self.assertEqual(
++            newest_arrival((SIGNAL_BUSY,), (SIGNAL_BUSY, SIGNAL_DONE, SIGNAL_ERROR)),
++            SIGNAL_ERROR,
++        )
++
++    def test_nothing_new_is_not_an_arrival(self):
++        from sidepulse.compose import newest_arrival
++
++        self.assertIsNone(newest_arrival((SIGNAL_ERROR,), (SIGNAL_ERROR,)))
++        self.assertIsNone(newest_arrival((SIGNAL_ERROR, SIGNAL_ASK), (SIGNAL_ERROR,)))
++
++    def test_bounded_repeat_is_why_this_needs_two_writes(self):
++        # The format allows exactly one `repeat`, so "play twice then loop the
++        # composition" cannot be one program. Guards the comment that explains
++        # the timer.
++        from sidepulse.compose import arrival_plan
++
++        program = arrival_plan(SIGNAL_ERROR, self.ERROR).program
++        self.assertEqual(program.count("repeat"), 1)
++
++    def test_cycle_length_is_measured_not_assumed(self):
++        from sidepulse.compose import program_cycle_ms
++
++        self.assertEqual(program_cycle_ms("#FF0010 100ms\noff 200ms\nrepeat"), 300)
++        # A segment with a duration and a delay finishes at their sum.
++        self.assertEqual(program_cycle_ms("0:#FF0010 100ms none 50ms"), 150)
++
++
++if __name__ == "__main__":
++    unittest.main()

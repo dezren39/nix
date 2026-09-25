@@ -1,0 +1,661 @@
+diff -ruN base/src/sidepulse/completion.py work/src/sidepulse/completion.py
+--- a/src/sidepulse/completion.py	2026-09-25 02:48:33
++++ b/src/sidepulse/completion.py	2026-09-25 02:53:37
+@@ -25,8 +25,24 @@
+ from .models import AgentMode, AgentStatus
+ 
+ # Long enough to notice across a room, short enough that a burst of sessions
+-# finishing together does not hold the LEDs hostage from live work.
++# finishing together does not hold the LEDs hostage from live work. This is the
++# fallback used whenever presence cannot be read - a headless session, a denied
++# window server, a Mac that reports no HID idle time - so an unanswerable
++# question degrades to the old fixed pulse rather than to a stuck LED.
+ COMPLETION_PULSE_SECONDS = 4.0
++
++# With presence available, the completion is held until somebody is plainly
++# back at the terminal instead of being timed out blind. The ceiling exists
++# because an unattended Mac would otherwise flash green until morning, and
++# because a completion nobody acknowledged in five minutes has stopped being
++# news and started being wallpaper.
++COMPLETION_HOLD_MAX_SECONDS = 300.0
++
++# Presence is sampled far faster than the 15s status refresh so that sitting
++# down clears the completion within a second rather than a quarter-minute.
++# Must stay below `presence.DEFAULT_INPUT_GAP_SECONDS`, or a pause in typing
++# could fall entirely between two samples and never be seen as a pause at all.
++COMPLETION_HOLD_POLL_SECONDS = 1.0
+ 
+ 
+ class CompletionWatcher:
+diff -ruN base/src/sidepulse/presence.py work/src/sidepulse/presence.py
+--- a/src/sidepulse/presence.py	1969-12-31 18:00:00
++++ b/src/sidepulse/presence.py	2026-09-25 02:54:22
+@@ -0,0 +1,220 @@
++"""Is the person actually back at the keyboard, in front of their work?
++
++The completion signal is the one LED state that exists purely to be *seen*.
++Working, waiting and failed all describe something the machine is doing right
++now; "done" describes something that already happened, so the only thing that
++should retire it is a human noticing. A fixed timeout cannot tell the
++difference between "you saw it" and "you were in another room", which is
++exactly the case where holding the signal matters most.
++
++Two questions decide it, and macOS answers both without asking the user for a
++single extra permission:
++
++``CGEventSourceSecondsSinceLastEventType``
++    Seconds since the last HID event. Covers keystrokes and mouse movement
++    alike, needs neither Accessibility nor Input Monitoring, and - unlike an
++    event tap - cannot drop events or wedge the input stream when the process
++    stalls.
++
++``NSWorkspace.frontmostApplication``
++    Which app owns the screen. Only the *application*, never the window or
++    tab: window titles of other processes require Screen Recording on macOS 15
++    and later, so "is the terminal in front" is the finest grain available for
++    free, and this module does not pretend otherwise.
++
++Both are read defensively. A headless test runner, a login window, or a
++sandbox without a window server makes these return nothing, and the caller
++must degrade to the plain timeout rather than hold the LEDs forever.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++# Terminals, editors and IDEs that host an agent session. Being frontmost in
++# one of these is what separates "went back to the work" from "opened a
++# browser": the completion belongs to a terminal, so acknowledging it anywhere
++# else is not acknowledgement.
++DEFAULT_ATTENTION_BUNDLE_IDS: frozenset[str] = frozenset(
++    {
++        # Terminals
++        "com.mitchellh.ghostty",
++        "com.apple.Terminal",
++        "com.googlecode.iterm2",
++        "org.alacritty",
++        "com.github.wez.wezterm",
++        "net.kovidgoyal.kitty",
++        "dev.warp.Warp-Stable",
++        "dev.warp.Warp-Preview",
++        "co.zeit.hyper",
++        "org.tabby",
++        "com.raphaelamorim.rio",
++        "io.alacritty",
++        # Editors and IDEs that run agents in an integrated terminal
++        "dev.zed.Zed",
++        "dev.zed.Zed-Preview",
++        "dev.zed.Zed-Dev",
++        "com.microsoft.VSCode",
++        "com.microsoft.VSCodeInsiders",
++        "com.vscodium",
++        "com.exafunction.windsurf",
++        "com.apple.dt.Xcode",
++        "org.gnu.Emacs",
++        "org.vim.MacVim",
++    }
++)
++
++# Cursor ships under a generated ToDesktop id and JetBrains ships one bundle
++# per IDE, so those are matched on a prefix rather than enumerated.
++DEFAULT_ATTENTION_BUNDLE_PREFIXES: tuple[str, ...] = (
++    "com.jetbrains.",
++    "com.google.android.studio",
++    "com.todesktop.",
++)
++
++# How long input has to keep arriving before it counts. A single keystroke, a
++# nudged trackpad or a notification stealing focus are all "a short moment";
++# they are not somebody sitting down to read what happened.
++DEFAULT_SUSTAINED_INPUT_SECONDS = 2.5
++
++# The longest silence tolerated inside one burst of activity, so that the
++# natural micro-pauses between keystrokes do not restart the tally.
++#
++# This *must* stay below `DEFAULT_SUSTAINED_INPUT_SECONDS`, and that is a
++# correctness constraint rather than a preference. If a silence longer than
++# the sustain window were tolerated, one keystroke followed by an empty room
++# would satisfy "sustained": the tally would start on that single event and
++# nothing afterwards would ever clear it. Keeping the gap shorter guarantees
++# that reaching the sustain threshold required at least one further event, so
++# the ceiling - not a stray keypress - is what retires an unwatched signal.
++# `AttentionWatcher` enforces this on every instance it is given.
++DEFAULT_INPUT_GAP_SECONDS = 1.5
++
++
++def frontmost_bundle_id() -> str | None:
++    """Bundle id of the frontmost application, or None if unknowable."""
++
++    try:
++        from AppKit import NSWorkspace
++    except Exception:
++        return None
++    try:
++        app = NSWorkspace.sharedWorkspace().frontmostApplication()
++    except Exception:
++        return None
++    if app is None:
++        return None
++    try:
++        bundle_id = app.bundleIdentifier()
++    except Exception:
++        return None
++    return str(bundle_id) if bundle_id else None
++
++
++def seconds_since_last_input() -> float | None:
++    """Seconds since the last keystroke or mouse movement, or None."""
++
++    try:
++        import Quartz
++    except Exception:
++        return None
++    try:
++        value = Quartz.CGEventSourceSecondsSinceLastEventType(
++            Quartz.kCGEventSourceStateHIDSystemState,
++            Quartz.kCGAnyInputEventType,
++        )
++    except Exception:
++        return None
++    if value is None:
++        return None
++    try:
++        seconds = float(value)
++    except (TypeError, ValueError):
++        return None
++    # A negative or absurd reading means the event source is not answering
++    # honestly; treat it as "no idea" rather than as "wide awake".
++    if seconds < 0.0:
++        return None
++    return seconds
++
++
++def bundle_id_holds_attention(
++    bundle_id: str | None,
++    *,
++    extra_bundle_ids: frozenset[str] | set[str] | tuple[str, ...] = (),
++) -> bool:
++    """Whether being frontmost in `bundle_id` counts as looking at the work."""
++
++    if not bundle_id:
++        return False
++    if bundle_id in DEFAULT_ATTENTION_BUNDLE_IDS or bundle_id in set(extra_bundle_ids):
++        return True
++    return bundle_id.startswith(DEFAULT_ATTENTION_BUNDLE_PREFIXES)
++
++
++@dataclass
++class AttentionWatcher:
++    """Tracks whether the user is *sustainedly* present in their terminal.
++
++    Sampled by the caller rather than driven by a thread so that the whole
++    thing stays pure and testable: `observe` takes the clock and the two
++    readings and returns a verdict, and nothing in here touches AppKit.
++    """
++
++    sustained_seconds: float = DEFAULT_SUSTAINED_INPUT_SECONDS
++    gap_seconds: float = DEFAULT_INPUT_GAP_SECONDS
++    _active_since: float | None = None
++
++    @property
++    def effective_gap_seconds(self) -> float:
++        """Gap tolerance, forced below the sustain window.
++
++        `sustained_seconds` is user-configurable, so a hand-edited settings
++        file could otherwise invert the relationship the whole design rests on
++        and make one keystroke count as sustained presence.
++        """
++
++        return min(self.gap_seconds, max(self.sustained_seconds * 0.5, 0.1))
++
++    def reset(self) -> None:
++        """Forget any activity so far. Called when a fresh hold begins.
++
++        Without this, typing that was already underway when a session finished
++        would acknowledge it instantly - which is the bug this whole module
++        exists to avoid.
++        """
++
++        self._active_since = None
++
++    def observe(
++        self,
++        now: float,
++        *,
++        idle_seconds: float | None,
++        bundle_id: str | None,
++        extra_bundle_ids: frozenset[str] | set[str] | tuple[str, ...] = (),
++    ) -> bool:
++        """Feed one sample; return True once attention has been sustained.
++
++        Returns False - never True - whenever a reading is unavailable. An
++        unknown answer must not be mistaken for a present user, because the
++        caller uses True to *stop* showing the completion.
++        """
++
++        if idle_seconds is None:
++            self._active_since = None
++            return False
++        if not bundle_id_holds_attention(bundle_id, extra_bundle_ids=extra_bundle_ids):
++            # Focus left the work. Whatever was accumulating was somebody
++            # answering a message, not reading the run that finished.
++            self._active_since = None
++            return False
++        if idle_seconds > self.effective_gap_seconds:
++            self._active_since = None
++            return False
++        if self._active_since is None:
++            # Start counting from now, not from the last event: the point is
++            # continued presence after we started watching.
++            self._active_since = now
++            return False
++        return (now - self._active_since) >= self.sustained_seconds
+diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
+--- a/src/sidepulse/settings.py	2026-09-25 02:48:33
++++ b/src/sidepulse/settings.py	2026-09-25 02:51:38
+@@ -203,6 +203,10 @@
+ )
+ DEFAULT_DND_START_TIME = "22:00"
+ DEFAULT_DND_END_TIME = "07:00"
++# Mirrors of the completion/presence tuning knobs, restated here so that
++# settings loading does not have to import the status-bar half of the app.
++DEFAULT_COMPLETION_HOLD_MAX_SECONDS = 300.0
++DEFAULT_COMPLETION_HOLD_SUSTAINED_INPUT_SECONDS = 2.5
+ 
+ 
+ @dataclass(frozen=True)
+@@ -345,6 +349,12 @@
+     dnd_start_time: str = DEFAULT_DND_START_TIME
+     dnd_end_time: str = DEFAULT_DND_END_TIME
+     dnd_last_schedule_transition: str = ""
++    completion_hold_enabled: bool = True
++    completion_hold_max_seconds: float = DEFAULT_COMPLETION_HOLD_MAX_SECONDS
++    completion_hold_sustained_input_seconds: float = (
++        DEFAULT_COMPLETION_HOLD_SUSTAINED_INPUT_SECONDS
++    )
++    completion_hold_extra_bundle_ids: tuple[str, ...] = ()
+     setup_screen_completed: bool = False
+ 
+     def transcript_enabled(self, provider: str) -> bool:
+@@ -912,6 +922,12 @@
+                 "end_time": self.dnd_end_time,
+                 "last_schedule_transition": self.dnd_last_schedule_transition,
+             },
++            "completion_hold": {
++                "enabled": self.completion_hold_enabled,
++                "max_seconds": self.completion_hold_max_seconds,
++                "sustained_input_seconds": self.completion_hold_sustained_input_seconds,
++                "extra_bundle_ids": list(self.completion_hold_extra_bundle_ids),
++            },
+             "setup_screen_completed": self.setup_screen_completed,
+         }
+ 
+@@ -973,6 +989,9 @@
+     dnd = data.get("do_not_disturb")
+     if not isinstance(dnd, dict):
+         dnd = {}
++    completion_hold = data.get("completion_hold")
++    if not isinstance(completion_hold, dict):
++        completion_hold = {}
+ 
+     led_display = _led_display_setting(data.get("led_display"), LED_DISPLAY_AGENT)
+     session_open_preferences = _session_open_preferences(
+@@ -1096,6 +1115,18 @@
+             dnd.get("last_schedule_transition")
+         ),
+         setup_screen_completed=_bool_setting(data.get("setup_screen_completed"), False),
++        completion_hold_enabled=_bool_setting(completion_hold.get("enabled"), True),
++        completion_hold_max_seconds=_nonnegative_float_setting(
++            completion_hold.get("max_seconds"),
++            DEFAULT_COMPLETION_HOLD_MAX_SECONDS,
++        ),
++        completion_hold_sustained_input_seconds=_nonnegative_float_setting(
++            completion_hold.get("sustained_input_seconds"),
++            DEFAULT_COMPLETION_HOLD_SUSTAINED_INPUT_SECONDS,
++        ),
++        completion_hold_extra_bundle_ids=_string_tuple_setting(
++            completion_hold.get("extra_bundle_ids")
++        ),
+     )
+ 
+ 
+@@ -1417,6 +1448,19 @@
+ 
+ def _string_setting(value: object) -> str:
+     return value if isinstance(value, str) else ""
++
++
++def _string_tuple_setting(value: object) -> tuple[str, ...]:
++    """Read a list of non-empty strings, ignoring anything malformed.
++
++    Hand-edited settings are the expected source here, so a stray null or a
++    number in the list drops that entry rather than failing the whole load and
++    resetting every other setting to its default.
++    """
++
++    if not isinstance(value, (list, tuple)):
++        return ()
++    return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
+ 
+ 
+ def _sleep_prevention_policy(value: object, default: str = SLEEP_PREVENTION_AGENTS) -> str:
+diff -ruN base/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
+--- a/src/sidepulse/status_bar.py	2026-09-25 02:48:33
++++ b/src/sidepulse/status_bar.py	2026-09-25 02:53:37
+@@ -139,7 +139,13 @@
+     program_for_agent_mode,
+     write_mode_to_leds,
+ )
+-from .completion import COMPLETION_PULSE_SECONDS, CompletionWatcher
++from .completion import (
++    COMPLETION_HOLD_MAX_SECONDS,
++    COMPLETION_HOLD_POLL_SECONDS,
++    COMPLETION_PULSE_SECONDS,
++    CompletionWatcher,
++)
++from .presence import AttentionWatcher, frontmost_bundle_id, seconds_since_last_input
+ from .error_latch import SessionErrorLatch
+ from .links import IOSLink, load_ios_links, remove_ios_link, send_ios_program
+ from .virtual_device import (
+@@ -735,6 +741,13 @@
+         # because COMPLETED loses to WORKING in the aggregate.
+         self.completion_watcher = CompletionWatcher()
+         self.completion_pulse_until = 0.0
++        # A completion is held until somebody is visibly back at the terminal,
++        # so it needs a far tighter clock than the 15s status refresh: the
++        # whole point is to notice presence within a second of it happening,
++        # and to stop flashing immediately once it has. The timer only exists
++        # while a hold is live, so an idle Mac polls nothing.
++        self.attention_watcher = AttentionWatcher()
++        self.completion_hold_timer = None
+         self.led_sync_in_flight = False
+         self.last_dnd_active = None
+         self.dnd_off_targets = set()
+@@ -1319,6 +1332,7 @@
+ 
+     def applicationWillTerminate_(self, _notification):
+         self.stop_agent_animation_preview_timer()
++        self.stop_completion_hold_timer()
+         self.stop_event_server()
+         self.closed_lid_awake.release()
+         self.keep_awake.release()
+@@ -3267,9 +3281,11 @@
+         failing session has moved on and the aggregate has drifted back to
+         working or idle.
+ 
+-        Below that sits the completion pulse, which briefly overrides an
++        Below that sits the completion signal, which overrides an
+         otherwise-busy aggregate so that finishing one session among several is
+-        still visible.
++        still visible. It is held until the user is visibly back at a terminal
++        rather than timed out blind, so this can outlast the old fixed pulse by
++        minutes - see `pollCompletionHold_`.
+         """
+ 
+         if self.error_latch.active:
+@@ -3279,15 +3295,86 @@
+         return mode
+ 
+     def note_completions(self, snapshot) -> None:
+-        """Start a completion pulse when a top-level session has just finished."""
++        """Start a completion signal when a top-level session has just finished."""
+ 
+         finished = self.completion_watcher.newly_completed(
+             tuple(snapshot.statuses) + tuple(snapshot.stale_statuses)
+         )
+         if not finished:
+             return
+-        self.completion_pulse_until = time.monotonic() + COMPLETION_PULSE_SECONDS
+-        log_status_bar(f"completion pulse count={len(finished)}")
++        if not self.settings.completion_hold_enabled:
++            self.completion_pulse_until = time.monotonic() + COMPLETION_PULSE_SECONDS
++            log_status_bar(f"completion pulse count={len(finished)}")
++            return
++        hold_seconds = self.settings.completion_hold_max_seconds
++        if hold_seconds <= 0:
++            hold_seconds = COMPLETION_HOLD_MAX_SECONDS
++        self.completion_pulse_until = time.monotonic() + hold_seconds
++        # Re-arm from zero: typing that was already in progress when the run
++        # finished is not acknowledgement of a result the user cannot have
++        # read yet.
++        self.attention_watcher.sustained_seconds = (
++            self.settings.completion_hold_sustained_input_seconds
++        )
++        self.attention_watcher.reset()
++        self.start_completion_hold_timer()
++        log_status_bar(f"completion hold count={len(finished)} max={hold_seconds:g}s")
++
++    def start_completion_hold_timer(self) -> None:
++        if self.completion_hold_timer is not None:
++            return
++        self.completion_hold_timer = (
++            NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
++                COMPLETION_HOLD_POLL_SECONDS,
++                self,
++                "pollCompletionHold:",
++                None,
++                True,
++            )
++        )
++
++    def stop_completion_hold_timer(self) -> None:
++        timer = self.completion_hold_timer
++        self.completion_hold_timer = None
++        if timer is not None:
++            timer.invalidate()
++
++    def pollCompletionHold_(self, _sender):
++        """Clear a held completion once it is seen, or once it goes stale."""
++
++        now = time.monotonic()
++        if now >= self.completion_pulse_until:
++            # The ceiling did the work. Nothing to resync: the next status
++            # refresh would show the aggregate anyway, but doing it here keeps
++            # the LEDs from lagging by up to STATUS_BAR_REFRESH_SECONDS.
++            self.release_completion_hold("expired")
++            return
++        acknowledged = self.attention_watcher.observe(
++            now,
++            idle_seconds=seconds_since_last_input(),
++            bundle_id=frontmost_bundle_id(),
++            extra_bundle_ids=self.settings.completion_hold_extra_bundle_ids,
++        )
++        if acknowledged:
++            self.release_completion_hold("acknowledged")
++
++    def release_completion_hold(self, reason: str) -> None:
++        self.completion_pulse_until = 0.0
++        self.attention_watcher.reset()
++        self.stop_completion_hold_timer()
++        log_status_bar(f"completion hold released reason={reason}")
++        snapshot = self.last_snapshot
++        if snapshot is None:
++            return
++        # Drop straight back to whatever is really happening instead of
++        # waiting out the rest of the 15s refresh with a stale green.
++        battery_snapshot = self.read_battery_snapshot()
++        self.sync_leds(
++            self.led_mode_for_aggregate(snapshot.aggregate.mode),
++            battery_snapshot,
++            self.active_led_display_kind(battery_snapshot),
++            snapshot.aggregate.active_count,
++        )
+ 
+     def sync_leds(
+         self,
+diff -ruN base/tests/test_completion_hold.py work/tests/test_completion_hold.py
+--- a/tests/test_completion_hold.py	1969-12-31 18:00:00
++++ b/tests/test_completion_hold.py	2026-09-25 02:54:38
+@@ -0,0 +1,171 @@
++"""The completion signal is held until somebody is actually there to see it."""
++
++from __future__ import annotations
++
++import json
++import tempfile
++import unittest
++from pathlib import Path
++
++from sidepulse.presence import (
++    DEFAULT_INPUT_GAP_SECONDS,
++    AttentionWatcher,
++    bundle_id_holds_attention,
++)
++
++GHOSTTY = "com.mitchellh.ghostty"
++BROWSER = "app.zen-browser.zen"
++
++
++class AttentionBundleTests(unittest.TestCase):
++    def test_terminals_and_editors_hold_attention(self):
++        for bundle_id in (GHOSTTY, "dev.zed.Zed", "com.microsoft.VSCode"):
++            self.assertTrue(bundle_id_holds_attention(bundle_id), bundle_id)
++
++    def test_jetbrains_and_todesktop_match_by_prefix(self):
++        # Cursor ships a generated ToDesktop id and JetBrains one per IDE, so
++        # neither can be enumerated ahead of time.
++        self.assertTrue(bundle_id_holds_attention("com.jetbrains.pycharm"))
++        self.assertTrue(bundle_id_holds_attention("com.todesktop.230313mzl4w4u92"))
++
++    def test_a_browser_does_not_hold_attention(self):
++        self.assertFalse(bundle_id_holds_attention(BROWSER))
++
++    def test_unknown_frontmost_app_does_not_hold_attention(self):
++        self.assertFalse(bundle_id_holds_attention(None))
++        self.assertFalse(bundle_id_holds_attention(""))
++
++    def test_extra_bundle_ids_extend_the_default_list(self):
++        self.assertTrue(
++            bundle_id_holds_attention("com.example.term", extra_bundle_ids=("com.example.term",))
++        )
++
++
++class AttentionWatcherTests(unittest.TestCase):
++    def setUp(self):
++        self.watcher = AttentionWatcher(sustained_seconds=2.5, gap_seconds=1.5)
++
++    def observe(self, now, idle=0.1, bundle_id=GHOSTTY):
++        return self.watcher.observe(now, idle_seconds=idle, bundle_id=bundle_id)
++
++    def test_a_single_sample_never_acknowledges(self):
++        # The entire point: one keystroke is not "reading the result".
++        self.assertFalse(self.observe(0.0))
++
++    def test_one_keystroke_then_an_empty_room_never_acknowledges(self):
++        # The case that makes the gap-below-sustain invariant load-bearing:
++        # the tally starts on a single event, and if nothing else arrives the
++        # silence must retire it before the sustain window can ever elapse.
++        self.assertFalse(self.observe(0.0, idle=0.0))
++        for tick in range(1, 120):
++            self.assertFalse(self.observe(float(tick), idle=float(tick)), tick)
++
++    def test_sustained_input_in_a_terminal_acknowledges(self):
++        self.assertFalse(self.observe(0.0))
++        self.assertFalse(self.observe(1.0))
++        self.assertFalse(self.observe(2.0))
++        self.assertTrue(self.observe(2.5))
++
++    def test_a_brief_touch_then_silence_does_not_acknowledge(self):
++        self.assertFalse(self.observe(0.0))
++        self.assertFalse(self.observe(1.0))
++        # Walked away: the last event is now older than the gap tolerance.
++        self.assertFalse(self.observe(10.0, idle=9.0))
++        # Coming back starts the clock over rather than resuming it.
++        self.assertFalse(self.observe(11.0))
++        self.assertFalse(self.observe(12.0))
++        self.assertTrue(self.observe(13.5))
++
++    def test_micro_pauses_between_keystrokes_do_not_reset(self):
++        # Typing is not a metronome; a beat of hesitation is still presence.
++        self.assertFalse(self.observe(0.0))
++        self.assertFalse(self.observe(1.2, idle=1.2))
++        self.assertFalse(self.observe(2.0, idle=0.8))
++        self.assertTrue(self.observe(2.6, idle=0.6))
++
++    def test_gap_tolerance_is_forced_below_the_sustain_window(self):
++        # A hand-edited settings file must not be able to invert the two and
++        # make a single keystroke count as sustained presence.
++        watcher = AttentionWatcher(sustained_seconds=2.0, gap_seconds=30.0)
++        self.assertLess(watcher.effective_gap_seconds, watcher.sustained_seconds)
++        self.assertFalse(watcher.observe(0.0, idle_seconds=0.0, bundle_id=GHOSTTY))
++        for tick in range(1, 60):
++            self.assertFalse(
++                watcher.observe(float(tick), idle_seconds=float(tick), bundle_id=GHOSTTY),
++                tick,
++            )
++
++    def test_typing_in_a_browser_does_not_acknowledge(self):
++        for tick in range(10):
++            self.assertFalse(self.observe(float(tick), bundle_id=BROWSER))
++
++    def test_leaving_the_terminal_resets_progress(self):
++        self.assertFalse(self.observe(0.0))
++        self.assertFalse(self.observe(1.0))
++        self.assertFalse(self.observe(2.0, bundle_id=BROWSER))
++        # Back in the terminal, but the browser detour cleared the tally.
++        self.assertFalse(self.observe(2.5))
++        self.assertTrue(self.observe(5.0, idle=1.0))
++
++    def test_unreadable_idle_time_never_acknowledges(self):
++        # A headless or permission-starved host must fall back to the timeout,
++        # never silently behave as though somebody were present.
++        for tick in range(10):
++            self.assertFalse(
++                self.watcher.observe(float(tick), idle_seconds=None, bundle_id=GHOSTTY)
++            )
++
++    def test_reset_clears_activity_already_underway(self):
++        self.assertFalse(self.observe(0.0))
++        self.assertFalse(self.observe(2.0))
++        self.watcher.reset()
++        # Without the reset the very next sample would acknowledge a result
++        # that had only just appeared.
++        self.assertFalse(self.observe(2.6))
++
++    def test_poll_interval_stays_under_the_gap_tolerance(self):
++        # A sample interval longer than the gap could step over a silence
++        # entirely and read an absent user as a continuously present one.
++        from sidepulse.completion import COMPLETION_HOLD_POLL_SECONDS
++
++        self.assertLess(COMPLETION_HOLD_POLL_SECONDS, DEFAULT_INPUT_GAP_SECONDS)
++
++
++class CompletionHoldSettingsTests(unittest.TestCase):
++    def load(self, data):
++        from sidepulse.settings import load_settings
++
++        with tempfile.TemporaryDirectory() as tmp:
++            path = Path(tmp) / "settings.json"
++            path.write_text(json.dumps(data), encoding="utf-8")
++            return load_settings(path)
++
++    def test_hold_settings_round_trip(self):
++        from sidepulse.settings import AgentMonitorSettings
++
++        settings = AgentMonitorSettings(
++            completion_hold_enabled=False,
++            completion_hold_max_seconds=42.0,
++            completion_hold_sustained_input_seconds=1.5,
++            completion_hold_extra_bundle_ids=("com.example.term",),
++        )
++        restored = self.load(settings.to_dict())
++        self.assertFalse(restored.completion_hold_enabled)
++        self.assertEqual(restored.completion_hold_max_seconds, 42.0)
++        self.assertEqual(restored.completion_hold_sustained_input_seconds, 1.5)
++        self.assertEqual(restored.completion_hold_extra_bundle_ids, ("com.example.term",))
++
++    def test_missing_section_keeps_the_hold_on_by_default(self):
++        restored = self.load({})
++        self.assertTrue(restored.completion_hold_enabled)
++        self.assertEqual(restored.completion_hold_max_seconds, 300.0)
++
++    def test_malformed_bundle_id_entries_are_dropped(self):
++        restored = self.load(
++            {"completion_hold": {"extra_bundle_ids": ["ok", 3, None, "  ", " padded "]}}
++        )
++        self.assertEqual(restored.completion_hold_extra_bundle_ids, ("ok", "padded"))
++
++
++if __name__ == "__main__":
++    unittest.main()
