@@ -265,7 +265,7 @@ share-dry *args:
 sidepulse-setup *args:
     nix run .#sidepulse-setup -- {{args}}
 
-# Play the three multi-signal LED layouts on a connected device, 30s each.
+# Play the multi-signal LED layouts on a connected device (all nine by default, ~160s each).
 # Stops the status-bar app for the duration and restarts it afterwards.
 # See docs/sidepulse-leds.md for what each layout does and why.
 [group('sidepulse')]

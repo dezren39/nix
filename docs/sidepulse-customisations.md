@@ -161,7 +161,7 @@ failure will not light red. Fixing it means inventing a synthetic session id.
 New module `src/sidepulse/compose.py`. Composes one program carrying every live
 signal instead of only the winner. Ten modes over a **ranked signal registry
 with demand/ambient tiers** — seven static, two host-driven, plus `priority`
-which is the historical behaviour and the default.
+which is the historical behaviour. `beacon` is the default.
 
 Full detail in [`sidepulse-modes.md`](./sidepulse-modes.md); the hardware
 limits they work within are in [`sidepulse-leds.md`](./sidepulse-leds.md).

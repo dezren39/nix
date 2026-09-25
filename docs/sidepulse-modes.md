@@ -31,9 +31,12 @@ output devices:
 
 Two consequences run through everything below.
 
-**Nothing runs at full.** The front washes toward white at high values, and
-white has no hue — so the most important signal would be the one most likely to
-stop being identifiable. Demand-tier levels sit at 0.62–0.80.
+**Nothing that dims by tier runs at full.** The front washes toward white at
+high values, and white has no hue — so the most important signal would be the
+one most likely to stop being identifiable. Demand-tier levels sit at
+0.62–0.80 across the five modes that dim by tier (`split`, `paired`, `depth`,
+`beacon`, `tide`). `orbit`, `round-robin`, `drift` and `live` emit the raw
+signal colours at full and rely on the per-LED correction alone.
 
 **The correction is applied to the front, not the back.** The obvious fix is to
 boost the dim LED, and it does not work: several colours already reach 255 on
@@ -100,13 +103,13 @@ the separation from amber, which differs only in green.
 
 **Amber is `#FF7A00`, not `#FF3A00`.** This is the important one. The original
 pair differed by **58/255 in the green channel and nothing else**. Dimming
-scales every channel equally, so at the 45% glow level that 58 became 19 — and
+scales every channel equally, so at the 45% glow level that 58 became 26 — and
 the back LED simply read as dim red. Two colours can stop being
 *distinguishable* long before they stop being *visible*.
 
 | amber | green channel | spread vs red at 45% |
 | --- | --- | --- |
-| `#FF3A00` original | 58 | 19 — one colour |
+| `#FF3A00` original | 58 | 26 — one colour |
 | **`#FF7A00`** | **122** | **55** |
 | `#FFA000` | 160 | 72 — legible, too yellow to read as a warning |
 
@@ -144,6 +147,13 @@ A **single** live signal always plays its own authored animation, in every
 mode. Composition only engages when priority would otherwise discard
 information.
 
+`multi_signal.breathe` swaps blinks for a staggered front/back swell, but it
+**only reaches four modes** — `round-robin`, `split`, `paired` and `beacon`.
+The other six have no breathing variant and ignore the setting entirely:
+`orbit` rolls, `tide` never goes dark, `depth` already uses `pulse`, `priority`
+plays an authored animation, and the two host-driven modes are recomputed per
+push.
+
 ### `beacon` — default
 
 **What is asking for you blinks; everything else glows underneath.**
@@ -157,8 +167,8 @@ so the glow survives the dark half for free.
 
 - **Nothing urgent live** → the blink disappears and it becomes a wash.
   The device only blinks when something actually wants you. The wash stays at
-  the glow level; rendering it at full would mean the device got *brighter* the
-  moment the urgent thing cleared.
+  `ambient_level`; rendering it at full would mean the device got *brighter*
+  the moment the urgent thing cleared.
 - **No ambient live** → the demand colours glow for each other at the demoted
   level, offset by one so the two LEDs never show the same colour at once.
 - **`glow_steps: 2`** — the glow takes two blink frames per colour, with an
@@ -265,23 +275,25 @@ something urgent and settles as it passes. This is the only mode that is never
 off, so constant full brightness is most tiring here — and with no darkness to
 punctuate it, intensity is the only thing left to say which colour matters.
 
-**Holds its cycle, not its step** (`cycle_ms: 2700`). With a fixed step, four
-colours come round every 10.8s but two come round every 5.4s — fewer signals
-would read as *busier*, which is backwards. Dividing a target cycle by the
-signal count inverts that:
+**Holds its cycle, not its step** (`cycle_ms: 2700`, scaled by tide's tempo 3.0
+to an 8100ms cycle). With a fixed step, four colours come round every 10.8s but
+two come round every 5.4s — fewer signals would read as *busier*, which is
+backwards. Dividing a target cycle by the signal count inverts that:
 
 | signals | step | effective tempo |
 | --- | --- | --- |
-| 2 | 5400ms | 4.5 |
-| 3 | 3600ms | 3.0 |
-| 4 | 2700ms | 2.25 |
+| 2 | 4050ms | 4.5 |
+| 3 | 2700ms | 3.0 |
+| 4 | 2025ms | 2.25 |
 
 A constant cycle is strictly `1/n`, so fixing one point determines the rest.
 
 ### `round-robin`
 
-Each signal's authored gesture in turn on both LEDs. The most legible and the
-most honest — nothing is reinterpreted — at the cost of frequency. Tuned by
+Each signal's **compact motif** in turn on both LEDs — the authored animation
+reduced to its recognisable gesture, so error's double blink runs 720ms against
+its authored 1120, ask 820 against 1600 and done 610 against 790. The most
+legible of the composed layouts, at the cost of frequency. Tuned by
 `motif_scale` rather than hold/gap, since these are authored shapes.
 
 ### `priority`
@@ -293,8 +305,8 @@ One colour, the most urgent. The historical behaviour, kept available.
 Two halves of the device beating at different rates, sliding in and out of
 phase. Each signal gets a period in frames by rank — **2, 3, 5, 7, coprime** —
 and lights on frames divisible by it. Front carries demand, back ambient. With
-four signals the pattern repeats after 2×3×5×7 = 210 frames, about two and a
-half minutes.
+four signals the pattern repeats after 2×3×5×7 = 210 frames — two frames per
+push at the 700ms default, so 105 pushes, about **73 seconds**.
 
 The device has one global loop, so everything inside it resyncs every cycle;
 the longest non-repeating pattern that fits in 20 lines is about eleven
@@ -328,6 +340,11 @@ A newly-arrived signal announces itself before joining the rotation.
 colour registers. Everything else breathes: most animations are built to repeat
 in the background, so replaying them verbatim is either too brief to notice
 (the done blip is 110ms) or too busy.
+
+The length is bounded at both ends: at least **700ms**, so a very short gesture
+is not missed outright, and at most **5000ms** (`MAX_ARRIVAL_MS`), so no
+arrival can hold the device for longer than five seconds however long its
+authored animation runs. An arrival is an announcement, not a takeover.
 
 **Every** new signal is queued, not just the most urgent. Several routinely
 arrive in one snapshot — a run fails while another finishes — and announcing
@@ -391,26 +408,32 @@ with `multi_signal.arrivals: false`.
 }
 ```
 
-Three layers, each falling through: **a mode's override → your base → the
-built-in default.** A user override **replaces** a built-in departure rather
-than merging, so what you write is what is used.
+Four layers, each falling through to the next: **a mode's block → your explicit
+base → the built-in departure for that mode → the plain default.** A mode block
+**merges** with the built-in departure rather than replacing it, key by key, so
+keys you do not mention keep their built-in values — writing
+`"beacon": { "hold_ms": 700 }` leaves beacon's `gap_ms`, `ease-out`,
+`demand_level` and `glow_steps` exactly as they were. Setting a key at the top
+level marks it explicit and drops the built-in departure for that key in every
+mode, which is what makes a hand-set `tempo` or `demand_level` actually reach
+the modes that had departed from it.
 
 | key | meaning | used by |
 | --- | --- | --- |
-| `tempo` | scales every duration | all |
+| `tempo` | scales every duration, clamped 0.25–6.0 | all |
 | `hold_ms` | how long a colour is lit | split, paired, depth, beacon, tide, drift |
 | `gap_ms` | dark time after a frame | split, paired, depth, beacon, drift |
-| `swell_ms` / `stagger_ms` | breath length, front-to-back offset | breathing variants |
+| `swell_ms` / `stagger_ms` | breath length, front-to-back offset | the breathing variants of round-robin, split, paired, beacon |
 | `roll_ms` / `reseed_ms` / `reseed_easing` | revolution, and the fade between seeds | orbit |
 | `push_ms` | host push interval | drift, live |
 | `cycle_ms` | hold the cycle constant instead of the step; 0 disables | tide |
 | `glow_steps` | blink frames per glow colour | beacon |
-| `motif_scale` | multiplier on authored shapes | round-robin |
-| `easing` | transition curve | all except round-robin |
+| `motif_scale` | multiplier on authored shapes, clamped 0.25–8.0 | round-robin |
+| `easing` | transition curve | all except round-robin and split, which hardcode `none` |
 | `master_brightness` | global scale, emitted only below 255 | all |
 | `demand_level` / `ambient_level` / `glow_level` | per-tier intensity | split, paired, depth, beacon, tide |
 | `glow_fade_urgent` / `glow_fade_ambient` | fraction of the frame the glow spends travelling | beacon |
-| `direction` | which way colours travel | paired, orbit, tide |
+| `direction` | which way colours travel | paired, orbit, tide, beacon (its no-demand wash) |
 | `led_gain` / `led_channel_gain` | per-LED correction | all |
 
 `easing` accepts `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`,
@@ -447,19 +470,30 @@ adjacent frames, `tide` never goes dark.
 
 Budget is **512 bytes / 20 lines**; the binding constraint is lines, not bytes.
 
-Every mode × blink and breathe × every non-empty subset of signals, plus every
-arrival in every mode, is parsed against `sdled.wasm` — the firmware's own
-parser. **310 programs, worst case 310/512 bytes and 11/20 lines.**
+Every composition mode × blink and breathe × every non-empty subset of signals
+is checked against the budget: **288 programs, worst case 310/512 bytes and
+11/20 lines.**
+
+The check is `ComposedProgram.fits()` in Python, not a firmware parse — the
+tests do not load `sdled.wasm`. The byte and line limits it enforces were
+established against the real parser (see `docs/sidepulse-leds.md`), but a
+program passing `fits()` has not itself been through the firmware. Arrivals
+are not covered by the sweep at all.
 
 This matters more than it sounds: an oversized program is not truncated, it is
 a parse error, and the device signals that by **blinking all LEDs red six
 times**. On a device whose red means "a run failed", that would read as a
 failure that never happened.
 
+So `compose_program` checks the budget before returning, and if a program will
+not fit it **drops the least urgent signal and composes again**. This is the
+only path by which a mode shows fewer signals than are live; at the shipped
+timings it is never taken, but a hand-edited settings file can reach it.
+
 ## Trying it
 
 ```sh
-just sidepulse-led-demo                                    # every mode in turn
+just sidepulse-led-demo                                    # nine modes in turn
 just sidepulse-led-demo -- --modes beacon --loop           # one, forever
 just sidepulse-led-demo -- --signals error,ask,done,busy   # pin a fixed state
 just sidepulse-led-demo -- --palette --gain 0.5,1.0        # calibrate by eye

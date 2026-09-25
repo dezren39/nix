@@ -1,6 +1,6 @@
 diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 --- a/src/sidepulse/compose.py	1969-12-31 18:00:00
-+++ b/src/sidepulse/compose.py	2026-09-25 15:45:41
++++ b/src/sidepulse/compose.py	2026-09-25 15:54:43
 @@ -0,0 +1,1739 @@
 +"""Show several things at once on a two-LED device.
 +
@@ -100,7 +100,7 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +    ),
 +    # Moved from #FF3A00, which differed from red by 58/255 of green and
 +    # nothing else - so on a dimmed LED the two became the same colour long
-+    # before they became invisible. At 45% the old pair had a spread of 19;
++    # before they became invisible. At 45% the old pair had a spread of 26;
 +    # this has 55. Chosen between #FF3A00 (indistinguishable) and #FFA000
 +    # (legible but too yellow to read as a warning).
 +    SIGNAL_ASK: StatusSignal(SIGNAL_ASK, "#FF7A00", 2, TIER_DEMAND, "waiting on you"),
@@ -1174,7 +1174,7 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +
 +    if not demand:
 +        # Nothing wants you, so nothing blinks - but the wash that replaces the
-+        # blink stays at the glow level. Rendering it at full would mean the
++        # blink stays at the ambient level. Rendering it at full would mean the
 +        # device got *brighter* the moment the urgent thing cleared, which is
 +        # exactly backwards.
 +        count = len(signals)
@@ -1918,7 +1918,7 @@ diff -ruN base34/src/sidepulse/settings.py work/src/sidepulse/settings.py
  def _string_tuple_setting(value: object) -> tuple[str, ...]:
 diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 --- a/src/sidepulse/status_bar.py	2026-09-25 07:11:35
-+++ b/src/sidepulse/status_bar.py	2026-09-25 15:43:27
++++ b/src/sidepulse/status_bar.py	2026-09-25 15:54:43
 @@ -147,6 +147,18 @@
      CompletionWatcher,
  )
@@ -2009,7 +2009,7 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
          # Drop straight back to whatever is really happening instead of
          # waiting out the rest of the 15s refresh with a stale green.
          battery_snapshot = self.read_battery_snapshot()
-@@ -3389,6 +3430,205 @@
+@@ -3389,6 +3430,206 @@
              snapshot.aggregate.active_count,
          )
  
@@ -2019,8 +2019,9 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 +        Without this a new failure appears only as "the rotation now has four
 +        colours instead of three", which is exactly the miss the completion
 +        hold exists to prevent for a finished run. The arrival borrows the
-+        device for one or two passes of the signal's authored animation - two
-+        if it is asking the user to act - and then hands it back.
++        device for a single pass of the signal's gesture and then hands it
++        back; the tiers differ in how long the breath is held, not in how many
++        times it repeats (`ARRIVAL_BREATH_MS` against `ARRIVAL_REPEATS`).
 +        """
 +
 +        previous = self.previous_signals
@@ -2215,7 +2216,7 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
      def sync_leds(
          self,
          mode: AgentMode,
-@@ -3517,14 +3757,17 @@
+@@ -3517,14 +3758,17 @@
                  )
              )
          else:
@@ -2240,7 +2241,7 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
                  )
              except DeviceWriteError as exc:
                  log_status_bar(f"virtual animation error {MODE_LABELS[mode]}: {exc}")
-@@ -3591,15 +3834,18 @@
+@@ -3591,15 +3835,18 @@
                      )
                      label = f"{device.name} Battery {battery_snapshot.percent}%"
                  else:
@@ -2267,7 +2268,7 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
                          )
                      except DeviceWriteError as exc:
                          active_errors[device.device_id] = str(exc)
-@@ -3637,7 +3883,7 @@
+@@ -3637,7 +3884,7 @@
                      f"{format_watts(battery_snapshot.adapter_power)}"
                  )
              else:
@@ -2276,7 +2277,7 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
                  result = self.agent_controller_for_device(device).sync_mode(
                      mode,
                      animation_style=animation.style,
-@@ -6895,6 +7141,84 @@
+@@ -6895,6 +7142,84 @@
      statuses = coalesced_menu_statuses(menu_statuses(snapshot, settings))
      statuses.sort(key=lambda status: (status.priority, -status.updated_at.timestamp()))
      return statuses[:limit]

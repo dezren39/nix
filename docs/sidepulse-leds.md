@@ -38,7 +38,7 @@ risking the write, and why every timing value is clamped to 65535 ms on the way
 in from settings.
 
 In practice **lines are the binding constraint, not bytes**. The worst case
-across every reachable combination is 339 bytes but 11 lines.
+across every reachable combination is 310 bytes but 11 lines.
 
 The 65535 ms cap is why the two-minute purple heartbeat is written as two
 consecutive 60-second holds rather than one 120-second one.
@@ -78,7 +78,8 @@ blink or breathe, and the cheapest program of the lot.
 ### Easings
 
 `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`, `cosine`, `pulse`,
-`none`. The composer currently uses only `none`, `pulse` and `ease-out`.
+`none`. The composer currently uses `none`, `linear`, `cosine`, `ease-out` and
+`pulse`.
 
 `pulse` is a full envelope — it rises to the colour and returns to the line's
 *start* colour within the duration. That is why breathing frames need no
@@ -161,9 +162,11 @@ resyncing — is impossible, because one global loop means everything resyncs
 every cycle by construction.
 
 But relative frequency **is** controllable: you choose how many frames each
-signal appears in. `split` already uses this, giving the lead LED a blink on
-every frame and each other signal one frame in turn, so the most urgent signal
-appears three times as often as any other when four are live.
+signal appears in. `split` already uses this, dividing the device by **tier** —
+the front LED cycles the demand-tier signals, the back LED cycles the ambient
+ones, over as many frames as the two pools' lowest common multiple. Pools of
+different lengths therefore fall in and out of step with each other, and the
+front blinks rather than holding only when it has exactly one signal to show.
 
 Pushed further, a signal on frames 1,3,5,7,9,11 against another on 1,4,7,10
 gives a polyrhythm that takes 12 frames to repeat — around **7 seconds** at the
@@ -174,8 +177,9 @@ is *unbounded* drift, not the appearance of it.
 ## The modes
 
 Ten of them, described in full in [`sidepulse-modes.md`](./sidepulse-modes.md).
-Seven are static single programs; `drift` and `live` are driven by the host and
-buy cadences a static program provably cannot express.
+Eight are static single programs — `priority`, `round-robin`, `split`,
+`paired`, `orbit`, `depth`, `beacon`, `tide` — while `drift` and `live` are
+driven by the host and buy cadences a static program provably cannot express.
 
 What matters here is which DSL feature each one leans on, because that is what
 the probes above were for:
@@ -214,9 +218,16 @@ push one past what the parser accepts.
 
 `tests/test_multi_signal.py` asserts that every reachable combination fits the
 device, including at the extremes of the timing range, since longer durations
-mean more digits and therefore more bytes. **360 programs** — 3 layouts ×
-blink/breathe × every non-empty subset of 4 signals × 4 timing profiles — parse
-clean against the firmware, worst case 339/512 bytes and 11/20 lines.
+mean more digits and therefore more bytes. **288 programs** — the 9 composition
+layouts × blink/breathe × every non-empty subset of 4 signals at the shipped
+timings (270), plus the same layouts × blink/breathe at one extreme timing
+profile with all four signals live (18). Worst case 310/512 bytes and 11/20
+lines.
+
+The assertion is `ComposedProgram.fits()` in Python, comparing byte and line
+counts against the two limits — not a parse by the firmware. Nothing in
+`tests/` drives `sdled.wasm`; the limits themselves were established by the
+probes above, and the suite checks the composer stays inside them.
 
 ## Trying it
 
@@ -225,11 +236,11 @@ just sidepulse-led-demo            # blinking
 just sidepulse-led-demo -- --breathe
 ```
 
-Plays all three layouts on a real device, 30 s each with a 2 s blackout
-between, against a scripted busy day that rises and falls between one and four
-live signals. It stops the status-bar app for the duration and restarts it
-afterwards, including on Ctrl-C. Purple is sped up so the heartbeat is visible
-inside 30 seconds.
+Plays all nine composition layouts — every mode except `priority` — on a real
+device, about 160 s each with a 2 s blackout between, against a scripted busy
+day that rises and falls between one and four live signals. It stops the
+status-bar app for the duration and restarts it afterwards, including on
+Ctrl-C. Purple is sped up so the heartbeat is visible inside the run.
 
 ## Simulating without hardware
 
