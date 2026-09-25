@@ -73,6 +73,25 @@ while both drift from the authored colour. The back is therefore pinned at 1.0
 and treated as the reference, which removes the free parameter and makes the
 front the only thing being determined.
 
+### Devices wider than two LEDs
+
+Every layout is written for two opposed LEDs, because that is the smallest
+arrangement that can show a front and a back, and the distinction between the
+two is what most of the modes are built on.
+
+On an 8-LED SidePulse Pro the corrected pattern is **repeated four times**
+across the strip, so the Pro shows four copies of the same front/back gesture.
+This applies to both forms a line can take: a colour list is tiled, and an
+indexed assignment is mirrored onto the matching position in every repeat, so
+`0:#FF0000 1:#00FF66` becomes `0: 2: 4: 6:` red and `1: 3: 5: 7:` green.
+
+Repeating is not the only defensible choice — stretching each half across four
+LEDs would also work, and would look quite different. Repeating was chosen
+because it keeps the front/back relationship legible from any angle, which is
+the property the layouts depend on. A bare device-wide colour needing no
+correction is left alone, since it already addresses every LED whatever the
+count.
+
 ---
 
 ## Signals and tiers
@@ -311,6 +330,25 @@ push at the 700ms default, so 105 pushes, about **73 seconds**.
 The device has one global loop, so everything inside it resyncs every cycle;
 the longest non-repeating pattern that fits in 20 lines is about eleven
 seconds. So the timeline lives on the host and is pushed every 700ms.
+
+**`drift` is the weakest mode here and is kept as an experiment, not a
+recommendation.** Three problems, all measured:
+
+- **It is dark most of the time with quiet signals.** Nothing fills the gaps
+  between a signal's lit frames, so the whole device is black on 23% of frames
+  with all four signals live — and on **69%** with only `done` and `busy`,
+  whose periods are 5 and 7. The common everyday pair is the worst case.
+- **The coprime periods do not survive contact with the picker.** Within a
+  tier the first signal whose period divides the frame wins, so the
+  higher-ranked one takes most collisions: with `error` and `ask` on the front,
+  error lights 15 frames in 30 and ask lights 5. The interleaving the periods
+  are chosen for is mostly thrown away.
+- **Most of each push never plays.** Two frames are written every 700ms but
+  the program is replaced on the next tick, so only the first frame is
+  reliably seen.
+
+`live` does what `drift` was aiming at — see below — and does not have any of
+these. Prefer it unless you specifically want the frame-grid behaviour.
 
 ### `live` — host-driven
 
