@@ -234,70 +234,218 @@
     "todowrite": "allow",
     "edit": "allow",
     "external_directory": "allow",
-    // Worktrees share one `origin` with their parent clone, so a single
+    // ─────────────────────────────────────────────────────────────────────
+    // bash rules. Read this before editing — the matcher is not a glob and
+    // the ordering rule is not "deny wins".
+    //
+    // HOW MATCHING WORKS (opencode 1.18.31, verified against source):
+    //
+    // 1. The command is parsed with tree-sitter-bash and EVERY `command` node
+    //    is matched independently (tool/shell.ts:123, :392-411). `a && b` is
+    //    two patterns, not one string. Each must pass. `cd`-family commands
+    //    produce no pattern at all (shell.ts:28, :407).
+    //    Not re-parsed: the quoted payload of `bash -c "..."` / `sh -c` and
+    //    anything behind `eval` — hence the wrapper asks in the ASK block.
+    //
+    // 2. The pattern is NOT a glob. util/wildcard.ts:3-13 rewrites it to a
+    //    regex: `*` -> `.*` with the dotAll flag (so it spans spaces AND
+    //    newlines, and ignores `/`), `?` -> exactly one char, and
+    //    `. + ^ $ { } ( ) | [ ] \` are ESCAPED TO LITERALS — `[abc]` is not a
+    //    character class and `.` is a literal dot. Anchored `^...$`, i.e.
+    //    always a full-string match against the sub-command. Case-SENSITIVE
+    //    on darwin/linux (`"s"`), case-insensitive only on win32 (`"si"`).
+    //    Special case (wildcard.ts:11): a pattern ending in `" *"` becomes
+    //    `( .*)?`, so `"git stash *"` also matches a bare `git stash`. That is
+    //    why the anchored rules below are written with a trailing `" *"`.
+    //
+    // 3. LAST MATCHING RULE WINS — `findLast`, permission/index.ts:28-38. It
+    //    is NOT "deny beats ask". A later `ask` silently DOWNGRADES an earlier
+    //    `deny` when both match the same sub-command. Measured on the previous
+    //    version of this block, where `*git stash*: ask` sat after
+    //    `*git reset --hard*: deny`:
+    //        node t.mjs 'git reset --hard'                    -> deny
+    //        node t.mjs 'git reset --hard' 'git stash pop'    -> ask
+    //    Adding a second string turned a hard deny into a prompt. Hence the
+    //    block is now ordered BY SEVERITY: catch-all allow, then every ASK,
+    //    then every DENY, then the anchored read-only allow-backs.
+    //    Unmatched defaults to `ask` (index.ts:35-37).
+    //
+    // WHY THE RULES ARE ANCHORED (`git x *`, not `*git x*`):
+    //    Because the pattern is the verbatim source text of the sub-command,
+    //    a leading `*` matches the string ANYWHERE — including inside an
+    //    argument. The previous unanchored block produced these, all measured:
+    //        grep -rn "git reset --hard" AGENTS.md     -> deny
+    //        echo "run git restore to undo"            -> deny
+    //        rg "git stash" docs/                      -> ask
+    //        git config --get remote.origin.url        -> deny   (a pure read)
+    //        git stash list / git stash show -p        -> ask    (pure reads)
+    //    i.e. grepping the house rules that document these commands was
+    //    blocked, and so was reading the remote URL that worktrees.md tells
+    //    every session to check before pushing. Anchoring fixes all of them.
+    //    KNOWN GAP, accepted: anchoring means an env-var prefix
+    //    (`FOO=1 git reset --hard`, which shell.ts keeps in the pattern text)
+    //    or `sudo git ...` slips past. `bash -c`/`sh -c`/`eval` are covered
+    //    explicitly below; the env-prefix form is rare enough to live with.
+    //
+    // WHY THE ALLOW-BACKS MUST STAY ANCHORED AND LAST:
+    //    They are last so they beat the denies above them, which is only safe
+    //    because they are anchored and exact. An unanchored
+    //    `"*git stash list*": "allow"` in that position would allow
+    //    `git reset --hard && echo git stash list`. Never add a leading `*`
+    //    to anything in the allow-back block.
+    //
+    // ANSWERING "always" CAN OUTRANK A DENY:
+    //    Session approvals are appended as a later ruleset into the same
+    //    `findLast` (index.ts:145-151, :73), and the stored pattern is a
+    //    DERIVED PREFIX, not the command you approved — permission/arity.ts:83
+    //    sets `git: 2`, so "always" on `git branch -d x` stores `git branch *`
+    //    and unlocks `git branch -D` / `git branch -f` for the rest of the
+    //    session. (`git stash` is arity 3 at arity.ts:86, so `git stash list`
+    //    stores the harmless `git stash list *`.) Prefer answering "once", and
+    //    encode standing allowances here rather than by clicking always.
+    //
+    // The original motivation for the block, still the worst case it guards:
+    // worktrees share one `origin` with their parent clone, so a single
     // `git remote set-url` silently retargets EVERY worktree at once. That has
     // already happened here: origin was repointed at an unrelated repository
     // mid-session, and a push from any of ~57 worktrees would have gone to the
     // wrong place. No session has a legitimate reason to rewrite a remote.
-    //
-    // Ordering matters: permission/index.ts evaluates the LAST matching rule,
-    // so the broad allow goes first and the narrow denies after it.
+    // ─────────────────────────────────────────────────────────────────────
     "bash": {
       "*": "allow",
-      // Rewriting or removing a configured remote.
-      "*git remote set-url*": "deny",
-      "*git remote remove*": "deny",
-      "*git remote rename*": "deny",
-      "*git remote rm*": "deny",
+
+      // ══ ASK ═══════════════════════════════════════════════════════════
+      // Must precede every deny: a later ask downgrades an earlier deny.
+
+      // Not re-parsed by tree-sitter (shell.ts:392-411), so the payload is one
+      // opaque token and no rule below can see into it. Gate the wrapper
+      // itself rather than pretending the contents are matched.
+      "bash -c *": "ask",
+      "sh -c *": "ask",
+      "zsh -c *": "ask",
+      "eval *": "ask",
       // Adding a remote is occasionally legitimate (a fork), but it is also how
       // a wrong push target gets introduced. Make it a conscious decision.
-      "*git remote add*": "ask",
+      "git remote add *": "ask",
+      // Recoverable, but in a shared worktree it makes work vanish from under
+      // whoever else is in there. `list`/`show` are allowed back at the bottom;
+      // `drop`/`clear` are denied below.
+      "git stash *": "ask",
+      // Can orphan commits that were never pushed. `--delete` is the long form
+      // the old `-d`/`-D` rules missed entirely (literal match: "branch --d"
+      // never contains "branch -d").
+      "git branch -d*": "ask",
+      "git branch -D*": "ask",
+      "git branch --delete*": "ask",
+      // Unforced `remove` still deletes a worktree holding unpushed commits.
+      // `prune` unregisters any worktree whose directory is merely unreachable
+      // right now — exactly the macOS /var sweep scenario in worktrees.md.
+      "git worktree remove *": "ask",
+      "git worktree prune *": "ask",
+      // Refspec deletion: `git push origin :branch` removes a remote branch.
+      // The " :" is load-bearing — `HEAD:main` and `refs/heads/a:refs/heads/b`
+      // are ordinary pushes and stay allowed.
+      "git push* :*": "ask",
+      // Removes files from the worktree as well as the index.
+      "git rm *": "ask",
+      "git tag -d*": "ask",
+      // AGENTS.md already forbids amending unless explicitly requested.
+      "git commit*--amend*": "ask",
+
+      // ══ DENY ══════════════════════════════════════════════════════════
+      // Destructive operations the house rules forbid. Placed after every ask
+      // so nothing can downgrade them.
+
+      // Rewriting or removing a configured remote.
+      "git remote set-url*": "deny",
+      "git remote remove*": "deny",
+      "git remote rename*": "deny",
+      "git remote rm*": "deny",
       // Same class of hazard via config rather than the porcelain command.
-      "*git config*remote.*url*": "deny",
-      // Destructive history/worktree operations the house rules already forbid.
-      // Denying them here makes the rule enforced rather than advisory.
-      "*git push*--force*": "deny",
-      "*git push*-f *": "deny",
-      "*git reset --hard*": "deny",
-      // `git checkout <ref> -- <path>` overwrites a path from another ref. It is
-      // genuinely useful for recovering a file, but it silently destroys
-      // uncommitted work in that path. Commented out for now — pathspec checkout
-      // is rare enough that the specific denies below cover the real hazard, and
-      // this broad rule prompts on forms that are already handled.
-      //
-      // If re-enabled, it MUST stay above the specific denies: the last matching
-      // rule wins, so placing it after would silently downgrade every one of
-      // them to a prompt.
-      // "*git checkout*--*": "ask",
+      // `--remove-section remote.origin` nukes the remote the url rule guards.
+      "git config*remote.*url*": "deny",
+      "git config*--remove-section*": "deny",
+      "git config*--unset*": "deny",
+      // Rewriting published history. `--force-with-lease` is included on
+      // purpose: safer than `--force`, still a remote history rewrite.
+      // `--delete`/`-d`/`--mirror`/`--prune` destroy branches on the remote —
+      // the "messing up another branch" case, previously fully allowed.
+      "git push*--force*": "deny",
+      "git push*-f *": "deny",
+      "git push*--delete*": "deny",
+      "git push*-d *": "deny",
+      "git push*--mirror*": "deny",
+      "git push*--prune*": "deny",
+      // `--merge` and `--keep` also discard working-tree changes; only `--hard`
+      // was covered before.
+      "git reset --hard*": "deny",
+      "git reset --merge*": "deny",
+      "git reset --keep*": "deny",
       // Discarding uncommitted work. This is the exact mechanism that silently
       // destroyed a regression test in a shared worktree — recovered only
       // because a reviewer noticed it missing from the diff. `git checkout` on a
-      // BRANCH stays allowed; only the pathspec forms that overwrite the working
-      // tree are blocked.
-      "*git checkout -- *": "deny",
-      "*git checkout .*": "deny",
-      "*git restore*": "deny",
+      // BRANCH stays allowed; only the forms that overwrite the working tree
+      // are blocked. `--ours`/`--theirs` do the same thing mid-conflict.
+      // `git restore` has no allow-back: `git reset <path>` is the permitted
+      // equivalent for unstaging, and it does not touch the working tree.
+      "git checkout -- *": "deny",
+      "git checkout .*": "deny",
+      "git checkout --ours*": "deny",
+      "git checkout --theirs*": "deny",
+      "git restore *": "deny",
       // Forced branch switches discard every uncommitted change in the tree.
       // Plain `git checkout <branch>` REFUSES when that would lose work, which
       // is the safety these flags turn off — so the unforced forms stay allowed
       // and only the override is blocked. `git switch` is the modern spelling of
       // the same hazard and needs the same treatment.
-      "*git checkout -f*": "deny",
-      "*git checkout --force*": "deny",
-      "*git switch*--discard-changes*": "deny",
-      "*git switch -f*": "deny",
-      "*git switch --force*": "deny",
+      "git checkout -f*": "deny",
+      "git checkout --force*": "deny",
+      "git switch*--discard-changes*": "deny",
+      "git switch -f*": "deny",
+      "git switch --force*": "deny",
+      // Reset an EXISTING branch pointer to another commit. Silent, instant,
+      // and aimed at a branch you may not be on — the sharpest edge of the
+      // "don't mess up another branch" rule, and previously allowed outright.
+      // `-b`/`-c` (create new) stay allowed; only the capital re-point forms go.
+      "git checkout -B*": "deny",
+      "git switch -C*": "deny",
+      "git branch -f*": "deny",
+      "git branch --force*": "deny",
       // Deletes untracked files outright. In a shared tree those untracked files
       // are frequently another agent's in-flight work.
-      "*git clean*-f*": "deny",
-      "*git clean*-x*": "deny",
-      // Recoverable, but in a shared worktree it makes work vanish from under
-      // whoever else is in there. Worth a conscious decision.
-      "*git stash*": "ask",
-      // Can orphan commits that were never pushed.
-      "*git branch -D*": "ask",
-      "*git branch -d*": "ask",
-      "*git worktree remove*--force*": "ask",
+      "git clean*-f*": "deny",
+      "git clean*-x*": "deny",
+      // Plumbing that moves or deletes ANY ref, including a branch nobody is
+      // on, with no porcelain safety check. `update-ref -d refs/heads/x` is a
+      // branch deletion that bypasses every `git branch` rule above.
+      "git update-ref *": "deny",
+      "git symbolic-ref *": "deny",
+      // The recovery net. Every "it's recoverable" justification above depends
+      // on the reflog and on unreachable objects surviving; these remove both.
+      "git reflog expire*": "deny",
+      "git gc*--prune*": "deny",
+      "git prune *": "deny",
+      // Wholesale history rewrite.
+      "git filter-branch*": "deny",
+      "git filter-repo*": "deny",
+      // Blows away submodule working trees.
+      "git submodule deinit*": "deny",
+      "git submodule*--force*": "deny",
+      // The two stash operations that are not reversible by re-applying —
+      // unlike pop/apply, which only need the stash to still exist.
+      "git stash drop*": "deny",
+      "git stash clear*": "deny",
+
+      // ══ ALLOW-BACK ════════════════════════════════════════════════════
+      // Read-only forms swept up by the rules above. LAST so they win, and
+      // ANCHORED with no leading `*` so they can only ever match when that
+      // exact command is what is being run. Do not add a leading `*` here.
+
+      "git stash list *": "allow",
+      "git stash show *": "allow",
+      "git config --get *": "allow",
+      "git config --get-regexp *": "allow",
+      "git config --list *": "allow",
     },
     // plan_enter/plan_exit only exist to suggest switching to/from the plan
     // agent (tool/plan-enter.txt). Unused here, and the shared defaults already
