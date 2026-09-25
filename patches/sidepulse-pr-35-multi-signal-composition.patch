@@ -1,7 +1,7 @@
 diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 --- a/src/sidepulse/compose.py	1969-12-31 18:00:00
-+++ b/src/sidepulse/compose.py	2026-09-25 15:15:26
-@@ -0,0 +1,1674 @@
++++ b/src/sidepulse/compose.py	2026-09-25 15:45:41
+@@ -0,0 +1,1739 @@
 +"""Show several things at once on a two-LED device.
 +
 +The aggregate has always answered "what is the single most urgent thing?" and
@@ -563,11 +563,20 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +    led_channel_gain: tuple[tuple[float, ...], ...] = DEFAULT_LED_CHANNEL_GAIN
 +    direction: str = DEFAULT_DIRECTION
 +    overrides: dict[str, dict[str, object]] = field(default_factory=dict)
++    # Which base fields the user actually wrote. A built-in per-mode departure
++    # is a *default* chosen because the layout needs it - so it must lose to an
++    # explicit global, or settings the user sets by hand do nothing. Before
++    # this, `demand_level`, `glow_steps` and `cycle_ms` reached no mode at all
++    # and `tempo` reached four of nine.
++    explicit: frozenset = field(default_factory=frozenset, compare=False, repr=False)
 +
 +    def for_mode(self, mode: str) -> ModeTiming:
 +        override = dict(BUILT_IN_MODE_TIMING.get(mode, {}))
-+        # A user override for a layout replaces the built-in departure rather
-+        # than merging with it, so what is written is what is used.
++        # An explicit global beats the built-in departure; a per-mode block
++        # beats both. Precedence is therefore: mode block, then explicit base,
++        # then built-in departure, then the plain default.
++        for key in self.explicit:
++            override.pop(key, None)
 +        if mode in self.overrides:
 +            override.update(self.overrides[mode])
 +        # Read after merging: a built-in per-mode pace was previously ignored
@@ -599,8 +608,12 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +            ambient_level=_clamp_level(
 +                override.get("ambient_level"), self.ambient_level
 +            ),
-+            demand_level=_clamp_level(
-+                override.get("demand_level"), self.demand_level
++            # Never below ambient: intensity is what carries urgency in the
++            # tiered layouts, and a user reaching for "the glow is too faint"
++            # would otherwise invert the meaning of their own indicator.
++            demand_level=max(
++                _clamp_level(override.get("demand_level"), self.demand_level),
++                _clamp_level(override.get("ambient_level"), self.ambient_level),
 +            ),
 +            glow_level=_clamp_level(override.get("glow_level"), self.glow_level),
 +            glow_fade_urgent=_clamp_level(
@@ -632,6 +645,7 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +
 +        if not isinstance(data, dict):
 +            return cls()
++        explicit = frozenset(key for key in data if key in TIMING_KEYS)
 +        overrides: dict[str, dict[str, object]] = {}
 +        for mode in MULTI_SIGNAL_MODES:
 +            block = data.get(mode)
@@ -676,6 +690,7 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +                data.get("led_channel_gain"), DEFAULT_LED_CHANNEL_GAIN
 +            ),
 +            direction=_direction(data.get("direction"), DEFAULT_DIRECTION),
++            explicit=explicit,
 +            overrides=overrides,
 +        )
 +
@@ -829,7 +844,7 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +        led_factors(index, clock) == (1.0, 1.0, 1.0) for index in (0, 1)
 +    ):
 +        return color
-+    return f"{color} {color}"
++    return f"{led(color, 0, clock)} {led(color, 1, clock)}"
 +
 +
 +@dataclass(frozen=True)
@@ -941,7 +956,12 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +    lines: list[str] = []
 +    for key in signals:
 +        color = SIGNAL_COLORS[key]
-+        lines.extend(step.format(color=color) for step in COMPACT_MOTIFS[key])
++        # Falls back by tier: a signal without its own authored motif still
++        # renders, rather than taking the layout down with a KeyError.
++        motif = COMPACT_MOTIFS.get(key) or COMPACT_MOTIFS[
++            SIGNAL_ASK if SIGNALS[key].tier == TIER_DEMAND else SIGNAL_DONE
++        ]
++        lines.extend(step.format(color=color) for step in motif)
 +    program = _loop(lines)
 +    if clock.motif_scale != 1.0:
 +        from .led_status import scale_program_durations
@@ -1262,16 +1282,26 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +def _breathe_rotation(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
 +    return _loop(
 +        [
-+            _breathe_frame(SIGNAL_COLORS[key], SIGNAL_COLORS[key], clock)
++            _breathe_frame(_tier_color(key, clock), _tier_color(key, clock), clock)
 +            for key in signals
 +        ]
 +    )
 +
 +
 +def _breathe_split(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
-+    lead = SIGNAL_COLORS[signals[0]]
++    # Tiers, not position. `signals[0]` dropped every other demand signal, so
++    # with a failure and a prompt both live the prompt was undisplayable.
++    demand = signals_in_tier(signals, TIER_DEMAND) or signals
++    rest = signals_in_tier(signals, TIER_AMBIENT) or signals[1:] or signals
 +    return _loop(
-+        [_breathe_frame(lead, SIGNAL_COLORS[key], clock) for key in signals[1:]]
++        [
++            _breathe_frame(
++                _tier_color(demand[index % len(demand)], clock),
++                _tier_color(rest[index % len(rest)], clock),
++                clock,
++            )
++            for index in range(max(len(demand), len(rest)))
++        ]
 +    )
 +
 +
@@ -1279,19 +1309,23 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +    lines: list[str] = []
 +    for index in range(0, len(signals), 2):
 +        pair = signals[index : index + 2]
-+        first = SIGNAL_COLORS[pair[0]]
-+        second = SIGNAL_COLORS[pair[1]] if len(pair) > 1 else first
++        first = _tier_color(pair[0], clock)
++        second = _tier_color(pair[1], clock) if len(pair) > 1 else first
 +        lines.append(_breathe_frame(first, second, clock))
 +    return _loop(lines)
 +
 +
 +def _breathe_beacon(signals: tuple[str, ...], clock: ModeTiming, phase: int = 0) -> str:
-+    lead = SIGNAL_COLORS[signals[0]]
-+    glow = signals_in_tier(signals, TIER_AMBIENT) or signals[1:]
++    demand = signals_in_tier(signals, TIER_DEMAND) or signals
++    glow = signals_in_tier(signals, TIER_AMBIENT) or signals[1:] or signals
 +    return _loop(
 +        [
-+            _breathe_frame(lead, dim(SIGNAL_COLORS[key], clock.ambient_level), clock)
-+            for key in glow
++            _breathe_frame(
++                dim(SIGNAL_COLORS[demand[index % len(demand)]], clock.demand_level),
++                dim(SIGNAL_COLORS[glow[index % len(glow)]], clock.ambient_level),
++                clock,
++            )
++            for index in range(max(len(demand), len(glow)))
 +        ]
 +    )
 +
@@ -1395,7 +1429,7 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +    """Whichever signal in `group` is inside the lit part of its own cycle."""
 +
 +    for key in group:
-+        cycle = LIVE_CYCLE_MS[key]
++        cycle = LIVE_CYCLE_MS.get(key, 1200)
 +        if (now_ms % cycle) < cycle // 2:
 +            return SIGNAL_COLORS[key]
 +    return BLACK
@@ -1530,35 +1564,66 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +
 +
 +def _correct_colors(program: str, level: float, clock: ModeTiming) -> str:
-+    """Put every colour in a program through the same level and per-LED gain.
++    """Scale every colour in a program to `level`.
 +
-+    Arrivals predate both mechanisms and were bypassing them, so an
-+    announcement ignored the tier levels *and* the per-LED correction - showing
-+    the uncorrected front/back mismatch in the middle of an otherwise corrected
-+    display.
-+
-+    Index-prefixed colours (`0:#FF0010`) are left alone: those already name one
-+    LED, and rewriting them as a colour list would be a syntax error.
++    Deliberately does *not* apply the per-LED correction: that happens once, at
++    the write boundary. Applying it here as well would square the gain, and the
++    two halves would not even square equally - only the signature arrivals pass
++    through this function, so breath arrivals would be corrected once and
++    signature arrivals twice.
 +    """
-+
-+    return _rewrite_colors(program, lambda color: dim(color, level), clock)
-+
-+
-+def _rewrite_colors(program: str, transform, clock: ModeTiming) -> str:
-+    """Apply `transform` then the per-LED correction to every colour."""
 +
 +    import re
 +
-+    def replace(match: re.Match[str]) -> str:
-+        shifted = transform(match.group(2))
-+        if match.group(1):
-+            # Already names one LED, so it gets that LED's factors. Expanding
-+            # it into a colour list would be a syntax error the device rejects.
-+            index = int(match.group(1)[0])
-+            return f"{match.group(1)}{led(shifted, index, clock)}"
-+        return device(shifted, clock)
++    return re.sub(
++        r"(?<![\w:])(#[0-9A-Fa-f]{6})", lambda m: dim(m.group(1), level), program
++    )
 +
-+    return re.sub(r"(\d:)?(#[0-9A-Fa-f]{6})", replace, program)
++
++def _rewrite_colors(program: str, transform, clock: ModeTiming) -> str:
++    """Apply `transform` then the per-LED correction to every colour.
++
++    Correction has to be decided per *line*, because what a colour means
++    depends on how many share its line:
++
++      - `#RRGGBB`           one colour, the whole device. Expanded into a pair
++                            so the two LEDs can be given different values.
++      - `#RRGGBB #RRGGBB`   a colour list, already one colour per LED. Each
++                            gets its own position's factors and the line keeps
++                            its length.
++      - `0:#RRGGBB`         names an LED outright, so it gets that LED's
++                            factors. Expanding it would be a syntax error.
++
++    Expanding a colour list as if each entry were device-wide is what the
++    first version did, and it doubled the line: `A B` became `Af Ab Bf Bb`, of
++    which a 2-LED device shows only `Af Ab`. Every mode that puts a different
++    colour on each LED - tide, paired, orbit, depth, round-robin - therefore
++    showed the front colour on *both* LEDs and dropped the back one entirely,
++    collapsing exactly the front/back offset those modes exist to produce.
++    """
++
++    import re
++
++    pattern = re.compile(r"(\d:)?(#[0-9A-Fa-f]{6})")
++
++    # re.sub gives fresh match objects, so map by offset instead of identity.
++    def rewrite(line: str) -> str:
++        matches = list(pattern.finditer(line))
++        bare_offsets = [m.start() for m in matches if not m.group(1)]
++        as_list = len(bare_offsets) > 1
++        order = {off: i for i, off in enumerate(bare_offsets)}
++
++        def replace(match: re.Match[str]) -> str:
++            shifted = transform(match.group(2))
++            if match.group(1):
++                return f"{match.group(1)}{led(shifted, int(match.group(1)[0]), clock)}"
++            if as_list:
++                return led(shifted, order[match.start()], clock)
++            return device(shifted, clock)
++
++        return pattern.sub(replace, line)
++
++    return "\n".join(rewrite(line) for line in program.split("\n"))
 +
 +
 +def arrival_plan(
@@ -1678,7 +1743,21 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +    return tuple(plans)
 diff -ruN base34/src/sidepulse/led_status.py work/src/sidepulse/led_status.py
 --- a/src/sidepulse/led_status.py	2026-09-25 07:11:35
-+++ b/src/sidepulse/led_status.py	2026-09-25 15:17:57
++++ b/src/sidepulse/led_status.py	2026-09-25 15:37:02
+@@ -34,11 +34,11 @@
+ }
+ 
+ 
+-ASK_AMBER = "#FF3A00"
++ASK_AMBER = "#FF7A00"
+ WORKING_CYAN = "#00E5FF"
+ KITT_RED = "#FF1800"
+ DONE_GREEN = "#00FF66"
+-ERROR_RED = "#FF0010"
++ERROR_RED = "#FF0000"
+ 
+ # How far the working animation speeds up as concurrent sessions pile on. The
+ # device has two LEDs on a Dot, so tempo is the only channel with enough
 @@ -359,7 +359,16 @@
      animation_style: str = "default",
      custom_program: str = "",
@@ -1839,7 +1918,7 @@ diff -ruN base34/src/sidepulse/settings.py work/src/sidepulse/settings.py
  def _string_tuple_setting(value: object) -> tuple[str, ...]:
 diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 --- a/src/sidepulse/status_bar.py	2026-09-25 07:11:35
-+++ b/src/sidepulse/status_bar.py	2026-09-25 15:18:14
++++ b/src/sidepulse/status_bar.py	2026-09-25 15:43:27
 @@ -147,6 +147,18 @@
      CompletionWatcher,
  )
@@ -1898,17 +1977,16 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
          self.sync_leds(
              self.led_mode_for_aggregate(snapshot.aggregate.mode),
              battery_snapshot,
-@@ -1334,6 +1364,9 @@
+@@ -1334,6 +1364,8 @@
      def applicationWillTerminate_(self, _notification):
          self.stop_agent_animation_preview_timer()
          self.stop_completion_hold_timer()
 +        self.stop_multi_signal_driver()
-+        self.arrival_pending = ()
 +        self.stop_arrival_timer()
          self.stop_event_server()
          self.closed_lid_awake.release()
          self.keep_awake.release()
-@@ -3111,6 +3144,11 @@
+@@ -3111,6 +3143,11 @@
              self.agent_led_controllers_by_device[device.device_id] = controller
          controller.device_path = device.target
          controller.brightness = device.brightness
@@ -1920,7 +1998,18 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
          return controller
  
      def battery_controller_for_device(self, device: StatusBarDevice) -> BatteryLedController:
-@@ -3389,6 +3427,190 @@
+@@ -3379,6 +3416,10 @@
+         snapshot = self.last_snapshot
+         if snapshot is None:
+             return
++        # Recompute first: the composed program is built from `active_signals`,
++        # which still carries `done` until this runs. Without it the green
++        # survives its own acknowledgement for up to a full refresh.
++        self.active_signals = self.active_signals_for(snapshot)
+         # Drop straight back to whatever is really happening instead of
+         # waiting out the rest of the 15s refresh with a stale green.
+         battery_snapshot = self.read_battery_snapshot()
+@@ -3389,6 +3430,205 @@
              snapshot.aggregate.active_count,
          )
  
@@ -1991,7 +2080,6 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 +        return self.arrival is not None and time.monotonic() < self.arrival_until
 +
 +    def start_arrival_timer(self, seconds: float) -> None:
-+        self.arrival_pending = ()
 +        self.stop_arrival_timer()
 +        self.arrival_timer = (
 +            NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
@@ -2004,6 +2092,7 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 +        )
 +
 +    def stop_arrival_timer(self) -> None:
++        self.arrival_pending = ()
 +        timer = self.arrival_timer
 +        self.arrival_timer = None
 +        if timer is not None:
@@ -2083,7 +2172,15 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 +        signals: set[str] = set()
 +        if self.error_latch.active:
 +            signals.add(SIGNAL_ERROR)
-+        modes = {status.mode for status in snapshot.statuses}
++        # Subagents finish constantly and orphan in a running state while the
++        # parent lives, so every other reader of these rows excludes them. One
++        # stuck row would otherwise latch `busy` on permanently, and with it the
++        # composition and the 700ms driver timer.
++        modes = {
++            status.mode
++            for status in snapshot.statuses
++            if ":agent:" not in status.agent_id
++        }
 +        if AgentMode.BLOCKED_ERROR in modes:
 +            signals.add(SIGNAL_ERROR)
 +        if AgentMode.WAITING_FOR_INPUT in modes:
@@ -2099,6 +2196,13 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 +        return order_signals(signals)
 +
 +    def agent_animation_for_display(self, mode: AgentMode):
++        """The animation to paint, including a playing arrival.
++
++        Every device path resolves through here rather than calling
++        `resolve_agent_animation` directly - that is what left arrivals
++        computed, logged, timed, and invisible.
++        """
++
 +        if self.arrival_active():
 +            return AgentAnimationSetting(
 +                style=AGENT_ANIMATION_CUSTOM,
@@ -2111,17 +2215,12 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
      def sync_leds(
          self,
          mode: AgentMode,
-@@ -3517,14 +3739,22 @@
+@@ -3517,14 +3757,17 @@
                  )
              )
          else:
 -            animation = self.settings.agent_animation(mode)
-+            animation = resolve_agent_animation(
-+                self.settings,
-+                getattr(self, "active_signals", ()),
-+                mode,
-+                getattr(self, "multi_signal_phase", 0),
-+            )
++            animation = animation_for_display(self, mode)
              try:
 -                program = program_for_agent_mode(
 -                    mode,
@@ -2141,17 +2240,12 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
                  )
              except DeviceWriteError as exc:
                  log_status_bar(f"virtual animation error {MODE_LABELS[mode]}: {exc}")
-@@ -3591,15 +3821,23 @@
+@@ -3591,15 +3834,18 @@
                      )
                      label = f"{device.name} Battery {battery_snapshot.percent}%"
                  else:
 -                    animation = self.settings.agent_animation(mode)
-+                    animation = resolve_agent_animation(
-+                        self.settings,
-+                        getattr(self, "active_signals", ()),
-+                        mode,
-+                        getattr(self, "multi_signal_phase", 0),
-+                    )
++                    animation = animation_for_display(self, mode)
                      try:
 -                        program = program_for_agent_mode(
 -                            mode,
@@ -2173,20 +2267,16 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
                          )
                      except DeviceWriteError as exc:
                          active_errors[device.device_id] = str(exc)
-@@ -3637,7 +3875,11 @@
+@@ -3637,7 +3883,7 @@
                      f"{format_watts(battery_snapshot.adapter_power)}"
                  )
              else:
 -                animation = self.settings.agent_animation(mode)
-+                animation = resolve_agent_animation(
-+                    self.settings,
-+                    getattr(self, "active_signals", ()),
-+                    mode,
-+                )
++                animation = animation_for_display(self, mode)
                  result = self.agent_controller_for_device(device).sync_mode(
                      mode,
                      animation_style=animation.style,
-@@ -6895,6 +7137,63 @@
+@@ -6895,6 +7141,84 @@
      statuses = coalesced_menu_statuses(menu_statuses(snapshot, settings))
      statuses.sort(key=lambda status: (status.priority, -status.updated_at.timestamp()))
      return statuses[:limit]
@@ -2200,6 +2290,27 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 +    SIGNAL_DONE: AgentMode.COMPLETED,
 +    SIGNAL_BUSY: AgentMode.WORKING,
 +}
++
++
++def animation_for_display(app, mode: AgentMode):
++    """Resolve the animation for `app`, including any arrival it is playing.
++
++    A plain function taking the app rather than a method, because the LED sync
++    paths are also driven directly - by tests and by the remote-link sender -
++    with stand-ins that carry settings and nothing else. Routing every device
++    path through one resolver is what stops a path being added later that
++    forgets about arrivals, which is exactly what happened before.
++    """
++
++    resolver = getattr(app, "agent_animation_for_display", None)
++    if resolver is not None:
++        return resolver(mode)
++    return resolve_agent_animation(
++        app.settings,
++        getattr(app, "active_signals", ()),
++        mode,
++        getattr(app, "multi_signal_phase", 0),
++    )
 +
 +
 +def correct_for_device(settings, program: str) -> str:
@@ -2284,8 +2395,8 @@ diff -ruN base34/tests/test_led_signals.py work/tests/test_led_signals.py
  
 diff -ruN base34/tests/test_multi_signal.py work/tests/test_multi_signal.py
 --- a/tests/test_multi_signal.py	1969-12-31 18:00:00
-+++ b/tests/test_multi_signal.py	2026-09-25 15:18:47
-@@ -0,0 +1,1046 @@
++++ b/tests/test_multi_signal.py	2026-09-25 15:46:14
+@@ -0,0 +1,1083 @@
 +"""Several signals at once, inside what the device will actually accept."""
 +
 +from __future__ import annotations
@@ -2298,6 +2409,7 @@ diff -ruN base34/tests/test_multi_signal.py work/tests/test_multi_signal.py
 +
 +from sidepulse.compose import (
 +    BLACK,
++    apply_led_correction,
 +    MULTI_SIGNAL_BEACON,
 +    MULTI_SIGNAL_DEPTH,
 +    MULTI_SIGNAL_DYNAMIC_MODES,
@@ -3128,6 +3240,42 @@ diff -ruN base34/tests/test_multi_signal.py work/tests/test_multi_signal.py
 +        self.assertTrue(
 +            self.load({"multi_signal": {"breathe": True}}).multi_signal_breathe
 +        )
++
++
++class LedCorrectionShapeTests(unittest.TestCase):
++    """The correction must not change how many LEDs a line addresses."""
++
++    def test_colour_list_lines_keep_one_colour_per_led(self):
++        timing = MultiSignalTiming()
++        for mode in MULTI_SIGNAL_MODES:
++            if mode == MULTI_SIGNAL_PRIORITY:
++                continue
++            composed = compose_program(["error", "done"], mode=mode, timing=timing)
++            corrected = apply_led_correction(composed.program, timing.for_mode(mode))
++            for before, after in zip(
++                composed.program.split("\n"), corrected.split("\n")
++            ):
++                want = before.count("#")
++                got = after.count("#")
++                if want <= 1:
++                    # A device-wide colour is meant to expand to a pair.
++                    self.assertLessEqual(got, 2, f"{mode}: {after}")
++                    continue
++                self.assertEqual(
++                    got, want, f"{mode}: {before!r} became {after!r}"
++                )
++
++    def test_front_and_back_stay_distinct_through_correction(self):
++        """The offset modes exist to show two colours; correction must keep them."""
++
++        timing = MultiSignalTiming()
++        for mode in ("tide", "paired", "orbit"):
++            composed = compose_program(["error", "done"], mode=mode, timing=timing)
++            corrected = apply_led_correction(composed.program, timing.for_mode(mode))
++            line = next(l for l in corrected.split("\n") if "#" in l)
++            colours = [w for w in line.split() if "#" in w]
++            self.assertEqual(len(colours), 2, f"{mode}: {line}")
++            self.assertNotEqual(colours[0], colours[1], f"{mode}: {line}")
 +
 +
 +class ArrivalTests(unittest.TestCase):
