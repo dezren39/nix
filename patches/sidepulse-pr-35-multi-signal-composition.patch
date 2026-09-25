@@ -1811,7 +1811,7 @@ diff -ruN base34/src/sidepulse/compose.py work/src/sidepulse/compose.py
 +    return tuple(plans)
 diff -ruN base34/src/sidepulse/led_status.py work/src/sidepulse/led_status.py
 --- a/src/sidepulse/led_status.py	2026-09-25 07:11:35
-+++ b/src/sidepulse/led_status.py	2026-09-25 16:36:18
++++ b/src/sidepulse/led_status.py	2026-09-25 16:50:31
 @@ -34,11 +34,11 @@
  }
  
@@ -1872,7 +1872,26 @@ diff -ruN base34/src/sidepulse/led_status.py work/src/sidepulse/led_status.py
          self.device_path = device_path
          self.file_name = file_name
          self.dry_run = dry_run
-@@ -533,6 +552,7 @@
+@@ -488,10 +507,18 @@
+             if state == LedDisplayState.WORKING
+             else 1.0
+         )
++        # The transform belongs in the signature too. It is the last thing to
++        # touch the program, and it is read from settings the user can edit
++        # while the app runs - so changing `led_gain` changes the bytes that
++        # should reach the device while the mode, style, brightness and tempo
++        # all stay put. `_last_program_is_current` does not catch it: that
++        # compares the file against what we last wrote, which detects another
++        # process overwriting us, not our own intent changing underneath.
+         animation_signature = (
+             animation_style,
+             custom_program if animation_style == "custom" else "",
+             tempo,
++            getattr(self.transform, "signature", None),
+         )
+         now = time.monotonic()
+         if (
+@@ -533,6 +560,7 @@
                  animation_style=animation_style,
                  custom_program=custom_program,
                  active_count=active_count,
@@ -1993,7 +2012,7 @@ diff -ruN base34/src/sidepulse/settings.py work/src/sidepulse/settings.py
  def _string_tuple_setting(value: object) -> tuple[str, ...]:
 diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 --- a/src/sidepulse/status_bar.py	2026-09-25 07:11:35
-+++ b/src/sidepulse/status_bar.py	2026-09-25 16:43:14
++++ b/src/sidepulse/status_bar.py	2026-09-25 16:50:31
 @@ -147,6 +147,18 @@
      CompletionWatcher,
  )
@@ -2404,7 +2423,7 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
                  log_status_bar(f"device disconnected target={result.target}")
              except Exception as exc:
                  log_status_bar(f"device disconnect error: {exc}")
-@@ -6895,6 +7178,108 @@
+@@ -6895,6 +7178,121 @@
      statuses = coalesced_menu_statuses(menu_statuses(snapshot, settings))
      statuses.sort(key=lambda status: (status.priority, -status.updated_at.timestamp()))
      return statuses[:limit]
@@ -2455,9 +2474,22 @@ diff -ruN base34/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
 +    settings = getattr(app, "settings", None)
 +    if settings is None:
 +        return None
-+    return lambda program, led_count=2: correct_for_device(
-+        settings, program, led_count
-+    )
++
++    def transform(program, led_count=2):
++        return correct_for_device(settings, program, led_count)
++
++    # What this transform will do, in a form that compares equal only when the
++    # output would be the same. The write suppression keys off it, so a user
++    # editing the correction sees it take effect on the next sync instead of
++    # whenever the mode happens to change next.
++    mode = getattr(settings, "multi_signal_mode", MULTI_SIGNAL_PRIORITY)
++    timing = getattr(settings, "multi_signal_timing", None)
++    if timing is not None:
++        clock = timing.for_mode(mode)
++        transform.signature = (mode, clock.led_gain, clock.led_channel_gain)
++    else:
++        transform.signature = None
++    return transform
 +
 +
 +def correct_for_device(settings, program: str, led_count: int = 2) -> str:
@@ -2547,8 +2579,8 @@ diff -ruN base34/tests/test_led_signals.py work/tests/test_led_signals.py
  
 diff -ruN base34/tests/test_multi_signal.py work/tests/test_multi_signal.py
 --- a/tests/test_multi_signal.py	1969-12-31 18:00:00
-+++ b/tests/test_multi_signal.py	2026-09-25 16:38:20
-@@ -0,0 +1,1151 @@
++++ b/tests/test_multi_signal.py	2026-09-25 16:50:56
+@@ -0,0 +1,1198 @@
 +"""Several signals at once, inside what the device will actually accept."""
 +
 +from __future__ import annotations
@@ -2556,6 +2588,7 @@ diff -ruN base34/tests/test_multi_signal.py work/tests/test_multi_signal.py
 +import itertools
 +import json
 +import tempfile
++import pathlib
 +import unittest
 +from pathlib import Path
 +
@@ -3496,6 +3529,52 @@ diff -ruN base34/tests/test_multi_signal.py work/tests/test_multi_signal.py
 +        )
 +        self.assertTrue(composed.fits())
 +        self.assertEqual(composed.signals, ("error",))
++
++
++class TransformSuppressionTests(unittest.TestCase):
++    """Editing the correction must reach the device on the next sync."""
++
++    def _controller(self, tmp, timing):
++        from sidepulse.led_status import AgentLedController
++
++        root = pathlib.Path(tmp) / "SidePulseDot"
++        root.mkdir(exist_ok=True)
++        controller = AgentLedController(device_path=root / "LEDS.LED")
++        controller.transform = self._transform(timing)
++        return controller
++
++    @staticmethod
++    def _transform(timing):
++        clock = timing.for_mode(MULTI_SIGNAL_BEACON)
++
++        def transform(program, led_count=2):
++            return apply_led_correction(program, clock, led_count)
++
++        transform.signature = (
++            MULTI_SIGNAL_BEACON,
++            clock.led_gain,
++            clock.led_channel_gain,
++        )
++        return transform
++
++    def test_changing_led_gain_is_not_suppressed_as_unchanged(self):
++        from sidepulse.models import AgentMode
++
++        with tempfile.TemporaryDirectory() as tmp:
++            controller = self._controller(tmp, MultiSignalTiming(led_gain=(0.48, 1.0)))
++            self.assertTrue(controller.sync_mode(AgentMode.WORKING).changed)
++            # Nothing changed: the write must be suppressed.
++            self.assertFalse(controller.sync_mode(AgentMode.WORKING).changed)
++
++            # Only the correction changed. The mode, style, brightness and
++            # tempo are all identical, and the file on disk is still exactly
++            # what we last wrote - so nothing but the transform signature can
++            # tell these two syncs apart.
++            controller.transform = self._transform(
++                MultiSignalTiming(led_gain=(0.10, 1.0))
++            )
++            self.assertTrue(controller.sync_mode(AgentMode.WORKING).changed)
++            self.assertFalse(controller.sync_mode(AgentMode.WORKING).changed)
 +
 +
 +class ArrivalTests(unittest.TestCase):
