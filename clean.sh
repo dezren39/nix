@@ -30,6 +30,8 @@ DO_MAINTENANCE=1
 MAINT_DEPTH="--deep"
 REPO_FLAGS_USED=""
 USE_SUDO=""          # empty = decide from --dry-run
+CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
+EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
 
 usage() {
   cat <<'EOF'
@@ -68,8 +70,21 @@ MAINTENANCE
   --quick           Run maintenance at --quick instead of --deep.
   --dry-run         Print what would happen; deletes nothing.
 
+OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
+  --tmpdir          Also wipe /private/var/folders, the live per-user temp
+                    directory. ~350 MB here, and it takes $TMPDIR out from
+                    under processes that are running right now. The OS sweeps
+                    this path on its own anyway.
+  --expire-reflog   Force `git reflog expire` during --deep maintenance.
+                    Measured 0 MB of reclaim across the largest repos here:
+                    almost nothing is held by reflog alone. Without it, gc
+                    still expires at git's defaults (90d / 30d unreachable).
+
 TUNABLES (environment)
-  ARTIFACT_STALE_DAYS  default 7   repo idle period before artifacts are removed
+  ARTIFACT_STALE_DAYS       default 1   repo/worktree idle period before artifacts
+                                        are removed (paired with a clean-tree check)
+  HOME_ARTIFACT_STALE_DAYS  default 7   same, for artifact dirs directly in ~, where
+                                        no repository gate applies
   CACHE_STALE_DAYS     default 3   age gate for nix caches / flake GC roots
   LOG_STALE_DAYS       default 0   0 = drop all logs, N = keep last N days
 EOF
@@ -87,6 +102,8 @@ while [ $# -gt 0 ]; do
     --follow)         FOLLOW=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --follow" ;;
     --no-follow)      FOLLOW=0; REPO_FLAGS_USED="$REPO_FLAGS_USED --no-follow" ;;
     --sudo)           USE_SUDO=1 ;;
+    --tmpdir)         CLEAN_TMPDIR=1 ;;
+    --expire-reflog)  EXPIRE_REFLOG=1 ;;
     --no-sudo)        USE_SUDO=0 ;;
     --no-git-maintenance|--no-maintenance|--no-git) DO_MAINTENANCE=0 ;;
     --quick)          MAINT_DEPTH="--quick" ;;
@@ -197,9 +214,11 @@ if [ "$EUID" -ne 0 ]; then
   else
     if [ "$DO_CACHES" = "1" ]; then brew_cleanup; fi
     CALLER_USER_HOME="$(realpath ~)" DISK_FREE_START="$DISK_FREE_START" \
-      ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-7}" LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}" \
+      ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}" LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}" \
       CACHE_STALE_DAYS="${CACHE_STALE_DAYS:-3}" \
-      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS \
+      HOME_ARTIFACT_STALE_DAYS="${HOME_ARTIFACT_STALE_DAYS:-7}" \
+      CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" \
+      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,CLEAN_TMPDIR,EXPIRE_REFLOG \
         "$0" "$@"
     exit $?
   fi
@@ -217,7 +236,13 @@ CALLER_USER="${SUDO_USER:-$(basename "$CALLER_USER_HOME")}"
 as_user() { sudo -u "$CALLER_USER" env HOME="$CALLER_USER_HOME" "$@"; }
 as_user_have() { sudo -u "$CALLER_USER" env HOME="$CALLER_USER_HOME" sh -c "command -v $1 >/dev/null 2>&1"; }
 
-ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-7}"
+# 1 day, not 7: the clean-working-tree gate in repo_is_idle now carries the
+# "someone is mid-task" signal, so mtime only has to catch a tree edited very
+# recently. Artifacts pruned here are all regenerable and all gitignored.
+ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}"
+# Artifact dirs sitting directly in ~ are NOT inside any repo, so no git gate
+# applies and mtime is the only evidence available. Keeps the old 7 days.
+HOME_ARTIFACT_STALE_DAYS="${HOME_ARTIFACT_STALE_DAYS:-7}"
 CACHE_STALE_DAYS="${CACHE_STALE_DAYS:-3}"
 LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}"
 
@@ -477,7 +502,23 @@ if [ -d "$gcroot_dir" ]; then
     if [ ! -e "$target" ]; then
       del "$link"; freed=$((freed + 1)); continue
     fi
-    owner_dir="$(dirname "$target")"
+    # Probe the PROJECT, not the directory the symlink happens to sit in.
+    #
+    # nix-direnv lays out two kinds of root: .direnv/flake-profile-<hash> (the
+    # devShell closure) and .direnv/flake-inputs/<hash>-source (one per flake
+    # input). Taking dirname of the latter lands on flake-inputs/, which holds
+    # nothing but symlinks -- and `find -type f` cannot see a symlink, so the
+    # probe returned empty and the root read as stale no matter how active the
+    # project was. Measured here: 44 of 50 direnv roots were being released
+    # "stale by default" rather than on evidence.
+    #
+    # Walking up to the directory CONTAINING .direnv gives both kinds the same
+    # owner and probes real source files. Cost of a wrong release is only a
+    # `direnv reload`, but the decision should still be evidence-based.
+    case "$target" in
+      */.direnv/*) owner_dir="${target%%/.direnv/*}" ;;
+      *)           owner_dir="$(dirname "$target")" ;;
+    esac
     case "$target" in
       */.direnv/*|*/result|*/result-*)
         if [ -z "$(find "$owner_dir" -maxdepth 2 -type f -mtime "-${CACHE_STALE_DAYS}" -print -quit 2>/dev/null)" ]; then
@@ -580,7 +621,18 @@ if [ -d "$OPS_LOG_DIR" ]; then
 fi
 
 echo "🧻 /private/var/folders"
-if [ "$DRY_RUN" = "1" ]; then echo "  would clear /private/var/folders (keeping zz)"
+# OPT-IN (--tmpdir). This is the LIVE per-user temp directory: $TMPDIR resolves
+# into it, and processes running right now hold state there. Measured 349 MB
+# here against 42 GB free -- not worth taking out from under a running session.
+#
+# It is also where scratch git worktrees end up when something ignores the
+# durable worktree root, and the OS sweeps this path on its own schedule, so
+# anything here is already living on borrowed time. Wiping it by hand just
+# makes the loss immediate instead of eventual.
+if [ "$CLEAN_TMPDIR" != "1" ]; then
+  info "/private/var/folders skipped (pass --tmpdir to clear it; ~350 MB, wipes live \$TMPDIR)"
+elif [ "$DRY_RUN" = "1" ]; then
+  echo "  would clear /private/var/folders (keeping zz)"
 else
   folders=/private/var/folders
   for i in "$folders"/*; do
@@ -612,7 +664,8 @@ fi
 
 DISCOVERY_FILE="$(mktemp)"
 REPOS_ONLY_FILE="$(mktemp)"
-trap 'rm -f "$DISCOVERY_FILE" "$REPOS_ONLY_FILE"' EXIT
+OWNERS_FILE="$(mktemp)"
+trap 'rm -f "$DISCOVERY_FILE" "$REPOS_ONLY_FILE" "$OWNERS_FILE"' EXIT
 
 # ONE discovery pass feeds everything below: .trash removal, artifact pruning,
 # Spotlight markers and the maintenance repo list.
@@ -620,14 +673,46 @@ echo "🔎 discovering repositories and artifacts"
 "$SELF_DIR/git-discover-repos" "${DARGS[@]}" --find all --status > "$DISCOVERY_FILE" 2>/dev/null \
   || warn "discovery failed"
 awk -F'\t' '$1=="repo"{print $2}' "$DISCOVERY_FILE" > "$REPOS_ONLY_FILE"
+# Artifact ownership is resolved against repos AND worktrees, while maintenance
+# still runs against REPOS_ONLY_FILE alone. Keeping these separate matters: a
+# linked worktree has no real repo as a path prefix, so resolving ownership from
+# the repo list alone never matched anything under one. Every artifact dir in
+# every worktree was therefore only Spotlight-marked and never pruned -- 32 GB
+# of .venv/node_modules here, 28 GB of it under a single nested container.
+# Worktrees must NOT enter the maintenance loop: they share the parent's object
+# store, so maintaining each would repeat identical work N times.
+awk -F'\t' '$1=="repo"||$1=="worktree"{print $2}' "$DISCOVERY_FILE" > "$OWNERS_FILE"
 n_repos=$(wc -l < "$REPOS_ONLY_FILE" | tr -d ' ')
 n_wt=$(awk -F'\t' '$1=="worktree"' "$DISCOVERY_FILE" | wc -l | tr -d ' ')
 n_found=$(awk -F'\t' '$1=="FOUND"' "$DISCOVERY_FILE" | wc -l | tr -d ' ')
 echo "   $n_repos repos, $n_wt worktrees, $n_found artifact dirs"
 
-# Is a repo idle? Excludes artifact dirs, .git and .worktrees; nested repos are
-# evaluated as their own units.
+# Is a repo/worktree safe to prune artifacts from? Two independent gates.
+#
+# 1. mtime: no source file modified within ARTIFACT_STALE_DAYS. Artifact dirs,
+#    .git and .worktrees are excluded from the probe; nested repos are evaluated
+#    as their own units.
+#
+# 2. clean working tree. This is an ACTIVITY proxy, not a safety gate -- every
+#    .venv/node_modules here is gitignored (measured: 0 of 74 git-tracked), so
+#    removing one cannot destroy tracked work, committed or otherwise. It is
+#    here because mtime alone is not a usable activity signal for worktrees:
+#    `git worktree add`, `checkout` and rebase stamp EVERY file they write with
+#    the current time, so a tree that was merely materialised looks identical to
+#    one being actively edited. Measured here: one worktree had all 7846 of its
+#    files inside a single 60-second window. Uncommitted changes are the part
+#    that reliably means "someone is mid-task".
+#
+# Deliberately NOT gated on unpushed commits: 29 of 50 worktrees here have no
+# upstream at all and 5 are detached, so `log @{u}..HEAD` cannot be evaluated
+# for most of them -- it silently reports 0 and reads as a safety signal it is
+# not. Irrelevant to artifact deletion in any case, per the note above.
+git_tree_is_clean() {
+  [ -e "$1/.git" ] || return 0     # not a repo/worktree: nothing git can say
+  [ -z "$(git -C "$1" status --porcelain 2>/dev/null | head -1)" ]
+}
 repo_is_idle() {
+  git_tree_is_clean "$1" || return 1
   [ -z "$(find "$1" \
       \( "${CACHE_EXPR[@]}" -o "${RISK_EXPR[@]}" -o -name .git -o -name .worktrees \) -prune -o \
       -type f -mtime "-${ARTIFACT_STALE_DAYS}" -print -quit 2>/dev/null)" ]
@@ -670,10 +755,12 @@ while IFS=$'\t' read -r tag reason status path; do
       ;;
     cache)
       owner="${path}"; owner_repo=""
-      # Find which discovered repo this sits under, to reuse the idle check.
+      # Longest matching repo OR worktree prefix wins, so an artifact inside a
+      # worktree is judged against that worktree rather than falling through to
+      # mark-only.
       while IFS= read -r r; do
         case "$path" in "$r"/*) [ ${#r} -gt ${#owner_repo} ] && owner_repo="$r" ;; esac
-      done < "$REPOS_ONLY_FILE"
+      done < "$OWNERS_FILE"
       if [ -n "$owner_repo" ]; then
         if [ -z "${IDLE_CACHE[$owner_repo]:-}" ]; then
           if repo_is_idle "$owner_repo"; then IDLE_CACHE[$owner_repo]=idle; else IDLE_CACHE[$owner_repo]=active; fi
@@ -721,7 +808,7 @@ if [ -z "$TARGET_PATH" ]; then
     _skip=0
     for _s in "${HOME_ARTIFACT_SKIP[@]}"; do [ "$_n" = "$_s" ] && _skip=1; done
     [ "$_skip" = "1" ] && { info "~/$_n skipped by policy"; continue; }
-    if [ -z "$(find "$_d" -type f -mtime "-${ARTIFACT_STALE_DAYS}" -print -quit 2>/dev/null)" ]; then
+    if [ -z "$(find "$_d" -type f -mtime "-${HOME_ARTIFACT_STALE_DAYS}" -print -quit 2>/dev/null)" ]; then
       del_and_stub "$_d"
     else
       mark_dir "$_d"
@@ -766,15 +853,51 @@ repair_git_ownership() {
   [ "$repaired" -gt 0 ] && echo "   $repaired Git metadata directories ownership repaired"
 }
 
+# Match the scope of the CHECK to the scope of the ACTION.
+#
+# Artifact deletion above is per-directory, so it is judged per repo/worktree:
+# pruning one worktree's .venv cannot affect any other tree.
+#
+# `--deep` is different. It runs `gc --prune=now` against the object store,
+# which a repo SHARES with every one of its linked worktrees -- 54 live ones on
+# operations-portal here. Normal gc leaves a 2-week grace period on unreachable
+# objects precisely so a concurrent writer cannot have an object pruned out from
+# under it; `--prune=now` removes that grace entirely. So a deep pass is only
+# safe when the repo AND every live worktree hanging off it are quiescent.
+#
+# When one is active the repo is DOWNGRADED to --quick, not skipped: quick
+# rewrites no packs and prunes nothing, so it is safe to run alongside active
+# work while still refreshing commit-graph and packing loose objects.
+repo_tree_group_is_idle() {
+  local repo="$1" wt
+  repo_is_idle "$repo" || return 1
+  while IFS= read -r wt; do
+    [ -d "$wt" ] || continue          # registered but swept: nothing to check
+    [ "$wt" = "$repo" ] && continue
+    repo_is_idle "$wt" || return 1
+  done < <(as_user git -C "$repo" worktree list --porcelain 2>/dev/null |
+             awk '/^worktree /{p=substr($0,10)} /^prunable/{p=""} /^$/{if(p!="")print p; p=""}')
+  return 0
+}
+
 # --- git maintenance, last: it is the slowest step --------------------------
 if [ "$DO_MAINTENANCE" = "1" ] && [ "$n_repos" -gt 0 ]; then
   repair_git_ownership
   echo "🔧 git maintenance ($MAINT_DEPTH) across $n_repos repos"
+  MAINT_EXTRA=()
+  [ "$EXPIRE_REFLOG" = "1" ] && MAINT_EXTRA+=(--expire-reflog)
+  DOWNGRADED=0
   while IFS= read -r repo; do
     [ -d "$repo" ] || continue
+    depth="$MAINT_DEPTH"
+    if [ "$depth" = "--deep" ] && ! repo_tree_group_is_idle "$repo"; then
+      depth="--quick"; DOWNGRADED=$((DOWNGRADED + 1))
+      info "${repo/#$CALLER_USER_HOME/\~}: active repo or worktree -- --deep downgraded to --quick"
+    fi
     run as_user "$SELF_DIR/git-maintain-repos" --path "$repo" --no-recursive --no-system \
-      "$MAINT_DEPTH" --clean-orphans || warn "maintenance failed for $repo"
+      "$depth" --clean-orphans "${MAINT_EXTRA[@]+"${MAINT_EXTRA[@]}"}" || warn "maintenance failed for $repo"
   done < "$REPOS_ONLY_FILE"
+  [ "$DOWNGRADED" -gt 0 ] && echo "   $DOWNGRADED repos downgraded to --quick (shared object store in use)"
 fi
 
 # --- root's own repositories ------------------------------------------------

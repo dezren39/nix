@@ -382,6 +382,7 @@ rec {
         };
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
+        mcpx = pkgs.callPackage ./pkgs/mcpx/package.nix { inherit bun-bin; };
         lootbox-update = import ./pkgs/lootbox-update {
           inherit pkgs;
           lootboxSrc = pkgs.fetchFromGitHub {
@@ -489,6 +490,10 @@ rec {
         lootbox-link = {
           type = "app";
           program = "${selfPkgs.lootbox-link}/bin/lootbox-link";
+        };
+        mcpx = {
+          type = "app";
+          program = "${selfPkgs.mcpx}/bin/mcpx";
         };
         opencode = {
           type = "app";

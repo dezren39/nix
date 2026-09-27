@@ -112,6 +112,24 @@
   gc.writeCommitGraph = true;
   pack.writeReverseIndex = true;
 
+  # Stashes are NOT per-worktree: `git rev-parse --git-path refs/stash` from
+  # inside a linked worktree resolves to the common dir, so one stack is shared
+  # by every worktree of a repo.
+  #
+  # Only stash@{0} is a real ref. Every older entry exists solely as a reflog
+  # entry of refs/stash, which puts the whole stack under gc.reflogExpire --
+  # default 90 days, or 30 for unreachable. So `gc` silently discards older
+  # stashes, and `git reflog expire --all` discards them immediately. The
+  # git-gc man page names "refs/stash" as its example <pattern> precisely
+  # because this is the intended escape hatch.
+  #
+  # "never" is effectively free here: one stash exists across every repo on
+  # this machine, so there is no size argument against keeping them forever.
+  "gc"."refs/stash" = {
+    reflogExpire = "never";
+    reflogExpireUnreachable = "never";
+  };
+
   branch.sort = "-committerdate";
   tag.sort = "version:refname";
   column.ui = "auto";

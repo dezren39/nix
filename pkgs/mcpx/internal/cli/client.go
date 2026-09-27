@@ -1,0 +1,303 @@
+// Package cli implements the mcpx command line.
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/dezren39/mcpx/internal/daemon"
+)
+
+// Client talks to the daemon over its unix socket, starting one if needed.
+type Client struct {
+	paths daemon.Paths
+	hc    *http.Client
+	cfg   string
+}
+
+// NewClient builds a socket-backed API client.
+func NewClient(paths daemon.Paths, configPath string) *Client {
+	return &Client{
+		paths: paths,
+		cfg:   configPath,
+		hc: &http.Client{
+			Timeout: 10 * time.Minute,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					var d net.Dialer
+					return d.DialContext(ctx, "unix", paths.Socket)
+				},
+				MaxIdleConns:    8,
+				IdleConnTimeout: 30 * time.Second,
+			},
+		},
+	}
+}
+
+// ErrNoDaemon means nothing is listening on the socket.
+var ErrNoDaemon = errors.New("mcpx daemon is not running")
+
+func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, "http://mcpx"+path, rdr)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		if isDialErr(err) {
+			return nil, ErrNoDaemon
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(b, &e) == nil && e.Error != "" {
+			return nil, errors.New(e.Error)
+		}
+		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return b, nil
+}
+
+func isDialErr(err error) bool {
+	var oe *net.OpError
+	if errors.As(err, &oe) && oe.Op == "dial" {
+		return true
+	}
+	return errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)
+}
+
+// Ping reports whether a daemon is reachable.
+func (c *Client) Ping(ctx context.Context) bool {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, err := c.do(cctx, http.MethodGet, "/v1/health", nil)
+	return err == nil
+}
+
+// EnsureDaemon starts a background daemon if one is not already running and
+// waits for it to become reachable. This is what makes every command work with
+// no setup step.
+func (c *Client) EnsureDaemon(ctx context.Context) error {
+	if c.Ping(ctx) {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	// An auto-started daemon shuts itself down once a repo stops being used,
+	// so visiting many projects does not accumulate idle processes. A daemon
+	// started deliberately (launchd, `mcpx daemon`) has no idle timer.
+	args := []string{"daemon", "--detached", "--idle-exit", "4h"}
+	if c.cfg != "" {
+		args = append(args, "--config", c.cfg)
+	}
+	logPath := c.paths.State + "/daemon.log"
+	if err := c.paths.EnsureDirs(); err != nil {
+		return err
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+
+	cmd := exec.Command(exe, args...)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start daemon: %w", err)
+	}
+	_ = cmd.Process.Release()
+
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if c.Ping(ctx) {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	tail, _ := os.ReadFile(logPath)
+	if len(tail) > 2000 {
+		tail = tail[len(tail)-2000:]
+	}
+	return fmt.Errorf("daemon did not become ready; see %s\n%s", logPath, strings.TrimSpace(string(tail)))
+}
+
+// Namespaces lists configured namespaces.
+func (c *Client) Namespaces(ctx context.Context) ([]daemon.NamespaceInfo, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/namespaces", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []daemon.NamespaceInfo
+	return out, json.Unmarshal(b, &out)
+}
+
+// Types returns TypeScript declarations for the given namespaces.
+func (c *Client) Types(ctx context.Context, ns []string) (string, error) {
+	q := ""
+	if len(ns) > 0 {
+		q = "?ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/types"+q, nil)
+	return string(b), err
+}
+
+// ClientModule returns the generated script client source.
+func (c *Client) ClientModule(ctx context.Context, ns []string, session string) (string, error) {
+	q := "?session=" + session
+	if len(ns) > 0 {
+		q += "&ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/client.ts"+q, nil)
+	return string(b), err
+}
+
+// Search ranks tools against a query.
+func (c *Client) Search(ctx context.Context, q string, limit int) ([]daemon.ToolInfo, error) {
+	b, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/search?q=%s&limit=%d", urlEscape(q), limit), nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []daemon.ToolInfo
+	return out, json.Unmarshal(b, &out)
+}
+
+// Tools lists tools for the given namespaces.
+func (c *Client) Tools(ctx context.Context, ns []string) ([]daemon.ToolInfo, error) {
+	q := ""
+	if len(ns) > 0 {
+		q = "?ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/tools"+q, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []daemon.ToolInfo
+	return out, json.Unmarshal(b, &out)
+}
+
+// CallResult is a raw tools/call response.
+type CallResult struct {
+	Result     json.RawMessage `json:"result"`
+	DurationMs int64           `json:"durationMs"`
+}
+
+// Call invokes a tool.
+func (c *Client) Call(ctx context.Context, server, tool, session string, args json.RawMessage) (*CallResult, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/call", map[string]any{
+		"server": server, "tool": tool, "args": args, "session": session,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out CallResult
+	return &out, json.Unmarshal(b, &out)
+}
+
+// ReleaseSession frees instances pinned to a session.
+func (c *Client) ReleaseSession(ctx context.Context, session string) error {
+	_, err := c.do(ctx, http.MethodPost, "/v1/session/release", map[string]string{"session": session})
+	return err
+}
+
+// Status returns the daemon status document.
+func (c *Client) Status(ctx context.Context) (map[string]any, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/status", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	return out, json.Unmarshal(b, &out)
+}
+
+// Refresh re-reads every server's schemas.
+func (c *Client) Refresh(ctx context.Context) (map[string]any, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/refresh", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	return out, json.Unmarshal(b, &out)
+}
+
+// Restart stops instances for a server (or all when empty).
+func (c *Client) Restart(ctx context.Context, server string) (int, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/restart", map[string]string{"server": server})
+	if err != nil {
+		return 0, err
+	}
+	var out struct {
+		Stopped int `json:"stopped"`
+	}
+	return out.Stopped, json.Unmarshal(b, &out)
+}
+
+// Shutdown asks the daemon to exit.
+func (c *Client) Shutdown(ctx context.Context) error {
+	_, err := c.do(ctx, http.MethodPost, "/v1/shutdown", nil)
+	return err
+}
+
+// Endpoint returns the daemon's loopback base URL.
+func (c *Client) Endpoint(ctx context.Context) (string, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/health", nil)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Endpoint string `json:"endpoint"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return "", err
+	}
+	return out.Endpoint, nil
+}
+
+func urlEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.', r == '~':
+			b.WriteRune(r)
+		default:
+			for _, by := range []byte(string(r)) {
+				fmt.Fprintf(&b, "%%%02X", by)
+			}
+		}
+	}
+	return b.String()
+}

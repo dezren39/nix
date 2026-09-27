@@ -6,7 +6,11 @@
 
 set -uo pipefail
 
-REFLOG_EXPIRE="${REFLOG_EXPIRE:-1.week.ago}"
+# Only consulted when --expire-reflog is passed. Measured across the four
+# largest repos here, expiring at 1.week.ago freed 0 MB: there are effectively
+# no objects held by reflog alone. So the explicit expiry is off by default --
+# it is all recoverability cost for no reclaim. See EXPIRE_REFLOG below.
+REFLOG_EXPIRE="${REFLOG_EXPIRE:-1.month.ago}"
 JOBS="${JOBS:-4}"
 PACK_THREADS="${PACK_THREADS:-3}"
 
@@ -20,8 +24,9 @@ USAGE
   git-maintain-repos --system                  (--auto not needed: touches no repos)
   git-maintain-repos                          show this help
 
-  --deep expires reflogs and prunes unreachable objects, which is NOT
-  reversible. Use --dry-run first if unsure.
+  --deep prunes unreachable objects, which is NOT reversible. It does not
+  expire reflogs unless --expire-reflog is also passed. Use --dry-run first
+  if unsure.
 
 OPTIONS
   --path DIR            Root to scan. May also be given positionally.
@@ -54,14 +59,15 @@ DEPTH (mutually exclusive; the default is neither --quick nor --deep)
   <none>                The above plus incremental-repack -- the geometric
                         repack that also refreshes the multi-pack-index.
                         Still never prunes.
-  --deep                reflog expiry + `gc --prune=now` + full repack.
+  --deep                `gc --prune=now` + full repack. Reflog expiry only
+                        with --expire-reflog.
                         Reclaims space, NOT reversible. ~3 min across ~/git.
 
   Together with --system that gives four increasing levels of work:
     --system   scheduler/config only, no repository is opened
     --quick    repos touched + registered, but no pack is rewritten
     <none>     + geometric repack   (the default)
-    --deep     + reflog expiry and pruning
+    --deep     + full repack and pruning of unreachable objects
 
 MODIFIERS (apply to --deep and --quick)
   --fsck                Add `fsck --connectivity-only` (verifies reachability
@@ -72,7 +78,14 @@ MODIFIERS (apply to --deep and --quick)
                         a connectivity check first.
   --jobs N              Parallel repos (default 4)
   --pack-threads N      Threads per repack (default 3)
-  --reflog-expire WHEN  Reflog cutoff (default 1.week.ago; "now" = maximum)
+  --expire-reflog       Force `reflog expire` before the gc. OFF by default:
+                        measured 0 MB of reclaim across the largest repos here,
+                        because almost nothing is held by reflog alone, while a
+                        reset-away branch or abandoned detached HEAD becomes
+                        unrecoverable. Without it gc still expires reflogs at
+                        git's own defaults (90d, 30d unreachable).
+  --reflog-expire WHEN  Cutoff used by --expire-reflog (default 1.month.ago;
+                        "now" = maximum). No effect on its own.
   --no-register         Skip scheduler registration
   --dry-run             List what would be processed
   -h, --help            This help
@@ -132,6 +145,7 @@ SCOPE_SET=0
 AUTO_SET=0
 FSCK="${FSCK:-0}"
 CLEAN_ORPHANS="${CLEAN_ORPHANS:-0}"
+EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}"
 REGISTER="${REGISTER:-1}"
 DRY_RUN=0
 ROOT=""
@@ -159,6 +173,7 @@ while [ $# -gt 0 ]; do
     --worktrees-only) FILTER="--worktrees-only" ;;
     --fsck) FSCK=1 ;;
     --clean-orphans) CLEAN_ORPHANS=1 ;;
+    --expire-reflog) EXPIRE_REFLOG=1 ;;
     --jobs) JOBS="${2:-4}"; shift ;;
     --pack-threads) PACK_THREADS="${2:-3}"; shift ;;
     --reflog-expire) REFLOG_EXPIRE="${2:-1.week.ago}"; shift ;;
@@ -190,8 +205,15 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
     fi                                                                   # --quick stops short of any repack
     git -C "$repo" maintenance run --task=pack-refs          2>/dev/null  # collapse loose refs into packed-refs
   else
-    git -C "$repo" reflog expire --expire="$REFLOG_EXPIRE" \
-      --expire-unreachable="$REFLOG_EXPIRE" --all            2>/dev/null  # release unreachable objects for prune
+    # Explicit reflog expiry is OPT-IN (--expire-reflog). Without it, `gc` below
+    # still expires reflogs using git's own defaults -- gc.reflogExpire 90 days
+    # and gc.reflogExpireUnreachable 30 days -- which is the conservative
+    # behaviour. Forcing a shorter cutoff here measured 0 MB of reclaim while
+    # making a week-old reset or abandoned detached HEAD unrecoverable.
+    if [ "$EXPIRE_REFLOG" = "1" ]; then
+      git -C "$repo" reflog expire --expire="$REFLOG_EXPIRE" \
+        --expire-unreachable="$REFLOG_EXPIRE" --all          2>/dev/null  # release unreachable objects for prune
+    fi
     git -C "$repo" -c gc.autoDetach=false -c pack.threads="$PACK_THREADS" \
       gc --prune=now --force 2>&1 | sed "s|^|  [$name] |"                 # full repack + prune + clear tmp garbage
     git -C "$repo" commit-graph write --reachable --changed-paths 2>/dev/null  # rebuild graph after repack
@@ -299,7 +321,11 @@ if [ "$DRY_RUN" = "1" ]; then
     [ "$DEPTH" != "quick" ] && echo "    git maintenance run --task=incremental-repack"
     echo "    git maintenance run --task=pack-refs"
   else
-    echo "    git reflog expire --expire=$REFLOG_EXPIRE --expire-unreachable=$REFLOG_EXPIRE --all"
+    if [ "$EXPIRE_REFLOG" = "1" ]; then
+      echo "    git reflog expire --expire=$REFLOG_EXPIRE --expire-unreachable=$REFLOG_EXPIRE --all"
+    else
+      echo "    (reflog expiry skipped -- gc uses git defaults 90d/30d; --expire-reflog to force)"
+    fi
     echo "    git -c gc.autoDetach=false -c pack.threads=$PACK_THREADS gc --prune=now --force"
     echo "    git commit-graph write --reachable --changed-paths"
   fi
@@ -319,7 +345,7 @@ fi
 self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 printf '%s\0' "${repos[@]}" |
   GMR_ONE=1 DEPTH="$DEPTH" FSCK="$FSCK" CLEAN_ORPHANS="$CLEAN_ORPHANS" REGISTER="$REGISTER" \
-  REFLOG_EXPIRE="$REFLOG_EXPIRE" PACK_THREADS="$PACK_THREADS" \
+  REFLOG_EXPIRE="$REFLOG_EXPIRE" PACK_THREADS="$PACK_THREADS" EXPIRE_REFLOG="$EXPIRE_REFLOG" \
     xargs -0 -P "$JOBS" -I{} "$self" --one {}
 
 # --walk deliberately skips the system half.

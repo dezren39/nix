@@ -79,7 +79,7 @@ _: {
     "vlc"
     "webex"
     "windows-app"
-    "wireshark-app" # renamed from wireshark
+    # "wireshark-app" # removed 2026-09: uninstalled on request (431 MB)
     "zed"
     # Zen ships exactly two channels, and Homebrew mirrors them one-to-one.
     # There is no zen@beta -- the cask named "zen" IS the beta stream:
@@ -101,6 +101,6 @@ _: {
     # to a single process.
     "zen"
     "zen@twilight"
-    "zoom"
+    # "zoom" # removed 2026-09: uninstalled on request (861 MB)
   ];
 }
