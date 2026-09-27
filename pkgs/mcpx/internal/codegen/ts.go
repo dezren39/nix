@@ -27,7 +27,15 @@ type Namespace struct {
 	Name        string
 	Server      string
 	Description string
-	Tools       []Tool
+	// Instructions is the server's own guidance from initialize. It carries
+	// conventions no JSON Schema can express -- how an id is obtained, which
+	// call must come first -- so it is rendered above the signatures.
+	Instructions string
+	// Prelude is operator-supplied guidance from config, rendered above the
+	// server's own. It is the escape hatch for a server whose descriptions
+	// leave out something a caller needs.
+	Prelude string
+	Tools   []Tool
 }
 
 // schema is the subset of JSON Schema that MCP servers actually emit.

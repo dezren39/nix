@@ -71,6 +71,10 @@ type Client struct {
 
 	ServerInfo   ServerInfo
 	Capabilities map[string]json.RawMessage
+	// Instructions is the free-text guidance a server returns from
+	// initialize. Servers use it to explain conventions their schemas cannot:
+	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
+	Instructions string
 }
 
 // ServerInfo is the identity a server reports during initialize.
@@ -141,6 +145,7 @@ func New(ctx context.Context, t Transport, clientName, clientVersion string) (*C
 	}
 	c.ServerInfo = ir.ServerInfo
 	c.Capabilities = ir.Capabilities
+	c.Instructions = ir.Instructions
 
 	if err := c.notify(ctx, "notifications/initialized", json.RawMessage(`{}`)); err != nil {
 		c.Close()

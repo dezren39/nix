@@ -7,7 +7,10 @@ None of their tool schemas are in your context. You pull in only what you need.
 
 1. `mcpx ls` — which namespaces exist. Cheap; run it whenever.
 2. `mcpx search <words>` — find a tool by name or description.
-3. `mcpx types <namespace>` — load signatures for that namespace only.
+3. `mcpx types <namespace>` — load signatures for that namespace only, or
+   `mcpx types <namespace>.<tool>` for a single tool, which is far cheaper.
+   `mcpx catalog [--budget N] [--bias words]` fits every namespace into a
+   token budget when you are still deciding.
 4. `mcpx run <name>` or `mcpx exec '<code>'` — do the work.
 
 Do not run `mcpx types` for every namespace. Loading one costs a few hundred
@@ -33,6 +36,41 @@ Import the generated client, which mcpx writes next to the script:
 
 Every namespace is also a bare identifier inside `mcpx exec`.
 
+## Profiles
+
+Some namespaces are hidden unless asked for. `mcpx ls` shows the default set;
+`mcpx --profile <name> ls` adds a group, and `--skip-default` narrows to
+exactly it. If a namespace you expect is missing, try `mcpx --all-profiles ls`
+before concluding it does not exist.
+
+The selection applies to the generated client too, so a namespace outside the
+active profile is not callable from a script.
+
+## Script contract
+
+stdout is your result; stderr is diagnostics. Use the log helper rather than
+`console.error`:
+
+    import tools, { log } from "./mcpx-client.ts";
+    log.info("fetched {count} pages", { count: 3 });
+
+A message may carry {placeholders} filled from the attributes; {{x}} is a
+literal {x}. An Error passed after the message is captured structurally.
+
+To stream results rather than returning one at the end:
+
+    for (const file of files) emit({ file, count: await scan(file) });
+
+Each value is written as it is produced. Streaming and returning can be
+combined: the streamed values are progress, the return value is the answer.
+
+If a script has a default export, mcpx calls it with argv and prints what it
+returns. Otherwise top-level code runs. `--export <name>` calls a named export
+with spread arguments instead.
+
+`mcpx --json run <script>` returns one document with the result, the logs, the
+exit code and the duration. Use it when something else has to read the output.
+
 ## Results
 
 A result arrives unwrapped: structured output already parsed, JSON-in-text
@@ -41,10 +79,17 @@ that is where image bytes live. A tool returning `isError` throws `ToolError`.
 
 ## Stateful servers
 
-Namespaces in `session` mode (see the MODE column of `mcpx ls`) give each run
-its own server process. Anything that must share state — navigate, snapshot,
-click — has to happen inside **one** invocation. Two `mcpx exec` calls get two
-browsers.
+`mcpx ls` has SHARING and SCOPE columns. SCOPE says what a server process is
+keyed by; SHARING says whether one process serves several callers at once.
+
+A namespace scoped to `session` gives each session its own process. If the host
+set `MCPX_SESSION_ID`, successive runs in that session reach the same process,
+so a browser persists between invocations. If it did not, each run is isolated
+and anything that must share state — navigate, snapshot, click — has to happen
+inside **one** invocation.
+
+`mcpx status` shows the KEY each live process is serving, which is the quickest
+way to see whether you are sharing or not.
 
 ## When something is wrong
 

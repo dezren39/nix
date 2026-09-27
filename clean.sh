@@ -32,6 +32,7 @@ REPO_FLAGS_USED=""
 USE_SUDO=""          # empty = decide from --dry-run
 CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
+DOCKER_AGE_DAYS="${DOCKER_AGE_DAYS:-}"  # set = age-scoped docker prune, VM preserved
 
 usage() {
   cat <<'EOF'
@@ -75,6 +76,11 @@ OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
                     directory. ~350 MB here, and it takes $TMPDIR out from
                     under processes that are running right now. The OS sweeps
                     this path on its own anyway.
+  --docker-age N    Age-scoped docker cleanup: remove containers, images and
+                    dangling volumes unused for more than N days, and never
+                    touch the colima VM itself. Without it, docker cleanup is
+                    all-or-nothing (`system prune --all --volumes`) and the VM
+                    may be recreated when it looks empty.
   --expire-reflog   Force `git reflog expire` during --deep maintenance.
                     Measured 0 MB of reclaim across the largest repos here:
                     almost nothing is held by reflog alone. Without it, gc
@@ -104,6 +110,7 @@ while [ $# -gt 0 ]; do
     --sudo)           USE_SUDO=1 ;;
     --tmpdir)         CLEAN_TMPDIR=1 ;;
     --expire-reflog)  EXPIRE_REFLOG=1 ;;
+    --docker-age)     DOCKER_AGE_DAYS="${2:-30}"; shift ;;
     --no-sudo)        USE_SUDO=0 ;;
     --no-git-maintenance|--no-maintenance|--no-git) DO_MAINTENANCE=0 ;;
     --quick)          MAINT_DEPTH="--quick" ;;
@@ -217,8 +224,8 @@ if [ "$EUID" -ne 0 ]; then
       ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}" LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}" \
       CACHE_STALE_DAYS="${CACHE_STALE_DAYS:-3}" \
       HOME_ARTIFACT_STALE_DAYS="${HOME_ARTIFACT_STALE_DAYS:-7}" \
-      CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" \
-      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,CLEAN_TMPDIR,EXPIRE_REFLOG \
+      CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" DOCKER_AGE_DAYS="$DOCKER_AGE_DAYS" \
+      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS \
         "$0" "$@"
     exit $?
   fi
@@ -259,9 +266,33 @@ if [ "$DO_CACHES" = "1" ]; then
 
 echo "🐳 docker"
 if have docker; then
-  run docker container prune --force || warn "docker container prune failed"
-  run docker builder prune --force   || warn "docker builder prune failed"
-  run docker system prune --force --all --volumes || warn "docker system prune failed"
+  if ! docker info >/dev/null 2>&1; then
+    info "docker daemon not reachable -- every prune below would silently no-op, skipping"
+    info "        (\`colima start\` first if you want container/image/volume space back)"
+  elif [ -n "$DOCKER_AGE_DAYS" ]; then
+    # Age-scoped mode: reclaim inside the VM without destroying it. `until` is
+    # a native filter for containers/images; volumes have no such filter, so
+    # they are inspected individually. --volumes is deliberately NOT passed to
+    # `system prune` here -- that ignores age entirely and would take live data.
+    _h=$((DOCKER_AGE_DAYS * 24))
+    echo "   age-scoped: removing containers/images unused for >${DOCKER_AGE_DAYS}d"
+    run docker container prune --force --filter "until=${_h}h" || warn "container prune failed"
+    run docker image prune --all --force --filter "until=${_h}h" || warn "image prune failed"
+    run docker builder prune --force --filter "until=${_h}h"     || warn "builder prune failed"
+    # Dangling volumes only, and only those old enough. A volume still attached
+    # to any container is never listed by `-f dangling=true`.
+    _cut=$(( $(date +%s) - DOCKER_AGE_DAYS * 86400 ))
+    while IFS= read -r v; do
+      [ -n "$v" ] || continue
+      _c=$(docker volume inspect "$v" --format '{{.CreatedAt}}' 2>/dev/null)
+      _ts=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${_c%%Z*}" +%s 2>/dev/null || echo 0)
+      [ "${_ts:-0}" -gt 0 ] && [ "$_ts" -lt "$_cut" ] && run docker volume rm "$v" >/dev/null
+    done < <(docker volume ls -q -f dangling=true 2>/dev/null)
+  else
+    run docker container prune --force || warn "docker container prune failed"
+    run docker builder prune --force   || warn "docker builder prune failed"
+    run docker system prune --force --all --volumes || warn "docker system prune failed"
+  fi
 else
   info "docker not installed, skipping"
 fi
@@ -273,25 +304,68 @@ fi
 # compaction command (`colima prune` only drops cached downloaded assets), so
 # recreating the VM is the only way to reclaim it. Guarded on the VM being
 # genuinely empty.
+#
+# EVERY profile is handled, not just `default`. colima supports `-p NAME`, and
+# each profile is an independent VM with its own disk, socket and containers.
+# Summing `du ~/.colima` across all of them while only ever running
+# `colima delete -f` (which targets `default`) meant a second profile's size
+# could trigger deletion of the FIRST profile's VM. Each is now sized, probed
+# and deleted by name.
+#   profile `default` -> lima instance `colima`,     disk _lima/_disks/colima
+#   profile `foo`     -> lima instance `colima-foo`, disk _lima/_disks/colima-foo
+colima_profiles() {
+  local d b
+  for d in "$CALLER_USER_HOME"/.colima/*/; do
+    [ -d "$d" ] || continue
+    b="$(basename "$d")"
+    case "$b" in _lima|_store|_templates) continue ;; esac
+    printf '%s\n' "$b"
+  done
+}
+
 if have colima && have docker; then
-  running_containers="$(docker ps -q 2>/dev/null | wc -l | tr -d ' ')"
-  live_volumes="$(docker volume ls -q 2>/dev/null | wc -l | tr -d ' ')"
-  colima_size_kb="$(du -sk "$CALLER_USER_HOME/.colima" 2>/dev/null | cut -f1)"
-  colima_size_kb="${colima_size_kb:-0}"
-  if [ "${running_containers:-1}" = "0" ] && [ "${live_volumes:-1}" = "0" ] && [ "$colima_size_kb" -gt 1048576 ]; then
-    echo "🐳 colima: $(human_size $((colima_size_kb * 1024))) of disk images, 0 containers, 0 volumes — recreating"
-    run as_user colima stop        || warn "colima stop failed"
-    run as_user colima delete -f   || warn "colima delete failed"
-    # setsid + nohup so the fresh VM outlives this script.
-    if [ "$DRY_RUN" = "1" ]; then echo "  would run: colima start (detached)"
+  _any_profile=0
+  while IFS= read -r prof; do
+    [ -n "$prof" ] || continue
+    _any_profile=1
+    if [ "$prof" = "default" ]; then inst="colima"; else inst="colima-$prof"; fi
+    sock="$CALLER_USER_HOME/.colima/$prof/docker.sock"
+    disk="$CALLER_USER_HOME/.colima/_lima/_disks/$inst"
+    [ -d "$disk" ] || disk="$CALLER_USER_HOME/.colima/_lima/$inst"
+    size_kb="$(du -sk "$disk" 2>/dev/null | cut -f1)"; size_kb="${size_kb:-0}"
+
+    # The container/volume counts are only trustworthy when the daemon actually
+    # answers. A stopped VM makes `docker ps -q` print nothing, wc -l reports 0,
+    # and that reads as "empty" -- the `${x:-1}` fallbacks cannot save us,
+    # because the variable holds the literal string "0", not empty. So a stopped
+    # VM full of real containers and volumes looked exactly like an empty one,
+    # and got deleted without verification. Probe that profile's socket first.
+    if DOCKER_HOST="unix://$sock" docker info >/dev/null 2>&1; then
+      nc="$(DOCKER_HOST="unix://$sock" docker ps -q 2>/dev/null | wc -l | tr -d ' ')"
+      nv="$(DOCKER_HOST="unix://$sock" docker volume ls -q 2>/dev/null | wc -l | tr -d ' ')"
+      reachable=1
     else
-      as_user nohup colima start >/tmp/colima-clean-start.log 2>&1 &
-      disown 2>/dev/null || true
-      info "colima start running detached (log: /tmp/colima-clean-start.log)"
+      nc=""; nv=""; reachable=0
     fi
-  else
-    info "colima: ${running_containers} containers, ${live_volumes} volumes — leaving VM alone"
-  fi
+
+    if [ "$reachable" = "0" ]; then
+      info "colima[$prof]: daemon not reachable -- cannot verify it is empty, leaving it alone"
+      info "              (\`colima start -p $prof\` if you want this VM reclaimed)"
+    elif [ "${nc:-1}" = "0" ] && [ "${nv:-1}" = "0" ] && [ "$size_kb" -gt 1048576 ]; then
+      echo "🐳 colima[$prof]: $(human_size $((size_kb * 1024))) of disk, 0 containers, 0 volumes — recreating"
+      run as_user colima stop -p "$prof"      || warn "colima stop -p $prof failed"
+      run as_user colima delete -f -p "$prof" || warn "colima delete -p $prof failed"
+      if [ "$DRY_RUN" = "1" ]; then echo "  would run: colima start -p $prof (detached)"
+      else
+        as_user nohup colima start -p "$prof" >"/tmp/colima-clean-start-$prof.log" 2>&1 &
+        disown 2>/dev/null || true
+        info "colima start -p $prof running detached (log: /tmp/colima-clean-start-$prof.log)"
+      fi
+    else
+      info "colima[$prof]: ${nc} containers, ${nv} volumes, $(human_size $((size_kb * 1024))) — leaving VM alone"
+    fi
+  done < <(colima_profiles)
+  [ "$_any_profile" = "0" ] && info "colima: no profiles provisioned, nothing to reclaim"
 else
   info "colima/docker not both present, skipping VM recreate"
 fi
@@ -422,13 +496,31 @@ for _d in "${VSCODE_EXT_DIRS[@]}"; do prune_vscode_extensions "$_d"; done
 # Reported, never auto-removed: deleting an app is not a cache operation.
 if [ -n "$(real_brew)" ] && [ -f "$SELF_DIR/casks.nix" ]; then
   _b="$(real_brew)"
+  # `brew list --cask` prints BARE names (docker-desktop) while casks.nix may
+  # declare them tap-qualified (homebrew/cask/docker-desktop). Comparing the two
+  # verbatim reported declared casks as orphans -- which is not a cosmetic bug,
+  # it is an instruction to uninstall something the config asks for. Strip the
+  # tap prefix from the declared side before comparing. Same shape as the
+  # tap-qualified entries in brews.nix (gromgit/fuse/bindfs-mac).
   _orphans=$(comm -23 \
     <(as_user "$_b" list --cask 2>/dev/null | sort) \
-    <(grep -oE '^[[:space:]]*"[^"]+"' "$SELF_DIR/casks.nix" | tr -d ' "' | sort) 2>/dev/null)
+    <(grep -oE '^[[:space:]]*"[^"]+"' "$SELF_DIR/casks.nix" | tr -d ' "' | sed 's|.*/||' | sort) 2>/dev/null)
   if [ -n "$_orphans" ]; then
     warn "casks installed but not in casks.nix (uninstall with: $_b uninstall --cask <name>)"
     printf '     %s\n' $_orphans
   fi
+  # Casks whose app bundle is gone: the cask is registered but there is nothing
+  # installed. Reported, never auto-removed -- an app can legitimately live
+  # outside /Applications. Deliberately NOT wired to an --uninstall-orphans
+  # flag: the test is "absent from casks.nix", and a temporarily commented-out
+  # entry would then delete a working app. visual-studio-code is exactly that
+  # case today.
+  _dead=""
+  for _c in $(as_user "$_b" list --cask 2>/dev/null); do
+    _app=$(as_user "$_b" info --cask "$_c" 2>/dev/null | grep -oE '/Applications/[^ ]*\.app' | head -1)
+    [ -n "$_app" ] && [ ! -d "$_app" ] && _dead="$_dead $_c"
+  done
+  [ -n "$_dead" ] && { warn "casks installed but the app is MISSING from disk:"; printf '     %s\n' $_dead; }
 fi
 if have mas && [ -f "$SELF_DIR/masApps.nix" ]; then
   _masorph=$(comm -23 \
@@ -603,6 +695,41 @@ run nix-store --gc || warn "nix-store --gc failed"
 # HALF 1b — logs
 #############################################################################
 echo "🧻 logs"
+# --- pytest tmp_path factory runs -------------------------------------------
+# pytest's tmp_path/tmpdir fixtures create $TMPDIR/pytest-of-<user>/pytest-<N>/
+# and keep only the last few (tmp_path_retention_count, default 3). They are
+# therefore self-limiting at rest -- measured 16-20 MB here across 7 runs. But
+# a suite IN FLIGHT can hold gigabytes: this directory was 2.0 GB mid-run and
+# 16 MB a minute later.
+#
+# That is why the rule is age-based and NOT "keep only the newest". Deleting
+# every run but the newest would destroy the tmpdir of any suite running
+# concurrently -- including a second suite started moments ago -- and pytest
+# gives no lock to detect that. Anything older than PYTEST_KEEP_HOURS cannot
+# belong to a live run, so that window is the safe equivalent. The newest run
+# is additionally always kept, so `pytest-current` never dangles.
+PYTEST_KEEP_HOURS="${PYTEST_KEEP_HOURS:-4}"
+_pt_removed=0
+for _ptbase in "$CALLER_USER_HOME/.local/share/opencode/tmp" "${TMPDIR:-/tmp}" /tmp /private/var/folders/*/*/T; do
+  [ -d "$_ptbase" ] || continue
+  for _ptdir in "$_ptbase"/pytest-of-*; do
+    [ -d "$_ptdir" ] || continue
+    # Newest real run (ignore the pytest-current symlink) is always preserved.
+    _newest="$(find "$_ptdir" -maxdepth 1 -mindepth 1 -type d -name 'pytest-*' \
+                 -exec stat -c '%Y %n' {} \; 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+    while IFS= read -r _run; do
+      [ -n "$_run" ] || continue
+      [ "$_run" = "$_newest" ] && continue
+      del "$_run"; _pt_removed=$((_pt_removed + 1))
+    done < <(find "$_ptdir" -maxdepth 1 -mindepth 1 -type d -name 'pytest-*' \
+               -mmin "+$((PYTEST_KEEP_HOURS * 60))" 2>/dev/null)
+    # A pytest-current symlink whose target we just removed is dead weight.
+    [ -L "$_ptdir/pytest-current" ] && [ ! -e "$_ptdir/pytest-current" ] && del "$_ptdir/pytest-current"
+    rmdir "$_ptdir" 2>/dev/null   # only succeeds if it is now empty
+  done
+done
+[ "$_pt_removed" -gt 0 ] && info "pytest: removed $_pt_removed run dirs older than ${PYTEST_KEEP_HOURS}h"
+
 del "$CALLER_USER_HOME/git/oseries"
 OPS_LOG_DIR="$CALLER_USER_HOME/.cache/operations-portal/logs"
 if [ -d "$OPS_LOG_DIR" ]; then
@@ -742,7 +869,7 @@ del_and_stub() {
   mark_dir "$1"
 }
 
-MARKED=0; TRASHED=0; PRUNED=0; SKIPPED_TRACKED=0
+MARKED=0; TRASHED=0; PRUNED=0; SKIPPED_TRACKED=0; NONGIT=0
 declare -A IDLE_CACHE=()
 
 echo "🗑  .trash, artifacts, Spotlight markers"
@@ -771,7 +898,24 @@ while IFS=$'\t' read -r tag reason status path; do
           mark_dir "$path"       # active repo: mark but never delete
         fi
       else
-        mark_dir "$path"
+        # No owning repo/worktree: a plain directory tree. There is no git
+        # state to consult, so mtime is the only evidence available -- but that
+        # is no reason to never prune. Previously these were marked and kept
+        # forever, so a .venv outside a repo could not be reclaimed at all.
+        # Judged against its own parent, using the same staleness window.
+        parent="$(dirname "$path")"
+        if [ -z "${IDLE_CACHE[$parent]:-}" ]; then
+          if [ -z "$(find "$parent" \
+               \( "${CACHE_EXPR[@]}" -o "${RISK_EXPR[@]}" -o -name .git -o -name .worktrees \) -prune -o \
+               -type f -mtime "-${ARTIFACT_STALE_DAYS}" -print -quit 2>/dev/null)" ]; then
+            IDLE_CACHE[$parent]=idle
+          else IDLE_CACHE[$parent]=active; fi
+        fi
+        if [ "${IDLE_CACHE[$parent]}" = "idle" ]; then
+          del_and_stub "$path"; PRUNED=$((PRUNED + 1)); NONGIT=$((NONGIT + 1))
+        else
+          mark_dir "$path"
+        fi
       fi
       ;;
     risky)
@@ -794,7 +938,7 @@ while IFS=$'\t' read -r kind path; do
   case "$kind" in repo|worktree) mark_dir "$path/.git" ;; esac
 done < <(awk -F'\t' '$1=="repo"||$1=="worktree"{print $1"\t"$2}' "$DISCOVERY_FILE")
 
-echo "   $TRASHED .trash removed, $PRUNED artifact dirs pruned, $MARKED marked, $SKIPPED_TRACKED tracked skipped"
+echo "   $TRASHED .trash removed, $PRUNED artifact dirs pruned ($NONGIT outside any repo), $MARKED marked, $SKIPPED_TRACKED tracked skipped"
 
 # --- Artifact dirs directly in ~, outside any repo --------------------------
 # ~/.cache is deliberately skipped: it is the shared XDG cache (uv, nix, gh,
@@ -865,9 +1009,11 @@ repair_git_ownership() {
 # under it; `--prune=now` removes that grace entirely. So a deep pass is only
 # safe when the repo AND every live worktree hanging off it are quiescent.
 #
-# When one is active the repo is DOWNGRADED to --quick, not skipped: quick
-# rewrites no packs and prunes nothing, so it is safe to run alongside active
-# work while still refreshing commit-graph and packing loose objects.
+# When one is active the repo is DOWNGRADED to --safe, not skipped and not
+# --quick: --safe still does the full repack, and only gives up the `--prune=now`
+# grace-window removal, which is the single part of --deep that is unsafe next to
+# a live worktree. --quick rewrites no packs at all, so the 24 repos downgraded
+# on the last run reclaimed nothing; --safe reclaims almost all of it.
 repo_tree_group_is_idle() {
   local repo="$1" wt
   repo_is_idle "$repo" || return 1
@@ -891,13 +1037,13 @@ if [ "$DO_MAINTENANCE" = "1" ] && [ "$n_repos" -gt 0 ]; then
     [ -d "$repo" ] || continue
     depth="$MAINT_DEPTH"
     if [ "$depth" = "--deep" ] && ! repo_tree_group_is_idle "$repo"; then
-      depth="--quick"; DOWNGRADED=$((DOWNGRADED + 1))
-      info "${repo/#$CALLER_USER_HOME/\~}: active repo or worktree -- --deep downgraded to --quick"
+      depth="--safe"; DOWNGRADED=$((DOWNGRADED + 1))
+      info "${repo/#$CALLER_USER_HOME/\~}: active repo or worktree -- --deep downgraded to --safe"
     fi
     run as_user "$SELF_DIR/git-maintain-repos" --path "$repo" --no-recursive --no-system \
       "$depth" --clean-orphans "${MAINT_EXTRA[@]+"${MAINT_EXTRA[@]}"}" || warn "maintenance failed for $repo"
   done < "$REPOS_ONLY_FILE"
-  [ "$DOWNGRADED" -gt 0 ] && echo "   $DOWNGRADED repos downgraded to --quick (shared object store in use)"
+  [ "$DOWNGRADED" -gt 0 ] && echo "   $DOWNGRADED repos downgraded to --safe (shared object store in use)"
 fi
 
 # --- root's own repositories ------------------------------------------------

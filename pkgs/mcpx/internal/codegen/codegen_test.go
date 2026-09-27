@@ -254,3 +254,70 @@ func TestModuleExposesPathHelpers(t *testing.T) {
 		t.Error("here must be a function so each importing file gets its own path")
 	}
 }
+
+func TestServerInstructionsAreRenderedAboveSignatures(t *testing.T) {
+	n := sampleNamespace()
+	n.Instructions = "Call list_pages first to obtain a pageId.\n\nSecond paragraph."
+	out := codegen.Declarations([]codegen.Namespace{n})
+	if !strings.Contains(out, "Server guidance:") {
+		t.Fatalf("instructions should be labelled:\n%s", out)
+	}
+	if !strings.Contains(out, "Call list_pages first") {
+		t.Fatalf("instructions missing:\n%s", out)
+	}
+	// Must sit above the namespace, not inside it.
+	if strings.Index(out, "Call list_pages first") > strings.Index(out, "declare namespace") {
+		t.Error("instructions should precede the namespace body")
+	}
+}
+
+func TestNamespaceWithoutInstructionsKeepsTheShortForm(t *testing.T) {
+	out := codegen.Declarations([]codegen.Namespace{sampleNamespace()})
+	if !strings.Contains(out, "/** a demo */") {
+		t.Fatalf("a description-only namespace should stay on one line:\n%s", out)
+	}
+	if strings.Contains(out, "Server guidance") {
+		t.Error("no instructions means no guidance block")
+	}
+}
+
+func TestInstructionsCannotCloseTheComment(t *testing.T) {
+	n := sampleNamespace()
+	n.Instructions = "ends with */ oops"
+	out := codegen.Declarations([]codegen.Namespace{n})
+	if strings.Contains(out, "*/ oops") {
+		t.Fatalf("instructions must not be able to close their own comment:\n%s", out)
+	}
+}
+
+func TestPreludeRendersAboveServerGuidance(t *testing.T) {
+	n := sampleNamespace()
+	n.Prelude = "pageId comes from list_pages."
+	n.Instructions = "Generic server blurb."
+	out := codegen.Declarations([]codegen.Namespace{n})
+	if !strings.Contains(out, "Notes:") || !strings.Contains(out, "pageId comes from list_pages") {
+		t.Fatalf("prelude missing:\n%s", out)
+	}
+	// The operator's note is the more specific statement and must come first.
+	if strings.Index(out, "Notes:") > strings.Index(out, "Server guidance:") {
+		t.Errorf("prelude should precede server guidance:\n%s", out)
+	}
+}
+
+func TestPreludeAloneStillProducesABlock(t *testing.T) {
+	n := sampleNamespace()
+	n.Prelude = "only a note"
+	out := codegen.Declarations([]codegen.Namespace{n})
+	if !strings.Contains(out, "only a note") {
+		t.Fatalf("prelude missing with no instructions:\n%s", out)
+	}
+}
+
+func TestPreludeCannotCloseTheComment(t *testing.T) {
+	n := sampleNamespace()
+	n.Prelude = "danger */ here"
+	out := codegen.Declarations([]codegen.Namespace{n})
+	if strings.Contains(out, "*/ here") {
+		t.Fatalf("prelude must be escaped:\n%s", out)
+	}
+}

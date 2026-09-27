@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +28,20 @@ func resolved(t *testing.T, bin string, ex *config.Extras) *config.Resolved {
 	return r
 }
 
+// key resolves a scope the way the daemon does, so these tests exercise the
+// real path rather than inventing keys.
+func key(t *testing.T, r *config.Resolved, cc config.CallContext) string {
+	t.Helper()
+	k, _ := r.Scope.Key(cc)
+	return k
+}
+
+// call resolves the key for a call context and dispatches.
+func call(t *testing.T, p *pool.Pool, r *config.Resolved, cc config.CallContext, tool string, args any) (json.RawMessage, error) {
+	t.Helper()
+	return p.Call(context.Background(), key(t, r, cc), tool, args)
+}
+
 // textOf pulls the single text block out of a CallToolResult.
 func textOf(t *testing.T, raw json.RawMessage) string {
 	t.Helper()
@@ -45,26 +61,28 @@ func textOf(t *testing.T, raw json.RawMessage) string {
 
 func TestSharedModeReusesOneProcess(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeShared}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal}))
 	defer p.Close()
 
-	ctx := context.Background()
+	r := resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal})
 	pids := map[string]bool{}
 	for i := 0; i < 5; i++ {
-		res, err := p.Call(ctx, fmt.Sprintf("session-%d", i), "state", map[string]any{})
+		// Different callers, different sessions, same global scope.
+		cc := config.CallContext{SessionID: fmt.Sprintf("s%d", i), CallID: fmt.Sprintf("c%d", i)}
+		res, err := call(t, p, r, cc, "state", map[string]any{})
 		if err != nil {
 			t.Fatalf("call: %v", err)
 		}
 		pids[textOf(t, res)] = true
 	}
 	if len(pids) != 1 {
-		t.Fatalf("shared mode should use one process, saw %d distinct states: %v", len(pids), pids)
+		t.Fatalf("global scope should use one process, saw %d distinct states: %v", len(pids), pids)
 	}
 }
 
 func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeShared}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal}))
 	defer p.Close()
 
 	// Ten 200ms calls on one process must overlap, proving requests are
@@ -77,7 +95,7 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = p.Call(context.Background(), "", "slow", map[string]any{"ms": 200})
+			_, errs[i] = p.Call(context.Background(), "global", "slow", map[string]any{"ms": 200})
 		}(i)
 	}
 	wg.Wait()
@@ -93,10 +111,10 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 
 func TestSessionModeIsolatesState(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeSession, Max: 3}))
+	r := resolved(t, bin, &config.Extras{Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 3})
+	p := pool.New(r)
 	defer p.Close()
 
-	ctx := context.Background()
 	const n = 3
 	var wg sync.WaitGroup
 	states := make([]string, n)
@@ -106,13 +124,13 @@ func TestSessionModeIsolatesState(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			session := fmt.Sprintf("run-%d", i)
+			cc := config.CallContext{SessionID: fmt.Sprintf("run-%d", i), CallID: fmt.Sprintf("c%d", i)}
 			value := fmt.Sprintf("value-%d", i)
-			if _, err := p.Call(ctx, session, "open", map[string]any{"value": value}); err != nil {
+			if _, err := call(t, p, r, cc, "open", map[string]any{"value": value}); err != nil {
 				errs[i] = err
 				return
 			}
-			res, err := p.Call(ctx, session, "state", map[string]any{})
+			res, err := call(t, p, r, cc, "state", map[string]any{})
 			if err != nil {
 				errs[i] = err
 				return
@@ -149,7 +167,7 @@ func TestSessionModeIsolatesState(t *testing.T) {
 
 func TestSessionModeReusesTheSameInstanceWithinASession(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeSession, Max: 4}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 4}))
 	defer p.Close()
 
 	ctx := context.Background()
@@ -178,7 +196,7 @@ func TestSessionModeReusesTheSameInstanceWithinASession(t *testing.T) {
 
 func TestSessionModeRespectsMaxAndQueues(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeSession, Max: 2}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 2}))
 	defer p.Close()
 
 	var wg sync.WaitGroup
@@ -191,7 +209,7 @@ func TestSessionModeRespectsMaxAndQueues(t *testing.T) {
 			defer cancel()
 			session := fmt.Sprintf("s%d", i)
 			_, errs[i] = p.Call(ctx, session, "slow", map[string]any{"ms": 100})
-			p.ReleaseSession(session)
+			p.ReleaseKey(session)
 		}(i)
 	}
 	wg.Wait()
@@ -207,7 +225,7 @@ func TestSessionModeRespectsMaxAndQueues(t *testing.T) {
 
 func TestReleaseSessionStopsTheInstance(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeSession, Max: 2}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 2}))
 	defer p.Close()
 
 	ctx := context.Background()
@@ -217,7 +235,7 @@ func TestReleaseSessionStopsTheInstance(t *testing.T) {
 	if st := p.Status(); st.Live != 1 {
 		t.Fatalf("want 1 live, got %d", st.Live)
 	}
-	if n := p.ReleaseSession("s1"); n != 1 {
+	if n := p.ReleaseKey("s1"); n != 1 {
 		t.Fatalf("want 1 released, got %d", n)
 	}
 	if st := p.Status(); st.Live != 0 {
@@ -227,23 +245,26 @@ func TestReleaseSessionStopsTheInstance(t *testing.T) {
 
 func TestPooledModeRecyclesInstances(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModePooled, Max: 2}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingExclusive, Scope: config.ScopeCall, Max: 2}))
 	defer p.Close()
 
+	// Six distinct call keys against a max of two: the pool must evict idle
+	// instances to make room rather than deadlocking or exceeding the cap.
 	ctx := context.Background()
 	for i := 0; i < 6; i++ {
-		if _, err := p.Call(ctx, "", "echo", map[string]any{"message": "x"}); err != nil {
+		k := fmt.Sprintf("call:c%d", i)
+		if _, err := p.Call(ctx, k, "echo", map[string]any{"message": "x"}); err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
-	}
-	if st := p.Status(); st.Live > 2 {
-		t.Fatalf("pooled mode exceeded max: %d", st.Live)
+		if st := p.Status(); st.Live > 2 {
+			t.Fatalf("exceeded max after call %d: %d live", i, st.Live)
+		}
 	}
 }
 
 func TestStartFailureIsReportedWithStderr(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	r := resolved(t, bin, &config.Extras{Mode: config.ModeShared})
+	r := resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal})
 	r.Env = map[string]string{"FAKEMCP_FAIL_START": "1"}
 	p := pool.New(r)
 	defer p.Close()
@@ -259,7 +280,7 @@ func TestStartFailureIsReportedWithStderr(t *testing.T) {
 
 func TestStartFailureEntersCooldown(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	r := resolved(t, bin, &config.Extras{Mode: config.ModeShared})
+	r := resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal})
 	r.Env = map[string]string{"FAKEMCP_FAIL_START": "1"}
 	p := pool.New(r)
 	defer p.Close()
@@ -276,7 +297,7 @@ func TestStartFailureEntersCooldown(t *testing.T) {
 
 func TestToolErrorsPropagate(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeShared}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal}))
 	defer p.Close()
 
 	res, err := p.Call(context.Background(), "", "boom", map[string]any{})
@@ -296,7 +317,7 @@ func TestToolErrorsPropagate(t *testing.T) {
 
 func TestSchemasAreCachedAfterFirstFetch(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeShared}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal}))
 	defer p.Close()
 
 	ctx := context.Background()
@@ -319,11 +340,15 @@ func TestSchemasAreCachedAfterFirstFetch(t *testing.T) {
 	}
 }
 
-func TestToolAllowlistAndDenylist(t *testing.T) {
+func TestPoolCachesEveryToolRegardlessOfViewFilters(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
+	// Allow and deny lists are a property of the *view*, not the process, so
+	// that two aliases can expose different subsets of one shared child. The
+	// pool must therefore cache the server's full catalogue.
 	p := pool.New(resolved(t, bin, &config.Extras{
-		Mode:         config.ModeShared,
-		Tools:        []string{"echo", "state", "boom"},
+		Sharing:      config.SharingShared,
+		Scope:        config.ScopeGlobal,
+		Tools:        []string{"echo"},
 		ExcludeTools: []string{"boom"},
 	}))
 	defer p.Close()
@@ -336,20 +361,14 @@ func TestToolAllowlistAndDenylist(t *testing.T) {
 	for _, tl := range tools {
 		names[tl.Name] = true
 	}
-	if !names["echo"] || !names["state"] {
-		t.Fatalf("allowlisted tools missing: %v", names)
-	}
-	if names["boom"] {
-		t.Fatal("excludeTools should win over tools")
-	}
-	if len(names) != 2 {
-		t.Fatalf("expected exactly 2 tools, got %v", names)
+	if !names["echo"] || !names["boom"] || !names["state"] {
+		t.Fatalf("the pool should cache every tool; filtering happens per view: %v", names)
 	}
 }
 
 func TestRestartStopsEverything(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
-	p := pool.New(resolved(t, bin, &config.Extras{Mode: config.ModeSession, Max: 2}))
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 2}))
 	defer p.Close()
 
 	ctx := context.Background()
@@ -378,7 +397,7 @@ func TestRestartStopsEverything(t *testing.T) {
 func TestCallTimeoutIsEnforced(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
 	p := pool.New(resolved(t, bin, &config.Extras{
-		Mode: config.ModeShared, CallTimeout: "150ms",
+		Sharing: config.SharingShared, Scope: config.ScopeGlobal, CallTimeout: "150ms",
 	}))
 	defer p.Close()
 
@@ -394,7 +413,7 @@ func TestCallTimeoutIsEnforced(t *testing.T) {
 func TestIdleReaperStopsUnusedInstances(t *testing.T) {
 	bin := testsupport.FakeMCPBinary(t)
 	p := pool.New(resolved(t, bin, &config.Extras{
-		Mode: config.ModeSession, Max: 2, IdleTimeout: "10ms",
+		Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 2, IdleTimeout: "10ms",
 	}))
 	defer p.Close()
 
@@ -404,5 +423,166 @@ func TestIdleReaperStopsUnusedInstances(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if n := p.ReapIdle(time.Now()); n != 1 {
 		t.Fatalf("reaper should have stopped 1 instance, stopped %d", n)
+	}
+}
+
+func TestSharedSharingAdmitsConcurrentHoldersOnOneKey(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	p := pool.New(resolved(t, bin, &config.Extras{
+		Sharing: config.SharingShared, Scope: config.ScopeSession, Max: 4,
+	}))
+	defer p.Close()
+
+	// One key, four concurrent callers. Shared sharing must let them overlap
+	// on a single process rather than serialising or forking more.
+	const n = 4
+	start := time.Now()
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = p.Call(context.Background(), "session:one", "slow", map[string]any{"ms": 200})
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	if d := time.Since(start); d > 1200*time.Millisecond {
+		t.Fatalf("shared sharing serialised: %s for %d overlapping 200ms calls", d, n)
+	}
+	if st := p.Status(); st.Live != 1 {
+		t.Fatalf("one key must mean one process, got %d", st.Live)
+	}
+}
+
+func TestExclusiveSharingSerialisesOneKey(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	p := pool.New(resolved(t, bin, &config.Extras{
+		Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 4,
+	}))
+	defer p.Close()
+
+	const n = 3
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = p.Call(context.Background(), "session:one", "slow", map[string]any{"ms": 150})
+		}()
+	}
+	wg.Wait()
+	// Three 150ms calls queued behind one another cannot finish in under
+	// 300ms; if they did, they overlapped and exclusivity is broken.
+	if d := time.Since(start); d < 300*time.Millisecond {
+		t.Fatalf("exclusive sharing overlapped: %s for %d serialised 150ms calls", d, n)
+	}
+	if st := p.Status(); st.Live != 1 {
+		t.Fatalf("exclusivity must queue, not fork: %d live", st.Live)
+	}
+}
+
+func TestDistinctKeysGetDistinctProcesses(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	p := pool.New(resolved(t, bin, &config.Extras{
+		Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 3,
+	}))
+	defer p.Close()
+
+	ctx := context.Background()
+	pids := map[string]bool{}
+	for _, k := range []string{"session:a", "session:b", "session:c"} {
+		if _, err := p.Call(ctx, k, "open", map[string]any{"value": k}); err != nil {
+			t.Fatal(err)
+		}
+		res, err := p.Call(ctx, k, "state", map[string]any{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			PID  int      `json:"pid"`
+			Seen []string `json:"seen"`
+		}
+		if err := json.Unmarshal([]byte(textOf(t, res)), &got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Seen) != 1 || got.Seen[0] != k {
+			t.Fatalf("key %q saw %v; state leaked across keys", k, got.Seen)
+		}
+		pids[fmt.Sprint(got.PID)] = true
+	}
+	if len(pids) != 3 {
+		t.Fatalf("three keys must mean three processes, got %d", len(pids))
+	}
+}
+
+func TestPidScopedInstanceIsReapedWhenThePidExits(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	p := pool.New(resolved(t, bin, &config.Extras{
+		Sharing: config.SharingExclusive, Scope: config.ScopePid, Max: 2,
+		IdleTimeout: "1h", // prove the pid, not the timer, did the work
+	}))
+	defer p.Close()
+
+	// A process that is already gone: its instance has no possible caller.
+	dead := exec.Command("true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	deadPID := dead.Process.Pid
+
+	if _, err := p.Call(context.Background(), fmt.Sprintf("pid:%d", deadPID), "echo",
+		map[string]any{"message": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if st := p.Status(); st.Live != 1 {
+		t.Fatalf("want 1 live, got %d", st.Live)
+	}
+	if n := p.ReapIdle(time.Now()); n != 1 {
+		t.Fatalf("an instance whose pid exited must be reaped, reaped %d", n)
+	}
+}
+
+func TestPidScopedInstanceSurvivesWhileThePidLives(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	p := pool.New(resolved(t, bin, &config.Extras{
+		Sharing: config.SharingExclusive, Scope: config.ScopePid, Max: 2,
+		IdleTimeout: "1h",
+	}))
+	defer p.Close()
+
+	if _, err := p.Call(context.Background(), fmt.Sprintf("pid:%d", os.Getpid()), "echo",
+		map[string]any{"message": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := p.ReapIdle(time.Now()); n != 0 {
+		t.Fatalf("a live pid must keep its instance, reaped %d", n)
+	}
+}
+
+func TestReleaseKeyStopsOnlyThatKey(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	p := pool.New(resolved(t, bin, &config.Extras{
+		Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 3,
+	}))
+	defer p.Close()
+
+	ctx := context.Background()
+	for _, k := range []string{"session:a", "session:b"} {
+		if _, err := p.Call(ctx, k, "echo", map[string]any{"message": "x"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := p.ReleaseKey("session:a"); n != 1 {
+		t.Fatalf("want 1 released, got %d", n)
+	}
+	if st := p.Status(); st.Live != 1 {
+		t.Fatalf("releasing one key must not touch the other: %d live", st.Live)
 	}
 }

@@ -59,6 +59,12 @@ DEPTH (mutually exclusive; the default is neither --quick nor --deep)
   <none>                The above plus incremental-repack -- the geometric
                         repack that also refreshes the multi-pack-index.
                         Still never prunes.
+  --safe                Full repack with `gc --prune=2.weeks.ago` -- everything
+                        --deep does except dropping git's 2-week grace window
+                        on unreachable objects. That window is the only part of
+                        --deep that is unsafe on an object store shared with a
+                        live worktree, so --safe is the right choice there.
+                        This is what --deep downgrades to, rather than --quick.
   --deep                `gc --prune=now` + full repack. Reflog expiry only
                         with --expire-reflog.
                         Reclaims space, NOT reversible. ~3 min across ~/git.
@@ -162,6 +168,7 @@ while [ $# -gt 0 ]; do
     --path) ROOT="${2:-}"; shift ;;
     --quick) DEPTH="quick" ;;
     --deep) DEPTH="deep" ;;
+    --safe) DEPTH="safe" ;;
     --system) SCOPE="system"; SCOPE_SET=1 ;;
     --no-system) SCOPE="walk"; SCOPE_SET=1 ;;
     --recursive|--walk) RECURSIVE=1; DEPTH_LIMIT="" ;;
@@ -197,13 +204,39 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
   name="${repo/#$HOME\//~/}"
   before=$(du -sk "$repo/.git" 2>/dev/null | cut -f1); before=${before:-0}
 
-  if [ "$DEPTH" != "deep" ]; then
+  # Maintenance gains nothing from fsmonitor -- it walks the object store, not
+  # the worktree -- while the daemon is per-user and per-repo. Running 4 repos
+  # in parallel, plus any git invoked from a root context, produced a steady
+  # stream of `fsmonitor_ipc__send_query: unspecified error` noise. Harmless
+  # (git falls back to a full scan) but it obscured real errors, and hammering
+  # the daemon during a repack is pointless work. Disable it for this process
+  # only; the repo's own core.fsmonitor setting is untouched.
+  git() { command git -c core.fsmonitor=false "$@"; }
+
+  # Finder drops .DS_Store into .git/refs, where git reads it as a malformed
+  # ref: `refs/.DS_Store: badRefName: invalid refname format` on every fsck.
+  # It is never a ref, so removing it is safe, and Finder recreates it freely.
+  while IFS= read -r dsf; do
+    rm -f "$dsf" 2>/dev/null && echo "  [$name] removed stray $(basename "$(dirname "$dsf")")/.DS_Store"
+  done < <(find "$repo/.git" -name .DS_Store -type f 2>/dev/null)
+
+  if [ "$DEPTH" = "quick" ] || [ "$DEPTH" = "repack" ]; then
     git -C "$repo" maintenance run --task=commit-graph       2>/dev/null  # generation numbers + Bloom filters
     git -C "$repo" maintenance run --task=loose-objects      2>/dev/null  # pack loose objects; does not rewrite packs
     if [ "$DEPTH" != "quick" ]; then
       git -C "$repo" maintenance run --task=incremental-repack 2>/dev/null # geometric repack + refresh MIDX
     fi                                                                   # --quick stops short of any repack
     git -C "$repo" maintenance run --task=pack-refs          2>/dev/null  # collapse loose refs into packed-refs
+  elif [ "$DEPTH" = "safe" ]; then
+    # Middle tier between --quick and --deep, and the target of the worktree
+    # downgrade. A full repack, but pruning only objects older than git's
+    # default 2-week grace window instead of --prune=now. That grace exists so
+    # a concurrent writer in another worktree cannot have a just-written object
+    # collected before it is referenced -- which is the ONLY reason --deep is
+    # unsafe on a shared object store. Everything else --deep does is safe.
+    git -C "$repo" -c gc.autoDetach=false -c pack.threads="$PACK_THREADS" \
+      gc --prune=2.weeks.ago --force 2>&1 | sed "s|^|  [$name] |"
+    git -C "$repo" commit-graph write --reachable --changed-paths 2>/dev/null
   else
     # Explicit reflog expiry is OPT-IN (--expire-reflog). Without it, `gc` below
     # still expires reflogs using git's own defaults -- gc.reflogExpire 90 days
@@ -315,11 +348,14 @@ echo "git-maintain-repos: $ROOT — ${#repos[@]} repos, scope=$SCOPE, depth=$DEP
 
 if [ "$DRY_RUN" = "1" ]; then
   echo "  commands that would run per repo:"
-  if [ "$DEPTH" != "deep" ]; then
+  if [ "$DEPTH" = "quick" ] || [ "$DEPTH" = "repack" ]; then
     echo "    git maintenance run --task=commit-graph"
     echo "    git maintenance run --task=loose-objects"
     [ "$DEPTH" != "quick" ] && echo "    git maintenance run --task=incremental-repack"
     echo "    git maintenance run --task=pack-refs"
+  elif [ "$DEPTH" = "safe" ]; then
+    echo "    git -c gc.autoDetach=false -c pack.threads=$PACK_THREADS gc --prune=2.weeks.ago --force"
+    echo "    git commit-graph write --reachable --changed-paths"
   else
     if [ "$EXPIRE_REFLOG" = "1" ]; then
       echo "    git reflog expire --expire=$REFLOG_EXPIRE --expire-unreachable=$REFLOG_EXPIRE --all"

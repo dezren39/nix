@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
 )
 
@@ -156,9 +157,31 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 	return fmt.Errorf("daemon did not become ready; see %s\n%s", logPath, strings.TrimSpace(string(tail)))
 }
 
-// Namespaces lists configured namespaces.
-func (c *Client) Namespaces(ctx context.Context) ([]daemon.NamespaceInfo, error) {
-	b, err := c.do(ctx, http.MethodGet, "/v1/namespaces", nil)
+// Profile is the caller's profile selection, threaded onto every discovery
+// request so a request sees the same server set the CLI does.
+type Profile struct {
+	Names       []string
+	SkipDefault bool
+	All         bool
+}
+
+func (p Profile) query() string {
+	q := ""
+	if len(p.Names) > 0 {
+		q += "&profile=" + urlEscape(strings.Join(p.Names, ","))
+	}
+	if p.SkipDefault {
+		q += "&skipDefault=1"
+	}
+	if p.All {
+		q += "&allProfiles=1"
+	}
+	return q
+}
+
+// Namespaces lists configured namespaces within a profile.
+func (c *Client) Namespaces(ctx context.Context, prof Profile) ([]daemon.NamespaceInfo, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/namespaces?_"+prof.query(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -167,18 +190,38 @@ func (c *Client) Namespaces(ctx context.Context) ([]daemon.NamespaceInfo, error)
 }
 
 // Types returns TypeScript declarations for the given namespaces.
-func (c *Client) Types(ctx context.Context, ns []string) (string, error) {
-	q := ""
+func (c *Client) Types(ctx context.Context, ns []string, instructions bool, prof Profile) (string, error) {
+	q := "?instructions=" + boolParam(instructions) + prof.query()
 	if len(ns) > 0 {
-		q = "?ns=" + strings.Join(ns, ",")
+		q += "&ns=" + strings.Join(ns, ",")
 	}
 	b, err := c.do(ctx, http.MethodGet, "/v1/types"+q, nil)
 	return string(b), err
 }
 
+// Catalog returns a budgeted listing across namespaces.
+func (c *Client) Catalog(ctx context.Context, ns []string, budget int, bias string, prof Profile) (string, error) {
+	q := fmt.Sprintf("?budget=%d", budget) + prof.query()
+	if len(ns) > 0 {
+		q += "&ns=" + strings.Join(ns, ",")
+	}
+	if bias != "" {
+		q += "&bias=" + urlEscape(bias)
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/catalog"+q, nil)
+	return string(b), err
+}
+
+func boolParam(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
 // ClientModule returns the generated script client source.
-func (c *Client) ClientModule(ctx context.Context, ns []string, session string) (string, error) {
-	q := "?session=" + session
+func (c *Client) ClientModule(ctx context.Context, ns []string, session string, prof Profile) (string, error) {
+	q := "?session=" + session + prof.query()
 	if len(ns) > 0 {
 		q += "&ns=" + strings.Join(ns, ",")
 	}
@@ -216,10 +259,11 @@ type CallResult struct {
 	DurationMs int64           `json:"durationMs"`
 }
 
-// Call invokes a tool.
-func (c *Client) Call(ctx context.Context, server, tool, session string, args json.RawMessage) (*CallResult, error) {
+// Call invokes a tool, sending the caller's context so the daemon can resolve
+// whatever scope the server is configured for.
+func (c *Client) Call(ctx context.Context, server, tool string, cc config.CallContext, args json.RawMessage) (*CallResult, error) {
 	b, err := c.do(ctx, http.MethodPost, "/v1/call", map[string]any{
-		"server": server, "tool": tool, "args": args, "session": session,
+		"server": server, "tool": tool, "args": args, "context": cc,
 	})
 	if err != nil {
 		return nil, err
@@ -228,9 +272,9 @@ func (c *Client) Call(ctx context.Context, server, tool, session string, args js
 	return &out, json.Unmarshal(b, &out)
 }
 
-// ReleaseSession frees instances pinned to a session.
-func (c *Client) ReleaseSession(ctx context.Context, session string) error {
-	_, err := c.do(ctx, http.MethodPost, "/v1/session/release", map[string]string{"session": session})
+// ReleaseCaller frees instances a finished caller created.
+func (c *Client) ReleaseCaller(ctx context.Context, callID string) error {
+	_, err := c.do(ctx, http.MethodPost, "/v1/session/release", map[string]string{"session": callID})
 	return err
 }
 

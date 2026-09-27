@@ -15,9 +15,20 @@ _: {
     "contexts"
     "copilot-cli"
     # "cursor" # removed 2026-08: ~16.5 GB (13 GB extensions); using VS Code + opencode
+    # DBeaver was previously installed by Jamf, undeclared here and unmanaged by
+    # brew. Declared 2026-09 so a rebuild reproduces it. The cask is
+    # auto_updates, so brew adopts the existing 26.2.1 app and will not downgrade
+    # it to the cask's 26.2.0. Settings live in ~/Library/DBeaverData, untouched.
+    # (Not nixpkgs: dbeaver-bin was dropped from systemPackages.nix on 2026-09-15
+    # to reclaim disk, and a darwin GUI app there costs a store copy plus the
+    # /Applications copy.)
+    "dbeaver-community"
     # "discord" # removed 2026-08: overlapping chat tools
     "display-pilot"
-    "displaylink"
+    # "displaylink" # removed 2026-09: disabled on request. NOTE: this only stops
+    # nix/homebrew from installing it. The copy actually on this machine is 17.0.24,
+    # deployed by Jamf App Installers (receipt com.jamf.appinstallers.DisplayLinkManager),
+    # NOT by this cask, which is only 16.2. Expect MDM to re-install it.
     "drawio"
     # "element" # removed 2026-08: overlapping chat tools
     "firefox"
@@ -31,7 +42,9 @@ _: {
     "google-chrome"
     "hammerspoon"
     "handbrake-app"
-    "homebrew/cask/docker-desktop"
+    # "homebrew/cask/docker-desktop" # removed 2026-09: uninstalled on request.
+    # The app bundle was already missing from /Applications before removal --
+    # only the cask registration remained. colima provides the docker runtime.
     "imageoptim"
     "insomnia"
     "iterm2@nightly"

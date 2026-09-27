@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"os"
-
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
 )
@@ -18,14 +16,10 @@ import (
 func (a *App) resolvePathsForConfig() (daemon.Paths, *config.Config) {
 	base := a.Paths
 	cfg, err := config.Load(a.ConfigPath)
-	if err != nil || cfg == nil || cfg.Path == "" {
+	if err != nil || cfg == nil || len(cfg.Sources) == 0 {
 		// No config, or an unreadable one: fall back to the unkeyed default so
 		// that `mcpx init` and `mcpx --help` still work.
 		return base, cfg
 	}
-	body, err := os.ReadFile(cfg.Path)
-	if err != nil {
-		return base, cfg
-	}
-	return base.ForConfig(daemon.FingerprintConfig(cfg.Path, body)), cfg
+	return base.ForConfig(daemon.FingerprintConfig(cfg.Sources)), cfg
 }

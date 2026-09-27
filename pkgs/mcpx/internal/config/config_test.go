@@ -85,11 +85,14 @@ func TestResolveAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Mode != config.ModeShared {
-		t.Fatalf("default mode should be shared, got %q", r.Mode)
+	if r.Sharing != config.SharingShared {
+		t.Fatalf("default sharing should be shared, got %q", r.Sharing)
+	}
+	if r.Scope != config.ScopeGlobal {
+		t.Fatalf("default scope should be global, got %q", r.Scope)
 	}
 	if r.Max != 1 {
-		t.Fatalf("shared mode is always max 1, got %d", r.Max)
+		t.Fatalf("a single-key scope is always max 1, got %d", r.Max)
 	}
 	if r.IdleTimeout != config.DefaultIdleTimeout {
 		t.Fatalf("idle timeout default wrong: %s", r.IdleTimeout)
@@ -99,19 +102,48 @@ func TestResolveAppliesDefaults(t *testing.T) {
 	}
 }
 
-func TestSharedModeForcesMaxToOne(t *testing.T) {
+func TestGlobalScopeForcesMaxToOne(t *testing.T) {
 	c := &config.Config{MCPServers: map[string]*config.Server{
-		"a": {Name: "a", Command: "x", Mcpx: &config.Extras{Mode: config.ModeShared, Max: 9}},
+		"a": {Name: "a", Command: "x", Mcpx: &config.Extras{Scope: config.ScopeGlobal, Max: 9}},
 	}}
 	r, _ := c.Resolve("a")
 	if r.Max != 1 {
-		t.Fatalf("shared mode must collapse to one process, got max=%d", r.Max)
+		t.Fatalf("one key can only need one process, got max=%d", r.Max)
+	}
+}
+
+func TestNonGlobalScopeKeepsMax(t *testing.T) {
+	c := &config.Config{MCPServers: map[string]*config.Server{
+		"a": {Name: "a", Command: "x", Mcpx: &config.Extras{Scope: config.ScopeSession, Max: 9}},
+	}}
+	r, _ := c.Resolve("a")
+	if r.Max != 9 {
+		t.Fatalf("a multi-key scope must keep its max, got %d", r.Max)
+	}
+}
+
+func TestUnknownKeysAreIgnored(t *testing.T) {
+	// Go's json decoder ignores unknown fields. There are no users of the
+	// retired `mode` key, so it needs no special handling -- but a config
+	// carrying one must still load rather than fail.
+	dir := t.TempDir()
+	p := write(t, dir, "c.json", `{"mcpServers":{"a":{"command":"x","mcpx":{"scope":"session"}}}}`)
+	c, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Resolve("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Scope != config.ScopeSession {
+		t.Fatalf("got %q", r.Scope)
 	}
 }
 
 func TestFileDefaultsApplyToEveryServer(t *testing.T) {
 	c := &config.Config{
-		Defaults: config.Extras{Mode: config.ModeSession, Max: 7, IdleTimeout: "1m"},
+		Defaults: config.Extras{Scope: config.ScopeSession, Max: 7, IdleTimeout: "1m"},
 		MCPServers: map[string]*config.Server{
 			"a": {Name: "a", Command: "x"},
 			"b": {Name: "b", Command: "y", Mcpx: &config.Extras{Max: 2}},
@@ -119,7 +151,7 @@ func TestFileDefaultsApplyToEveryServer(t *testing.T) {
 	}
 	a, _ := c.Resolve("a")
 	b, _ := c.Resolve("b")
-	if a.Max != 7 || a.Mode != config.ModeSession || a.IdleTimeout != time.Minute {
+	if a.Max != 7 || a.Scope != config.ScopeSession || a.IdleTimeout != time.Minute {
 		t.Fatalf("defaults not applied: %+v", a)
 	}
 	if b.Max != 2 {
@@ -127,12 +159,25 @@ func TestFileDefaultsApplyToEveryServer(t *testing.T) {
 	}
 }
 
-func TestInvalidModeRejected(t *testing.T) {
+func TestInvalidSharingRejected(t *testing.T) {
 	c := &config.Config{MCPServers: map[string]*config.Server{
-		"a": {Name: "a", Command: "x", Mcpx: &config.Extras{Mode: "nonsense"}},
+		"a": {Name: "a", Command: "x", Mcpx: &config.Extras{Sharing: "nonsense"}},
 	}}
 	if _, err := c.Resolve("a"); err == nil {
-		t.Fatal("an unknown mode must be rejected")
+		t.Fatal("an unknown sharing must be rejected")
+	}
+}
+
+func TestInvalidScopeRejectedAndListsValidOnes(t *testing.T) {
+	c := &config.Config{MCPServers: map[string]*config.Server{
+		"a": {Name: "a", Command: "x", Mcpx: &config.Extras{Scope: "nonsense"}},
+	}}
+	_, err := c.Resolve("a")
+	if err == nil {
+		t.Fatal("an unknown scope must be rejected")
+	}
+	if !strings.Contains(err.Error(), "worktree") {
+		t.Errorf("error should list valid scopes: %v", err)
 	}
 }
 
@@ -207,5 +252,27 @@ func TestMissingConfigIsNotAnError(t *testing.T) {
 	t.Setenv("MCPX_CONFIG", filepath.Join(t.TempDir(), "definitely-missing.json"))
 	if _, err := config.Load(""); err != nil {
 		t.Fatalf("a missing config should yield empty defaults, got %v", err)
+	}
+}
+
+func TestLoggingConfigIsParsed(t *testing.T) {
+	dir := t.TempDir()
+	p := write(t, dir, "c.json", `{
+	  "logging": { "format": "logfmt", "level": "debug", "source": "debug" },
+	  "mcpServers": { "a": { "command": "x", "mcpx": { "logging": { "level": "warn" } } } }
+	}`)
+	c, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Logging.Format != "logfmt" || c.Logging.Level != "debug" || c.Logging.Source != "debug" {
+		t.Fatalf("logging block not parsed: %+v", c.Logging)
+	}
+	r, err := c.Resolve("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.LogLevel != "warn" {
+		t.Errorf("per-server level should resolve, got %q", r.LogLevel)
 	}
 }

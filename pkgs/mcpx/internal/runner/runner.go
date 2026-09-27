@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"github.com/dezren39/mcpx/internal/logging"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -30,9 +32,38 @@ type Runtime struct {
 	Args func(script string) []string
 }
 
+// Permissions renders a sandbox setting into runtime flags.
+//
+// Only Deno has a permission model to speak of; bun and node run with the
+// user's own authority whatever is asked, which is stated here rather than
+// pretended otherwise.
+//
+// The default is wide open. A script is written by the same person who could
+// have run the command directly, and a half-sandbox invites working around it
+// rather than reasoning about it. Narrowing is available for the cases where
+// it is genuinely wanted.
+func Permissions(spec string) []string {
+	switch strings.ToLower(strings.TrimSpace(spec)) {
+	case "", "all", "none", "off", "unsandboxed":
+		return []string{"--allow-all"}
+	case "net":
+		return []string{"--allow-net", "--allow-env"}
+	case "read":
+		return []string{"--allow-read", "--allow-env"}
+	case "readnet", "read-net":
+		return []string{"--allow-read", "--allow-net", "--allow-env"}
+	case "strict":
+		// Enough to reach the daemon and nothing else.
+		return []string{"--allow-net=127.0.0.1", "--allow-env"}
+	}
+	// Anything else is passed through verbatim, so an unusual combination does
+	// not require a new keyword here.
+	return strings.Fields(spec)
+}
+
 // Detect picks a runtime. An explicit preference wins; otherwise the first
 // available of deno, bun, node is used.
-func Detect(prefer string) (*Runtime, error) {
+func Detect(prefer string, perms []string) (*Runtime, error) {
 	candidates := []string{"deno", "bun", "node"}
 	if prefer != "" && prefer != "auto" {
 		candidates = []string{prefer}
@@ -49,9 +80,10 @@ func Detect(prefer string) (*Runtime, error) {
 			return &Runtime{Name: "deno", Bin: bin, Args: func(s string) []string {
 				// --no-check skips type checking: the generated client is
 				// machine-written and already correct, and a type error in the
-				// agent's script surfaces at runtime anyway. This is the single
-				// biggest win over lootbox's default pipeline.
-				return []string{"run", "--quiet", "--no-check", "--allow-all", s}
+				// agent's script surfaces at runtime anyway.
+				args := []string{"run", "--quiet", "--no-check"}
+				args = append(args, perms...)
+				return append(args, s)
 			}}, nil
 		case "bun":
 			return &Runtime{Name: "bun", Bin: bin, Args: func(s string) []string {
@@ -89,7 +121,20 @@ type Options struct {
 	// every namespace is in scope as a bare identifier as well as via `tools`.
 	Prelude string
 	// Dir is the working directory for the script. Empty inherits the caller's.
-	Dir            string
+	Dir string
+	// Log renders structured records the script emits. When nil, the script's
+	// stderr is forwarded unchanged.
+	Log *logging.Writer
+	// Enrich adds ambient context to every record.
+	Enrich map[string]any
+	// CollectLogs receives each parsed record, for `run --json`.
+	CollectLogs func(logging.Record)
+	// OnResult receives values a script streamed with emit().
+	OnResult func(logging.Streamed)
+	// Export names the function to call instead of the default export.
+	Export string
+	// Permissions is the sandbox setting; empty means wide open.
+	Permissions    string
 	Stdout, Stderr interface{ Write([]byte) (int, error) }
 }
 
@@ -101,6 +146,8 @@ type Result struct {
 	Script   string
 	Client   string
 	TimedOut bool
+	// Stdout is captured only when Options.Stdout is nil.
+	Stdout string
 }
 
 const clientFileName = "mcpx-client.ts"
@@ -110,7 +157,8 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if opts.Source == "" && opts.File == "" {
 		return nil, errors.New("runner: need Source or File")
 	}
-	rt, err := Detect(opts.Runtime)
+	perms := Permissions(opts.Permissions)
+	rt, err := Detect(opts.Runtime, perms)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +205,19 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		clientPath = sideCar
 	}
 
+	// A module with a default export is a program with an entry point; one
+	// without is a program that ran on import. Supporting both is what lets a
+	// single file be imported as a library and still invoked directly.
+	if opts.File != "" {
+		launcher, lerr := writeLauncher(workDir, scriptPath, opts.Export)
+		if lerr != nil {
+			return nil, lerr
+		}
+		if launcher != "" {
+			scriptPath = launcher
+		}
+	}
+
 	runCtx := ctx
 	var cancel context.CancelFunc
 	if opts.Timeout > 0 {
@@ -186,7 +247,35 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	} else {
 		cmd.Stdout = os.Stdout
 	}
-	if opts.Stderr != nil {
+	// Structured records arrive interleaved on stderr and must be pulled out
+	// before anything else sees them.
+	var stderrDone chan struct{}
+	if opts.Log != nil {
+		pr, pw, perr := os.Pipe()
+		if perr != nil {
+			return nil, perr
+		}
+		cmd.Stderr = pw
+		passthrough := opts.Stderr
+		if passthrough == nil {
+			passthrough = os.Stderr
+		}
+		stderrDone = make(chan struct{})
+		go func() {
+			defer close(stderrDone)
+			defer pr.Close()
+			_ = logging.Stream(pr, opts.Log, logging.StreamOptions{
+				Enrich:      opts.Enrich,
+				Passthrough: passthrough,
+				Collect:     opts.CollectLogs,
+				Result:      opts.OnResult,
+			})
+		}()
+		defer func() {
+			pw.Close()
+			<-stderrDone
+		}()
+	} else if opts.Stderr != nil {
 		cmd.Stderr = opts.Stderr
 	} else {
 		cmd.Stderr = os.Stderr
@@ -254,3 +343,49 @@ func sha256sum(b []byte) string {
 
 // ClientFileName is the name of the generated client module on disk.
 const ClientFileName = clientFileName
+
+// writeLauncher emits a shim that imports the user's module and calls its
+// entry point if it has one.
+//
+// The shim is written beside the script so its relative import resolves, and
+// so the generated client next to the script is the one both files see.
+func writeLauncher(workDir, scriptPath, export string) (string, error) {
+	dir := filepath.Dir(scriptPath)
+	base := filepath.Base(scriptPath)
+	name := "." + strings.TrimSuffix(base, filepath.Ext(base)) + ".mcpx-entry.ts"
+	launcher := filepath.Join(dir, name)
+
+	body := fmt.Sprintf(`// Generated by mcpx. Runs %s.
+import * as mod from %q;
+
+const argv = (globalThis as any).Deno?.args ?? (globalThis as any).process?.argv?.slice(2) ?? [];
+const wanted = %q;
+const entry = wanted ? (mod as any)[wanted] : (mod as any).default;
+
+if (wanted && typeof entry !== "function") {
+  const names = Object.keys(mod).filter((k) => typeof (mod as any)[k] === "function");
+  throw new Error(
+    "no exported function " + JSON.stringify(wanted) + " in %s" +
+      (names.length ? "; found " + names.join(", ") : ""),
+  );
+}
+
+if (typeof entry === "function") {
+  // A default export is the program's main, so it receives argv as an array,
+  // matching every other main anyone has written. A named export is being
+  // called as a function, so its arguments are spread: --export f a b reads
+  // as f(a, b).
+  const result = wanted ? await entry(...argv) : await entry(argv);
+  // undefined means the entry printed whatever it wanted to; anything else is
+  // the script's result and belongs on stdout.
+  if (result !== undefined) {
+    console.log(typeof result === "string" ? result : JSON.stringify(result, null, 2));
+  }
+}
+`, base, "./"+base, export, base)
+
+	if err := writeIfChanged(launcher, body); err != nil {
+		return "", err
+	}
+	return launcher, nil
+}

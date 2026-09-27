@@ -26,19 +26,28 @@ type Registry struct {
 	paths Paths
 	hash  string
 
-	mu    sync.RWMutex
+	mu sync.RWMutex
+	// pools may be shared between names; views never are. A view carries the
+	// per-name presentation -- namespace, tool subset, prelude, profiles --
+	// that must not follow the shared process.
 	pools map[string]*pool.Pool
+	views map[string]*config.Resolved
 	order []string
 
-	sessMu   sync.Mutex
-	sessions map[string]*sessionState
+	sessMu sync.Mutex
+	leases map[string]*leaseState
 
-	logf func(string, ...any)
+	logf     func(string, ...any)
+	degraded sync.Map
 }
 
-type sessionState struct {
+// leaseState remembers which pool keys a caller created, so releasing a
+// caller can stop exactly those instances.
+type leaseState struct {
 	lastSeen time.Time
-	servers  map[string]bool
+	// owned maps server name to the scope key that caller resolved to, for
+	// keys this caller alone can be using.
+	owned map[string]string
 }
 
 // cacheFile is the persisted schema cache.
@@ -50,12 +59,13 @@ type cacheFile struct {
 }
 
 type cachedEntry struct {
-	Tools     []mcpclient.Tool     `json:"tools"`
-	Resources []mcpclient.Resource `json:"resources"`
-	FetchedAt time.Time            `json:"fetchedAt"`
+	Tools        []mcpclient.Tool     `json:"tools"`
+	Resources    []mcpclient.Resource `json:"resources"`
+	Instructions string               `json:"instructions,omitempty"`
+	FetchedAt    time.Time            `json:"fetchedAt"`
 }
 
-const cacheVersion = 2
+const cacheVersion = 3
 
 // NewRegistry builds pools from config and seeds them from the disk cache.
 func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*Registry, error) {
@@ -69,21 +79,34 @@ func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*R
 	raw, _ := json.Marshal(cfg.MCPServers)
 
 	r := &Registry{
-		cfg:      cfg,
-		paths:    paths,
-		hash:     HashConfig(raw),
-		pools:    make(map[string]*pool.Pool, len(servers)),
-		sessions: map[string]*sessionState{},
-		logf:     logf,
+		cfg:    cfg,
+		paths:  paths,
+		hash:   HashConfig(raw),
+		pools:  make(map[string]*pool.Pool, len(servers)),
+		views:  make(map[string]*config.Resolved, len(servers)),
+		leases: map[string]*leaseState{},
+		logf:   logf,
 	}
 	seen := map[string]string{}
+	// Servers whose process definition and leasing are identical share one
+	// pool. That is what makes an alias cheap: a second view over the same
+	// command is the same running child, not a rival copy of it.
+	byPoolID := map[string]*pool.Pool{}
 	for _, s := range servers {
 		if prev, dup := seen[s.Namespace]; dup {
 			return nil, fmt.Errorf("servers %q and %q both map to namespace %q; set mcpx.namespace on one of them",
 				prev, s.Name, s.Namespace)
 		}
 		seen[s.Namespace] = s.Name
-		r.pools[s.Name] = pool.New(s)
+
+		id := s.PoolID()
+		p, shared := byPoolID[id]
+		if !shared {
+			p = pool.New(s)
+			byPoolID[id] = p
+		}
+		r.pools[s.Name] = p
+		r.views[s.Name] = s
 		r.order = append(r.order, s.Name)
 	}
 	sort.Strings(r.order)
@@ -99,6 +122,36 @@ func (r *Registry) Names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return append([]string(nil), r.order...)
+}
+
+// View returns the per-name presentation for a server.
+func (r *Registry) View(name string) (*config.Resolved, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	v, ok := r.views[name]
+	if ok {
+		return v, true
+	}
+	for _, cand := range r.views {
+		if cand.Namespace == name {
+			return cand, true
+		}
+	}
+	return nil, false
+}
+
+// visibleTools applies a view's allow and deny lists to the shared cache.
+func visibleTools(view *config.Resolved, all []mcpclient.Tool) []mcpclient.Tool {
+	if view == nil || (len(view.Tools) == 0 && len(view.ExcludeTools) == 0) {
+		return all
+	}
+	out := make([]mcpclient.Tool, 0, len(all))
+	for _, t := range all {
+		if view.VisibleTool(t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Pool looks a server up by name or namespace.
@@ -127,7 +180,7 @@ func (r *Registry) loadCache() {
 	}
 	for name, e := range cf.Servers {
 		if p, ok := r.pools[name]; ok {
-			p.SetSchemas(e.Tools, e.Resources, e.FetchedAt)
+			p.SetSchemas(e.Tools, e.Resources, e.Instructions, e.FetchedAt)
 		}
 	}
 	r.logf("loaded schema cache for %d servers", len(cf.Servers))
@@ -142,7 +195,9 @@ func (r *Registry) SaveCache() error {
 		if at.IsZero() {
 			continue
 		}
-		cf.Servers[name] = &cachedEntry{Tools: tools, Resources: res, FetchedAt: at}
+		cf.Servers[name] = &cachedEntry{
+			Tools: tools, Resources: res, Instructions: p.Instructions(), FetchedAt: at,
+		}
 	}
 	r.mu.RUnlock()
 
@@ -209,28 +264,36 @@ type NamespaceInfo struct {
 	Resources   int    `json:"resources"`
 	Description string `json:"description,omitempty"`
 	Live        int    `json:"live"`
-	Mode        string `json:"mode"`
+	Sharing     string `json:"sharing"`
+	Scope       string `json:"scope"`
 	Error       string `json:"error,omitempty"`
 	Cached      bool   `json:"cached"`
 }
 
-// Namespaces lists every configured namespace using only cached data.
-func (r *Registry) Namespaces() []NamespaceInfo {
+// Namespaces lists every configured namespace using only cached data,
+// restricted to the requested profile.
+func (r *Registry) Namespaces(prof config.Profile) []NamespaceInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]NamespaceInfo, 0, len(r.order))
 	for _, name := range r.order {
 		p := r.pools[name]
-		tools, res, at := p.CachedSchemas()
+		view := r.views[name]
+		if !prof.Includes(view) {
+			continue
+		}
+		allTools, res, at := p.CachedSchemas()
+		tools := visibleTools(view, allTools)
 		st := p.Status()
 		out = append(out, NamespaceInfo{
-			Namespace:   p.Namespace(),
+			Namespace:   view.Namespace,
 			Server:      name,
 			Tools:       len(tools),
 			Resources:   len(res),
-			Description: p.Config().Description,
+			Description: view.Description,
 			Live:        st.Live,
-			Mode:        st.Mode,
+			Sharing:     st.Sharing,
+			Scope:       st.Scope,
 			Error:       st.LastError,
 			Cached:      !at.IsZero(),
 		})
@@ -261,16 +324,17 @@ func (r *Registry) Tools(namespaces []string) []ToolInfo {
 	var out []ToolInfo
 	for _, name := range r.order {
 		p := r.pools[name]
-		if len(want) > 0 && !want[p.Namespace()] && !want[name] {
+		view := r.views[name]
+		if len(want) > 0 && !want[view.Namespace] && !want[name] {
 			continue
 		}
-		tools, _, _ := p.CachedSchemas()
-		for _, t := range tools {
+		all, _, _ := p.CachedSchemas()
+		for _, t := range visibleTools(view, all) {
 			out = append(out, ToolInfo{
-				Namespace:   p.Namespace(),
+				Namespace:   view.Namespace,
 				Server:      name,
 				Tool:        t.Name,
-				Function:    p.Namespace() + "." + codegen.ToolFuncName(t.Name),
+				Function:    view.Namespace + "." + codegen.ToolFuncName(t.Name),
 				Description: t.Description,
 				InputSchema: t.InputSchema,
 			})
@@ -350,33 +414,103 @@ func rank(all []ToolInfo, terms []string, requireAll bool) []ToolInfo {
 	return scored
 }
 
-// CodegenNamespaces builds the codegen model for the requested namespaces.
-// An empty list means every namespace.
-func (r *Registry) CodegenNamespaces(names []string) ([]codegen.Namespace, error) {
-	want := map[string]bool{}
+// selector is one entry from a types/catalog request: a namespace, or a
+// namespace and a single tool within it.
+type selector struct {
+	ns   string
+	tool string
+}
+
+func parseSelectors(names []string) []selector {
+	var out []selector
 	for _, n := range names {
 		for _, part := range strings.Split(n, ",") {
 			part = strings.TrimSpace(part)
-			if part != "" {
-				want[part] = true
+			if part == "" {
+				continue
 			}
+			// A dot separates namespace from tool. Namespaces are sanitised
+			// identifiers and never contain one, so the split is unambiguous.
+			if i := strings.Index(part, "."); i > 0 {
+				out = append(out, selector{ns: part[:i], tool: part[i+1:]})
+				continue
+			}
+			out = append(out, selector{ns: part})
 		}
 	}
+	return out
+}
+
+// CodegenNamespaces builds the codegen model for the requested selectors.
+//
+// A selector is either a namespace ("chrome_devtools") or one tool within it
+// ("chrome_devtools.click"). Asking for a single tool is the difference
+// between 4,402 tokens and about 90, which matters when an agent already
+// knows the name and only needs the argument shape.
+//
+// An empty list means every namespace.
+func (r *Registry) CodegenNamespaces(names []string, prof config.Profile) ([]codegen.Namespace, error) {
+	sels := parseSelectors(names)
+
+	// Namespaces wanted whole, and the specific tools wanted from others.
+	whole := map[string]bool{}
+	tools := map[string]map[string]bool{}
+	for _, sel := range sels {
+		if sel.tool == "" {
+			whole[sel.ns] = true
+			continue
+		}
+		if tools[sel.ns] == nil {
+			tools[sel.ns] = map[string]bool{}
+		}
+		tools[sel.ns][sel.tool] = true
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	matched := map[string]bool{}
+	matchedNS := map[string]bool{}
+	matchedTool := map[string]bool{}
 	var out []codegen.Namespace
 	for _, name := range r.order {
 		p := r.pools[name]
-		ns := p.Namespace()
-		if len(want) > 0 && !want[ns] && !want[name] {
+		view := r.views[name]
+		if !prof.Includes(view) {
 			continue
 		}
-		matched[ns], matched[name] = true, true
-		tools, _, _ := p.CachedSchemas()
-		cn := codegen.Namespace{Name: ns, Server: name, Description: p.Config().Description}
-		for _, t := range tools {
+		ns := view.Namespace
+
+		wantWhole := whole[ns] || whole[name]
+		wantTools := tools[ns]
+		if wantTools == nil {
+			wantTools = tools[name]
+		}
+		if len(sels) > 0 && !wantWhole && wantTools == nil {
+			continue
+		}
+		matchedNS[ns], matchedNS[name] = true, true
+
+		all, _, _ := p.CachedSchemas()
+		cached := visibleTools(view, all)
+		cn := codegen.Namespace{
+			Name: ns, Server: name,
+			Description: view.Description,
+			Prelude:     view.Prelude,
+		}
+		// Server guidance is long and describes a whole namespace, so it is
+		// noise when a single tool was asked for.
+		if wantWhole || len(sels) == 0 {
+			cn.Instructions = p.Instructions()
+		}
+		for _, t := range cached {
+			if !wantWhole && len(sels) > 0 {
+				if !wantTools[t.Name] && !wantTools[codegen.ToolFuncName(t.Name)] {
+					continue
+				}
+				matchedTool[ns+"."+t.Name] = true
+				matchedTool[ns+"."+codegen.ToolFuncName(t.Name)] = true
+				matchedTool[name+"."+t.Name] = true
+			}
 			cn.Tools = append(cn.Tools, codegen.Tool{
 				Name:        t.Name,
 				Description: t.Description,
@@ -385,76 +519,102 @@ func (r *Registry) CodegenNamespaces(names []string) ([]codegen.Namespace, error
 		}
 		out = append(out, cn)
 	}
+
 	var unknown []string
-	for n := range want {
-		if !matched[n] {
-			unknown = append(unknown, n)
+	for _, sel := range sels {
+		if !matchedNS[sel.ns] {
+			unknown = append(unknown, sel.ns)
+			continue
+		}
+		if sel.tool != "" && !matchedTool[sel.ns+"."+sel.tool] {
+			unknown = append(unknown, sel.ns+"."+sel.tool)
 		}
 	}
 	if len(unknown) > 0 {
 		sort.Strings(unknown)
-		return out, fmt.Errorf("unknown namespace(s): %s", strings.Join(unknown, ", "))
+		return out, fmt.Errorf("unknown namespace or tool: %s", strings.Join(unknown, ", "))
 	}
 	return out, nil
 }
 
-// Call dispatches a tool call to the right pool.
-func (r *Registry) Call(ctx context.Context, server, tool, session string, args any) (json.RawMessage, error) {
+// Call dispatches a tool call, resolving the server's scope against the
+// caller's context to pick the instance.
+func (r *Registry) Call(ctx context.Context, server, tool string, cc config.CallContext, args any) (json.RawMessage, error) {
 	p, ok := r.Pool(server)
 	if !ok {
 		return nil, fmt.Errorf("unknown server or namespace %q", server)
 	}
-	r.touchSession(session, p.Name())
-	return p.Call(ctx, session, tool, args)
+	key := r.keyFor(p, cc)
+	return p.Call(ctx, key, tool, args)
 }
 
 // ReadResource dispatches a resource read.
-func (r *Registry) ReadResource(ctx context.Context, server, uri, session string) (json.RawMessage, error) {
+func (r *Registry) ReadResource(ctx context.Context, server, uri string, cc config.CallContext) (json.RawMessage, error) {
 	p, ok := r.Pool(server)
 	if !ok {
 		return nil, fmt.Errorf("unknown server or namespace %q", server)
 	}
-	r.touchSession(session, p.Name())
-	return p.ReadResource(ctx, session, uri)
+	key := r.keyFor(p, cc)
+	return p.ReadResource(ctx, key, uri)
 }
 
-func (r *Registry) touchSession(key, server string) {
-	if key == "" {
+// keyFor resolves a server's scope and records the association so the caller
+// can later release exactly what it created.
+func (r *Registry) keyFor(p *pool.Pool, cc config.CallContext) string {
+	scope := p.Config().Scope
+	key, degraded := scope.Key(cc)
+	if degraded != "" {
+		r.warnDegraded(p.Name(), scope, degraded)
+	}
+	if cc.CallID != "" {
+		r.sessMu.Lock()
+		st, ok := r.leases[cc.CallID]
+		if !ok {
+			st = &leaseState{owned: map[string]string{}}
+			r.leases[cc.CallID] = st
+		}
+		st.lastSeen = time.Now()
+		if cc.CallerOwned(key) {
+			st.owned[p.Name()] = key
+		}
+		r.sessMu.Unlock()
+	}
+	return key
+}
+
+// warnDegraded reports a scope that could not be resolved as configured, once
+// per server and reason. Silent degradation to per-call isolation would look
+// like a performance problem rather than a configuration one.
+func (r *Registry) warnDegraded(server string, scope config.Scope, reason string) {
+	k := server + "\x00" + string(scope) + "\x00" + reason
+	if _, seen := r.degraded.LoadOrStore(k, true); seen {
 		return
 	}
-	r.sessMu.Lock()
-	s, ok := r.sessions[key]
-	if !ok {
-		s = &sessionState{servers: map[string]bool{}}
-		r.sessions[key] = s
-	}
-	s.lastSeen = time.Now()
-	s.servers[server] = true
-	r.sessMu.Unlock()
+	r.logf("server %q: scope %q degraded to per-call: %s", server, scope, reason)
 }
 
-// ReleaseSession frees every pinned instance held for a session. The CLI calls
-// this when a script finishes, which is what returns a browser to the pool
-// promptly instead of waiting for the idle timer.
-func (r *Registry) ReleaseSession(key string) int {
-	if key == "" {
+// ReleaseCaller stops instances created for a caller whose scope made them
+// caller-private. A shared or long-lived scope is left alone: another caller
+// may legitimately still want it.
+func (r *Registry) ReleaseCaller(callID string) int {
+	if callID == "" {
 		return 0
 	}
 	r.sessMu.Lock()
-	s := r.sessions[key]
-	delete(r.sessions, key)
+	st := r.leases[callID]
+	delete(r.leases, callID)
 	r.sessMu.Unlock()
-	if s == nil {
+	if st == nil {
 		return 0
 	}
 	n := 0
-	for server := range s.servers {
+	for server, key := range st.owned {
 		if p, ok := r.Pool(server); ok {
-			n += p.ReleaseSession(key)
+			n += p.ReleaseKey(key)
 		}
 	}
 	if n > 0 {
-		r.logf("released %d instance(s) for session %s", n, key)
+		r.logf("released %d instance(s) for caller %s", n, callID)
 	}
 	return n
 }
@@ -465,14 +625,14 @@ func (r *Registry) Reap() {
 
 	var stale []string
 	r.sessMu.Lock()
-	for k, s := range r.sessions {
+	for k, s := range r.leases {
 		if now.Sub(s.lastSeen) > 30*time.Minute {
 			stale = append(stale, k)
 		}
 	}
 	r.sessMu.Unlock()
 	for _, k := range stale {
-		r.ReleaseSession(k)
+		r.ReleaseCaller(k)
 	}
 
 	r.mu.RLock()
@@ -493,8 +653,22 @@ func (r *Registry) Status() []pool.Status {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]pool.Status, 0, len(r.order))
+	// Several names can share one pool. Report the pool once, under the names
+	// that reach it, so a shared instance does not look like two.
+	seen := map[*pool.Pool][]string{}
+	var order []*pool.Pool
 	for _, name := range r.order {
-		out = append(out, r.pools[name].Status())
+		p := r.pools[name]
+		if _, ok := seen[p]; !ok {
+			order = append(order, p)
+		}
+		seen[p] = append(seen[p], r.views[name].Namespace)
+	}
+	for _, p := range order {
+		st := p.Status()
+		names := seen[p]
+		st.Namespace = strings.Join(names, ", ")
+		out = append(out, st)
 	}
 	return out
 }

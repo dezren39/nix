@@ -7,6 +7,10 @@
   deno,
   bun-bin,
   nodejs,
+  # git backs the `repo` and `worktree` scopes. Without it those silently
+  # degrade to per-directory keys, so it is a hard runtime dependency rather
+  # than a nicety.
+  git,
   makeBinaryWrapper,
 }:
 buildGoModule {
@@ -58,6 +62,7 @@ buildGoModule {
     wrapProgram $out/bin/mcpx \
       --suffix PATH : ${
         lib.makeBinPath [
+          git
           deno
           bun-bin
           nodejs

@@ -18,12 +18,16 @@ package pool
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/config"
@@ -37,18 +41,37 @@ var Version = "dev"
 // served it. The daemon wires this to its logger when MCPX_TRACE is set.
 var Trace func(string, ...any)
 
+// Lifecycle, when set, receives structured lifecycle events: a server
+// starting, stopping or being reaped. Reported here rather than inferred from
+// logs so that a consumer sees the same events the pool acted on.
+var Lifecycle func(event string, attrs map[string]any)
+
+func lifecycle(event string, attrs map[string]any) {
+	if Lifecycle != nil {
+		Lifecycle(event, attrs)
+	}
+}
+
 // Instance is one live MCP server process (or remote session).
 type Instance struct {
 	ID        string
 	Client    *mcpclient.Client
 	transport mcpclient.Transport
 
-	busy      bool
-	session   string
+	// key is the scope-resolved identity this instance serves. One live
+	// instance per distinct key.
+	key string
+	// holders counts current callers. Exclusive sharing admits one; shared
+	// sharing admits any number.
+	holders   int
 	lastUsed  time.Time
 	startedAt time.Time
+	trace     string
 	calls     atomic.Int64
 }
+
+// Trace is this instance's identifier, carried by every record about it.
+func (i *Instance) Trace() string { return i.trace }
 
 // PID returns the child process id for stdio instances, 0 otherwise.
 func (i *Instance) PID() int {
@@ -92,11 +115,12 @@ type Pool struct {
 	closed    bool
 
 	// schema cache
-	schemaMu  sync.RWMutex
-	tools     []mcpclient.Tool
-	resources []mcpclient.Resource
-	schemaAt  time.Time
-	schemaErr error
+	schemaMu     sync.RWMutex
+	tools        []mcpclient.Tool
+	resources    []mcpclient.Resource
+	instructions string
+	schemaAt     time.Time
+	schemaErr    error
 
 	lastErr   error
 	failCount int
@@ -122,54 +146,40 @@ func (p *Pool) Namespace() string { return p.cfg.Namespace }
 
 var errClosed = errors.New("pool closed")
 
-// Acquire borrows an instance. sessionKey may be empty for stateless use.
-func (p *Pool) Acquire(ctx context.Context, sessionKey string) (*Lease, error) {
-	p.mu.Lock()
+// Acquire borrows an instance for a resolved scope key.
+//
+// The key decides *which* process; Sharing decides whether that process may
+// serve more than one caller at once. Those are independent, which is why they
+// are separate config axes.
+func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
+	exclusive := p.cfg.Sharing == config.SharingExclusive
 
+	p.mu.Lock()
 	for {
 		if p.closed {
 			p.mu.Unlock()
 			return nil, errClosed
 		}
-
-		// Drop dead instances before deciding anything.
 		p.reapDeadLocked()
 
-		// Session affinity: reuse the pinned instance if we already have one.
-		if p.cfg.Mode == config.ModeSession && sessionKey != "" {
-			for _, in := range p.instances {
-				if in.session == sessionKey {
-					in.busy = true
-					in.lastUsed = time.Now()
-					p.mu.Unlock()
-					return &Lease{inst: in, pool: p}, nil
-				}
-			}
-		}
-
-		// Shared mode: one instance, unlimited concurrent callers.
-		if p.cfg.Mode == config.ModeShared {
-			if len(p.instances) > 0 {
-				in := p.instances[0]
-				in.busy = true
+		// An instance already serving this key is the only correct choice:
+		// the key is the caller's identity, and a second process would mean a
+		// second browser, a second index, a second anything.
+		if in := p.findLocked(key); in != nil {
+			if !exclusive || in.holders == 0 {
+				in.holders++
 				in.lastUsed = time.Now()
 				p.mu.Unlock()
 				return &Lease{inst: in, pool: p}, nil
 			}
-		} else {
-			// Pooled/session: find an idle, unpinned instance.
-			for _, in := range p.instances {
-				if !in.busy && in.session == "" {
-					in.busy = true
-					in.session = sessionKey
-					in.lastUsed = time.Now()
-					p.mu.Unlock()
-					return &Lease{inst: in, pool: p}, nil
-				}
+			// Exclusive and busy: queue rather than start a rival process.
+			if err := p.waitLocked(ctx); err != nil {
+				p.mu.Unlock()
+				return nil, err
 			}
+			continue
 		}
 
-		// Room to grow?
 		if len(p.instances)+p.starting < p.cfg.Max {
 			if cd := p.cooldownUntil; time.Now().Before(cd) {
 				err := p.lastErr
@@ -187,7 +197,6 @@ func (p *Pool) Acquire(ctx context.Context, sessionKey string) (*Lease, error) {
 			if err != nil {
 				p.failCount++
 				p.lastErr = err
-				// Exponential-ish backoff capped at 30s.
 				backoff := time.Duration(p.failCount) * 2 * time.Second
 				if backoff > 30*time.Second {
 					backoff = 30 * time.Second
@@ -200,10 +209,17 @@ func (p *Pool) Acquire(ctx context.Context, sessionKey string) (*Lease, error) {
 			p.failCount = 0
 			p.lastErr = nil
 			p.cooldownUntil = time.Time{}
-			in.busy = true
-			if p.cfg.Mode != config.ModeShared {
-				in.session = sessionKey
+			// Another caller may have created this key while the lock was
+			// released; keep theirs and retire the duplicate.
+			if dup := p.findLocked(key); dup != nil {
+				p.cond.Broadcast()
+				p.mu.Unlock()
+				go in.Client.Close()
+				p.mu.Lock()
+				continue
 			}
+			in.key = key
+			in.holders = 1
 			in.lastUsed = time.Now()
 			p.instances = append(p.instances, in)
 			p.cond.Broadcast()
@@ -211,12 +227,56 @@ func (p *Pool) Acquire(ctx context.Context, sessionKey string) (*Lease, error) {
 			return &Lease{inst: in, pool: p}, nil
 		}
 
-		// At capacity: wait for a release, honouring ctx.
+		// At capacity. An idle instance serving a key nobody is using can be
+		// retired to make room, which is what keeps a per-call scope from
+		// deadlocking at Max.
+		if in := p.evictableLocked(); in != nil {
+			p.removeLocked(in)
+			p.mu.Unlock()
+			_ = in.Client.Close()
+			p.mu.Lock()
+			continue
+		}
+
 		if err := p.waitLocked(ctx); err != nil {
 			p.mu.Unlock()
 			return nil, err
 		}
 	}
+}
+
+// findLocked returns the instance serving key, if any.
+func (p *Pool) findLocked(key string) *Instance {
+	for _, in := range p.instances {
+		if in.key == key {
+			return in
+		}
+	}
+	return nil
+}
+
+// evictableLocked picks the least recently used instance with no holders.
+func (p *Pool) evictableLocked() *Instance {
+	var best *Instance
+	for _, in := range p.instances {
+		if in.holders > 0 {
+			continue
+		}
+		if best == nil || in.lastUsed.Before(best.lastUsed) {
+			best = in
+		}
+	}
+	return best
+}
+
+func (p *Pool) removeLocked(target *Instance) {
+	kept := p.instances[:0]
+	for _, in := range p.instances {
+		if in != target {
+			kept = append(kept, in)
+		}
+	}
+	p.instances = kept
 }
 
 // waitLocked blocks on the condition variable but returns early if ctx ends.
@@ -247,44 +307,33 @@ func (p *Pool) waitLocked(ctx context.Context) error {
 
 func (p *Pool) release(in *Instance) {
 	p.mu.Lock()
-	in.busy = false
-	in.lastUsed = time.Now()
-	// Session pins survive release; they are cleared by ReleaseSession or the
-	// idle reaper. Pooled and shared leases free immediately.
-	if p.cfg.Mode == config.ModePooled {
-		in.session = ""
+	if in.holders > 0 {
+		in.holders--
 	}
+	in.lastUsed = time.Now()
 	p.cond.Broadcast()
 	p.mu.Unlock()
 }
 
-// ReleaseSession unpins and stops instances held for a session key.
-func (p *Pool) ReleaseSession(key string) int {
+// ReleaseKey stops the instance serving a key, if it is idle. Used when a
+// script exits so a browser goes back immediately instead of waiting out the
+// idle timer.
+func (p *Pool) ReleaseKey(key string) int {
 	if key == "" {
 		return 0
 	}
 	p.mu.Lock()
-	var stop []*Instance
-	kept := p.instances[:0]
-	for _, in := range p.instances {
-		if in.session == key && !in.busy {
-			stop = append(stop, in)
-			continue
-		}
-		if in.session == key && in.busy {
-			// Still running a call; unpin so it is reaped when it finishes.
-			in.session = ""
-		}
-		kept = append(kept, in)
+	in := p.findLocked(key)
+	if in == nil || in.holders > 0 {
+		p.mu.Unlock()
+		return 0
 	}
-	p.instances = kept
+	p.removeLocked(in)
 	p.cond.Broadcast()
 	p.mu.Unlock()
-
-	for _, in := range stop {
-		_ = in.Client.Close()
-	}
-	return len(stop)
+	p.stopped(in, "released")
+	_ = in.Client.Close()
+	return 1
 }
 
 func (p *Pool) reapDeadLocked() {
@@ -339,13 +388,20 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	id := fmt.Sprintf("%s#%d", p.cfg.Name, p.seq)
 	p.mu.Unlock()
 
-	return &Instance{
+	in := &Instance{
 		ID:        id,
 		Client:    cl,
 		transport: tr,
+		trace:     string(newTraceID()),
 		startedAt: time.Now(),
 		lastUsed:  time.Now(),
-	}, nil
+	}
+	lifecycle("server.start", map[string]any{
+		"server": p.cfg.Name, "instance": in.ID, "pid": in.PID(),
+		"trace": in.trace, "sharing": string(p.cfg.Sharing), "scope": string(p.cfg.Scope),
+		"transport": transportName(p.cfg),
+	})
+	return in, nil
 }
 
 // Schemas returns the cached tool and resource lists, fetching them on first
@@ -368,7 +424,12 @@ func (p *Pool) Schemas(ctx context.Context) ([]mcpclient.Tool, []mcpclient.Resou
 // genuinely exposes no tools, and that state would then be persisted and
 // reloaded, permanently hiding the failure.
 func (p *Pool) RefreshSchemas(ctx context.Context) ([]mcpclient.Tool, []mcpclient.Resource, error) {
-	lease, err := p.Acquire(ctx, "")
+	// Reading a catalogue is not a caller's work, so it borrows the scope's
+	// own key. For a global scope that is the shared instance everyone uses;
+	// for anything narrower it is a throwaway, stopped again below so a
+	// per-session server does not keep a process nobody asked for.
+	key := p.schemaKey()
+	lease, err := p.Acquire(ctx, key)
 	if err != nil {
 		p.schemaMu.Lock()
 		p.schemaErr = err
@@ -386,8 +447,6 @@ func (p *Pool) RefreshSchemas(ctx context.Context) ([]mcpclient.Tool, []mcpclien
 		p.schemaMu.Unlock()
 		return nil, nil, err
 	}
-	tools = p.filterTools(tools)
-
 	var resources []mcpclient.Resource
 	if cl.Supports("resources") {
 		resources, _ = cl.ListResources(ctx)
@@ -398,16 +457,36 @@ func (p *Pool) RefreshSchemas(ctx context.Context) ([]mcpclient.Tool, []mcpclien
 
 	p.schemaMu.Lock()
 	p.tools, p.resources, p.schemaErr, p.schemaAt = tools, resources, nil, time.Now()
+	p.instructions = cl.Instructions
 	p.schemaMu.Unlock()
+
+	lease.Release()
+	lease.done = true // Release is idempotent, but be explicit before ReleaseKey
+	if p.cfg.Scope != config.ScopeGlobal {
+		p.ReleaseKey(key)
+	}
 	return tools, resources, nil
+}
+
+// schemaKey is the instance a catalogue read borrows.
+func (p *Pool) schemaKey() string {
+	key, _ := p.cfg.Scope.Key(config.CallContext{CallID: "schema"})
+	return key
 }
 
 // SetSchemas seeds the cache from disk so the daemon can answer discovery
 // queries without starting a single child process.
-func (p *Pool) SetSchemas(tools []mcpclient.Tool, resources []mcpclient.Resource, at time.Time) {
+func (p *Pool) SetSchemas(tools []mcpclient.Tool, resources []mcpclient.Resource, instructions string, at time.Time) {
 	p.schemaMu.Lock()
-	p.tools, p.resources, p.schemaAt, p.schemaErr = tools, resources, at, nil
+	p.tools, p.resources, p.instructions, p.schemaAt, p.schemaErr = tools, resources, instructions, at, nil
 	p.schemaMu.Unlock()
+}
+
+// Instructions returns the server's own guidance, cached from initialize.
+func (p *Pool) Instructions() string {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+	return p.instructions
 }
 
 // CachedSchemas returns whatever is cached without triggering a fetch.
@@ -415,23 +494,6 @@ func (p *Pool) CachedSchemas() ([]mcpclient.Tool, []mcpclient.Resource, time.Tim
 	p.schemaMu.RLock()
 	defer p.schemaMu.RUnlock()
 	return p.tools, p.resources, p.schemaAt
-}
-
-func (p *Pool) filterTools(in []mcpclient.Tool) []mcpclient.Tool {
-	if len(p.cfg.Tools) == 0 && len(p.cfg.ExcludeTools) == 0 {
-		return in
-	}
-	out := in[:0]
-	for _, t := range in {
-		if p.cfg.ExcludeTools[t.Name] {
-			continue
-		}
-		if len(p.cfg.Tools) > 0 && !p.cfg.Tools[t.Name] {
-			continue
-		}
-		out = append(out, t)
-	}
-	return out
 }
 
 // Call runs a tool on a leased instance.
@@ -464,15 +526,20 @@ func (p *Pool) ReadResource(ctx context.Context, sessionKey, uri string) (json.R
 	return lease.Client().ReadResource(cctx, uri)
 }
 
-// ReapIdle stops instances idle beyond the configured timeout. Shared
-// instances are kept because they are cheap and hot-path.
+// ReapIdle stops instances that nobody holds and that have gone quiet, plus
+// any whose watched pid has exited. Min keeps a floor of warm instances.
 func (p *Pool) ReapIdle(now time.Time) int {
 	p.mu.Lock()
 	var stop []*Instance
 	kept := p.instances[:0]
 	for _, in := range p.instances {
-		idle := now.Sub(in.lastUsed)
-		if !in.busy && idle > p.cfg.IdleTimeout && (p.cfg.Mode != config.ModeShared || len(p.instances) > p.cfg.Min) {
+		expired := in.holders == 0 && now.Sub(in.lastUsed) > p.cfg.IdleTimeout &&
+			len(p.instances) > p.cfg.Min
+		// A pid-scoped instance belongs to a process. When that process is
+		// gone the instance has no possible future caller, so it goes
+		// immediately rather than waiting out the idle timer.
+		orphaned := in.holders == 0 && p.cfg.Scope.WatchesPID() && !keyPIDAlive(in.key)
+		if expired || orphaned {
 			stop = append(stop, in)
 			continue
 		}
@@ -483,17 +550,32 @@ func (p *Pool) ReapIdle(now time.Time) int {
 	p.mu.Unlock()
 
 	for _, in := range stop {
+		p.stopped(in, "idle")
 		_ = in.Client.Close()
 	}
 	return len(stop)
+}
+
+// keyPIDAlive reports whether the process a pid-scoped key names still exists.
+// An unparseable key is treated as alive so a bug here cannot kill instances.
+func keyPIDAlive(key string) bool {
+	pid, ok := config.PIDOf(key)
+	if !ok {
+		return true
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // InstanceStatus is a diagnostic snapshot.
 type InstanceStatus struct {
 	ID        string `json:"id"`
 	PID       int    `json:"pid,omitempty"`
-	Busy      bool   `json:"busy"`
-	Session   string `json:"session,omitempty"`
+	Holders   int    `json:"holders"`
+	Key       string `json:"key,omitempty"`
 	Calls     int64  `json:"calls"`
 	UptimeSec int    `json:"uptimeSec"`
 	IdleSec   int    `json:"idleSec"`
@@ -503,7 +585,8 @@ type InstanceStatus struct {
 type Status struct {
 	Name      string           `json:"name"`
 	Namespace string           `json:"namespace"`
-	Mode      string           `json:"mode"`
+	Sharing   string           `json:"sharing"`
+	Scope     string           `json:"scope"`
 	Max       int              `json:"max"`
 	Live      int              `json:"live"`
 	Tools     int              `json:"tools"`
@@ -518,7 +601,8 @@ func (p *Pool) Status() Status {
 	st := Status{
 		Name:      p.cfg.Name,
 		Namespace: p.cfg.Namespace,
-		Mode:      string(p.cfg.Mode),
+		Sharing:   string(p.cfg.Sharing),
+		Scope:     string(p.cfg.Scope),
 		Max:       p.cfg.Max,
 		Live:      len(p.instances),
 	}
@@ -530,8 +614,8 @@ func (p *Pool) Status() Status {
 		st.Instances = append(st.Instances, InstanceStatus{
 			ID:        in.ID,
 			PID:       in.PID(),
-			Busy:      in.busy,
-			Session:   in.session,
+			Holders:   in.holders,
+			Key:       in.key,
 			Calls:     in.calls.Load(),
 			UptimeSec: int(now.Sub(in.startedAt).Seconds()),
 			IdleSec:   int(now.Sub(in.lastUsed).Seconds()),
@@ -562,6 +646,7 @@ func (p *Pool) Restart() int {
 	p.cond.Broadcast()
 	p.mu.Unlock()
 	for _, in := range stop {
+		p.stopped(in, "restart")
 		_ = in.Client.Close()
 	}
 	return len(stop)
@@ -578,4 +663,33 @@ func (p *Pool) Close() {
 	for _, in := range stop {
 		_ = in.Client.Close()
 	}
+}
+
+// newTraceID mints an instance identifier. Kept here rather than imported so
+// the pool does not depend on the logging package.
+func newTraceID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "srv-0000000000000000"
+	}
+	return "srv-" + hex.EncodeToString(b[:])
+}
+
+func transportName(c *config.Resolved) string {
+	if c.Stdio() {
+		return "stdio"
+	}
+	if c.Transport != "" {
+		return c.Transport
+	}
+	return "http"
+}
+
+// stopped reports a server going away, with why.
+func (p *Pool) stopped(in *Instance, reason string) {
+	lifecycle("server.stop", map[string]any{
+		"server": p.cfg.Name, "instance": in.ID, "pid": in.PID(),
+		"trace": in.trace, "reason": reason,
+		"calls": in.calls.Load(), "uptimeSec": int(time.Since(in.startedAt).Seconds()),
+	})
 }

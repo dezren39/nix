@@ -99,12 +99,24 @@ func socketPath(state, key string) string {
 	return "/tmp/mcpx-" + hex.EncodeToString(sum[:])[:16] + ".sock"
 }
 
-// FingerprintConfig derives the daemon key from a config file. The file's
-// bytes and its path both contribute, so two identical configs in different
-// repos still get separate daemons and separate working directories.
-func FingerprintConfig(path string, body []byte) string {
-	sum := sha256.Sum256(append([]byte(path+"\x00"), body...))
-	return hex.EncodeToString(sum[:])[:12]
+// FingerprintConfig derives the daemon key from every file that contributed.
+//
+// All of them matter, not just the nearest: two projects whose own config is
+// byte-identical can still inherit different servers from different parents,
+// and sharing a daemon between them would give one project the other's
+// servers. Paths contribute as well as contents, so two identical files in
+// different places stay separate.
+func FingerprintConfig(paths []string) string {
+	h := sha256.New()
+	for _, p := range paths {
+		h.Write([]byte(p))
+		h.Write([]byte{0})
+		if b, err := os.ReadFile(p); err == nil {
+			h.Write(b)
+		}
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // ListDaemons returns the info records of every daemon in this state dir.

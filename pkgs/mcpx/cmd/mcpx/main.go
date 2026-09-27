@@ -17,6 +17,11 @@ import (
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "0.1.0"
 
+// splitList accepts comma or space separated values.
+func splitList(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -29,6 +34,18 @@ func main() {
 		switch {
 		case args[0] == "--json":
 			app.JSON = true
+			args = args[1:]
+		case args[0] == "--profile" && len(args) > 1:
+			app.Profile.Names = append(app.Profile.Names, splitList(args[1])...)
+			args = args[2:]
+		case strings.HasPrefix(args[0], "--profile="):
+			app.Profile.Names = append(app.Profile.Names, splitList(strings.TrimPrefix(args[0], "--profile="))...)
+			args = args[1:]
+		case args[0] == "--skip-default":
+			app.Profile.SkipDefault = true
+			args = args[1:]
+		case args[0] == "--all-profiles":
+			app.Profile.All = true
 			args = args[1:]
 		case args[0] == "--config" && len(args) > 1:
 			app.ConfigPath = args[1]
@@ -59,6 +76,7 @@ func main() {
 		"list":       app.CmdLs,
 		"namespaces": app.CmdLs,
 		"types":      app.CmdTypes,
+		"catalog":    app.CmdCatalog,
 		"search":     app.CmdSearch,
 		"call":       app.CmdCall,
 		"run":        app.CmdRun,

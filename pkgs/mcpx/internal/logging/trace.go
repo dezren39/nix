@@ -1,0 +1,205 @@
+package logging
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"net"
+	"os"
+	"os/user"
+	"runtime"
+	"strings"
+	"sync"
+)
+
+// TraceID identifies one thing that started and will end: a daemon, a server
+// instance, a session, a script run, a tool call.
+//
+// The shape is deliberately span-like. A record carries the id of the thing it
+// happened inside; the line that *creates* something carries both the new id
+// and its parent, so the tree can be rebuilt from the log alone without every
+// later record repeating its ancestry. That is the same trade a tracing system
+// makes, and it is why a long-running daemon does not pay for its depth on
+// every line.
+type TraceID string
+
+// NewTraceID mints an identifier with a short readable prefix.
+func NewTraceID(prefix string) TraceID {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Randomness failing is not a reason to stop logging.
+		return TraceID(prefix + "-0000000000000000")
+	}
+	return TraceID(prefix + "-" + hex.EncodeToString(b[:]))
+}
+
+// Trace keys. These are attribute names rather than a struct so that a record
+// stays a flat map, which is what every log store wants.
+const (
+	// KeyTrace is the thing this record happened inside.
+	KeyTrace = "trace"
+	// KeyParent is set only on the record that creates a trace, naming what it
+	// was created from.
+	KeyParent = "trace.parent"
+	// KeyEvent names a lifecycle moment: daemon.start, server.start, and so on.
+	KeyEvent = "event"
+)
+
+// Include names an optional block of ambient facts.
+type Include string
+
+const (
+	// IncludeHost is the machine: hostname, os, arch, cpus.
+	IncludeHost Include = "host"
+	// IncludeUser is who is running this.
+	IncludeUser Include = "user"
+	// IncludeProcess is pid, executable and working directory.
+	IncludeProcess Include = "process"
+	// IncludeNetwork is the primary interface's address and hardware address.
+	// Off by default: it is slow to gather and rarely what anyone wanted.
+	IncludeNetwork Include = "network"
+	// IncludeVersion is the mcpx build.
+	IncludeVersion Include = "version"
+	// IncludeEnv is the MCPX_* environment, with values elided.
+	IncludeEnv Include = "env"
+)
+
+// AllIncludes is every block, for documentation and for `--include all`.
+var AllIncludes = []Include{
+	IncludeHost, IncludeUser, IncludeProcess, IncludeNetwork, IncludeVersion, IncludeEnv,
+}
+
+// DefaultIncludes are gathered on lifecycle records unless configured
+// otherwise. Network is excluded because enumerating interfaces costs
+// milliseconds and almost never answers a question anyone asked.
+var DefaultIncludes = []Include{
+	IncludeHost, IncludeUser, IncludeProcess, IncludeVersion,
+}
+
+// ParseIncludes turns a comma or space separated list into blocks. "all" is
+// every block, "none" is none.
+func ParseIncludes(spec string) []Include {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return DefaultIncludes
+	}
+	fields := strings.FieldsFunc(spec, func(r rune) bool { return r == ',' || r == ' ' })
+	var out []Include
+	for _, f := range fields {
+		switch strings.ToLower(f) {
+		case "all":
+			return AllIncludes
+		case "none":
+			return nil
+		default:
+			for _, known := range AllIncludes {
+				if string(known) == strings.ToLower(f) {
+					out = append(out, known)
+				}
+			}
+		}
+	}
+	return out
+}
+
+var (
+	ambientOnce sync.Once
+	ambientAll  map[Include]map[string]any
+)
+
+// Ambient gathers the requested blocks. Everything is collected once and
+// cached: none of it changes while the process runs, and the network block in
+// particular is too slow to repeat.
+func Ambient(version string, want []Include) map[string]any {
+	ambientOnce.Do(func() { ambientAll = gatherAmbient(version) })
+	out := map[string]any{}
+	for _, w := range want {
+		for k, v := range ambientAll[w] {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func gatherAmbient(version string) map[Include]map[string]any {
+	all := map[Include]map[string]any{}
+
+	host := map[string]any{"host.os": runtime.GOOS, "host.arch": runtime.GOARCH,
+		"host.cpus": runtime.NumCPU()}
+	if name, err := os.Hostname(); err == nil {
+		host["host.name"] = name
+	}
+	all[IncludeHost] = host
+
+	usr := map[string]any{}
+	if u, err := user.Current(); err == nil {
+		usr["user.name"] = u.Username
+		usr["user.uid"] = u.Uid
+	}
+	all[IncludeUser] = usr
+
+	proc := map[string]any{"process.pid": os.Getpid()}
+	if exe, err := os.Executable(); err == nil {
+		proc["process.exe"] = exe
+	}
+	if wd, err := os.Getwd(); err == nil {
+		proc["process.cwd"] = wd
+	}
+	all[IncludeProcess] = proc
+
+	all[IncludeVersion] = map[string]any{
+		"mcpx.version": version,
+		"go.version":   runtime.Version(),
+	}
+
+	all[IncludeNetwork] = gatherNetwork()
+
+	env := map[string]any{}
+	for _, kv := range os.Environ() {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || !strings.HasPrefix(k, "MCPX_") {
+			continue
+		}
+		// Values can name paths and sockets; keep them, but never anything
+		// that looks like a secret.
+		if strings.Contains(strings.ToLower(k), "token") ||
+			strings.Contains(strings.ToLower(k), "secret") ||
+			strings.Contains(strings.ToLower(k), "key") {
+			v = "<elided>"
+		}
+		env["env."+k] = v
+	}
+	all[IncludeEnv] = env
+
+	return all
+}
+
+// gatherNetwork finds the first non-loopback interface that is up.
+func gatherNetwork() map[string]any {
+	out := map[string]any{}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, i := range ifaces {
+		if i.Flags&net.FlagUp == 0 || i.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := i.Addrs()
+		if err != nil || len(addrs) == 0 {
+			continue
+		}
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok || ipn.IP.To4() == nil {
+				continue
+			}
+			out["net.interface"] = i.Name
+			out["net.ip"] = ipn.IP.String()
+			if i.HardwareAddr != nil {
+				out["net.mac"] = i.HardwareAddr.String()
+			}
+			return out
+		}
+	}
+	return out
+}

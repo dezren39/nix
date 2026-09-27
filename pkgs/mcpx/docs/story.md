@@ -64,10 +64,17 @@ that is where image bytes live. A tool returning `isError` throws `ToolError`.
 
 ## Stateful servers
 
-Namespaces in `session` mode (see the MODE column of `mcpx ls`) give each run
-its own server process. Anything that must share state — navigate, snapshot,
-click — has to happen inside **one** invocation. Two `mcpx exec` calls get two
-browsers.
+`mcpx ls` has SHARING and SCOPE columns. SCOPE says what a server process is
+keyed by; SHARING says whether one process serves several callers at once.
+
+A namespace scoped to `session` gives each session its own process. If the host
+set `MCPX_SESSION_ID`, successive runs in that session reach the same process,
+so a browser persists between invocations. If it did not, each run is isolated
+and anything that must share state — navigate, snapshot, click — has to happen
+inside **one** invocation.
+
+`mcpx status` shows the KEY each live process is serving, which is the quickest
+way to see whether you are sharing or not.
 
 ## When something is wrong
 
@@ -120,21 +127,23 @@ Todo one. The agent runs `mcpx ls` and gets back, in 10 milliseconds, without
 a single MCP server process being started:
 
 ```
-NAMESPACE        TOOLS  MODE     LIVE  STATE  DESCRIPTION
-chrome_devtools  27     session  0     ready  drive a headless Chrome
-codebase_memory  0      shared   0     error  server "codebase-memory": initialize: mcp error -32000: con…
-codedb           5      shared   0     ready  where a symbol is defined, who calls it
-context7         2      shared   0     ready  third-party library docs
-fff              3      shared   0     ready  ranked search over ~/git
-fff_nix          3      shared   0     ready  ranked search over ~/.config/nix
-fff_worktree     3      shared   0     ready  ranked search over opencode worktrees
+NAMESPACE        TOOLS  SHARING    SCOPE    LIVE  STATE  DESCRIPTION
+chrome_devtools  27     exclusive  session  0     ready  drive a headless Chrome
+codebase_memory  0      shared     global   0     error  server "codebase-memory": initialize: mcp error -32000: con…
+codedb           5      shared     global   0     ready  where a symbol is defined, who calls it
+context7         2      shared     global   0     ready  third-party library docs
+fff              3      shared     global   0     ready  ranked search over ~/git
+fff_nix          3      shared     global   0     ready  ranked search over ~/.config/nix
+fff_worktree     3      shared     global   0     ready  ranked search over opencode worktrees
 
 Next: `mcpx types <namespace>` for signatures, `mcpx search <query>` to find a tool.
 ```
 
-Seven namespaces, 43 tools, 171 tokens. `chrome_devtools` is the one. `MODE` is
-`session`, which the instructions already told it means *one browser per run,
-so do it all in one invocation*. `LIVE 0` means nothing is running yet. One row
+Seven namespaces, 43 tools, 171 tokens. `chrome_devtools` is the one. Its
+`SCOPE` is `session` and its `SHARING` is `exclusive`, which the instructions
+already told it means *one browser per session, one caller at a time* — so
+unless the host set a session id, do it all in one invocation. `LIVE 0` means
+nothing is running yet. One row
 says `error`, and it is honest about why — that server is genuinely broken today
 and mcpx says so instead of quietly omitting it.
 
@@ -317,52 +326,275 @@ form; never parse the table.
 
 2026-09-27T05:05:00-05:00
 
-## Session-isolated process pools
+## Sharing and scope
 
 ```
 created:      2026-09-25T18:30:00-05:00
-last-updated: 2026-09-27T05:05:00-05:00
-increment:    4
+last-updated: 2026-09-27T06:20:00-05:00
+increment:    5
 status:       core
 tags:         area:pools, area:concurrency
-description:  shared, pooled and session modes; session leases one server
-              process per script run so concurrent agents cannot collide.
+description:  two independent axes -- how many callers share a process, and
+              what decides which process you get.
 ```
 
-MCP servers split into two kinds and mcpx treats them differently.
+A single `mode` setting used to answer both questions at once, which meant
+neither could be chosen freely. They are now separate.
 
-Stateless servers — search, docs, databases — run as one process serving any
-number of concurrent callers, because MCP multiplexes by JSON-RPC id. That is
-`mode: "shared"`, the default.
+**`sharing`** — how many callers may use one process at a time.
 
-Stateful servers hold something per caller: a browser, a selected page, a
-scroll position. Two agents interleaving calls on one process corrupt each
-other. `mode: "session"` leases a process per script run, pinned for the run's
-lifetime and released when it exits.
+| value | meaning |
+| --- | --- |
+| `shared` (default) | any number of concurrent callers; MCP multiplexes by JSON-RPC id |
+| `exclusive` | one caller at a time, others queue |
+
+**`scope`** — what a process is keyed by. One live process per distinct key.
+
+| scope | key | resolved by |
+| --- | --- | --- |
+| `global` (default) | constant | mcpx |
+| `repo` | `git rev-parse --git-common-dir` | mcpx |
+| `worktree` | `git rev-parse --show-toplevel` | mcpx |
+| `cwd` | working directory | mcpx |
+| `session` | `MCPX_SESSION_ID` or `--session` | caller |
+| `parent-session` | `MCPX_PARENT_SESSION_ID` | caller |
+| `pid` | calling process id | caller |
+| `call` | unique per invocation | mcpx |
 
 ```jsonc
 "chrome-devtools": {
   "command": "chrome-devtools-mcp",
   "args": ["--headless", "--isolated"],
-  "mcpx": { "mode": "session", "max": 4, "idleTimeout": "5m" }
+  "mcpx": { "sharing": "exclusive", "scope": "session", "max": 4, "idleTimeout": "5m" }
 }
 ```
 
-`mode: "pooled"` sits between them: up to `max` processes, one leased per call
-rather than per run.
+The defaults describe a stateless server, which most are, so a server with no
+`mcpx` block gets one shared process for everything.
 
-Verified with 12 concurrent runs across four rounds, each opening a different
-URL, each seeing only its own page, with no orphaned browsers afterwards.
-`MCPX_TRACE=1` on the daemon logs one line per call naming the instance and pid
-that served it.
+### What mcpx cannot work out for itself
 
-The mechanism that makes it correct: the session key is read from
-`MCPX_SESSION` at run time rather than baked into the generated client file.
-Concurrent runs share one client file on disk, so baking it in collapsed every
-run onto a single session — that was a real bug, and there is a cross-runtime
-test that would catch it returning.
+`repo`, `worktree`, `cwd` and `call` are computed from the call itself.
+`session` and `parent-session` cannot be: a subagent and its parent share a
+working directory and differ only by an identifier their host assigns. The
+caller supplies those through `MCPX_SESSION_ID` and `MCPX_PARENT_SESSION_ID`.
 
-2026-09-27T05:05:00-05:00
+A scope that cannot resolve **degrades to per-call isolation and says so**
+once, in the daemon log, naming the variable that would fix it. Degrading
+toward isolation is deliberate: accidentally sharing a stateful process
+corrupts results, while over-isolating only costs a process.
+
+Verified end to end. Two invocations under one `MCPX_SESSION_ID` reach the same
+browser, so the second sees the page the first opened. Two subagents under one
+`MCPX_PARENT_SESSION_ID` share; a third under a different parent does not:
+
+```
+live= 2 keys= ['psession:root', 'psession:other']
+```
+
+### Lifetime
+
+`pid`-scoped processes are stopped as soon as the process they belong to
+exits, rather than waiting out an idle timer — there is no possible future
+caller. Everything else is reaped on the idle timer, except keys a caller
+minted for itself, which are stopped the moment that caller finishes.
+
+2026-09-27T06:20:00-05:00
+
+## Profiles and aliases
+
+```
+created:      2026-09-27T13:00:00-05:00
+last-updated: 2026-09-27T13:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:config, cost:context
+description:  select subsets of servers by profile, and expose one server
+              several times under different namespaces and tool subsets.
+```
+
+**Profiles** decide which servers a command sees at all. A browser nobody is
+using should not occupy a namespace, a row of `mcpx ls`, or a share of a
+catalogue budget.
+
+```jsonc
+"chrome-devtools": { "mcpx": { "profiles": ["web"], "default": false } }
+```
+
+```
+mcpx ls                                 the default set
+mcpx --profile web ls                   default set plus the web servers
+mcpx --profile web --skip-default ls    exactly the web servers
+mcpx --all-profiles ls                  everything, ignoring profiles
+```
+
+A server is default-on unless it says otherwise; `"defaults": { "default":
+false }` flips the baseline so servers opt in instead. The selection applies
+to everything derived from the server list — `ls`, `types`, `catalog`,
+`search`, and the generated client — so a script written under one profile
+cannot reach a namespace outside it.
+
+**Aliases** expose one server under a second namespace with its own tool
+subset, description and prelude.
+
+```jsonc
+"chrome-peek": {
+  "aliasOf": "chrome-devtools",
+  "mcpx": {
+    "sharing": "exclusive", "scope": "session",
+    "tools": ["list_pages", "take_snapshot", "take_screenshot"],
+    "description": "read-only view of the same browser"
+  }
+}
+```
+
+Whether an alias shares a *process* with its target depends on whether its
+leasing matches. Pool identity covers the command, arguments, environment,
+working directory, transport, sharing, scope, maxima and timeouts — everything
+that changes the process or how it is handed out. Tool filtering is not in it,
+because filtering is presentation.
+
+So the example above shares one browser with `chrome_devtools`: opening a page
+through the full view and listing pages through the restricted one shows the
+same page, from the same pid. Change the alias's `scope` and it becomes a
+separate process instead. `mcpx status` reports a shared pool once, under
+every name that reaches it.
+
+Chains are rejected. An alias of an alias is a puzzle, and the error says to
+point at the original.
+
+2026-09-27T13:00:00-05:00
+
+## The script contract
+
+```
+created:      2026-09-27T14:30:00-05:00
+last-updated: 2026-09-27T14:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts, area:logging
+description:  stdout is the result, stderr is logs, a default export is the
+              entry point, and --json wraps the lot.
+```
+
+**stdout is the result. stderr is diagnostics.** A script that prints nothing
+to stdout returns nothing.
+
+**A default export is an entry point.** If a module has one, mcpx calls it and
+prints whatever it returns; if it does not, top-level code runs on import as
+before. One file is therefore both importable and runnable without ceremony:
+
+```typescript
+import tools, { log } from "./mcpx-client.ts";
+
+export function countFiles(query: string) { /* importable */ }
+
+export default async function main(args: string[]) {
+  log.info("searching for {query}", { query: args[0] });
+  return { count: await countFiles(args[0]) };     // printed as JSON
+}
+```
+
+`main` receives argv as an array, the way every other main does.
+`mcpx run --export countFiles script alpha` calls a named export instead, with
+arguments **spread** — `--export f a b` reads as `f(a, b)`. Naming an export
+that does not exist lists the ones that do.
+
+**Streaming results.** A return value is one answer at the end; `emit()` is
+many answers as they are found:
+
+```typescript
+for (const file of files) emit({ file, findings: await scan(file) });
+```
+
+Each value is written immediately — one JSON line on stdout in ordinary use,
+or collected in order into the envelope's `results` array under `--json`. A
+script can stream *and* return: the streamed values are the progress, the
+return value is the conclusion.
+
+**Logging** is available to scripts and shares the daemon's renderer:
+
+```typescript
+log.info("fetched {count} pages in {ms}ms", { count: 3, ms: 412, url });
+```
+
+```
+19:44:45.911 INFO  fetched 3 pages in 412ms url=https://example.com
+```
+
+A message may carry `{placeholders}` filled from the attributes; `{{x}}` writes
+a literal `{x}`. Both forms are kept: the interpolated message for reading, the
+template for grouping records that differ only in their values. An attribute
+consumed by the template is not repeated in the trailing key/value list. A
+missing placeholder is left visible rather than blanked, because a hole in a
+sentence is a bug worth seeing.
+
+The first argument after the message becomes attributes when it is a plain
+object. Anything else, and anything after it, is collected into an `args`
+array, so console-style calls keep their values instead of dropping them. An
+`Error` is captured as name, message and stack rather than stringified:
+
+```typescript
+log.error("upload failed", err);            // err becomes args[0], structured
+log.debug("state", { id }, "extra", 42);    // id is an attribute
+```
+
+**Call sites** are recorded for `warn` and above by default. Capture costs
+about 5 microseconds in a script -- measured, and roughly fifty times the cost
+of the record it decorates -- because building the stack trace is the expensive
+half. That is worth paying where something went wrong and wasteful on routine
+progress, so the default traces the levels you would actually investigate.
+`--log-source` alone widens it to everything, `--log-source=error` narrows it,
+`--log-source=false` turns it off.
+
+**A filtered call costs nothing.** The script knows the active threshold, so
+`log.debug()` below it returns after a comparison: 0.026 microseconds measured,
+against 0.10 for the encode-and-write it used to do and 5 for a traced one.
+Debug logging can be left in.
+
+**Binding context** works as it does in slog:
+
+```typescript
+const scoped = log.with({ run: runId, phase: "scan" });
+await scan(scoped, file);
+```
+
+The returned logger has to be passed where it is needed. JavaScript has no
+ambient context, so bindings do not follow the call stack by themselves; the
+alternative would be a hidden global, which is worse than an explicit argument.
+
+Records travel on stderr behind a `U+001E` marker rather than through the
+daemon, so logging works with no daemon reachable, costs no round trip, and
+cannot reorder against the script's own output. Anything else on stderr passes
+through untouched.
+
+**Formats**, on `--format`, for both scripts and the daemon:
+
+| | |
+| --- | --- |
+| `text` (default) | `19:44:45.911 INFO  fetched 3 pages url=x` |
+| `logfmt` | `ts=… level=info msg="fetched 3 pages" count=3` |
+| `json` | one object per line, with `msg` and `template` |
+| `json-pretty` | indented |
+| `compact` | `INFO fetched 3 pages` |
+| `bare` | `fetched 3 pages` |
+
+`--log-level` sets the threshold; `MCPX_FORMAT` and `MCPX_LOG_LEVEL` set
+defaults. The daemon renders through the same writer, so one choice governs
+everything.
+
+**`mcpx --json run`** wraps a whole run in one document — stdout, the parsed
+result, captured logs, the script's own stderr, exit code, duration and
+runtime. Nothing leaks to the terminal alongside it:
+
+```json
+{ "ok": true, "exitCode": 0, "durationMs": 97, "runtime": "deno",
+  "result": { "count": 24 },
+  "logs": [ { "level": "info", "msg": "searching for flake.nix",
+              "template": "searching for {query}", "query": "flake.nix" } ] }
+```
+
+2026-09-27T14:30:00-05:00
 
 ## Named scripts
 
@@ -847,6 +1079,10 @@ else in this document is detail underneath those four verbs.
   current. Read it before editing anything above.
 - [`docs/proposals.md`](./proposals.md) — open design questions, and what is
   true today versus what is merely wanted.
+- [`docs/ideas.md`](./ideas.md) — unvetted brainstorm intake, before anything
+  has a shape, with answers recorded inline.
+- [`docs/dependencies.md`](./dependencies.md) — every library and external
+  program, and why each is needed.
 - [`scripts/stress.sh`](../scripts/stress.sh) — concurrency and leak checks
   against real servers. [`scripts/bench.sh`](../scripts/bench.sh) — latency
   comparison.

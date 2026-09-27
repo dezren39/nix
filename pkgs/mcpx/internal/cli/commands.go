@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/runner"
 )
 
@@ -22,6 +25,7 @@ type App struct {
 	Version    string
 	ConfigPath string
 	JSON       bool
+	Profile    Profile
 	Paths      daemon.Paths
 	client     *Client
 }
@@ -71,7 +75,7 @@ func (a *App) CmdLs(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	nss, err := c.Namespaces(ctx)
+	nss, err := c.Namespaces(ctx, a.Profile)
 	if err != nil {
 		return err
 	}
@@ -84,7 +88,7 @@ func (a *App) CmdLs(ctx context.Context, args []string) error {
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAMESPACE\tTOOLS\tMODE\tLIVE\tSTATE\tDESCRIPTION")
+	fmt.Fprintln(tw, "NAMESPACE\tTOOLS\tSHARING\tSCOPE\tLIVE\tSTATE\tDESCRIPTION")
 	broken := 0
 	for _, n := range nss {
 		state := "ready"
@@ -101,7 +105,8 @@ func (a *App) CmdLs(ctx context.Context, args []string) error {
 		if n.Error != "" {
 			desc = truncate(oneLine(n.Error), 60)
 		}
-		fmt.Fprintf(tw, "%s\t%d\t%s\t%d\t%s\t%s\n", n.Namespace, n.Tools, n.Mode, n.Live, state, desc)
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%d\t%s\t%s\n",
+			n.Namespace, n.Tools, n.Sharing, n.Scope, n.Live, state, desc)
 	}
 	tw.Flush()
 
@@ -121,6 +126,8 @@ func (a *App) CmdLs(ctx context.Context, args []string) error {
 // CmdTypes prints TypeScript declarations for selected namespaces.
 func (a *App) CmdTypes(ctx context.Context, args []string) error {
 	fs := newFlagSet("types")
+	noInstr := fs.Bool("no-instructions", false,
+		"omit the server's own guidance, which can be long")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -130,13 +137,13 @@ func (a *App) CmdTypes(ctx context.Context, args []string) error {
 	}
 	ns := splitAll(fs.Args())
 	if len(ns) == 0 {
-		return errors.New("usage: mcpx types <namespace>[,<namespace>...]\n" +
-			"       (listing every namespace at once defeats the purpose; run `mcpx ls` first)")
+		return errors.New("usage: mcpx types <namespace>[.<tool>][,...]\n" +
+			"       one namespace, or one tool within it; run `mcpx ls` first")
 	}
 	if err := a.ensureSchemas(ctx, c, ns); err != nil {
 		return err
 	}
-	text, err := c.Types(ctx, ns)
+	text, err := c.Types(ctx, ns, !*noInstr, a.Profile)
 	if err != nil {
 		return err
 	}
@@ -145,8 +152,12 @@ func (a *App) CmdTypes(ctx context.Context, args []string) error {
 }
 
 // ensureSchemas triggers a fetch for namespaces that have never been read.
-func (a *App) ensureSchemas(ctx context.Context, c *Client, ns []string) error {
-	known, err := c.Namespaces(ctx)
+//
+// Selectors may name a tool ("chrome_devtools.click"); only the namespace part
+// is validated here, because whether a tool exists is a question for the
+// daemon, which holds the schemas.
+func (a *App) ensureSchemas(ctx context.Context, c *Client, selectors []string) error {
+	known, err := c.Namespaces(ctx, a.Profile)
 	if err != nil {
 		return err
 	}
@@ -156,15 +167,19 @@ func (a *App) ensureSchemas(ctx context.Context, c *Client, ns []string) error {
 		byName[n.Server] = n
 	}
 	needRefresh := false
-	for _, want := range ns {
-		n, ok := byName[want]
+	for _, sel := range selectors {
+		ns := sel
+		if i := strings.Index(sel, "."); i > 0 {
+			ns = sel[:i]
+		}
+		n, ok := byName[ns]
 		if !ok {
 			names := make([]string, 0, len(known))
 			for _, k := range known {
 				names = append(names, k.Namespace)
 			}
 			sort.Strings(names)
-			return fmt.Errorf("unknown namespace %q; available: %s", want, strings.Join(names, ", "))
+			return fmt.Errorf("unknown namespace %q; available: %s", ns, strings.Join(names, ", "))
 		}
 		if !n.Cached {
 			needRefresh = true
@@ -249,7 +264,7 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.Call(ctx, ns, tool, *session, argsJSON)
+	res, err := c.Call(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
 	if err != nil {
 		return err
 	}
@@ -317,6 +332,18 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	timeout := fs.Duration("timeout", 0, "kill the script after this long (0 = no limit)")
 	keep := fs.Bool("keep", false, "keep the generated client and script for inspection")
 	session := fs.String("session", "", "session key (default: a fresh one per run)")
+	format := fs.String("format", "", "log rendering: text, json, json-pretty, logfmt, compact, bare")
+	level := fs.String("log-level", "", "minimum level: debug, info, warn, error")
+	logSource := newOptional("all")
+	fs.Var(logSource, "log-source",
+		"levels that record a call site: bare for all, or a level name, or false")
+	export := fs.String("export", "", "call this export instead of the default one")
+	prefix := newRepeatable()
+	fs.Var(prefix, "prefix", "line to emit before an exec snippet; repeatable, '-' inherits")
+	suffix := newRepeatable()
+	fs.Var(suffix, "suffix", "line to emit after an exec snippet; repeatable, '-' inherits")
+	perms := fs.String("permissions", "",
+		"deno sandbox: all (default), net, read, read-net, strict, or explicit flags")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -342,6 +369,12 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	}
 
 	sessionKey := *session
+	hostSession := os.Getenv("MCPX_SESSION_ID")
+	// Ephemeral unless the caller named a session or the host assigned one.
+	ephemeral := sessionKey == "" && hostSession == ""
+	if sessionKey == "" {
+		sessionKey = hostSession
+	}
 	if sessionKey == "" {
 		sessionKey = newSessionKey()
 	}
@@ -350,13 +383,13 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	defer func() {
 		rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = c.ReleaseSession(rctx, sessionKey)
+		_ = c.ReleaseCaller(rctx, sessionKey)
 	}()
 
 	// The session is deliberately not baked into the generated module: several
 	// concurrent runs share one client file, and each must keep its own
 	// session so session-mode pools hand out separate processes.
-	clientSrc, err := c.ClientModule(ctx, ns, "")
+	clientSrc, err := c.ClientModule(ctx, ns, "", a.Profile)
 	if err != nil {
 		return err
 	}
@@ -375,25 +408,101 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		runtimePref = cfg.Runtime
 	}
 
+	// Flag, then environment, then config: the config states the habit and the
+	// flag states the exception.
+	var cfgLog config.LoggingConfig
+	if cfg != nil {
+		cfgLog = cfg.Logging
+	}
+	logFormat, ferr := logging.ParseFormat(firstNonEmpty(*format, os.Getenv("MCPX_FORMAT"), cfgLog.Format))
+	if ferr != nil {
+		return ferr
+	}
+	minLevel, lerr := logging.ParseLevel(firstNonEmpty(*level, os.Getenv("MCPX_LOG_LEVEL"), cfgLog.Level))
+	if lerr != nil {
+		return lerr
+	}
+	sourceLevel := logging.SourceLevel(
+		firstNonEmpty(logSource.Value(), os.Getenv("MCPX_LOG_SOURCE"), cfgLog.Source))
+	// With --json the envelope carries the records, so nothing is rendered to
+	// stderr; a reader wants one parseable document, not two streams.
+	logSink := io.Writer(os.Stderr)
+	var collected []logging.Record
+	var collect func(logging.Record)
+	if a.JSON {
+		logSink = io.Discard
+		collect = func(r logging.Record) { collected = append(collected, r) }
+	}
+	writer := logging.NewWriter(logSink, logFormat, minLevel)
+
+	// Streamed values are the script's answers, so they belong on stdout as
+	// they arrive. Under --json they are collected into the envelope instead,
+	// preserving order.
+	var streamed []logging.Streamed
+	onResult := func(v logging.Streamed) { streamed = append(streamed, v) }
+	if !a.JSON {
+		stdout := io.Writer(os.Stdout)
+		onResult = func(v logging.Streamed) {
+			fmt.Fprintln(stdout, string(v.Value))
+		}
+	}
+
 	opts := runner.Options{
 		ClientSource: clientSrc,
 		Runtime:      runtimePref,
 		Timeout:      *timeout,
 		Prelude:      prelude,
+		Export:       *export,
+		Permissions:  firstNonEmpty(*perms, os.Getenv("MCPX_PERMISSIONS"), cfgPerms(cfg)),
+		Log:          writer,
+		CollectLogs:  collect,
+		OnResult:     onResult,
+		Enrich: map[string]any{
+			"session": sessionKey,
+			"cwd":     mustGetwd(),
+		},
 		Env: map[string]string{
-			"MCPX_SESSION":  sessionKey,
-			"MCPX_ENDPOINT": endpoint,
+			"MCPX_SESSION":    sessionKey,
+			"MCPX_ENDPOINT":   endpoint,
+			"MCPX_LOG_SOURCE": logging.SourceSpec(sourceLevel),
+			"MCPX_LOG_LEVEL":  logging.LevelName(minLevel),
 			// Path facts travel through the environment so that a module three
 			// imports deep sees the same values as the entry script, without
 			// anything being threaded through call signatures.
-			"MCPX_CWD":         mustGetwd(),
-			"MCPX_SCRIPT_DIRS": strings.Join(scriptSearchDirs(), ":"),
-			"MCPX_CONFIG_PATH": configPathOf(cfg),
+			"MCPX_CWD": mustGetwd(),
+			"MCPX_PID": strconv.Itoa(os.Getpid()),
+			// The session a script's calls belong to. Scope resolution on the
+			// daemon side keys on this.
+			"MCPX_SESSION_ID":        os.Getenv("MCPX_SESSION_ID"),
+			"MCPX_PARENT_SESSION_ID": os.Getenv("MCPX_PARENT_SESSION_ID"),
+			"MCPX_EPHEMERAL":         boolFlag(ephemeral),
+			"MCPX_SCRIPT_DIRS":       strings.Join(scriptSearchDirs(), ":"),
+			"MCPX_CONFIG_PATH":       configPathOf(cfg),
 		},
 	}
 	if inline {
-		opts.Source = strings.Join(fs.Args(), " ")
+		// Prefix and suffix shape a generated snippet. They cannot apply to a
+		// file script: ESM gives an imported module its own scope, so lines
+		// injected around it could not bind anything inside it, and injecting
+		// *into* the file would move every line number and break the call
+		// sites the log records point at.
+		var body strings.Builder
+		for _, line := range cfgScriptLines(cfg, prefix.Values(), true) {
+			body.WriteString(line)
+			body.WriteString("\n")
+		}
+		body.WriteString(strings.Join(fs.Args(), " "))
+		for _, line := range cfgScriptLines(cfg, suffix.Values(), false) {
+			body.WriteString("\n")
+			body.WriteString(line)
+		}
+		opts.Source = body.String()
 	} else {
+		if len(prefix.Values()) > 0 || len(suffix.Values()) > 0 {
+			return errors.New("--prefix and --suffix apply to `mcpx exec` only;\n" +
+				"a file script controls its own imports, and injecting around it\n" +
+				"cannot reach its scope")
+		}
 		// A bare name resolves through .mcpx/scripts; anything path-shaped is
 		// used verbatim.
 		file, rerr := resolveScript(fs.Arg(0))
@@ -412,6 +521,30 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		fmt.Fprintf(os.Stderr, "mcpx: workdir %s\n", dir)
 	}
 
+	if a.JSON {
+		// Everything the run produced belongs in the document, including the
+		// script's own stderr. Letting it through would mean the caller has to
+		// separate a JSON envelope from a stack trace on one stream.
+		var out, errOut strings.Builder
+		opts.Stdout = &out
+		opts.Stderr = &errOut
+		res, err := runner.Run(ctx, opts)
+		if err != nil {
+			return err
+		}
+		env := runEnvelope(res, out.String(), collected, streamed)
+		if s := errOut.String(); s != "" {
+			env["stderr"] = s
+		}
+		if err := a.out(env); err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			os.Exit(res.ExitCode)
+		}
+		return nil
+	}
+
 	res, err := runner.Run(ctx, opts)
 	if err != nil {
 		return err
@@ -422,9 +555,70 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	return nil
 }
 
+// runEnvelope is the machine-readable form of a script run: one document
+// carrying everything a caller would otherwise have to scrape from two
+// streams and an exit status.
+func runEnvelope(res *runner.Result, stdout string, logs []logging.Record, streamed []logging.Streamed) map[string]any {
+	env := map[string]any{
+		"ok":         res.ExitCode == 0 && !res.TimedOut,
+		"exitCode":   res.ExitCode,
+		"durationMs": res.Duration.Milliseconds(),
+		"runtime":    res.Runtime,
+		"stdout":     stdout,
+	}
+	if res.TimedOut {
+		env["timedOut"] = true
+	}
+	// A script whose stdout is JSON almost always means it as its result, so
+	// offer it parsed as well as raw rather than making every caller re-parse.
+	if trimmed := strings.TrimSpace(stdout); trimmed != "" {
+		var parsed any
+		if json.Unmarshal([]byte(trimmed), &parsed) == nil {
+			env["result"] = parsed
+		}
+	}
+	if len(streamed) > 0 {
+		values := make([]json.RawMessage, 0, len(streamed))
+		for _, v := range streamed {
+			values = append(values, v.Value)
+		}
+		env["results"] = values
+	}
+	if len(logs) > 0 {
+		items := make([]map[string]any, 0, len(logs))
+		for _, r := range logs {
+			item := map[string]any{
+				"ts":    r.Time.Format(time.RFC3339Nano),
+				"level": logging.LevelName(r.Level),
+				"msg":   r.Msg,
+			}
+			if r.Template != "" {
+				item["template"] = r.Template
+			}
+			for k, v := range r.Attrs {
+				if _, taken := item[k]; !taken {
+					item[k] = v
+				}
+			}
+			items = append(items, item)
+		}
+		env["logs"] = items
+	}
+	return env
+}
+
+func firstNonEmpty(v ...string) string {
+	for _, s := range v {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 // ensureAnySchemas fetches schemas once if nothing has ever been cached.
 func (a *App) ensureAnySchemas(ctx context.Context, c *Client) error {
-	known, err := c.Namespaces(ctx)
+	known, err := c.Namespaces(ctx, a.Profile)
 	if err != nil {
 		return err
 	}
@@ -445,7 +639,7 @@ func (a *App) ensureAnySchemas(ctx context.Context, c *Client) error {
 // identifier, so an agent can write either `fff.search(...)` or
 // `tools.fff.search(...)`.
 func (a *App) buildPrelude(ctx context.Context, c *Client, ns []string) (string, error) {
-	known, err := c.Namespaces(ctx)
+	known, err := c.Namespaces(ctx, a.Profile)
 	if err != nil {
 		return "", err
 	}
@@ -464,12 +658,12 @@ func (a *App) buildPrelude(ctx context.Context, c *Client, ns []string) (string,
 
 	var b strings.Builder
 	b.WriteString("// --- mcpx prelude (generated) ---\n")
-	fmt.Fprintf(&b, "import tools, { call, readResource, ToolError } from %q;\n",
+	fmt.Fprintf(&b, "import tools, { call, readResource, log, emit, ToolError } from %q;\n",
 		"./"+runner.ClientFileName)
 	if len(names) > 0 {
 		fmt.Fprintf(&b, "const { %s } = tools;\n", strings.Join(names, ", "))
 	}
-	b.WriteString("void [tools, call, readResource, ToolError")
+	b.WriteString("void [tools, call, readResource, log, emit, ToolError")
 	for _, n := range names {
 		b.WriteString(", " + n)
 	}
@@ -496,7 +690,7 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
-	src, err := c.ClientModule(ctx, ns, "")
+	src, err := c.ClientModule(ctx, ns, "", a.Profile)
 	if err != nil {
 		return err
 	}
@@ -546,7 +740,8 @@ func (a *App) CmdStatus(ctx context.Context, args []string) error {
 	var servers []struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
-		Mode      string `json:"mode"`
+		Sharing   string `json:"sharing"`
+		Scope     string `json:"scope"`
 		Max       int    `json:"max"`
 		Live      int    `json:"live"`
 		Tools     int    `json:"tools"`
@@ -555,8 +750,8 @@ func (a *App) CmdStatus(ctx context.Context, args []string) error {
 		Instances []struct {
 			ID        string `json:"id"`
 			PID       int    `json:"pid"`
-			Busy      bool   `json:"busy"`
-			Session   string `json:"session"`
+			Holders   int    `json:"holders"`
+			Key       string `json:"key"`
 			Calls     int64  `json:"calls"`
 			UptimeSec int    `json:"uptimeSec"`
 			IdleSec   int    `json:"idleSec"`
@@ -565,10 +760,11 @@ func (a *App) CmdStatus(ctx context.Context, args []string) error {
 	_ = json.Unmarshal(b, &servers)
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAMESPACE\tMODE\tLIVE/MAX\tTOOLS\tSCHEMA\tERROR")
+	fmt.Fprintln(tw, "NAMESPACE\tSHARING\tSCOPE\tLIVE/MAX\tTOOLS\tSCHEMA\tERROR")
 	for _, s := range servers {
-		fmt.Fprintf(tw, "%s\t%s\t%d/%d\t%d\t%s\t%s\n",
-			s.Namespace, s.Mode, s.Live, s.Max, s.Tools, s.SchemaAge, truncate(oneLine(s.LastError), 50))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d/%d\t%d\t%s\t%s\n",
+			s.Namespace, s.Sharing, s.Scope, s.Live, s.Max, s.Tools, s.SchemaAge,
+			truncate(oneLine(s.LastError), 50))
 	}
 	tw.Flush()
 
@@ -581,11 +777,11 @@ func (a *App) CmdStatus(ctx context.Context, args []string) error {
 	if any {
 		fmt.Println()
 		tw = tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "INSTANCE\tPID\tBUSY\tCALLS\tUPTIME\tIDLE\tSESSION")
+		fmt.Fprintln(tw, "INSTANCE\tPID\tHOLDERS\tCALLS\tUPTIME\tIDLE\tKEY")
 		for _, s := range servers {
 			for _, in := range s.Instances {
-				fmt.Fprintf(tw, "%s\t%d\t%v\t%d\t%ds\t%ds\t%s\n",
-					in.ID, in.PID, in.Busy, in.Calls, in.UptimeSec, in.IdleSec, truncate(in.Session, 18))
+				fmt.Fprintf(tw, "%s\t%d\t%d\t%d\t%ds\t%ds\t%s\n",
+					in.ID, in.PID, in.Holders, in.Calls, in.UptimeSec, in.IdleSec, truncate(in.Key, 28))
 			}
 		}
 		tw.Flush()
@@ -892,4 +1088,83 @@ func configPathOf(cfg *config.Config) string {
 		return ""
 	}
 	return cfg.Path
+}
+
+// callContext assembles what mcpx knows about this invocation. Session and
+// parent ids cannot be discovered -- a subagent and its parent share a cwd and
+// differ only by an identifier their host assigns -- so they come from flags
+// or from the environment the host set up.
+func (a *App) callContext(sessionID, callID string) config.CallContext {
+	// A session id the caller invented for itself has exactly one user, so it
+	// can be torn down on exit; one the host assigned may be shared with a
+	// sibling run and must not be.
+	ephemeral := sessionID == "" && os.Getenv("MCPX_SESSION_ID") == ""
+	if sessionID == "" {
+		sessionID = os.Getenv("MCPX_SESSION_ID")
+	}
+	if callID == "" {
+		callID = newSessionKey()
+	}
+	return config.CallContext{
+		Ephemeral:       ephemeral,
+		Cwd:             mustGetwd(),
+		SessionID:       sessionID,
+		ParentSessionID: os.Getenv("MCPX_PARENT_SESSION_ID"),
+		PID:             os.Getpid(),
+		CallID:          callID,
+	}
+}
+
+func boolFlag(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// CmdCatalog prints every namespace with as many signatures as fit a budget.
+func (a *App) CmdCatalog(ctx context.Context, args []string) error {
+	fs := newFlagSet("catalog")
+	budget := fs.Int("budget", 0, "approximate token ceiling (default 2000)")
+	bias := fs.String("bias", "", "promote tools matching these words")
+	nsFlag := fs.String("ns", "", "restrict to these namespaces")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, err := a.ensure(ctx)
+	if err != nil {
+		return err
+	}
+	if err := a.ensureAnySchemas(ctx, c); err != nil {
+		return err
+	}
+	ns := splitAll(strings.Split(*nsFlag, ","))
+	if *bias == "" && fs.NArg() > 0 {
+		*bias = strings.Join(fs.Args(), " ")
+	}
+	text, err := c.Catalog(ctx, ns, *budget, *bias, a.Profile)
+	if err != nil {
+		return err
+	}
+	fmt.Print(text)
+	return nil
+}
+
+func cfgPerms(c *config.Config) string {
+	if c == nil {
+		return ""
+	}
+	return c.Permissions
+}
+
+// cfgScriptLines resolves a layered prefix or suffix, with command-line values
+// as the nearest layer.
+func cfgScriptLines(cfg *config.Config, flags []any, isPrefix bool) []string {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	if isPrefix {
+		return cfg.ScriptPrefix(flags)
+	}
+	return cfg.ScriptSuffix(flags)
 }

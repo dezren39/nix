@@ -268,6 +268,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/tools", s.handleTools)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)
 	mux.HandleFunc("GET /v1/types", s.handleTypes)
+	mux.HandleFunc("GET /v1/catalog", s.handleCatalog)
 	mux.HandleFunc("GET /v1/client.ts", s.handleClient)
 	mux.HandleFunc("POST /v1/call", s.handleCall)
 	mux.HandleFunc("POST /v1/resource", s.handleResource)
@@ -319,8 +320,18 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (s *Server) handleNamespaces(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, 200, s.reg.Namespaces())
+// profileOf reads the profile selection from a request's query string.
+func profileOf(r *http.Request) config.Profile {
+	q := r.URL.Query()
+	return config.Profile{
+		Names:       splitWords(q.Get("profile")),
+		SkipDefault: q.Get("skipDefault") == "1",
+		All:         q.Get("allProfiles") == "1",
+	}
+}
+
+func (s *Server) handleNamespaces(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.reg.Namespaces(profileOf(r)))
 }
 
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
@@ -337,16 +348,38 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTypes(w http.ResponseWriter, r *http.Request) {
-	nss, err := s.reg.CodegenNamespaces(splitCSV(r.URL.Query().Get("ns")))
+	nss, err := s.reg.CodegenNamespaces(splitCSV(r.URL.Query().Get("ns")), profileOf(r))
 	if err != nil {
 		writeErr(w, 400, err)
 		return
 	}
+	if r.URL.Query().Get("instructions") == "0" {
+		for i := range nss {
+			nss[i].Instructions = ""
+		}
+	}
 	writeText(w, 200, codegen.Declarations(nss))
 }
 
+func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
+	nss, err := s.reg.CodegenNamespaces(splitCSV(r.URL.Query().Get("ns")), profileOf(r))
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	budget, _ := strconv.Atoi(r.URL.Query().Get("budget"))
+	writeText(w, 200, codegen.Catalog(nss, codegen.CatalogOptions{
+		Budget: budget,
+		Bias:   splitWords(r.URL.Query().Get("bias")),
+	}))
+}
+
+func splitWords(s string) []string {
+	return strings.Fields(strings.ReplaceAll(s, ",", " "))
+}
+
 func (s *Server) handleClient(w http.ResponseWriter, r *http.Request) {
-	nss, err := s.reg.CodegenNamespaces(splitCSV(r.URL.Query().Get("ns")))
+	nss, err := s.reg.CodegenNamespaces(splitCSV(r.URL.Query().Get("ns")), profileOf(r))
 	if err != nil {
 		writeErr(w, 400, err)
 		return
@@ -357,10 +390,39 @@ func (s *Server) handleClient(w http.ResponseWriter, r *http.Request) {
 }
 
 type callReq struct {
-	Server  string          `json:"server"`
-	Tool    string          `json:"tool"`
-	Args    json.RawMessage `json:"args"`
-	Session string          `json:"session"`
+	Server  string             `json:"server"`
+	Tool    string             `json:"tool"`
+	Args    json.RawMessage    `json:"args"`
+	Context config.CallContext `json:"context"`
+	// Session is the shorthand a caller may send instead of a full context.
+	Session string `json:"session"`
+}
+
+// callContext merges the JSON body with the header shorthands, so a plain
+// curl can still reach a scoped server without constructing a context object.
+func callContext(r *http.Request, body config.CallContext, session string) config.CallContext {
+	cc := body
+	if cc.SessionID == "" {
+		cc.SessionID = firstNonEmpty(session, r.Header.Get("X-Mcpx-Session"))
+	}
+	if cc.CallID == "" {
+		cc.CallID = firstNonEmpty(r.Header.Get("X-Mcpx-Call"), cc.SessionID)
+	}
+	if cc.ParentSessionID == "" {
+		cc.ParentSessionID = r.Header.Get("X-Mcpx-Parent-Session")
+	}
+	if cc.Cwd == "" {
+		cc.Cwd = r.Header.Get("X-Mcpx-Cwd")
+	}
+	if cc.PID == 0 {
+		if n, err := strconv.Atoi(r.Header.Get("X-Mcpx-Pid")); err == nil {
+			cc.PID = n
+		}
+	}
+	if !cc.Ephemeral {
+		cc.Ephemeral = r.Header.Get("X-Mcpx-Ephemeral") == "1"
+	}
+	return cc
 }
 
 func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
@@ -373,10 +435,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, errors.New("server and tool are required"))
 		return
 	}
-	session := req.Session
-	if session == "" {
-		session = r.Header.Get("X-Mcpx-Session")
-	}
+	cc := callContext(r, req.Context, req.Session)
 
 	var args any = map[string]any{}
 	if len(req.Args) > 0 {
@@ -387,7 +446,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	res, err := s.reg.Call(r.Context(), req.Server, req.Tool, session, args)
+	res, err := s.reg.Call(r.Context(), req.Server, req.Tool, cc, args)
 	dur := time.Since(start).Truncate(time.Millisecond)
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
@@ -398,9 +457,10 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 }
 
 type resourceReq struct {
-	Server  string `json:"server"`
-	URI     string `json:"uri"`
-	Session string `json:"session"`
+	Server  string             `json:"server"`
+	URI     string             `json:"uri"`
+	Context config.CallContext `json:"context"`
+	Session string             `json:"session"`
 }
 
 func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
@@ -409,11 +469,8 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err)
 		return
 	}
-	session := req.Session
-	if session == "" {
-		session = r.Header.Get("X-Mcpx-Session")
-	}
-	res, err := s.reg.ReadResource(r.Context(), req.Server, req.URI, session)
+	cc := callContext(r, req.Context, req.Session)
+	res, err := s.reg.ReadResource(r.Context(), req.Server, req.URI, cc)
 	if err != nil {
 		writeErr(w, 502, err)
 		return
@@ -429,7 +486,7 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 	if req.Session == "" {
 		req.Session = r.Header.Get("X-Mcpx-Session")
 	}
-	writeJSON(w, 200, map[string]any{"released": s.reg.ReleaseSession(req.Session)})
+	writeJSON(w, 200, map[string]any{"released": s.reg.ReleaseCaller(req.Session)})
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
@@ -440,7 +497,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	for k, v := range errs {
 		out[k] = v.Error()
 	}
-	writeJSON(w, 200, map[string]any{"namespaces": s.reg.Namespaces(), "errors": out})
+	writeJSON(w, 200, map[string]any{"namespaces": s.reg.Namespaces(config.Profile{All: true}), "errors": out})
 }
 
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {

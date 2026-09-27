@@ -16,9 +16,7 @@ func Declarations(nss []Namespace) string {
 
 	sort.Slice(nss, func(i, j int) bool { return nss[i].Name < nss[j].Name })
 	for _, ns := range nss {
-		if ns.Description != "" {
-			b.WriteString("/** " + sanitizeComment(ns.Description) + " */\n")
-		}
+		b.WriteString(namespaceDoc(ns))
 		fmt.Fprintf(&b, "declare namespace %s {\n", ns.Name)
 		tools := append([]Tool(nil), ns.Tools...)
 		sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
@@ -31,6 +29,52 @@ func Declarations(nss []Namespace) string {
 		b.WriteString("}\n\n")
 	}
 	return b.String()
+}
+
+// namespaceDoc renders the namespace description and the server's own
+// instructions. The instructions are the only place conventions like "call
+// list_pages first to get a pageId" are stated, so they belong next to the
+// signatures rather than being discarded.
+func namespaceDoc(ns Namespace) string {
+	desc := strings.TrimSpace(ns.Description)
+	prelude := strings.TrimSpace(ns.Prelude)
+	instr := strings.TrimSpace(ns.Instructions)
+	if desc == "" && prelude == "" && instr == "" {
+		return ""
+	}
+	if prelude == "" && instr == "" {
+		return "/** " + sanitizeComment(desc) + " */\n"
+	}
+	var b strings.Builder
+	b.WriteString("/**\n")
+	if desc != "" {
+		b.WriteString(" * " + sanitizeComment(desc) + "\n *\n")
+	}
+	// The operator's prelude comes first: it is the more specific statement,
+	// written by someone who knows what this deployment gets wrong.
+	if prelude != "" {
+		writeCommentBlock(&b, "Notes:", prelude)
+	}
+	if instr != "" {
+		if prelude != "" {
+			b.WriteString(" *\n")
+		}
+		writeCommentBlock(&b, "Server guidance:", instr)
+	}
+	b.WriteString(" */\n")
+	return b.String()
+}
+
+func writeCommentBlock(b *strings.Builder, title, body string) {
+	b.WriteString(" * " + title + "\n")
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimRight(line, " \t\r")
+		if line == "" {
+			b.WriteString(" *\n")
+			continue
+		}
+		b.WriteString(" * " + sanitizeComment(line) + "\n")
+	}
 }
 
 func toolDecl(t Tool, indent string) string {
@@ -73,9 +117,7 @@ func Module(nss []Namespace, endpoint, session string) string {
 		tools := append([]Tool(nil), ns.Tools...)
 		sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 
-		if ns.Description != "" {
-			b.WriteString("/** " + sanitizeComment(ns.Description) + " */\n")
-		}
+		b.WriteString(namespaceDoc(ns))
 		fmt.Fprintf(&b, "export const %s = {\n", ns.Name)
 		for i, t := range tools {
 			if i > 0 {
@@ -311,7 +353,15 @@ async function __call(server: string, tool: string, args: unknown): Promise<Tool
   try {
     resp = await fetch(ENDPOINT + "/v1/call", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-mcpx-session": SESSION },
+      headers: {
+        "content-type": "application/json",
+        "x-mcpx-session": SESSION,
+        "x-mcpx-call": SESSION,
+        "x-mcpx-cwd": env("MCPX_CWD"),
+        "x-mcpx-pid": env("MCPX_PID"),
+        "x-mcpx-parent-session": env("MCPX_PARENT_SESSION_ID"),
+        "x-mcpx-ephemeral": env("MCPX_EPHEMERAL"),
+      },
       body: JSON.stringify({ server, tool, args: args ?? {} }),
     });
   } catch (e) {
@@ -328,6 +378,192 @@ async function __call(server: string, tool: string, args: unknown): Promise<Tool
   return unwrap(server, tool, body.result as RawToolResult);
 }
 
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+/** Structured values attached to a log record. */
+export type LogAttrs = Record<string, unknown>;
+
+const LOG_SENTINEL = "\u001emcpx\u001e";
+
+const LEVEL_ORDER: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+
+function levelFrom(name: string, fallback: number): number {
+  const n = LEVEL_ORDER[name.trim().toLowerCase() as LogLevel];
+  return n === undefined ? fallback : n;
+}
+
+// The active threshold, so a filtered call costs a comparison instead of a
+// JSON encode and a write. The runner passes the same value it will filter on,
+// which keeps the two ends from disagreeing.
+const MIN_LEVEL = levelFrom(env("MCPX_LOG_LEVEL"), LEVEL_ORDER.info);
+
+/**
+ * Levels whose records carry a call site.
+ *
+ * Capture costs about 5 microseconds -- building the stack, not reading it --
+ * which is roughly fifty times the cost of the record itself. Paying that on
+ * every info line is waste; paying it on a warning is the moment you most want
+ * to know where it came from. So the default traces warn and above, and
+ * MCPX_LOG_SOURCE widens it to everything.
+ */
+const SOURCE_LEVELS: number = env("MCPX_LOG_SOURCE") === "1"
+  ? LEVEL_ORDER.debug
+  : env("MCPX_LOG_SOURCE") === "0"
+  ? Number.POSITIVE_INFINITY
+  : levelFrom(env("MCPX_LOG_SOURCE"), LEVEL_ORDER.warn);
+
+function writeStderr(line: string): void {
+  const d = (globalThis as any).Deno;
+  if (d?.stderr?.writeSync) {
+    d.stderr.writeSync(new TextEncoder().encode(line + "\n"));
+    return;
+  }
+  const p = (globalThis as any).process;
+  if (p?.stderr?.write) {
+    p.stderr.write(line + "\n");
+    return;
+  }
+  console.error(line);
+}
+
+/** A plain data object, as opposed to an Error, an array or a primitive. */
+function isAttrs(v: unknown): v is LogAttrs {
+  return typeof v === "object" && v !== null && !Array.isArray(v) &&
+    !(v instanceof Error) && Object.getPrototypeOf(v) === Object.prototype;
+}
+
+function describeError(e: Error): LogAttrs {
+  return { name: e.name, message: e.message, ...(e.stack ? { stack: e.stack } : {}) };
+}
+
+/**
+ * Where the call came from, read out of a synthetic stack trace.
+ *
+ * Only called when the level warrants it, because constructing the Error is
+ * the expensive half.
+ */
+function callSite(): LogAttrs | undefined {
+  const stack = new Error().stack;
+  if (!stack) return undefined;
+  const lines = stack.split("\n").slice(1);
+  const frame = lines.find((l) => !l.includes("mcpx-client"));
+  if (!frame) return undefined;
+  const m = frame.match(/at\s+(?:(.+?)\s+\()?(?:file:\/\/)?([^()]+?):(\d+):(\d+)\)?\s*$/);
+  if (!m) return undefined;
+  const [, fn, file, line, col] = m;
+  return {
+    "source.file": file,
+    "source.line": Number(line),
+    "source.column": Number(col),
+    ...(fn ? { "source.function": fn } : {}),
+  };
+}
+
+function send(kind: "log" | "result", payload: Record<string, unknown>): void {
+  writeStderr(LOG_SENTINEL + JSON.stringify({ kind, ts: new Date().toISOString(), ...payload }));
+}
+
+function emitRecord(level: LogLevel, bound: LogAttrs, msg: string, rest: unknown[]): void {
+  // Short-circuit before any work. A debug call in a loop should cost a
+  // comparison when nothing will print.
+  const n = LEVEL_ORDER[level];
+  if (n < MIN_LEVEL) return;
+
+  let attrs: LogAttrs = { ...bound };
+  const extra: unknown[] = [];
+  for (const [i, v] of rest.entries()) {
+    if (i === 0 && isAttrs(v)) {
+      Object.assign(attrs, v);
+      continue;
+    }
+    extra.push(v instanceof Error ? describeError(v) : v);
+  }
+  if (extra.length > 0) attrs.args = extra;
+  if (n >= SOURCE_LEVELS) Object.assign(attrs, callSite());
+
+  const hasTemplate = msg.includes("{");
+  send("log", {
+    level,
+    msg,
+    ...(hasTemplate ? { template: msg } : {}),
+    ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+  });
+}
+
+/** A logger, optionally carrying attributes bound by with(). */
+export interface Logger {
+  debug(msg: string, ...rest: unknown[]): void;
+  info(msg: string, ...rest: unknown[]): void;
+  warn(msg: string, ...rest: unknown[]): void;
+  error(msg: string, ...rest: unknown[]): void;
+  /**
+   * A logger carrying these attributes on every record, mirroring slog's
+   * Logger.With.
+   *
+   * The returned logger must be passed where it is needed; JavaScript has no
+   * ambient context, so bindings do not follow the call stack on their own.
+   *
+   *     const scoped = log.with({ run: runId });
+   *     await scan(scoped, file);
+   */
+  with(attrs: LogAttrs): Logger;
+  /** True when a record at this level would be emitted. */
+  enabled(level: LogLevel): boolean;
+}
+
+function makeLogger(bound: LogAttrs): Logger {
+  return {
+    debug: (msg, ...rest) => emitRecord("debug", bound, msg, rest),
+    info: (msg, ...rest) => emitRecord("info", bound, msg, rest),
+    warn: (msg, ...rest) => emitRecord("warn", bound, msg, rest),
+    error: (msg, ...rest) => emitRecord("error", bound, msg, rest),
+    with: (attrs: LogAttrs) => makeLogger({ ...bound, ...attrs }),
+    enabled: (level: LogLevel) => LEVEL_ORDER[level] >= MIN_LEVEL,
+  };
+}
+
+/**
+ * Structured logging for scripts.
+ *
+ * A message may carry {placeholders} filled from the attributes, and {{x}}
+ * writes a literal {x}:
+ *
+ *     log.info("fetched {count} pages in {ms}ms", { count: 3, ms: 412 });
+ *
+ * The first argument after the message is treated as attributes when it is a
+ * plain object. Anything else, and anything after it, is collected into an
+ * "args" array, so console-style calls still carry their values rather than
+ * being dropped:
+ *
+ *     log.error("upload failed", err);            // err becomes args[0]
+ *     log.debug("state", { id }, "extra", 42);    // id is an attribute
+ *
+ * Both the rendered message and its template are kept, so output reads as
+ * prose and still groups by shape. stdout stays clear for results; this is
+ * stderr.
+ */
+export const log: Logger = makeLogger({});
+
+/**
+ * Stream a result before the script finishes.
+ *
+ * A script's return value is one answer delivered at the end. emit() is for
+ * many answers delivered as they are found: a long crawl, a per-file report, a
+ * progress feed a caller can act on without waiting.
+ *
+ *     for (const file of files) emit({ file, findings: await scan(file) });
+ *
+ * Each value is written immediately. In ordinary use it lands on stdout as one
+ * JSON line per call; under mcpx --json run the values are collected into
+ * the envelope's results array in order. Either way the consumer sees them
+ * in sequence rather than as one blob at the end.
+ */
+export function emitResult(value: unknown): void {
+  send("result", { value });
+}
+
+export { emitResult as emit };
+
 /** Call any tool by name, including ones added after this client was generated. */
 export async function call(server: string, tool: string, args?: unknown): Promise<ToolResult> {
   return __call(server, tool, args ?? {});
@@ -337,7 +573,14 @@ export async function call(server: string, tool: string, args?: unknown): Promis
 export async function readResource(server: string, uri: string): Promise<ToolResult> {
   const resp = await fetch(ENDPOINT + "/v1/resource", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-mcpx-session": SESSION },
+    headers: {
+      "content-type": "application/json",
+      "x-mcpx-session": SESSION,
+      "x-mcpx-call": SESSION,
+      "x-mcpx-cwd": env("MCPX_CWD"),
+      "x-mcpx-pid": env("MCPX_PID"),
+      "x-mcpx-parent-session": env("MCPX_PARENT_SESSION_ID"),
+    },
     body: JSON.stringify({ server, uri }),
   });
   const body = await resp.json();
