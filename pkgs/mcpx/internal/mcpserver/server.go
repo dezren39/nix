@@ -1,0 +1,580 @@
+// Package mcpserver exposes mcpx itself over the Model Context Protocol.
+//
+// The inversion is the point. mcpx exists so an agent can reach MCP servers
+// without their schemas entering its context: it runs them, generates a typed
+// client, and the agent writes a script. But a host that already speaks MCP
+// and nothing else -- a different editor, a hosted agent, something that is
+// not opencode -- cannot use any of that.
+//
+// So mcpx speaks MCP too. A host connects to one server and gets a handful of
+// tools that reach every server mcpx knows about, with the schemas still on
+// this side of the wire. `mcpx_catalog` describes what exists within a token
+// budget, `mcpx_exec` runs a script, `mcpx_call` reaches one tool. Ten tools
+// instead of three hundred.
+package mcpserver
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+)
+
+// Backend is what the server exposes. Defined here rather than taken from the
+// CLI so this package can be driven by a fake, and so the dependency runs one
+// way: the protocol does not know about the daemon.
+type Backend interface {
+	Namespaces(ctx context.Context) (string, error)
+	Catalog(ctx context.Context, budget int, bias string) (string, error)
+	Types(ctx context.Context, namespaces []string) (string, error)
+	Search(ctx context.Context, query string, limit int) (string, error)
+	Call(ctx context.Context, namespace, tool string, args json.RawMessage) (string, error)
+	Exec(ctx context.Context, source string, timeoutSec int) (string, error)
+	Log(ctx context.Context, since, level, event string, limit int) (string, error)
+	Stats(ctx context.Context, dimension string) (string, error)
+	Status(ctx context.Context) (string, error)
+}
+
+// Extra is a tool contributed from outside the fixed set.
+//
+// Adapted command-line programs arrive this way, so an adapter is a first
+// class server rather than something reachable only through mcpx_exec. A host
+// that wants git as a tool should get git as a tool.
+type Extra struct {
+	Tool Tool
+	Call func(ctx context.Context, args json.RawMessage) (string, error)
+}
+
+// Server answers MCP requests.
+type Server struct {
+	backend Backend
+	name    string
+	version string
+	extras  []Extra
+
+	mu      sync.Mutex
+	started bool
+}
+
+// New builds a server.
+func New(b Backend, name, version string) *Server {
+	return &Server{backend: b, name: name, version: version}
+}
+
+// WithExtras returns a server that also offers these tools.
+func (s *Server) WithExtras(extras []Extra) *Server {
+	clone := *s
+	clone.extras = append(append([]Extra(nil), s.extras...), extras...)
+	return &clone
+}
+
+// ---- protocol types ----
+
+type request struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type response struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Result  any             `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
+}
+
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
+}
+
+// Error codes from the JSON-RPC specification. Using the standard ones means
+// a client's existing error handling works without being taught anything.
+const (
+	codeParse          = -32700
+	codeInvalidRequest = -32600
+	codeMethodNotFound = -32601
+	codeInvalidParams  = -32602
+	codeInternal       = -32603
+)
+
+// Tool is one exposed function.
+type Tool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+}
+
+// Tools is the surface.
+//
+// Deliberately small. The whole reason mcpx exists is that three hundred tool
+// schemas in a context window crowds out the work; exposing three hundred
+// again over MCP would rebuild the problem with extra steps. These ten reach
+// all of them, and the schemas stay here.
+func (s *Server) Tools() []Tool {
+	base := []Tool{
+		{
+			Name: "mcpx_namespaces",
+			Description: "List every MCP server mcpx knows about, with tool counts. " +
+				"Start here: it is small, it starts nothing, and it tells you what " +
+				"else is worth asking for.",
+			InputSchema: schema(`{"type":"object","properties":{},"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_catalog",
+			Description: "Every namespace with as many tool signatures as fit a token " +
+				"budget. Round-robins across servers so a large one cannot crowd out " +
+				"a small one. Use this when you do not yet know which server you want.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"budget":{"type":"integer","description":"approximate token ceiling (default 2000)"},
+				"bias":{"type":"string","description":"words that pull matching tools toward the front"}
+			},"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_types",
+			Description: "Full TypeScript signatures for named namespaces, including each " +
+				"server's own guidance. Ask for this once you know which server you " +
+				"want; it is large, which is why it is not the default.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"namespaces":{"type":"array","items":{"type":"string"},
+					"description":"namespace names, or namespace.tool for one tool"}
+			},"required":["namespaces"],"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_search",
+			Description: "Find tools by name and description across every server. " +
+				"Cheaper than the catalog when you already know roughly what you want.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"query":{"type":"string"},
+				"limit":{"type":"integer","description":"default 20"}
+			},"required":["query"],"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_call",
+			Description: "Call one tool on one server. Use this for a single result. " +
+				"When you need several calls, or want to filter a large result before " +
+				"reading it, use mcpx_exec instead -- it runs on this side of the wire " +
+				"and only what it prints comes back.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"namespace":{"type":"string"},
+				"tool":{"type":"string"},
+				"arguments":{"type":"object","description":"the tool's arguments"}
+			},"required":["namespace","tool"],"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_exec",
+			Description: "Run TypeScript against every server at once. Tools are bound as " +
+				"async functions -- await tools.<namespace>.<tool>({...}) -- and only " +
+				"what you print or emit() comes back. This is the one that saves " +
+				"context: filter, join and summarise here rather than reading a " +
+				"megabyte of JSON into your own.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"source":{"type":"string","description":"TypeScript; top-level await is available"},
+				"timeoutSec":{"type":"integer","description":"default 120"}
+			},"required":["source"],"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_log",
+			Description: "Query mcpx's durable log: what ran, what it cost, what failed. " +
+				"Use it to find out why something did not work without re-running it.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"since":{"type":"string","description":"a duration like 15m or 2h, or an RFC3339 time"},
+				"level":{"type":"string","enum":["debug","info","warn","error"]},
+				"event":{"type":"string","description":"glob: server.*, mcp.call"},
+				"limit":{"type":"integer","description":"default 50"}
+			},"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_stats",
+			Description: "Aggregate the log: calls, servers, errors, sessions, slowest, " +
+				"volume. Answers 'what is slow' and 'what keeps failing' without " +
+				"reading records one at a time.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"dimension":{"type":"string",
+					"enum":["calls","servers","errors","sessions","slowest","volume","instances"]}
+			},"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_status",
+			Description: "The daemon, its pools and live instances. Use it when a call " +
+				"behaves oddly and you want to know whether the server is even up.",
+			InputSchema: schema(`{"type":"object","properties":{},"additionalProperties":false}`),
+		},
+	}
+	for _, e := range s.extras {
+		base = append(base, e.Tool)
+	}
+	return base
+}
+
+func schema(s string) json.RawMessage {
+	// Compacted so the wire carries no incidental whitespace; these go out on
+	// every tools/list and the saving is free.
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(s)); err != nil {
+		// A malformed schema here is a programming error that a test catches,
+		// so passing the original through keeps the server answering rather
+		// than turning a typo into a dead tool.
+		return json.RawMessage(s)
+	}
+	return json.RawMessage(buf.String())
+}
+
+// Instructions are sent at initialize, where a server explains what its
+// schemas cannot.
+const Instructions = `mcpx runs MCP servers and exposes them through a few tools rather than many.
+
+Start with mcpx_namespaces. It is small and starts nothing.
+
+For one result use mcpx_call. For anything more -- several calls, a large
+result you want to filter, a join across servers -- use mcpx_exec: it runs
+TypeScript next to the servers and only what it prints returns to you. That is
+the difference between reading a megabyte of JSON into your context and reading
+the one line you wanted.
+
+Tools inside mcpx_exec are bound as tools.<namespace>.<tool>(args), all async,
+with top-level await available. log.info() and emit() are there too.`
+
+// Handle answers one request.
+func (s *Server) Handle(ctx context.Context, req request) *response {
+	reply := func(result any) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID, Result: result}
+	}
+	fail := func(code int, msg string) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
+	}
+
+	switch req.Method {
+	case "initialize":
+		s.mu.Lock()
+		s.started = true
+		s.mu.Unlock()
+		return reply(map[string]any{
+			// Echo the protocol version the client asked for when it is one
+			// we understand, rather than insisting on ours. A client that
+			// speaks an older revision of a compatible protocol is better
+			// served than refused.
+			"protocolVersion": negotiate(req.Params),
+			"capabilities": map[string]any{
+				"tools": map[string]any{"listChanged": false},
+			},
+			"serverInfo":   map[string]any{"name": s.name, "version": s.version},
+			"instructions": Instructions,
+		})
+
+	case "notifications/initialized", "initialized":
+		return nil // a notification: no reply, by definition
+
+	case "ping":
+		return reply(map[string]any{})
+
+	case "tools/list":
+		return reply(map[string]any{"tools": s.Tools()})
+
+	case "tools/call":
+		var p struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return fail(codeInvalidParams, err.Error())
+		}
+		text, err := s.dispatch(ctx, p.Name, p.Arguments)
+		if err != nil {
+			// A tool that fails is a result with isError, not a protocol
+			// error. The distinction matters: a protocol error means the
+			// client did something wrong, and a client that retries the
+			// wrong thing on a tool failure never converges.
+			return reply(map[string]any{
+				"content": []any{map[string]any{"type": "text", "text": err.Error()}},
+				"isError": true,
+			})
+		}
+		return reply(map[string]any{
+			"content": []any{map[string]any{"type": "text", "text": text}},
+		})
+
+	case "resources/list":
+		return reply(map[string]any{"resources": []any{}})
+	case "prompts/list":
+		return reply(map[string]any{"prompts": []any{}})
+	}
+	return fail(codeMethodNotFound, "no method "+req.Method)
+}
+
+// negotiate picks a protocol version.
+func negotiate(params json.RawMessage) string {
+	const ours = "2025-06-18"
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if json.Unmarshal(params, &p) == nil && p.ProtocolVersion != "" {
+		return p.ProtocolVersion
+	}
+	return ours
+}
+
+func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage) (string, error) {
+	arg := func(v any) error {
+		if len(raw) == 0 {
+			return nil
+		}
+		return json.Unmarshal(raw, v)
+	}
+	switch name {
+	case "mcpx_namespaces":
+		return s.backend.Namespaces(ctx)
+
+	case "mcpx_catalog":
+		var p struct {
+			Budget int    `json:"budget"`
+			Bias   string `json:"bias"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		return s.backend.Catalog(ctx, p.Budget, p.Bias)
+
+	case "mcpx_types":
+		var p struct {
+			Namespaces []string `json:"namespaces"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		if len(p.Namespaces) == 0 {
+			return "", errors.New("namespaces is required; mcpx_namespaces lists them")
+		}
+		return s.backend.Types(ctx, p.Namespaces)
+
+	case "mcpx_search":
+		var p struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		if p.Query == "" {
+			return "", errors.New("query is required")
+		}
+		return s.backend.Search(ctx, p.Query, p.Limit)
+
+	case "mcpx_call":
+		var p struct {
+			Namespace string          `json:"namespace"`
+			Tool      string          `json:"tool"`
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		// A dotted name in the namespace field is what somebody will send,
+		// because that is how the tools are written everywhere else.
+		if p.Tool == "" {
+			if ns, tool, ok := strings.Cut(p.Namespace, "."); ok {
+				p.Namespace, p.Tool = ns, tool
+			}
+		}
+		if p.Namespace == "" || p.Tool == "" {
+			return "", errors.New("namespace and tool are required")
+		}
+		return s.backend.Call(ctx, p.Namespace, p.Tool, p.Arguments)
+
+	case "mcpx_exec":
+		var p struct {
+			Source     string `json:"source"`
+			TimeoutSec int    `json:"timeoutSec"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(p.Source) == "" {
+			return "", errors.New("source is required")
+		}
+		return s.backend.Exec(ctx, p.Source, p.TimeoutSec)
+
+	case "mcpx_log":
+		var p struct {
+			Since string `json:"since"`
+			Level string `json:"level"`
+			Event string `json:"event"`
+			Limit int    `json:"limit"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		return s.backend.Log(ctx, p.Since, p.Level, p.Event, p.Limit)
+
+	case "mcpx_stats":
+		var p struct {
+			Dimension string `json:"dimension"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		return s.backend.Stats(ctx, p.Dimension)
+
+	case "mcpx_status":
+		return s.backend.Status(ctx)
+	}
+	for _, e := range s.extras {
+		if e.Tool.Name == name {
+			return e.Call(ctx, raw)
+		}
+	}
+	return "", fmt.Errorf("no tool named %q", name)
+}
+
+// ServeStdio runs the server over a pipe, which is how most MCP hosts start
+// one: spawn a process and talk newline-delimited JSON to it.
+func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) error {
+	enc := json.NewEncoder(out)
+	sc := bufio.NewScanner(in)
+	// Tool results carry whole documents, so the default 64KB line limit is
+	// far too small and the failure it produces -- a truncated request --
+	// looks like a malformed client.
+	sc.Buffer(make([]byte, 0, 1<<20), 64<<20)
+
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var req request
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			_ = enc.Encode(response{JSONRPC: "2.0",
+				Error: &rpcError{Code: codeParse, Message: err.Error()}})
+			continue
+		}
+		if req.JSONRPC != "" && req.JSONRPC != "2.0" {
+			_ = enc.Encode(response{JSONRPC: "2.0", ID: req.ID,
+				Error: &rpcError{Code: codeInvalidRequest, Message: "unsupported jsonrpc version"}})
+			continue
+		}
+		if resp := s.Handle(ctx, req); resp != nil {
+			if err := enc.Encode(resp); err != nil {
+				return err
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return sc.Err()
+}
+
+// RESTHandler exposes one tool as a plain POST.
+//
+// The protocol form and this are the same code underneath. Offering only
+// JSON-RPC would make mcpx reachable from MCP hosts and from nothing else,
+// which is the opposite of the point: a shell script with curl should be able
+// to ask the same questions an agent does.
+func (s *Server) RESTHandler(tool string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "POST a JSON object of arguments", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(strings.TrimSpace(string(body))) == 0 {
+			body = []byte("{}")
+		}
+		text, err := s.dispatch(r.Context(), tool, body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"ok": false, "error": err.Error(),
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": text})
+	}
+}
+
+// ServeHTTP answers a Streamable HTTP request, which is how a remote host
+// reaches a server it did not start.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		// GET is where a client opens the server-sent event stream. mcpx
+		// never pushes, so saying so immediately is kinder than holding a
+		// connection open that will never carry anything.
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "mcpx sends no unsolicited messages; POST a request", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req request
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0",
+			Error: &rpcError{Code: codeParse, Message: err.Error()}})
+		return
+	}
+	resp := s.Handle(r.Context(), req)
+	if resp == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// Request builds a request, for tests and for the client side of a loopback.
+func Request(id int, method string, params any) request {
+	idRaw, _ := json.Marshal(id)
+	var p json.RawMessage
+	if params != nil {
+		p, _ = json.Marshal(params)
+	}
+	return request{JSONRPC: "2.0", ID: idRaw, Method: method, Params: p}
+}
+
+// ResultOf extracts the text from a tools/call reply, which is the shape
+// every caller wants and nobody wants to unwrap by hand.
+func ResultOf(resp *response) (string, bool, error) {
+	if resp == nil {
+		return "", false, errors.New("no response")
+	}
+	if resp.Error != nil {
+		return "", true, errors.New(resp.Error.Message)
+	}
+	b, err := json.Marshal(resp.Result)
+	if err != nil {
+		return "", false, err
+	}
+	var r struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+	if err := json.Unmarshal(b, &r); err != nil {
+		return "", false, err
+	}
+	var parts []string
+	for _, c := range r.Content {
+		parts = append(parts, c.Text)
+	}
+	return strings.Join(parts, "\n"), r.IsError, nil
+}

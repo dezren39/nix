@@ -144,6 +144,9 @@ func main() {
 		"completion": app.CmdCompletion,
 		"explore":    app.CmdExplore,
 		"tui":        app.CmdTUI,
+		"serve":      app.CmdServe,
+		"openapi":    app.CmdOpenAPI,
+		"adapter":    app.CmdAdapter,
 	}
 
 	h, ok := handlers[cmd]

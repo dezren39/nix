@@ -255,6 +255,16 @@ func pathSettings() []Setting {
 				"addressable from a launcher template. " + spliceLong,
 		},
 		{
+			Path: "paths.adapters", Kind: KindPathList, Default: "", Repeatable: true,
+			Name:  "Adapter declarations",
+			Short: "files declaring command-line programs as MCP servers",
+			Long: "An enormous amount of capability already exists as command-line " +
+				"programs, and writing a server to wrap one is a day's work that " +
+				"produces a process whose only job is to shell out. A declaration " +
+				"names the binary, the subcommands worth exposing and what each " +
+				"takes. " + spliceLong,
+		},
+		{
 			Path: "paths.state", Kind: KindString, Default: "",
 			EnvAliases: []string{"MCPX_STATE_DIR"},
 			Name:       "State directory", Short: "where the daemon socket, logs and index live",
