@@ -33,7 +33,7 @@ buildGoModule {
       );
   };
 
-  # Four direct Go dependencies.
+  # Five direct Go dependencies.
   #
   # modernc.org/sqlite backs the log index. It is a pure-Go translation rather
   # than the usual mattn driver, because a cgo driver would make this
@@ -46,9 +46,12 @@ buildGoModule {
   # the kind of code that is never finished and never correct on every
   # terminal.
   #
+  # gopkg.in/yaml.v3 reads OpenAPI documents, which are published as YAML as
+  # often as JSON and which one you get is not the caller's choice.
+  #
   # Everything else -- the MCP client, the process pools, the JSON Schema to
   # TypeScript compiler, the CLI -- is standard library.
-  vendorHash = "sha256-OwOX4EoIVtU/vBAHCsUq1j1bcO1BsTBXDk+k/Re2QEg=";
+  vendorHash = "sha256-+V4tky5WLd2SsHsybtg1c9Dl+uuWNr1IfTvhRawnVO4=";
 
   subPackages = [ "cmd/mcpx" ];
 
@@ -73,7 +76,8 @@ buildGoModule {
     go test ./internal/config/ ./internal/codegen/ ./internal/daemon/ ./internal/pool/ \
       ./internal/logging/ ./internal/logstore/ ./internal/settings/ ./internal/source/ \
       ./internal/launcher/ ./internal/searchpath/ ./internal/preflight/ ./internal/defaults/ \
-      ./internal/tui/ ./internal/opencode/
+      ./internal/tui/ ./internal/opencode/ \
+      ./internal/openapi/ ./internal/mcpserver/ ./internal/adapter/ ./internal/registry/
     runHook postCheck
   '';
 

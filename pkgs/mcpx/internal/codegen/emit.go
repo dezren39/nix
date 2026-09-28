@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -132,8 +133,65 @@ func Module(nss []Namespace, endpoint, session string) string {
 	for _, ns := range nss {
 		fmt.Fprintf(&b, "  %s,\n", ns.Name)
 	}
-	b.WriteString("};\n\nexport default tools;\n")
+	b.WriteString("};\n\n")
+
+	// Metadata for search() and describe(), emitted as data rather than
+	// reconstructed from the functions. A function cannot be asked what its
+	// parameters are called once it is compiled, and the descriptions are
+	// only in comments.
+	b.WriteString(toolMeta(nss))
+	b.WriteString("\nexport default tools;\n")
 	return b.String()
+}
+
+// toolMeta renders what search and describe read.
+func toolMeta(nss []Namespace) string {
+	type meta struct {
+		Description string   `json:"description"`
+		Params      []string `json:"params"`
+		Required    []string `json:"required"`
+	}
+	out := map[string]map[string]meta{}
+	for _, ns := range nss {
+		group := map[string]meta{}
+		for _, t := range ns.Tools {
+			params, required := schemaFields(t.InputSchema)
+			group[t.Name] = meta{
+				Description: firstLine(t.Description),
+				Params:      params,
+				Required:    required,
+			}
+		}
+		out[ns.Name] = group
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "const __toolMeta: Record<string, Record<string, { description: string; params: string[]; required: string[] }>> = {};\n"
+	}
+	return "/** Parameter names and descriptions, for search() and describe(). */\n" +
+		"const __toolMeta: Record<string, Record<string, { description: string; params: string[]; required: string[] }>> = " +
+		string(b) + ";\n"
+}
+
+// schemaFields pulls parameter names out of a JSON Schema.
+func schemaFields(raw json.RawMessage) (params, required []string) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var doc struct {
+		Properties map[string]any `json:"properties"`
+		Required   []string       `json:"required"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return nil, nil
+	}
+	for k := range doc.Properties {
+		params = append(params, k)
+	}
+	sort.Strings(params)
+	required = doc.Required
+	sort.Strings(required)
+	return params, required
 }
 
 func toolImpl(server string, t Tool, indent string) string {
@@ -983,6 +1041,99 @@ function safeInspect(v: unknown): string {
  * work: the launcher installs these before importing the module, and the
  * generated declarations tell an editor they exist.
  */
+/** One tool, as search returns it. */
+export interface ToolMatch {
+  namespace: string;
+  tool: string;
+  /** Call it as tools[namespace][tool](args). */
+  call: (args?: Record<string, unknown>) => Promise<ToolResult>;
+  description: string;
+  /** Parameter names, so a caller can check before invoking. */
+  params: string[];
+  required: string[];
+}
+
+/**
+ * Find tools by name or description, from inside a script.
+ *
+ * Without this, discovering a tool means ending the script, running
+ * "mcpx search", reading the result, and writing a new script. That round
+ * trip is the expensive part -- for a model it is a whole turn, and the
+ * intermediate result passes through its context on the way.
+ *
+ * Synchronous, because everything it searches is already in this file. A
+ * promise here would only be a promise of work already done.
+ */
+export function search(query: string, limit = 20): ToolMatch[] {
+  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const scored: Array<{ score: number; match: ToolMatch }> = [];
+  for (const [ns, group] of Object.entries(tools)) {
+    for (const [name, fn] of Object.entries(group as Record<string, unknown>)) {
+      if (typeof fn !== "function") continue;
+      const meta = __toolMeta[ns]?.[name] ?? { description: "", params: [], required: [] };
+      const hay = (ns + " " + name + " " + meta.description).toLowerCase();
+
+      let score = 0;
+      for (const w of words) {
+        if (!hay.includes(w)) {
+          score = -1;
+          break;
+        }
+        // A word in the name is worth more than a word in the prose. A tool
+        // called "grep" beats one whose description merely mentions grepping.
+        score += (ns + " " + name).toLowerCase().includes(w) ? 10 : 1;
+      }
+      if (score < 0) continue;
+      scored.push({
+        score,
+        match: {
+          namespace: ns,
+          tool: name,
+          call: fn as ToolMatch["call"],
+          description: meta.description,
+          params: meta.params,
+          required: meta.required,
+        },
+      });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score || a.match.tool.localeCompare(b.match.tool));
+  return scored.slice(0, limit).map((s) => s.match);
+}
+
+/**
+ * The signature of one tool, or of a whole namespace.
+ *
+ * The companion to search: found something, now what does it take. Returns
+ * text because that is what it is for -- reading, or printing when a script
+ * is exploring rather than doing.
+ */
+export function describe(name: string): string {
+  const parts = String(name).split(".");
+  const ns = parts[0];
+  const tool = parts[1];
+  const group = __toolMeta[ns];
+  if (!group) {
+    return "no namespace " + JSON.stringify(ns) +
+      "; there is " + Object.keys(tools).join(", ");
+  }
+  const render = (t: string): string => {
+    const m = group[t];
+    if (!m) return "  " + t + "(...)";
+    const args = m.params
+      .map((p) => (m.required.indexOf(p) >= 0 ? p : p + "?"))
+      .join(", ");
+    const head = "  " + ns + "." + t + "({ " + args + " })";
+    return m.description ? head + "\n      " + m.description : head;
+  };
+  if (!tool) {
+    return Object.keys(group).sort().map(render).join("\n");
+  }
+  return render(tool);
+}
+
 export function installGlobals(): void {
   const g = globalThis as any;
   installDenoCompat();
@@ -998,6 +1149,8 @@ export function installGlobals(): void {
   g.releaseConsole ??= releaseConsole;
   g.captureFrames ??= captureFrames;
   g.errorFrames ??= errorFrames;
+  g.search ??= search;
+  g.describe ??= describe;
   for (const [name, ns] of Object.entries(tools)) g[name] ??= ns;
 }
 

@@ -1682,6 +1682,79 @@ making every call read `io_github_microsoft_playwright_mcp_navigate`.
 
 2026-09-28T11:00:00-05:00
 
+## Specifications as tools
+
+```
+created:      2026-09-28T13:00:00-05:00
+last-updated: 2026-09-28T13:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  OpenAPI documents become callable tools.
+```
+
+```sh
+mcpx api tools --spec https://petstore3.swagger.io/api/v3/openapi.json
+mcpx api call petstore_findpetsbystatus '{"status":"available"}' --spec ...
+```
+
+An enormous amount of capability is already described by a specification
+somebody else maintains. A specification is a better source than a
+hand-written wrapper for the same reason a generated client is better than a
+hand-written one: it is already correct, already complete, and it changes when
+the service does.
+
+`paths.apis` declares them permanently, and the operations appear over MCP
+beside everything else.
+
+### Two things easy to get wrong
+
+**Relative server URLs.** The Swagger petstore declares `/api/v3`, which must
+resolve against wherever the document was fetched. Unresolved it produces a
+request with no scheme, and the failure reads as a network problem rather than
+an unresolved reference.
+
+**Only reads, by default.** A specification describes what a service *can* do,
+not what you meant to allow. `--methods all` exposes the rest; the difference
+between listing orders and cancelling them should be a deliberate keystroke.
+
+Deprecated operations are skipped unless asked for, and labelled when included.
+Path parameters are escaped, because a slash in one silently changes which
+endpoint is called.
+
+2026-09-28T13:00:00-05:00
+
+## Finding a tool without leaving the script
+
+```
+created:      2026-09-28T13:00:00-05:00
+last-updated: 2026-09-28T13:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  search() and describe(), inside the program.
+```
+
+```ts
+for (const hit of search("grep")) {
+  console.log(hit.namespace + "." + hit.tool, hit.required);
+}
+console.log(describe("fff_nix.grep"));
+```
+
+Without these, discovering a tool means ending the script, running
+`mcpx search`, reading the result and writing a new script. That round trip is
+the expensive part: for a model it is a whole turn, and the intermediate
+result passes through its context on the way.
+
+Synchronous, because everything they search is already in the generated
+client. A promise would only be a promise of work already done.
+
+A word matching a tool's name scores higher than one matching its prose, so a
+tool called `grep` beats one whose description merely mentions grepping.
+
+2026-09-28T13:00:00-05:00
+
 ## Nix packaging
 
 ```

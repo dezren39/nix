@@ -267,7 +267,12 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if extras := adapterTools(specs); len(extras) > 0 {
+	extras := adapterTools(specs)
+	// Operations from declared OpenAPI documents are tools in their own
+	// right too, for the same reason adapted programs are: a host that wants
+	// an endpoint should get the endpoint.
+	extras = append(extras, a.apiTools(ctx)...)
+	if len(extras) > 0 {
 		srv = srv.WithExtras(extras)
 	}
 
