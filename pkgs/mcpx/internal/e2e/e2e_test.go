@@ -1896,3 +1896,34 @@ func appliesTo(commands []string, cmd string) bool {
 	}
 	return false
 }
+
+// TestSettingsFromAConfigFileActuallyTakeEffect is the difference between a
+// setting being accepted and a setting being applied. Validation alone is
+// documentation that lies more quietly: the value is checked, reported as
+// fine, and then ignored.
+func TestSettingsFromAConfigFileActuallyTakeEffect(t *testing.T) {
+	cfg := strings.TrimSuffix(strings.TrimSpace(oneServer), "}") +
+		`, "logging": { "format": "compact", "level": "debug" },
+		   "catalog": { "budget": 300 } }`
+	e := newEnv(t, cfg)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => { log.info("ran"); };`)
+
+	// compact renders "INFO msg key=value"; text would render a timestamp.
+	out := e.run("run", script)
+	if !strings.Contains(out, "INFO ") || strings.Contains(out, `"level"`) {
+		t.Errorf("logging.format from the config file should apply:\n%s", out)
+	}
+
+	// Two environments rather than two flags, so what differs is the config
+	// file and nothing else. The fake server's catalog is small, so the
+	// budgets have to be far apart to produce a visible difference.
+	tight := newEnv(t, strings.TrimSuffix(strings.TrimSpace(oneServer), "}")+
+		`, "catalog": { "budget": 1 } }`)
+	loose := newEnv(t, strings.TrimSuffix(strings.TrimSpace(oneServer), "}")+
+		`, "catalog": { "budget": 9000 } }`)
+	if a, b := len(tight.run("catalog")), len(loose.run("catalog")); a >= b {
+		t.Errorf("catalog.budget from the config file should apply: %d vs %d", a, b)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,13 +91,55 @@ func socketPath(state, key string) string {
 	if len(preferred) <= maxSocketPath {
 		return preferred
 	}
-	sum := sha256.Sum256([]byte(state + "\x00" + key))
-	short := filepath.Join(os.TempDir(), "mcpx-"+hex.EncodeToString(sum[:])[:16]+".sock")
-	if len(short) <= maxSocketPath {
-		return short
+	raw := sha256.Sum256([]byte(state + "\x00" + key))
+	sum := hex.EncodeToString(raw[:])[:16]
+
+	// The fallback puts the socket in a private directory rather than
+	// directly in a shared temp directory.
+	//
+	// A control socket at a predictable path in a world-writable directory
+	// can be pre-created by anyone else on the machine, and then the CLI
+	// sends daemon commands to whatever is listening there. The directory is
+	// per-user and 0700, so the name being predictable stops mattering.
+	if dir, err := privateRuntimeDir(); err == nil {
+		short := filepath.Join(dir, "d-"+sum+".sock")
+		if len(short) <= maxSocketPath {
+			return short
+		}
 	}
-	// Last resort: /tmp is present on every platform mcpx targets.
-	return "/tmp/mcpx-" + hex.EncodeToString(sum[:])[:16] + ".sock"
+	// Last resort, still inside a directory this user owns.
+	return filepath.Join(os.TempDir(), "mcpx-"+sum+".sock")
+}
+
+// privateRuntimeDir returns a per-user directory only that user can enter.
+//
+// XDG_RUNTIME_DIR is already private where it exists. Elsewhere -- macOS
+// among them -- a directory is created under the temp directory with the
+// user id in its name, and its permissions are verified rather than assumed,
+// because a directory that already exists may not be ours.
+func privateRuntimeDir() (string, error) {
+	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
+		dir := filepath.Join(d, "mcpx")
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			return dir, nil
+		}
+	}
+	dir := filepath.Join(os.TempDir(), fmt.Sprintf("mcpx-%d", os.Getuid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode().Perm() != 0o700 {
+		// Pre-existing and more permissive than we would have made it.
+		// Tightening is better than trusting, and an error if that fails.
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
 }
 
 // FingerprintConfig derives the daemon key from every file that contributed.

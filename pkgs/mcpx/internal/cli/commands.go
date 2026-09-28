@@ -500,25 +500,30 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		runtimePref = cfg.Runtime
 	}
 
-	// Flag, then environment, then config: the config states the habit and the
-	// flag states the exception.
+	// Read from the resolved settings, which already folded the flag, the
+	// environment and every config file in the right order. The chain that
+	// used to be spelled out here did the same thing for three of the values
+	// and a slightly different thing for the fourth, which is the drift the
+	// registry exists to remove.
+	//
+	// The short flag spellings still win where they were given, because
+	// parseFlags folded them into the same set.
 	var cfgLog config.LoggingConfig
 	if cfg != nil {
 		cfgLog = cfg.Logging
 	}
-	logFormat, ferr := logging.ParseFormat(firstNonEmpty(*format, os.Getenv("MCPX_FORMAT"), cfgLog.Format))
-	if ferr == nil {
-		a.setOutputFormat(logFormat)
-	}
+	set := a.Settings()
+	logFormat, ferr := logging.ParseFormat(firstNonEmpty(*format, set.String("logging.format"), cfgLog.Format))
 	if ferr != nil {
 		return ferr
 	}
-	minLevel, lerr := logging.ParseLevel(firstNonEmpty(*level, os.Getenv("MCPX_LOG_LEVEL"), cfgLog.Level))
+	a.setOutputFormat(logFormat)
+	minLevel, lerr := logging.ParseLevel(firstNonEmpty(*level, set.String("logging.level"), cfgLog.Level))
 	if lerr != nil {
 		return lerr
 	}
 	sourceLevel := logging.SourceLevel(
-		firstNonEmpty(logSource.Value(), os.Getenv("MCPX_LOG_SOURCE"), cfgLog.Source))
+		firstNonEmpty(logSource.Value(), set.String("logging.source"), cfgLog.Source))
 	// With --json the envelope carries the records, so nothing is rendered to
 	// stderr; a reader wants one parseable document, not two streams.
 	logSink := io.Writer(os.Stderr)
@@ -531,7 +536,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	writer := logging.NewWriter(logSink, logFormat, minLevel)
 	// Script records go to the same durable log the daemon writes, so a run's
 	// output is recoverable afterwards even when the terminal showed little.
-	if dir := firstNonEmpty(cfgLog.Dir, os.Getenv("MCPX_LOG_DIR"),
+	if dir := firstNonEmpty(set.String("logging.dir"), cfgLog.Dir,
 		filepath.Join(a.Paths.State, "logs")); dir != "" {
 		if sink, serr := logging.NewFileSink(logging.FileOptions{Dir: dir}); serr == nil {
 			writer = writer.WithFile(sink, slog.LevelDebug)
@@ -1314,6 +1319,15 @@ func (a *App) CmdCatalog(ctx context.Context, args []string) error {
 	ns := splitAll(strings.Split(*nsFlag, ","))
 	if *bias == "" && fs.NArg() > 0 {
 		*bias = strings.Join(fs.Args(), " ")
+	}
+	// Fall back to the resolved settings, so catalog.budget and catalog.bias
+	// work from a config file and the environment and not only from the two
+	// short flags.
+	if *budget == 0 {
+		*budget = a.Settings().Int("catalog.budget")
+	}
+	if *bias == "" {
+		*bias = strings.Join(a.Settings().List("catalog.bias"), " ")
 	}
 	text, err := c.Catalog(ctx, ns, *budget, *bias, a.Profile)
 	if err != nil {
