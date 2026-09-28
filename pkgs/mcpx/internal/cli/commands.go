@@ -75,7 +75,7 @@ func (a *App) out(v any) error {
 func (a *App) CmdLs(ctx context.Context, args []string) error {
 	fs := newFlagSet("ls")
 	verbose := fs.Bool("v", false, "include per-instance detail")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -135,7 +135,7 @@ func (a *App) CmdTypes(ctx context.Context, args []string) error {
 	fs := newFlagSet("types")
 	noInstr := fs.Bool("no-instructions", false,
 		"omit the server's own guidance, which can be long")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -258,7 +258,7 @@ func (a *App) setOutputFormat(f logging.Format) {
 func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	fs := newFlagSet("search")
 	limit := fs.Int("n", 20, "max results")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() == 0 {
@@ -297,7 +297,7 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	fs := newFlagSet("call")
 	session := fs.String("session", "", "session key for stateful servers")
 	raw := fs.Bool("raw", false, "print the full MCP envelope")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -428,18 +428,10 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		"leave console.* alone instead of mirroring it into the record stream")
 	perms := fs.String("permissions", "",
 		"deno sandbox: all (default), net, read, read-net, strict, or explicit flags")
-	// Everything the registry declares for this command and the hand-written
-	// flags above did not already claim. Without this the schema and the man
-	// page promise flags the command rejects.
-	cmdName := "run"
-	if inline {
-		cmdName = "exec"
-	}
-	applySettings := a.BindFlags(fs, cmdName)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if err := applySettings(); err != nil {
+	// parseFlags binds everything the registry declares for this command that
+	// the hand-written flags above have not already claimed, then folds what
+	// was given into the resolved settings.
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() == 0 {
@@ -860,7 +852,7 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 	fs := newFlagSet("client")
 	outPath := fs.String("o", "", "write to this path (default: stdout)")
 	nsFlag := fs.String("ns", "", "restrict to these namespaces")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -894,7 +886,7 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 // CmdStatus prints daemon and pool state.
 func (a *App) CmdStatus(ctx context.Context, args []string) error {
 	fs := newFlagSet("status")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c := a.Client()
@@ -1001,7 +993,7 @@ func (a *App) CmdRefresh(ctx context.Context, args []string) error {
 // CmdRestart stops running instances so the next call starts fresh ones.
 func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	fs := newFlagSet("restart")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -1028,7 +1020,7 @@ func (a *App) CmdRestart(ctx context.Context, args []string) error {
 func (a *App) CmdStop(ctx context.Context, args []string) error {
 	fs := newFlagSet("stop")
 	all := fs.Bool("all", false, "stop every mcpx daemon, not just this config's")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if *all {
@@ -1138,7 +1130,7 @@ func (a *App) CmdInit(ctx context.Context, args []string) error {
 	fs := newFlagSet("init")
 	force := fs.Bool("force", false, "overwrite an existing config")
 	global := fs.Bool("global", false, "write to the user config instead of ./.mcpx.json")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	path := ".mcpx.json"
@@ -1226,7 +1218,7 @@ func oneLine(s string) string {
 // CmdScripts lists the named scripts mcpx can run.
 func (a *App) CmdScripts(ctx context.Context, args []string) error {
 	fs := newFlagSet("scripts")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	entries, err := discoverScripts()
@@ -1309,7 +1301,7 @@ func (a *App) CmdCatalog(ctx context.Context, args []string) error {
 	budget := fs.Int("budget", 0, "approximate token ceiling (default 2000)")
 	bias := fs.String("bias", "", "promote tools matching these words")
 	nsFlag := fs.String("ns", "", "restrict to these namespaces")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)

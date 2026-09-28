@@ -35,8 +35,12 @@ func looksRunnable(arg string) string {
 			return "file"
 		}
 	}
-	if strings.ContainsAny(arg, "(){};=") || strings.Contains(arg, "await ") ||
-		strings.Contains(arg, "console.") || strings.Contains(arg, "tools.") {
+	// Deliberately narrow. An "=" alone is not evidence of source -- a
+	// mistyped flag has one -- and treating it as such would run a typo as a
+	// program. These markers do not occur in a command name.
+	if strings.ContainsAny(arg, "(){};") || strings.Contains(arg, "await ") ||
+		strings.Contains(arg, "console.") || strings.Contains(arg, "tools.") ||
+		strings.Contains(arg, "=>") {
 		return "source"
 	}
 	if st, err := os.Stat(arg); err == nil && !st.IsDir() {

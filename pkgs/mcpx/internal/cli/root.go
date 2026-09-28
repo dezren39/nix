@@ -22,10 +22,44 @@ import (
 	"github.com/dezren39/mcpx/internal/settings"
 )
 
+// newFlagSet creates a command's flag set and registers every setting the
+// registry declares for it.
+//
+// Binding here rather than at each call site is what keeps `mcpx config
+// --schema` honest: a setting listed for a command is a flag that command
+// accepts. Hand-written flags are registered first by the caller... except
+// they are not, because the caller declares them after this returns. So the
+// registry flags are bound lazily, at parse time, once the hand-written ones
+// exist and can be skipped.
 func newFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	flagSetCommand[fs] = name
 	return fs
+}
+
+// flagSetCommand remembers which command a flag set belongs to, so that
+// parseFlags can bind the right settings without every call site repeating
+// the name it already gave newFlagSet.
+var flagSetCommand = map[*flag.FlagSet]string{}
+
+// parseFlags parses, then folds what was given into the resolved settings.
+//
+// This replaces a bare fs.Parse so that registry-declared flags are both
+// accepted and applied. Splitting bind from parse is not optional: Go panics
+// on duplicate registration, and the hand-written flags are declared between
+// newFlagSet and here.
+func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
+	cmd := flagSetCommand[fs]
+	apply := func() error { return nil }
+	if a != nil && cmd != "" {
+		apply = a.BindFlags(fs, cmd)
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	delete(flagSetCommand, fs)
+	return apply()
 }
 
 // CmdDaemon runs the daemon in the foreground.
@@ -43,7 +77,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	logSource := newOptional("all")
 	fs.Var(logSource, "log-source",
 		"levels that record a call site: bare for all, or a level name, or false")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 
@@ -150,7 +184,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 func (a *App) CmdMan(ctx context.Context, args []string) error {
 	fs := newFlagSet("man")
 	install := fs.String("install", "", "write the page into this directory as man1/mcpx.1")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	page := ManPage(a.Version)
@@ -195,7 +229,7 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 	showDefaults := fs.Bool("defaults", false, "print the built-in default layer that underlies every config")
 	showSchema := fs.Bool("schema", false, "print every setting, with its flag and variable")
 	withPlumbing := fs.Bool("plumbing", false, "include internal settings in --schema")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	// The base layer is data, so it can be shown. A default nobody can print

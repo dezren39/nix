@@ -77,7 +77,7 @@ func (a *App) CmdLog(ctx context.Context, args []string) error {
 	format := fs.String("format", "", "text, json, json-pretty, logfmt, compact, bare")
 	fields := fs.String("fields", "", "print only these columns, comma separated")
 	logDir := fs.String("log-dir", "", "log directory (default: the daemon's)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 
@@ -303,7 +303,7 @@ func (a *App) cmdLogSQL(_ context.Context, args []string) error {
 	schema := fs.Bool("schema", false, "print the schema and exit")
 	path := fs.Bool("path", false, "print the database path and exit")
 	logDir := fs.String("log-dir", "", "log directory (default: the daemon's)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if *schema {
@@ -356,7 +356,7 @@ func (a *App) CmdStats(_ context.Context, args []string) error {
 	session := fs.String("session", "", "restrict to this session")
 	top := fs.Int("top", 20, "rows to show where the dimension is a ranking")
 	logDir := fs.String("log-dir", "", "log directory (default: the daemon's)")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	dim = firstSet(dim, *by, "calls")

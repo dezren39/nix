@@ -1839,36 +1839,48 @@ func TestEverySettingTheSchemaAdvertisesActuallyWorks(t *testing.T) {
 		t.Fatalf("expected a real registry, got %d entries", len(entries))
 	}
 
+	// Every command, not just run. The same gap existed on catalog, search
+	// and status, and checking one command would have left it there.
+	commands := []string{"run", "exec", "catalog", "search", "ls", "status", "types"}
 	checked := 0
-	for _, entry := range entries {
-		if !appliesTo(entry.Commands, "run") {
-			continue
-		}
-		value := entry.Default
-		if len(entry.Enum) > 0 {
-			value = entry.Enum[0]
-		}
-		if value == "" {
-			switch entry.Kind {
-			case "int":
-				value = "1"
-			case "duration":
-				value = "30s"
-			case "bytes":
-				value = "1MB"
-			case "bool":
-				value = "true"
-			default:
-				continue // nothing safe to pass
+	for _, cmd := range commands {
+		for _, entry := range entries {
+			if !appliesTo(entry.Commands, cmd) {
+				continue
+			}
+			value := entry.Default
+			if len(entry.Enum) > 0 {
+				value = entry.Enum[0]
+			}
+			if value == "" {
+				switch entry.Kind {
+				case "int":
+					value = "1"
+				case "duration":
+					value = "30s"
+				case "bytes":
+					value = "1MB"
+				case "bool":
+					value = "true"
+				default:
+					continue // nothing safe to pass
+				}
+			}
+			checked++
+			args := []string{cmd, "--" + entry.Flag + "=" + value}
+			switch cmd {
+			case "run", "exec":
+				args = append(args, script)
+			case "search", "types":
+				args = append(args, "demo")
+			}
+			if out, err := e.try(args...); err != nil && strings.Contains(out, "not defined") {
+				t.Errorf("--%s is advertised by --schema for %q but that command rejects it (%s=%q)",
+					entry.Flag, cmd, entry.Path, value)
 			}
 		}
-		checked++
-		if _, err := e.try("run", "--"+entry.Flag+"="+value, script); err != nil {
-			t.Errorf("--%s is advertised by --schema but the run command rejects it (%s=%q): %v",
-				entry.Flag, entry.Path, value, err)
-		}
 	}
-	if checked < 10 {
+	if checked < 20 {
 		t.Fatalf("only %d settings were exercised; the check is not doing its job", checked)
 	}
 }
