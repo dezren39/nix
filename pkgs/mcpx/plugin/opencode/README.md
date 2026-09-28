@@ -29,6 +29,7 @@ Everything past the session id is opt-in.
 | `MCPX_PLUGIN_ENV` | `full` | `minimal`, `standard` or `full` |
 | `MCPX_PLUGIN_INSTRUCTIONS` | off | add mcpx usage to the system prompt |
 | `MCPX_PLUGIN_TOOL_TIMING` | off | record opencode's tool timings into mcpx's log |
+| `MCPX_PLUGIN_TOOLS` | off | offer mcpx as three opencode tools |
 
 `full` is the default: everything already in hand, plus a session lookup done
 once and cached.
@@ -84,3 +85,66 @@ reads. Those come from `mcpx stats --opencode`, which asks once.
 cannot say "this session, whose parent is that one, in this worktree". A reader
 looks up the keys it knows and ignores the rest, so the list can grow without
 any consumer changing.
+
+
+## Optional pieces, and why you would turn each one on
+
+Everything past the session id is off by default. Each is off for a reason,
+and each has a reason to enable it — not "it might be useful".
+
+### `MCPX_PLUGIN_TOOLS=1` — mcpx as tools
+
+Adds `mcpx_discover`, `mcpx_exec` and `mcpx_observe` to the agent's tool list.
+
+**Off by default** because an agent with a shell can already run mcpx, and a
+tool definition costs context on every request whether or not it is used.
+Three definitions is cheap; cheap is not free, and most sessions never touch
+an MCP server.
+
+**Turn it on when:**
+
+- the agent has no shell, or a heavily restricted one — then this is the only
+  way it reaches MCP servers at all;
+- you want mcpx calls to show up as tool calls in the transcript, which makes
+  them visible to opencode's timing, permissions and replay;
+- a model keeps forgetting mcpx exists. A tool in the list fixes that; a
+  sentence in the system prompt reliably does not.
+
+### `MCPX_PLUGIN_INSTRUCTIONS=1` — usage in the system prompt
+
+Four lines explaining that MCP servers are reached through mcpx.
+
+**Off by default** because it is the expensive kind of help: every token is
+paid on every request for the life of the session, whether or not any MCP tool
+is ever reached for.
+
+**Turn it on when** a project leans on mcpx constantly and you are tired of
+the model reaching for tools that are not there. Leave it off for a repo that
+touches an MCP server twice a week.
+
+### `MCPX_PLUGIN_TOOL_TIMING=1` — harness timings into mcpx's log
+
+Records every opencode tool call into mcpx's durable log, so one `mcpx stats`
+covers the harness as well as mcpx.
+
+**Off by default** because it shells out once per tool call. That is a real
+cost on a busy session.
+
+**Turn it on when** you are actually investigating where time goes, and want
+opencode's tools and mcpx's calls on one timeline rather than two.
+
+### Skills
+
+Three, in `skills/`. Copy the ones you want into `~/.config/opencode/skills/`
+or your project's skills directory.
+
+| skill | when it earns its place |
+| --- | --- |
+| `mcpx-basics` | Any agent that will write an `mcpx exec` script. Teaches filtering in the script rather than in context, which is the mistake mcpx exists to prevent. |
+| `mcpx-observability` | Investigating a failure or a slowdown. Turns "run it again and watch" into a query against what already happened. |
+| `mcpx-browser` | Driving chrome-devtools or another stateful server. Covers exclusive leasing, which is the difference between two agents working and two agents corrupting one browser. |
+
+Skills are loaded on demand, so an unused one costs nothing. That is why
+there are three rather than one: a browser skill is dead weight in a repo with
+no browser, and merging it into a general skill would make it dead weight
+everywhere.

@@ -1,4 +1,4 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import { tool, type Plugin } from "@opencode-ai/plugin"
 
 /**
  * Tell mcpx which opencode session it is working for.
@@ -36,6 +36,11 @@ import type { Plugin } from "@opencode-ai/plugin"
  *   MCPX_PLUGIN_ENV=minimal|standard|full   how much to inject (default full)
  *   MCPX_PLUGIN_INSTRUCTIONS=1              add mcpx usage to the system prompt
  *   MCPX_PLUGIN_TOOL_TIMING=1               record tool outcomes into mcpx's log
+ *   MCPX_PLUGIN_TOOLS=1                     offer mcpx as opencode tools
+ *   MCPX_PLUGIN_SKILLS=...                  see plugin/opencode/skills/
+ *
+ * Everything past the session id is off by default, and each has a reason to
+ * turn it on rather than a reason to have it. See the README.
  */
 
 type Level = "minimal" | "standard" | "full"
@@ -84,6 +89,18 @@ type Cached = {
   depth: number
   /** Every ancestor, nearest first. */
   ancestry: string[]
+}
+
+/** Run mcpx and return what it said, whichever stream it used. */
+const run = async (
+  $: any,
+  argv: string[],
+): Promise<string> => {
+  const res = await $`mcpx ${argv}`.quiet().nothrow()
+  const out = String(res.stdout ?? "").trim()
+  const err = String(res.stderr ?? "").trim()
+  if (out && err) return out + "\n\nstderr:\n" + err
+  return out || err || "(no output)"
 }
 
 export default (async ({ directory, worktree, project, client, $ }) => {
@@ -212,6 +229,80 @@ export default (async ({ directory, worktree, project, client, $ }) => {
       const parts = (output as any)?.parts
       if (Array.isArray(parts)) parts.push({ type: "text", text })
     },
+
+    /**
+     * mcpx as opencode tools, off by default.
+     *
+     * The default is off because an agent that can run shell commands can
+     * already run mcpx, and a tool definition costs context on every request
+     * whether or not it is used. Three definitions is cheap, but cheap is not
+     * free and most sessions never touch an MCP server.
+     *
+     * Worth turning on when:
+     *
+     *  - the agent has no shell, or its shell is heavily restricted;
+     *  - you want mcpx calls to appear as tool calls in the transcript,
+     *    which makes them visible to opencode's own timing and permissions;
+     *  - a model keeps forgetting mcpx exists, which a tool in the list
+     *    fixes and a sentence in the prompt does not.
+     */
+    tool: on("MCPX_PLUGIN_TOOLS")
+      ? {
+          mcpx_discover: tool({
+            description:
+              "List the MCP servers mcpx knows about, or show signatures for one. " +
+              "Call with no arguments first: the answer is small and tells you " +
+              "what else is worth asking for.",
+            args: {
+              namespace: tool.schema
+                .string()
+                .optional()
+                .describe("a namespace to show signatures for; omit to list all"),
+            },
+            async execute(args) {
+              if (args.namespace) {
+                return await run($, ["types", args.namespace])
+              }
+              return await run($, ["ls"])
+            },
+          }),
+
+          mcpx_exec: tool({
+            description:
+              "Run TypeScript against every MCP server at once. Tools are bound as " +
+              "await tools.<namespace>.<tool>({...}) and only what you print comes " +
+              "back, so filter and summarise here rather than reading a megabyte " +
+              "of JSON into your context. This is the one that saves tokens.",
+            args: {
+              source: tool.schema.string().describe("TypeScript; top-level await works"),
+            },
+            async execute(args) {
+              return await run($, ["exec", args.source])
+            },
+          }),
+
+          mcpx_observe: tool({
+            description:
+              "Query what mcpx has been doing: the durable log, or aggregate " +
+              "statistics. Use it when a call failed and you want to know why " +
+              "without running it again.",
+            args: {
+              what: tool.schema
+                .enum(["log", "calls", "errors", "servers", "slowest"])
+                .describe("log for records, the rest are aggregates"),
+              since: tool.schema.string().optional().describe("15m, 2h, or an RFC3339 time"),
+            },
+            async execute(args) {
+              if (args.what === "log") {
+                const argv = ["log", "--limit", "40"]
+                if (args.since) argv.push("--since", args.since)
+                return await run($, argv)
+              }
+              return await run($, ["stats", args.what])
+            },
+          }),
+        }
+      : undefined,
 
     /**
      * Tool outcomes into mcpx's own log, off by default.
