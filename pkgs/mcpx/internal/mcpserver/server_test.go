@@ -48,6 +48,10 @@ func (f *fakeBackend) Stats(_ context.Context, d string) (string, error) {
 	return "stats " + d, nil
 }
 func (f *fakeBackend) Status(context.Context) (string, error) { f.hit("status"); return "{}", nil }
+func (f *fakeBackend) RegistrySearch(_ context.Context, q string, _ int) (string, error) {
+	f.hit("registry")
+	return "registry " + q, nil
+}
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
 
@@ -130,6 +134,7 @@ func TestEveryToolReachesItsBackend(t *testing.T) {
 		{"mcpx_log", map[string]any{}, "log"},
 		{"mcpx_stats", map[string]any{}, "stats"},
 		{"mcpx_status", map[string]any{}, "status"},
+		{"mcpx_registry", map[string]any{"query": "weather"}, "registry"},
 	} {
 		if _, isErr := call(t, s, c.tool, c.args); isErr {
 			t.Errorf("%s reported an error", c.tool)

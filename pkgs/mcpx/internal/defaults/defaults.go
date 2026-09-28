@@ -64,6 +64,7 @@ type Defaults struct {
 		LogQueryLimit        int    `json:"logQueryLimit"`
 		RestartBackoffStep   string `json:"restartBackoffStep"`
 		RestartBackoffMax    string `json:"restartBackoffMax"`
+		RegistryTimeout      string `json:"registryTimeout"`
 	} `json:"plumbing"`
 	Catalog struct {
 		Budget int `json:"budget"`
@@ -175,6 +176,7 @@ var (
 	LogQueryLimit        = builtin.Plumbing.LogQueryLimit
 	RestartBackoffStep   = mustDur(builtin.Plumbing.RestartBackoffStep, "plumbing.restartBackoffStep")
 	RestartBackoffMax    = mustDur(builtin.Plumbing.RestartBackoffMax, "plumbing.restartBackoffMax")
+	RegistryTimeout      = mustDur(builtin.Plumbing.RegistryTimeout, "plumbing.registryTimeout")
 
 	CatalogBudget = builtin.Catalog.Budget
 

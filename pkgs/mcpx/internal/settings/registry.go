@@ -309,6 +309,17 @@ func daemonSettings() []Setting {
 func outputSettings() []Setting {
 	return []Setting{
 		{
+			Path: "registry.url", Kind: KindString,
+			Default: "https://registry.modelcontextprotocol.io",
+			Name:    "Registry",
+			Short:   "where `mcpx registry` looks for servers",
+			Long: "The official MCP Registry publishes an OpenAPI specification that " +
+				"other registries implement, so this can point at a vendor's " +
+				"subregistry or one an organisation runs internally to control " +
+				"what its agents can install.",
+			Commands: []string{"registry"},
+		},
+		{
 			Path: "output.json", Kind: KindBool, Default: "false",
 			FlagAliases: []string{"json"},
 			Name:        "JSON output", Short: "emit one machine-readable document",

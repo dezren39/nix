@@ -199,6 +199,31 @@ func (b mcpBackend) Status(ctx context.Context) (string, error) {
 	return string(out), nil
 }
 
+func (b mcpBackend) RegistrySearch(ctx context.Context, query string, limit int) (string, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	servers, err := b.app.registrySearch(ctx, query, limit)
+	if err != nil {
+		return "", err
+	}
+	if len(servers) == 0 {
+		return "Nothing matched. The registry matches server names as a substring, " +
+			"so try one word rather than a phrase.", nil
+	}
+	var sb strings.Builder
+	for _, s := range servers {
+		in, ierr := s.ToInstall(false)
+		how := "not installable by mcpx"
+		if ierr == nil {
+			how = in.How
+		}
+		fmt.Fprintf(&sb, "%s\n    %s\n    %s\n    add with: mcpx registry add %s --write\n",
+			s.Name, firstLine(s.Description), how, s.Name)
+	}
+	return sb.String(), nil
+}
+
 func flatten(attrs map[string]any) string {
 	if len(attrs) == 0 {
 		return ""
@@ -362,11 +387,14 @@ func renderAdapterResult(r *adapter.Result) string {
 func (a *App) runInline(ctx context.Context, source string, out interface {
 	Write([]byte) (int, error)
 }) error {
-	clone := *a
-	clone.stdoutOverride = out
-	clone.machineOutput = true
-	clone.client = a.client
-	return clone.runScript(ctx, []string{source}, true)
+	// The redirection is set and restored rather than done on a copy. An App
+	// holds a sync.Once, and copying one copies the Once -- which vet catches
+	// and which would otherwise mean the clone silently re-resolved every
+	// setting from scratch.
+	prevOut, prevMachine := a.stdoutOverride, a.machineOutput
+	a.stdoutOverride, a.machineOutput = out, true
+	defer func() { a.stdoutOverride, a.machineOutput = prevOut, prevMachine }()
+	return a.runScript(ctx, []string{source}, true)
 }
 
 func firstLine(s string) string {

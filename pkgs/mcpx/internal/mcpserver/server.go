@@ -23,7 +23,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 )
 
 // Backend is what the server exposes. Defined here rather than taken from the
@@ -39,6 +38,7 @@ type Backend interface {
 	Log(ctx context.Context, since, level, event string, limit int) (string, error)
 	Stats(ctx context.Context, dimension string) (string, error)
 	Status(ctx context.Context) (string, error)
+	RegistrySearch(ctx context.Context, query string, limit int) (string, error)
 }
 
 // Extra is a tool contributed from outside the fixed set.
@@ -57,9 +57,6 @@ type Server struct {
 	name    string
 	version string
 	extras  []Extra
-
-	mu      sync.Mutex
-	started bool
 }
 
 // New builds a server.
@@ -68,10 +65,14 @@ func New(b Backend, name, version string) *Server {
 }
 
 // WithExtras returns a server that also offers these tools.
+//
+// A new value rather than a mutation, so a caller cannot change the surface
+// of a server another goroutine is already answering with.
 func (s *Server) WithExtras(extras []Extra) *Server {
-	clone := *s
-	clone.extras = append(append([]Extra(nil), s.extras...), extras...)
-	return &clone
+	return &Server{
+		backend: s.backend, name: s.name, version: s.version,
+		extras: append(append([]Extra(nil), s.extras...), extras...),
+	}
 }
 
 // ---- protocol types ----
@@ -203,6 +204,16 @@ func (s *Server) Tools() []Tool {
 			},"additionalProperties":false}`),
 		},
 		{
+			Name: "mcpx_registry",
+			Description: "Search a public registry of MCP servers that are not yet " +
+				"configured here. Use it when the capability you need does not " +
+				"appear in mcpx_namespaces: the answer includes how to add it.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"query":{"type":"string","description":"one word; the registry matches names as a substring"},
+				"limit":{"type":"integer","description":"default 20"}
+			},"additionalProperties":false}`),
+		},
+		{
 			Name: "mcpx_status",
 			Description: "The daemon, its pools and live instances. Use it when a call " +
 				"behaves oddly and you want to know whether the server is even up.",
@@ -254,9 +265,6 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 
 	switch req.Method {
 	case "initialize":
-		s.mu.Lock()
-		s.started = true
-		s.mu.Unlock()
 		return reply(map[string]any{
 			// Echo the protocol version the client asked for when it is one
 			// we understand, rather than insisting on ours. A client that
@@ -422,6 +430,16 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 			return "", err
 		}
 		return s.backend.Stats(ctx, p.Dimension)
+
+	case "mcpx_registry":
+		var p struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		return s.backend.RegistrySearch(ctx, p.Query, p.Limit)
 
 	case "mcpx_status":
 		return s.backend.Status(ctx)

@@ -47,6 +47,7 @@
     "followPollInterval": "500ms",
     "logQueryLimit": 100,
     "restartBackoffStep": "2s",
-    "restartBackoffMax": "30s"
+    "restartBackoffMax": "30s",
+    "registryTimeout": "30s"
   }
 }

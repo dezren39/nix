@@ -147,6 +147,7 @@ func main() {
 		"serve":      app.CmdServe,
 		"openapi":    app.CmdOpenAPI,
 		"adapter":    app.CmdAdapter,
+		"registry":   app.CmdRegistry,
 	}
 
 	h, ok := handlers[cmd]
