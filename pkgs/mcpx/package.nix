@@ -33,15 +33,22 @@ buildGoModule {
       );
   };
 
-  # One third-party Go dependency: modernc.org/sqlite, which backs the log
-  # index. Everything else -- the MCP client, the process pools, the JSON
-  # Schema to TypeScript compiler, the CLI -- is standard library.
+  # Four direct Go dependencies.
   #
-  # modernc.org/sqlite specifically, rather than the usual mattn driver,
-  # because it is a pure-Go translation of SQLite. A cgo driver would make this
-  # derivation need a C toolchain and would break cross-compilation, for a
-  # database that is only ever an index over the JSONL logs.
-  vendorHash = "sha256-lWVua+XHU33Fc9GzRPrHN82OHlGTPxQvkV8BD+tbx4U=";
+  # modernc.org/sqlite backs the log index. It is a pure-Go translation rather
+  # than the usual mattn driver, because a cgo driver would make this
+  # derivation need a C toolchain and break cross-compilation, for a database
+  # that is only ever a rebuildable index over the JSONL logs.
+  #
+  # bubbletea, bubbles and lipgloss are the full-screen browser. They cost
+  # 1.2 MB in the stripped binary and replace what would otherwise be raw
+  # terminal handling: escape sequences, resize, and a redraw loop. That is
+  # the kind of code that is never finished and never correct on every
+  # terminal.
+  #
+  # Everything else -- the MCP client, the process pools, the JSON Schema to
+  # TypeScript compiler, the CLI -- is standard library.
+  vendorHash = "sha256-OwOX4EoIVtU/vBAHCsUq1j1bcO1BsTBXDk+k/Re2QEg=";
 
   subPackages = [ "cmd/mcpx" ];
 
@@ -65,7 +72,8 @@ buildGoModule {
     export MCPX_STATE_DIR=$TMPDIR/state MCPX_CACHE_DIR=$TMPDIR/cache
     go test ./internal/config/ ./internal/codegen/ ./internal/daemon/ ./internal/pool/ \
       ./internal/logging/ ./internal/logstore/ ./internal/settings/ ./internal/source/ \
-      ./internal/launcher/ ./internal/searchpath/ ./internal/preflight/ ./internal/defaults/
+      ./internal/launcher/ ./internal/searchpath/ ./internal/preflight/ ./internal/defaults/ \
+      ./internal/tui/ ./internal/opencode/
     runHook postCheck
   '';
 

@@ -142,6 +142,16 @@ func Commands() []Command {
 			Summary: "write a starter configuration file",
 		},
 		{
+			Name: "tui", Group: "inspection",
+			Summary: "full-screen browser for namespaces, tools and the log",
+			Detail: "Three panes -- namespaces, their tools, one signature -- so " +
+				"comparing two tools is a keystroke rather than two commands and " +
+				"a scrollback hunt. Also what bare `mcpx` opens when there is a " +
+				"terminal to draw on. Use explore instead when you want the " +
+				"result in scrollback, or the plain commands for scripting.",
+			Examples: []string{"mcpx", "mcpx tui", "mcpx --tui"},
+		},
+		{
 			Name: "explore", Group: "inspection",
 			Summary: "browse namespaces, tools and the log interactively",
 			Detail: "Everything it shows is available from other commands; it exists " +

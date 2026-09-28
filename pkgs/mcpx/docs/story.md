@@ -1467,6 +1467,60 @@ interactive and blocked on a prompt nobody was there to answer.
 
 2026-09-28T07:30:00-05:00
 
+## The browser
+
+```
+created:      2026-09-28T09:00:00-05:00
+last-updated: 2026-09-28T09:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:ux
+description:  three panes, so comparing two tools is a keystroke.
+```
+
+`mcpx tui`, `mcpx --tui`, or just `mcpx` when there is a terminal to draw on.
+
+Three panes -- namespaces, the selected namespace's tools, one signature --
+so the question "which of these two tools do I want" is a cursor move rather
+than two commands and a scrollback hunt. Moving the cursor loads the next
+pane; nothing needs pressing.
+
+`L` switches to the log. `r` refreshes. `/` filters either list.
+
+### Why both this and the prompt
+
+`mcpx explore` and `mcpx tui` answer differently shaped questions. The prompt
+is better when you know what you want and will paste the result somewhere: its
+output stays in scrollback and every screen names the command that produced
+it. The browser is better when you do not know yet, because three panes hold
+more context than a scrolling transcript.
+
+The prompt also works where the browser cannot run -- over a pipe, in CI,
+inside another program -- so neither is a worse version of the other.
+
+### The dependency
+
+bubbletea, bubbles and lipgloss. They cost 1.2 MB in the stripped binary,
+taking it from 11.2 to 12.4 MB, and replace what would otherwise be hand
+written escape sequences, resize handling and a redraw loop. That is code
+which is never finished and never correct on every terminal.
+
+Mouse support is deliberately off. A full-screen program that captures the
+mouse breaks terminal text selection, and losing the ability to copy a tool
+signature costs more than scroll-wheel scrolling is worth.
+
+### Testing a full-screen program
+
+The view reads from an interface, not from the daemon client, so a fake drives
+it in tests. A terminal program that cannot be tested is one that breaks
+quietly, and the failures worth catching are not visual: that moving the
+cursor loads the right namespace, that a late reply for a namespace the cursor
+has already left is dropped rather than shown, and that keys go to the filter
+while it is open -- without that last one, typing a namespace containing "q"
+quits.
+
+2026-09-28T09:00:00-05:00
+
 ## Nix packaging
 
 ```
