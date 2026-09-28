@@ -961,6 +961,287 @@ Per server: `mode`, `max`, `min`, `idleTimeout`, `callTimeout`, `startTimeout`,
 
 2026-09-27T05:05:00-05:00
 
+## One declaration per setting
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  a setting is described once and is then readable from a file, a
+              variable and a flag.
+```
+
+`internal/settings/registry.go` holds every knob mcpx has. Each entry states a
+type, a default, a name, a sentence and a paragraph. From that one description
+the setting becomes readable from a configuration file at its dotted path,
+from a generated `MCPX_` variable, and from a generated flag. There is no
+wiring, so there is nothing to forget to wire.
+
+What this replaces had a flag in one file, a default in another, an
+environment lookup in a third and a struct field in a fourth. That has one
+failure mode and it happened every time: the four drifted, and "what is this
+set to" became "read all four and guess". It also meant settings that were
+documented but unreachable -- the plumbing switches could be set from the
+environment and nowhere else, so a configuration file could describe a value
+it could not apply.
+
+Defaults are written as strings in the syntax a user would type and go through
+the same validator as an override, so a default cannot be invalid.
+
+Precedence runs defaults, then configuration files with the nearest last, then
+the environment, then flags. Every value remembers what it overrode, because
+"why is this not what my config says" is the most common configuration
+question and the answer is now in the value itself.
+
+Two spellings of one setting at the same level is an error. On a command line
+the same spelling twice is not -- that is a person editing their own command,
+and the last one is what they meant. In the environment two variables
+disagreeing genuinely cannot be ordered, so it is refused rather than guessed.
+
+`mcpx config --schema` prints the lot. `--plumbing` adds the internals.
+
+2026-09-28T02:30:00-05:00
+
+## Plumbing
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  internal switches for decisions that could reasonably go either
+              way.
+```
+
+Settings under `plumbing.` control internals. They work, they are documented,
+and there is no ordinary reason to change one.
+
+They exist because the code has guards that could defensibly go the other way.
+Whether a directory may stand in for a source string. Whether a bare argument
+naming a file is read as one. Whether `foo.ts` beside `foo.js` is an error.
+Rather than decide permanently and leave the other half of the world stuck,
+each guard reads a switch.
+
+The cost is a longer list. The benefit is that nobody has to patch the binary
+to get past a decision that was never meant to be final.
+
+They are hidden from ordinary help and left out of shell completion, because
+offering an internal in a tab list is how somebody sets one by accident.
+
+2026-09-28T02:30:00-05:00
+
+## Source that can be a file
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  every string-shaped input also accepts a path, or a directory.
+```
+
+`--prefix`, `--before`, `--on-error`, `--launcher` and the rest accept inline
+source, a path to a file, or a directory whose files are concatenated.
+
+The reason is that a snippet does not stay one line. The moment it grows,
+keeping it in a command is unpleasant and keeping it in JSON is unreadable.
+Making each setting accept either form costs one resolver; forcing the choice
+up front costs a rewrite at exactly the point the answer becomes obvious.
+
+Detection is by probe: a value naming something on disk is read as it. `@text:`
+and `@file:` force the interpretation for the case where a snippet genuinely
+collides with a filename, and `plumbing.sourceProbePaths` turns the probe off.
+
+A directory is concatenated in natural order, so `9` comes before `10`. Byte
+order gets that backwards, which is wrong for precisely the case the feature
+serves -- fragments numbered to control their order. Each file is named in a
+comment above its contents, because a stack trace into a concatenation is
+otherwise unattributable.
+
+2026-09-28T02:30:00-05:00
+
+## The launcher is replaceable
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  a template with named holes, replaceable wholesale or removable
+              entirely.
+```
+
+A script runs inside a generated launcher. That launcher is a template with
+named holes:
+
+```
+@header @globals @console @before @prefix @import @entry @onSuccess @onError @suffix
+```
+
+`--launcher` replaces it with source or a file. `--no-launcher` removes it
+entirely: the script is handed to the runtime with nothing installed, nothing
+captured and nothing wrapping the error.
+
+Fills may reference each other, which is what makes rearrangement possible
+rather than just substitution -- a suffix ending in `@prefix` runs the prefix
+again on the way out. That also makes cycles possible, so the reference graph
+is checked before anything is substituted and a loop is reported by naming the
+path that closed it. Left unchecked it would be a hang, found by waiting.
+
+A placeholder resolving twice is an error unless named in
+`plumbing.launcherPlaceholderRepeat`, because the usual cause is a mistake that
+silently doubles an effect. The entry block is braced so a permitted repeat
+genuinely runs twice -- allowing a repeat and then emitting code that cannot
+parse would be worse than refusing it.
+
+A misspelled placeholder is caught by near-miss comparison, including
+transpositions, because `@entyr` for `@entry` is a swap and plain edit distance
+scores that as two changes. Left in place it becomes a syntax error from the
+runtime pointing at a line the user did not write.
+
+`--launcher` takes a required value and `--no-launcher` is separate. An
+optional-value flag reads better, but Go implements that only by treating the
+flag as boolean, and then `--launcher mine.ts` silently runs `mine.ts` as the
+script with no launcher at all. That was found by testing rather than reading.
+
+2026-09-28T02:30:00-05:00
+
+## Search paths
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  lists with a splice point, accepting files as well as
+              directories.
+```
+
+`paths.scripts` and `paths.config` are lists. A null entry stands for the
+built-in locations, so `["./mine", null]` searches yours first and then the
+usual places without restating them. A list without a null replaces outright,
+which is what most people mean most of the time.
+
+An entry may name a file rather than a directory. Somebody with one script in
+an odd place should be able to point at it without inventing a directory to
+hold it.
+
+A name matching both `foo.ts` and `foo.js` is refused. Which one runs was a
+coin flip, and preferring one quietly means an edit to the other does nothing
+with no indication why. `plumbing.allowTsJsOverlap` permits it, and then `.ts`
+wins, because a project holding both is almost always compiling one into the
+other.
+
+When a script is not found, the error prints the path that was actually
+searched, marking what was missing and what was a file. That is the question
+being asked.
+
+2026-09-28T02:30:00-05:00
+
+## Checking before running
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  everything knowable is checked before a server starts.
+```
+
+A malformed `--env` pair, an unreadable hook, a log directory that is a file --
+all knowable before any work begins, all previously found later and more
+expensively. A bad `--env` pair was silently ignored, so the script ran without
+the variable and behaved as though it had never been asked for.
+
+Everything is checked in one pass, so a run with three bad paths reports three
+problems rather than the first and then two more runs. A missing writable
+directory is created rather than refused, because the intent is unambiguous. A
+missing optional path is a warning, because refusing to start over an empty
+script directory would make every fresh checkout noisy.
+
+`--typecheck` resolves and checks the generated program without running it,
+which answers "will every import resolve" before the servers are up. Off by
+default because it costs a second or two on a cold module cache; worth turning
+on for anything scheduled, where the cost is irrelevant and a broken import at
+three in the morning is not. Under Node and Bun it reports that it cannot run
+rather than pretending it did, because those strip types instead of checking
+them.
+
+2026-09-28T02:30:00-05:00
+
+## What the console does and does not capture
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:logging
+description:  console is redirected, faithfully; raw byte writes are not.
+```
+
+All twenty-five console members are handled. Those carrying a level become
+that level. `console.log` still reaches stdout, because stdout is the script's
+result. `trace` carries structured frames, `clear` resets indentation without
+erasing a durable log, and the devtools markers become file-only records rather
+than vanishing.
+
+The test that matters compares a script's output under capture against the same
+script run with `--no-launcher`, line for line. Not "does it log" but "is it
+the same". That formulation is the only one that cannot drift, and it caught
+format specifiers: `console.info("%s scored %d", name, n)` was rendering as the
+template beside its arguments instead of substituting them.
+
+Names are preserved, so `console.info.name` is still `"info"`. Messages use the
+runtime's own inspect, so `console.info({a:1})` reads `{ a: 1 }` exactly as it
+would unwrapped -- the structured value is already in `args`, so the message is
+free to be the human form.
+
+`console.createTask()` throws when called bare. So does Deno's. The test
+compares against the unwrapped console rather than asserting nothing throws,
+because matching the original includes matching its failures.
+
+**Raw writes are not captured.** `Deno.stdout.write` and `Deno.stderr.write`
+go straight out. A script reaching for bytes has asked for bytes, and wrapping
+them in records would be the wrong answer. Use `console` or `log` for anything
+meant to be recorded.
+
+2026-09-28T02:30:00-05:00
+
+## Structured stack traces
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:logging
+description:  frames as data, from V8, in all three runtimes.
+```
+
+`Error.prepareStackTrace` is V8-specific and in no standard, and works in Deno,
+Node and Bun alike. It hands back call sites instead of a formatted string, so
+frames arrive as data: function, file, line, column, and the async and native
+flags. Parsing the string form loses those flags and breaks on any path
+containing the characters the format uses as delimiters.
+
+One trap is worth recording. **V8 memoises whatever `prepareStackTrace`
+returned the first time `.stack` is read.** Asking for frames destroys the
+string; asking for the string destroys the frames. Both are wanted, so frames
+are captured and the string is rendered from them. Two attempts at this each
+lost one form before a test asserted both survive.
+
+`captureFrames(skip, limit)` and `errorFrames(err)` are available to scripts.
+
+2026-09-28T02:30:00-05:00
+
 ## Nix packaging
 
 ```
@@ -973,13 +1254,22 @@ description:  buildGoModule with vendorHash = null; unit tests run in the
               sandbox; deno, bun and node are pinned on the wrapper's PATH.
 ```
 
-mcpx has no third-party Go dependencies, so `vendorHash = null` and there is
-nothing to audit. The wrapper suffixes `deno`, `bun-bin` and `nodejs` onto
-`PATH` so script execution does not depend on the calling shell.
+mcpx has one third-party Go dependency: `modernc.org/sqlite`, which backs the
+log index. It is a pure-Go translation rather than the usual cgo driver,
+because a cgo driver would make this derivation need a C toolchain and would
+break cross-compilation, for a database that is only ever an index over files
+that remain the source of truth.
 
-`nix build .#mcpx` runs the config, codegen, daemon and pool suites in the
-sandbox. The end-to-end suite spawns JavaScript runtimes and binds unix sockets,
-so it runs outside with `go test ./...`.
+The wrapper suffixes `deno`, `bun-bin` and `nodejs` onto `PATH` so script
+execution does not depend on the calling shell.
+
+The man page and the shell completions are generated by the binary the build
+just produced, so they describe the commands and settings this build actually
+has. A man page maintained separately is wrong within two releases.
+
+`nix build .#mcpx` runs the unit suites in the sandbox. The end-to-end suite
+spawns JavaScript runtimes and binds unix sockets, so it runs outside with
+`go test ./...`.
 
 2026-09-27T05:05:00-05:00
 
