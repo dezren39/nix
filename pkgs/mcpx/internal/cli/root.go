@@ -18,6 +18,7 @@ import (
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 func newFlagSet(name string) *flag.FlagSet {
@@ -140,12 +141,42 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	return srv.Serve(ctx)
 }
 
+// CmdMan prints the manual page.
+//
+// Generated rather than written, from the same command table and setting
+// registry the program itself uses. A hand-written man page is wrong within
+// two releases; this one is wrong only if the code is.
+func (a *App) CmdMan(ctx context.Context, args []string) error {
+	fs := newFlagSet("man")
+	install := fs.String("install", "", "write the page into this directory as man1/mcpx.1")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	page := ManPage(a.Version)
+	if *install == "" {
+		fmt.Print(page)
+		return nil
+	}
+	dir := filepath.Join(*install, "man1")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "mcpx.1")
+	if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
+		return err
+	}
+	fmt.Println(path)
+	return nil
+}
+
 // CmdConfig prints the resolved configuration.
 func (a *App) CmdConfig(ctx context.Context, args []string) error {
 	fs := newFlagSet("config")
 	showPath := fs.Bool("path", false, "print only the nearest config file path")
 	showSources := fs.Bool("sources", false, "show every file that contributed, and which defined each server")
 	showDefaults := fs.Bool("defaults", false, "print the built-in default layer that underlies every config")
+	showSchema := fs.Bool("schema", false, "print every setting, with its flag and variable")
+	withPlumbing := fs.Bool("plumbing", false, "include internal settings in --schema")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -153,6 +184,21 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 	// is a magic number with extra steps.
 	if *showDefaults {
 		fmt.Println(strings.TrimRight(string(defaults.BuiltinJSON()), "\n"))
+		return nil
+	}
+	if *showSchema {
+		sch, serr := settings.New(settings.Registry())
+		if serr != nil {
+			return serr
+		}
+		if a.JSON {
+			fmt.Println(sch.JSON(*withPlumbing))
+			return nil
+		}
+		fmt.Print(sch.Describe(*withPlumbing))
+		if !*withPlumbing {
+			fmt.Println("\n(--plumbing also lists internal settings)")
+		}
 		return nil
 	}
 	cfg, err := config.Load(a.ConfigPath)
@@ -288,9 +334,91 @@ func joinLines(ss []string) string {
 }
 
 // CmdHelp prints usage.
-func (a *App) CmdHelp(context.Context, []string) error {
-	fmt.Print(usage)
+func (a *App) CmdHelp(_ context.Context, args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Print(usage)
+		return nil
+	}
+	return a.helpFor(args[0])
+}
+
+// helpFor prints one command in detail, plus every setting that applies to
+// it. Both come from the same declarations the program runs on, so help
+// cannot describe a flag that does not exist or omit one that does.
+func (a *App) helpFor(name string) error {
+	var found *Command
+	for _, c := range Commands() {
+		if c.Name == name {
+			found = &c
+			break
+		}
+		for _, alias := range c.Aliases {
+			if alias == name {
+				found = &c
+				break
+			}
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("no command %q; run `mcpx help` for the list", name)
+	}
+	usageLine := found.Usage
+	if usageLine != "" {
+		usageLine = " " + usageLine
+	}
+	fmt.Printf("mcpx %s%s\n\n  %s\n", found.Name, usageLine, found.Summary)
+	if len(found.Aliases) > 0 {
+		fmt.Printf("  also: %s\n", strings.Join(found.Aliases, ", "))
+	}
+	if found.Detail != "" {
+		fmt.Printf("\n%s\n", wrapAt(found.Detail, 76, "  "))
+	}
+	if len(found.Examples) > 0 {
+		fmt.Println("\nEXAMPLES")
+		for _, ex := range found.Examples {
+			fmt.Printf("  %s\n", ex)
+		}
+	}
+	sch, err := settings.New(settings.Registry())
+	if err != nil {
+		return err
+	}
+	applicable := sch.ForCommand(found.Name)
+	var lines []string
+	for _, set := range applicable {
+		if set.Plumbing {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  --%-26s %s", set.FlagName(), set.Short))
+	}
+	if len(lines) > 0 {
+		fmt.Println("\nSETTINGS (also readable from config and the environment)")
+		fmt.Println(strings.Join(lines, "\n"))
+		fmt.Println("\n  mcpx config --schema   shows every setting with its variable")
+	}
 	return nil
+}
+
+// wrapAt is a plain greedy wrap. Help that runs off the side of a terminal is
+// help nobody finishes reading.
+func wrapAt(text string, width int, indent string) string {
+	words := strings.Fields(text)
+	var lines []string
+	line := indent
+	for _, w := range words {
+		if len(line)+len(w)+1 > width && strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+			line = indent
+		}
+		if strings.TrimSpace(line) != "" {
+			line += " "
+		}
+		line += w
+	}
+	if strings.TrimSpace(line) != "" {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 const usage = `mcpx - run TypeScript against your MCP servers from the command line

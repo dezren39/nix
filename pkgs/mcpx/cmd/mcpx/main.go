@@ -22,6 +22,29 @@ func splitList(s string) []string {
 	return strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' })
 }
 
+// looksRunnable reports whether a bare first argument should be run, and as
+// what. It is deliberately conservative: a bare word that is not a file is
+// left to fail as an unknown command, because guessing that `mcpx serach` was
+// a snippet would replace a clear error with a baffling one.
+func looksRunnable(arg string) string {
+	if arg == "" || strings.HasPrefix(arg, "-") {
+		return ""
+	}
+	for _, ext := range []string{".ts", ".js", ".mts", ".mjs"} {
+		if strings.HasSuffix(arg, ext) {
+			return "file"
+		}
+	}
+	if strings.ContainsAny(arg, "(){};=") || strings.Contains(arg, "await ") ||
+		strings.Contains(arg, "console.") || strings.Contains(arg, "tools.") {
+		return "source"
+	}
+	if st, err := os.Stat(arg); err == nil && !st.IsDir() {
+		return "file"
+	}
+	return ""
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -88,17 +111,33 @@ func main() {
 		"stop":       app.CmdStop,
 		"daemons":    app.CmdDaemons,
 		"scripts":    app.CmdScripts,
+		"log":        app.CmdLog,
+		"logs":       app.CmdLog,
+		"stats":      app.CmdStats,
 		"daemon":     app.CmdDaemon,
 		"config":     app.CmdConfig,
 		"init":       app.CmdInit,
 		"help":       app.CmdHelp,
+		"man":        app.CmdMan,
 	}
 
 	h, ok := handlers[cmd]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
-		_ = app.CmdHelp(ctx, nil)
-		os.Exit(2)
+		// An argument that is obviously a script or a snippet runs, rather
+		// than being refused for not being a subcommand. The alternative --
+		// insisting on `mcpx run` -- rejects the most natural thing to type
+		// in order to protect a namespace that has no collisions in it.
+		if kind := looksRunnable(cmd); kind != "" {
+			if kind == "file" {
+				h, rest = app.CmdRun, args
+			} else {
+				h, rest = app.CmdExec, args
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
+			_ = app.CmdHelp(ctx, nil)
+			os.Exit(2)
+		}
 	}
 
 	if err := h(ctx, rest); err != nil {

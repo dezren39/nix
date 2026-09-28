@@ -26,39 +26,46 @@ func poolSettings() []Setting {
 	return []Setting{
 		{
 			Path: "pool.max", Kind: KindInt, Default: "4",
-			Name:  "Maximum instances",
-			Short: "how many copies of one server may run at once",
+			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
+			Name:     "Maximum instances",
+			Short:    "how many copies of one server may run at once",
 			Long: "A shared server is reused by every caller, so the ceiling only " +
 				"matters for exclusive ones. Raising it trades memory for parallelism.",
 		},
 		{
 			Path: "pool.min", Kind: KindInt, Default: "0",
-			Name:  "Warm instances",
-			Short: "how many copies to keep started even when idle",
+			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
+			Name:     "Warm instances",
+			Short:    "how many copies to keep started even when idle",
 			Long: "Above zero, that many instances survive the idle timeout. This is " +
 				"the knob for a server whose startup is slow enough to notice.",
 		},
 		{
 			Path: "pool.idleTimeout", Kind: KindDuration, Default: "5m",
-			Name: "Idle timeout", Short: "how long an unused server lingers before it is stopped",
+			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
+			Name:     "Idle timeout", Short: "how long an unused server lingers before it is stopped",
 		},
 		{
 			Path: "pool.callTimeout", Kind: KindDuration, Default: "120s",
-			Name: "Call timeout", Short: "how long one tool call may take",
+			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
+			Name:     "Call timeout", Short: "how long one tool call may take",
 		},
 		{
 			Path: "pool.startTimeout", Kind: KindDuration, Default: "60s",
-			Name: "Start timeout", Short: "how long a server has to become ready",
+			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
+			Name:     "Start timeout", Short: "how long a server has to become ready",
 		},
 		{
 			Path: "pool.sharing", Kind: KindEnum, Default: "shared",
-			Enum: []string{"shared", "exclusive"},
-			Name: "Sharing", Short: "whether callers reuse one instance or each get their own",
+			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
+			Enum:     []string{"shared", "exclusive"},
+			Name:     "Sharing", Short: "whether callers reuse one instance or each get their own",
 		},
 		{
 			Path: "pool.scope", Kind: KindEnum, Default: "global",
-			Enum: []string{"global", "repo", "worktree", "cwd", "session", "parent-session", "pid", "call"},
-			Name: "Scope", Short: "what counts as the same caller for sharing purposes",
+			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
+			Enum:     []string{"global", "repo", "worktree", "cwd", "session", "parent-session", "pid", "call"},
+			Name:     "Scope", Short: "what counts as the same caller for sharing purposes",
 		},
 	}
 }
@@ -131,6 +138,11 @@ func loggingSettings() []Setting {
 	}
 }
 
+// runCommands are the commands that execute user code. The script settings
+// only appear in their help, because a flag offered where it does nothing is
+// worse than one that is missing: it implies an effect.
+var runCommands = []string{"run", "exec"}
+
 func scriptSettings() []Setting {
 	srcLong := "Accepts inline source, a path to a file, or -- where permitted -- a " +
 		"directory whose files are concatenated in natural order. An argument " +
@@ -139,20 +151,20 @@ func scriptSettings() []Setting {
 
 	return []Setting{
 		{
-			Path: "script.runtime", Kind: KindEnum, Default: "auto",
+			Path: "script.runtime", Commands: runCommands, Kind: KindEnum, Default: "auto",
 			Enum:        []string{"auto", "deno", "bun", "node"},
 			FlagAliases: []string{"runtime"},
 			Name:        "Runtime", Short: "which JavaScript runtime executes the script",
 		},
 		{
-			Path: "script.permissions", Kind: KindString, Default: "all",
+			Path: "script.permissions", Commands: runCommands, Kind: KindString, Default: "all",
 			FlagAliases: []string{"permissions"},
 			Name:        "Permissions", Short: "the sandbox profile, or raw runtime flags",
 			Long: "One of all, net, read, read-net, strict, or flags passed through " +
 				"verbatim. The default is wide open because the scripts are yours.",
 		},
 		{
-			Path: "script.captureConsole", Kind: KindBool, Default: "true",
+			Path: "script.captureConsole", Commands: runCommands, Kind: KindBool, Default: "true",
 			Name:  "Capture console",
 			Short: "route console calls into the log",
 			Long: "When on, console.info and friends become records. console.log still " +
@@ -161,7 +173,7 @@ func scriptSettings() []Setting {
 				"bytes gets bytes.",
 		},
 		{
-			Path: "script.launcher", Kind: KindSource, Default: "",
+			Path: "script.launcher", Commands: runCommands, Kind: KindSource, Default: "",
 			Name:  "Launcher",
 			Short: "replace the generated launcher entirely",
 			Long: "Given source or a file, that becomes the launcher, with @entry, " +
@@ -172,22 +184,22 @@ func scriptSettings() []Setting {
 			AllowDir: false,
 		},
 		{
-			Path: "script.before", Kind: KindSource, Default: "", Repeatable: true,
+			Path: "script.before", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Name: "Before phase", Short: "runs first, ahead of the globals being installed",
 			Long: srcLong, AllowDir: false,
 		},
 		{
-			Path: "script.prefix", Kind: KindSource, Default: "", Repeatable: true,
+			Path: "script.prefix", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Name: "Prefix phase", Short: "runs after globals are installed, before the script",
 			Long: srcLong, AllowDir: false,
 		},
 		{
-			Path: "script.onSuccess", Kind: KindSource, Default: "", Repeatable: true,
+			Path: "script.onSuccess", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Name: "On success", Short: "runs when the script returns without throwing",
 			Long: srcLong, AllowDir: false,
 		},
 		{
-			Path: "script.onError", Kind: KindSource, Default: "", Repeatable: true,
+			Path: "script.onError", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Name:  "On error",
 			Short: "runs when the script throws; the error still propagates",
 			Long: "A hook, not a handler. The error is rethrown afterwards, so the exit " +
@@ -195,12 +207,12 @@ func scriptSettings() []Setting {
 			AllowDir: false,
 		},
 		{
-			Path: "script.suffix", Kind: KindSource, Default: "", Repeatable: true,
+			Path: "script.suffix", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Name: "Suffix phase", Short: "runs last on both paths, like a finally",
 			Long: srcLong, AllowDir: false,
 		},
 		{
-			Path: "script.typecheck", Kind: KindEnum, Default: "off",
+			Path: "script.typecheck", Commands: runCommands, Kind: KindEnum, Default: "off",
 			Enum:  []string{"off", "on", "strict"},
 			Name:  "Type check",
 			Short: "check the generated program before running it",
@@ -209,7 +221,7 @@ func scriptSettings() []Setting {
 				"default rather than on.",
 		},
 		{
-			Path: "script.env", Kind: KindList, Default: "", Repeatable: true,
+			Path: "script.env", Commands: runCommands, Kind: KindList, Default: "", Repeatable: true,
 			FlagAliases: []string{"env"},
 			Name:        "Extra environment", Short: "KEY=VALUE pairs added to the script's environment",
 		},
@@ -260,6 +272,7 @@ func daemonSettings() []Setting {
 		},
 		{
 			Path: "daemon.port", Kind: KindInt, Default: "0",
+			Commands:    []string{"daemon", "status"},
 			FlagAliases: []string{"port"},
 			Name:        "Port", Short: "listen on a TCP port instead of choosing one",
 		},
@@ -288,17 +301,20 @@ func outputSettings() []Setting {
 		},
 		{
 			Path: "catalog.budget", Kind: KindInt, Default: "2000",
+			Commands:    []string{"catalog", "types", "ls", "search"},
 			FlagAliases: []string{"budget"},
 			Name:        "Catalog budget", Short: "token ceiling for the catalog listing",
 		},
 		{
 			Path: "catalog.bias", Kind: KindList, Default: "", Repeatable: true,
+			Commands:    []string{"catalog", "search"},
 			FlagAliases: []string{"bias"},
 			Name:        "Catalog bias", Short: "words that pull matching tools toward the front",
 		},
 		{
 			Path: "catalog.instructions", Kind: KindBool, Default: "true",
-			Name: "Server instructions", Short: "include each server's own instructions",
+			Commands: []string{"catalog", "types", "ls"},
+			Name:     "Server instructions", Short: "include each server's own instructions",
 		},
 	}
 }
