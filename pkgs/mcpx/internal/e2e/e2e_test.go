@@ -2026,3 +2026,50 @@ func TestLogRecordRejectsWhatIsNotAnObject(t *testing.T) {
 		t.Fatal("an array is not a record")
 	}
 }
+
+// TestEveryTuiViewProducesRowsFromRealData exercises the source
+// implementations against a real store. The view itself is tested with a
+// fake; this is the other half -- that the queries behind each view actually
+// return something, which a fake can never tell you.
+func TestEveryTuiViewProducesRowsFromRealData(t *testing.T) {
+	e := newEnv(t, oneServer)
+	// Generate something to report on.
+	e.run("exec", `const r = await demo.echo({ message: "hi" }); emit(r);`)
+	e.run("log", "record", `{"event":"harness.tool","tool":"bash"}`)
+
+	out := e.run("--json", "tui", "--dump")
+	var dump map[string]struct {
+		Columns []string   `json:"columns"`
+		Rows    [][]string `json:"rows"`
+		Note    string     `json:"note"`
+		Error   string     `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &dump); err != nil {
+		t.Fatalf("--dump should be parseable: %v\n%s", err, out)
+	}
+	for _, view := range []string{"stats:calls", "servers", "storage", "sessions"} {
+		got, ok := dump[view]
+		if !ok {
+			t.Errorf("%s is missing from the dump", view)
+			continue
+		}
+		if got.Error != "" {
+			t.Errorf("%s failed: %s", view, got.Error)
+			continue
+		}
+		if len(got.Columns) == 0 {
+			t.Errorf("%s has no columns", view)
+		}
+	}
+	// Storage always has something: the index itself exists by now.
+	if len(dump["storage"].Rows) == 0 {
+		t.Errorf("storage should list at least the index: %+v", dump["storage"])
+	}
+	if !strings.Contains(dump["storage"].Note, "total") {
+		t.Errorf("storage should total what it found: %q", dump["storage"].Note)
+	}
+	// And calls, because a tool call was just made.
+	if len(dump["stats:calls"].Rows) == 0 {
+		t.Errorf("a call was made; stats should show it: %+v", dump["stats:calls"])
+	}
+}

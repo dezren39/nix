@@ -33,16 +33,30 @@ import type { Plugin } from "@opencode-ai/plugin"
  *
  * ## Configuration
  *
- *   MCPX_PLUGIN_ENV=minimal|standard|full   how much to inject (default standard)
+ *   MCPX_PLUGIN_ENV=minimal|standard|full   how much to inject (default full)
  *   MCPX_PLUGIN_INSTRUCTIONS=1              add mcpx usage to the system prompt
  *   MCPX_PLUGIN_TOOL_TIMING=1               record tool outcomes into mcpx's log
  */
 
 type Level = "minimal" | "standard" | "full"
 
+/**
+ * How much to inject. Full by default.
+ *
+ * Environment variables are not context -- the model never sees them, and an
+ * unread one costs a few bytes. So the default is everything already in hand,
+ * on the reasoning that a variable nobody reads is cheaper than a variable
+ * that is missing and needs another release to add.
+ *
+ * The session lookup that `full` performs happens once per session and is
+ * cached, so the cost is one request per session rather than per command.
+ * `standard` exists for anyone who would rather not have that request at all,
+ * and `minimal` is the session id alone -- the only part leasing strictly
+ * requires.
+ */
 const level = (): Level => {
-  const v = (process.env.MCPX_PLUGIN_ENV ?? "standard").toLowerCase()
-  return v === "minimal" || v === "full" ? v : "standard"
+  const v = (process.env.MCPX_PLUGIN_ENV ?? "full").toLowerCase()
+  return v === "minimal" || v === "standard" ? v : "full"
 }
 
 const on = (name: string): boolean => {
