@@ -32,6 +32,17 @@ func (s *Schema) ApplyFile(set *Set, doc map[string]any, path string, rank int) 
 	var unknown []string
 	for _, k := range keys {
 		if _, ok := s.Lookup(k); !ok {
+			// A key that is only a branch -- "logging", when "logging.level"
+			// is a setting -- is not unknown, it is the path to one. And a
+			// section that is not settings at all, like mcpServers, is the
+			// document's own content.
+			//
+			// Reporting those made the warning useless: it listed every
+			// section and every server, so a real typo was invisible among
+			// them.
+			if s.isBranch(k) || notASetting(k) {
+				continue
+			}
 			unknown = append(unknown, k)
 			continue
 		}
@@ -48,6 +59,32 @@ func (s *Schema) ApplyFile(set *Set, doc map[string]any, path string, rank int) 
 		set.unknown = append(set.unknown, UnknownKeys{File: path, Keys: unknown})
 	}
 	return nil
+}
+
+// isBranch reports whether a key is the prefix of a real setting.
+func (s *Schema) isBranch(key string) bool {
+	prefix := key + "."
+	for _, set := range s.settings {
+		if strings.HasPrefix(set.Path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// notASetting names the top-level sections a configuration file holds that
+// are content rather than configuration.
+func notASetting(key string) bool {
+	head := key
+	if i := strings.IndexByte(key, '.'); i >= 0 {
+		head = key[:i]
+	}
+	switch head {
+	case "mcpServers", "servers", "adapters", "apis", "profiles",
+		"$schema", "script", "plumbing":
+		return true
+	}
+	return false
 }
 
 // UnknownKeys is a key in a config file that no setting claims.

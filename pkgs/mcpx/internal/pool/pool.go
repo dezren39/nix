@@ -119,6 +119,7 @@ type Pool struct {
 	schemaMu     sync.RWMutex
 	tools        []mcpclient.Tool
 	resources    []mcpclient.Resource
+	prompts      []mcpclient.Prompt
 	instructions string
 	schemaAt     time.Time
 	schemaErr    error
@@ -456,11 +457,22 @@ func (p *Pool) RefreshSchemas(ctx context.Context) ([]mcpclient.Tool, []mcpclien
 	if cl.Supports("resources") {
 		resources, _ = cl.ListResources(ctx)
 	}
+	// Prompts are the part of MCP that is not tools: a server saying "here
+	// is the wording that works for this". A server publishing a good one
+	// has encoded expertise that would otherwise be rediscovered by whoever
+	// writes the request, and returning an empty list -- which is what mcpx
+	// did -- throws that away.
+	var prompts []mcpclient.Prompt
+	if cl.Supports("prompts") {
+		prompts, _ = cl.ListPrompts(ctx)
+	}
 
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Name < resources[j].Name })
+	sort.Slice(prompts, func(i, j int) bool { return prompts[i].Name < prompts[j].Name })
 
 	p.schemaMu.Lock()
+	p.prompts = prompts
 	p.tools, p.resources, p.schemaErr, p.schemaAt = tools, resources, nil, time.Now()
 	p.instructions = cl.Instructions
 	p.schemaMu.Unlock()
@@ -499,6 +511,25 @@ func (p *Pool) CachedSchemas() ([]mcpclient.Tool, []mcpclient.Resource, time.Tim
 	p.schemaMu.RLock()
 	defer p.schemaMu.RUnlock()
 	return p.tools, p.resources, p.schemaAt
+}
+
+// CachedPrompts returns the prompts last seen.
+func (p *Pool) CachedPrompts() []mcpclient.Prompt {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+	return p.prompts
+}
+
+// GetPrompt renders one prompt on a leased instance.
+func (p *Pool) GetPrompt(ctx context.Context, sessionKey, name string, args map[string]string) (json.RawMessage, error) {
+	lease, err := p.Acquire(ctx, sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	defer lease.Release()
+	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
+	defer cancel()
+	return lease.Client().GetPrompt(cctx, name, args)
 }
 
 // Call runs a tool on a leased instance.

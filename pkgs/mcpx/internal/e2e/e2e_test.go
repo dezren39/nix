@@ -85,6 +85,21 @@ func (e *env) try(args ...string) (string, error) {
 	return string(out), err
 }
 
+// runStdin runs mcpx with something on standard input, which is how a
+// protocol server is spoken to.
+func (e *env) runStdin(stdin string, args ...string) string {
+	e.t.Helper()
+	cmd := exec.Command(e.mcpx, args...)
+	cmd.Dir = e.dir
+	cmd.Env = e.envVars
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		e.t.Fatalf("mcpx %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}
+
 func (e *env) run(args ...string) string {
 	e.t.Helper()
 	out, err := e.try(args...)
@@ -2071,5 +2086,91 @@ func TestEveryTuiViewProducesRowsFromRealData(t *testing.T) {
 	// And calls, because a tool call was just made.
 	if len(dump["stats:calls"].Rows) == 0 {
 		t.Errorf("a call was made; stats should show it: %+v", dump["stats:calls"])
+	}
+}
+
+func TestPromptsAndResourcesReachThroughFromUpstream(t *testing.T) {
+	// Prompts are the half of MCP that is not tools. mcpx reported none,
+	// which threw away everything a server published that was not a
+	// function.
+	e := newEnv(t, oneServer)
+
+	prompts := e.run("prompts")
+	if !strings.Contains(prompts, "summarise") {
+		t.Errorf("the server's prompt should be listed:\n%s", prompts)
+	}
+	if !strings.Contains(prompts, "text, style?") {
+		t.Errorf("required and optional arguments should be distinguished:\n%s", prompts)
+	}
+
+	rendered := e.run("prompts", "demo.summarise", "text=a long document", "style=in one line")
+	if !strings.Contains(rendered, "Summarise in one line: a long document") {
+		t.Errorf("arguments should be substituted:\n%s", rendered)
+	}
+
+	resources := e.run("resources")
+	if !strings.Contains(resources, "demo://greeting") {
+		t.Errorf("the server's resource should be listed:\n%s", resources)
+	}
+	read := e.run("resources", "demo/demo://greeting")
+	if !strings.Contains(read, "hello from a resource") {
+		t.Errorf("reading it should return its contents:\n%s", read)
+	}
+}
+
+func TestTheMCPServerAdvertisesWhatItActuallyHas(t *testing.T) {
+	// Returning empty lists while declaring the capability is a lie a client
+	// cannot detect: it asks once, gets nothing, and never asks again.
+	e := newEnv(t, oneServer)
+	out := e.runStdin(
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`+"\n"+
+			`{"jsonrpc":"2.0","id":2,"method":"prompts/list"}`+"\n"+
+			`{"jsonrpc":"2.0","id":3,"method":"resources/list"}`+"\n",
+		"serve")
+
+	if !strings.Contains(out, "summarise") {
+		t.Errorf("prompts/list should pass through:\n%s", out)
+	}
+	if !strings.Contains(out, "greeting") {
+		t.Errorf("resources/list should pass through:\n%s", out)
+	}
+}
+
+func TestDoctorFindsAServerWhoseCommandIsMissing(t *testing.T) {
+	// The single most common cause of "mcpx does not work", and invisible
+	// until something tries to call it.
+	e := newEnv(t, `{"mcpServers":{"ghost":{"command":"definitely-not-installed-xyz"}}}`)
+	out, err := e.try("doctor")
+	if err == nil {
+		t.Fatal("an unrunnable server should make doctor unhealthy")
+	}
+	if !strings.Contains(out, "definitely-not-installed-xyz") {
+		t.Errorf("the missing command should be named:\n%s", out)
+	}
+	if !strings.Contains(out, "remove those servers") {
+		t.Errorf("a check that only reports leaves the reader where they started:\n%s", out)
+	}
+}
+
+func TestDoctorIsQuietWhenEverythingIsFine(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("doctor")
+	if strings.Contains(out, "FAIL") {
+		t.Errorf("a healthy install should have nothing to report:\n%s", out)
+	}
+	// Section names and mcpServers are the document's own content, not
+	// typos. Reporting them made the warning useless by burying real ones.
+	if strings.Contains(out, "mcpServers") {
+		t.Errorf("config sections should not read as unknown keys:\n%s", out)
+	}
+}
+
+func TestDoctorStillCatchesARealTypo(t *testing.T) {
+	cfg := strings.TrimSuffix(strings.TrimSpace(oneServer), "}") +
+		`, "logging": { "levl": "debug" } }`
+	e := newEnv(t, cfg)
+	out := e.run("doctor")
+	if !strings.Contains(out, "logging.levl") {
+		t.Errorf("a misspelled key should still be reported:\n%s", out)
 	}
 }

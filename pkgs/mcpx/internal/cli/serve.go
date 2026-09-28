@@ -408,3 +408,167 @@ func firstLine(s string) string {
 	}
 	return strings.TrimSpace(s)
 }
+
+// Resources passes through what the upstream servers publish.
+func (b mcpBackend) Resources(ctx context.Context) ([]mcpserver.ResourceRef, error) {
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
+		return nil, err
+	}
+	list, err := c.Resources(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcpserver.ResourceRef, 0, len(list))
+	for _, r := range list {
+		// Namespaced, because two servers may publish the same URI and a
+		// caller has no way to say which one it meant otherwise.
+		out = append(out, mcpserver.ResourceRef{
+			URI:         "mcpx://" + r.Namespace + "/" + strings.TrimPrefix(r.URI, "/"),
+			Name:        r.Name,
+			Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
+			MimeType:    r.MimeType,
+		})
+	}
+	return out, nil
+}
+
+// Prompts passes through what the upstream servers publish.
+func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) {
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
+		return nil, err
+	}
+	list, err := c.Prompts(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcpserver.PromptRef, 0, len(list))
+	for _, p := range list {
+		args := make([]mcpserver.PromptArg, 0, len(p.Arguments))
+		for _, a := range p.Arguments {
+			args = append(args, mcpserver.PromptArg{
+				Name: a.Name, Description: a.Description, Required: a.Required,
+			})
+		}
+		out = append(out, mcpserver.PromptRef{
+			Name:        p.Namespace + "_" + p.Name,
+			Title:       p.Title,
+			Description: p.Description,
+			Arguments:   args,
+		})
+	}
+	return out, nil
+}
+
+// ReadResource resolves a namespaced URI back to its server.
+func (b mcpBackend) ReadResource(ctx context.Context, uri string) (string, string, error) {
+	ns, rest, ok := strings.Cut(strings.TrimPrefix(uri, "mcpx://"), "/")
+	if !ok {
+		return "", "", fmt.Errorf("a resource URI looks like mcpx://<namespace>/<uri>, got %q", uri)
+	}
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	session := b.app.mcpSession()
+	raw, err := c.ReadResource(ctx, ns, rest, b.app.callContext(session, session))
+	if err != nil {
+		return "", "", err
+	}
+	return renderResource(raw)
+}
+
+// GetPrompt resolves a namespaced prompt back to its server.
+func (b mcpBackend) GetPrompt(ctx context.Context, name string, args map[string]string) (string, error) {
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return "", err
+	}
+	list, err := c.Prompts(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range list {
+		if p.Namespace+"_"+p.Name != name && p.Name != name {
+			continue
+		}
+		session := b.app.mcpSession()
+		raw, err := c.GetPrompt(ctx, p.Namespace, p.Name, args, b.app.callContext(session, session))
+		if err != nil {
+			return "", err
+		}
+		return renderPrompt(raw), nil
+	}
+	return "", fmt.Errorf("no prompt named %q", name)
+}
+
+// renderResource pulls the text out of a resources/read reply.
+func renderResource(raw json.RawMessage) (string, string, error) {
+	var doc struct {
+		Contents []struct {
+			Text     string `json:"text"`
+			Blob     string `json:"blob"`
+			MimeType string `json:"mimeType"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return string(raw), "application/json", nil
+	}
+	var parts []string
+	mime := ""
+	for _, c := range doc.Contents {
+		if mime == "" {
+			mime = c.MimeType
+		}
+		if c.Text != "" {
+			parts = append(parts, c.Text)
+			continue
+		}
+		if c.Blob != "" {
+			// Binary is described rather than inlined. A megabyte of base64
+			// in a model's context is the failure this whole tool exists to
+			// prevent.
+			parts = append(parts, fmt.Sprintf("(%d bytes of %s, base64)", len(c.Blob), c.MimeType))
+		}
+	}
+	return strings.Join(parts, "\n"), mime, nil
+}
+
+// renderPrompt flattens a prompts/get reply into text.
+func renderPrompt(raw json.RawMessage) string {
+	var doc struct {
+		Description string `json:"description"`
+		Messages    []struct {
+			Role    string `json:"role"`
+			Content struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return string(raw)
+	}
+	var b strings.Builder
+	if doc.Description != "" {
+		b.WriteString(doc.Description + "\n\n")
+	}
+	for _, m := range doc.Messages {
+		if m.Content.Text == "" {
+			continue
+		}
+		if m.Role != "" && m.Role != "user" {
+			fmt.Fprintf(&b, "[%s] ", m.Role)
+		}
+		b.WriteString(m.Content.Text)
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}

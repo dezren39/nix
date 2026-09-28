@@ -149,6 +149,9 @@ func main() {
 		"adapter":    app.CmdAdapter,
 		"registry":   app.CmdRegistry,
 		"api":        app.CmdAPI,
+		"prompts":    app.CmdPrompts,
+		"resources":  app.CmdResources,
+		"doctor":     app.CmdDoctor,
 	}
 
 	h, ok := handlers[cmd]

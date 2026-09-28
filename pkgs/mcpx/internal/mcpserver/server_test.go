@@ -53,6 +53,23 @@ func (f *fakeBackend) RegistrySearch(_ context.Context, q string, _ int) (string
 	return "registry " + q, nil
 }
 
+func (f *fakeBackend) Resources(context.Context) ([]mcpserver.ResourceRef, error) {
+	f.hit("resources")
+	return []mcpserver.ResourceRef{{URI: "demo://a", Name: "a"}}, nil
+}
+func (f *fakeBackend) Prompts(context.Context) ([]mcpserver.PromptRef, error) {
+	f.hit("prompts")
+	return []mcpserver.PromptRef{{Name: "summarise", Description: "d"}}, nil
+}
+func (f *fakeBackend) ReadResource(_ context.Context, uri string) (string, string, error) {
+	f.hit("readResource")
+	return "contents of " + uri, "text/plain", nil
+}
+func (f *fakeBackend) GetPrompt(_ context.Context, name string, _ map[string]string) (string, error) {
+	f.hit("getPrompt")
+	return "rendered " + name, nil
+}
+
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
 
 func call(t *testing.T, s *mcpserver.Server, name string, args any) (string, bool) {
@@ -251,5 +268,58 @@ func TestAMalformedFrameIsReportedAndTheStreamContinues(t *testing.T) {
 	}
 	if strings.Count(out.String(), "\n") != 2 {
 		t.Errorf("the stream should have continued: %s", out.String())
+	}
+}
+
+func TestResourcesAndPromptsArePassedThroughNotFakedEmpty(t *testing.T) {
+	// Declaring the capability and then returning nothing is a lie a client
+	// cannot detect: it asks once, gets an empty list, and never asks again.
+	f := newBackend()
+	s := mcpserver.New(f, "mcpx", "test")
+
+	for _, c := range []struct{ method, want string }{
+		{"resources/list", "demo://a"},
+		{"prompts/list", "summarise"},
+	} {
+		resp := s.Handle(context.Background(), mcpserver.Request(1, c.method, nil))
+		b, _ := json.Marshal(resp)
+		if !strings.Contains(string(b), c.want) {
+			t.Errorf("%s should pass through: %s", c.method, b)
+		}
+	}
+}
+
+func TestReadingAResourceAndRenderingAPromptReachTheBackend(t *testing.T) {
+	f := newBackend()
+	s := mcpserver.New(f, "mcpx", "test")
+
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "resources/read",
+		map[string]any{"uri": "demo://a"}))
+	b, _ := json.Marshal(resp)
+	if !strings.Contains(string(b), "contents of demo://a") {
+		t.Errorf("got %s", b)
+	}
+
+	resp = s.Handle(context.Background(), mcpserver.Request(2, "prompts/get",
+		map[string]any{"name": "summarise", "arguments": map[string]string{"x": "y"}}))
+	b, _ = json.Marshal(resp)
+	if !strings.Contains(string(b), "rendered summarise") {
+		t.Errorf("got %s", b)
+	}
+	// A prompt result is messages, not content: a client that expects the
+	// tool shape will not find the text.
+	if !strings.Contains(string(b), `"messages"`) {
+		t.Errorf("a prompt reply should carry messages: %s", b)
+	}
+}
+
+func TestCapabilitiesMatchWhatIsAnswered(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize", nil))
+	b, _ := json.Marshal(resp)
+	for _, want := range []string{`"tools"`, `"resources"`, `"prompts"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("%s should be advertised: %s", want, b)
+		}
 	}
 }
