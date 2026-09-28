@@ -31,6 +31,9 @@ type App struct {
 	Profile    Profile
 	Paths      daemon.Paths
 	client     *Client
+	// machineOutput suppresses progress notices when the caller has asked
+	// for a shape something else will parse.
+	machineOutput bool
 	settingsState
 }
 
@@ -229,11 +232,24 @@ func (a *App) resolveLauncher(v string) (text, name string, err error) {
 // notice reports progress on stderr, unless the caller asked for JSON. A
 // machine-readable run should produce one document and nothing else, even on
 // the stream a human would have read.
+// notice reports progress on stderr.
+//
+// Silent whenever the caller has chosen a machine-readable shape. --json, and
+// every log format other than the default text one, mean somebody is parsing
+// this; a friendly line about warming a cache is noise at best and a parse
+// error at worst. It was both, in a test that read bare output and got a
+// sentence.
 func (a *App) notice(msg string) {
-	if a.JSON {
+	if a.JSON || a.machineOutput {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "mcpx: "+msg)
+}
+
+// setOutputFormat records the rendering the caller asked for, so that
+// progress notices can stay out of the way of anything parsing the output.
+func (a *App) setOutputFormat(f logging.Format) {
+	a.machineOutput = f != logging.FormatText
 }
 
 // ---- search ----
@@ -487,6 +503,9 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		cfgLog = cfg.Logging
 	}
 	logFormat, ferr := logging.ParseFormat(firstNonEmpty(*format, os.Getenv("MCPX_FORMAT"), cfgLog.Format))
+	if ferr == nil {
+		a.setOutputFormat(logFormat)
+	}
 	if ferr != nil {
 		return ferr
 	}
