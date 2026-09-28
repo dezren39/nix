@@ -299,13 +299,29 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 		for _, tool := range srv.Tools() {
 			mux.HandleFunc("/v1/tools/"+tool.Name, srv.RESTHandler(tool.Name))
 		}
+		// And every upstream tool, individually. A tool reachable from MCP
+		// and from a script but not from curl is reachable from fewer places
+		// than it needs to be.
+		upstream := a.restToolRoutes(ctx, mux)
 		mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 			writeJSONResponse(w, map[string]any{"ok": true, "version": a.Version})
 		})
-		mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSONResponse(w, OpenAPI(a.Version))
+		mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+			doc := OpenAPI(a.Version)
+			// Generated per request rather than once, so a server that
+			// appears after startup is described without a restart.
+			if c, err := a.ensure(r.Context()); err == nil {
+				if tools, terr := c.Tools(r.Context(), nil); terr == nil {
+					paths, _ := doc["paths"].(map[string]any)
+					for k, v := range toolPaths(tools) {
+						paths[k] = v
+					}
+				}
+			}
+			writeJSONResponse(w, doc)
 		})
-		fmt.Fprintf(os.Stderr, "mcpx: MCP on http://%s/mcp\n", ln.Addr())
+		fmt.Fprintf(os.Stderr, "mcpx: MCP on http://%s/mcp (%d upstream tools as REST)\n",
+			ln.Addr(), upstream)
 
 		server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 		go func() {

@@ -1835,6 +1835,51 @@ useless since the day it was written, and nothing displayed it until now.
 
 2026-09-28T15:00:00-05:00
 
+## Types, in whichever form a consumer reads
+
+```
+created:      2026-09-28T16:30:00-05:00
+last-updated: 2026-09-28T16:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  four renderings of one fact.
+```
+
+```sh
+mcpx schema --format typescript    # what a script imports
+mcpx schema --format json-schema   # what a validator reads
+mcpx schema --format openapi       # what a client generator reads
+mcpx schema --format mcp           # what an MCP host reads
+```
+
+The same information every time. A caller should not have to reshape one into
+another, and each of those four consumers is real.
+
+JSON Schema goes under `$defs`, which is where a reader looks for named
+subschemas, so the result is itself a valid schema document rather than a bag
+of them.
+
+### The specification described the wrong thing
+
+`mcpx openapi` described mcpx's own ten tools and nothing else. The three
+hundred it actually fronts were reachable from MCP, and from a script, and
+from nowhere a generated client could see.
+
+A specification that describes the wrapper but not what it wraps is a
+specification of the wrong thing. Every upstream tool now has a path:
+
+```
+POST /v1/call/<namespace>/<tool>
+```
+
+Served as well as described -- `curl -X POST .../v1/call/fff/grep -d '{"query":"x"}'`
+reaches the same server a script does. The document is generated per request
+rather than at startup, so a server that appears later is described without a
+restart.
+
+2026-09-28T16:30:00-05:00
+
 ## Nix packaging
 
 ```
