@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -2173,4 +2174,79 @@ func TestDoctorStillCatchesARealTypo(t *testing.T) {
 	if !strings.Contains(out, "logging.levl") {
 		t.Errorf("a misspelled key should still be reported:\n%s", out)
 	}
+}
+
+func TestTypesArePublishedInEveryFormSomethingConsumes(t *testing.T) {
+	// The same information, reshaped. TypeScript is what a script imports,
+	// JSON Schema is what a validator reads, OpenAPI is what a client
+	// generator reads, and the MCP form is what an MCP host reads. A caller
+	// should not have to convert one into another.
+	e := newEnv(t, oneServer)
+
+	ts := e.run("schema", "--format", "typescript")
+	if !strings.Contains(ts, "function echo") {
+		t.Errorf("typescript should declare the tool:\n%s", ts)
+	}
+
+	js := e.run("schema", "--format", "json-schema")
+	var jsDoc struct {
+		Schema string         `json:"$schema"`
+		Defs   map[string]any `json:"$defs"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, js)), &jsDoc); err != nil {
+		t.Fatalf("json-schema should parse: %v", err)
+	}
+	if !strings.Contains(jsDoc.Schema, "json-schema.org") {
+		t.Errorf("it should declare its dialect: %q", jsDoc.Schema)
+	}
+	if _, ok := jsDoc.Defs["demo.echo"]; !ok {
+		t.Errorf("the tool should be under $defs: %v", jsDoc.Defs)
+	}
+
+	mcp := e.run("schema", "--format", "mcp")
+	if !strings.Contains(mcp, "inputSchema") {
+		t.Errorf("the MCP form should carry inputSchema:\n%s", mcp)
+	}
+}
+
+func TestTheOpenAPIDocumentDescribesTheToolsItFrontsNotOnlyItself(t *testing.T) {
+	// Describing the wrapper but not what it wraps is a specification of the
+	// wrong thing: the tools were reachable from MCP and from a script and
+	// from nowhere a generated client could see.
+	e := newEnv(t, oneServer)
+	out := e.run("schema", "--format", "openapi")
+
+	var doc struct {
+		Paths map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var upstream []string
+	for p := range doc.Paths {
+		if strings.HasPrefix(p, "/v1/call/") {
+			upstream = append(upstream, p)
+		}
+	}
+	if len(upstream) == 0 {
+		t.Fatalf("upstream tools should have paths; got %v", keysOf(doc.Paths))
+	}
+	found := false
+	for _, p := range upstream {
+		if strings.Contains(p, "/demo/echo") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the demo tool should be addressable: %v", upstream)
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

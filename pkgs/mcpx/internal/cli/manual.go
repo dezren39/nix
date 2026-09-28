@@ -142,6 +142,19 @@ func Commands() []Command {
 			Summary: "write a starter configuration file",
 		},
 		{
+			Name: "schema", Group: "discovery",
+			Usage:   "[--format json-schema|openapi|typescript|mcp] [--ns ...]",
+			Summary: "publish tool types in whichever form a consumer reads",
+			Detail: "The same information, reshaped. TypeScript is what a script " +
+				"imports, JSON Schema is what a validator reads, OpenAPI is what a " +
+				"client generator reads, and the MCP form is what an MCP host " +
+				"reads. A caller should not have to convert one into another.",
+			Examples: []string{
+				"mcpx schema --format openapi -o mcpx-openapi.json",
+				"mcpx schema --format json-schema --ns fff",
+			},
+		},
+		{
 			Name: "doctor", Group: "inspection",
 			Usage: "[-v]", Summary: "diagnose the installation",
 			Detail: "Checks the runtime, git, the configuration chain, whether every " +
