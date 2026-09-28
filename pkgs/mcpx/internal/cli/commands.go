@@ -31,6 +31,7 @@ type App struct {
 	Profile    Profile
 	Paths      daemon.Paths
 	client     *Client
+	settingsState
 }
 
 // Client returns the lazily-built daemon client, keyed to the config this

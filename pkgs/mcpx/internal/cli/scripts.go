@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -43,17 +44,16 @@ var ScriptExtensions = []string{".ts", ".mts", ".js", ".mjs"}
 // wherever the user left a null.
 func scriptPath() searchpath.Resolved {
 	wd, _ := os.Getwd()
+	// The resolved settings carry the configured list, wherever it was set.
+	// The environment variable is read directly as well, because script
+	// resolution happens on paths that do not always have an App -- notably
+	// inside the daemon.
 	var configured []string
-	if v := os.Getenv("MCPX_PATHS_SCRIPTS"); v != "" {
-		for _, part := range strings.Split(v, string(os.PathListSeparator)) {
-			if part = strings.TrimSpace(part); part != "" {
-				if part == "-" || part == "null" {
-					configured = append(configured, settings.NullMarker)
-					continue
-				}
-				configured = append(configured, part)
-			}
-		}
+	if plumbingApp != nil {
+		configured = splitPathList(plumbingApp.Settings().String("paths.scripts"))
+	}
+	if len(configured) == 0 {
+		configured = splitPathList(os.Getenv("MCPX_PATHS_SCRIPTS"))
 	}
 	return searchpath.Resolve(configured, settings.NullMarker, searchpath.Options{
 		Dir:     wd,
@@ -113,8 +113,58 @@ func scriptSearchDirs() []string {
 	return out
 }
 
-func allowOverlap() bool {
-	return os.Getenv("MCPX_PLUMBING_ALLOW_TS_JS_OVERLAP") == "true"
+// plumbingApp is the App whose settings the free functions in this file
+// consult. Script resolution is reached from several places that do not carry
+// an App, and threading one through every call site to read two booleans
+// would be a worse trade than a package-level pointer set once at startup.
+var plumbingApp *App
+
+// SetPlumbingSource tells the script resolver which App to read settings from.
+func SetPlumbingSource(a *App) { plumbingApp = a }
+
+func plumbingBool(path string) bool {
+	if plumbingApp == nil {
+		return false
+	}
+	return plumbingApp.Plumbing(path)
+}
+
+func allowOverlap() bool { return plumbingBool("plumbing.allowTsJsOverlap") }
+
+// splitPathList accepts either a JSON array, as a configuration file holds
+// it, or a separator-joined string, as an environment variable must. "-" and
+// "null" both stand for the built-in list, because one of them is what
+// somebody will type.
+func splitPathList(v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	var parts []string
+	if strings.HasPrefix(v, "[") {
+		var arr []any
+		if json.Unmarshal([]byte(v), &arr) == nil {
+			for _, e := range arr {
+				if e == nil {
+					parts = append(parts, settings.NullMarker)
+					continue
+				}
+				parts = append(parts, fmt.Sprint(e))
+			}
+			return parts
+		}
+	}
+	for _, part := range strings.Split(v, string(os.PathListSeparator)) {
+		part = strings.TrimSpace(part)
+		switch part {
+		case "":
+		case "-", "null":
+			parts = append(parts, settings.NullMarker)
+		default:
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }
 
 // looksLikePath reports whether an argument should be used verbatim rather

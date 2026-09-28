@@ -50,6 +50,9 @@ func main() {
 	defer stop()
 
 	app := &cli.App{Version: version, Paths: daemon.ResolvePaths()}
+	// Script resolution is reached from places that do not carry an App, so
+	// it is told once where to read settings from.
+	cli.SetPlumbingSource(app)
 
 	args := os.Args[1:]
 	// Global flags may appear before the subcommand.
@@ -139,6 +142,14 @@ func main() {
 			_ = app.CmdHelp(ctx, nil)
 			os.Exit(2)
 		}
+	}
+
+	// Settings are resolved before dispatch, so a contradiction in a config
+	// file is reported once, up front, rather than by whichever command
+	// happens to read the offending value first.
+	if err := app.SettingsErr(); err != nil {
+		fmt.Fprintln(os.Stderr, "mcpx:", err)
+		os.Exit(2)
 	}
 
 	if err := h(ctx, rest); err != nil {
