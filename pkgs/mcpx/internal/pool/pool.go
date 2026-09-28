@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
 	"sort"
 	"sync"
@@ -197,9 +198,9 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 			if err != nil {
 				p.failCount++
 				p.lastErr = err
-				backoff := time.Duration(p.failCount) * 2 * time.Second
+				backoff := time.Duration(p.failCount) * defaults.RestartBackoffStep
 				if backoff > 30*time.Second {
-					backoff = 30 * time.Second
+					backoff = defaults.RestartBackoffMax
 				}
 				p.cooldownUntil = time.Now().Add(backoff)
 				p.cond.Broadcast()

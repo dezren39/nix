@@ -528,7 +528,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"status": "stopping"})
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(defaults.DaemonRestartSettle)
 		p, _ := os.FindProcess(os.Getpid())
 		_ = p.Signal(syscall.SIGTERM)
 	}()

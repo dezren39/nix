@@ -375,7 +375,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 			select {
 			case <-waitCh:
-			case <-time.After(2 * time.Second):
+			case <-time.After(defaults.ShutdownGrace):
 				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 				<-waitCh
 			}

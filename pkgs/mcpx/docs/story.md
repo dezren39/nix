@@ -1311,6 +1311,162 @@ before settings can be resolved, since they say where to look), and most of
 
 2026-09-28T04:30:00-05:00
 
+## Placeholders that take arguments
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  @name(a, b), and @names a user declared.
+```
+
+A placeholder may take arguments:
+
+```
+@console(header, prefix)
+```
+
+An argument naming a placeholder expands to it; anything else is literal.
+They bind inside the body only, so two uses of one placeholder cannot
+contaminate each other. Inside, they are addressable by the names the
+declaration gave them, and always as `@1`, `@2` and `@args`.
+
+This is the difference between a template that can be rearranged and one that
+can only be filled in.
+
+A file may declare the `@name` it provides:
+
+```ts
+// @mcpx:placeholder timed(body, label)
+{
+  const __t = performance.now();
+  @body
+  log.info("timing", { label: @label, ms: Math.round(performance.now() - __t) });
+}
+```
+
+Three spellings, because the right one depends on the file. A comment works in
+any language and cannot affect runtime. An exported `MCPX_PLACEHOLDER`
+constant is visible to tooling. The filename is the least ceremony for a
+directory of one-line fragments.
+
+Shadowing a built-in is refused: a template that reads correctly and means
+something else is the worst kind of surprise. Two files claiming one name is
+refused for the reason two config keys are -- there is no order between them.
+
+`paths.placeholders` is empty by default, because scanning every script
+directory for declarations would make an ordinary script's filename quietly
+meaningful.
+
+The single-resolution rule composes with this. If `@timed` uses `@entry` and
+the template also uses `@entry` directly, that is a repeat and is refused
+unless named in `plumbing.launcherPlaceholderRepeat`.
+
+2026-09-28T07:30:00-05:00
+
+## The harness knows what the agent does not
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  session identity arrives through the environment, not the model.
+```
+
+mcpx leases servers per session. That only works if it can tell sessions
+apart, and nothing in a shell command carries that: the agent does not know
+its own session id, and asking it to pass one would spend tokens on plumbing
+and be forgotten half the time.
+
+So the harness supplies it. `plugin/opencode/mcpx-session.ts` puts a handful
+of variables into every shell command; mcpx reads them and the agent never
+learns any of it happened.
+
+`MCPX_TRACE_IDS` is a list of pairs rather than a flat id, because a flat one
+cannot say "this session, whose parent is that one, in this worktree". An
+entry longer than a pair names several ids for one key. Unknown keys are kept,
+since the list exists to grow, and they land on every record as `id.<key>`.
+
+They cannot overwrite what mcpx established. A caller may add context; it may
+not rewrite which session a call was actually leased for, or leasing becomes
+advisory.
+
+Everything past the session id is opt-in. Environment variables are not
+context -- the model never sees them -- so anything cheap goes in on the
+reasoning that an unread variable is cheaper than a missing one. Transcript
+lengths and token counts stay out: each would be a database query on every
+shell command, for a number almost nobody reads. Those come from
+`mcpx stats --opencode`, which asks once.
+
+2026-09-28T07:30:00-05:00
+
+## Statistics from opencode
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:inspection
+description:  read-only reporting over opencode's own database.
+```
+
+`mcpx stats --opencode` reports overview, agents, models, projects, busiest
+sessions and activity. What a run cost, which model answered, how much was a
+subagent's -- those live in opencode's database and are pruned over time, so
+folding them in beside mcpx's own log means one place to ask.
+
+The database is opened read-only and belongs to a program that may be running.
+`mode=ro` rather than `immutable=1`, deliberately: immutable would permit
+reading a torn page from a live writer. Every statistic checks for the columns
+it needs, because that schema is not mcpx's to depend on -- one that has moved
+should cost a number, not the command.
+
+The model column holds JSON rather than a name, and it is decoded in Go rather
+than with `json_extract`, which is present in most SQLite builds and absent in
+enough of them to be worth avoiding.
+
+2026-09-28T07:30:00-05:00
+
+## The explorer
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:ux
+description:  a prompt loop over the discovery commands, for a human.
+```
+
+Everything `mcpx explore` shows is available elsewhere. It exists because
+discovery is a loop -- list namespaces, look at one, read a signature, try it,
+see what the log said -- and running four commands with different flags to go
+round it once is enough friction that people stop and guess instead.
+
+Deliberately not full-screen. A pane interface needs a terminal library, raw
+mode, resize handling and a redraw loop, and loses the two things a plain
+prompt gives for free: output stays in scrollback where it can be copied, and
+every screen corresponds to a command that can be scripted. The footer prints
+that command, so the tool teaches its own non-interactive form rather than
+being a place where knowledge stops.
+
+A bare word naming a namespace shows its signatures, because that is what
+somebody means nine times in ten. `chain` with no argument lists recent
+traces, because needing another command to find this one's argument is exactly
+the friction being removed.
+
+The terminal check asks the kernel for terminal attributes rather than testing
+`ModeCharDevice`. That test is wrong in the direction that matters:
+`/dev/null` is a character device, so redirecting stdin from it read as
+interactive and blocked on a prompt nobody was there to answer.
+
+2026-09-28T07:30:00-05:00
+
 ## Nix packaging
 
 ```

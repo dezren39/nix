@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"net"
 	"net/http"
@@ -33,14 +34,14 @@ func NewClient(paths daemon.Paths, configPath string) *Client {
 		paths: paths,
 		cfg:   configPath,
 		hc: &http.Client{
-			Timeout: 10 * time.Minute,
+			Timeout: defaults.HTTPRequestTimeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var d net.Dialer
 					return d.DialContext(ctx, "unix", paths.Socket)
 				},
 				MaxIdleConns:    8,
-				IdleConnTimeout: 30 * time.Second,
+				IdleConnTimeout: defaults.HTTPIdleTimeout,
 			},
 		},
 	}
@@ -143,12 +144,12 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 	}
 	_ = cmd.Process.Release()
 
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(defaults.DaemonConnectTimeout)
 	for time.Now().Before(deadline) {
 		if c.Ping(ctx) {
 			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(defaults.DaemonPollInterval)
 	}
 	tail, _ := os.ReadFile(logPath)
 	if len(tail) > 2000 {

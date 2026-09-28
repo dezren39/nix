@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"net/http"
 	"strings"
@@ -52,7 +53,7 @@ func NewHTTP(opts HTTPOptions) (*HTTPTransport, error) {
 	}
 	timeout := opts.Timeout
 	if timeout == 0 {
-		timeout = 10 * time.Minute
+		timeout = defaults.HTTPRequestTimeout
 	}
 	return &HTTPTransport{
 		url:      opts.URL,

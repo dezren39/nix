@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -169,7 +170,7 @@ func (a *App) followLog(ctx context.Context, st *logstore.Store, q logstore.Quer
 	q.Until = time.Time{}
 	q.Limit = 1000
 
-	tick := time.NewTicker(500 * time.Millisecond)
+	tick := time.NewTicker(defaults.FollowPollInterval)
 	defer tick.Stop()
 	for {
 		select {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"log/slog"
 	"os"
@@ -1113,7 +1114,7 @@ func waitUntilStopped(ctx context.Context, c *Client) error {
 		if !c.Ping(ctx) {
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(defaults.DaemonRestartSettle)
 	}
 	return errors.New("daemon did not stop")
 }
