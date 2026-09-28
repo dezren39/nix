@@ -106,6 +106,10 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     fi
     wrapProgram $out/bin/opencode2 \
       --prefix PATH : ${lib.makeBinPath ([ ripgrep ] ++ lib.optional platform.isDarwin sysctl)} \
+      `# v2 defaults to the same opencode.db as v1 and runs v2-only migrations` \
+      `# against it, which drop tables v1 still uses (workspace, session_input,` \
+      `# session_context_epoch, data_migration). Give v2 its own database.` \
+      --set-default OPENCODE_DB opencode-v2.db \
       --set-default OPENCODE_EXPERIMENTAL 1 \
       --set-default OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX 999999999 \
       --set-default OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS 300000 \

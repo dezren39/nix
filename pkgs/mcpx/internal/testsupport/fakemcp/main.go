@@ -1,0 +1,253 @@
+// Command fakemcp is a stdio MCP server used by the mcpx test suite.
+//
+// It is deliberately stateful: `open` records a value and `state` reports
+// everything this process has seen. That makes cross-instance leakage
+// observable, which is exactly what the session-pool tests need to assert.
+package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+type req struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      *int64          `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+}
+
+var (
+	mu    sync.Mutex
+	state []string
+	pid   = os.Getpid()
+)
+
+func main() {
+	// FAKEMCP_FAIL_START makes the server exit before the handshake, so the
+	// pool's start-failure path can be exercised.
+	if os.Getenv("FAKEMCP_FAIL_START") != "" {
+		fmt.Fprintln(os.Stderr, "fakemcp: refusing to start (FAKEMCP_FAIL_START)")
+		os.Exit(3)
+	}
+	if d := os.Getenv("FAKEMCP_START_DELAY"); d != "" {
+		if dur, err := time.ParseDuration(d); err == nil {
+			time.Sleep(dur)
+		}
+	}
+	// Servers commonly print a banner on stdout; mcpx must skip it.
+	fmt.Println("fakemcp banner line, not JSON")
+
+	in := bufio.NewReaderSize(os.Stdin, 1<<20)
+	out := bufio.NewWriter(os.Stdout)
+	var writeMu sync.Mutex
+	var wg sync.WaitGroup
+
+	send := func(resp map[string]any) {
+		b, _ := json.Marshal(resp)
+		writeMu.Lock()
+		out.Write(b)
+		out.WriteByte('\n')
+		out.Flush()
+		writeMu.Unlock()
+	}
+
+	for {
+		line, err := readLine(in)
+		if err != nil {
+			wg.Wait()
+			return
+		}
+		if len(strings.TrimSpace(string(line))) == 0 {
+			continue
+		}
+		var r req
+		if err := json.Unmarshal(line, &r); err != nil {
+			continue
+		}
+		// Handle off the read loop, as a correct MCP server does: JSON-RPC ids
+		// let a client have many requests in flight at once.
+		wg.Add(1)
+		go func(r req) {
+			defer wg.Done()
+			if resp := handle(r); resp != nil {
+				send(resp)
+			}
+		}(r)
+	}
+}
+
+func readLine(r *bufio.Reader) ([]byte, error) {
+	var buf []byte
+	for {
+		chunk, isPrefix, err := r.ReadLine()
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, chunk...)
+		if !isPrefix {
+			return buf, nil
+		}
+	}
+}
+
+func ok(id *int64, result any) map[string]any {
+	return map[string]any{"jsonrpc": "2.0", "id": id, "result": result}
+}
+
+func fail(id *int64, code int, msg string) map[string]any {
+	return map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": msg}}
+}
+
+func handle(r req) map[string]any {
+	switch r.Method {
+	case "initialize":
+		return ok(r.ID, map[string]any{
+			"protocolVersion": "2025-06-18",
+			"serverInfo":      map[string]any{"name": "fakemcp", "version": "1.0.0"},
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+		})
+	case "notifications/initialized", "notifications/cancelled":
+		return nil
+	case "ping":
+		return ok(r.ID, map[string]any{})
+	case "tools/list":
+		return ok(r.ID, map[string]any{"tools": toolDefs()})
+	case "resources/list":
+		return ok(r.ID, map[string]any{"resources": []any{}})
+	case "resources/templates/list":
+		return ok(r.ID, map[string]any{"resourceTemplates": []any{}})
+	case "tools/call":
+		return callTool(r)
+	}
+	return fail(r.ID, -32601, "method not found: "+r.Method)
+}
+
+func toolDefs() []map[string]any {
+	return []map[string]any{
+		{
+			"name":        "echo",
+			"description": "Echo a message back.\nSecond line of description.",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"message": map[string]any{"type": "string", "description": "text to echo"}},
+				"required":   []string{"message"},
+			},
+		},
+		{
+			"name":        "open",
+			"description": "Record a value in this process's state.",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"value": map[string]any{"type": "string"}},
+				"required":   []string{"value"},
+			},
+		},
+		{
+			"name":        "state",
+			"description": "Report this process's pid and everything it has recorded.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
+			"name":        "slow",
+			"description": "Sleep for ms milliseconds, then return.",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"ms": map[string]any{"type": "integer"}},
+				"required":   []string{"ms"},
+			},
+		},
+		{
+			"name":        "boom",
+			"description": "Always returns a tool error.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
+			"name":        "structured",
+			"description": "Return structuredContent.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+			"outputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"n": map[string]any{"type": "integer"}},
+			},
+		},
+		{
+			"name":        "fancy-name",
+			"description": "Tool whose name is not a TypeScript identifier.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"mode":  map[string]any{"type": "string", "enum": []string{"a", "b"}},
+					"count": map[string]any{"type": []any{"integer", "null"}},
+					"items": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"nested": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{"deep": map[string]any{"type": "boolean"}},
+						"required":   []string{"deep"},
+					},
+				},
+			},
+		},
+	}
+}
+
+func textResult(s string) map[string]any {
+	return map[string]any{"content": []map[string]any{{"type": "text", "text": s}}}
+}
+
+func callTool(r req) map[string]any {
+	var p struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	if err := json.Unmarshal(r.Params, &p); err != nil {
+		return fail(r.ID, -32602, "bad params")
+	}
+	switch p.Name {
+	case "echo":
+		msg, _ := p.Arguments["message"].(string)
+		return ok(r.ID, textResult(msg))
+	case "open":
+		v, _ := p.Arguments["value"].(string)
+		mu.Lock()
+		state = append(state, v)
+		mu.Unlock()
+		return ok(r.ID, textResult("opened "+v))
+	case "state":
+		mu.Lock()
+		s := append([]string(nil), state...)
+		mu.Unlock()
+		b, _ := json.Marshal(map[string]any{"pid": pid, "seen": s})
+		return ok(r.ID, textResult(string(b)))
+	case "slow":
+		ms := 0
+		switch v := p.Arguments["ms"].(type) {
+		case float64:
+			ms = int(v)
+		case string:
+			ms, _ = strconv.Atoi(v)
+		}
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+		return ok(r.ID, textResult(fmt.Sprintf("slept %dms on pid %d", ms, pid)))
+	case "boom":
+		return ok(r.ID, map[string]any{
+			"isError": true,
+			"content": []map[string]any{{"type": "text", "text": "boom: deliberate failure"}},
+		})
+	case "structured":
+		return ok(r.ID, map[string]any{
+			"content":           []map[string]any{{"type": "text", "text": `{"n":42}`}},
+			"structuredContent": map[string]any{"n": 42},
+		})
+	case "fancy-name":
+		b, _ := json.Marshal(p.Arguments)
+		return ok(r.ID, textResult(string(b)))
+	}
+	return fail(r.ID, -32602, "unknown tool "+p.Name)
+}
