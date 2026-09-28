@@ -59,12 +59,21 @@ func (f *flagValue) IsBoolFlag() bool {
 }
 
 // Bind generates the flags a subcommand accepts.
+//
+// A name already registered on the FlagSet is skipped rather than replaced.
+// Commands still declare some flags by hand, and those hand-written ones own
+// their spelling; without the skip, Go's flag package panics on the
+// duplicate. The effect is that the registry fills in everything the command
+// did not already provide, which is what makes `mcpx config --schema` true
+// rather than aspirational.
 func (s *Schema) Bind(fs *flag.FlagSet, cmd string) *Binding {
 	b := &Binding{schema: s, fs: fs, seen: map[string][]spelling{}}
-	for i, set := range s.ForCommand(cmd) {
-		_ = i
+	for _, set := range s.ForCommand(cmd) {
 		p := set
 		for _, name := range append([]string{p.FlagName()}, p.FlagAliases...) {
+			if fs.Lookup(name) != nil {
+				continue
+			}
 			usage := p.Short
 			if p.Plumbing {
 				// Marked rather than hidden. Go's flag package has no notion

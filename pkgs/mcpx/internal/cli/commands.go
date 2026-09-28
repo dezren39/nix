@@ -17,6 +17,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/preflight"
 	"github.com/dezren39/mcpx/internal/runner"
@@ -418,6 +419,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		"run the script with no launcher: no globals, no capture, no wrapper")
 	typecheck := fs.String("typecheck", "",
 		"check the program before running it: off, on, strict")
+
 	allowRepeat := newRepeatable()
 	fs.Var(allowRepeat, "allow-repeat",
 		"launcher placeholder permitted to resolve more than once; repeatable")
@@ -427,7 +429,18 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		"leave console.* alone instead of mirroring it into the record stream")
 	perms := fs.String("permissions", "",
 		"deno sandbox: all (default), net, read, read-net, strict, or explicit flags")
+	// Everything the registry declares for this command and the hand-written
+	// flags above did not already claim. Without this the schema and the man
+	// page promise flags the command rejects.
+	cmdName := "run"
+	if inline {
+		cmdName = "exec"
+	}
+	applySettings := a.BindFlags(fs, cmdName)
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := applySettings(); err != nil {
 		return err
 	}
 	if fs.NArg() == 0 {
@@ -646,7 +659,12 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			}
 			opts.Launcher, opts.LauncherName = text, name
 		}
-		opts.TypeCheck = firstNonEmpty(*typecheck, os.Getenv("MCPX_SCRIPT_TYPECHECK"))
+		// Read from the resolved set, so the value is whichever layer won:
+		// the short --typecheck spelling, the generated --script-typecheck,
+		// a variable, or the config file. Reading the flag variable directly
+		// would silently ignore the other three.
+		opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
+		opts.TypeCheckTimeout = defaults.TypecheckTimeout
 		for _, r := range allowRepeat.Values() {
 			if str, ok := r.(string); ok {
 				opts.AllowRepeat = append(opts.AllowRepeat, str)

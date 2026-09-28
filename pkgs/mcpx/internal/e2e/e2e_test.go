@@ -629,12 +629,22 @@ const profileServers = `{
 }`
 
 // jsonOf trims anything printed before a JSON document begins.
+//
+// Both brackets, because a top-level array is as valid a document as an
+// object. Looking only for "{" skipped an array's opening bracket and landed
+// on its first element, which then failed on the comma after it.
 func jsonOf(t *testing.T, out string) string {
 	t.Helper()
-	if i := strings.Index(out, "{"); i >= 0 {
-		return out[i:]
+	obj := strings.Index(out, "{")
+	arr := strings.Index(out, "[")
+	switch {
+	case obj < 0 && arr < 0:
+		return out
+	case arr < 0 || (obj >= 0 && obj < arr):
+		return out[obj:]
+	default:
+		return out[arr:]
 	}
-	return out
 }
 
 // firstRecord finds the first JSON log record in mixed output. Taking line
@@ -1799,4 +1809,77 @@ console.log("RESULT " + JSON.stringify(checks));
 			t.Errorf("%s: %s", name, got)
 		}
 	}
+}
+
+// TestEverySettingTheSchemaAdvertisesActuallyWorks is the test that would have
+// caught the registry promising flags no command accepted. `mcpx config
+// --schema` and the man page are both generated from the registry, so a
+// setting listed there and rejected by the command is documentation that
+// lies.
+func TestEverySettingTheSchemaAdvertisesActuallyWorks(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+
+	out := e.run("--json", "config", "--schema")
+	var entries []struct {
+		Path     string   `json:"path"`
+		Flag     string   `json:"flag"`
+		Kind     string   `json:"kind"`
+		Default  string   `json:"default"`
+		Enum     []string `json:"enum"`
+		Commands []string `json:"commands"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &entries); err != nil {
+		t.Fatalf("--schema --json should be parseable: %v", err)
+	}
+	if len(entries) < 20 {
+		t.Fatalf("expected a real registry, got %d entries", len(entries))
+	}
+
+	checked := 0
+	for _, entry := range entries {
+		if !appliesTo(entry.Commands, "run") {
+			continue
+		}
+		value := entry.Default
+		if len(entry.Enum) > 0 {
+			value = entry.Enum[0]
+		}
+		if value == "" {
+			switch entry.Kind {
+			case "int":
+				value = "1"
+			case "duration":
+				value = "30s"
+			case "bytes":
+				value = "1MB"
+			case "bool":
+				value = "true"
+			default:
+				continue // nothing safe to pass
+			}
+		}
+		checked++
+		if _, err := e.try("run", "--"+entry.Flag+"="+value, script); err != nil {
+			t.Errorf("--%s is advertised by --schema but the run command rejects it (%s=%q): %v",
+				entry.Flag, entry.Path, value, err)
+		}
+	}
+	if checked < 10 {
+		t.Fatalf("only %d settings were exercised; the check is not doing its job", checked)
+	}
+}
+
+func appliesTo(commands []string, cmd string) bool {
+	if len(commands) == 0 {
+		return true
+	}
+	for _, c := range commands {
+		if c == cmd {
+			return true
+		}
+	}
+	return false
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"sync"
@@ -71,6 +72,29 @@ func (a *App) SettingsErr() error {
 
 // Plumbing reads an internal switch.
 func (a *App) Plumbing(path string) bool { return a.Settings().Bool(path) }
+
+// BindFlags registers every setting that applies to a command and has not
+// already been declared by hand, then returns a function to fold what was
+// given into the resolved set.
+//
+// Without this the registry would describe flags the command does not accept,
+// which is worse than having no registry: `mcpx config --schema` and the man
+// page would both promise a flag that fails. That was the state after the
+// registry landed and before this call site existed, and it was found by
+// trying one.
+func (a *App) BindFlags(fs *flag.FlagSet, cmd string) func() error {
+	sch, err := settings.New(settings.Registry())
+	if err != nil {
+		return func() error { return err }
+	}
+	b := sch.Bind(fs, cmd)
+	return func() error {
+		if err := b.ApplyTo(a.Settings()); err != nil {
+			return err
+		}
+		return a.Settings().CheckRequirements()
+	}
+}
 
 func configFilesFarthestFirst(explicit string) []string {
 	if explicit != "" {
