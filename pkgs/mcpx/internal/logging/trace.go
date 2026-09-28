@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -166,18 +167,57 @@ func gatherAmbient(version string) map[Include]map[string]any {
 		if !ok || !strings.HasPrefix(k, "MCPX_") {
 			continue
 		}
-		// Values can name paths and sockets; keep them, but never anything
-		// that looks like a secret.
-		if strings.Contains(strings.ToLower(k), "token") ||
-			strings.Contains(strings.ToLower(k), "secret") ||
-			strings.Contains(strings.ToLower(k), "key") {
-			v = "<elided>"
-		}
-		env["env."+k] = v
+		env["env."+k] = Redact(k, v)
 	}
 	all[IncludeEnv] = env
 
 	return all
+}
+
+// sensitiveName matches variable names that should never have their value
+// recorded.
+var sensitiveName = regexp.MustCompile(`(?i)(token|secret|key|password|passwd|pwd|credential|auth|session[_-]?id|cookie|signature|private)`)
+
+// sensitiveValue matches values that carry a credential regardless of what
+// the variable is called.
+//
+// Matching only on the name was not enough. MCPX_SCRIPT_ENV carries
+// KEY=VALUE pairs for the script, so a perfectly innocuous name holds
+// "API_TOKEN=..." as its value; the same is true of any variable holding a
+// header. The name test cannot see inside those, so the value is checked too.
+var sensitiveValue = regexp.MustCompile(`(?i)(bearer\s+\S+|` +
+	// No \b around the keyword: underscore is a word character, so \btoken\b
+	// does not match inside API_TOKEN, which is exactly the spelling that
+	// matters. Surrounding name characters are absorbed instead.
+	`[A-Za-z0-9_.-]*(token|secret|api[_-]?key|password|passwd|credential)[A-Za-z0-9_.-]*\s*[:=]\s*\S+|` +
+	`\bgh[pousr]_[A-Za-z0-9]{16,}|` +
+	`\bsk-[A-Za-z0-9]{16,}|` +
+	`\bxox[baprs]-[A-Za-z0-9-]{10,}|` +
+	`\bAKIA[0-9A-Z]{16}\b|` +
+	`\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.)`)
+
+// Redact returns a value safe to record.
+//
+// Whole-value elision when the name is telling, and per-match elision when
+// only part of the value is sensitive -- because a variable holding several
+// pairs is still worth seeing, minus the one that matters.
+func Redact(name, value string) string {
+	if sensitiveName.MatchString(name) {
+		return "<elided>"
+	}
+	if value == "" || !sensitiveValue.MatchString(value) {
+		return value
+	}
+	return sensitiveValue.ReplaceAllStringFunc(value, func(m string) string {
+		// Keep the part that identifies what was elided, drop the secret.
+		if i := strings.IndexAny(m, ":="); i > 0 {
+			return m[:i+1] + "<elided>"
+		}
+		if i := strings.IndexAny(m, " \t"); i > 0 {
+			return m[:i] + " <elided>"
+		}
+		return "<elided>"
+	})
 }
 
 // gatherNetwork finds the first non-loopback interface that is up.

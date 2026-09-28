@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"sync"
 
@@ -37,7 +39,19 @@ func (a *App) Settings() *settings.Set {
 		for i, path := range files {
 			doc, rerr := readJSONFile(path)
 			if rerr != nil {
-				continue
+				// A file that was found and cannot be read is an error, not a
+				// reason to carry on with defaults. Skipping it silently made
+				// a malformed config look accepted: the run proceeded, the
+				// settings were the built-in ones, and nothing said why.
+				//
+				// The exception is a file that has since disappeared. The
+				// list comes from a directory walk, so a file removed between
+				// the walk and the read is a race rather than a mistake.
+				if errors.Is(rerr, fs.ErrNotExist) {
+					continue
+				}
+				a.settingsErr = fmt.Errorf("reading %s: %w", path, rerr)
+				return
 			}
 			if aerr := sch.ApplyFile(set, doc, path, i); aerr != nil {
 				a.settingsErr = aerr
@@ -118,9 +132,11 @@ func readJSONFile(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The same comment stripping the main config loader uses, so a file that
+	// works there does not fail here for having a comment in it.
 	var doc map[string]any
-	if err := json.Unmarshal(b, &doc); err != nil {
-		return nil, err
+	if err := json.Unmarshal(config.StripJSONC(b), &doc); err != nil {
+		return nil, fmt.Errorf("not valid JSON: %w", err)
 	}
 	return doc, nil
 }

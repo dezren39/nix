@@ -18,13 +18,22 @@ func TestGeneratedClientWorksOnEveryRuntime(t *testing.T) {
 				t.Skipf("%s not installed", rt)
 			}
 			e := newEnv(t, oneServer)
+			// MCPX_RUNTIME is what the runner actually sets; read it the way
+			// a script would, from the process environment rather than from a
+			// global that was never defined.
 			out, err := e.try("exec", "--runtime", rt,
-				`const r = await demo.echo({ message: "hello from "+(globalThis as any).MCPX_RT }); console.log(String(r));`)
+				`const name = (globalThis as any).Deno?.env?.get?.("MCPX_RUNTIME") `+
+					`?? (globalThis as any).process?.env?.MCPX_RUNTIME ?? "unset";`+
+					`const r = await demo.echo({ message: "hello from " + name }); console.log(String(r));`)
 			if err != nil {
 				t.Fatalf("%s: %v\n%s", rt, err, out)
 			}
-			if !strings.Contains(out, "hello from") {
-				t.Fatalf("%s produced no output:\n%s", rt, out)
+			// Asserting the prefix alone let "hello from undefined" pass,
+			// which is the one outcome this test exists to catch: the
+			// round trip working while the runtime identity is lost.
+			want := "hello from " + rt
+			if !strings.Contains(out, want) {
+				t.Fatalf("%s should have echoed %q:\n%s", rt, want, out)
 			}
 		})
 	}

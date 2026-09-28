@@ -5,16 +5,36 @@ something breaks without it.
 
 ## Go libraries
 
-**None.** `go.mod` has no `require` block. The MCP client, the JSON-RPC
-framing, the process pools, the JSON Schema to TypeScript compiler, the HTTP
-API and the CLI are all standard library.
+**One.** `modernc.org/sqlite`, which backs the log index.
 
-This is deliberate and worth keeping:
+Everything else -- the MCP client, the JSON-RPC framing, the process pools,
+the JSON Schema to TypeScript compiler, the HTTP API and the CLI -- is
+standard library, and that is worth keeping.
 
-- `vendorHash = null` in the Nix package, so there is no dependency tree to
-  pin, audit or update.
-- Nothing to review when a transitive package changes hands.
-- The build is `go build` with no network.
+### Why this driver
+
+`modernc.org/sqlite` is a pure-Go translation of SQLite rather than a binding.
+The usual choice, `mattn/go-sqlite3`, is cgo, and cgo would mean:
+
+- a C toolchain required to build, which the Nix derivation would have to
+  carry;
+- cross-compilation broken, so no building a Linux binary from a Mac;
+- `CGO_ENABLED=0` builds failing outright.
+
+That is a large bill for a database that is only ever an *index*. The JSONL
+files remain the source of truth: the index can be deleted at any time and is
+rebuilt on the next query. Paying in build complexity for something
+reconstructible was the wrong trade.
+
+The cost of the pure-Go driver is a slower build and a larger binary. Both are
+acceptable; neither affects anyone running mcpx.
+
+### What this means for the build
+
+- `vendorHash` is pinned in `pkgs/mcpx/package.nix` and must be updated when
+  the dependency changes.
+- The build still needs no network beyond the vendor fetch, and still needs no
+  C toolchain.
 
 The standard library packages doing real work: `net/http` (daemon and client),
 `encoding/json` (everything), `os/exec` + `syscall` (child processes and
