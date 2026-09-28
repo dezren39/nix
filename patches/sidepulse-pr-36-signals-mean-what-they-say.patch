@@ -1,0 +1,856 @@
+--- a/src/sidepulse/collector.py
++++ b/src/sidepulse/collector.py
+@@ -38,7 +38,19 @@
+ # it costs megabytes of JSON for records that are discarded moments later.
+ T3CODE_MAX_FILE_AGE_SECONDS = 24 * 60 * 60
+ T3CODE_METADATA_EVENT = "T3SessionMetadata"
+-T3CODE_FAILED_STATES = frozenset({"failed", "error", "errored", "cancelled", "canceled"})
++T3CODE_FAILED_STATES = frozenset({"failed", "error", "errored"})
++
++# States that mean the work stopped because somebody stopped it, or because the
++# session was closed. Neither is a failure. `Interrupt` is already mapped to
++# `IDLE_READY` - "inactive, but has not completed its work" - and these are the
++# same act reported under T3's vocabulary, so they have to agree with it.
++#
++# Keeping them out of `T3CODE_FAILED_STATES` matters more than it used to: a
++# `BLOCKED_ERROR` is latched until a human retires it, so classifying Esc as a
++# failure left the device red over a session the user had deliberately stopped.
++T3CODE_CANCELLED_STATES = frozenset(
++    {"cancelled", "canceled", "aborted", "interrupted", "exited", "closed", "stopped"}
++)
+ T3CODE_TOOL_ITEM_MARKERS = (
+     "tool",
+     "command",
+@@ -1204,8 +1216,13 @@
+     payload: dict[str, Any],
+ ) -> tuple[str | None, AgentMode | None]:
+     if event_type in {"turn.completed", "turn.aborted", "session.exited"}:
+-        if t3code_state_failed(payload.get("state")):
++        state = payload.get("state")
++        if t3code_state_failed(state):
+             return "StopFailure", AgentMode.BLOCKED_ERROR
++        # An aborted turn did not finish, so it is not green either. The event
++        # itself is the abort when no state is reported.
++        if t3code_state_cancelled(state) or event_type == "turn.aborted":
++            return "Interrupt", AgentMode.IDLE_READY
+         return "Stop", AgentMode.COMPLETED
+     if event_type == "turn.started":
+         return "UserPromptSubmit", AgentMode.WORKING
+@@ -1223,8 +1240,12 @@
+             return "PreToolUse", AgentMode.TOOL_RUNNING
+         return "UserPromptSubmit", AgentMode.WORKING
+     if event_type in {"item.completed", "task.completed"}:
+-        if t3code_state_failed(payload.get("status")):
+-            return "PostToolUseFailure", AgentMode.BLOCKED_ERROR
++        # One failed item is not a failed session. A tool call that errors is
++        # ordinary agent work - the model reads the error and tries something
++        # else - and a latched red per failed call put the device in a
++        # permanent error state during perfectly healthy runs. A session that
++        # is genuinely dead says so through `runtime.error`, `session.error`
++        # or a failed terminal state, all of which still light it.
+         return "PostToolUse", AgentMode.WORKING
+     # Codex threads hosted by T3 report their idle/active transitions as
+     # thread.state.changed; only agent-level sessions use session.state.changed.
+@@ -1232,14 +1253,27 @@
+         state = str(payload.get("state", "")).lower()
+         if state in {"idle", "ready"}:
+             return "Stop", AgentMode.COMPLETED
+-        if state in {"error", "failed", "exited", "closed"}:
++        if t3code_state_failed(state):
+             return "StopFailure", AgentMode.BLOCKED_ERROR
++        # A session that exited or was closed is gone, not broken. Reporting it
++        # as a failure contradicted `session.exited`, which the same harness
++        # sends for the same fact and which has always read as a plain stop.
++        if t3code_state_cancelled(state):
++            return "Interrupt", AgentMode.IDLE_READY
+         if state in {"busy", "running", "active"}:
+             return "UserPromptSubmit", AgentMode.WORKING
+     if event_type == "account.rate-limits.updated":
++        # Being rate limited is a wait, not a failure: nothing broke, the
++        # harness will resume on its own, and there is nothing for a human to
++        # fix. As a `BLOCKED_ERROR` it latched red until somebody acknowledged
++        # a condition that had already cleared itself.
+         if t3code_rate_limit_reached(payload):
+-            return "StopFailure", AgentMode.BLOCKED_ERROR
++            return "PermissionRequest", AgentMode.WAITING_FOR_INPUT
+     return None, None
++
++
++def t3code_state_cancelled(value: object) -> bool:
++    return isinstance(value, str) and value.strip().lower() in T3CODE_CANCELLED_STATES
+ 
+ 
+ def t3code_state_failed(value: object) -> bool:
+@@ -2002,7 +2036,10 @@
+     if explicit_mode is not None:
+         return explicit_mode
+ 
+-    if event in {"PostToolUseFailure", "PermissionDenied", "StopFailure"}:
++    # A *session* failure. One rule decides red everywhere: the harness has
++    # said this session cannot continue. A tool call that failed has not said
++    # that - see `PostToolUseFailure` below.
++    if event in {"PermissionDenied", "StopFailure"}:
+         return AgentMode.BLOCKED_ERROR
+     if event in {"PermissionRequest"}:
+         return AgentMode.WAITING_FOR_INPUT
+@@ -2020,9 +2057,16 @@
+         return AgentMode.WORKING
+     if event in {"PreToolUse"}:
+         return AgentMode.TOOL_RUNNING
+-    if event in {"PostToolUse"}:
+-        if _tool_response_looks_failed(raw.get("tool_response")):
+-            return AgentMode.BLOCKED_ERROR
++    if event in {"PostToolUse", "PostToolUseFailure"}:
++        # A failed tool call is ordinary agent work, so both names mean the
++        # same thing to the device: the session is still going. The distinct
++        # event name is kept because the menu and the history show it, but it
++        # no longer colours the LEDs.
++        #
++        # Red is latched until a human retires it, so anything that fires
++        # during a healthy run does not merely add noise - it leaves the
++        # device permanently red, and a real failure arriving later changes
++        # nothing anybody can see. That is what made red stop meaning failure.
+         return AgentMode.WORKING
+     if event in {"UserPromptSubmit", "PreCompact", "PostCompact", "SubagentStart"}:
+         return AgentMode.WORKING
+@@ -2049,7 +2093,7 @@
+ 
+ def explicit_mode_for_record(record: HookEvent) -> AgentMode | None:
+     raw = record.raw
+-    for key in ("sidepulse_status", "sidepulse_mode", "sidepulse_status", "sidepulse_mode"):
++    for key in ("sidepulse_status", "sidepulse_mode"):
+         mode = explicit_mode_from_value(raw.get(key))
+         if mode is not None:
+             return mode
+@@ -2298,6 +2342,7 @@
+ 
+         mode = AgentMode(str(data["mode"]))
+         updated_at = parse_datetime(data["updated_at"])
++        last_prompt = data.get("last_user_prompt_at")
+         return AgentStatus(
+             provider=provider,
+             agent_id=agent_id,
+@@ -2313,6 +2358,16 @@
+             origin=_string_or_none(data.get("origin")),
+             stale=bool(data.get("stale", False)),
+             context_percent=_float_or_none(data.get("context_percent")),
++            # Restored so that a row reloaded from `latest.json` can still be
++            # retired. Without these a persisted failure or prompt had no pid
++            # to test, no parent to inherit a prompt from and no prompt of its
++            # own - and since neither mode expires on a clock, nothing left
++            # that could ever clear it.
++            parent_session_id=_string_or_none(data.get("parent_session_id")),
++            last_user_prompt_at=(
++                parse_datetime(last_prompt) if last_prompt else None
++            ),
++            agent_pid=_agent_pid_from_raw(data),
+         )
+     except Exception:
+         return None
+@@ -2721,19 +2776,36 @@
+ 
+ 
+ def _tool_response_looks_failed(response: object) -> bool:
+-    if isinstance(response, dict):
+-        if response.get("interrupted") is True:
+-            return True
+-        if response.get("success") is False:
+-            return True
+-        if response.get("exit_code") not in (None, 0):
+-            return True
+-        return False
+-
+-    if isinstance(response, str):
+-        text = response.lower()
+-        return "exit code: 1" in text or "traceback" in text
++    """Whether the harness stated that this tool call failed.
+ 
++    Only names the event (`PostToolUseFailure` rather than `PostToolUse`) so
++    that the menu and the history can show it; neither maps to a colour any
++    more. It still has to be honest, because "that tool failed" appearing
++    against a healthy call is misleading in a list even when it is harmless on
++    the device.
++
++    Three things used to trip it that are ordinary agent work:
++
++    ``exit_code != 0``
++        `grep` with no match exits 1. So does `git diff --quiet` on a dirty
++        tree, and any test run that finds a failure - which is the *point* of
++        running it. An agent reads the exit code and carries on.
++
++    ``"traceback" in text``
++        A substring search over tool output. Reading a file that discusses
++        tracebacks, grepping for the word, or running a test suite that prints
++        one on its way to passing all matched. The word appearing in output
++        somewhere is not evidence about the call.
++
++    ``interrupted is True``
++        That is the user pressing Esc, and `Interrupt` is mapped to
++        `IDLE_READY` precisely because stopping an agent is not a failure.
++
++    What remains is the harness saying outright that the call failed.
++    """
++
++    if isinstance(response, dict):
++        return response.get("success") is False or response.get("is_error") is True
+     return False
+ 
+ 
+--- a/src/sidepulse/completion.py
++++ b/src/sidepulse/completion.py
+@@ -32,11 +32,16 @@
+ COMPLETION_PULSE_SECONDS = 4.0
+ 
+ # With presence available, the completion is held until somebody is plainly
+-# back at the terminal instead of being timed out blind. The ceiling exists
+-# because an unattended Mac would otherwise flash green until morning, and
+-# because a completion nobody acknowledged in five minutes has stopped being
+-# news and started being wallpaper.
+-COMPLETION_HOLD_MAX_SECONDS = 300.0
++# back at the terminal. Zero means there is no ceiling at all: only a click, a
++# scroll or a keystroke retires it.
++#
++# This was 300s, on the reasoning that an unattended Mac would otherwise flash
++# green until morning. But flashing green until morning is the correct
++# behaviour - the run did finish, nobody has been told, and the moment the
++# ceiling is reached is precisely the moment the signal was doing its job.
++# Retiring news because it is old only guarantees that the completions you
++# most needed to hear about are the ones you never see.
++COMPLETION_HOLD_MAX_SECONDS = 0.0
+ 
+ # Presence is sampled far faster than the 15s status refresh so that sitting
+ # down clears the completion within a second rather than a quarter-minute.
+--- a/src/sidepulse/error_latch.py
++++ b/src/sidepulse/error_latch.py
+@@ -56,9 +56,25 @@
+         self._acknowledged_through: dict[str, datetime] = {}
+ 
+     def update(self, statuses: Iterable[AgentStatus]) -> None:
+-        """Fold the current snapshot into the latch."""
++        """Fold the current snapshot into the latch.
+ 
+-        rows = list(statuses)
++        Subagent rows are dropped first, for the same reason every other reader
++        of these rows drops them - `aggregate_status`, `menu_statuses`,
++        `CompletionWatcher` and `active_signals_for` all do. A subagent is an
++        implementation detail of the turn that spawned it: it cannot be
++        prompted, it is not addressable from the menu, and it routinely
++        orphans mid-run when its parent moves on. A failure inside one is the
++        parent's to handle, and the parent reports its own outcome.
++
++        The latch was the single reader that kept them, and it is the one with
++        absolute precedence over the display. So one dead subagent held the
++        device red over a session that had long since finished successfully,
++        with nothing the user could do about it - a prompt to the parent only
++        reaches the child while both rows are still present and lineage is
++        intact.
++        """
++
++        rows = [row for row in statuses if ":agent:" not in row.agent_id]
+         present: dict[str, AgentStatus] = {status.agent_id: status for status in rows}
+         prompted = self._prompt_times(rows)
+ 
+--- a/src/sidepulse/models.py
++++ b/src/sidepulse/models.py
+@@ -126,6 +126,22 @@
+             "origin": self.origin,
+             "stale": self.stale,
+             "context_percent": self.context_percent,
++            # The three fields that decide whether a latched signal can ever be
++            # retired. Omitting them made this a lossy round-trip in exactly
++            # the wrong direction: `latest.json` is reloaded on every status
++            # bar start, and a row that came back without them had no pid to
++            # test for liveness, no lineage to receive a parent's prompt, and
++            # no record of having been prompted. Since `BLOCKED_ERROR` and
++            # `WAITING_FOR_INPUT` never expire on a clock, such a row was
++            # immortal - one restart turned a finished failure into a red LED
++            # that nothing could clear.
++            "parent_session_id": self.parent_session_id,
++            "last_user_prompt_at": (
++                self.last_user_prompt_at.isoformat()
++                if self.last_user_prompt_at
++                else None
++            ),
++            "agent_pid": self.agent_pid,
+         }
+ 
+ 
+--- a/src/sidepulse/presence.py
++++ b/src/sidepulse/presence.py
+@@ -11,11 +11,13 @@
+ single extra permission:
+ 
+ ``CGEventSourceSecondsSinceLastEventType``
+-    Seconds since the last HID event. Covers keystrokes and mouse movement
+-    alike, needs neither Accessibility nor Input Monitoring, and - unlike an
+-    event tap - cannot drop events or wedge the input stream when the process
+-    stalls.
++    Seconds since the last key press, mouse button or scroll. Needs neither
++    Accessibility nor Input Monitoring, and - unlike an event tap - cannot
++    drop events or wedge the input stream when the process stalls.
+ 
++    Deliberately not mouse *movement*. Acknowledgement has to be an act, and
++    the pointer drifting is not one.
++
+ ``NSWorkspace.frontmostApplication``
+     Which app owns the screen. Only the *application*, never the window or
+     tab: window titles of other processes require Screen Recording on macOS 15
+@@ -73,8 +75,8 @@
+ )
+ 
+ # How long input has to keep arriving before it counts. A single keystroke, a
+-# nudged trackpad or a notification stealing focus are all "a short moment";
+-# they are not somebody sitting down to read what happened.
++# stray click or a notification stealing focus are all "a short moment"; they
++# are not somebody sitting down to read what happened.
+ DEFAULT_SUSTAINED_INPUT_SECONDS = 2.5
+ 
+ # The longest silence tolerated inside one burst of activity, so that the
+@@ -112,32 +114,62 @@
+ 
+ 
+ def seconds_since_last_input() -> float | None:
+-    """Seconds since the last keystroke or mouse movement, or None."""
++    """Seconds since the last deliberate input, or None if unknowable.
+ 
++    Deliberate means a key press, a mouse button, or a scroll. Explicitly
++    *not* mouse movement, which is what `kCGAnyInputEventType` reports and
++    what this used to ask for. A cat on the desk, a trackpad brushed on the
++    way past, a window animation under the cursor and the pointer drifting one
++    pixel all register as "any input", and every one of them silently retired
++    a completion nobody had looked at. That is the failure this whole module
++    exists to prevent, arriving through the reading rather than the logic.
++
++    Each event type is timed separately and the most recent wins, because
++    Quartz answers per type and there is no "any of these" constant.
++    """
++
+     try:
+         import Quartz
+     except Exception:
+         return None
++
+     try:
+-        value = Quartz.CGEventSourceSecondsSinceLastEventType(
+-            Quartz.kCGEventSourceStateHIDSystemState,
+-            Quartz.kCGAnyInputEventType,
++        event_types = (
++            Quartz.kCGEventKeyDown,
++            Quartz.kCGEventLeftMouseDown,
++            Quartz.kCGEventRightMouseDown,
++            Quartz.kCGEventOtherMouseDown,
++            Quartz.kCGEventScrollWheel,
+         )
+-    except Exception:
++    except AttributeError:
+         return None
+-    if value is None:
+-        return None
+-    try:
+-        seconds = float(value)
+-    except (TypeError, ValueError):
+-        return None
+-    # A negative or absurd reading means the event source is not answering
+-    # honestly; treat it as "no idea" rather than as "wide awake".
+-    if seconds < 0.0:
+-        return None
+-    return seconds
+ 
++    best: float | None = None
++    for event_type in event_types:
++        try:
++            value = Quartz.CGEventSourceSecondsSinceLastEventType(
++                Quartz.kCGEventSourceStateHIDSystemState,
++                event_type,
++            )
++        except Exception:
++            continue
++        if value is None:
++            continue
++        try:
++            seconds = float(value)
++        except (TypeError, ValueError):
++            continue
++        # A negative or absurd reading means the event source is not answering
++        # honestly for this type; skip it rather than treating it as "wide
++        # awake". A type that has never fired reports a very large number,
++        # which is the truth and sorts itself out under `min`.
++        if seconds < 0.0:
++            continue
++        if best is None or seconds < best:
++            best = seconds
++    return best
+ 
++
+ def bundle_id_holds_attention(
+     bundle_id: str | None,
+     *,
+--- a/src/sidepulse/providers.py
++++ b/src/sidepulse/providers.py
+@@ -591,7 +591,15 @@
+             # own event names rather than `session.error`. Whichever pipeline is
+             # live, a failure has to reach the device.
+             "session_next_step_failed": "StopFailure",
+-            "session_next_tool_failed": "StopFailure",
++            # A *tool* failing is not a run failing. The model reads the error
++            # and tries something else; an edit that did not match, a command
++            # that exited nonzero and a missing file all arrive here during
++            # healthy work. Since a `BLOCKED_ERROR` is latched until a human
++            # retires it, mapping this to one put the device in a permanent
++            # error state during ordinary runs - which is the single largest
++            # source of red that was not an error. A run that is genuinely
++            # dead still reports `session.error` or `session.next.step.failed`.
++            "session_next_tool_failed": "PostToolUse",
+             # An explicitly deleted session is gone, not finished. It gets its
+             # own event because "removed" and "completed" have to stay
+             # distinguishable: a failure survives a completion, but nothing
+--- a/src/sidepulse/settings.py
++++ b/src/sidepulse/settings.py
+@@ -211,7 +211,17 @@
+ DEFAULT_DND_END_TIME = "07:00"
+ # Mirrors of the completion/presence tuning knobs, restated here so that
+ # settings loading does not have to import the status-bar half of the app.
+-DEFAULT_COMPLETION_HOLD_MAX_SECONDS = 300.0
++#
++# Zero means "no ceiling": hold the completion until somebody actually acts.
++# It used to be 300s, on the reasoning that a completion nobody acknowledged
++# in five minutes had become wallpaper. In practice the opposite happened -
++# runs finish while you are away, which is the whole reason for signalling
++# them, and the ceiling retired the news before anybody could be told. A
++# completion that is still on the device is not wallpaper, it is the answer to
++# "did that finish?", and it costs nothing to keep until it is read.
++#
++# Set a positive number here to restore a ceiling.
++DEFAULT_COMPLETION_HOLD_MAX_SECONDS = 0.0
+ DEFAULT_COMPLETION_HOLD_SUSTAINED_INPUT_SECONDS = 2.5
+ # How the device behaves when several signals are true at once. Defaults to the
+ # historical behaviour - paint the most urgent one and drop the rest - so the
+--- a/src/sidepulse/status_bar.py
++++ b/src/sidepulse/status_bar.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import json
++import math
+ import shlex
+ import socket
+ import subprocess
+@@ -897,18 +898,18 @@
+             reconcile_t3code_sessions(self.monitor, self.t3code_monitor)
+             snapshot = self.monitor.snapshot(include_stale=False)
+         except Exception as exc:
++            # SidePulse failing to read the monitor is not an agent failing.
++            #
++            # This used to paint `BLOCKED_ERROR`, which is the same red a dead
++            # run gets and is latched the same way, so a transient read error
++            # here was indistinguishable from - and outlived - a real failure.
++            # There is no colour for "the status bar is broken", and inventing
++            # one out of the agent vocabulary is worse than saying nothing.
++            #
++            # So the display is left exactly as it was. The previous snapshot
++            # is still the best answer available, the failure is logged, and
++            # the next tick either recovers or repeats this.
+             log_status_bar(f"refresh error: {exc}")
+-            self.set_status(STATE_ASK)
+-            battery_snapshot = self.read_battery_snapshot()
+-            self.sync_keep_awake(AgentMode.BLOCKED_ERROR, battery_snapshot)
+-            mac_sleep_snapshot = self.read_mac_sleep_snapshot()
+-            self.record_status_history(
+-                AgentMode.BLOCKED_ERROR,
+-                STATE_ASK,
+-                battery_snapshot,
+-                mac_sleep_snapshot,
+-            )
+-            self.sync_leds(AgentMode.BLOCKED_ERROR, battery_snapshot, LED_DISPLAY_AGENT)
+             return
+ 
+         self.last_snapshot = snapshot
+@@ -3345,6 +3346,14 @@
+             return AgentMode.BLOCKED_ERROR
+         if time.monotonic() < self.completion_pulse_until and not mode_awaits_a_human(mode):
+             return AgentMode.COMPLETED
++        # An aggregate that still says COMPLETED after the hold has been
++        # released is a row waiting out `completed_visible_seconds`, not news.
++        # Painting it green again undid the acknowledgement the user had just
++        # given and left the device green for the rest of the twenty minutes,
++        # which is why "done" read as a colour the device gets stuck on rather
++        # than as an event.
++        if mode is AgentMode.COMPLETED:
++            return AgentMode.IDLE_READY
+         return mode
+ 
+     def note_completions(self, snapshot) -> None:
+@@ -3355,14 +3364,30 @@
+         )
+         if not finished:
+             return
+-        if not self.settings.completion_hold_enabled:
++        # Whether a human could be seen acting decides how the signal is
++        # retired, so it is asked now rather than assumed from a setting. With
++        # presence readable the completion waits for a click, a scroll or a
++        # keystroke and for nothing else. Without it there is no way to know a
++        # completion was ever seen, and holding it forever on a machine that
++        # cannot answer would wedge the device rather than inform anybody - so
++        # that case, and only that case, still falls back to a timed pulse.
++        presence_readable = (
++            self.settings.completion_hold_enabled
++            and seconds_since_last_input() is not None
++        )
++        if not presence_readable:
+             self.completion_pulse_until = time.monotonic() + COMPLETION_PULSE_SECONDS
+             log_status_bar(f"completion pulse count={len(finished)}")
+             return
+         hold_seconds = self.settings.completion_hold_max_seconds
+         if hold_seconds <= 0:
+             hold_seconds = COMPLETION_HOLD_MAX_SECONDS
+-        self.completion_pulse_until = time.monotonic() + hold_seconds
++        # A ceiling of zero means there is none. `math.inf` rather than a very
++        # large number so that every `now < completion_pulse_until` comparison
++        # keeps working unchanged and nothing has to learn about a sentinel.
++        self.completion_pulse_until = (
++            time.monotonic() + hold_seconds if hold_seconds > 0 else math.inf
++        )
+         # Re-arm from zero: typing that was already in progress when the run
+         # finished is not acknowledgement of a result the user cannot have
+         # read yet.
+@@ -3371,7 +3396,10 @@
+         )
+         self.attention_watcher.reset()
+         self.start_completion_hold_timer()
+-        log_status_bar(f"completion hold count={len(finished)} max={hold_seconds:g}s")
++        log_status_bar(
++            f"completion hold count={len(finished)} "
++            f"max={'none' if hold_seconds <= 0 else f'{hold_seconds:g}s'}"
++        )
+ 
+     def start_completion_hold_timer(self) -> None:
+         if self.completion_hold_timer is not None:
+@@ -3630,7 +3658,14 @@
+             signals.add(SIGNAL_ERROR)
+         if AgentMode.WAITING_FOR_INPUT in modes:
+             signals.add(SIGNAL_ASK)
+-        if time.monotonic() < self.completion_pulse_until or AgentMode.COMPLETED in modes:
++        # `done` is the completion *signal*, not "a finished row is still in
++        # the monitor". Those came apart badly: a COMPLETED row stays fresh
++        # for `completed_visible_seconds` - twenty minutes - so green outlived
++        # its own acknowledgement by a quarter of an hour, and the hold that
++        # exists to decide when the news has been read was overruled by a
++        # timer it knows nothing about. Reading the hold alone means green
++        # appears when something finishes and leaves when somebody acts.
++        if time.monotonic() < self.completion_pulse_until:
+             signals.add(SIGNAL_DONE)
+         if modes & {
+             AgentMode.WORKING,
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -8298,8 +8298,11 @@
+             ).snapshot()
+ 
+             self.assertEqual(len(snapshot.statuses), len(providers))
++            # `turn.aborted` with reason "interrupted" is somebody stopping the
++            # agent, which is neither a completion nor a failure - the same
++            # reading `Interrupt` has always had.
+             self.assertTrue(
+-                all(status.mode == AgentMode.COMPLETED for status in snapshot.statuses)
++                all(status.mode == AgentMode.IDLE_READY for status in snapshot.statuses)
+             )
+             self.assertTrue(all(status.origin == "T3 Code" for status in snapshot.statuses))
+             self.assertEqual(
+@@ -8953,9 +8956,14 @@
+             canon("turn.completed", {"state": "failed", "stopReason": "error"})
+         )
+ 
++        # A single failed item is not a failed session: the model reads the
++        # error and tries something else. Since BLOCKED_ERROR is latched until
++        # a human retires it, reporting one here left the device permanently
++        # red during healthy runs. A dead session still says so through
++        # `turn.completed` state=failed, asserted below.
+         self.assertEqual(
+             collector_module.status_from_event(failed_item).mode,
+-            AgentMode.BLOCKED_ERROR,
++            AgentMode.WORKING,
+         )
+         self.assertEqual(
+             collector_module.status_from_event(ok_item).mode,
+@@ -9125,9 +9133,11 @@
+         self.assertIsNone(collector_module.parse_t3code_event_line(canon(None)))
+         reached = collector_module.parse_t3code_event_line(canon("primary"))
+         self.assertIsNotNone(reached)
++        # Being rate limited is a wait, not a failure: nothing broke, the
++        # harness resumes on its own, and there is nothing for a human to fix.
+         self.assertEqual(
+             collector_module.status_from_event(reached).mode,
+-            AgentMode.BLOCKED_ERROR,
++            AgentMode.WAITING_FOR_INPUT,
+         )
+         self.assertIn("Rate limit reached", reached.message)
+ 
+--- a/tests/test_awaiting_human.py
++++ b/tests/test_awaiting_human.py
+@@ -224,28 +224,50 @@
+         self.assertIn("SESSION_ERROR_IGNORED", source)
+         self.assertIn("ContextOverflowError", source)
+ 
+-    def test_failure_events_map_to_blocked_error(self):
+-        from sidepulse.collector import mode_for_event
++    def record(self, canonical: str):
+         from sidepulse.models import HookEvent
++
++        return HookEvent(
++            provider="opencode",
++            logged_at=NOW,
++            event_name=canonical,
++            raw={},
++            session_id="ses_1",
++        )
++
++    def test_session_failure_events_map_to_blocked_error(self):
++        """A stopped *run* is a failure, and stays one."""
++
++        from sidepulse.collector import mode_for_event
+         from sidepulse.providers import canonical_event_name
+ 
+-        for raw_name in (
+-            "session.error",
+-            "session.next.step.failed",
+-            "session.next.tool.failed",
+-        ):
++        for raw_name in ("session.error", "session.next.step.failed"):
+             canonical = canonical_event_name(raw_name)
+             self.assertEqual(canonical, "StopFailure", raw_name)
+-            record = HookEvent(
+-                provider="opencode",
+-                logged_at=NOW,
+-                event_name=canonical,
+-                raw={},
+-                session_id="ses_1",
++            self.assertEqual(
++                mode_for_event(self.record(canonical)),
++                AgentMode.BLOCKED_ERROR,
++                raw_name,
+             )
+-            self.assertEqual(mode_for_event(record), AgentMode.BLOCKED_ERROR, raw_name)
+ 
++    def test_tool_failure_is_not_a_session_failure(self):
++        """A failed tool call is ordinary agent work, so it is not red.
+ 
++        The model reads the error and tries something else. An edit that did
++        not match, a command that exited nonzero and a missing file all arrive
++        here during healthy runs, and because BLOCKED_ERROR is latched until a
++        human retires it, each one left the device permanently red - which is
++        what stopped red from meaning failure at all.
++        """
++
++        from sidepulse.collector import mode_for_event
++        from sidepulse.providers import canonical_event_name
++
++        canonical = canonical_event_name("session.next.tool.failed")
++        self.assertEqual(canonical, "PostToolUse")
++        self.assertEqual(mode_for_event(self.record(canonical)), AgentMode.WORKING)
++
++
+ class ClosedSessionTests(unittest.TestCase):
+     """A question nobody can answer any more must stop being asked.
+ 
+--- a/tests/test_completion_hold.py
++++ b/tests/test_completion_hold.py
+@@ -158,7 +158,11 @@
+     def test_missing_section_keeps_the_hold_on_by_default(self):
+         restored = self.load({})
+         self.assertTrue(restored.completion_hold_enabled)
+-        self.assertEqual(restored.completion_hold_max_seconds, 300.0)
++        # Zero is "no ceiling": a completion is retired by somebody acting on
++        # it, never by a clock. A run that finishes while you are away is
++        # exactly the one worth signalling, and a ceiling retired that news
++        # before anybody could be told.
++        self.assertEqual(restored.completion_hold_max_seconds, 0.0)
+ 
+     def test_malformed_bundle_id_entries_are_dropped(self):
+         restored = self.load(
+--- a/tests/test_led_signals.py
++++ b/tests/test_led_signals.py
+@@ -368,8 +368,21 @@
+     assert latch.active
+ 
+ 
+-def test_prompting_the_parent_clears_a_dead_subagents_error():
+-    """The case that motivated this: a subagent cannot be prompted directly."""
++def test_a_dead_subagent_does_not_own_the_device():
++    """A subagent failing is the parent's business, not the user's.
++
++    This latch is the only reader with absolute precedence over the display,
++    and it was the only one that kept subagent rows - `aggregate_status`,
++    `menu_statuses`, `CompletionWatcher` and `active_signals_for` all drop
++    them. A subagent cannot be prompted, is not addressable from the menu, and
++    routinely orphans mid-run when its parent moves on, so one dead child sat
++    red over a session that had long since finished successfully.
++
++    `completion.py` already excludes them from the other direction, for the
++    same reason: they finish constantly and in bursts, and neither their
++    successes nor their failures are news about the work you asked for.
++    """
++
+     latch = SessionErrorLatch()
+     child = status(
+         "opencode:agent:child", AgentMode.BLOCKED_ERROR,
+@@ -377,25 +390,31 @@
+     )
+     parent = status("opencode:session:parent", AgentMode.WORKING, session_id="parent")
+     latch.update([child, parent])
+-    assert latch.active, "a subagent failure must be visible"
++    assert not latch.active
+ 
+-    # The human replies to the parent; the child never runs again.
++    # The parent failing is news, and still latches.
+     latch.update([
+-        status("opencode:agent:child", AgentMode.BLOCKED_ERROR,
+-               session_id="child", parent_session_id="parent"),
+-        status("opencode:session:parent", AgentMode.WORKING,
+-               session_id="parent", offset_seconds=30, prompted_at=30),
++        child,
++        status("opencode:session:parent", AgentMode.BLOCKED_ERROR, session_id="parent"),
+     ])
+-    assert not latch.active
++    assert latch.active
++    assert latch.agent_ids() == frozenset({"opencode:session:parent"})
+ 
+ 
+-def test_parent_prompt_propagates_through_nested_subagents():
++def test_a_prompt_propagates_down_the_reported_lineage():
++    """A prompt to an ancestor retires errors latched against descendants.
++
++    Kept for providers that report a parent on a top-level row. The walk is
++    what makes a failure inherited from further up clearable at all, and it is
++    bounded by a seen-set so a malformed cycle cannot hang the status bar.
++    """
++
+     latch = SessionErrorLatch()
+     rows = [
+-        status("opencode:agent:grandchild", AgentMode.BLOCKED_ERROR,
+-               session_id="grandchild", parent_session_id="child"),
+-        status("opencode:agent:child", AgentMode.WORKING,
+-               session_id="child", parent_session_id="root"),
++        status("opencode:session:leaf", AgentMode.BLOCKED_ERROR,
++               session_id="leaf", parent_session_id="mid"),
++        status("opencode:session:mid", AgentMode.WORKING,
++               session_id="mid", parent_session_id="root"),
+         status("opencode:session:root", AgentMode.WORKING, session_id="root"),
+     ]
+     latch.update(rows)
+@@ -577,3 +596,116 @@
+     fresh = (status("opencode:session:busy", AgentMode.WORKING, session_id="busy"),)
+     stale = (status("opencode:session:done", AgentMode.COMPLETED, session_id="done"),)
+     assert w.newly_completed(fresh + stale) == ("opencode:session:done",)
++
++
++# --- a latched signal must stay retirable -----------------------------------
++
++
++def test_a_persisted_row_keeps_what_makes_it_retirable():
++    """`latest.json` is reloaded on every status bar start.
++
++    `BLOCKED_ERROR` and `WAITING_FOR_INPUT` never expire on a clock, so a row
++    that survives that round-trip without its pid, its lineage or its last
++    prompt has nothing left that could ever clear it: no process to test for
++    liveness, no ancestor to inherit a prompt from, and no prompt of its own.
++    One restart turned a finished failure into a permanently red device.
++    """
++    from sidepulse.collector import agent_status_from_dict, status_awaits_a_reachable_human
++
++    row = status(
++        "opencode:session:a",
++        AgentMode.BLOCKED_ERROR,
++        session_id="a",
++        parent_session_id="parent",
++        prompted_at=5,
++    )
++    row = row.__class__(**{**row.__dict__, "agent_pid": 4242})
++
++    restored = agent_status_from_dict(row.to_dict())
++    assert restored is not None
++    assert restored.agent_pid == 4242
++    assert restored.parent_session_id == "parent"
++    assert restored.last_user_prompt_at == row.last_user_prompt_at
++
++    # And the liveness escape hatch works on the restored row rather than
++    # silently defaulting to "unknown pid, assume alive, never expire".
++    dead = restored.__class__(**{**restored.__dict__, "agent_pid": 2 ** 22})
++    assert not status_awaits_a_reachable_human(dead)
++
++
++# --- red means the run is dead ----------------------------------------------
++
++
++@pytest.mark.parametrize(
++    "response",
++    [
++        {"exit_code": 1},          # grep with no match, a failing test run
++        {"interrupted": True},     # the user pressed Esc
++        "Traceback (most recent call last):",
++        "exit code: 1",
++    ],
++)
++def test_ordinary_tool_outcomes_are_not_failures(response):
++    """None of these say the session cannot continue.
++
++    Red is latched until a human retires it, so anything that fires during a
++    healthy run does not merely add noise - it leaves the device permanently
++    red, and a real failure arriving later changes nothing anybody can see.
++    """
++    from sidepulse.collector import mode_for_event
++    from sidepulse.models import HookEvent
++
++    record = HookEvent(
++        provider="claude",
++        logged_at=BASE_TIME,
++        event_name="PostToolUse",
++        raw={"tool_response": response},
++        session_id="s",
++    )
++    assert mode_for_event(record) is AgentMode.WORKING
++
++
++def test_a_harness_stated_tool_failure_still_names_the_event():
++    """Demoted to WORKING for colour, but the menu still says what happened."""
++    from sidepulse.collector import _tool_response_looks_failed
++
++    assert _tool_response_looks_failed({"success": False})
++    assert _tool_response_looks_failed({"is_error": True})
++    assert not _tool_response_looks_failed({"exit_code": 3})
++    assert not _tool_response_looks_failed("traceback")
++
++
++# --- presence is an act, not a twitch ---------------------------------------
++
++
++def test_presence_ignores_mouse_movement(monkeypatch):
++    """Acknowledgement has to be deliberate.
++
++    `kCGAnyInputEventType` counts the pointer drifting one pixel, so a cat on
++    the desk or a window animation under the cursor retired a completion
++    nobody had looked at.
++    """
++    import sidepulse.presence as presence
++
++    class FakeQuartz:
++        kCGEventSourceStateHIDSystemState = 1
++        kCGEventKeyDown = 10
++        kCGEventLeftMouseDown = 1
++        kCGEventRightMouseDown = 3
++        kCGEventOtherMouseDown = 25
++        kCGEventScrollWheel = 22
++        kCGEventMouseMoved = 5
++        asked: list[int] = []
++
++        @staticmethod
++        def CGEventSourceSecondsSinceLastEventType(_source, event_type):
++            FakeQuartz.asked.append(event_type)
++            # Mouse moved a moment ago; nothing was clicked or typed for a
++            # minute. The answer must be the minute.
++            return 0.1 if event_type == FakeQuartz.kCGEventMouseMoved else 60.0
++
++    monkeypatch.setitem(__import__("sys").modules, "Quartz", FakeQuartz)
++    assert presence.seconds_since_last_input() == 60.0
++    assert FakeQuartz.kCGEventMouseMoved not in FakeQuartz.asked
++    assert FakeQuartz.kCGEventKeyDown in FakeQuartz.asked
++    assert FakeQuartz.kCGEventScrollWheel in FakeQuartz.asked
