@@ -17,7 +17,6 @@ import (
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
-	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/preflight"
 	"github.com/dezren39/mcpx/internal/runner"
@@ -664,7 +663,6 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// a variable, or the config file. Reading the flag variable directly
 		// would silently ignore the other three.
 		opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
-		opts.TypeCheckTimeout = defaults.TypecheckTimeout
 		for _, r := range allowRepeat.Values() {
 			if str, ok := r.(string); ok {
 				opts.AllowRepeat = append(opts.AllowRepeat, str)
