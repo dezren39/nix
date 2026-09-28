@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -46,6 +48,23 @@ type Defaults struct {
 		ReapInterval string `json:"reapInterval"`
 		SaveInterval string `json:"saveInterval"`
 	} `json:"daemon"`
+	// Plumbing are internals. They are here rather than inline so that a
+	// number nobody expected to matter can still be changed without a
+	// rebuild, and so that every constant in the program has one home.
+	Plumbing struct {
+		ShutdownGrace        string `json:"shutdownGrace"`
+		StdioDrainGrace      string `json:"stdioDrainGrace"`
+		StdioMaxLine         string `json:"stdioMaxLine"`
+		DaemonConnectTimeout string `json:"daemonConnectTimeout"`
+		DaemonPollInterval   string `json:"daemonPollInterval"`
+		DaemonRestartSettle  string `json:"daemonRestartSettle"`
+		HTTPIdleTimeout      string `json:"httpIdleTimeout"`
+		HTTPRequestTimeout   string `json:"httpRequestTimeout"`
+		FollowPollInterval   string `json:"followPollInterval"`
+		LogQueryLimit        int    `json:"logQueryLimit"`
+		RestartBackoffStep   string `json:"restartBackoffStep"`
+		RestartBackoffMax    string `json:"restartBackoffMax"`
+	} `json:"plumbing"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -78,6 +97,40 @@ func Builtin() Defaults { return builtin }
 // BuiltinJSON returns defaults.json verbatim, for `mcpx config --defaults`.
 func BuiltinJSON() []byte { return defaultsJSON }
 
+// mustBytes parses a size the same way a user would write one.
+func mustBytes(s, field string) int64 {
+	n, err := parseBytes(s)
+	if err != nil {
+		panic(fmt.Sprintf("mcpx: defaults.json %s is not a size: %v", field, err))
+	}
+	return n
+}
+
+func parseBytes(v string) (int64, error) {
+	v = strings.TrimSpace(v)
+	mult := int64(1)
+	upper := strings.ToUpper(v)
+	for _, suf := range []struct {
+		s string
+		m int64
+	}{
+		{"KIB", 1 << 10}, {"MIB", 1 << 20}, {"GIB", 1 << 30},
+		{"KB", 1000}, {"MB", 1000 * 1000}, {"GB", 1000 * 1000 * 1000},
+		{"B", 1},
+	} {
+		if strings.HasSuffix(upper, suf.s) {
+			mult = suf.m
+			v = strings.TrimSpace(v[:len(v)-len(suf.s)])
+			break
+		}
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return 0, fmt.Errorf("not a size: %q", v)
+	}
+	return int64(f * float64(mult)), nil
+}
+
 func mustDur(s string, field string) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
@@ -109,6 +162,19 @@ var (
 
 	ReapInterval = mustDur(builtin.Daemon.ReapInterval, "daemon.reapInterval")
 	SaveInterval = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
+
+	ShutdownGrace        = mustDur(builtin.Plumbing.ShutdownGrace, "plumbing.shutdownGrace")
+	StdioDrainGrace      = mustDur(builtin.Plumbing.StdioDrainGrace, "plumbing.stdioDrainGrace")
+	StdioMaxLine         = mustBytes(builtin.Plumbing.StdioMaxLine, "plumbing.stdioMaxLine")
+	DaemonConnectTimeout = mustDur(builtin.Plumbing.DaemonConnectTimeout, "plumbing.daemonConnectTimeout")
+	DaemonPollInterval   = mustDur(builtin.Plumbing.DaemonPollInterval, "plumbing.daemonPollInterval")
+	DaemonRestartSettle  = mustDur(builtin.Plumbing.DaemonRestartSettle, "plumbing.daemonRestartSettle")
+	HTTPIdleTimeout      = mustDur(builtin.Plumbing.HTTPIdleTimeout, "plumbing.httpIdleTimeout")
+	HTTPRequestTimeout   = mustDur(builtin.Plumbing.HTTPRequestTimeout, "plumbing.httpRequestTimeout")
+	FollowPollInterval   = mustDur(builtin.Plumbing.FollowPollInterval, "plumbing.followPollInterval")
+	LogQueryLimit        = builtin.Plumbing.LogQueryLimit
+	RestartBackoffStep   = mustDur(builtin.Plumbing.RestartBackoffStep, "plumbing.restartBackoffStep")
+	RestartBackoffMax    = mustDur(builtin.Plumbing.RestartBackoffMax, "plumbing.restartBackoffMax")
 
 	CatalogBudget = builtin.Catalog.Budget
 

@@ -74,7 +74,12 @@ func TestNoPackageRedeclaresADefaultTimeout(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		for _, bad := range []string{"5 * time.Minute", "120 * time.Second", "60 * time.Second"} {
+		for _, bad := range []string{
+			"5 * time.Minute", "120 * time.Second", "60 * time.Second",
+			"2 * time.Second", "3 * time.Second", "10 * time.Minute",
+			"20 * time.Second", "30 * time.Second",
+			"50 * time.Millisecond", "100 * time.Millisecond", "500 * time.Millisecond",
+		} {
 			if strings.Contains(string(b), bad) {
 				offenders = append(offenders, path+": "+bad)
 			}

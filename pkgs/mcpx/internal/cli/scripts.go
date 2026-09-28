@@ -131,6 +131,62 @@ func plumbingBool(path string) bool {
 
 func allowOverlap() bool { return plumbingBool("plumbing.allowTsJsOverlap") }
 
+// PlaceholderFiles lists every file on the placeholder search path.
+//
+// Empty by default: declaring placeholders is opt-in, because scanning every
+// script directory for declarations would make an ordinary script's filename
+// quietly meaningful.
+func PlaceholderFiles() []string {
+	if plumbingApp == nil {
+		return nil
+	}
+	configured := splitPathList(plumbingApp.Settings().String("paths.placeholders"))
+	if len(configured) == 0 {
+		return nil
+	}
+	wd, _ := os.Getwd()
+	resolved := searchpath.Resolve(configured, settings.NullMarker, searchpath.Options{
+		Dir:           wd,
+		Builtin:       builtinPlaceholderDirs(),
+		RequireExists: true,
+	})
+	var out []string
+	for _, e := range resolved.Entries {
+		if e.IsFile {
+			out = append(out, e.Path)
+			continue
+		}
+		entries, err := os.ReadDir(e.Path)
+		if err != nil {
+			continue
+		}
+		for _, de := range entries {
+			if de.IsDir() {
+				continue
+			}
+			switch strings.ToLower(filepath.Ext(de.Name())) {
+			case ".ts", ".js", ".mts", ".mjs":
+				out = append(out, filepath.Join(e.Path, de.Name()))
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func builtinPlaceholderDirs() []string {
+	var out []string
+	if wd, err := os.Getwd(); err == nil {
+		out = append(out,
+			filepath.Join(wd, ".config", "mcpx", "placeholders"),
+			filepath.Join(wd, ".mcpx", "placeholders"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		out = append(out, filepath.Join(home, ".config", "mcpx", "placeholders"))
+	}
+	return out
+}
+
 // splitPathList accepts either a JSON array, as a configuration file holds
 // it, or a separator-joined string, as an environment variable must. "-" and
 // "null" both stand for the built-in list, because one of them is what

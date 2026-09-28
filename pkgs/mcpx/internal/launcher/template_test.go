@@ -152,3 +152,87 @@ func TestDeepNestingIsBoundedRatherThanUnbounded(t *testing.T) {
 		t.Fatalf("an unknown, unfilled name is left alone: %v", err)
 	}
 }
+
+func TestAPlaceholderCanTakeArguments(t *testing.T) {
+	// This is the difference between a template that can be rearranged and
+	// one that can only be filled in: @console(header, prefix) says which
+	// fragments this console setup gets to see.
+	got, err := launcher.Expand(tmpl("@console(header, prefix)"), launcher.Fill{
+		launcher.Console: "SETUP[@1|@2]",
+		launcher.Header:  "H",
+		launcher.Prefix:  "P",
+	}, launcher.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "SETUP[H|P]" {
+		t.Errorf("arguments should resolve to the fragments they name: %q", got)
+	}
+}
+
+func TestArgumentsBindOnlyInsideTheBody(t *testing.T) {
+	// Nothing an argument binds may leak back out, or two uses of the same
+	// placeholder would contaminate each other.
+	got, err := launcher.Expand(tmpl("@before(prefix)|@1"), launcher.Fill{
+		launcher.Before: "in:@1",
+		launcher.Prefix: "P",
+	}, launcher.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "in:P|@1" {
+		t.Errorf("the outer @1 should be untouched: %q", got)
+	}
+}
+
+func TestALiteralArgumentIsUsedAsWritten(t *testing.T) {
+	got, err := launcher.Expand(tmpl(`@before("quiet")`), launcher.Fill{
+		launcher.Before: "mode=@1",
+	}, launcher.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `mode="quiet"` {
+		t.Errorf("a word that names no placeholder is literal: %q", got)
+	}
+}
+
+func TestAllArgumentsAreAvailableJoined(t *testing.T) {
+	got, err := launcher.Expand(tmpl("@before(header, prefix)"), launcher.Fill{
+		launcher.Before: "[@args]",
+		launcher.Header: "H",
+		launcher.Prefix: "P",
+	}, launcher.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "[H\nP]" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestEmptyParenthesesMeanExplicitlyNothing(t *testing.T) {
+	// @console and @console() are different requests: the first takes
+	// whatever the default is, the second says none of it.
+	got, err := launcher.Expand(tmpl("@console()"), launcher.Fill{
+		launcher.Console: "[@args]",
+	}, launcher.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "[]" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestUnbalancedParenthesesDoNotSwallowTheFile(t *testing.T) {
+	got, err := launcher.Expand(tmpl("@before(oops rest of file"), launcher.Fill{
+		launcher.Before: "B",
+	}, launcher.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "rest of file") {
+		t.Errorf("the remainder should survive: %q", got)
+	}
+}

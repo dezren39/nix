@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"log/slog"
 	"strings"
 	"time"
@@ -137,7 +138,7 @@ func (s *Store) Records(q Query) ([]Record, error) {
 	}
 	limit := q.Limit
 	if limit <= 0 {
-		limit = 100
+		limit = defaults.LogQueryLimit
 	}
 	sqlText := `SELECT ` + selectCols + ` FROM records` + where +
 		` ORDER BY ts_unix_ms DESC, id DESC LIMIT ?`

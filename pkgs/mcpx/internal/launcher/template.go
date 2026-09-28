@@ -67,6 +67,8 @@ type Options struct {
 	// MaxDepth bounds substitution when fills themselves contain
 	// placeholders.
 	MaxDepth int
+	// Defs are user-declared placeholders, which may take parameters.
+	Defs []Definition
 }
 
 // Expand substitutes every @name in the template.
@@ -125,28 +127,77 @@ func expand(text string, fill Fill, opt Options, counts map[Placeholder]int, dep
 		}
 		j += i
 		b.WriteString(text[i:j])
-		name, width := readName(text[j:])
-		if name == "" {
+		ref, ok := readRef(text[j:])
+		if !ok {
 			b.WriteByte('@')
 			i = j + 1
 			continue
 		}
-		p := Placeholder(name)
-		body, known := fill[p]
+		body, known := fill[ref.Name]
 		if !known {
-			b.WriteString(text[j : j+width])
-			i = j + width
+			b.WriteString(text[j : j+ref.Width])
+			i = j + ref.Width
 			continue
 		}
-		counts[p]++
-		sub, err := expand(body, fill, opt, counts, depth+1)
+		counts[ref.Name]++
+
+		// Arguments bind inside the body only. A local fill shadows the
+		// outer one for the parameter names, so @console(header, prefix)
+		// reaches exactly those fragments and nothing leaks back out.
+		inner := fill
+		if ref.HasArgs {
+			inner = withArgs(fill, ref, opt.Defs)
+		}
+		sub, err := expand(body, inner, opt, counts, depth+1)
 		if err != nil {
 			return "", err
 		}
 		b.WriteString(sub)
-		i = j + width
+		i = j + ref.Width
 	}
 	return b.String(), nil
+}
+
+// withArgs layers a definition's parameters over the outer fill.
+//
+// A declaration that named its parameters binds them positionally. One that
+// did not still gets @1, @2 and @args, because a fragment used with arguments
+// is usually short enough that naming them is ceremony.
+func withArgs(outer Fill, ref Ref, defs []Definition) Fill {
+	inner := Fill{}
+	for k, v := range outer {
+		inner[k] = v
+	}
+	var params []string
+	for _, d := range defs {
+		if d.Name == ref.Name {
+			params = d.Params
+			break
+		}
+	}
+	for i, arg := range ref.Args {
+		// An argument naming another placeholder expands to it; anything
+		// else is used literally. That is what makes @console(header,
+		// prefix) mean "those fragments" rather than "those two words".
+		value := arg
+		if body, ok := outer[Placeholder(arg)]; ok {
+			value = body
+		}
+		if i < len(params) {
+			inner[Placeholder(params[i])] = value
+		}
+		inner[Placeholder(fmt.Sprint(i+1))] = value
+	}
+	joined := make([]string, 0, len(ref.Args))
+	for _, a := range ref.Args {
+		if body, ok := outer[Placeholder(a)]; ok {
+			joined = append(joined, body)
+			continue
+		}
+		joined = append(joined, a)
+	}
+	inner["args"] = strings.Join(joined, "\n")
+	return inner
 }
 
 // readName reads @name, returning the name and how many bytes it occupied.
@@ -226,16 +277,15 @@ func refs(text string, fill Fill) []Placeholder {
 		if text[i] != '@' {
 			continue
 		}
-		name, width := readName(text[i:])
-		if name == "" {
+		ref, ok := readRef(text[i:])
+		if !ok {
 			continue
 		}
-		p := Placeholder(name)
-		if _, ok := fill[p]; ok && !seen[p] {
-			seen[p] = true
-			out = append(out, p)
+		if _, known := fill[ref.Name]; known && !seen[ref.Name] {
+			seen[ref.Name] = true
+			out = append(out, ref.Name)
 		}
-		i += width - 1
+		i += ref.Width - 1
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
@@ -260,9 +310,13 @@ func checkUnknown(t Template, fill Fill) error {
 		if t.Text[i] != '@' {
 			continue
 		}
-		name, width := readName(t.Text[i:])
-		i += max(width-1, 0)
-		if name == "" || known[name] || seen[name] {
+		ref, ok := readRef(t.Text[i:])
+		if !ok {
+			continue
+		}
+		name := string(ref.Name)
+		i += max(ref.Width-1, 0)
+		if known[name] || seen[name] {
 			continue
 		}
 		// Only complain about names that look deliberate. An email address

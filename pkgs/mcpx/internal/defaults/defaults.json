@@ -34,5 +34,19 @@
     "permissions": "all",
     "captureConsole": true,
     "typecheckTimeout": "60s"
+  },
+  "plumbing": {
+    "shutdownGrace": "2s",
+    "stdioDrainGrace": "3s",
+    "stdioMaxLine": "64MiB",
+    "daemonConnectTimeout": "20s",
+    "daemonPollInterval": "50ms",
+    "daemonRestartSettle": "100ms",
+    "httpIdleTimeout": "30s",
+    "httpRequestTimeout": "10m",
+    "followPollInterval": "500ms",
+    "logQueryLimit": 100,
+    "restartBackoffStep": "2s",
+    "restartBackoffMax": "30s"
   }
 }

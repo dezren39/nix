@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"log/slog"
 	"os"
@@ -576,10 +577,13 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		Log:            writer,
 		CollectLogs:    collect,
 		OnResult:       onResult,
-		Enrich: map[string]any{
+		// Harness-supplied identifiers ride along on every record, so a log
+		// can be filtered by session or worktree without the script having
+		// been told any of it.
+		Enrich: enrichWith(map[string]any{
 			"session": sessionKey,
 			"cwd":     mustGetwd(),
-		},
+		}, logging.HarnessIDs()),
 		Env: map[string]string{
 			"MCPX_SESSION":    sessionKey,
 			"MCPX_ENDPOINT":   endpoint,
@@ -668,6 +672,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// a variable, or the config file. Reading the flag variable directly
 		// would silently ignore the other three.
 		opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
+		opts.PlaceholderFiles = PlaceholderFiles()
 		for _, r := range allowRepeat.Values() {
 			if str, ok := r.(string); ok {
 				opts.AllowRepeat = append(opts.AllowRepeat, str)
@@ -785,6 +790,19 @@ func runEnvelope(res *runner.Result, stdout string, logs []logging.Record, strea
 		env["logs"] = items
 	}
 	return env
+}
+
+// enrichWith folds harness identifiers in without letting them overwrite what
+// mcpx itself established. A caller can add context; it cannot rewrite which
+// session a call was actually leased for.
+func enrichWith(base, extra map[string]any) map[string]any {
+	for k, v := range extra {
+		if _, taken := base[k]; taken {
+			continue
+		}
+		base[k] = v
+	}
+	return base
 }
 
 func firstNonEmpty(v ...string) string {
@@ -1096,7 +1114,7 @@ func waitUntilStopped(ctx context.Context, c *Client) error {
 		if !c.Ping(ctx) {
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(defaults.DaemonRestartSettle)
 	}
 	return errors.New("daemon did not stop")
 }

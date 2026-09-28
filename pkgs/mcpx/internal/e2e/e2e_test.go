@@ -1937,3 +1937,92 @@ func TestSettingsFromAConfigFileActuallyTakeEffect(t *testing.T) {
 		t.Errorf("catalog.budget from the config file should apply: %d vs %d", a, b)
 	}
 }
+
+func TestExploreRefusesWithoutATerminal(t *testing.T) {
+	// It reads a prompt loop from stdin; run from a script it would consume
+	// whatever was piped and do something surprising. Saying so and naming
+	// the scriptable commands is better than half-working.
+	e := newEnv(t, oneServer)
+	out, err := e.try("explore")
+	if err == nil {
+		t.Fatal("explore should refuse when stdin is not a terminal")
+	}
+	if !strings.Contains(out, "needs a terminal") {
+		t.Errorf("the reason should be stated: %s", out)
+	}
+	for _, alt := range []string{"ls", "types", "catalog", "log"} {
+		if !strings.Contains(out, alt) {
+			t.Errorf("the scriptable alternative %q should be named: %s", alt, out)
+		}
+	}
+}
+
+func TestHarnessTraceIdsReachTheLog(t *testing.T) {
+	// The harness knows what the agent does not. Pairs rather than a flat id,
+	// because a flat one cannot say "this session, whose parent is that one".
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars,
+		`MCPX_TRACE_IDS=[["session_id","abc123"],["worktree","/w/x"],["aliases","a","b"]]`)
+	out := e.run("exec", "--format", "json", `log.info("hello")`)
+	doc := firstRecord(t, out)
+
+	if doc["id.session_id"] != "abc123" {
+		t.Errorf("session id should ride along: %v", doc)
+	}
+	if doc["id.worktree"] != "/w/x" {
+		t.Errorf("worktree should ride along: %v", doc)
+	}
+	// An entry longer than a pair names several ids for one key.
+	aliases, ok := doc["id.aliases"].([]any)
+	if !ok || len(aliases) != 2 {
+		t.Errorf("a variadic entry should survive as a list: %v", doc["id.aliases"])
+	}
+}
+
+func TestHarnessIdsCannotRewriteTheRealSession(t *testing.T) {
+	// A caller may add context; it may not rewrite which session a call was
+	// actually leased for, or leasing becomes advisory.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, `MCPX_TRACE_IDS=[["session","impostor"]]`)
+	out := e.run("exec", "--format", "json", `log.info("hello")`)
+	doc := firstRecord(t, out)
+	if doc["session"] == "impostor" {
+		t.Error("the harness should not be able to overwrite the resolved session")
+	}
+}
+
+func TestLogRecordAcceptsWhatOtherThingsKnow(t *testing.T) {
+	// mcpx's log should be able to hold what the harness knows, so that one
+	// `mcpx stats` covers both. A caller that can produce JSON should not
+	// also have to learn a schema.
+	e := newEnv(t, oneServer)
+
+	e.run("log", "record", `{"event":"harness.tool","tool":"bash","ok":true}`)
+	e.run("log", "record", "--level", "warn", `{"msg":"something odd","n":42}`)
+
+	out := e.run("log", "--grep", "harness.tool|something odd", "--limit", "10")
+	if !strings.Contains(out, "harness.tool") {
+		t.Errorf("an event-only record should land:\n%s", out)
+	}
+	if !strings.Contains(out, "something odd") {
+		t.Errorf("a message record should land:\n%s", out)
+	}
+	// Told, not observed: without the distinction a synthetic record is
+	// indistinguishable from a measured one.
+	if !strings.Contains(out, "external=true") {
+		t.Errorf("records from outside should be marked:\n%s", out)
+	}
+	if !strings.Contains(out, "WARN") {
+		t.Errorf("the level should be honoured:\n%s", out)
+	}
+}
+
+func TestLogRecordRejectsWhatIsNotAnObject(t *testing.T) {
+	e := newEnv(t, oneServer)
+	if _, err := e.try("log", "record", `not json`); err == nil {
+		t.Fatal("a record that is not a JSON object should be refused")
+	}
+	if _, err := e.try("log", "record", `[1,2,3]`); err == nil {
+		t.Fatal("an array is not a record")
+	}
+}

@@ -220,7 +220,7 @@ hides every user-level server, which makes "add one server for this repo"
 impossible without copying the whole file. Proposed: walk the whole chain,
 nearest first, and merge by server name. A nearer file overrides a server of
 the same name and adds new ones; `"disabled": true` turns off an inherited one.
-`defaults` merges key by key.
+`pool` merges key by key.
 
 `mcpx config --sources` prints the chain with provenance per server, because a
 merge you cannot inspect is worse than no merge.
@@ -502,7 +502,7 @@ effort:  small
 Scope is currently set per server and cannot be constrained or overridden.
 
 ```jsonc
-"defaults": {
+"pool": {
   "scope": "session",
   "scopePolicy": {
     "allow": ["session", "parent-session", "call"],
