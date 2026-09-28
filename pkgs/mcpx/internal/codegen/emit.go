@@ -216,6 +216,64 @@ function pair(p: string): PathPair {
   return { path: p, real: realpath(p) };
 }
 
+function builtin(name: string): any {
+  try {
+    const g = globalThis as any;
+    const req = g.require ?? g.process?.getBuiltinModule?.bind(g.process);
+    return req ? req(name) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function permissionDenied(kind: string, path?: string): Error {
+  const target = path ? " " + String(path) : "";
+  const err = new Error("Requires " + kind + " access" + target);
+  (err as any).name = "PermissionDenied";
+  return err;
+}
+
+function installDenoCompat(): void {
+  const g = globalThis as any;
+  const d = g.Deno ??= {};
+  d.args ??= g.process?.argv?.slice(2) ?? [];
+  if (!d.env?.get) {
+    d.env = {
+      get(name: string): string | undefined {
+        return g.process?.env?.[name];
+      },
+    };
+  }
+  if (typeof d.inspect !== "function") {
+    if (typeof g.Bun?.inspect === "function") {
+      d.inspect = (v: unknown, opts?: { colors?: boolean; depth?: number }) =>
+        g.Bun.inspect(v, opts);
+    } else {
+      const util = builtin("node:util");
+      if (typeof util?.inspect === "function") {
+        d.inspect = (v: unknown, opts?: { colors?: boolean; depth?: number }) =>
+          util.inspect(v, { colors: false, depth: 4, ...opts });
+      }
+    }
+  }
+  if (typeof d.readTextFileSync !== "function") {
+    d.readTextFileSync = (path: string): string => {
+      if (env("MCPX_ALLOW_READ") !== "1") throw permissionDenied("read", path);
+      const fs = builtin("node:fs");
+      if (!fs?.readFileSync) throw new Error("readTextFileSync is unavailable in this runtime");
+      return fs.readFileSync(path, "utf8");
+    };
+  }
+  if (typeof d.readTextFile !== "function") {
+    d.readTextFile = async (path: string): Promise<string> => {
+      if (env("MCPX_ALLOW_READ") !== "1") throw permissionDenied("read", path);
+      const fsp = builtin("node:fs/promises");
+      if (typeof fsp?.readFile === "function") return await fsp.readFile(path, "utf8");
+      return d.readTextFileSync(path);
+    };
+  }
+}
+
 function fromFileUrl(url: string): string {
   if (!url.startsWith("file://")) return url;
   const withoutScheme = decodeURIComponent(url.slice("file://".length));
@@ -708,11 +766,16 @@ export function captureConsole(): void {
   // the structured copy of the value is already in args, so the message is
   // free to be the human form.
   const g = globalThis as any;
+  const nodeInspect = builtin("node:util")?.inspect;
   const native: ((v: unknown) => string) | undefined =
-    typeof g.Deno?.inspect === "function"
+    env("MCPX_RUNTIME") === "node" && typeof nodeInspect === "function"
+      ? (v) => nodeInspect(v)
+      : typeof g.Deno?.inspect === "function"
       ? (v) => g.Deno.inspect(v, { colors: false, depth: 4 })
       : typeof g.Bun?.inspect === "function"
       ? (v) => g.Bun.inspect(v)
+      : typeof nodeInspect === "function"
+      ? (v) => nodeInspect(v)
       : undefined;
   const one = (a: unknown) => {
     if (typeof a === "string") return a;
@@ -922,6 +985,7 @@ function safeInspect(v: unknown): string {
  */
 export function installGlobals(): void {
   const g = globalThis as any;
+  installDenoCompat();
   g.log ??= log;
   g.emit ??= emitResult;
   g.tools ??= tools;

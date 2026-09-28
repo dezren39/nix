@@ -310,6 +310,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// Resolved here rather than by the caller: only the runner knows the final
 	// location of the entry script and the client it wrote beside it.
 	cmd.Env = append(cmd.Env, "MCPX_ENTRY="+scriptPath, "MCPX_CLIENT="+clientPath)
+	if allowsRead(perms) {
+		cmd.Env = append(cmd.Env, "MCPX_ALLOW_READ=1")
+	}
 	for k, v := range opts.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -400,8 +403,17 @@ func writeIfChanged(path, content string) error {
 			return nil
 		}
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -645,4 +657,13 @@ func indentLines(lines []string, indent string) string {
 		out[i] = indent + l
 	}
 	return strings.Join(out, "\n")
+}
+
+func allowsRead(perms []string) bool {
+	for _, perm := range perms {
+		if perm == "--allow-all" || strings.HasPrefix(perm, "--allow-read") {
+			return true
+		}
+	}
+	return false
 }
