@@ -65,6 +65,15 @@ func main() {
 		case args[0] == "--json":
 			app.JSON = true
 			args = args[1:]
+		case args[0] == "--tui":
+			// A global flag as well as a subcommand, because it is as likely
+			// to be reached for mid-command ("...actually, show me") as
+			// chosen up front.
+			if err := app.CmdTUI(ctx, nil); err != nil {
+				fmt.Fprintln(os.Stderr, "mcpx:", err)
+				os.Exit(1)
+			}
+			return
 		case args[0] == "--profile" && len(args) > 1:
 			app.Profile.Names = append(app.Profile.Names, splitList(args[1])...)
 			args = args[2:]
@@ -96,7 +105,13 @@ func main() {
 	}
 
 	if len(args) == 0 {
-		_ = app.CmdHelp(ctx, nil)
+		// Bare `mcpx` opens the browser when there is a terminal to draw on,
+		// and prints help when there is not. Help was the old behaviour and
+		// is still the right answer for a pipe; for a person at a prompt,
+		// a wall of usage is a worse first impression than the thing itself.
+		if err := app.CmdTUI(ctx, nil); err != nil {
+			_ = app.CmdHelp(ctx, nil)
+		}
 		return
 	}
 
@@ -128,6 +143,7 @@ func main() {
 		"man":        app.CmdMan,
 		"completion": app.CmdCompletion,
 		"explore":    app.CmdExplore,
+		"tui":        app.CmdTUI,
 	}
 
 	h, ok := handlers[cmd]
