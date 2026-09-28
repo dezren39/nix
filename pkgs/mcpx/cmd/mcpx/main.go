@@ -119,6 +119,7 @@ func main() {
 		"init":       app.CmdInit,
 		"help":       app.CmdHelp,
 		"man":        app.CmdMan,
+		"completion": app.CmdCompletion,
 	}
 
 	h, ok := handlers[cmd]

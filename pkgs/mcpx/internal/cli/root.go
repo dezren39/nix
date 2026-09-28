@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -166,6 +167,23 @@ func (a *App) CmdMan(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Println(path)
+	return nil
+}
+
+// CmdCompletion prints a shell completion script.
+func (a *App) CmdCompletion(_ context.Context, args []string) error {
+	shell := ""
+	if len(args) > 0 {
+		shell = args[0]
+	}
+	if shell == "" {
+		return errors.New("usage: mcpx completion <bash|zsh|fish>")
+	}
+	text, err := Completion(shell)
+	if err != nil {
+		return err
+	}
+	fmt.Print(text)
 	return nil
 }
 
