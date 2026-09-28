@@ -32,12 +32,7 @@ func newEnv(t *testing.T, cfgBody string) *env {
 	dir := t.TempDir()
 	fake := testsupport.FakeMCPBinary(t)
 
-	mcpx := filepath.Join(dir, "mcpx")
-	build := exec.Command("go", "build", "-o", mcpx, "./cmd/mcpx")
-	build.Dir = repoRoot(t)
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build mcpx: %v\n%s", err, out)
-	}
+	mcpx := testsupport.MCPXBinary(t)
 
 	cfg := strings.ReplaceAll(cfgBody, "FAKE", fake)
 	if err := os.WriteFile(filepath.Join(dir, ".mcpx.json"), []byte(cfg), 0o644); err != nil {
@@ -1561,11 +1556,17 @@ func TestEveryConsoleMethodIsCoveredAndNameIsKept(t *testing.T) {
 		// console.createTask requires a non-empty string in Deno too, so a
 		// throw there is fidelity rather than a defect. Compare against the
 		// unwrapped console instead of assuming nothing throws.
+		//
+		// Members absent from the snapshot are skipped rather than failed:
+		// if we never captured it we never replaced it, so console[k] IS the
+		// original and there is nothing it could diverge from. console.Console
+		// is one -- a class that correctly throws when called without new.
 		const native = (console as any).__mcpxOriginal ?? {};
 		for (const k of names) {
+			if (typeof native[k] !== "function") continue;
 			let ours = false, theirs = false;
 			try { (console as any)[k](); } catch { ours = true; }
-			try { native[k]?.(); } catch { theirs = true; }
+			try { native[k](); } catch { theirs = true; }
 			if (ours !== theirs) console.log("divergent:", k, ours, theirs);
 		}
 	`)
