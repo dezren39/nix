@@ -1752,12 +1752,22 @@ console.info({ nested: { deep: [1, 2, { x: true }] } });
 	}
 }
 
+// nonEmptyLines drops blanks and mcpx's own progress notices.
+//
+// The notices have to go because the two runs being compared do not agree
+// about whether to print them: one uses the default text format and gets
+// them, the other asks for a machine format and does not. On a warm cache
+// neither prints anything and the comparison passes; on a cold one the line
+// counts differ and the test fails for a reason that has nothing to do with
+// the console.
 func nonEmptyLines(s string) []string {
 	var out []string
 	for _, l := range strings.Split(s, "\n") {
-		if l = strings.TrimRight(l, "\r"); strings.TrimSpace(l) != "" {
-			out = append(out, l)
+		l = strings.TrimRight(l, "\r")
+		if strings.TrimSpace(l) == "" || strings.HasPrefix(l, "mcpx: ") {
+			continue
 		}
+		out = append(out, l)
 	}
 	return out
 }

@@ -268,6 +268,14 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Search reads the schema cache, so it has to make sure there is one.
+	// Every other discovery command did this; search did not, and on a cold
+	// cache it answered "no matching tools" -- which is indistinguishable
+	// from the tool genuinely not existing, and sends the reader looking in
+	// the wrong place.
+	if err := a.ensureAnySchemas(ctx, c); err != nil {
+		return err
+	}
 	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), *limit)
 	if err != nil {
 		return err

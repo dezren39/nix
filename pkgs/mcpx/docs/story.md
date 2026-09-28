@@ -1272,6 +1272,45 @@ code after five seconds and passes in under one.
 
 2026-09-28T03:40:00-05:00
 
+## Where a setting is read
+
+```
+created:      2026-09-28T04:30:00-05:00
+last-updated: 2026-09-28T04:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  what the registry governs, and what still has its own path.
+```
+
+Declaring a setting and validating it is not the same as applying it. A value
+that is accepted, reported as fine, and then ignored is documentation that
+lies more quietly than a missing flag does.
+
+These come from the resolved set, and therefore work identically from a file,
+a variable or a flag:
+
+- `logging.format`, `logging.level`, `logging.source`, `logging.dir`
+- `catalog.budget`, `catalog.bias`
+- `script.typecheck`
+- `paths.scripts`
+- `plumbing.allowTsJsOverlap`
+
+Pool settings are read by the configuration loader rather than the registry,
+because they are per-server and the server's own block has to win. `pool` and
+`defaults` are two spellings of one block: `defaults` reads naturally beside
+`mcpServers`, `pool` is what `mcpx config --schema` calls it. Both exist
+because having one of them silently do nothing would be worse than having two.
+Where both appear, `defaults` wins -- it is the older spelling, and adding a
+synonym should not change what an existing file means.
+
+Still on their own paths, and honestly so: `output.json` (the global `--json`
+flag is read before any command), `paths.state` and `paths.cache` (needed
+before settings can be resolved, since they say where to look), and most of
+`daemon.*`.
+
+2026-09-28T04:30:00-05:00
+
 ## Nix packaging
 
 ```

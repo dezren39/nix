@@ -276,3 +276,59 @@ func TestLoggingConfigIsParsed(t *testing.T) {
 		t.Errorf("per-server level should resolve, got %q", r.LogLevel)
 	}
 }
+
+func TestPoolBlockAppliesLikeDefaults(t *testing.T) {
+	// "pool" is what `mcpx config --schema` calls these knobs and "defaults"
+	// is what reads naturally beside mcpServers. Both exist because having
+	// one of them silently do nothing would be worse than having two.
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".mcpx.json")
+	if err := os.WriteFile(path, []byte(`{
+		"mcpServers": { "a": { "command": "true" } },
+		"pool": { "max": 7, "sharing": "exclusive", "scope": "session", "idleTimeout": "90s" }
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := cfg.Resolve("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Max != 7 {
+		t.Errorf("pool.max = %d, want 7", r.Max)
+	}
+	if r.Sharing != config.SharingExclusive {
+		t.Errorf("pool.sharing = %v", r.Sharing)
+	}
+	if r.IdleTimeout != 90*time.Second {
+		t.Errorf("pool.idleTimeout = %v", r.IdleTimeout)
+	}
+}
+
+func TestDefaultsBlockWinsOverPoolBlock(t *testing.T) {
+	// The older spelling wins, because an existing config already uses it
+	// and should not change meaning by the addition of a synonym.
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".mcpx.json")
+	if err := os.WriteFile(path, []byte(`{
+		"mcpServers": { "a": { "command": "true" } },
+		"pool":     { "max": 7, "scope": "session" },
+		"defaults": { "max": 3 }
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(path)
+	r, err := cfg.Resolve("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Max != 3 {
+		t.Errorf("defaults.max should win: got %d", r.Max)
+	}
+	if r.Scope != config.ScopeSession {
+		t.Errorf("pool.scope should still apply where defaults is silent: %v", r.Scope)
+	}
+}
