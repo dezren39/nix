@@ -583,6 +583,48 @@ through untouched.
 defaults. The daemon renders through the same writer, so one choice governs
 everything.
 
+**Imports are optional.** The launcher installs the standard surface on
+`globalThis` before importing a script, so a one-liner needs no imports:
+
+```typescript
+export default async function main() {
+  log("starting");                       // log() is log.info()
+  emit({ partial: 1 });
+  return await fff.grep({ query: "TODO" });
+}
+```
+
+Importing still works and yields the same objects, which is what an editor
+wants. mcpx also writes `mcpx-globals.d.ts` beside the script so a language
+server knows the globals exist without an import.
+
+**console is captured.** `console.error`, `warn`, `info` and `debug` become
+records, so they get enrichment, formatting and the durable log instead of
+being bare text on stderr. `console.log` is left on stdout -- it is the
+script's result and redirecting it would change what a caller reads -- but is
+*also* recorded, marked file-only so the terminal does not show it twice.
+`--no-capture-console` turns all of this off.
+
+**Wrapping a run.** `--prefix` and `--suffix` add lines around a script without
+the script knowing. For a file they run in the generated launcher — before the
+module is imported and after its entry returns, in a `finally` so cleanup
+survives a throw:
+
+```
+mcpx run --prefix 'log.info("starting {name}", { name: script.name });' \
+         --suffix 'log.info("took {ms}ms", { ms: Math.round(result.ms) });' report
+```
+
+Prefix lines see `script` (path, name, args, export); suffix lines also see
+`result` (ok, value, error, ms). They can set globals the script reads, but
+cannot declare bindings inside its module scope — ESM does not allow it.
+
+Lines layer across configuration: a list element of `null` (or `-` on the
+command line) splices in whatever was inherited, so a nearer config can extend
+a farther one instead of only replacing it.
+
+`--env KEY=VALUE` sets variables for the run.
+
 **`mcpx --json run`** wraps a whole run in one document — stdout, the parsed
 result, captured logs, the script's own stderr, exit code, duration and
 runtime. Nothing leaks to the terminal alongside it:

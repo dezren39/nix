@@ -3,6 +3,7 @@ package logging
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,10 +26,7 @@ type FileOptions struct {
 	Level string
 }
 
-const (
-	defaultMaxBytes int64 = 16 << 20
-	defaultKeep           = 8
-)
+const ()
 
 // FileSink appends records to a dated file as JSON lines.
 //
@@ -65,10 +63,10 @@ func NewFileSink(opts FileOptions) (*FileSink, error) {
 		keep:     opts.Keep,
 	}
 	if s.maxBytes <= 0 {
-		s.maxBytes = defaultMaxBytes
+		s.maxBytes = defaults.LogMaxBytes
 	}
 	if s.keep <= 0 {
-		s.keep = defaultKeep
+		s.keep = defaults.LogKeep
 	}
 	if err := s.reopen(time.Now()); err != nil {
 		return nil, err

@@ -11,8 +11,11 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"strings"
+
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/pool"
 )
@@ -138,8 +141,15 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 	fs := newFlagSet("config")
 	showPath := fs.Bool("path", false, "print only the nearest config file path")
 	showSources := fs.Bool("sources", false, "show every file that contributed, and which defined each server")
+	showDefaults := fs.Bool("defaults", false, "print the built-in default layer that underlies every config")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	// The base layer is data, so it can be shown. A default nobody can print
+	// is a magic number with extra steps.
+	if *showDefaults {
+		fmt.Println(strings.TrimRight(string(defaults.BuiltinJSON()), "\n"))
+		return nil
 	}
 	cfg, err := config.Load(a.ConfigPath)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/dezren39/mcpx/internal/defaults"
 )
 
 // TraceID identifies one thing that started and will end: a daemon, a server
@@ -69,11 +71,16 @@ var AllIncludes = []Include{
 }
 
 // DefaultIncludes are gathered on lifecycle records unless configured
-// otherwise. Network is excluded because enumerating interfaces costs
-// milliseconds and almost never answers a question anyone asked.
-var DefaultIncludes = []Include{
-	IncludeHost, IncludeUser, IncludeProcess, IncludeVersion,
-}
+// otherwise. The set is listed in internal/defaults/defaults.json. Network is
+// excluded there because enumerating interfaces costs milliseconds and almost
+// never answers a question anyone asked.
+var DefaultIncludes = func() []Include {
+	out := make([]Include, 0, len(defaults.LogIncludes))
+	for _, name := range defaults.LogIncludes {
+		out = append(out, Include(name))
+	}
+	return out
+}()
 
 // ParseIncludes turns a comma or space separated list into blocks. "all" is
 // every block, "none" is none.

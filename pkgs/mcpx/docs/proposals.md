@@ -1158,13 +1158,160 @@ rejected because the number means nothing without the chain:
 
 Null covers extend-or-replace, which is the distinction people actually make.
 
-**Also settled: prefixes cannot apply to file scripts.** ESM gives an imported
-module its own scope, so lines injected around it cannot bind anything inside
-it; injecting *into* the file would shift every line number and break the call
-sites that log records point at. `--prefix` on `mcpx run` is an error that
-says so.
+**Corrected: prefixes *do* apply to file scripts, for effects rather than
+bindings.** The first version rejected them outright, which conflated two
+claims. A prefix cannot *bind* anything inside a module, because ESM gives it
+its own scope. It can perfectly well *act* before and after one, because mcpx
+already generates a launcher around it.
+
+So the launcher imports the module **dynamically**:
+
+```typescript
+const script = { path, name, args, export };
+<prefix lines>                 // runs first, for real
+const mod = await import("./user.ts");
+...
+finally { <suffix lines> }     // runs even when the body throws
+```
+
+A static import would be hoisted and evaluate the module before any prefix
+line whatever the source order, which is why the dynamic form is required
+rather than merely tidier.
+
+Prefix lines see `script` (path, name, args, export). Suffix lines also see
+`result` (ok, value, error, ms), and run in a `finally`, so cleanup happens on
+the failure path too. Both can set globals the script will read, which is the
+monkeypatching seam.
+
+What remains impossible is a prefix declaring a `const` the script can see.
+That is ESM, not a limitation worth fighting, and the tests assert it stays
+impossible so nobody comes to depend on an accident.
+
+A snippet is different: `mcpx exec` generates the whole file, so its prefix
+shares scope and *can* declare bindings the snippet uses.
 
 2026-09-27T22:30:00-05:00
+
+## Launcher as a template with placeholders
+
+```
+status:  proposed
+effort:  medium
+```
+
+The launcher is a `fmt.Sprintf` with five named phase slots. That is enough
+for "run something here", and not enough for "reorder this" or "wrap the entry
+in my own try". The next step is a real template.
+
+Proposed: the launcher ships as a template file with named placeholders, and
+configuration may both fill them and reference them:
+
+```
+@globals  @before  @prefix  @import  @entry  @onSuccess  @onError  @suffix
+```
+
+A phase body could then say `@prefix` to splice another phase in, which is the
+mechanism behind the interesting cases: running a prefix twice, or moving the
+import after a guard.
+
+Two rules make it safe:
+
+- **References form a DAG.** A cycle is rejected at generation time with the
+  path that closed it, not discovered as a hang.
+- **Each placeholder resolves once.** Referencing one twice is an error unless
+  `allowRepeat` names it, because the common case of a double reference is a
+  mistake, and the rare deliberate one should have to say so.
+
+Also wanted, and cheap: a `minimal` mode that emits the module import and
+nothing else -- no globals, no console capture, no phases -- for a script that
+wants the runtime and none of the harness.
+
+The argument for doing this at all is that a launcher which is only
+half-configurable invites someone copying it out and maintaining a fork. The
+argument against doing it *now* is that five named phases have not yet been
+shown insufficient.
+
+2026-09-28T01:00:00-05:00
+
+## Structured stack traces
+
+```
+status:  shipped
+```
+
+`Error.prepareStackTrace` is V8-specific and not in any standard, and was
+verified to work in Deno, Node and Bun. It hands back CallSite objects instead
+of a formatted string, so frames arrive as data:
+
+```json
+{ "function": "boom", "file": ".../script.ts", "line": 9, "column": 22, "async": false }
+```
+
+Parsing the string form was the alternative and is strictly worse: it loses the
+async and native flags, and breaks on any path containing the characters the
+format uses as delimiters.
+
+One trap worth recording. **V8 memoises whatever `prepareStackTrace` returned
+the first time `.stack` is read.** Asking for frames destroys the string;
+asking for the string destroys the frames. Both are wanted -- the string for a
+human, the frames for a query -- so frames are captured and the string is
+rendered from them. The first two attempts at this each lost one form, and a
+test now asserts both survive.
+
+`captureFrames(skip, limit)` and `errorFrames(err)` are exposed to scripts.
+
+2026-09-28T01:00:00-05:00
+
+## Defaults as an embedded layer
+
+```
+status:  shipped
+```
+
+Every default now lives in `internal/defaults/defaults.json`, embedded with
+`go:embed`, and is printable with `mcpx config --defaults`.
+
+Before this they were four `const` blocks in four packages plus two literals
+in a ticker. That is the arrangement where "what is the idle timeout" takes a
+grep across the tree and still misses one -- which is exactly what happened:
+a test asserting no package redeclares a default timeout found a five-minute
+literal in the daemon's save ticker that three readings had walked past.
+
+`internal/defaults` is a leaf with no mcpx imports, so `logging` can read it
+without depending on `config`. Parsing happens in a variable initialiser
+rather than `init()`, because Go evaluates package variables first and the
+`init()` version silently handed out zero values.
+
+`DisallowUnknownFields` is set, so a misspelled key in defaults.json is a
+startup panic instead of a zero value discovered three layers down.
+
+2026-09-28T02:00:00-05:00
+
+## Console fidelity
+
+```
+status:  shipped
+```
+
+All 25 of Deno's console members are handled. The ones with a level become
+that level, `log` still reaches stdout, `trace` carries structured frames,
+`clear` resets indentation without erasing a durable log, and the devtools
+markers (`profile`, `profileEnd`, `timeStamp`) become file-only records rather
+than vanishing.
+
+Two fidelity details that a test caught rather than review:
+
+- **Names are preserved.** `console.info.name` is still `"info"`. Five methods
+  had been assigned directly instead of through the helper that sets it.
+- **Messages use the runtime's own inspect**, so `console.info({a:1})` reads
+  `{ a: 1 }` exactly as it would have unwrapped. The JSON form is redundant --
+  the structured value is already in `args`.
+
+`console.createTask()` throws when called bare. So does Deno's. The test
+compares against the unwrapped console rather than asserting nothing throws,
+because matching the original includes matching its failures.
+
+2026-09-28T02:00:00-05:00
 
 ## Suggested order
 

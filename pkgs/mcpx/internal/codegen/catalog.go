@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"sort"
 	"strings"
 )
@@ -16,8 +17,10 @@ type CatalogOptions struct {
 	Bias []string
 }
 
-// DefaultCatalogBudget is the token ceiling used when none is given.
-const DefaultCatalogBudget = 2000
+// DefaultCatalogBudget is the token ceiling used when none is given. It comes
+// from the embedded defaults layer, not from a const here, so that every
+// default the program has is readable in one file.
+var DefaultCatalogBudget = defaults.CatalogBudget
 
 // charsPerToken is the estimate used for budgeting. It is deliberately crude:
 // the budget is a guard rail, not an accounting system, and a real tokeniser

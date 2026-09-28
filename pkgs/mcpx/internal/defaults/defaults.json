@@ -1,0 +1,30 @@
+{
+  "pool": {
+    "max": 4,
+    "min": 0,
+    "idleTimeout": "5m",
+    "callTimeout": "120s",
+    "startTimeout": "60s",
+    "sharing": "shared",
+    "scope": "global"
+  },
+  "logging": {
+    "format": "text",
+    "level": "info",
+    "source": "warn",
+    "fileMaxBytes": 16777216,
+    "fileKeep": 8,
+    "include": ["host", "user", "process", "version"]
+  },
+  "daemon": {
+    "reapInterval": "30s",
+    "saveInterval": "5m"
+  },
+  "catalog": {
+    "budget": 2000
+  },
+  "script": {
+    "permissions": "all",
+    "captureConsole": true
+  }
+}
