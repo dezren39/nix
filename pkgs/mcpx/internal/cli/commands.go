@@ -35,6 +35,10 @@ type App struct {
 	// machineOutput suppresses progress notices when the caller has asked
 	// for a shape something else will parse.
 	machineOutput bool
+	// stdoutOverride collects a script's output instead of printing it.
+	// Used by the MCP server, which must return what a script produced
+	// rather than write it to a stream the host is parsing as protocol.
+	stdoutOverride interface{ Write([]byte) (int, error) }
 	settingsState
 }
 
@@ -566,6 +570,9 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	}
 
 	opts := runner.Options{
+		// Set when something other than a terminal is collecting the output:
+		// the MCP server, which has to return it rather than print it.
+		Stdout:         a.stdoutOverride,
 		ClientSource:   clientSrc,
 		GlobalsSource:  globalsSrc,
 		CaptureConsole: !*noConsole,

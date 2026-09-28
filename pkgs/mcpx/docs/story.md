@@ -1560,6 +1560,128 @@ quits.
 
 2026-09-28T09:00:00-05:00
 
+## mcpx speaks MCP
+
+```
+created:      2026-09-28T11:00:00-05:00
+last-updated: 2026-09-28T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  the inversion: mcpx as a server, not only a client.
+```
+
+mcpx exists so tool schemas never reach a model's context. A host that speaks
+only MCP -- a different editor, a hosted agent, anything that is not opencode
+-- could not use any of that.
+
+So `mcpx serve` offers mcpx itself as an MCP server: ten tools reaching every
+server it knows about, with the schemas still on this side of the wire.
+
+The surface is small on purpose. Exposing three hundred tools over MCP would
+rebuild the problem mcpx was built to solve, with extra steps. `mcpx_exec` is
+the one that matters: it runs TypeScript next to the servers and only what it
+prints comes back.
+
+stdio and Streamable HTTP, plus a plain POST per tool at `/v1/tools/<name>`.
+Offering only JSON-RPC would make mcpx reachable from MCP hosts and from
+nothing else, which is the opposite of the point -- a shell script with curl
+should ask the same questions an agent does.
+
+2026-09-28T11:00:00-05:00
+
+## Command-line programs as servers
+
+```
+created:      2026-09-28T11:00:00-05:00
+last-updated: 2026-09-28T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  a declaration, not a wrapper process.
+```
+
+An enormous amount of capability already exists as command-line programs.
+Writing an MCP server to wrap one is a day's work producing a process whose
+only job is to shell out, and there are hundreds of such programs.
+
+`paths.adapters` points at declarations instead:
+
+```jsonc
+{ "adapters": [{
+  "name": "gitx", "command": "git",
+  "tools": [
+    { "name": "log", "args": ["log", "--oneline"],
+      "params": [{ "name": "limit", "flag": "-n", "type": "integer", "default": "10" }] }
+  ] }] }
+```
+
+That is git as an MCP server. It appears in `tools/list`, it is callable from
+a script, and `mcpx adapter check` says whether the binary is even installed.
+
+**Not a shell escape.** A tool is a named subcommand with declared parameters,
+so a model cannot invent a command line and what is reachable is exactly what
+somebody wrote down.
+
+Two details that are wrong in the obvious implementation. A boolean parameter
+becomes the flag's presence, because `--verbose true` is wrong for almost
+every program ever written. And a non-zero exit is a result rather than an
+error: the program ran and said something, and deciding that is a failure
+belongs to whoever asked.
+
+2026-09-28T11:00:00-05:00
+
+## Finding servers that are not configured yet
+
+```
+created:      2026-09-28T11:00:00-05:00
+last-updated: 2026-09-28T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  the official registry, and why not HAPI.
+```
+
+`mcpx registry search weather` asks a registry what exists. `mcpx registry add
+<name> --write` puts it in the configuration file.
+
+### Which registry
+
+The official MCP Registry, at `registry.modelcontextprotocol.io`. It is
+unauthenticated, returns real data, and -- the part that matters -- publishes
+an OpenAPI specification that other registries implement. Writing against the
+specification rather than against one host means the same code reaches the
+official registry, a vendor's subregistry, and whatever an organisation runs
+internally to control what its agents may install. `registry.url` points it
+anywhere.
+
+HAPI was the other candidate and is not usable: the framework is not open
+source and its public API returns 404.
+
+### Translating an entry
+
+A registry entry says what a server is, not how this machine should run it.
+
+Remotes are preferred when offered, because nothing is installed and nothing
+runs locally. Otherwise the package becomes an ephemeral runner -- `npx -y`,
+`uvx`, `docker run --rm` -- since a server pinned in a config file should not
+also require the machine to have been prepared. A publisher's own runtime hint
+wins over that table, because they know something about their package that a
+table does not.
+
+npm versions are pinned. A configuration that silently upgrades is one that
+breaks on a morning nobody changed anything.
+
+**Secrets are never invented.** The registry says which variables a server
+requires; those are reported so the caller can set them, because a server that
+exits immediately for a missing key looks broken rather than unconfigured.
+
+The reverse-DNS name is stripped to its last component, so
+`io.github.microsoft/playwright-mcp` becomes `playwright_mcp` rather than
+making every call read `io_github_microsoft_playwright_mcp_navigate`.
+
+2026-09-28T11:00:00-05:00
+
 ## Nix packaging
 
 ```
