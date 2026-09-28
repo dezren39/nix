@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -28,24 +27,6 @@ import (
 
 	"github.com/dezren39/mcpx/internal/daemon"
 )
-
-// Source is what the model reads. An interface rather than the concrete
-// client so the view can be driven by a fake in tests, which is the only way
-// to test a terminal program without a terminal.
-type Source interface {
-	Namespaces(ctx context.Context) ([]daemon.NamespaceInfo, error)
-	Tools(ctx context.Context, ns string) ([]daemon.ToolInfo, error)
-	Signature(ctx context.Context, ns, tool string) (string, error)
-	Records(ctx context.Context, limit int) ([]Record, error)
-}
-
-// Record is one log line, flattened for display.
-type Record struct {
-	Time  time.Time
-	Level string
-	Msg   string
-	Attrs string
-}
 
 type pane int
 
@@ -60,7 +41,36 @@ type view int
 const (
 	viewBrowse view = iota
 	viewLog
+	viewStats
+	viewServers
+	viewSessions
+	viewStorage
 )
+
+// views is the switch order, and the order the footer lists them.
+var views = []view{viewBrowse, viewLog, viewStats, viewServers, viewSessions, viewStorage}
+
+func (v view) String() string {
+	switch v {
+	case viewBrowse:
+		return "tools"
+	case viewLog:
+		return "log"
+	case viewStats:
+		return "stats"
+	case viewServers:
+		return "servers"
+	case viewSessions:
+		return "sessions"
+	case viewStorage:
+		return "storage"
+	}
+	return "?"
+}
+
+// statsDimensions are cycled through within the stats view, so one key
+// reaches all of them rather than one key each.
+var statsDimensions = []string{"calls", "servers", "errors", "sessions", "slowest", "volume"}
 
 // Styles are resolved once. lipgloss detects colour support at construction,
 // so building them per frame would re-probe the terminal on every keystroke.
@@ -71,6 +81,9 @@ type styles struct {
 	paneOn    lipgloss.Style
 	detail    lipgloss.Style
 	status    lipgloss.Style
+	selected  lipgloss.Style
+	tab       lipgloss.Style
+	tabOn     lipgloss.Style
 	errorText lipgloss.Style
 	dim       lipgloss.Style
 }
@@ -85,39 +98,52 @@ func newStyles() styles {
 			BorderForeground(lipgloss.Color("240")),
 		paneOn: lipgloss.NewStyle().Border(border).
 			BorderForeground(lipgloss.Color("62")),
-		detail:    lipgloss.NewStyle().Padding(0, 1),
-		status:    lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+		detail: lipgloss.NewStyle().Padding(0, 1),
+		status: lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+		selected: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("231")).Background(lipgloss.Color("62")),
+		tab: lipgloss.NewStyle().Foreground(lipgloss.Color("244")),
+		tabOn: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).
+			Background(lipgloss.Color("238")),
 		errorText: lipgloss.NewStyle().Foreground(lipgloss.Color("203")),
 		dim:       lipgloss.NewStyle().Foreground(lipgloss.Color("244")),
 	}
 }
 
 type keymap struct {
-	Left, Right, Tab, Enter, Refresh, Logs, Help, Quit key.Binding
+	Up, Down, Left, Right       key.Binding
+	Tab, Enter, Back, Dimension key.Binding
+	NextView, PrevView, Refresh key.Binding
+	Help, Quit                  key.Binding
 }
 
 func newKeymap() keymap {
 	return keymap{
-		Left:  key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "pane left")),
-		Right: key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "pane right")),
-		Tab:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
-		Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
-		Refresh: key.NewBinding(key.WithKeys("r"),
-			key.WithHelp("r", "refresh")),
-		Logs: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "logs")),
-		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Up:        key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
+		Down:      key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
+		Left:      key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "pane left")),
+		Right:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "pane right")),
+		Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
+		Enter:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+		Back:      key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+		Dimension: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "dimension")),
+		NextView:  key.NewBinding(key.WithKeys("]", "L"), key.WithHelp("]", "next view")),
+		PrevView:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev view")),
+		Refresh:   key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+		Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}
 }
 
 func (k keymap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Tab, k.Enter, k.Logs, k.Refresh, k.Help, k.Quit}
+	return []key.Binding{k.NextView, k.Enter, k.Refresh, k.Help, k.Quit}
 }
 
 func (k keymap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Left, k.Right, k.Tab},
-		{k.Enter, k.Refresh, k.Logs},
+		{k.Up, k.Down, k.Left, k.Right},
+		{k.NextView, k.PrevView, k.Tab, k.Dimension},
+		{k.Enter, k.Back, k.Refresh},
 		{k.Help, k.Quit},
 	}
 }
@@ -152,10 +178,20 @@ type Model struct {
 	namespaces list.Model
 	tools      list.Model
 	detail     viewport.Model
-	logs       viewport.Model
+	body       viewport.Model
 
 	currentNS string
 	version   string
+
+	// records backs the log view. Held as records rather than rendered text
+	// so that opening one has the values to expand.
+	records  []Record
+	cursor   int
+	table    Table
+	statsDim int
+
+	// zoom is the expanded view of one row. Empty means the list is showing.
+	zoom string
 }
 
 // New builds the model.
@@ -181,7 +217,7 @@ func New(ctx context.Context, src Source, version string) Model {
 		namespaces: mk("namespaces"),
 		tools:      mk("tools"),
 		detail:     viewport.New(0, 0),
-		logs:       viewport.New(0, 0),
+		body:       viewport.New(0, 0),
 		loading:    true,
 	}
 }
@@ -205,6 +241,11 @@ type detailMsg struct {
 }
 type logsMsg struct {
 	items []Record
+	err   error
+}
+type tableMsg struct {
+	view  view
+	table Table
 	err   error
 }
 
@@ -231,8 +272,45 @@ func (m Model) loadDetail(ns, tool string) tea.Cmd {
 
 func (m Model) loadLogs() tea.Cmd {
 	return func() tea.Msg {
-		rs, err := m.src.Records(m.ctx, 300)
+		rs, err := m.src.Records(m.ctx, 500)
 		return logsMsg{items: rs, err: err}
+	}
+}
+
+// loadTable fetches whichever grid the current view shows.
+//
+// One message type for five views, because they differ only in the query.
+// Five near-identical message types would be five places to forget something.
+func (m Model) loadTable(v view) tea.Cmd {
+	dim := statsDimensions[m.statsDim]
+	return func() tea.Msg {
+		var (
+			t   Table
+			err error
+		)
+		switch v {
+		case viewStats:
+			t, err = m.src.Stats(m.ctx, dim)
+		case viewServers:
+			t, err = m.src.Instances(m.ctx)
+		case viewSessions:
+			t, err = m.src.Sessions(m.ctx)
+		case viewStorage:
+			t, err = m.src.Storage(m.ctx)
+		}
+		return tableMsg{view: v, table: t, err: err}
+	}
+}
+
+// load fetches whatever the given view needs.
+func (m Model) load(v view) tea.Cmd {
+	switch v {
+	case viewBrowse:
+		return m.loadNamespaces()
+	case viewLog:
+		return m.loadLogs()
+	default:
+		return m.loadTable(v)
 	}
 }
 
@@ -265,20 +343,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.help.ShowAll = !m.help.ShowAll
 			m.layout()
 			return m, nil
-		case key.Matches(msg, m.keys.Logs):
-			if m.view == viewLog {
-				m.view = viewBrowse
+		case key.Matches(msg, m.keys.Back):
+			// Escape closes an expanded row before it does anything else,
+			// because that is the only thing it can have opened.
+			if m.zoom != "" {
+				m.closeZoom()
 				return m, nil
 			}
-			m.view = viewLog
-			m.loading = true
-			return m, tea.Batch(m.spin.Tick, m.loadLogs())
+		case key.Matches(msg, m.keys.NextView):
+			return m.switchView(1)
+		case key.Matches(msg, m.keys.PrevView):
+			return m.switchView(-1)
+		case key.Matches(msg, m.keys.Dimension):
+			if m.view == viewStats {
+				m.statsDim = (m.statsDim + 1) % len(statsDimensions)
+				m.loading = true
+				return m, tea.Batch(m.spin.Tick, m.loadTable(viewStats))
+			}
+		case key.Matches(msg, m.keys.Enter):
+			if cmd := m.open(); cmd != nil {
+				return m, cmd
+			}
+			return m, nil
 		case key.Matches(msg, m.keys.Refresh):
 			m.loading = true
-			if m.view == viewLog {
-				return m, tea.Batch(m.spin.Tick, m.loadLogs())
-			}
-			return m, tea.Batch(m.spin.Tick, m.loadNamespaces())
+			return m, tea.Batch(m.spin.Tick, m.load(m.view))
 		case key.Matches(msg, m.keys.Tab):
 			m.focus = (m.focus + 1) % 3
 			return m, m.syncSelection()
@@ -350,18 +439,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logsMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.logs.SetContent(m.styles.errorText.Render(msg.err.Error()))
+			m.err = msg.err
 			return m, nil
 		}
-		var b strings.Builder
-		for _, r := range msg.items {
-			fmt.Fprintf(&b, "%s %-5s %s %s\n",
-				r.Time.Format("15:04:05.000"), r.Level, r.Msg,
-				m.styles.dim.Render(r.Attrs))
-		}
-		m.logs.SetContent(strings.TrimRight(b.String(), "\n"))
-		m.logs.GotoBottom()
+		m.err = nil
+		m.records = msg.items
+		// Newest last and the cursor at the end, because the reason to open
+		// the log is almost always "what just happened".
+		m.cursor = len(m.records) - 1
+		m.renderList()
 		return m, nil
+
+	case tableMsg:
+		m.loading = false
+		if msg.view != m.view {
+			// A reply for a view already left must not overwrite the current
+			// one; holding the switch key makes that ordinary.
+			return m, nil
+		}
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		m.err = nil
+		m.table = msg.table
+		m.cursor = 0
+		m.renderList()
+		return m, nil
+
+	case tea.MouseMsg:
+		if m.view == viewBrowse || m.zoom != "" {
+			break
+		}
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.moveCursor(-3)
+			return m, nil
+		case tea.MouseButtonWheelDown:
+			m.moveCursor(3)
+			return m, nil
+		case tea.MouseButtonLeft:
+			if msg.Action != tea.MouseActionPress {
+				return m, nil
+			}
+			// Rows start below the header and the pane border, so the click
+			// maps to a row by subtracting both and adding the scroll.
+			row := msg.Y - 2 + m.body.YOffset
+			if m.view != viewLog {
+				row-- // the table draws a header line of its own
+			}
+			if row >= 0 && row < m.rows() {
+				m.cursor = row
+				m.renderList()
+				return m, m.open()
+			}
+			return m, nil
+		}
 
 	case spinner.TickMsg:
 		if m.loading {
@@ -374,8 +507,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Route to whichever widget has focus.
 	var c tea.Cmd
-	if m.view == viewLog {
-		m.logs, c = m.logs.Update(msg)
+	if m.view != viewBrowse {
+		if k, ok := msg.(tea.KeyMsg); ok && m.zoom == "" {
+			switch {
+			case key.Matches(k, m.keys.Down):
+				m.moveCursor(1)
+				return m, nil
+			case key.Matches(k, m.keys.Up):
+				m.moveCursor(-1)
+				return m, nil
+			}
+		}
+		m.body, c = m.body.Update(msg)
 		return m, c
 	}
 	switch m.focus {
@@ -398,6 +541,121 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, c)
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// switchView moves through the views and loads the one arrived at.
+func (m Model) switchView(delta int) (tea.Model, tea.Cmd) {
+	at := 0
+	for i, v := range views {
+		if v == m.view {
+			at = i
+			break
+		}
+	}
+	at = (at + delta + len(views)) % len(views)
+	m.view = views[at]
+	m.zoom = ""
+	m.cursor = 0
+	m.table = Table{}
+	m.loading = true
+	m.layout()
+	return m, tea.Batch(m.spin.Tick, m.load(m.view))
+}
+
+// open expands whatever the cursor is on.
+//
+// A log line is truncated to fit a terminal, and the part cut off is usually
+// the part being looked for -- a stack, a full path, a nested result. Opening
+// it is the difference between the log being browsable and being a place to
+// notice that something exists before going to another command to read it.
+// closeZoom returns to the list.
+//
+// Clearing the flag is not enough: the viewport still holds the detail, so
+// the list has to be drawn back into it. Forgetting that is why escape
+// appeared to do nothing.
+func (m *Model) closeZoom() {
+	m.zoom = ""
+	m.renderList()
+	m.body.GotoTop()
+	m.ensureCursorVisible()
+}
+
+func (m *Model) open() tea.Cmd {
+	if m.zoom != "" {
+		m.closeZoom()
+		return nil
+	}
+	switch m.view {
+	case viewLog:
+		if m.cursor >= 0 && m.cursor < len(m.records) {
+			m.zoom = m.records[m.cursor].Detail()
+			m.body.SetContent(m.zoom)
+			m.body.GotoTop()
+		}
+	case viewStats, viewServers, viewSessions, viewStorage:
+		if m.cursor < len(m.table.Detail) {
+			m.zoom = m.table.Detail[m.cursor]
+			m.body.SetContent(m.zoom)
+			m.body.GotoTop()
+		}
+	}
+	return nil
+}
+
+// moveCursor moves within whichever list is showing and keeps it in view.
+func (m *Model) moveCursor(delta int) {
+	n := m.rows()
+	if n == 0 {
+		return
+	}
+	m.cursor += delta
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor >= n {
+		m.cursor = n - 1
+	}
+	m.renderList()
+	m.ensureCursorVisible()
+}
+
+// ensureCursorVisible scrolls just enough, rather than recentring, which is
+// disorienting when stepping one row at a time.
+func (m *Model) ensureCursorVisible() {
+	if m.cursor < m.body.YOffset {
+		m.body.SetYOffset(m.cursor)
+	}
+	if bottom := m.body.YOffset + m.body.Height - 2; m.cursor > bottom {
+		m.body.SetYOffset(m.cursor - m.body.Height + 2)
+	}
+}
+
+func (m Model) rows() int {
+	if m.view == viewLog {
+		return len(m.records)
+	}
+	return len(m.table.Rows)
+}
+
+// renderList draws the current view's list into the body viewport.
+func (m *Model) renderList() {
+	sel := func(s string) string { return m.styles.selected.Render(s) }
+	dim := func(s string) string { return m.styles.dim.Render(s) }
+
+	if m.view == viewLog {
+		var b strings.Builder
+		for i, r := range m.records {
+			line := truncate(r.Line(), m.body.Width)
+			if i == m.cursor {
+				line = sel(pad(line, m.body.Width))
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		m.body.SetContent(strings.TrimRight(b.String(), "\n"))
+		return
+	}
+	m.body.SetContent(m.table.Render(m.body.Width, m.cursor, sel, dim))
 }
 
 // syncSelection loads the tools for whatever namespace is selected.
@@ -454,7 +712,7 @@ func (m *Model) layout() {
 	m.namespaces.SetSize(left, body)
 	m.tools.SetSize(mid, body)
 	m.detail.Width, m.detail.Height = right, body
-	m.logs.Width, m.logs.Height = m.width-4, body
+	m.body.Width, m.body.Height = m.width-4, body
 	m.help.Width = m.width
 }
 
@@ -463,17 +721,35 @@ func (m Model) View() string {
 	if !m.ready {
 		return "\n  starting...\n"
 	}
-	header := m.styles.title.Render(" mcpx " + m.version + " ")
+	// Every view is named in the header with the current one marked, so the
+	// set is discoverable without opening help. A view nobody knows exists
+	// is a view nobody uses.
+	tabs := make([]string, 0, len(views))
+	for _, v := range views {
+		name := v.String()
+		if v == m.view {
+			if v == viewStats {
+				name += ":" + statsDimensions[m.statsDim]
+			}
+			tabs = append(tabs, m.styles.tabOn.Render(" "+name+" "))
+			continue
+		}
+		tabs = append(tabs, m.styles.tab.Render(" "+name+" "))
+	}
+	header := m.styles.title.Render(" mcpx "+m.version+" ") + " " + strings.Join(tabs, "")
 	if m.loading {
 		header += " " + m.spin.View()
 	}
+	if m.zoom != "" {
+		header += "  " + m.styles.dim.Render("(esc closes)")
+	}
 	if m.err != nil {
-		header += "  " + m.styles.errorText.Render(m.err.Error())
+		header += "  " + m.styles.errorText.Render(truncate(m.err.Error(), 60))
 	}
 
 	var body string
-	if m.view == viewLog {
-		body = m.styles.paneOn.Render(m.logs.View())
+	if m.view != viewBrowse {
+		body = m.styles.paneOn.Render(m.body.View())
 	} else {
 		frame := func(p pane, s string) string {
 			if m.focus == p {
@@ -501,9 +777,14 @@ func firstLine(s string) string {
 func Run(ctx context.Context, src Source, version string) error {
 	p := tea.NewProgram(New(ctx, src, version),
 		tea.WithAltScreen(),
-		// Mouse support is off. A full-screen program that captures the mouse
-		// breaks terminal text selection, and losing the ability to copy a
-		// tool signature costs more than scroll-wheel scrolling is worth.
+		// Cell motion rather than all motion: it reports clicks and the
+		// wheel without streaming an event per pixel of movement.
+		//
+		// Capturing the mouse does take over text selection. Every terminal
+		// worth using restores it on shift-drag, which is the convention, and
+		// the footer says so -- being unable to click a log line open is a
+		// worse trade than learning one modifier.
+		tea.WithMouseCellMotion(),
 		tea.WithContext(ctx),
 	)
 	_, err := p.Run()
@@ -515,4 +796,10 @@ func Run(ctx context.Context, src Source, version string) error {
 // unexported because nothing outside should be constructing state updates.
 func ToolsMsgForTest(ns string, items []daemon.ToolInfo) tea.Msg {
 	return toolsMsg{ns: ns, items: items}
+}
+
+// TableMsgForTest builds a table reply for a given view, so a test can
+// deliver a stale one and assert it is dropped.
+func TableMsgForTest(v int, t Table) tea.Msg {
+	return tableMsg{view: view(v), table: t}
 }

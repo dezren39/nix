@@ -26,27 +26,45 @@ Everything past the session id is opt-in.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `MCPX_PLUGIN_ENV` | `standard` | `minimal`, `standard` or `full` |
+| `MCPX_PLUGIN_ENV` | `full` | `minimal`, `standard` or `full` |
 | `MCPX_PLUGIN_INSTRUCTIONS` | off | add mcpx usage to the system prompt |
 | `MCPX_PLUGIN_TOOL_TIMING` | off | record opencode's tool timings into mcpx's log |
 
-`minimal` is the session id alone — the only part leasing strictly requires.
-`standard` adds parent session, directories, harness version and trace ids.
-`full` adds agent, model and a per-process command counter.
+`full` is the default: everything already in hand, plus a session lookup done
+once and cached.
+
+`standard` drops the lookup, for anyone who would rather not have that request
+at all. `minimal` is the session id alone — the only part leasing strictly
+requires.
 
 ## What gets injected
 
-`standard`:
+`minimal`:
 
 ```
-MCPX_SESSION_ID, MCPX_PARENT_SESSION_ID
+MCPX_SESSION_ID
+```
+
+`standard` adds everything the hook is handed directly, plus what the plugin
+knew at startup:
+
+```
+MCPX_OPENCODE_CWD, MCPX_CALL_ID, MCPX_PROJECT_ID
 MCPX_OPENCODE_DIRECTORY, MCPX_OPENCODE_WORKTREE, MCPX_WORKTREE_NAME
-MCPX_TRACE_IDS          [["session_id","abc"],["worktree","/path"]]
 MCPX_HARNESS, MCPX_HARNESS_VERSION, MCPX_HARNESS_PID, MCPX_HARNESS_STARTED
+MCPX_SHELL_SEQ
+MCPX_TRACE_IDS          [["session_id","abc"],["call_id","x"],["worktree","/p"]]
 ```
 
-`full` adds `MCPX_AGENT`, `MCPX_MODEL`, `MCPX_MODEL_PROVIDER`,
-`MCPX_MODEL_VARIANT`, `MCPX_SHELL_SEQ`.
+`full` adds what needs a lookup, done once per session and cached:
+
+```
+MCPX_PARENT_SESSION_ID, MCPX_SESSION_TITLE, MCPX_SESSION_DIRECTORY
+MCPX_SESSION_VERSION, MCPX_SESSION_DEPTH
+MCPX_SESSION_CREATED, MCPX_SESSION_AGE_MS
+```
+
+and extends `MCPX_TRACE_IDS` with `parent_session_id` and the full `ancestry`.
 
 ### Why so many
 

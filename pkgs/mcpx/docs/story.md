@@ -1498,6 +1498,42 @@ more context than a scrolling transcript.
 The prompt also works where the browser cannot run -- over a pipe, in CI,
 inside another program -- so neither is a worse version of the other.
 
+### Six views
+
+`]` and `[` move between them; the header names them all with the current one
+marked, because a view nobody knows exists is a view nobody uses.
+
+- **tools** -- namespaces, their tools, one signature
+- **log** -- every record, newest last
+- **stats** -- calls, servers, errors, sessions, slowest, volume; `d` cycles
+- **servers** -- individual processes, with pid, uptime and why each stopped
+- **sessions** -- what mcpx saw merged with what opencode recorded
+- **storage** -- what all of it costs on disk
+
+Five of the six are grids, rendered through one table type. A new view is
+therefore a query rather than a widget, and every view gets selection,
+truncation and drill-down without restating any of it.
+
+**sessions** is the one that needed both halves. mcpx knows which servers a
+session used; opencode knows what it cost. Neither alone is the row anybody
+wants, and a machine without opencode still gets mcpx's half rather than an
+error.
+
+**storage** exists because it answers a question that arrives suddenly --
+something is large and it is not obvious what -- and answering it otherwise
+means knowing where four different things live.
+
+### Opening a row
+
+Enter, or a click. A log line is truncated to fit a terminal, and the part cut
+off is usually the part being looked for: a stack, a full path, a nested
+result. Expanding it is the difference between the log being browsable and
+being a place to notice that something exists before going to another command
+to read it.
+
+Multi-line strings are indented rather than escaped, since escaping them is
+what made them unreadable in the row.
+
 ### The dependency
 
 bubbletea, bubbles and lipgloss. They cost 1.2 MB in the stripped binary,
@@ -1505,9 +1541,12 @@ taking it from 11.2 to 12.4 MB, and replace what would otherwise be hand
 written escape sequences, resize handling and a redraw loop. That is code
 which is never finished and never correct on every terminal.
 
-Mouse support is deliberately off. A full-screen program that captures the
-mouse breaks terminal text selection, and losing the ability to copy a tool
-signature costs more than scroll-wheel scrolling is worth.
+Mouse support is on, in cell-motion mode: clicks and the wheel, without an
+event per pixel of movement.
+
+Capturing the mouse does take over text selection. Every terminal worth using
+restores it on shift-drag, which is the convention, and being unable to click
+a log line open is a worse trade than learning one modifier.
 
 ### Testing a full-screen program
 

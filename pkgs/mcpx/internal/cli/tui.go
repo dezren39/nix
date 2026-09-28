@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -71,30 +70,59 @@ func (s tuiSource) Records(ctx context.Context, limit int) ([]tui.Record, error)
 	}
 	out := make([]tui.Record, 0, len(recs))
 	for _, r := range recs {
-		keys := make([]string, 0, len(r.Attrs))
-		for k := range r.Attrs {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var b strings.Builder
-		for _, k := range keys {
-			fmt.Fprintf(&b, "%s=%v ", k, r.Attrs[k])
-		}
 		out = append(out, tui.Record{
 			Time:  r.Time,
 			Level: strings.ToUpper(r.Level.String()),
 			Msg:   r.Msg,
-			Attrs: strings.TrimSpace(b.String()),
+			Attrs: r.Attrs,
 		})
 	}
 	return out, nil
 }
 
+// dumpViews renders every view as data.
+func (a *App) dumpViews(ctx context.Context) error {
+	src := tuiSource{app: a}
+	type entry struct {
+		Columns []string   `json:"columns,omitempty"`
+		Rows    [][]string `json:"rows,omitempty"`
+		Note    string     `json:"note,omitempty"`
+		Error   string     `json:"error,omitempty"`
+	}
+	out := map[string]entry{}
+	add := func(name string, t tui.Table, err error) {
+		if err != nil {
+			out[name] = entry{Error: err.Error()}
+			return
+		}
+		out[name] = entry{Columns: t.Columns, Rows: t.Rows, Note: t.Note}
+	}
+	for _, dim := range []string{"calls", "servers", "errors", "sessions", "slowest", "volume"} {
+		t, err := src.Stats(ctx, dim)
+		add("stats:"+dim, t, err)
+	}
+	t, err := src.Instances(ctx)
+	add("servers", t, err)
+	t, err = src.Sessions(ctx)
+	add("sessions", t, err)
+	t, err = src.Storage(ctx)
+	add("storage", t, err)
+	return a.out(out)
+}
+
 // CmdTUI runs the full-screen browser.
 func (a *App) CmdTUI(ctx context.Context, args []string) error {
 	fs := newFlagSet("tui")
+	dump := fs.Bool("dump", false,
+		"print every view as JSON and exit, without drawing anything")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	// A terminal program's data can be tested without a terminal, and
+	// should be: the fake proves the view reacts, this proves the queries
+	// behind it return something.
+	if *dump {
+		return a.dumpViews(ctx)
 	}
 	if !isTerminal(os.Stdout) || !isTerminal(os.Stdin) {
 		return errors.New("the tui needs a terminal; " +
