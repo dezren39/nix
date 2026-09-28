@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/runner"
+	"github.com/dezren39/mcpx/internal/source"
 )
 
 // App carries state shared by every subcommand.
@@ -188,9 +190,48 @@ func (a *App) ensureSchemas(ctx context.Context, c *Client, selectors []string) 
 	if !needRefresh {
 		return nil
 	}
-	fmt.Fprintln(os.Stderr, "mcpx: reading tool schemas for the first time...")
+	a.notice("reading tool schemas for the first time...")
 	_, err = c.Refresh(ctx)
 	return err
+}
+
+// resolveLauncher turns the flag's value into launcher source.
+//
+// The value is whatever the user gave: a path, inline source, or the bare
+// word that means no launcher at all. Resolution goes through the same
+// probe every other source-shaped setting uses, so a launcher kept in a file
+// needs no special syntax.
+func (a *App) resolveLauncher(v string) (text, name string, err error) {
+	if strings.TrimSpace(v) == runner.LauncherNone {
+		return runner.LauncherNone, "none", nil
+	}
+	dir := mustGetwd()
+	r, rerr := source.Resolve(v, source.Options{
+		Dir:      dir,
+		AllowDir: false,
+		Probe:    true,
+	})
+	if rerr != nil {
+		return "", "", rerr
+	}
+	switch r.Kind {
+	case source.KindNone:
+		return "", "", nil
+	case source.KindFile:
+		return r.Text, r.Files[0], nil
+	default:
+		return r.Text, "--launcher", nil
+	}
+}
+
+// notice reports progress on stderr, unless the caller asked for JSON. A
+// machine-readable run should produce one document and nothing else, even on
+// the stream a human would have read.
+func (a *App) notice(msg string) {
+	if a.JSON {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "mcpx: "+msg)
 }
 
 // ---- search ----
@@ -342,6 +383,28 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	fs.Var(prefix, "prefix", "line to emit before an exec snippet; repeatable, '-' inherits")
 	suffix := newRepeatable()
 	fs.Var(suffix, "suffix", "line to emit after an exec snippet; repeatable, '-' inherits")
+	before := newRepeatable()
+	fs.Var(before, "before", "line to run before anything is installed; repeatable")
+	onSuccess := newRepeatable()
+	fs.Var(onSuccess, "on-success", "line to run when the entry point returns; repeatable")
+	onError := newRepeatable()
+	fs.Var(onError, "on-error", "line to run when it throws; repeatable")
+	// --launcher always takes a value. An optional-value flag would be
+	// tidier to type, but Go's parser only makes that work by treating the
+	// flag as boolean, and then `--launcher mine.ts` silently reads mine.ts
+	// as the script and runs the wrong file with no launcher at all. A
+	// separate --no-launcher costs one flag and removes the trap.
+	launcherFlag := fs.String("launcher", "",
+		"replace the generated launcher with this source or file")
+	noLauncher := fs.Bool("no-launcher", false,
+		"run the script with no launcher: no globals, no capture, no wrapper")
+	allowRepeat := newRepeatable()
+	fs.Var(allowRepeat, "allow-repeat",
+		"launcher placeholder permitted to resolve more than once; repeatable")
+	envVars := newRepeatable()
+	fs.Var(envVars, "env", "set an environment variable for the script, KEY=VALUE; repeatable")
+	noConsole := fs.Bool("no-capture-console", false,
+		"leave console.* alone instead of mirroring it into the record stream")
 	perms := fs.String("permissions", "",
 		"deno sandbox: all (default), net, read, read-net, strict, or explicit flags")
 	if err := fs.Parse(args); err != nil {
@@ -397,9 +460,14 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	if err != nil {
 		return err
 	}
-	prelude, err := a.buildPrelude(ctx, c, ns)
+	prelude, err := a.buildPrelude(ctx, c, ns, !*noConsole)
 	if err != nil {
 		return err
+	}
+	globalsSrc, gerr := c.Globals(ctx, ns, a.Profile)
+	if gerr != nil {
+		// Editor convenience only; never fail a run for it.
+		globalsSrc = ""
 	}
 
 	cfg, _ := config.Load(a.ConfigPath)
@@ -434,6 +502,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		collect = func(r logging.Record) { collected = append(collected, r) }
 	}
 	writer := logging.NewWriter(logSink, logFormat, minLevel)
+	// Script records go to the same durable log the daemon writes, so a run's
+	// output is recoverable afterwards even when the terminal showed little.
+	if dir := firstNonEmpty(cfgLog.Dir, os.Getenv("MCPX_LOG_DIR"),
+		filepath.Join(a.Paths.State, "logs")); dir != "" {
+		if sink, serr := logging.NewFileSink(logging.FileOptions{Dir: dir}); serr == nil {
+			writer = writer.WithFile(sink, slog.LevelDebug)
+			defer sink.Close()
+		}
+	}
 
 	// Streamed values are the script's answers, so they belong on stdout as
 	// they arrive. Under --json they are collected into the envelope instead,
@@ -448,15 +525,17 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	}
 
 	opts := runner.Options{
-		ClientSource: clientSrc,
-		Runtime:      runtimePref,
-		Timeout:      *timeout,
-		Prelude:      prelude,
-		Export:       *export,
-		Permissions:  firstNonEmpty(*perms, os.Getenv("MCPX_PERMISSIONS"), cfgPerms(cfg)),
-		Log:          writer,
-		CollectLogs:  collect,
-		OnResult:     onResult,
+		ClientSource:   clientSrc,
+		GlobalsSource:  globalsSrc,
+		CaptureConsole: !*noConsole,
+		Runtime:        runtimePref,
+		Timeout:        *timeout,
+		Prelude:        prelude,
+		Export:         *export,
+		Permissions:    firstNonEmpty(*perms, os.Getenv("MCPX_PERMISSIONS"), cfgPerms(cfg)),
+		Log:            writer,
+		CollectLogs:    collect,
+		OnResult:       onResult,
 		Enrich: map[string]any{
 			"session": sessionKey,
 			"cwd":     mustGetwd(),
@@ -480,31 +559,53 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			"MCPX_CONFIG_PATH":       configPathOf(cfg),
 		},
 	}
+	prefixLines := cfgScriptLines(cfg, prefix.Values(), true)
+	suffixLines := cfgScriptLines(cfg, suffix.Values(), false)
+
 	if inline {
-		// Prefix and suffix shape a generated snippet. They cannot apply to a
-		// file script: ESM gives an imported module its own scope, so lines
-		// injected around it could not bind anything inside it, and injecting
-		// *into* the file would move every line number and break the call
-		// sites the log records point at.
+		// A snippet is generated wholesale, so prefix lines share its scope
+		// and can declare bindings the snippet uses.
 		var body strings.Builder
-		for _, line := range cfgScriptLines(cfg, prefix.Values(), true) {
+		for _, line := range prefixLines {
 			body.WriteString(line)
 			body.WriteString("\n")
 		}
 		body.WriteString(strings.Join(fs.Args(), " "))
-		for _, line := range cfgScriptLines(cfg, suffix.Values(), false) {
+		for _, line := range suffixLines {
 			body.WriteString("\n")
 			body.WriteString(line)
 		}
 		opts.Source = body.String()
 	} else {
-		if len(prefix.Values()) > 0 || len(suffix.Values()) > 0 {
-			return errors.New("--prefix and --suffix apply to `mcpx exec` only;\n" +
-				"a file script controls its own imports, and injecting around it\n" +
-				"cannot reach its scope")
+		// A file keeps its own module scope, so its prefix and suffix run in
+		// the launcher around it: before the import and after the entry point.
+		// They can act -- set globals, log, time, clean up -- but cannot
+		// declare bindings the script will see.
+		opts.Phases = runner.Phases{
+			Before:    cfg.ScriptPhase("before", before.Values()),
+			Prefix:    prefixLines,
+			OnSuccess: cfg.ScriptPhase("onSuccess", onSuccess.Values()),
+			OnError:   cfg.ScriptPhase("onError", onError.Values()),
+			Suffix:    suffixLines,
 		}
-		// A bare name resolves through .mcpx/scripts; anything path-shaped is
-		// used verbatim.
+		if *noLauncher && *launcherFlag != "" {
+			return errors.New("--launcher and --no-launcher contradict each other; " +
+				"--no-launcher means there is nothing to replace")
+		}
+		if *noLauncher {
+			opts.Launcher, opts.LauncherName = runner.LauncherNone, "none"
+		} else if *launcherFlag != "" {
+			text, name, lerr := a.resolveLauncher(*launcherFlag)
+			if lerr != nil {
+				return lerr
+			}
+			opts.Launcher, opts.LauncherName = text, name
+		}
+		for _, r := range allowRepeat.Values() {
+			if str, ok := r.(string); ok {
+				opts.AllowRepeat = append(opts.AllowRepeat, str)
+			}
+		}
 		file, rerr := resolveScript(fs.Arg(0))
 		if rerr != nil {
 			return rerr
@@ -512,6 +613,18 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		opts.File = file
 		opts.Args = fs.Args()[1:]
 	}
+	for _, raw := range envVars.Values() {
+		kv, ok := raw.(string)
+		if !ok {
+			continue
+		}
+		k, v, found := strings.Cut(kv, "=")
+		if !found {
+			return fmt.Errorf("--env expects KEY=VALUE, got %q", kv)
+		}
+		opts.Env[k] = v
+	}
+
 	if *keep {
 		dir, err := os.MkdirTemp("", "mcpx-keep-")
 		if err != nil {
@@ -630,7 +743,7 @@ func (a *App) ensureAnySchemas(ctx context.Context, c *Client) error {
 	if len(known) == 0 {
 		return nil
 	}
-	fmt.Fprintln(os.Stderr, "mcpx: reading tool schemas for the first time...")
+	a.notice("reading tool schemas for the first time...")
 	_, err = c.Refresh(ctx)
 	return err
 }
@@ -638,7 +751,7 @@ func (a *App) ensureAnySchemas(ctx context.Context, c *Client) error {
 // buildPrelude imports the client and binds each namespace as a bare
 // identifier, so an agent can write either `fff.search(...)` or
 // `tools.fff.search(...)`.
-func (a *App) buildPrelude(ctx context.Context, c *Client, ns []string) (string, error) {
+func (a *App) buildPrelude(ctx context.Context, c *Client, ns []string, captureConsole bool) (string, error) {
 	known, err := c.Namespaces(ctx, a.Profile)
 	if err != nil {
 		return "", err
@@ -658,8 +771,14 @@ func (a *App) buildPrelude(ctx context.Context, c *Client, ns []string) (string,
 
 	var b strings.Builder
 	b.WriteString("// --- mcpx prelude (generated) ---\n")
-	fmt.Fprintf(&b, "import tools, { call, readResource, log, emit, ToolError } from %q;\n",
+	fmt.Fprintf(&b, "import tools, { call, readResource, log, emit, ToolError, installGlobals, captureConsole } from %q;\n",
 		"./"+runner.ClientFileName)
+	// A snippet gets the same surface a file script does, so behaviour does
+	// not depend on which way the code was supplied.
+	b.WriteString("installGlobals();\n")
+	if captureConsole {
+		b.WriteString("captureConsole();\n")
+	}
 	if len(names) > 0 {
 		fmt.Fprintf(&b, "const { %s } = tools;\n", strings.Join(names, ", "))
 	}
@@ -1164,7 +1283,40 @@ func cfgScriptLines(cfg *config.Config, flags []any, isPrefix bool) []string {
 		cfg = &config.Config{}
 	}
 	if isPrefix {
-		return cfg.ScriptPrefix(flags)
+		return resolvePhase(cfg.ScriptPrefix(flags))
 	}
-	return cfg.ScriptSuffix(flags)
+	return resolvePhase(cfg.ScriptSuffix(flags))
+}
+
+// resolvePhase turns each configured line into source.
+//
+// A phase line that names a file is read; anything else is used as written.
+// The alternative -- a separate --prefix-file flag beside every --prefix --
+// doubles the surface to say the same thing, and forces a choice at the point
+// where the snippet is one line long and the answer is not yet obvious.
+func resolvePhase(lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+	dir := mustGetwd()
+	opt := source.Options{
+		Dir:        dir,
+		AllowDir:   true,
+		Recursive:  false,
+		Probe:      true,
+		Extensions: []string{".ts", ".js", ".mts", ".mjs"},
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		r, err := source.Resolve(line, opt)
+		if err != nil || r.Kind == source.KindText || r.Kind == source.KindNone {
+			// A phase that looks like a path but is not readable stays a
+			// line. It is more likely to be code than a typo'd filename, and
+			// the runtime's own error will be clearer than a guess here.
+			out = append(out, line)
+			continue
+		}
+		out = append(out, strings.Split(strings.TrimRight(r.Text, "\n"), "\n")...)
+	}
+	return out
 }

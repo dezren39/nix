@@ -229,6 +229,16 @@ func (c *Client) ClientModule(ctx context.Context, ns []string, session string, 
 	return string(b), err
 }
 
+// Globals returns the ambient declarations for the installed globals.
+func (c *Client) Globals(ctx context.Context, ns []string, prof Profile) (string, error) {
+	q := "?_" + prof.query()
+	if len(ns) > 0 {
+		q += "&ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/globals.d.ts"+q, nil)
+	return string(b), err
+}
+
 // Search ranks tools against a query.
 func (c *Client) Search(ctx context.Context, q string, limit int) ([]daemon.ToolInfo, error) {
 	b, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/search?q=%s&limit=%d", urlEscape(q), limit), nil)

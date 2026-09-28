@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -627,6 +628,34 @@ const profileServers = `{
   }
 }`
 
+// jsonOf trims anything printed before a JSON document begins.
+func jsonOf(t *testing.T, out string) string {
+	t.Helper()
+	if i := strings.Index(out, "{"); i >= 0 {
+		return out[i:]
+	}
+	return out
+}
+
+// firstRecord finds the first JSON log record in mixed output. Taking line
+// zero is fragile: mcpx prints its own notices to stderr, and on a cold cache
+// one of them lands ahead of the record under test.
+func firstRecord(t *testing.T, out string) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var doc map[string]any
+		if json.Unmarshal([]byte(line), &doc) == nil && doc["level"] != nil {
+			return doc
+		}
+	}
+	t.Fatalf("no log record found in:\n%s", out)
+	return nil
+}
+
 func namespacesOf(t *testing.T, out string) map[string]bool {
 	t.Helper()
 	var v []struct {
@@ -872,7 +901,7 @@ export default async function main() {
 			Thing    string `json:"thing"`
 		} `json:"logs"`
 	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &doc); err != nil {
 		t.Fatalf("envelope is not JSON: %v\n%s", err, out)
 	}
 	if !doc.OK || doc.ExitCode != 0 {
@@ -905,7 +934,7 @@ func TestRunJSONReportsAFailure(t *testing.T) {
 		ExitCode int    `json:"exitCode"`
 		Stderr   string `json:"stderr"`
 	}
-	if jerr := json.Unmarshal([]byte(out), &doc); jerr != nil {
+	if jerr := json.Unmarshal([]byte(jsonOf(t, out)), &doc); jerr != nil {
 		t.Fatalf("envelope should still be valid JSON: %v\n%s", jerr, out)
 	}
 	if doc.OK || doc.ExitCode == 0 {
@@ -946,7 +975,7 @@ export default function main() {
 		Results []map[string]any `json:"results"`
 		Result  map[string]any   `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &doc); err != nil {
 		t.Fatalf("bad envelope: %v\n%s", err, out)
 	}
 	if len(doc.Results) != 2 {
@@ -964,11 +993,7 @@ func TestLogAcceptsExtraArgumentsAndErrors(t *testing.T) {
 	e := newEnv(t, oneServer)
 	out := e.run("exec", "--format", "json", "--log-level", "debug",
 		`log.debug("state", { id: 7 }, "extra", 42);`)
-	var doc map[string]any
-	line := strings.TrimSpace(strings.Split(strings.TrimSpace(out), "\n")[0])
-	if err := json.Unmarshal([]byte(line), &doc); err != nil {
-		t.Fatalf("not json: %v\n%s", err, out)
-	}
+	doc := firstRecord(t, out)
 	if doc["id"] != float64(7) {
 		t.Errorf("a plain object should become attributes: %v", doc)
 	}
@@ -995,11 +1020,7 @@ export default function named() {
 }
 `), 0o644)
 	out := e.run("run", "--log-source=all", "--format", "json", script)
-	var doc map[string]any
-	line := strings.TrimSpace(strings.Split(strings.TrimSpace(out), "\n")[0])
-	if err := json.Unmarshal([]byte(line), &doc); err != nil {
-		t.Fatalf("not json: %v\n%s", err, out)
-	}
+	doc := firstRecord(t, out)
 	if !strings.HasSuffix(fmt.Sprint(doc["source.file"]), "src.ts") {
 		t.Errorf("source file should be the script: %v", doc["source.file"])
 	}
@@ -1143,16 +1164,106 @@ func TestExecPrefixFlagReplacesUnlessInherited(t *testing.T) {
 	}
 }
 
-func TestPrefixIsRejectedForFileScripts(t *testing.T) {
+func TestFileScriptPrefixRunsBeforeTopLevelCode(t *testing.T) {
 	e := newEnv(t, oneServer)
-	script := filepath.Join(e.dir, "p.ts")
-	os.WriteFile(script, []byte(`console.log("hi");`), 0o644)
-	out, err := e.try("run", "--prefix", "const X = 1;", script)
+	script := filepath.Join(e.dir, "top.ts")
+	os.WriteFile(script, []byte(`console.log("TOP-LEVEL");
+export default function main() { return "done"; }
+`), 0o644)
+	// A static import would be hoisted and run the module first whatever the
+	// prefix said; the launcher imports dynamically so ordering is real.
+	out := e.run("run", "--format", "bare", "--prefix", `log.info("PREFIX");`, script)
+	pi, ti := strings.Index(out, "PREFIX"), strings.Index(out, "TOP-LEVEL")
+	if pi < 0 || ti < 0 {
+		t.Fatalf("both should appear:\n%s", out)
+	}
+	if pi > ti {
+		t.Fatalf("the prefix must run before the module body:\n%s", out)
+	}
+}
+
+func TestFileScriptPrefixCanPatchGlobals(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "glob.ts")
+	os.WriteFile(script, []byte(`export default function main() {
+  return { saw: (globalThis as any).INJECTED ?? "<unset>" };
+}
+`), 0o644)
+	out := e.run("run", "--prefix", `(globalThis as any).INJECTED = "patched";`, script)
+	if !strings.Contains(out, "patched") {
+		t.Fatalf("a prefix should be able to set globals the script reads:\n%s", out)
+	}
+}
+
+func TestFileScriptPrefixCannotBindModuleScope(t *testing.T) {
+	// The honest limit: ESM gives the module its own scope, so a prefix
+	// declaration is not visible inside the script.
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "scope.ts")
+	os.WriteFile(script, []byte(`export default function main() {
+  return { has: typeof (globalThis as any).FROM_PREFIX_CONST };
+}
+`), 0o644)
+	out := e.run("run", "--prefix", `const FROM_PREFIX_CONST = 1;`, script)
+	if !strings.Contains(out, "undefined") {
+		t.Fatalf("a const in the launcher must not leak into the module:\n%s", out)
+	}
+}
+
+func TestFileScriptSuffixSeesTheResult(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "res.ts")
+	os.WriteFile(script, []byte(`export default function main() { return { n: 1 }; }`), 0o644)
+	out := e.run("run", "--format", "bare",
+		"--suffix", `log.info("ok={ok}", { ok: result.ok });`, script)
+	if !strings.Contains(out, "ok=true") {
+		t.Fatalf("the suffix should see how the run ended:\n%s", out)
+	}
+}
+
+func TestFileScriptSuffixRunsEvenOnFailure(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "fail2.ts")
+	os.WriteFile(script, []byte(`export default function main() { throw new Error("deliberate"); }`), 0o644)
+	out, err := e.try("run", "--format", "bare",
+		"--suffix", `log.warn("cleanup ok={ok}", { ok: result.ok });`, script)
+	if err == nil {
+		t.Fatal("a throwing script should still fail the command")
+	}
+	if !strings.Contains(out, "cleanup ok=false") {
+		t.Fatalf("cleanup must run and see the failure:\n%s", out)
+	}
+}
+
+func TestFileScriptPrefixSeesTheScriptContext(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "ctx.ts")
+	os.WriteFile(script, []byte(`export default function main() { return "x"; }`), 0o644)
+	out := e.run("run", "--format", "bare",
+		"--prefix", `log.info("{name} got {n}", { name: script.name, n: script.args.length });`,
+		script, "a", "b")
+	if !strings.Contains(out, "ctx got 2") {
+		t.Fatalf("the prefix should see the script name and its arguments:\n%s", out)
+	}
+}
+
+func TestEnvFlagReachesTheScript(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--env", "GREETING=hi", "--env", "OTHER=2",
+		`console.log((globalThis as any).Deno.env.get("GREETING"), (globalThis as any).Deno.env.get("OTHER"));`)
+	if !strings.Contains(out, "hi 2") {
+		t.Fatalf("--env should reach the script:\n%s", out)
+	}
+}
+
+func TestEnvFlagRejectsMalformedPairs(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out, err := e.try("exec", "--env", "NOEQUALS", `console.log(1)`)
 	if err == nil {
 		t.Fatalf("expected rejection:\n%s", out)
 	}
-	if !strings.Contains(out, "exec") {
-		t.Errorf("the error should say where prefixes do apply:\n%s", out)
+	if !strings.Contains(out, "KEY=VALUE") {
+		t.Errorf("the error should show the expected shape:\n%s", out)
 	}
 }
 
@@ -1174,5 +1285,425 @@ func TestPermissionsCanBeNarrowed(t *testing.T) {
 	}
 	if !strings.Contains(out, "denied") {
 		t.Fatalf("expected a permission error:\n%s", out)
+	}
+}
+
+func TestScriptCanUseGlobalsWithoutImporting(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "noimp.ts")
+	// No import statement anywhere.
+	os.WriteFile(script, []byte(`export default async function main() {
+  log("plain call");
+  emit({ streamed: 1 });
+  const r = await demo.echo({ message: "via global" });
+  return { got: String(r) };
+}
+`), 0o644)
+	out := e.run("run", "--format", "bare", script)
+	for _, want := range []string{"plain call", `{"streamed":1}`, "via global"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestLogIsCallableAsInfo(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "json", `log("called directly");`)
+	doc := firstRecord(t, out)
+	if doc["level"] != "info" || doc["msg"] != "called directly" {
+		t.Fatalf("log() should behave as log.info(): %v", doc)
+	}
+}
+
+func TestImportingStillWorksAlongsideGlobals(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "mixed.ts")
+	os.WriteFile(script, []byte(`import { log as imported } from "./mcpx-client.ts";
+export default function main() {
+  imported.info("via import");
+  log.info("via global");
+  return { same: imported === log };
+}
+`), 0o644)
+	out := e.run("run", "--format", "bare", script)
+	if !strings.Contains(out, "via import") || !strings.Contains(out, "via global") {
+		t.Fatalf("both forms should work:\n%s", out)
+	}
+	if !strings.Contains(out, `"same": true`) {
+		t.Errorf("the import and the global should be the same object:\n%s", out)
+	}
+}
+
+func TestConsoleLogIsPrintedOnceButRecordedToo(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "bare", `console.log("UNIQUE-MARKER");`)
+	if n := strings.Count(out, "UNIQUE-MARKER"); n != 1 {
+		t.Fatalf("console.log should reach the terminal exactly once, saw %d:\n%s", n, out)
+	}
+}
+
+func TestConsoleErrorBecomesARecord(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "json", `console.error("diagnostic");`)
+	doc := firstRecord(t, out)
+	if doc["level"] != "error" || doc["console"] != "error" {
+		t.Fatalf("unexpected record: %v", doc)
+	}
+}
+
+func TestConsoleCaptureCanBeDisabled(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--no-capture-console", "--format", "json", `console.error("raw text");`)
+	if strings.Contains(out, `"console"`) {
+		t.Fatalf("capture should be off:\n%s", out)
+	}
+	if !strings.Contains(out, "raw text") {
+		t.Fatalf("the original output should still appear:\n%s", out)
+	}
+}
+
+func TestGlobalDeclarationsAreWrittenForEditors(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "decl.ts")
+	os.WriteFile(script, []byte(`export default function main() { return 1; }`), 0o644)
+	e.run("run", script)
+
+	b, err := os.ReadFile(filepath.Join(e.dir, "mcpx-globals.d.ts"))
+	if err != nil {
+		t.Fatalf("declarations should be written beside the script: %v", err)
+	}
+	for _, want := range []string{"declare global {", "const log: Logger;", "const emit:", "const demo:"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("declarations missing %q:\n%s", want, b)
+		}
+	}
+}
+
+func TestLauncherPhasesRunInOrder(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "ph.ts")
+	os.WriteFile(script, []byte(`export default function main() { log("3 body"); return undefined; }`), 0o644)
+	out := e.run("run", "--format", "bare",
+		"--before", `log("1 before")`, "--prefix", `log("2 prefix")`,
+		"--on-success", `log("4 success")`, "--suffix", `log("5 suffix")`, script)
+
+	var seen []string
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) > 1 && line[0] >= '1' && line[0] <= '5' {
+			seen = append(seen, string(line[0]))
+		}
+	}
+	if strings.Join(seen, "") != "12345" {
+		t.Fatalf("phases ran out of order: %v\n%s", seen, out)
+	}
+}
+
+func TestOnErrorRunsAndTheErrorStillPropagates(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "pherr.ts")
+	os.WriteFile(script, []byte(`export default function main() { throw new Error("deliberate"); }`), 0o644)
+	out, err := e.try("run", "--format", "bare",
+		"--on-success", `log("should not run")`,
+		"--on-error", `log.error("onError fired")`,
+		"--suffix", `log("suffix ran")`, script)
+
+	if err == nil {
+		t.Fatal("onError is a hook, not a handler; the failure must still surface")
+	}
+	if !strings.Contains(out, "onError fired") || !strings.Contains(out, "suffix ran") {
+		t.Fatalf("both hooks should have run:\n%s", out)
+	}
+	if strings.Contains(out, "should not run") {
+		t.Error("onSuccess must not run on the failure path")
+	}
+}
+
+func TestConsoleInfoBecomesLogInfoWithoutAnyScriptChange(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "json", `console.info("plain console call");`)
+	doc := firstRecord(t, out)
+	if doc["level"] != "info" || doc["msg"] != "plain console call" {
+		t.Fatalf("console.info should be log.info: %v", doc)
+	}
+}
+
+func TestConsoleCoverageBeyondTheFiveLevels(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "json", "--log-level", "debug",
+		`console.count("c"); console.assert(false, "failed"); console.group("g"); console.info("nested"); console.groupEnd();`)
+
+	var kinds []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var doc map[string]any
+		if json.Unmarshal([]byte(line), &doc) == nil {
+			if k, ok := doc["console"].(string); ok {
+				kinds = append(kinds, k)
+			}
+			if doc["console"] == "info" && !strings.HasPrefix(doc["msg"].(string), "  ") {
+				t.Errorf("group should indent nested output: %v", doc["msg"])
+			}
+		}
+	}
+	for _, want := range []string{"count", "assert", "group"} {
+		if !slices.Contains(kinds, want) {
+			t.Errorf("console.%s was not captured; saw %v", want, kinds)
+		}
+	}
+}
+
+func TestReleaseConsoleRestoresTheOriginal(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "json",
+		`releaseConsole(); console.error("raw again");`)
+	if strings.Contains(out, `"console"`) {
+		t.Fatalf("releaseConsole should hand the real console back:\n%s", out)
+	}
+	if !strings.Contains(out, "raw again") {
+		t.Fatalf("output should still appear:\n%s", out)
+	}
+}
+
+func TestErrorsCarryStructuredFramesAndAString(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "json",
+		`function boom() { throw new Error("deliberate"); }
+		 try { boom(); } catch (err) { log.error("failed", err as Error); }`)
+	doc := firstRecord(t, out)
+
+	args, ok := doc["args"].([]any)
+	if !ok || len(args) == 0 {
+		t.Fatalf("the Error should be in args: %v", doc)
+	}
+	desc, ok := args[0].(map[string]any)
+	if !ok {
+		t.Fatalf("the Error should be structured: %v", args[0])
+	}
+	if desc["message"] != "deliberate" {
+		t.Errorf("message lost: %v", desc)
+	}
+	frames, ok := desc["frames"].([]any)
+	if !ok || len(frames) == 0 {
+		t.Fatalf("frames should be captured: %v", desc)
+	}
+	top, _ := frames[0].(map[string]any)
+	if top["function"] != "boom" {
+		t.Errorf("the throwing function should be the top frame: %v", top)
+	}
+	// Both forms must survive; V8 memoises .stack, so getting one usually
+	// destroys the other. The string is rendered from the frames.
+	stack, _ := desc["stack"].(string)
+	if !strings.Contains(stack, "deliberate") || !strings.Contains(stack, "boom") {
+		t.Errorf("a readable stack string should be present too: %q", stack)
+	}
+}
+
+func TestConsoleTraceCapturesFrames(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "json", "--log-level", "debug",
+		`function deep() { console.trace("here"); } deep();`)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var doc map[string]any
+		if json.Unmarshal([]byte(line), &doc) != nil || doc["console"] != "trace" {
+			continue
+		}
+		frames, ok := doc["frames"].([]any)
+		if !ok || len(frames) == 0 {
+			t.Fatalf("console.trace should carry frames: %v", doc)
+		}
+		top, _ := frames[0].(map[string]any)
+		if top["function"] != "deep" {
+			t.Errorf("the calling function should be the top frame: %v", top)
+		}
+		return
+	}
+	t.Fatalf("no trace record found:\n%s", out)
+}
+
+func TestCaptureFramesIsAvailableToScripts(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "bare",
+		`function a() { return captureFrames(0, 4); }
+		 const f = a();
+		 console.log(JSON.stringify({ n: f.length, top: f[0]?.function }));`)
+	if !strings.Contains(out, `"top":"a"`) {
+		t.Fatalf("captureFrames should be a global and name the caller:\n%s", out)
+	}
+}
+
+func TestEveryConsoleMethodIsCoveredAndNameIsKept(t *testing.T) {
+	e := newEnv(t, oneServer)
+	// Deno ships 25 console members. Anything mcpx replaces must keep its
+	// name, because losing it breaks introspection for no gain, and anything
+	// it does not replace must still be callable.
+	out := e.run("exec", "--format", "bare", `
+		const names = Object.keys(console).filter((k) => typeof (console as any)[k] === "function");
+		const renamed = names.filter((k) => (console as any)[k].name !== k);
+		console.log(JSON.stringify({ total: names.length, renamed }));
+		// console.createTask requires a non-empty string in Deno too, so a
+		// throw there is fidelity rather than a defect. Compare against the
+		// unwrapped console instead of assuming nothing throws.
+		const native = (console as any).__mcpxOriginal ?? {};
+		for (const k of names) {
+			let ours = false, theirs = false;
+			try { (console as any)[k](); } catch { ours = true; }
+			try { native[k]?.(); } catch { theirs = true; }
+			if (ours !== theirs) console.log("divergent:", k, ours, theirs);
+		}
+	`)
+	if !strings.Contains(out, `"renamed":[]`) {
+		t.Errorf("every patched console method should keep its name:\n%s", out)
+	}
+	if strings.Contains(out, "divergent:") {
+		t.Errorf("a patched method should throw exactly when the original does:\n%s", out)
+	}
+}
+
+func TestConsoleInfoFormatsLikeTheRuntimeNotLikeJSON(t *testing.T) {
+	e := newEnv(t, oneServer)
+	// A caller who writes console.info({a:1}) expects to read what the
+	// runtime would have printed. The structured copy is already in args, so
+	// the message is free to be the human form.
+	out := e.run("exec", "--format", "compact", `console.info("shaped", { a: 1, b: [1, 2] });`)
+	if !strings.Contains(out, "{ a: 1, b: [ 1, 2 ] }") {
+		t.Errorf("message should use the runtime's inspect, not JSON:\n%s", out)
+	}
+}
+
+func TestConsoleIndentLevelReflectsGrouping(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "bare", `
+		const a = console.indentLevel;
+		console.group("g");
+		const b = console.indentLevel;
+		console.groupEnd();
+		console.log(JSON.stringify({ a, b, c: console.indentLevel }));
+	`)
+	if !strings.Contains(out, `{"a":0,"b":1,"c":0}`) {
+		t.Errorf("indentLevel should track group depth:\n%s", out)
+	}
+}
+
+func TestConfigDefaultsPrintsTheEmbeddedLayer(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("config", "--defaults")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &doc); err != nil {
+		t.Fatalf("--defaults should print valid JSON: %v\n%s", err, out)
+	}
+	for _, section := range []string{"pool", "logging", "daemon", "catalog", "script"} {
+		if _, ok := doc[section]; !ok {
+			t.Errorf("the %q section should be present: %v", section, doc)
+		}
+	}
+}
+
+func mustWrite(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestACustomLauncherReplacesTheGeneratedOne(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hello.ts")
+	mustWrite(t, script, `export default function main(argv: string[]) {
+		log.info("script ran", { argv });
+		return "done";
+	}`)
+	custom := filepath.Join(dir, "mine.ts")
+	mustWrite(t, custom, "@header\nlog.info(\"mine speaking\");\n@globals\n@console\n@entry\n")
+
+	out := e.run("run", "--launcher", custom, "--format", "compact", script, "A")
+	if !strings.Contains(out, "mine speaking") {
+		t.Errorf("the custom launcher should run:\n%s", out)
+	}
+	if !strings.Contains(out, "script ran") {
+		t.Errorf("@entry should still reach the script:\n%s", out)
+	}
+}
+
+func TestNoLauncherHandsTheScriptStraightToTheRuntime(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "raw.ts")
+	mustWrite(t, script, `console.log("globals:", typeof (globalThis as any).log);`)
+
+	bare := e.run("run", "--no-launcher", script)
+	if !strings.Contains(bare, "globals: undefined") {
+		t.Errorf("with no launcher nothing should be installed:\n%s", bare)
+	}
+	wrapped := e.run("run", script)
+	if !strings.Contains(wrapped, "globals: function") {
+		t.Errorf("normally the globals are there:\n%s", wrapped)
+	}
+}
+
+func TestLauncherAndNoLauncherTogetherIsRefused(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+	out, err := e.try("run", "--launcher", "@entry", "--no-launcher", script)
+	if err == nil {
+		t.Fatal("the two contradict each other and should be refused")
+	}
+	if !strings.Contains(out, "contradict") {
+		t.Errorf("the error should say why: %s", out)
+	}
+}
+
+func TestALauncherCycleIsRefusedBeforeAnythingRuns(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+	out, err := e.try("run", "--launcher=@prefix", "--prefix", "@suffix",
+		"--suffix", "@prefix", script)
+	if err == nil {
+		t.Fatal("a reference loop should be refused, not hung on")
+	}
+	if !strings.Contains(out, "loop") {
+		t.Errorf("the error should name the loop: %s", out)
+	}
+}
+
+func TestARepeatedPlaceholderNeedsPermissionAndThenWorks(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "twice.ts")
+	mustWrite(t, script, `export default function main() { log.info("ran"); }`)
+
+	if _, err := e.try("run", "--launcher=@header @globals @entry @entry", script); err == nil {
+		t.Fatal("a repeated placeholder should be refused by default")
+	}
+	out := e.run("run", "--launcher=@header @globals @entry @entry",
+		"--allow-repeat", "entry", "--format", "compact", script)
+	if n := strings.Count(out, "ran"); n != 2 {
+		t.Errorf("once permitted it should genuinely run twice, got %d:\n%s", n, out)
+	}
+}
+
+func TestAPhaseCanBeAFileInsteadOfAString(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+	hook := filepath.Join(dir, "hook.ts")
+	mustWrite(t, hook, `log.info("from a file");`)
+
+	out := e.run("run", "--prefix", hook, "--format", "compact", script)
+	if !strings.Contains(out, "from a file") {
+		t.Errorf("a phase given a path should read it:\n%s", out)
 	}
 }

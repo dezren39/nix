@@ -13,11 +13,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 
+	"github.com/dezren39/mcpx/internal/launcher"
 	"github.com/dezren39/mcpx/internal/logging"
 	"path/filepath"
 	"strings"
@@ -134,8 +136,46 @@ type Options struct {
 	// Export names the function to call instead of the default export.
 	Export string
 	// Permissions is the sandbox setting; empty means wide open.
-	Permissions    string
+	Permissions string
+	// GlobalsSource is the ambient declaration file written beside the client.
+	GlobalsSource string
+	// CaptureConsole mirrors console output into the record stream.
+	CaptureConsole bool
+	// Phases are lines injected at named points in the generated launcher.
+	// Every point a user might want is named, because a launcher that is
+	// half-configurable invites forking it.
+	Phases Phases
+	// Launcher replaces the generated shim. Empty means the built-in
+	// template; LauncherNone means run the script with no shim at all.
+	Launcher string
+	// LauncherName is where Launcher came from, for error messages.
+	LauncherName string
+	// AllowRepeat names placeholders permitted to resolve more than once.
+	AllowRepeat    []string
 	Stdout, Stderr interface{ Write([]byte) (int, error) }
+}
+
+// Phases are the injection points in a file script's launcher, in the order
+// they run.
+type Phases struct {
+	// Before runs first, ahead of even the globals being installed.
+	Before []string
+	// Prefix runs after the standard surface is installed and before the
+	// module is imported, so it can patch what the script will see.
+	Prefix []string
+	// OnSuccess runs when the entry point returns, with result.value set.
+	OnSuccess []string
+	// OnError runs when it throws, with result.error set. The error is
+	// re-thrown afterwards; this is a hook, not a handler.
+	OnError []string
+	// Suffix runs in a finally, on both paths.
+	Suffix []string
+}
+
+// Empty reports whether any phase carries lines.
+func (p Phases) Empty() bool {
+	return len(p.Before) == 0 && len(p.Prefix) == 0 &&
+		len(p.OnSuccess) == 0 && len(p.OnError) == 0 && len(p.Suffix) == 0
 }
 
 // Result reports how a script run finished.
@@ -181,6 +221,10 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if err := writeIfChanged(clientPath, opts.ClientSource); err != nil {
 		return nil, err
 	}
+	if opts.GlobalsSource != "" {
+		// Best effort: an editor convenience should never fail a run.
+		_ = writeIfChanged(filepath.Join(workDir, GlobalsFileName), opts.GlobalsSource)
+	}
 
 	scriptPath := opts.File
 	if scriptPath == "" {
@@ -202,6 +246,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		if err := writeIfChanged(sideCar, opts.ClientSource); err != nil {
 			return nil, fmt.Errorf("write client next to script: %w", err)
 		}
+		if opts.GlobalsSource != "" {
+			_ = writeIfChanged(filepath.Join(filepath.Dir(scriptPath), GlobalsFileName), opts.GlobalsSource)
+		}
 		clientPath = sideCar
 	}
 
@@ -209,7 +256,8 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// without is a program that ran on import. Supporting both is what lets a
 	// single file be imported as a library and still invoked directly.
 	if opts.File != "" {
-		launcher, lerr := writeLauncher(workDir, scriptPath, opts.Export)
+		launcher, lerr := writeLauncher(workDir, scriptPath, opts.Export,
+			opts.Phases, opts.CaptureConsole, opts)
 		if lerr != nil {
 			return nil, lerr
 		}
@@ -344,22 +392,74 @@ func sha256sum(b []byte) string {
 // ClientFileName is the name of the generated client module on disk.
 const ClientFileName = clientFileName
 
+// GlobalsFileName holds ambient declarations for the installed globals.
+const GlobalsFileName = "mcpx-globals.d.ts"
+
 // writeLauncher emits a shim that imports the user's module and calls its
 // entry point if it has one.
 //
 // The shim is written beside the script so its relative import resolves, and
 // so the generated client next to the script is the one both files see.
-func writeLauncher(workDir, scriptPath, export string) (string, error) {
+// LauncherNone, given as the launcher, means no shim at all: the script is
+// handed to the runtime untouched. Nothing is installed, nothing is captured,
+// nothing wraps the error. It is the escape hatch for a script that wants the
+// runtime and none of the harness.
+const LauncherNone = "none"
+
+func writeLauncher(workDir, scriptPath, export string, ph Phases, captureConsole bool, opts Options) (string, error) {
+	if strings.TrimSpace(opts.Launcher) == LauncherNone {
+		return "", nil
+	}
 	dir := filepath.Dir(scriptPath)
 	base := filepath.Base(scriptPath)
 	name := "." + strings.TrimSuffix(base, filepath.Ext(base)) + ".mcpx-entry.ts"
 	launcher := filepath.Join(dir, name)
 
+	argsJSON, _ := json.Marshal([]string{})
+	_ = argsJSON
+
+	consoleCall := "// console left alone"
+	if captureConsole {
+		consoleCall = "captureConsole();"
+	}
+
 	body := fmt.Sprintf(`// Generated by mcpx. Runs %s.
-import * as mod from %q;
+//
+// The module is imported dynamically rather than with a static import, so that
+// lines injected before it genuinely run first. A static import is hoisted and
+// would evaluate the module ahead of anything else whatever the source order.
+import {
+  log, emit, installGlobals, captureConsole, releaseConsole,
+} from %q;
 
 const argv = (globalThis as any).Deno?.args ?? (globalThis as any).process?.argv?.slice(2) ?? [];
 const wanted = %q;
+
+/** What is about to run. Visible to every phase. */
+const script = {
+  path: %q,
+  name: %q,
+  args: argv as string[],
+  export: wanted || "default",
+};
+
+/** How the run ended. Filled in before onSuccess, onError and suffix. */
+const result: { value?: unknown; error?: unknown; ok: boolean; ms: number } = {
+  ok: true,
+  ms: 0,
+};
+void [log, emit, script, result, releaseConsole];
+
+// phase: before
+%s
+
+installGlobals();
+%s
+
+// phase: prefix
+%s
+
+const mod = await import(%q);
 const entry = wanted ? (mod as any)[wanted] : (mod as any).default;
 
 if (wanted && typeof entry !== "function") {
@@ -370,22 +470,156 @@ if (wanted && typeof entry !== "function") {
   );
 }
 
-if (typeof entry === "function") {
-  // A default export is the program's main, so it receives argv as an array,
-  // matching every other main anyone has written. A named export is being
-  // called as a function, so its arguments are spread: --export f a b reads
-  // as f(a, b).
-  const result = wanted ? await entry(...argv) : await entry(argv);
-  // undefined means the entry printed whatever it wanted to; anything else is
-  // the script's result and belongs on stdout.
-  if (result !== undefined) {
-    console.log(typeof result === "string" ? result : JSON.stringify(result, null, 2));
+const __started = performance.now();
+try {
+  if (typeof entry === "function") {
+    // A default export is the program's main and receives argv as an array.
+    // A named export is being called as a function, so arguments are spread:
+    // --export f a b reads as f(a, b).
+    const value = wanted ? await entry(...argv) : await entry(argv);
+    result.value = value;
+    if (value !== undefined) {
+      console.log(typeof value === "string" ? value : JSON.stringify(value, null, 2));
+    }
   }
+  result.ms = performance.now() - __started;
+  // phase: onSuccess
+%s
+} catch (err) {
+  result.ok = false;
+  result.error = err;
+  result.ms = performance.now() - __started;
+  // phase: onError. A hook, not a handler: the error is re-thrown below so the
+  // exit status still reflects what happened.
+%s
+  throw err;
+} finally {
+  result.ms = result.ms || performance.now() - __started;
+  // phase: suffix
+%s
 }
-`, base, "./"+base, export, base)
+`, base, "./"+ClientFileName, export,
+		scriptPath, strings.TrimSuffix(base, filepath.Ext(base)),
+		indentLines(ph.Before, ""), consoleCall, indentLines(ph.Prefix, ""),
+		"./"+base, base,
+		indentLines(ph.OnSuccess, "  "), indentLines(ph.OnError, "  "),
+		indentLines(ph.Suffix, "  "))
+
+	if custom := strings.TrimSpace(opts.Launcher); custom != "" {
+		var err error
+		body, err = expandCustom(custom, opts, scriptPath, base, export, ph, captureConsole)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	if err := writeIfChanged(launcher, body); err != nil {
 		return "", err
 	}
 	return launcher, nil
+}
+
+// expandCustom fills a user-supplied launcher template.
+//
+// The fills are the same fragments the built-in template uses, so a custom
+// launcher can be a rearrangement rather than a rewrite -- @globals and @entry
+// carry their full meaning, and a template that only wants to add a guard
+// around the call does not have to reproduce the import machinery.
+func expandCustom(text string, opts Options, scriptPath, base, export string,
+	ph Phases, captureConsole bool) (string, error) {
+
+	name := opts.LauncherName
+	if name == "" {
+		name = "custom launcher"
+	}
+	consoleCall := "// console left alone"
+	if captureConsole {
+		consoleCall = "captureConsole();"
+	}
+	importLine := fmt.Sprintf("const mod = await import(%q);", "./"+base)
+	// Braced, so that a template naming @entry twice produces two runs rather
+	// than a redeclaration error. Allowing a repeat and then emitting code
+	// that cannot compile would be a worse answer than refusing it outright.
+	entryBlock := fmt.Sprintf(`{
+  %s
+  const entry = %s ? (mod as any)[%s] : (mod as any).default;
+  if (typeof entry === "function") {
+    const __v = %s ? await entry(...argv) : await entry(argv);
+    result.value = __v;
+    if (__v !== undefined) {
+      console.log(typeof __v === "string" ? __v : JSON.stringify(__v, null, 2));
+    }
+  }
+}`, importLine, jsonString(export), jsonString(export), jsonString(export))
+
+	fill := launcher.Fill{
+		launcher.Header:    launcherHeader(scriptPath, base, export),
+		launcher.Globals:   "installGlobals();",
+		launcher.Console:   consoleCall,
+		launcher.Import:    importLine,
+		launcher.Entry:     entryBlock,
+		launcher.Before:    indentLines(ph.Before, ""),
+		launcher.Prefix:    indentLines(ph.Prefix, ""),
+		launcher.OnSuccess: indentLines(ph.OnSuccess, ""),
+		launcher.OnError:   indentLines(ph.OnError, ""),
+		launcher.Suffix:    indentLines(ph.Suffix, ""),
+	}
+	var allow []launcher.Placeholder
+	for _, a := range opts.AllowRepeat {
+		allow = append(allow, launcher.Placeholder(strings.TrimPrefix(a, "@")))
+	}
+	tpl := launcher.Template{Text: text, Name: name}
+
+	// A launcher that never reaches the script is legal -- someone may be
+	// testing a prefix in isolation -- but it is almost never meant, so it is
+	// worth saying once rather than leaving them to wonder why nothing ran.
+	if !referencesEntry(tpl) {
+		fmt.Fprintf(os.Stderr,
+			"mcpx: %s refers to neither @entry nor @import, so the script will not run\n", name)
+	}
+	return launcher.Expand(tpl, fill, launcher.Options{AllowRepeat: allow})
+}
+
+func referencesEntry(t launcher.Template) bool {
+	for _, p := range launcher.Used(t) {
+		if p == launcher.Entry || p == launcher.Import {
+			return true
+		}
+	}
+	return false
+}
+
+func jsonString(v string) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// launcherHeader is the preamble every launcher needs: the client import and
+// the script and result objects each phase can read.
+func launcherHeader(scriptPath, base, export string) string {
+	return fmt.Sprintf(`import {
+  log, emit, installGlobals, captureConsole, releaseConsole,
+} from %q;
+
+const argv = (globalThis as any).Deno?.args ?? (globalThis as any).process?.argv?.slice(2) ?? [];
+const wanted = %s;
+
+const script = { path: %q, name: %q, args: argv as string[], export: wanted || "default" };
+const result: { value?: unknown; error?: unknown; ok: boolean; ms: number } = { ok: true, ms: 0 };
+void [log, emit, script, result, releaseConsole, installGlobals, captureConsole];`,
+		"./"+ClientFileName, jsonString(export), scriptPath,
+		strings.TrimSuffix(base, filepath.Ext(base)))
+}
+
+// indentLines joins lines with an indent, or yields a comment when empty so
+// the generated file never has a bare blank where code was expected.
+func indentLines(lines []string, indent string) string {
+	if len(lines) == 0 {
+		return indent + "// (no lines configured)"
+	}
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = indent + l
+	}
+	return strings.Join(out, "\n")
 }
