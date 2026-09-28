@@ -576,10 +576,13 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		Log:            writer,
 		CollectLogs:    collect,
 		OnResult:       onResult,
-		Enrich: map[string]any{
+		// Harness-supplied identifiers ride along on every record, so a log
+		// can be filtered by session or worktree without the script having
+		// been told any of it.
+		Enrich: enrichWith(map[string]any{
 			"session": sessionKey,
 			"cwd":     mustGetwd(),
-		},
+		}, logging.HarnessIDs()),
 		Env: map[string]string{
 			"MCPX_SESSION":    sessionKey,
 			"MCPX_ENDPOINT":   endpoint,
@@ -786,6 +789,19 @@ func runEnvelope(res *runner.Result, stdout string, logs []logging.Record, strea
 		env["logs"] = items
 	}
 	return env
+}
+
+// enrichWith folds harness identifiers in without letting them overwrite what
+// mcpx itself established. A caller can add context; it cannot rewrite which
+// session a call was actually leased for.
+func enrichWith(base, extra map[string]any) map[string]any {
+	for k, v := range extra {
+		if _, taken := base[k]; taken {
+			continue
+		}
+		base[k] = v
+	}
+	return base
 }
 
 func firstNonEmpty(v ...string) string {

@@ -142,6 +142,15 @@ func Commands() []Command {
 			Summary: "write a starter configuration file",
 		},
 		{
+			Name: "explore", Group: "inspection",
+			Summary: "browse namespaces, tools and the log interactively",
+			Detail: "Everything it shows is available from other commands; it exists " +
+				"because discovery is a loop, and running four commands with " +
+				"different flags to go round it once is enough friction that " +
+				"people guess instead. Every screen prints the command that " +
+				"produced it, so it teaches its own scriptable form.",
+		},
+		{
 			Name: "log", Group: "inspection",
 			Usage:   "[--since d] [--chain id] [--follow]",
 			Summary: "query the structured log",

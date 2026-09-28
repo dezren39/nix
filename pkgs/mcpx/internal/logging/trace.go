@@ -3,6 +3,7 @@ package logging
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net"
 	"os"
 	"os/user"
@@ -218,6 +219,44 @@ func Redact(name, value string) string {
 		}
 		return "<elided>"
 	})
+}
+
+// HarnessIDs reads MCPX_TRACE_IDS.
+//
+// The harness knows things the agent does not -- which session this is, whose
+// child it is, which worktree it runs in -- and passes them as a list of
+// pairs rather than a flat id, because a flat one cannot express a
+// relationship. Reading it here means every record carries that context
+// without any caller threading it through.
+//
+// Unknown keys are kept. The list exists to grow, and a reader that dropped
+// what it did not recognise would defeat that.
+func HarnessIDs() map[string]any {
+	raw := strings.TrimSpace(os.Getenv("MCPX_TRACE_IDS"))
+	if raw == "" {
+		return nil
+	}
+	var pairs [][]string
+	if err := json.Unmarshal([]byte(raw), &pairs); err != nil {
+		return nil
+	}
+	out := map[string]any{}
+	for _, p := range pairs {
+		if len(p) < 2 || p[0] == "" {
+			continue
+		}
+		// Entries longer than a pair name several ids for one key, which is
+		// how a caller says "these are all the same thing".
+		if len(p) == 2 {
+			out["id."+p[0]] = p[1]
+			continue
+		}
+		out["id."+p[0]] = p[1:]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // gatherNetwork finds the first non-loopback interface that is up.
