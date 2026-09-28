@@ -86,7 +86,18 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 	default:
 	}
 
-	req, err := http.NewRequestWithContext(context.WithoutCancel(ctx), http.MethodPost, t.url, bytes.NewReader(msg))
+	// The caller's context governs the request.
+	//
+	// Send is synchronous, so a server that accepts the connection and never
+	// answers blocks here -- before Call reaches the select that watches for
+	// a timeout. Detaching the request from the context therefore did not
+	// make cancellation best-effort, it removed it: pool.callTimeout could
+	// not interrupt a hung server at all.
+	//
+	// Protocol-level cancellation is unaffected. The notifications/cancelled
+	// message is sent on its own background context precisely so that it
+	// outlives the request it is cancelling.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(msg))
 	if err != nil {
 		return err
 	}

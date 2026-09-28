@@ -1242,6 +1242,36 @@ lost one form before a test asserted both survive.
 
 2026-09-28T02:30:00-05:00
 
+## Cancellation reaches the transport
+
+```
+created:      2026-09-28T03:40:00-05:00
+last-updated: 2026-09-28T03:40:00-05:00
+increment:    1
+status:       standard
+tags:         area:transport
+description:  a call timeout can interrupt a hung HTTP server.
+```
+
+The Streamable HTTP transport detached its POST from the caller's context.
+The intent was presumably that a request in flight should finish rather than
+be abandoned half-processed, which sounds reasonable and was wrong.
+
+`Send` is synchronous. A server that accepts the connection and never answers
+blocks inside it, *before* the caller reaches the select that watches for a
+timeout. Detaching the request did not make cancellation best-effort, it
+removed it: `pool.callTimeout` could not interrupt a hung server at all, and
+the only bound left was the transport's own ten-minute ceiling.
+
+The request now carries the caller's context. Protocol-level cancellation is
+unaffected, because `notifications/cancelled` is deliberately sent on its own
+background context so that it outlives the request it cancels.
+
+The test blocks a server and asserts `Send` returns. It fails on the previous
+code after five seconds and passes in under one.
+
+2026-09-28T03:40:00-05:00
+
 ## Nix packaging
 
 ```
