@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -107,6 +109,22 @@ func (a *App) CmdLog(ctx context.Context, args []string) error {
 	defer st.Close()
 
 	p := newRecordPrinter(f, splitFields(*fields))
+
+	// fs.Visit reports only the flags actually given, which is the sole way
+	// to tell `--chain ""` from no --chain at all. Left as a plain empty
+	// check, an empty substitution silently printed the entire log, which
+	// reads as "that trace touched everything" rather than as the mistake it
+	// is.
+	chainGiven := false
+	fs.Visit(func(fl *flag.Flag) {
+		if fl.Name == "chain" {
+			chainGiven = true
+		}
+	})
+	if chainGiven && strings.TrimSpace(*chain) == "" {
+		return errors.New("--chain needs a trace id; it was given an empty value, " +
+			"which usually means a shell substitution came back empty")
+	}
 	if *chain != "" {
 		return a.printChain(st, *chain, *limit, p)
 	}
@@ -322,6 +340,13 @@ func (a *App) cmdLogSQL(_ context.Context, args []string) error {
 
 // CmdStats aggregates the log.
 func (a *App) CmdStats(_ context.Context, args []string) error {
+	// The dimension is hoisted before parsing because Go's flag package stops
+	// at the first non-flag argument, so `stats slowest --top 3` would
+	// otherwise silently ignore the flag.
+	dim := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		dim, args = args[0], args[1:]
+	}
 	fs := newFlagSet("stats")
 	by := fs.String("by", "", "dimension: "+strings.Join(logstore.Dimensions, ", "))
 	since := fs.String("since", "", "start of the window: a duration (15m, 2h) or an RFC3339 time")
@@ -334,7 +359,7 @@ func (a *App) CmdStats(_ context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	dim := firstSet(fs.Arg(0), *by, "calls")
+	dim = firstSet(dim, *by, "calls")
 	q := logstore.Query{Server: *server, Tool: *tool, Session: *session, Limit: -1}
 	now := time.Now()
 	var err error
@@ -435,10 +460,10 @@ func (a *App) statsInstances(st *logstore.Store, q logstore.Query) error {
 	for _, r := range rows {
 		stopped := "-"
 		if !r.Stopped.IsZero() {
-			stopped = r.Stopped.Format("15:04:05")
+			stopped = r.Stopped.Local().Format("15:04:05")
 		}
 		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\n",
-			r.Instance, r.PID, r.Started.Format("2006-01-02 15:04:05"), ms(r.ReadyMs),
+			r.Instance, r.PID, r.Started.Local().Format("2006-01-02 15:04:05"), ms(r.ReadyMs),
 			(time.Duration(r.UptimeSec) * time.Second).String(), r.Calls, stopped,
 			firstSet(r.Reason, "-"))
 	}
@@ -462,7 +487,7 @@ func (a *App) statsErrors(st *logstore.Store, q logstore.Query, top int) error {
 	tw := table("COUNT\tLAST SEEN\tSERVERS\tMESSAGE")
 	for _, r := range rows {
 		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\n", r.Count,
-			r.LastSeen.Format("2006-01-02 15:04:05"), firstSet(r.Servers, "-"),
+			r.LastSeen.Local().Format("2006-01-02 15:04:05"), firstSet(r.Servers, "-"),
 			truncate(oneLine(r.Message), 80))
 	}
 	return tw.Flush()
@@ -539,7 +564,7 @@ func (a *App) statsSlowest(st *logstore.Store, q logstore.Query, top int) error 
 	tw := table("MS\tWHEN\tSERVER\tTOOL\tOK\tSESSION\tTRACE")
 	for _, r := range rows {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%t\t%s\t%s\n", ms(r.Duration),
-			r.Time.Format("2006-01-02 15:04:05"), r.Server, r.Tool, r.OK,
+			r.Time.Local().Format("2006-01-02 15:04:05"), r.Server, r.Tool, r.OK,
 			firstSet(r.Session, "-"), r.Trace)
 	}
 	tw.Flush()
