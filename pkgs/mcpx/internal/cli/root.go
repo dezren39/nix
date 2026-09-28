@@ -322,6 +322,12 @@ MANAGEMENT
   mcpx config [--path|--sources] show the resolved configuration and where it came from
   mcpx init [--global]           write a starter config
 
+DIAGNOSTICS
+  mcpx log [--since 1h] [-f]     query the durable log
+  mcpx log --chain <trace>       a call and everything that led to it, as a tree
+  mcpx log sql '<select ...>'    raw read-only SQL over the log index
+  mcpx stats [calls|servers|errors|sessions|volume|slowest|instances]
+
 GLOBAL FLAGS
   --config <path>                config file (default: search up from $PWD)
   --json                         machine-readable output

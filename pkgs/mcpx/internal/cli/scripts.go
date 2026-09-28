@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/dezren39/mcpx/internal/runner"
+	"github.com/dezren39/mcpx/internal/searchpath"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // ScriptsDirNames are the per-project directories mcpx looks in for named
@@ -31,7 +33,35 @@ const ScriptExt = ".ts"
 // filesystem root (nearest wins, so a repo overrides a parent), then the user
 // directory. It mirrors how the config file is discovered, so a project can
 // keep its scripts and its server list together.
-func scriptSearchDirs() []string {
+// ScriptExtensions are tried in order for a name given without one. The
+// order is deliberate: a project holding both foo.ts and foo.js is almost
+// always compiling one into the other, and the source is what someone means
+// to run.
+var ScriptExtensions = []string{".ts", ".mts", ".js", ".mjs"}
+
+// scriptPath resolves the configured search path, splicing the built-in list
+// wherever the user left a null.
+func scriptPath() searchpath.Resolved {
+	wd, _ := os.Getwd()
+	var configured []string
+	if v := os.Getenv("MCPX_PATHS_SCRIPTS"); v != "" {
+		for _, part := range strings.Split(v, string(os.PathListSeparator)) {
+			if part = strings.TrimSpace(part); part != "" {
+				if part == "-" || part == "null" {
+					configured = append(configured, settings.NullMarker)
+					continue
+				}
+				configured = append(configured, part)
+			}
+		}
+	}
+	return searchpath.Resolve(configured, settings.NullMarker, searchpath.Options{
+		Dir:     wd,
+		Builtin: builtinScriptDirs(),
+	})
+}
+
+func builtinScriptDirs() []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(p string) {
@@ -73,6 +103,20 @@ func scriptSearchDirs() []string {
 	return out
 }
 
+// scriptSearchDirs is the flat list, kept for the environment variable the
+// runner passes to scripts.
+func scriptSearchDirs() []string {
+	var out []string
+	for _, e := range scriptPath().Entries {
+		out = append(out, e.Path)
+	}
+	return out
+}
+
+func allowOverlap() bool {
+	return os.Getenv("MCPX_PLUMBING_ALLOW_TS_JS_OVERLAP") == "true"
+}
+
 // looksLikePath reports whether an argument should be used verbatim rather
 // than resolved as a script name.
 func looksLikePath(arg string) bool {
@@ -90,15 +134,19 @@ func resolveScript(arg string) (string, error) {
 	if looksLikePath(arg) {
 		return arg, nil
 	}
-	dirs := scriptSearchDirs()
-	for _, dir := range dirs {
-		candidate := filepath.Join(dir, arg+ScriptExt)
-		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-			return candidate, nil
-		}
+	path := scriptPath()
+	found, _, err := path.Find(arg, searchpath.FindOptions{
+		Extensions:   ScriptExtensions,
+		AllowOverlap: allowOverlap(),
+	})
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("no script named %q; looked in:\n  %s\n\nCreate one with:\n  mkdir -p %s && $EDITOR %s",
-		arg, strings.Join(dirs, "\n  "), ScriptsDirName, filepath.Join(ScriptsDirName, arg+ScriptExt))
+	if found != "" {
+		return found, nil
+	}
+	return "", fmt.Errorf("no script named %q; looked in:\n%s\nCreate one with:\n  mkdir -p %s && $EDITOR %s",
+		arg, path.Describe(), ScriptsDirName, filepath.Join(ScriptsDirName, arg+ScriptExt))
 }
 
 // ScriptEntry is one discoverable script.
