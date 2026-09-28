@@ -246,6 +246,15 @@ func pathSettings() []Setting {
 			Long: spliceLong,
 		},
 		{
+			Path: "paths.placeholders", Kind: KindPathList, Default: "", Repeatable: true,
+			Name:  "Placeholder search path",
+			Short: "directories of files declaring launcher placeholders",
+			Long: "A file may declare the @name it provides, with a " +
+				"// @mcpx:placeholder comment, an exported MCPX_PLACEHOLDER " +
+				"constant, or by its filename. Declaring one makes it " +
+				"addressable from a launcher template. " + spliceLong,
+		},
+		{
 			Path: "paths.state", Kind: KindString, Default: "",
 			EnvAliases: []string{"MCPX_STATE_DIR"},
 			Name:       "State directory", Short: "where the daemon socket, logs and index live",

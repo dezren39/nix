@@ -428,7 +428,7 @@ mcpx --profile web --skip-default ls    exactly the web servers
 mcpx --all-profiles ls                  everything, ignoring profiles
 ```
 
-A server is default-on unless it says otherwise; `"defaults": { "default":
+A server is default-on unless it says otherwise; `"pool": { "default":
 false }` flips the baseline so servers opt in instead. The selection applies
 to everything derived from the server list — `ls`, `types`, `catalog`,
 `search`, and the generated client — so a script written under one profile
@@ -956,8 +956,8 @@ Searched upward from the working directory: `.mcpx.json`, `.mcpx/config.json`,
 JSONC comments are stripped, string-literal aware.
 
 Per server: `mode`, `max`, `min`, `idleTimeout`, `callTimeout`, `startTimeout`,
-`namespace`, `description`, `tools`, `excludeTools`, `disabled`. A top-level
-`defaults` block applies any of them to every server.
+`namespace`, `description`, `tools`, `excludeTools`, `disabled`. A top-level `pool`
+block applies any of them to every server.
 
 2026-09-27T05:05:00-05:00
 
@@ -1298,10 +1298,10 @@ a variable or a flag:
 
 Pool settings are read by the configuration loader rather than the registry,
 because they are per-server and the server's own block has to win. `pool` and
-`defaults` are two spellings of one block: `defaults` reads naturally beside
+`pool` are two spellings of one block: `pool` reads naturally beside
 `mcpServers`, `pool` is what `mcpx config --schema` calls it. Both exist
 because having one of them silently do nothing would be worse than having two.
-Where both appear, `defaults` wins -- it is the older spelling, and adding a
+Where both appear, `pool` wins -- it is the older spelling, and adding a
 synonym should not change what an existing file means.
 
 Still on their own paths, and honestly so: `output.json` (the global `--json`

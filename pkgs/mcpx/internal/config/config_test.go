@@ -143,7 +143,7 @@ func TestUnknownKeysAreIgnored(t *testing.T) {
 
 func TestFileDefaultsApplyToEveryServer(t *testing.T) {
 	c := &config.Config{
-		Defaults: config.Extras{Scope: config.ScopeSession, Max: 7, IdleTimeout: "1m"},
+		Pool: config.Extras{Scope: config.ScopeSession, Max: 7, IdleTimeout: "1m"},
 		MCPServers: map[string]*config.Server{
 			"a": {Name: "a", Command: "x"},
 			"b": {Name: "b", Command: "y", Mcpx: &config.Extras{Max: 2}},
@@ -277,10 +277,10 @@ func TestLoggingConfigIsParsed(t *testing.T) {
 	}
 }
 
-func TestPoolBlockAppliesLikeDefaults(t *testing.T) {
-	// "pool" is what `mcpx config --schema` calls these knobs and "defaults"
-	// is what reads naturally beside mcpServers. Both exist because having
-	// one of them silently do nothing would be worse than having two.
+func TestPoolBlockAppliesToEveryServer(t *testing.T) {
+	// The block is named for the dotted path the registry uses, so that
+	// `mcpx config --schema` and a configuration file agree on what these
+	// knobs are called.
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".mcpx.json")
 	if err := os.WriteFile(path, []byte(`{
@@ -308,15 +308,14 @@ func TestPoolBlockAppliesLikeDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultsBlockWinsOverPoolBlock(t *testing.T) {
-	// The older spelling wins, because an existing config already uses it
-	// and should not change meaning by the addition of a synonym.
+func TestAServerOverridesThePoolBlock(t *testing.T) {
+	// The block is a default, not a mandate: a server that states a value
+	// keeps it.
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".mcpx.json")
 	if err := os.WriteFile(path, []byte(`{
-		"mcpServers": { "a": { "command": "true" } },
-		"pool":     { "max": 7, "scope": "session" },
-		"defaults": { "max": 3 }
+		"mcpServers": { "a": { "command": "true", "mcpx": { "max": 3 } } },
+		"pool": { "max": 7, "scope": "session" }
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -326,9 +325,9 @@ func TestDefaultsBlockWinsOverPoolBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	if r.Max != 3 {
-		t.Errorf("defaults.max should win: got %d", r.Max)
+		t.Errorf("the server's own value should win: got %d", r.Max)
 	}
 	if r.Scope != config.ScopeSession {
-		t.Errorf("pool.scope should still apply where defaults is silent: %v", r.Scope)
+		t.Errorf("pool.scope should still apply where the server is silent: %v", r.Scope)
 	}
 }

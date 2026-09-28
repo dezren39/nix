@@ -154,6 +154,8 @@ type Options struct {
 	LauncherName string
 	// AllowRepeat names placeholders permitted to resolve more than once.
 	AllowRepeat []string
+	// PlaceholderFiles declare additional @names a launcher may use.
+	PlaceholderFiles []string
 	// TypeCheck resolves and checks the generated program before running it.
 	TypeCheck string
 	// TypeCheckTimeout bounds that check.
@@ -599,6 +601,16 @@ func expandCustom(text string, opts Options, scriptPath, base, export string,
 		launcher.OnError:   indentLines(ph.OnError, ""),
 		launcher.Suffix:    indentLines(ph.Suffix, ""),
 	}
+	defs, derr := launcher.LoadDefinitions(opts.PlaceholderFiles)
+	if derr != nil {
+		return "", derr
+	}
+	var berr error
+	fill, berr = launcher.Bind(fill, defs)
+	if berr != nil {
+		return "", berr
+	}
+
 	var allow []launcher.Placeholder
 	for _, a := range opts.AllowRepeat {
 		allow = append(allow, launcher.Placeholder(strings.TrimPrefix(a, "@")))
@@ -612,7 +624,7 @@ func expandCustom(text string, opts Options, scriptPath, base, export string,
 		fmt.Fprintf(os.Stderr,
 			"mcpx: %s refers to neither @entry nor @import, so the script will not run\n", name)
 	}
-	return launcher.Expand(tpl, fill, launcher.Options{AllowRepeat: allow})
+	return launcher.Expand(tpl, fill, launcher.Options{AllowRepeat: allow, Defs: defs})
 }
 
 func referencesEntry(t launcher.Template) bool {

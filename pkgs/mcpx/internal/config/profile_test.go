@@ -82,7 +82,7 @@ func TestProfileMatchingIsCaseInsensitive(t *testing.T) {
 
 func TestGlobalDefaultOffFlipsTheBaseline(t *testing.T) {
 	c := profileConfig()
-	c.Defaults = config.Extras{Default: boolp(false)}
+	c.Pool = config.Extras{Default: boolp(false)}
 	if (config.Profile{}).Includes(res(t, c, "code")) {
 		t.Error("defaults.default=false should exclude servers that do not opt in")
 	}

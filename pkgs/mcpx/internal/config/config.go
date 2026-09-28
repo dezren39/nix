@@ -150,13 +150,10 @@ type Server struct {
 type Config struct {
 	MCPServers map[string]*Server `json:"mcpServers"`
 
-	// Defaults applied to every server that does not override them.
-	Defaults Extras `json:"defaults,omitempty"`
-
-	// Pool is the same set of knobs under the name the settings registry
-	// uses. Both spellings exist because "defaults" reads naturally beside
-	// mcpServers and "pool" is what `mcpx config --schema` calls it; having
-	// one silently do nothing would be worse than having two.
+	// Pool holds the knobs applied to every server that does not override
+	// them. The name matches the dotted path the settings registry uses, so
+	// `mcpx config --schema` and a configuration file agree on what these are
+	// called.
 	Pool Extras `json:"pool,omitempty"`
 
 	// Logging sets defaults for rendering and verbosity. Flags and environment
@@ -436,9 +433,7 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 	if ex == nil {
 		ex = &Extras{}
 	}
-	// "defaults" wins over "pool" where both are given, because it is the
-	// older spelling and the one an existing config already uses.
-	d := mergeExtras(c.Defaults, c.Pool)
+	d := c.Pool
 
 	sharing := Sharing(pick(string(ex.Sharing), string(d.Sharing), string(SharingShared)))
 	switch sharing {
@@ -629,7 +624,6 @@ func mergeInto(near, far *Config, farPath string) {
 	near.Logging.Source = pick(near.Logging.Source, far.Logging.Source)
 	near.Logging.Dir = pick(near.Logging.Dir, far.Logging.Dir)
 	near.Logging.Include = pick(near.Logging.Include, far.Logging.Include)
-	near.Defaults = mergeExtras(near.Defaults, far.Defaults)
 	near.Pool = mergeExtras(near.Pool, far.Pool)
 }
 

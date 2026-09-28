@@ -668,6 +668,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// a variable, or the config file. Reading the flag variable directly
 		// would silently ignore the other three.
 		opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
+		opts.PlaceholderFiles = PlaceholderFiles()
 		for _, r := range allowRepeat.Values() {
 			if str, ok := r.(string); ok {
 				opts.AllowRepeat = append(opts.AllowRepeat, str)
