@@ -18,6 +18,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/pool"
 )
 
@@ -167,9 +168,9 @@ func (s *Server) Serve(ctx context.Context) error {
 		s.logger.Printf("no config file found; run `mcpx init` to create one")
 	}
 
-	reapT := time.NewTicker(30 * time.Second)
+	reapT := time.NewTicker(defaults.ReapInterval)
 	defer reapT.Stop()
-	saveT := time.NewTicker(5 * time.Minute)
+	saveT := time.NewTicker(defaults.SaveInterval)
 	defer saveT.Stop()
 
 	sigCh := make(chan os.Signal, 1)
@@ -270,6 +271,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/types", s.handleTypes)
 	mux.HandleFunc("GET /v1/catalog", s.handleCatalog)
 	mux.HandleFunc("GET /v1/client.ts", s.handleClient)
+	mux.HandleFunc("GET /v1/globals.d.ts", s.handleGlobals)
 	mux.HandleFunc("POST /v1/call", s.handleCall)
 	mux.HandleFunc("POST /v1/resource", s.handleResource)
 	mux.HandleFunc("POST /v1/session/release", s.handleRelease)
@@ -387,6 +389,16 @@ func (s *Server) handleClient(w http.ResponseWriter, r *http.Request) {
 	session := r.URL.Query().Get("session")
 	w.Header().Set("Content-Type", "application/typescript")
 	_, _ = w.Write([]byte(codegen.Module(nss, s.endpoint, session)))
+}
+
+func (s *Server) handleGlobals(w http.ResponseWriter, r *http.Request) {
+	nss, err := s.reg.CodegenNamespaces(splitCSV(r.URL.Query().Get("ns")), profileOf(r))
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/typescript")
+	_, _ = w.Write([]byte(codegen.GlobalDeclarations(nss)))
 }
 
 type callReq struct {

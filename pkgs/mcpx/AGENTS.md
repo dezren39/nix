@@ -29,7 +29,9 @@ Scripts are TypeScript on a real runtime (deno, else bun, else node). They get
 the full runtime: filesystem, network, subprocesses. Relative paths resolve
 against *your* working directory, not the script's.
 
-Import the generated client, which mcpx writes next to the script:
+`log`, `emit`, `tools` and every namespace are already on `globalThis`, so a
+script needs no imports at all. `log(msg)` is `log.info(msg)`. Importing works
+too and gives the same objects:
 
     import tools from "./mcpx-client.ts";
     const pages = await tools.chrome_devtools.list_pages({});

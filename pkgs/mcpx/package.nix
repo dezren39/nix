@@ -32,10 +32,15 @@ buildGoModule {
       );
   };
 
-  # mcpx has no third-party Go dependencies on purpose: the MCP client, the
-  # process pools, the JSON Schema to TypeScript compiler and the CLI are all
-  # standard library. Nothing to vendor and nothing to audit.
-  vendorHash = null;
+  # One third-party Go dependency: modernc.org/sqlite, which backs the log
+  # index. Everything else -- the MCP client, the process pools, the JSON
+  # Schema to TypeScript compiler, the CLI -- is standard library.
+  #
+  # modernc.org/sqlite specifically, rather than the usual mattn driver,
+  # because it is a pure-Go translation of SQLite. A cgo driver would make this
+  # derivation need a C toolchain and would break cross-compilation, for a
+  # database that is only ever an index over the JSONL logs.
+  vendorHash = "sha256-lWVua+XHU33Fc9GzRPrHN82OHlGTPxQvkV8BD+tbx4U=";
 
   subPackages = [ "cmd/mcpx" ];
 
@@ -54,7 +59,7 @@ buildGoModule {
   checkPhase = ''
     runHook preCheck
     export MCPX_STATE_DIR=$TMPDIR/state MCPX_CACHE_DIR=$TMPDIR/cache
-    go test ./internal/config/ ./internal/codegen/ ./internal/daemon/ ./internal/pool/
+    go test ./internal/config/ ./internal/codegen/ ./internal/daemon/ ./internal/pool/ ./internal/logging/ ./internal/logstore/
     runHook postCheck
   '';
 

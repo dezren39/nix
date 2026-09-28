@@ -191,6 +191,26 @@ func (c *Config) ScriptSuffix(extra []any) []string {
 	return ResolveLines(append([][]any{extra}, c.layerField(func(s ScriptConfig) []any { return s.Suffix })...))
 }
 
+// ScriptPhase resolves any named phase.
+func (c *Config) ScriptPhase(name string, extra []any) []string {
+	get := func(s ScriptConfig) []any {
+		switch name {
+		case "before":
+			return s.Before
+		case "prefix":
+			return s.Prefix
+		case "onSuccess":
+			return s.OnSuccess
+		case "onError":
+			return s.OnError
+		case "suffix":
+			return s.Suffix
+		}
+		return nil
+	}
+	return ResolveLines(append([][]any{extra}, c.layerField(get)...))
+}
+
 func (c *Config) layerField(get func(ScriptConfig) []any) [][]any {
 	layers := [][]any{get(c.Script)}
 	for _, l := range c.scriptLayers {
@@ -214,6 +234,13 @@ type ScriptConfig struct {
 	// want and the one that is harder to express if inheritance is implicit.
 	Prefix []any `json:"prefix,omitempty"`
 	Suffix []any `json:"suffix,omitempty"`
+	// Before runs ahead of the standard surface being installed; OnSuccess and
+	// OnError run after the entry point returns or throws. Every point is
+	// named, because a launcher that is only half-configurable invites
+	// someone forking it to reach the part that is not.
+	Before    []any `json:"before,omitempty"`
+	OnSuccess []any `json:"onSuccess,omitempty"`
+	OnError   []any `json:"onError,omitempty"`
 }
 
 // ResolveLines folds a layered prefix or suffix into final lines.
@@ -269,14 +296,6 @@ func pickLoggingLevel(vals ...*LoggingConfig) string {
 	}
 	return ""
 }
-
-// Defaults that apply when neither the server nor the file specifies one.
-const (
-	DefaultMax          = 4
-	DefaultIdleTimeout  = 5 * time.Minute
-	DefaultCallTimeout  = 120 * time.Second
-	DefaultStartTimeout = 60 * time.Second
-)
 
 // Resolved is a Server with all defaults folded in and durations parsed.
 type Resolved struct {

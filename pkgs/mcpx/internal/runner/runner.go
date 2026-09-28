@@ -19,8 +19,10 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/launcher"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/preflight"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -151,8 +153,12 @@ type Options struct {
 	// LauncherName is where Launcher came from, for error messages.
 	LauncherName string
 	// AllowRepeat names placeholders permitted to resolve more than once.
-	AllowRepeat    []string
-	Stdout, Stderr interface{ Write([]byte) (int, error) }
+	AllowRepeat []string
+	// TypeCheck resolves and checks the generated program before running it.
+	TypeCheck string
+	// TypeCheckTimeout bounds that check.
+	TypeCheckTimeout time.Duration
+	Stdout, Stderr   interface{ Write([]byte) (int, error) }
 }
 
 // Phases are the injection points in a file script's launcher, in the order
@@ -263,6 +269,23 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 		if launcher != "" {
 			scriptPath = launcher
+		}
+	}
+
+	// Checked after the launcher is written, because the launcher is what
+	// actually gets run and therefore what has to be valid. Doing it here
+	// also means a broken import is found before a single server starts.
+	if mode := opts.TypeCheck; mode != "" && mode != string(preflight.TypeCheckOff) {
+		timeout := opts.TypeCheckTimeout
+		if timeout == 0 {
+			timeout = defaults.TypecheckTimeout
+		}
+		rep := preflight.TypeCheck(ctx, rt.Bin, scriptPath, preflight.TypeCheckMode(mode), timeout)
+		if err := rep.Err(); err != nil {
+			return nil, err
+		}
+		for _, w := range rep.Warnings() {
+			fmt.Fprintln(os.Stderr, "mcpx:", w.String())
 		}
 	}
 

@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,15 +9,30 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/dezren39/mcpx/internal/defaults"
 )
 
 // FileOptions configure the durable log.
+//
+// The three rotation thresholds answer three different questions and none
+// subsumes the others. Bytes bound what a single read costs. Lines bound what
+// an ingest costs, and are not proportional to bytes once one record carries a
+// large payload. Age bounds how far back the active file reaches, which is
+// what makes "the last day" a thing you can point at rather than a thing you
+// have to search for.
 type FileOptions struct {
 	// Dir holds the log files.
 	Dir string
 	// MaxBytes rotates the active file once it exceeds this size. Zero uses
 	// the default.
 	MaxBytes int64
+	// MaxLines rotates the active file once it holds this many records. Zero
+	// uses the default; negative disables the trigger.
+	MaxLines int64
+	// MaxAge rotates the active file once its oldest record is this old. Zero
+	// uses the default; negative disables the trigger.
+	MaxAge time.Duration
 	// Keep is how many rotated files to retain. Zero uses the default.
 	Keep int
 	// Level is the minimum level written to disk, which is deliberately more
@@ -24,11 +40,6 @@ type FileOptions struct {
 	// tomorrow cannot be answered by a line that was never written.
 	Level string
 }
-
-const (
-	defaultMaxBytes int64 = 16 << 20
-	defaultKeep           = 8
-)
 
 // FileSink appends records to a dated file as JSON lines.
 //
@@ -40,12 +51,18 @@ type FileSink struct {
 	mu       sync.Mutex
 	dir      string
 	maxBytes int64
+	maxLines int64
+	maxAge   time.Duration
 	keep     int
 	min      Level
 	day      string
 	file     *os.File
 	written  int64
-	failed   bool
+	lines    int64
+	// oldest is the timestamp of the first record in the active file, which is
+	// what the age threshold is measured against.
+	oldest time.Time
+	failed bool
 }
 
 // Level is re-exported so callers need not import log/slog for the common case.
@@ -62,13 +79,21 @@ func NewFileSink(opts FileOptions) (*FileSink, error) {
 	s := &FileSink{
 		dir:      opts.Dir,
 		maxBytes: opts.MaxBytes,
+		maxLines: opts.MaxLines,
+		maxAge:   opts.MaxAge,
 		keep:     opts.Keep,
 	}
 	if s.maxBytes <= 0 {
-		s.maxBytes = defaultMaxBytes
+		s.maxBytes = defaults.LogMaxBytes
+	}
+	if s.maxLines == 0 {
+		s.maxLines = defaults.LogMaxLines
+	}
+	if s.maxAge == 0 {
+		s.maxAge = defaults.LogMaxAge
 	}
 	if s.keep <= 0 {
-		s.keep = defaultKeep
+		s.keep = defaults.LogKeep
 	}
 	if err := s.reopen(time.Now()); err != nil {
 		return nil, err
@@ -85,15 +110,53 @@ func (s *FileSink) reopen(now time.Time) error {
 		s.file.Close()
 	}
 	s.day = now.Format("2006-01-02")
-	f, err := os.OpenFile(s.path(s.day), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	path := s.path(s.day)
+	// Whatever is already on disk counts against the thresholds, or a daemon
+	// restarted every few minutes would never rotate at all.
+	s.lines, s.oldest = surveyLog(path)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
 	s.file = f
+	s.written = 0
 	if st, err := f.Stat(); err == nil {
 		s.written = st.Size()
 	}
 	return nil
+}
+
+// surveyLog counts the records already in a file and reads the timestamp of
+// the first one.
+//
+// The age of a log file is the age of its oldest record, and that is the only
+// portable way to get it: a file's birth time needs a per-OS syscall, and its
+// mtime is the last write, which says nothing about how far back the contents
+// reach. The scan is bounded by MaxBytes, so it is a few milliseconds once per
+// process start.
+func surveyLog(path string) (lines int64, oldest time.Time) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, time.Time{}
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		lines++
+		if !oldest.IsZero() {
+			continue
+		}
+		var head struct {
+			TS string `json:"ts"`
+		}
+		if json.Unmarshal(sc.Bytes(), &head) == nil {
+			if t, terr := time.Parse(time.RFC3339Nano, head.TS); terr == nil {
+				oldest = t
+			}
+		}
+	}
+	return lines, oldest
 }
 
 // Write appends one record.
@@ -117,7 +180,7 @@ func (s *FileSink) Write(r Record, extra map[string]any) {
 			return
 		}
 	}
-	if s.written >= s.maxBytes {
+	if s.written >= s.maxBytes || s.overLines() || s.overAge(now) {
 		if err := s.rotate(now); err != nil {
 			s.failed = true
 			return
@@ -139,9 +202,17 @@ func (s *FileSink) Write(r Record, extra map[string]any) {
 	if err != nil {
 		return
 	}
+	// The age of the file is the age of its first record, so an empty file
+	// takes its clock from whatever lands in it rather than from when it was
+	// opened. A daemon that idles for a day then logs once would otherwise
+	// rotate immediately and leave a one-line file behind.
+	if s.lines == 0 {
+		s.oldest = now
+	}
 	b = append(b, '\n')
 	n, werr := s.file.Write(b)
 	s.written += int64(n)
+	s.lines++
 	if werr != nil {
 		// A full disk should not take the daemon with it; stop writing and
 		// leave the terminal output working.
@@ -149,16 +220,42 @@ func (s *FileSink) Write(r Record, extra map[string]any) {
 	}
 }
 
+func (s *FileSink) overLines() bool {
+	return s.maxLines > 0 && s.lines >= s.maxLines
+}
+
+// overAge is measured against the oldest record rather than wall-clock since
+// open, so a file that was already half a day old when this process started
+// still rotates on schedule.
+func (s *FileSink) overAge(now time.Time) bool {
+	return s.maxAge > 0 && !s.oldest.IsZero() && now.Sub(s.oldest) >= s.maxAge
+}
+
 // rotate renames the active file aside and prunes the oldest.
 func (s *FileSink) rotate(now time.Time) error {
 	s.file.Close()
-	stamp := now.Format("150405")
-	if err := os.Rename(s.path(s.day), filepath.Join(s.dir,
-		fmt.Sprintf("mcpx-%s-%s.jsonl", s.day, stamp))); err != nil {
+	if err := os.Rename(s.path(s.day), s.rotatedPath(now)); err != nil {
 		return err
 	}
 	s.prune()
 	return s.reopen(now)
+}
+
+// rotatedPath finds a free name for the file being set aside. A second is a
+// long time once a line-count trigger is in play, so the stamp alone is not
+// enough: two rotations in the same second would rename the first one's
+// contents into oblivion.
+func (s *FileSink) rotatedPath(now time.Time) string {
+	base := filepath.Join(s.dir, fmt.Sprintf("mcpx-%s-%s", s.day, now.Format("150405")))
+	if _, err := os.Stat(base + ".jsonl"); os.IsNotExist(err) {
+		return base + ".jsonl"
+	}
+	for n := 1; ; n++ {
+		p := fmt.Sprintf("%s.%d.jsonl", base, n)
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			return p
+		}
+	}
 }
 
 func (s *FileSink) prune() {

@@ -583,6 +583,48 @@ through untouched.
 defaults. The daemon renders through the same writer, so one choice governs
 everything.
 
+**Imports are optional.** The launcher installs the standard surface on
+`globalThis` before importing a script, so a one-liner needs no imports:
+
+```typescript
+export default async function main() {
+  log("starting");                       // log() is log.info()
+  emit({ partial: 1 });
+  return await fff.grep({ query: "TODO" });
+}
+```
+
+Importing still works and yields the same objects, which is what an editor
+wants. mcpx also writes `mcpx-globals.d.ts` beside the script so a language
+server knows the globals exist without an import.
+
+**console is captured.** `console.error`, `warn`, `info` and `debug` become
+records, so they get enrichment, formatting and the durable log instead of
+being bare text on stderr. `console.log` is left on stdout -- it is the
+script's result and redirecting it would change what a caller reads -- but is
+*also* recorded, marked file-only so the terminal does not show it twice.
+`--no-capture-console` turns all of this off.
+
+**Wrapping a run.** `--prefix` and `--suffix` add lines around a script without
+the script knowing. For a file they run in the generated launcher — before the
+module is imported and after its entry returns, in a `finally` so cleanup
+survives a throw:
+
+```
+mcpx run --prefix 'log.info("starting {name}", { name: script.name });' \
+         --suffix 'log.info("took {ms}ms", { ms: Math.round(result.ms) });' report
+```
+
+Prefix lines see `script` (path, name, args, export); suffix lines also see
+`result` (ok, value, error, ms). They can set globals the script reads, but
+cannot declare bindings inside its module scope — ESM does not allow it.
+
+Lines layer across configuration: a list element of `null` (or `-` on the
+command line) splices in whatever was inherited, so a nearer config can extend
+a farther one instead of only replacing it.
+
+`--env KEY=VALUE` sets variables for the run.
+
 **`mcpx --json run`** wraps a whole run in one document — stdout, the parsed
 result, captured logs, the script's own stderr, exit code, duration and
 runtime. Nothing leaks to the terminal alongside it:
@@ -835,6 +877,67 @@ listeners, so a stop followed immediately by a directory removal cannot race.
 
 2026-09-27T05:05:00-05:00
 
+## Reading the log
+
+```
+created:      2026-09-27T21:00:00-05:00
+last-updated: 2026-09-27T21:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:diagnostics
+description:  mcpx log and mcpx stats, over a SQLite index of the JSONL files.
+```
+
+Every record the daemon and every script produce is already written as JSON
+lines under the state directory. That file is the record of truth and nothing
+else writes to it. Beside it sits `index.db`, a SQLite index built from it, and
+the only reason it exists is that questions like "which tool is slow" are
+queries, not greps.
+
+The index is rebuilt by reading, not by a background thread. `mcpx log` and
+`mcpx stats` ingest before they answer, and ingest is incremental: a file whose
+size and mtime have not moved is not opened at all. A background indexer would
+be faster in the rare case and quietly wrong in the bad one, and an index
+nobody trusts is worse than no index. Deleting `index.db` costs a rescan and no
+data.
+
+```
+mcpx log --since 1h --level warn          recent trouble
+mcpx log --event server.* --server fff    one server's lifecycle
+mcpx log --grep 'timed out' --limit 50    regular expression over msg and attrs
+mcpx log -f                               tail as records arrive
+mcpx log --chain cal-9f3c...              a call and everything that led to it
+```
+
+`--chain` is the one worth knowing. A record carries the id of the thing it
+happened inside, and only the record that *creates* something carries its
+parent, so walking backwards from a tool call reaches the server instance that
+served it and then the daemon that started that. It prints as an indented tree,
+oldest first.
+
+`mcpx stats` aggregates the same index. `calls` groups by server and tool with
+exact p50/p95/p99 — exact, not sketched, because these are thousands of rows
+and an approximation would trade the one property that matters, that the number
+printed is a call which really took that long. `slowest` prints individual
+calls with their trace ids, which is where `--chain` comes from. `servers` and
+`instances` cover process lifecycle, aggregate and one row per process
+respectively; `errors` groups on the message *template* rather than the
+interpolated text, so one recurring failure is one row; `sessions` says what
+each script run did; `volume` is records per level per hour plus what the logs
+cost on disk.
+
+`mcpx log sql '<select ...>'` is the escape hatch, with `--schema` for the DDL
+and `--path` for the file. Anything that is not a read is refused. That is a
+guard rail rather than a security boundary: the index can be deleted and
+rebuilt at will, so it is protecting someone who typed DELETE meaning SELECT,
+not defending against anyone.
+
+The driver is `modernc.org/sqlite`, a pure-Go translation of SQLite. A cgo
+driver would be faster and would also make the Nix build need a C toolchain and
+stop cross-compiling, which is a poor trade for an index.
+
+2026-09-27T21:00:00-05:00
+
 ## Configuration
 
 ```
@@ -944,21 +1047,6 @@ tags:         area:pools, area:ops
 `mcpx restart <ns>` stops every instance in a namespace. Wanted:
 `mcpx restart --session <key>`, so one wedged browser can be recycled without
 disturbing the other three.
-
-2026-09-27T05:05:00-05:00
-
-### Log querying and run statistics
-
-```
-created:      2026-09-27T05:05:00-05:00
-status:       proposed
-tags:         area:diagnostics
-```
-
-The daemon writes to `$XDG_STATE_HOME/mcpx/daemon.log` and `MCPX_TRACE=1` adds
-a line per call. Wanted: structured records, and `mcpx log --since 1h
---server chrome-devtools` plus `mcpx stats` for call counts, latency
-percentiles and failure rates.
 
 2026-09-27T05:05:00-05:00
 

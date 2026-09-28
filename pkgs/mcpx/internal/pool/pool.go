@@ -354,6 +354,7 @@ func (p *Pool) reapDeadLocked() {
 func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	sctx, cancel := context.WithTimeout(ctx, p.cfg.StartTimeout)
 	defer cancel()
+	launched := time.Now()
 
 	var (
 		tr  mcpclient.Transport
@@ -392,7 +393,7 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		ID:        id,
 		Client:    cl,
 		transport: tr,
-		trace:     string(newTraceID()),
+		trace:     newTraceID("srv"),
 		startedAt: time.Now(),
 		lastUsed:  time.Now(),
 	}
@@ -400,6 +401,9 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		"server": p.cfg.Name, "instance": in.ID, "pid": in.PID(),
 		"trace": in.trace, "sharing": string(p.cfg.Sharing), "scope": string(p.cfg.Scope),
 		"transport": transportName(p.cfg),
+		// Time to ready, not time to spawn: the event fires after initialize
+		// has answered, so this is when the server could first take a call.
+		"readyMs": float64(time.Since(launched).Microseconds()) / 1000,
 	})
 	return in, nil
 }
@@ -510,7 +514,24 @@ func (p *Pool) Call(ctx context.Context, sessionKey, tool string, args any) (jso
 
 	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
 	defer cancel()
-	return lease.Client().CallTool(cctx, tool, args)
+	started := time.Now()
+	res, err := lease.Client().CallTool(cctx, tool, args)
+	// Reported from here rather than from the daemon's HTTP handler because
+	// this is the only place that knows which instance served the call. The
+	// handler sees a namespace; the log wants the process, so that a slow call
+	// can be traced back to the server that was started for it.
+	attrs := map[string]any{
+		"server": p.cfg.Name, "tool": tool, "instance": lease.inst.ID,
+		"pid": lease.inst.PID(), "session": sessionKey,
+		"durationMs": float64(time.Since(started).Microseconds()) / 1000,
+		"ok":         err == nil,
+		"trace":      newTraceID("cal"), "trace.parent": lease.inst.trace,
+	}
+	if err != nil {
+		attrs["error"] = err.Error()
+	}
+	lifecycle("mcp.call", attrs)
+	return res, err
 }
 
 // ReadResource reads a resource URI on a leased instance.
@@ -665,14 +686,14 @@ func (p *Pool) Close() {
 	}
 }
 
-// newTraceID mints an instance identifier. Kept here rather than imported so
-// the pool does not depend on the logging package.
-func newTraceID() string {
+// newTraceID mints an identifier. Kept here rather than imported so the pool
+// does not depend on the logging package.
+func newTraceID(prefix string) string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "srv-0000000000000000"
+		return prefix + "-0000000000000000"
 	}
-	return "srv-" + hex.EncodeToString(b[:])
+	return prefix + "-" + hex.EncodeToString(b[:])
 }
 
 func transportName(c *config.Resolved) string {

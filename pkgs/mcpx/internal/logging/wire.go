@@ -32,6 +32,7 @@ type wireRecord struct {
 	Time     string          `json:"ts,omitempty"`
 	Attrs    map[string]any  `json:"attrs,omitempty"`
 	Value    json.RawMessage `json:"value,omitempty"`
+	FileOnly bool            `json:"fileOnly,omitempty"`
 }
 
 // Streamed is a result a script produced before finishing.
@@ -103,7 +104,8 @@ func ParseLine(line string) (Record, bool) {
 	if w.Template != "" {
 		msg, _ = Interpolate(w.Template, attrs)
 	}
-	return Record{Time: ts, Level: level, Msg: msg, Template: w.Template, Attrs: attrs}, true
+	return Record{Time: ts, Level: level, Msg: msg, Template: w.Template,
+		Attrs: attrs, FileOnly: w.FileOnly}, true
 }
 
 // StreamOptions configure Stream.

@@ -100,6 +100,11 @@ type Record struct {
 	// from Msg. Grouping on it is what makes counts meaningful.
 	Template string         `json:"template,omitempty"`
 	Attrs    map[string]any `json:"-"`
+	// FileOnly keeps a record out of the terminal while still writing it to
+	// the durable log. Mirrored console.log output uses this: the line has
+	// already been printed to stdout, and printing it again as a log record
+	// would double every result a script produces.
+	FileOnly bool `json:"-"`
 }
 
 // LevelName is the lowercase name used on the wire and in output.
@@ -272,7 +277,7 @@ func (w *Writer) Write(r Record) {
 	if file != nil && r.Level >= fileMin {
 		file.Write(r, nil)
 	}
-	if !w.Enabled(r.Level) {
+	if r.FileOnly || !w.Enabled(r.Level) {
 		return
 	}
 	line := w.render(r)

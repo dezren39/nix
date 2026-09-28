@@ -18,6 +18,7 @@ import (
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/preflight"
 	"github.com/dezren39/mcpx/internal/runner"
 	"github.com/dezren39/mcpx/internal/source"
 )
@@ -398,6 +399,8 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		"replace the generated launcher with this source or file")
 	noLauncher := fs.Bool("no-launcher", false,
 		"run the script with no launcher: no globals, no capture, no wrapper")
+	typecheck := fs.String("typecheck", "",
+		"check the program before running it: off, on, strict")
 	allowRepeat := newRepeatable()
 	fs.Var(allowRepeat, "allow-repeat",
 		"launcher placeholder permitted to resolve more than once; repeatable")
@@ -559,6 +562,28 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			"MCPX_CONFIG_PATH":       configPathOf(cfg),
 		},
 	}
+	// Everything knowable is checked before any server starts. A bad --env
+	// pair or an unreadable hook is cheap to find now and expensive to find
+	// as a syntax error in generated code.
+	var envPairs []string
+	for _, e := range envVars.Values() {
+		if str, ok := e.(string); ok {
+			envPairs = append(envPairs, str)
+		}
+	}
+	pre := preflight.Merge(preflight.CheckEnvPairs(envPairs, "--env"))
+	if logDirFlag := os.Getenv("MCPX_LOGGING_DIR"); logDirFlag != "" {
+		pre = preflight.Merge(pre, preflight.CheckPaths([]preflight.PathCheck{
+			{Path: logDirFlag, Where: "logging.dir", WantDir: true, Writable: true},
+		}))
+	}
+	if err := pre.Err(); err != nil {
+		return err
+	}
+	for _, w := range pre.Warnings() {
+		fmt.Fprintln(os.Stderr, "mcpx:", w.String())
+	}
+
 	prefixLines := cfgScriptLines(cfg, prefix.Values(), true)
 	suffixLines := cfgScriptLines(cfg, suffix.Values(), false)
 
@@ -601,6 +626,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			}
 			opts.Launcher, opts.LauncherName = text, name
 		}
+		opts.TypeCheck = firstNonEmpty(*typecheck, os.Getenv("MCPX_SCRIPT_TYPECHECK"))
 		for _, r := range allowRepeat.Values() {
 			if str, ok := r.(string); ok {
 				opts.AllowRepeat = append(opts.AllowRepeat, str)
