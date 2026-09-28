@@ -116,6 +116,61 @@ Legend: `[ ]` todo, `[x]` done, `[~]` partial, `[?]` guessed — needs a look.
 
 Everything above is built except where marked.
 
+### Guesses worth reviewing
+
+Each of these had a real alternative. The choice is stated so it can be
+argued with.
+
+**`--launcher` takes a required value, with a separate `--no-launcher`.**
+The brief asked for one flag that means "none" when given bare. Go implements
+optional-value flags only by treating them as boolean, and then
+`--launcher mine.ts` silently runs `mine.ts` as the script with no launcher.
+Two flags, no trap. The alternative -- keeping one flag and documenting that
+`--launcher=X` needs the equals sign -- trades a real misfire for a smaller
+surface.
+
+**Directory concatenation is off for phases by default.** `plumbing.sourceDirAllowed`
+governs it, and phases pass `AllowDir: true` while `--launcher` passes false.
+A launcher assembled from several files is more likely a mistake than an
+intention; a prefix assembled from several is plausible.
+
+**`defaults` wins over `pool`.** Two spellings of one block. The older one
+wins so that adding the synonym cannot change what an existing file means.
+The alternative -- `pool` winning as the "canonical" name -- would silently
+alter existing configurations.
+
+**The bare-argument heuristic is narrow.** A first argument runs if it names a
+file, ends in a script extension, or contains `(){};`, `=>`, `await `,
+`console.` or `tools.`. A bare `=` was in that set and is not any more,
+because a mistyped flag has one and running a typo as a program is worse than
+refusing it.
+
+**Percentiles are exact, not estimated.** These datasets are small enough that
+an estimator would only add error.
+
+**Redaction elides partial matches rather than whole values.** A variable
+holding several pairs is still worth seeing without the one that matters.
+
+### Not done, and why
+
+**Full projection of the registry into every consumer.** `output.json`,
+`paths.state`, `paths.cache` and most of `daemon.*` still have their own
+paths, and two of those must: the state and cache directories say where to
+look for configuration, so they cannot come from configuration. `docs/story.md`
+names exactly which settings the registry governs rather than implying it
+governs all of them.
+
+**A plumbing switch for every guard.** Nine exist. The ones left alone are
+those where the other branch is not a coherent program -- a malformed daemon
+response, a socket that will not bind. A switch there offers a choice between
+working and not.
+
+**`mcpx exec` and `mcpx run` remain separate.** The difference is real: `exec`
+generates the module so a prefix shares scope and can declare bindings; `run`
+imports a file so a prefix can act but not declare. Merging them means
+picking one and losing the other. A bare argument now dispatches to whichever
+fits, which was the part that actually chafed.
+
 **H2 is partial by design.** Nine guards got a plumbing switch. Every `throw`
 in the tree was not audited one by one; the ones that were left alone are
 those where the other branch is not a coherent program -- a malformed daemon
