@@ -356,3 +356,84 @@ func urlEscape(s string) string {
 	}
 	return b.String()
 }
+
+// Prompts lists every prompt the configured servers offer.
+//
+// Prompts are the part of MCP that is not tools: a server saying "here is the
+// wording that works for this" rather than "here is a function". mcpx used to
+// report none, which threw away everything a server published that was not a
+// tool.
+func (c *Client) Prompts(ctx context.Context, ns []string) ([]daemon.PromptInfo, error) {
+	q := ""
+	if len(ns) > 0 {
+		q = "?ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/prompts"+q, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Prompts []daemon.PromptInfo `json:"prompts"`
+	}
+	return out.Prompts, json.Unmarshal(b, &out)
+}
+
+// Resources lists every resource the configured servers offer.
+func (c *Client) Resources(ctx context.Context, ns []string) ([]daemon.ResourceInfo, error) {
+	q := ""
+	if len(ns) > 0 {
+		q = "?ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/resources"+q, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Resources []daemon.ResourceInfo `json:"resources"`
+	}
+	return out.Resources, json.Unmarshal(b, &out)
+}
+
+// GetPrompt renders one prompt with its arguments filled in.
+func (c *Client) GetPrompt(ctx context.Context, server, name string, args map[string]string, cc config.CallContext) (json.RawMessage, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/prompt", map[string]any{
+		"server": server, "name": name, "arguments": args,
+		"sessionId": cc.SessionID, "callId": cc.CallID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Result json.RawMessage `json:"result"`
+		Error  string          `json:"error"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	if out.Error != "" {
+		return nil, errors.New(out.Error)
+	}
+	return out.Result, nil
+}
+
+// ReadResource reads one resource from a namespace.
+func (c *Client) ReadResource(ctx context.Context, server, uri string, cc config.CallContext) (json.RawMessage, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/resource", map[string]any{
+		"server": server, "uri": uri,
+		"sessionId": cc.SessionID, "callId": cc.CallID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Result json.RawMessage `json:"result"`
+		Error  string          `json:"error"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	if out.Error != "" {
+		return nil, errors.New(out.Error)
+	}
+	return out.Result, nil
+}

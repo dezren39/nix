@@ -558,6 +558,100 @@ func (r *Registry) ReadResource(ctx context.Context, server, uri string, cc conf
 	return p.ReadResource(ctx, key, uri)
 }
 
+// PromptInfo is one prompt, with the namespace it came from.
+type PromptInfo struct {
+	Namespace   string                     `json:"namespace"`
+	Server      string                     `json:"server"`
+	Name        string                     `json:"name"`
+	Title       string                     `json:"title,omitempty"`
+	Description string                     `json:"description,omitempty"`
+	Arguments   []mcpclient.PromptArgument `json:"arguments,omitempty"`
+}
+
+// ResourceInfo is one resource, with the namespace it came from.
+type ResourceInfo struct {
+	Namespace   string `json:"namespace"`
+	Server      string `json:"server"`
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// Prompts aggregates every prompt across the configured servers.
+func (r *Registry) Prompts(namespaces []string) []PromptInfo {
+	want := map[string]bool{}
+	for _, n := range namespaces {
+		want[n] = true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []PromptInfo
+	for _, name := range r.order {
+		p := r.pools[name]
+		view := r.views[name]
+		if len(want) > 0 && !want[view.Namespace] && !want[name] {
+			continue
+		}
+		for _, pr := range p.CachedPrompts() {
+			out = append(out, PromptInfo{
+				Namespace: view.Namespace, Server: name, Name: pr.Name,
+				Title: pr.Title, Description: pr.Description, Arguments: pr.Arguments,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Namespace != out[j].Namespace {
+			return out[i].Namespace < out[j].Namespace
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// Resources aggregates every resource across the configured servers.
+func (r *Registry) Resources(namespaces []string) []ResourceInfo {
+	want := map[string]bool{}
+	for _, n := range namespaces {
+		want[n] = true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []ResourceInfo
+	for _, name := range r.order {
+		p := r.pools[name]
+		view := r.views[name]
+		if len(want) > 0 && !want[view.Namespace] && !want[name] {
+			continue
+		}
+		_, resources, _ := p.CachedSchemas()
+		for _, res := range resources {
+			out = append(out, ResourceInfo{
+				Namespace: view.Namespace, Server: name, URI: res.URI,
+				Name: res.Name, Description: res.Description, MimeType: res.MimeType,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Namespace != out[j].Namespace {
+			return out[i].Namespace < out[j].Namespace
+		}
+		return out[i].URI < out[j].URI
+	})
+	return out
+}
+
+// GetPrompt renders one prompt.
+func (r *Registry) GetPrompt(ctx context.Context, server, name string, args map[string]string, cc config.CallContext) (json.RawMessage, error) {
+	p, ok := r.Pool(server)
+	if !ok {
+		return nil, fmt.Errorf("unknown server or namespace %q", server)
+	}
+	return p.GetPrompt(ctx, r.keyFor(p, cc), name, args)
+}
+
 // keyFor resolves a server's scope and records the association so the caller
 // can later release exactly what it created.
 func (r *Registry) keyFor(p *pool.Pool, cc config.CallContext) string {

@@ -332,6 +332,72 @@ func (c *Client) ListResources(ctx context.Context) ([]Resource, error) {
 	return all, nil
 }
 
+// Prompt is a reusable template a server offers.
+//
+// Prompts are the part of MCP that is not tools: a server saying "here is the
+// wording that works for this" rather than "here is a function". A server
+// that publishes a good one has encoded expertise that would otherwise have
+// to be rediscovered by whoever writes the request.
+type Prompt struct {
+	Name        string           `json:"name"`
+	Title       string           `json:"title,omitempty"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+// PromptArgument is one substitution a prompt takes.
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type promptsListResult struct {
+	Prompts    []Prompt `json:"prompts"`
+	NextCursor string   `json:"nextCursor"`
+}
+
+// ListPrompts returns every prompt a server offers.
+func (c *Client) ListPrompts(ctx context.Context) ([]Prompt, error) {
+	var all []Prompt
+	cursor := ""
+	for i := 0; i < 100; i++ {
+		params := json.RawMessage(`{}`)
+		if cursor != "" {
+			params, _ = json.Marshal(map[string]string{"cursor": cursor})
+		}
+		var res promptsListResult
+		if err := c.call(ctx, "prompts/list", params, &res); err != nil {
+			// A server without prompts answers method-not-found, which is an
+			// absence rather than a failure. Treating it as an error would
+			// make every listing fail on the majority of servers.
+			return all, nil
+		}
+		all = append(all, res.Prompts...)
+		if res.NextCursor == "" {
+			break
+		}
+		cursor = res.NextCursor
+	}
+	return all, nil
+}
+
+// GetPrompt renders one prompt with its arguments filled in.
+func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]string) (json.RawMessage, error) {
+	if args == nil {
+		args = map[string]string{}
+	}
+	params, err := json.Marshal(map[string]any{"name": name, "arguments": args})
+	if err != nil {
+		return nil, err
+	}
+	var raw json.RawMessage
+	if err := c.call(ctx, "prompts/get", params, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 // CallTool invokes a tool and returns the raw CallToolResult.
 func (c *Client) CallTool(ctx context.Context, name string, args any) (json.RawMessage, error) {
 	if args == nil {

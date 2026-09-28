@@ -265,6 +265,36 @@ func (s *Server) WarmAsync() {
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
+	mux.HandleFunc("GET /v1/prompts", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"prompts": s.reg.Prompts(splitCSV(r.URL.Query().Get("ns"))),
+		})
+	})
+	mux.HandleFunc("GET /v1/resources", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"resources": s.reg.Resources(splitCSV(r.URL.Query().Get("ns"))),
+		})
+	})
+	mux.HandleFunc("POST /v1/prompt", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Server    string            `json:"server"`
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments"`
+			SessionID string            `json:"sessionId"`
+			CallID    string            `json:"callId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		cc := config.CallContext{SessionID: req.SessionID, CallID: req.CallID}
+		out, err := s.reg.GetPrompt(r.Context(), req.Server, req.Name, req.Arguments, cc)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"result": out})
+	})
 	mux.HandleFunc("GET /v1/namespaces", s.handleNamespaces)
 	mux.HandleFunc("GET /v1/tools", s.handleTools)
 	mux.HandleFunc("GET /v1/search", s.handleSearch)

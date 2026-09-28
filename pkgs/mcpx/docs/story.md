@@ -1755,6 +1755,86 @@ tool called `grep` beats one whose description merely mentions grepping.
 
 2026-09-28T13:00:00-05:00
 
+## The half of MCP that is not tools
+
+```
+created:      2026-09-28T15:00:00-05:00
+last-updated: 2026-09-28T15:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  prompts and resources, which mcpx reported as empty.
+```
+
+A server publishes three things: tools, resources and prompts. mcpx handled
+tools, read resources only when asked by URI, and reported **no prompts at
+all** -- while its MCP server declared the capability and returned an empty
+list.
+
+That last part is the worst kind of wrong, because a client cannot detect it.
+It asks once, receives nothing, and never asks again.
+
+```sh
+mcpx prompts                              # what servers publish
+mcpx prompts demo.summarise text="..."    # render one
+mcpx resources                            # what exists
+mcpx resources demo/demo://greeting       # read one
+```
+
+Prompts are a server saying "here is the wording that works for this" rather
+than "here is a function". A server publishing a good one has encoded
+expertise that would otherwise be rediscovered by whoever writes the request.
+
+Both pass through the MCP server, namespaced -- two servers may publish the
+same URI, and a caller otherwise has no way to say which it meant.
+
+A server that does not support prompts answers method-not-found. That is an
+absence, not a failure, so it is treated as an empty list; the alternative
+makes every listing fail on the majority of servers.
+
+Binary resources are described rather than inlined. A megabyte of base64 in a
+model's context is the failure this whole tool exists to prevent.
+
+2026-09-28T15:00:00-05:00
+
+## mcpx doctor
+
+```
+created:      2026-09-28T15:00:00-05:00
+last-updated: 2026-09-28T15:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:ux
+description:  one command for "it does not work".
+```
+
+mcpx has a daemon, a runtime, a configuration chain, a log index, adapters,
+registries, API specifications and a plugin. "It does not work" stopped being
+a question with one answer some time ago.
+
+`mcpx doctor` checks each in the order somebody would have to know to check
+them by hand: the runtime, git, whether the settings contradict each other,
+whether the configuration parses, **whether every server's command is actually
+installed**, the directories, the daemon, the log index, and the optional
+integrations.
+
+That server-command check is the important one. It is the most common cause of
+"mcpx does not work" and it is invisible until something tries to call the
+server, at which point the error arrives from three layers down.
+
+Every check says what to do about it. One that only reports a problem leaves
+the reader exactly where they started.
+
+### It found a bug immediately
+
+The unknown-key warning was reporting `mcpServers`, `logging`, `paths` and
+every server name as unrecognised. They are not: a section is the path to a
+setting, and `mcpServers` is the document's own content. The warning listed
+everything, which made a real typo invisible among the noise -- so it had been
+useless since the day it was written, and nothing displayed it until now.
+
+2026-09-28T15:00:00-05:00
+
 ## Nix packaging
 
 ```

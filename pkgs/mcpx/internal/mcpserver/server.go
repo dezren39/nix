@@ -39,6 +39,36 @@ type Backend interface {
 	Stats(ctx context.Context, dimension string) (string, error)
 	Status(ctx context.Context) (string, error)
 	RegistrySearch(ctx context.Context, query string, limit int) (string, error)
+	// Resources and Prompts pass through what the upstream servers offer.
+	// Returning an empty list -- which mcpx did -- throws away everything a
+	// server published that is not a tool.
+	Resources(ctx context.Context) ([]ResourceRef, error)
+	Prompts(ctx context.Context) ([]PromptRef, error)
+	ReadResource(ctx context.Context, uri string) (string, string, error)
+	GetPrompt(ctx context.Context, name string, args map[string]string) (string, error)
+}
+
+// ResourceRef is one resource a server offers.
+type ResourceRef struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// PromptRef is one prompt a server offers.
+type PromptRef struct {
+	Name        string      `json:"name"`
+	Title       string      `json:"title,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Arguments   []PromptArg `json:"arguments,omitempty"`
+}
+
+// PromptArg is one substitution a prompt takes.
+type PromptArg struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
 }
 
 // Extra is a tool contributed from outside the fixed set.
@@ -272,7 +302,9 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 			// served than refused.
 			"protocolVersion": negotiate(req.Params),
 			"capabilities": map[string]any{
-				"tools": map[string]any{"listChanged": false},
+				"tools":     map[string]any{"listChanged": false},
+				"resources": map[string]any{"subscribe": false, "listChanged": false},
+				"prompts":   map[string]any{"listChanged": false},
 			},
 			"serverInfo":   map[string]any{"name": s.name, "version": s.version},
 			"instructions": Instructions,
@@ -311,9 +343,67 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 		})
 
 	case "resources/list":
-		return reply(map[string]any{"resources": []any{}})
+		if s.backend == nil {
+			return reply(map[string]any{"resources": []any{}})
+		}
+		rs, err := s.backend.Resources(ctx)
+		if err != nil {
+			return fail(codeInternal, err.Error())
+		}
+		if rs == nil {
+			rs = []ResourceRef{}
+		}
+		return reply(map[string]any{"resources": rs})
+
+	case "resources/read":
+		var p struct {
+			URI string `json:"uri"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return fail(codeInvalidParams, err.Error())
+		}
+		text, mime, err := s.backend.ReadResource(ctx, p.URI)
+		if err != nil {
+			return fail(codeInvalidParams, err.Error())
+		}
+		if mime == "" {
+			mime = "text/plain"
+		}
+		return reply(map[string]any{"contents": []any{
+			map[string]any{"uri": p.URI, "mimeType": mime, "text": text},
+		}})
+
 	case "prompts/list":
-		return reply(map[string]any{"prompts": []any{}})
+		if s.backend == nil {
+			return reply(map[string]any{"prompts": []any{}})
+		}
+		ps, err := s.backend.Prompts(ctx)
+		if err != nil {
+			return fail(codeInternal, err.Error())
+		}
+		if ps == nil {
+			ps = []PromptRef{}
+		}
+		return reply(map[string]any{"prompts": ps})
+
+	case "prompts/get":
+		var p struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return fail(codeInvalidParams, err.Error())
+		}
+		text, err := s.backend.GetPrompt(ctx, p.Name, p.Arguments)
+		if err != nil {
+			return fail(codeInvalidParams, err.Error())
+		}
+		return reply(map[string]any{
+			"messages": []any{map[string]any{
+				"role":    "user",
+				"content": map[string]any{"type": "text", "text": text},
+			}},
+		})
 	}
 	return fail(codeMethodNotFound, "no method "+req.Method)
 }

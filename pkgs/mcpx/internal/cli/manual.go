@@ -142,6 +142,27 @@ func Commands() []Command {
 			Summary: "write a starter configuration file",
 		},
 		{
+			Name: "doctor", Group: "inspection",
+			Usage: "[-v]", Summary: "diagnose the installation",
+			Detail: "Checks the runtime, git, the configuration chain, whether every " +
+				"server's command is actually installed, the directories, the " +
+				"daemon, the log index and the optional integrations. Each check " +
+				"says what to do about it, because one that only reports a problem " +
+				"leaves the reader where they started.",
+		},
+		{
+			Name: "prompts", Group: "discovery",
+			Usage: "[<ns>.<name> key=value...]", Summary: "list or render a server's prompts",
+			Detail: "Prompts are the half of MCP that is not tools: a server saying " +
+				"\"here is the wording that works for this\". A server publishing a " +
+				"good one has encoded expertise that would otherwise be " +
+				"rediscovered by whoever writes the request.",
+		},
+		{
+			Name: "resources", Group: "discovery",
+			Usage: "[<ns>/<uri>]", Summary: "list or read a server's resources",
+		},
+		{
 			Name: "tui", Group: "inspection",
 			Summary: "full-screen browser for namespaces, tools and the log",
 			Detail: "Three panes -- namespaces, their tools, one signature -- so " +
