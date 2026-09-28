@@ -63,8 +63,13 @@ func TestFileSinkRotatesOnceTheOldestRecordExceedsMaxAge(t *testing.T) {
 	}
 	defer sink.Close()
 
-	// One day, so the daily trigger cannot be what rotates the file.
-	day := time.Now().Truncate(24 * time.Hour).Add(time.Hour)
+	// Every record has to fall on the same local calendar day, or the daily
+	// trigger rotates the file and the age limit is not what is being
+	// measured. time.Truncate works on absolute time, so it yields UTC
+	// midnight -- which is the previous local day for anyone west of
+	// Greenwich, and made this test fail depending on the hour it ran.
+	now := time.Now()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 2, 0, 0, 0, now.Location())
 	sink.Write(logging.Record{Time: day, Level: slog.LevelInfo, Msg: "first"}, nil)
 	sink.Write(logging.Record{Time: day.Add(30 * time.Minute), Level: slog.LevelInfo, Msg: "still young"}, nil)
 	if got := len(jsonlFiles(t, dir)); got != 1 {

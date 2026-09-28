@@ -356,8 +356,23 @@ func (a *App) CmdStats(_ context.Context, args []string) error {
 	session := fs.String("session", "", "restrict to this session")
 	top := fs.Int("top", 20, "rows to show where the dimension is a ranking")
 	logDir := fs.String("log-dir", "", "log directory (default: the daemon's)")
+	fromOpencode := fs.Bool("opencode", false, "report on the opencode database instead of mcpx's log")
+	dbPath := fs.String("db", "", "database to read with --opencode (default: opencode's own)")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	// `stats opencode ...` and `stats --opencode ...` are the same request.
+	// Both spellings exist because the first reads better as a subject and
+	// the second composes with the other dimensions.
+	if dim == "opencode" {
+		*fromOpencode = true
+		dim = ""
+		if len(fs.Args()) > 0 {
+			dim = fs.Arg(0)
+		}
+	}
+	if *fromOpencode {
+		return a.statsOpencode(dim, *dbPath, *since, *until, *top)
 	}
 	dim = firstSet(dim, *by, "calls")
 	q := logstore.Query{Server: *server, Tool: *tool, Session: *session, Limit: -1}
