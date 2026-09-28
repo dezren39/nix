@@ -1990,3 +1990,39 @@ func TestHarnessIdsCannotRewriteTheRealSession(t *testing.T) {
 		t.Error("the harness should not be able to overwrite the resolved session")
 	}
 }
+
+func TestLogRecordAcceptsWhatOtherThingsKnow(t *testing.T) {
+	// mcpx's log should be able to hold what the harness knows, so that one
+	// `mcpx stats` covers both. A caller that can produce JSON should not
+	// also have to learn a schema.
+	e := newEnv(t, oneServer)
+
+	e.run("log", "record", `{"event":"harness.tool","tool":"bash","ok":true}`)
+	e.run("log", "record", "--level", "warn", `{"msg":"something odd","n":42}`)
+
+	out := e.run("log", "--grep", "harness.tool|something odd", "--limit", "10")
+	if !strings.Contains(out, "harness.tool") {
+		t.Errorf("an event-only record should land:\n%s", out)
+	}
+	if !strings.Contains(out, "something odd") {
+		t.Errorf("a message record should land:\n%s", out)
+	}
+	// Told, not observed: without the distinction a synthetic record is
+	// indistinguishable from a measured one.
+	if !strings.Contains(out, "external=true") {
+		t.Errorf("records from outside should be marked:\n%s", out)
+	}
+	if !strings.Contains(out, "WARN") {
+		t.Errorf("the level should be honoured:\n%s", out)
+	}
+}
+
+func TestLogRecordRejectsWhatIsNotAnObject(t *testing.T) {
+	e := newEnv(t, oneServer)
+	if _, err := e.try("log", "record", `not json`); err == nil {
+		t.Fatal("a record that is not a JSON object should be refused")
+	}
+	if _, err := e.try("log", "record", `[1,2,3]`); err == nil {
+		t.Fatal("an array is not a record")
+	}
+}

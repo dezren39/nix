@@ -232,17 +232,3 @@ func Bind(fill Fill, defs []Definition) (Fill, error) {
 	}
 	return out, nil
 }
-
-// Params maps a definition's parameter names to the arguments an occurrence
-// supplied, so a body can refer to them as @param.
-func (d Definition) Params2Fill(args []string) Fill {
-	out := Fill{}
-	for i, p := range d.Params {
-		if i < len(args) {
-			out[Placeholder(p)] = args[i]
-		} else {
-			out[Placeholder(p)] = ""
-		}
-	}
-	return out
-}

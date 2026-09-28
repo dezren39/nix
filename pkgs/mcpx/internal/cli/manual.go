@@ -152,8 +152,18 @@ func Commands() []Command {
 		},
 		{
 			Name: "log", Group: "inspection",
-			Usage:   "[--since d] [--chain id] [--follow]",
-			Summary: "query the structured log",
+			Usage:   "[--since d] [--chain id] [--follow] | sql '<query>' | record '<json>'",
+			Summary: "query the structured log, or add to it",
+			Detail: "--chain walks a record back through its parents, which is how a " +
+				"tool call is traced to the daemon that started the server that " +
+				"served it. `log sql` runs read-only SQL for anything the flags " +
+				"do not cover. `log record` appends, so mcpx's log can hold what " +
+				"the harness knows and one `mcpx stats` covers both.",
+			Examples: []string{
+				"mcpx log --since 1h --level warn",
+				"mcpx log --chain cal-d13e4c64102e9113",
+				`mcpx log record '{"event":"deploy","version":"1.2.0"}'`,
+			},
 		},
 		{
 			Name: "stats", Group: "inspection",

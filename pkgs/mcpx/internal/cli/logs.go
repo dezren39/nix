@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -58,6 +59,9 @@ func (a *App) openStore(override string) (*logstore.Store, error) {
 func (a *App) CmdLog(ctx context.Context, args []string) error {
 	if len(args) > 0 && args[0] == "sql" {
 		return a.cmdLogSQL(ctx, args[1:])
+	}
+	if len(args) > 0 && args[0] == "record" {
+		return a.CmdLogRecord(ctx, args[1:])
 	}
 
 	fs := newFlagSet("log")
@@ -340,6 +344,78 @@ func (a *App) cmdLogSQL(_ context.Context, args []string) error {
 }
 
 // CmdStats aggregates the log.
+// CmdLogRecord appends one record to the durable log.
+//
+// The point is that mcpx's log should be able to hold what other things know.
+// The opencode plugin records tool timings through it, so one `mcpx stats`
+// covers the harness as well as mcpx; anything else that can run a command
+// can do the same.
+//
+// Deliberately forgiving about shape. A caller that can produce JSON should
+// not also have to learn a schema, so anything not recognised becomes an
+// attribute, and a record with only a message is valid.
+func (a *App) CmdLogRecord(_ context.Context, args []string) error {
+	fs := newFlagSet("log record")
+	level := fs.String("level", "info", "debug, info, warn or error")
+	logDir := fs.String("log-dir", "", "log directory (default: the daemon's)")
+	if err := parseFlags(a, fs, args); err != nil {
+		return err
+	}
+	payload := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	if payload == "" {
+		// Reading stdin means a caller can pipe rather than quote, which
+		// matters as soon as the JSON contains anything a shell would eat.
+		b, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		payload = strings.TrimSpace(string(b))
+	}
+	if payload == "" {
+		return errors.New("usage: mcpx log record '<json>'  (or pipe it on stdin)")
+	}
+
+	attrs := map[string]any{}
+	if err := json.Unmarshal([]byte(payload), &attrs); err != nil {
+		return fmt.Errorf("a record must be a JSON object: %w", err)
+	}
+	lvl, err := logging.ParseLevel(*level)
+	if err != nil {
+		return err
+	}
+	msg, _ := attrs["msg"].(string)
+	if msg == "" {
+		msg, _ = attrs["message"].(string)
+	}
+	if msg == "" {
+		msg, _ = attrs["event"].(string)
+	}
+	delete(attrs, "msg")
+	delete(attrs, "message")
+
+	// Marked as external so a reader can tell what mcpx observed from what it
+	// was told. Without that distinction a synthetic record is indistinguishable
+	// from a measured one.
+	attrs["external"] = true
+	for k, v := range logging.HarnessIDs() {
+		if _, taken := attrs[k]; !taken {
+			attrs[k] = v
+		}
+	}
+
+	dir := firstNonEmpty(*logDir, a.Settings().String("logging.dir"),
+		filepath.Join(a.Paths.State, "logs"))
+	sink, err := logging.NewFileSink(logging.FileOptions{Dir: dir})
+	if err != nil {
+		return err
+	}
+	defer sink.Close()
+	sink.Write(logging.Record{
+		Time: time.Now(), Level: lvl, Msg: msg, Attrs: attrs,
+	}, nil)
+	return nil
+}
+
 func (a *App) CmdStats(_ context.Context, args []string) error {
 	// The dimension is hoisted before parsing because Go's flag package stops
 	// at the first non-flag argument, so `stats slowest --top 3` would
