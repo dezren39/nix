@@ -265,6 +265,16 @@ func pathSettings() []Setting {
 				"takes. " + spliceLong,
 		},
 		{
+			Path: "paths.apis", Kind: KindPathList, Default: "", Repeatable: true,
+			Name:  "OpenAPI declarations",
+			Short: "files naming OpenAPI documents to expose as tools",
+			Long: "An enormous amount of capability is already described by a " +
+				"specification somebody else maintains. Turning one into tools is " +
+				"a mechanical transformation, and a specification is a better " +
+				"source than a hand-written wrapper because it is already correct " +
+				"and it changes when the service does. " + spliceLong,
+		},
+		{
 			Path: "paths.state", Kind: KindString, Default: "",
 			EnvAliases: []string{"MCPX_STATE_DIR"},
 			Name:       "State directory", Short: "where the daemon socket, logs and index live",

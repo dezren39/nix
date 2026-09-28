@@ -1,6 +1,8 @@
 package codegen
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"sort"
@@ -237,4 +239,119 @@ func biasScore(ns Namespace, t Tool, terms []string) int {
 		}
 	}
 	return score
+}
+
+// CatalogState is a fingerprint of what a catalog contained.
+//
+// Kept so the next catalog can be expressed as a change rather than repeated
+// in full. A long-running agent asks for the catalog repeatedly, and after
+// the first time almost all of it is something it has already been told.
+type CatalogState struct {
+	// Tools maps namespace.tool to a hash of its signature, so a changed
+	// schema is noticed rather than only additions and removals.
+	Tools map[string]string `json:"tools"`
+	// Namespaces is the set, for reporting a whole server appearing or going.
+	Namespaces map[string]int `json:"namespaces"`
+}
+
+// Fingerprint captures what is currently available.
+func Fingerprint(nss []Namespace) CatalogState {
+	st := CatalogState{Tools: map[string]string{}, Namespaces: map[string]int{}}
+	for _, ns := range nss {
+		st.Namespaces[ns.Name] = len(ns.Tools)
+		for _, t := range ns.Tools {
+			sum := sha256.Sum256([]byte(t.Name + "\x00" + t.Description + "\x00" + string(t.InputSchema)))
+			st.Tools[ns.Name+"."+t.Name] = hex.EncodeToString(sum[:8])
+		}
+	}
+	return st
+}
+
+// CatalogDiff is what changed.
+type CatalogDiff struct {
+	Added       []string `json:"added,omitempty"`
+	Removed     []string `json:"removed,omitempty"`
+	Changed     []string `json:"changed,omitempty"`
+	NewServers  []string `json:"newServers,omitempty"`
+	GoneServers []string `json:"goneServers,omitempty"`
+}
+
+// Empty reports whether anything changed at all.
+func (d CatalogDiff) Empty() bool {
+	return len(d.Added)+len(d.Removed)+len(d.Changed)+
+		len(d.NewServers)+len(d.GoneServers) == 0
+}
+
+// Diff compares two states.
+func Diff(before, after CatalogState) CatalogDiff {
+	var d CatalogDiff
+	for name, sum := range after.Tools {
+		prev, had := before.Tools[name]
+		switch {
+		case !had:
+			d.Added = append(d.Added, name)
+		case prev != sum:
+			d.Changed = append(d.Changed, name)
+		}
+	}
+	for name := range before.Tools {
+		if _, still := after.Tools[name]; !still {
+			d.Removed = append(d.Removed, name)
+		}
+	}
+	for ns := range after.Namespaces {
+		if _, had := before.Namespaces[ns]; !had {
+			d.NewServers = append(d.NewServers, ns)
+		}
+	}
+	for ns := range before.Namespaces {
+		if _, still := after.Namespaces[ns]; !still {
+			d.GoneServers = append(d.GoneServers, ns)
+		}
+	}
+	sort.Strings(d.Added)
+	sort.Strings(d.Removed)
+	sort.Strings(d.Changed)
+	sort.Strings(d.NewServers)
+	sort.Strings(d.GoneServers)
+	return d
+}
+
+// Render writes a diff as prose.
+//
+// Prose rather than a structure because the consumer is a model reading
+// instructions, and "three tools were added" in a list it already has is
+// cheaper than the list again.
+func (d CatalogDiff) Render() string {
+	if d.Empty() {
+		return "No change since the last catalog."
+	}
+	var b strings.Builder
+	b.WriteString("Changes since the last catalog:\n")
+	section := func(label string, items []string) {
+		if len(items) == 0 {
+			return
+		}
+		fmt.Fprintf(&b, "  %s: %s\n", label, strings.Join(items, ", "))
+	}
+	section("new servers", d.NewServers)
+	section("servers gone", d.GoneServers)
+	section("added", d.Added)
+	section("changed", d.Changed)
+	section("removed", d.Removed)
+	b.WriteString("\nEverything else is as before. " +
+		"Call describe(\"namespace.tool\") for a signature.")
+	return b.String()
+}
+
+// ShorterOf returns whichever of a full catalog and a diff is smaller.
+//
+// The point of a diff is to cost less. When almost everything has changed it
+// does not, and sending it anyway would be worse than sending the catalog --
+// the reader would have to reconstruct the whole from a list of changes.
+func ShorterOf(full, diff string) string {
+	if diff != "" && len(diff) < len(full) {
+		return diff
+	}
+	return full
 }
