@@ -432,30 +432,132 @@ function isAttrs(v: unknown): v is LogAttrs {
     !(v instanceof Error) && Object.getPrototypeOf(v) === Object.prototype;
 }
 
+function formatFrames(name: string, message: string, frames: Frame[]): string {
+  const head = message ? name + ": " + message : name;
+  const body = frames.map((f) => {
+    const at = [f.file, f.line, f.column].filter((x) => x !== undefined).join(":");
+    return "    at " + (f.function ? f.function + " (" + at + ")" : at);
+  });
+  return [head, ...body].join("\n");
+}
+
 function describeError(e: Error): LogAttrs {
-  return { name: e.name, message: e.message, ...(e.stack ? { stack: e.stack } : {}) };
+  // Both forms are wanted: the string is what a human reads, the frames are
+  // what a query groups by. They cannot both be taken from the Error, because
+  // V8 memoises whatever prepareStackTrace returned the first time .stack is
+  // touched -- ask for one and the other is gone. So frames are captured and
+  // the string is rendered from them.
+  const frames = errorFrames(e, 16);
+  const stack = frames.length ? formatFrames(e.name, e.message, frames) : (
+    typeof e.stack === "string" ? e.stack : ""
+  );
+  return {
+    name: e.name,
+    message: e.message,
+    ...(stack ? { stack } : {}),
+    ...(frames.length ? { frames } : {}),
+    ...((e as any).cause !== undefined ? { cause: safeInspect((e as any).cause) } : {}),
+  };
+}
+
+/** One frame of a captured stack. */
+export interface Frame {
+  file?: string;
+  line?: number;
+  column?: number;
+  function?: string;
+  type?: string;
+  async?: boolean;
+  native?: boolean;
 }
 
 /**
- * Where the call came from, read out of a synthetic stack trace.
+ * Capture a stack as structured frames.
  *
- * Only called when the level warrants it, because constructing the Error is
- * the expensive half.
+ * V8 exposes Error.prepareStackTrace, which hands back CallSite objects
+ * instead of a formatted string. It is not in any standard, but Deno, Node and
+ * Bun are all V8 or JSC-with-the-same-shim, and all three were verified to
+ * support it. Parsing the string form is the fallback, and it is strictly
+ * worse: it loses async and native flags and breaks on any path containing the
+ * characters the format uses as delimiters.
+ */
+export function captureFrames(skip = 0, limit = 32): Frame[] {
+  const E = Error as any;
+  const previous = E.prepareStackTrace;
+  const previousLimit = E.stackTraceLimit;
+  try {
+    E.stackTraceLimit = skip + limit + 4;
+    E.prepareStackTrace = (_e: Error, sites: any[]) =>
+      sites.map((s) => {
+        const f: Frame = {};
+        const file = s.getFileName?.();
+        if (file) f.file = String(file).replace(/^file:\/\//, "");
+        const line = s.getLineNumber?.();
+        if (typeof line === "number") f.line = line;
+        const col = s.getColumnNumber?.();
+        if (typeof col === "number") f.column = col;
+        const fn = s.getFunctionName?.();
+        if (fn) f.function = fn;
+        const tn = s.getTypeName?.();
+        if (tn) f.type = tn;
+        if (s.isAsync?.()) f.async = true;
+        if (s.isNative?.()) f.native = true;
+        return f;
+      });
+    const holder: any = {};
+    E.captureStackTrace?.(holder, captureFrames);
+    const frames: Frame[] = holder.stack ?? (new Error() as any).stack ?? [];
+    return Array.isArray(frames) ? frames.slice(skip, skip + limit) : [];
+  } catch {
+    return [];
+  } finally {
+    E.prepareStackTrace = previous;
+    E.stackTraceLimit = previousLimit;
+  }
+}
+
+/** The frames of an Error, structured, without re-throwing it. */
+export function errorFrames(err: Error, limit = 32): Frame[] {
+  const E = Error as any;
+  const previous = E.prepareStackTrace;
+  try {
+    E.prepareStackTrace = (_e: Error, sites: any[]) =>
+      sites.map((s) => {
+        const f: Frame = {};
+        const file = s.getFileName?.();
+        if (file) f.file = String(file).replace(/^file:\/\//, "");
+        const line = s.getLineNumber?.();
+        if (typeof line === "number") f.line = line;
+        const fn = s.getFunctionName?.();
+        if (fn) f.function = fn;
+        if (s.isAsync?.()) f.async = true;
+        return f;
+      });
+    // Reading .stack re-runs prepareStackTrace against the captured sites.
+    const frames = (err as any).stack;
+    return Array.isArray(frames) ? frames.slice(0, limit) : [];
+  } catch {
+    return [];
+  } finally {
+    E.prepareStackTrace = previous;
+  }
+}
+
+/**
+ * Where the call came from.
+ *
+ * Only called when the level warrants it, because capturing the stack is the
+ * expensive half.
  */
 function callSite(): LogAttrs | undefined {
-  const stack = new Error().stack;
-  if (!stack) return undefined;
-  const lines = stack.split("\n").slice(1);
-  const frame = lines.find((l) => !l.includes("mcpx-client"));
-  if (!frame) return undefined;
-  const m = frame.match(/at\s+(?:(.+?)\s+\()?(?:file:\/\/)?([^()]+?):(\d+):(\d+)\)?\s*$/);
-  if (!m) return undefined;
-  const [, fn, file, line, col] = m;
+  const frames = captureFrames(0, 8).filter((f) => !(f.file ?? "").includes("mcpx-client"));
+  const top = frames[0];
+  if (!top) return undefined;
   return {
-    "source.file": file,
-    "source.line": Number(line),
-    "source.column": Number(col),
-    ...(fn ? { "source.function": fn } : {}),
+    ...(top.file ? { "source.file": top.file } : {}),
+    ...(top.line ? { "source.line": top.line } : {}),
+    ...(top.column ? { "source.column": top.column } : {}),
+    ...(top.function ? { "source.function": top.function } : {}),
   };
 }
 
@@ -463,7 +565,13 @@ function send(kind: "log" | "result", payload: Record<string, unknown>): void {
   writeStderr(LOG_SENTINEL + JSON.stringify({ kind, ts: new Date().toISOString(), ...payload }));
 }
 
-function emitRecord(level: LogLevel, bound: LogAttrs, msg: string, rest: unknown[]): void {
+function emitRecord(
+  level: LogLevel,
+  bound: LogAttrs,
+  msg: string,
+  rest: unknown[],
+  fileOnly = false,
+): void {
   // Short-circuit before any work. A debug call in a loop should cost a
   // comparison when nothing will print.
   const n = LEVEL_ORDER[level];
@@ -486,12 +594,19 @@ function emitRecord(level: LogLevel, bound: LogAttrs, msg: string, rest: unknown
     level,
     msg,
     ...(hasTemplate ? { template: msg } : {}),
+    ...(fileOnly ? { fileOnly: true } : {}),
     ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
   });
 }
 
-/** A logger, optionally carrying attributes bound by with(). */
+/**
+ * A logger, optionally carrying attributes bound by with().
+ *
+ * Callable directly: log("message") is log.info("message"), because the
+ * overwhelmingly common case should not need a method name.
+ */
 export interface Logger {
+  (msg: string, ...rest: unknown[]): void;
   debug(msg: string, ...rest: unknown[]): void;
   info(msg: string, ...rest: unknown[]): void;
   warn(msg: string, ...rest: unknown[]): void;
@@ -512,14 +627,15 @@ export interface Logger {
 }
 
 function makeLogger(bound: LogAttrs): Logger {
-  return {
-    debug: (msg, ...rest) => emitRecord("debug", bound, msg, rest),
-    info: (msg, ...rest) => emitRecord("info", bound, msg, rest),
-    warn: (msg, ...rest) => emitRecord("warn", bound, msg, rest),
-    error: (msg, ...rest) => emitRecord("error", bound, msg, rest),
+  const fn = ((msg: string, ...rest: unknown[]) => emitRecord("info", bound, msg, rest)) as Logger;
+  return Object.assign(fn, {
+    debug: (msg: string, ...rest: unknown[]) => emitRecord("debug", bound, msg, rest),
+    info: (msg: string, ...rest: unknown[]) => emitRecord("info", bound, msg, rest),
+    warn: (msg: string, ...rest: unknown[]) => emitRecord("warn", bound, msg, rest),
+    error: (msg: string, ...rest: unknown[]) => emitRecord("error", bound, msg, rest),
     with: (attrs: LogAttrs) => makeLogger({ ...bound, ...attrs }),
     enabled: (level: LogLevel) => LEVEL_ORDER[level] >= MIN_LEVEL,
-  };
+  });
 }
 
 /**
@@ -564,6 +680,263 @@ export function emitResult(value: unknown): void {
 
 export { emitResult as emit };
 
+/**
+ * Route console output through the record stream.
+ *
+ * console.log keeps going to stdout, because that is the script's result and
+ * redirecting it would change what a caller reads. It is *also* mirrored as a
+ * debug record so it lands in the durable log alongside everything else --
+ * otherwise the one thing a script actually printed is the one thing missing
+ * when you go looking afterwards.
+ *
+ * console.error/warn/info/debug become records outright: they are diagnostics,
+ * and leaving them as bare stderr text means they miss enrichment, formatting
+ * and the log file.
+ */
+export function captureConsole(): void {
+  const c = globalThis.console as any;
+  if (!c || c.__mcpxWrapped) return;
+  const original: Record<string, ((...a: unknown[]) => void) | undefined> = {};
+  for (const k of Object.keys(c)) {
+    if (typeof c[k] === "function") original[k] = c[k].bind(c);
+  }
+
+  let depth = 0;
+
+  // Render the message the way the runtime would have. A caller who wrote
+  // console.info({a:1}) expects to read "{ a: 1 }", not the JSON encoding --
+  // the structured copy of the value is already in args, so the message is
+  // free to be the human form.
+  const g = globalThis as any;
+  const native: ((v: unknown) => string) | undefined =
+    typeof g.Deno?.inspect === "function"
+      ? (v) => g.Deno.inspect(v, { colors: false, depth: 4 })
+      : typeof g.Bun?.inspect === "function"
+      ? (v) => g.Bun.inspect(v)
+      : undefined;
+  const one = (a: unknown) => {
+    if (typeof a === "string") return a;
+    if (native) {
+      try {
+        return native(a);
+      } catch {
+        /* fall through */
+      }
+    }
+    return safeInspect(a);
+  };
+  // Format specifiers, because a script that writes console.info("%s: %d",
+  // name, n) expects to read "alice: 42". Dropping the substitution and
+  // printing the template beside its arguments is the kind of difference that
+  // makes a captured console feel broken rather than redirected.
+  //
+  // Matches the runtimes: substitution happens only when there are arguments
+  // to substitute, leftover specifiers stay as written, and surplus arguments
+  // are appended.
+  const FORMAT = /%[sdifjoOc%]/g;
+  const applyFormat = (template: string, rest: unknown[]): [string, unknown[]] => {
+    let i = 0;
+    const text = template.replace(FORMAT, (spec) => {
+      if (spec === "%%") return "%";
+      if (i >= rest.length) return spec;
+      const v = rest[i++];
+      switch (spec) {
+        case "%s":
+          return typeof v === "string" ? v : one(v);
+        case "%d":
+        case "%i": {
+          if (typeof v === "bigint") return String(v);
+          const n = Number(v);
+          return Number.isNaN(n) ? "NaN" : String(Math.trunc(n));
+        }
+        case "%f":
+          return String(Number(v));
+        case "%j":
+          return safeInspect(v);
+        case "%o":
+        case "%O":
+          return one(v);
+        case "%c":
+          // Styling has no meaning outside a browser. The argument is still
+          // consumed, which is what keeps the remaining substitutions lined
+          // up with their specifiers.
+          return "";
+      }
+      return spec;
+    });
+    return [text, rest.slice(i)];
+  };
+
+  const render = (args: unknown[]) => {
+    const pad = "  ".repeat(depth);
+    if (args.length > 1 && typeof args[0] === "string" && FORMAT.test(args[0] as string)) {
+      FORMAT.lastIndex = 0;
+      const [text, rest] = applyFormat(args[0] as string, args.slice(1));
+      return pad + [text, ...rest.map(one)].join(" ");
+    }
+    FORMAT.lastIndex = 0;
+    return pad + args.map(one).join(" ");
+  };
+
+  // Keep the original name on every replacement. Something reading
+  // console.info.name should still see "info"; losing it breaks introspection
+  // for no gain.
+  const patch = (name: string, fn: (...a: any[]) => void) => {
+    Object.defineProperty(fn, "name", { value: name, configurable: true });
+    c[name] = fn;
+  };
+
+  // The five that carry a level map onto it directly. console.info really is
+  // log.info; there is no separate concept to reconcile.
+  const direct: Record<string, LogLevel> = {
+    info: "info",
+    warn: "warn",
+    error: "error",
+    debug: "debug",
+    dir: "info",
+    dirxml: "info",
+    table: "info",
+  };
+  for (const [name, level] of Object.entries(direct)) {
+    patch(name, (...args: unknown[]) => emitRecord(level, { console: name }, render(args), []));
+  }
+
+  // stdout is the script's result, so console.log keeps going there. The
+  // record exists so the durable log has it too, and is file-only so the
+  // terminal does not show the same line twice.
+  patch("log", (...args: unknown[]) => {
+    original.log?.(...args);
+    emitRecord("debug", { console: "log" }, render(args), [], true);
+  });
+
+  // console.trace is a stack request; honour it rather than dropping the part
+  // that was asked for.
+  patch("trace", (...args: unknown[]) => {
+    emitRecord("debug", { console: "trace", frames: captureFrames(1, 16) }, render(args), []);
+  });
+
+  patch("assert", (cond: unknown, ...args: unknown[]) => {
+    if (cond) return;
+    emitRecord("error", { console: "assert" }, render(args.length ? args : ["assertion failed"]), []);
+  });
+
+  // Grouping is presentation, and a structured record has no nesting to show.
+  // Indentation is preserved so output still reads as the author intended.
+  patch("group", (...args: unknown[]) => {
+    if (args.length) emitRecord("info", { console: "group" }, render(args), []);
+    depth++;
+  });
+  // A record stream has nothing to collapse, so collapsed groups are groups.
+  patch("groupCollapsed", (...args: unknown[]) => c.group(...args));
+  patch("groupEnd", () => {
+    depth = Math.max(0, depth - 1);
+  });
+
+  // indentLevel is a property rather than a method, and reading it is how some
+  // libraries decide their own wrapping. Keep it truthful.
+  Object.defineProperty(c, "indentLevel", {
+    get: () => depth,
+    set: (v: number) => {
+      depth = Math.max(0, Math.trunc(Number(v) || 0));
+    },
+    configurable: true,
+  });
+
+  // console.clear wipes a terminal. It must not wipe a durable log, so the
+  // request is recorded, the indent is reset, and the screen is left alone
+  // unless nothing is capturing it.
+  patch("clear", () => {
+    depth = 0;
+    emitRecord("debug", { console: "clear" }, "console.clear()", [], true);
+  });
+
+  // Devtools profiling markers. There is no profiler here, but dropping the
+  // call silently loses a deliberate annotation, so they become records.
+  for (const name of ["profile", "profileEnd", "timeStamp"]) {
+    patch(name, (...args: unknown[]) => {
+      emitRecord("debug", { console: name }, render(args.length ? args : [name + "()"]), [], true);
+    });
+  }
+
+  const counters = new Map<string, number>();
+  patch("count", (label = "default") => {
+    const n = (counters.get(label) ?? 0) + 1;
+    counters.set(label, n);
+    emitRecord("debug", { console: "count", label, count: n }, label + ": " + n, []);
+  });
+  patch("countReset", (label = "default") => {
+    counters.delete(label);
+  });
+
+  const timers = new Map<string, number>();
+  patch("time", (label = "default") => {
+    timers.set(label, performance.now());
+  });
+  patch("timeLog", (label = "default", ...args: unknown[]) => {
+    const started = timers.get(label);
+    if (started === undefined) return;
+    const ms = performance.now() - started;
+    emitRecord("debug", { console: "timeLog", label, ms },
+      label + ": " + ms.toFixed(3) + "ms " + render(args), []);
+  });
+  patch("timeEnd", (label = "default") => {
+    const started = timers.get(label);
+    if (started === undefined) return;
+    timers.delete(label);
+    const ms = performance.now() - started;
+    emitRecord("debug", { console: "timeEnd", label, ms },
+      label + ": " + ms.toFixed(3) + "ms", []);
+  });
+
+  c.__mcpxWrapped = true;
+  c.__mcpxOriginal = original;
+}
+
+/** Undo captureConsole, for a script that wants the real console back. */
+export function releaseConsole(): void {
+  const c = globalThis.console as any;
+  if (!c?.__mcpxWrapped) return;
+  for (const [k, fn] of Object.entries(c.__mcpxOriginal ?? {})) {
+    if (fn) c[k] = fn;
+  }
+  delete c.__mcpxWrapped;
+  delete c.__mcpxOriginal;
+}
+
+function safeInspect(v: unknown): string {
+  if (v instanceof Error) return v.stack ?? String(v);
+  try {
+    return JSON.stringify(v) ?? String(v);
+  } catch {
+    return String(v);
+  }
+}
+
+/**
+ * Put the standard surface on globalThis.
+ *
+ * A script that imports is easier to read and gives an editor something to
+ * work with; a script written like a shell one-liner should not have to. Both
+ * work: the launcher installs these before importing the module, and the
+ * generated declarations tell an editor they exist.
+ */
+export function installGlobals(): void {
+  const g = globalThis as any;
+  g.log ??= log;
+  g.emit ??= emitResult;
+  g.tools ??= tools;
+  g.call ??= call;
+  g.readResource ??= readResource;
+  g.ToolError ??= ToolError;
+  g.paths ??= paths;
+  g.here ??= here;
+  g.hereDir ??= hereDir;
+  g.releaseConsole ??= releaseConsole;
+  g.captureFrames ??= captureFrames;
+  g.errorFrames ??= errorFrames;
+  for (const [name, ns] of Object.entries(tools)) g[name] ??= ns;
+}
+
 /** Call any tool by name, including ones added after this client was generated. */
 export async function call(server: string, tool: string, args?: unknown): Promise<ToolResult> {
   return __call(server, tool, args ?? {});
@@ -589,3 +962,42 @@ export async function readResource(server: string, uri: string): Promise<ToolRes
 }
 
 `
+
+// GlobalDeclarations emits ambient declarations for the surface the launcher
+// installs on globalThis.
+//
+// It exists for editors. A script written like a one-liner calls log() and
+// emit() without importing them, which is convenient and, without this file,
+// invisible to a language server. Generating it costs nothing and turns an
+// undefined-name squiggle into completion.
+func GlobalDeclarations(nss []Namespace) string {
+	var b strings.Builder
+	b.WriteString("// Generated by mcpx. Ambient declarations for the globals the runner\n")
+	b.WriteString("// installs. Importing from ./" + "mcpx-client.ts" + " works too and is equivalent.\n\n")
+	b.WriteString("import type { Logger, LogAttrs, PathPair, ToolResult } from \"./mcpx-client.ts\";\n")
+	b.WriteString("import type * as __mcpx from \"./mcpx-client.ts\";\n\n")
+	b.WriteString("declare global {\n")
+	b.WriteString("  /** Structured logging. Callable: log(msg) is log.info(msg). */\n")
+	b.WriteString("  const log: Logger;\n")
+	b.WriteString("  /** Stream a result before the script finishes. */\n")
+	b.WriteString("  const emit: (value: unknown) => void;\n")
+	b.WriteString("  /** Call any tool by name. */\n")
+	b.WriteString("  const call: typeof __mcpx.call;\n")
+	b.WriteString("  const readResource: typeof __mcpx.readResource;\n")
+	b.WriteString("  const ToolError: typeof __mcpx.ToolError;\n")
+	b.WriteString("  const paths: typeof __mcpx.paths;\n")
+	b.WriteString("  const here: typeof __mcpx.here;\n")
+	b.WriteString("  const hereDir: typeof __mcpx.hereDir;\n")
+	b.WriteString("  const tools: typeof __mcpx.tools;\n")
+
+	sorted := append([]Namespace(nil), nss...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	for _, ns := range sorted {
+		if ns.Description != "" {
+			b.WriteString("  /** " + sanitizeComment(ns.Description) + " */\n")
+		}
+		fmt.Fprintf(&b, "  const %s: typeof __mcpx.%s;\n", ns.Name, ns.Name)
+	}
+	b.WriteString("}\n\nexport {};\n")
+	return b.String()
+}

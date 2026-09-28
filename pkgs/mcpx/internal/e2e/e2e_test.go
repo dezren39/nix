@@ -1707,3 +1707,96 @@ func TestAPhaseCanBeAFileInsteadOfAString(t *testing.T) {
 		t.Errorf("a phase given a path should read it:\n%s", out)
 	}
 }
+
+// TestCapturedConsoleMatchesTheRuntimeExactly is the question that matters for
+// a script that was written against an ordinary console: does redirecting it
+// change what the script sees or produces? Every line is compared against the
+// same script run with no launcher at all.
+func TestCapturedConsoleMatchesTheRuntimeExactly(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fmt.ts")
+	mustWrite(t, script, `
+console.info("%s scored %d and %f%%", "alice", 42, 1.5);
+console.info("%o and %O and %j", {a:1}, {b:2}, {c:3});
+console.info("%c styled", "color: red");
+console.info("literal %% percent");
+console.info("too few %s %s", "one");
+console.info("surplus %s", "a", "b", "c");
+console.info({ nested: { deep: [1, 2, { x: true }] } });
+`)
+	raw := e.run("run", "--no-launcher", script)
+	captured := e.run("run", "--format", "bare", script)
+
+	rawLines := nonEmptyLines(raw)
+	capLines := nonEmptyLines(captured)
+	if len(rawLines) != len(capLines) {
+		t.Fatalf("line counts differ\nraw:\n%s\ncaptured:\n%s", raw, captured)
+	}
+	for i := range rawLines {
+		if rawLines[i] != capLines[i] {
+			t.Errorf("line %d differs:\n  runtime:  %q\n  captured: %q",
+				i+1, rawLines[i], capLines[i])
+		}
+	}
+}
+
+func nonEmptyLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimRight(l, "\r"); strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// TestConsoleSurvivesValuesThatBreakNaiveSerialisers is the other half: a
+// script must not start throwing because its console was redirected.
+func TestConsoleSurvivesValuesThatBreakNaiveSerialisers(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hostile.ts")
+	mustWrite(t, script, `
+const circ: any = { name: "loop" }; circ.self = circ;
+class Weird { get boom() { throw new Error("getter threw"); } }
+const sym = Symbol("tag");
+const checks: Record<string, unknown> = {};
+const guard = (k: string, f: () => void) => {
+  try { f(); checks[k] = "ok"; } catch (e) { checks[k] = "THREW " + (e as Error).message; }
+};
+guard("circular", () => console.info(circ));
+guard("throwingGetter", () => console.info(new Weird()));
+guard("symbolKeyed", () => console.info({ [sym]: "s", big: 123n, u: undefined, n: null }));
+guard("noArguments", () => console.info());
+guard("typedArray", () => console.info(new Uint8Array([1, 2, 3])));
+guard("collections", () => console.info(new Map([["k", "v"]]), new Set([1])));
+guard("veryLarge", () => console.info("x".repeat(200000)));
+guard("functionValue", () => console.info(function named() {}));
+checks.returnsUndefined = console.info("x") === undefined ? "ok" : "BAD";
+checks.keepsItsName = console.info.name === "info" ? "ok" : "BAD:" + console.info.name;
+console.log("RESULT " + JSON.stringify(checks));
+`)
+	out := e.run("run", "--format", "bare", script)
+	line := ""
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "RESULT ") {
+			line = strings.TrimPrefix(strings.TrimSpace(l), "RESULT ")
+		}
+	}
+	if line == "" {
+		t.Fatalf("the script should have finished:\n%s", out)
+	}
+	var checks map[string]string
+	if err := json.Unmarshal([]byte(line), &checks); err != nil {
+		t.Fatalf("%v\n%s", err, line)
+	}
+	if len(checks) < 10 {
+		t.Fatalf("expected every case to report, got %d: %v", len(checks), checks)
+	}
+	for name, got := range checks {
+		if got != "ok" {
+			t.Errorf("%s: %s", name, got)
+		}
+	}
+}
