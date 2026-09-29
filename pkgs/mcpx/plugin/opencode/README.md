@@ -148,3 +148,48 @@ Skills are loaded on demand, so an unused one costs nothing. That is why
 there are three rather than one: a browser skill is dead weight in a repo with
 no browser, and merging it into a general skill would make it dead weight
 everywhere.
+
+
+## Talking to the daemon directly
+
+`daemon.ts` connects to the mcpx daemon over its unix socket instead of
+spawning the binary. Measured here, same request, mean of thirty:
+
+| | |
+| --- | --- |
+| spawn `mcpx status` | 23.12 ms |
+| unix socket, new connection | 0.27 ms |
+| unix socket, keep-alive | **0.17 ms** |
+| tcp loopback, new connection | 1.59 ms |
+| tcp loopback, keep-alive | 0.65 ms |
+
+Roughly **135× faster**, and almost all of the difference is process startup
+rather than transport. That does not matter for something called once a
+session. It matters a great deal for anything on the path of every tool call,
+which is where a plugin sits.
+
+The socket also beats loopback TCP by about 4×, and keep-alive is worth
+another 2.4× on TCP.
+
+```ts
+import { connect } from "./daemon.ts"
+
+const mcpx = await connect($)          // undefined if no daemon
+if (mcpx) await mcpx.call("fff", "grep", { query: "x" }, sessionID)
+```
+
+`connect` returns `undefined` rather than throwing. A plugin that fails to
+load because mcpx is not running has broken the editor for a tool the user may
+not even be using.
+
+### Pointing at another machine
+
+```sh
+MCPX_DAEMON_ENDPOINT=http://mcpx.internal:8899   # a daemon on a VPN
+MCPX_DAEMON_ENDPOINT=unix:///run/mcpx/other.sock # a different local socket
+```
+
+The same variable works for the CLI. One daemon can serve a LAN, provided you
+understand that the API is unauthenticated and the network is therefore the
+access control -- see `daemon.address`, which is loopback until somebody
+deliberately widens it.

@@ -306,6 +306,31 @@ func daemonSettings() []Setting {
 			Name:        "Port", Short: "listen on a TCP port instead of choosing one",
 		},
 		{
+			Path: "daemon.endpoint", Kind: KindString, Default: "",
+			Name:  "Daemon endpoint",
+			Short: "a daemon somewhere else, instead of the local socket",
+			Long: "Empty uses the local unix socket, which is the fast path: no " +
+				"network stack and filesystem permissions as the access control. " +
+				"A URL points at a daemon on another machine -- one for a team, " +
+				"one on a VPN -- and mcpx will not try to start that one, because " +
+				"answering from a local daemon when a remote one is unreachable " +
+				"would be worse than failing. unix:///path targets a different " +
+				"socket on this machine.",
+			Commands: []string{"run", "exec", "call", "ls", "types", "catalog",
+				"search", "status", "client", "serve", "tui", "prompts", "resources"},
+		},
+		{
+			Path: "daemon.address", Kind: KindString, Default: "127.0.0.1",
+			Name:  "Bind address",
+			Short: "which interface the daemon listens on",
+			Long: "Loopback by default. The API is unauthenticated, so the network " +
+				"it is reachable from is the access control -- widening that has " +
+				"to be a decision somebody made rather than a default they " +
+				"inherited. 0.0.0.0 exposes it to everything that can route to " +
+				"this host.",
+			Commands: []string{"daemon"},
+		},
+		{
 			Path: "daemon.autostart", Kind: KindBool, Default: "true",
 			Name:  "Autostart",
 			Short: "start the daemon on demand when it is not running",

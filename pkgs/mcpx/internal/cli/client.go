@@ -26,14 +26,31 @@ type Client struct {
 	paths daemon.Paths
 	hc    *http.Client
 	cfg   string
+	// endpoint is empty for the local socket, or a base URL for a daemon
+	// somewhere else.
+	endpoint string
 }
 
 // NewClient builds a socket-backed API client.
 func NewClient(paths daemon.Paths, configPath string) *Client {
-	return &Client{
-		paths: paths,
-		cfg:   configPath,
-		hc: &http.Client{
+	return NewClientAt(paths, configPath, "")
+}
+
+// NewClientAt targets a specific daemon.
+//
+// An empty endpoint means the local unix socket, which is the case that
+// matters for speed: no network stack, no port, and the filesystem
+// permissions are the access control.
+//
+// A URL points somewhere else -- another machine on a VPN, a container, a
+// shared daemon for a team. The whole API is already HTTP over that socket,
+// so pointing it at a real address costs nothing in code and was only ever
+// prevented by the dialler being hardcoded.
+func NewClientAt(paths daemon.Paths, configPath, endpoint string) *Client {
+	c := &Client{paths: paths, cfg: configPath, endpoint: strings.TrimRight(endpoint, "/")}
+
+	if c.endpoint == "" {
+		c.hc = &http.Client{
 			Timeout: defaults.HTTPRequestTimeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -43,9 +60,44 @@ func NewClient(paths daemon.Paths, configPath string) *Client {
 				MaxIdleConns:    8,
 				IdleConnTimeout: defaults.HTTPIdleTimeout,
 			},
+		}
+		return c
+	}
+
+	// A remote endpoint may also be a socket path, written as a URL, because
+	// "which socket" is a question somebody will have on a machine running
+	// two daemons.
+	if sock, ok := strings.CutPrefix(c.endpoint, "unix://"); ok {
+		c.endpoint = ""
+		c.hc = &http.Client{
+			Timeout: defaults.HTTPRequestTimeout,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					var d net.Dialer
+					return d.DialContext(ctx, "unix", sock)
+				},
+				MaxIdleConns: 8, IdleConnTimeout: defaults.HTTPIdleTimeout,
+			},
+		}
+		return c
+	}
+	c.hc = &http.Client{
+		Timeout: defaults.HTTPRequestTimeout,
+		Transport: &http.Transport{
+			// Keep-alive matters far more over a network than it does over a
+			// socket: without it every call pays a handshake, which on a VPN
+			// is most of the latency.
+			MaxIdleConns:        16,
+			MaxIdleConnsPerHost: 16,
+			IdleConnTimeout:     defaults.HTTPIdleTimeout,
+			ForceAttemptHTTP2:   true,
 		},
 	}
+	return c
 }
+
+// Remote reports whether this client talks to a daemon it cannot start.
+func (c *Client) Remote() bool { return c.endpoint != "" }
 
 // ErrNoDaemon means nothing is listening on the socket.
 var ErrNoDaemon = errors.New("mcpx daemon is not running")
@@ -59,7 +111,13 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		}
 		rdr = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://mcpx"+path, rdr)
+	base := c.endpoint
+	if base == "" {
+		// Any host works over a unix socket; the dialler ignores it. "mcpx"
+		// reads better in a log than "localhost" when no host was involved.
+		base = "http://mcpx"
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +168,15 @@ func (c *Client) Ping(ctx context.Context) bool {
 // waits for it to become reachable. This is what makes every command work with
 // no setup step.
 func (c *Client) EnsureDaemon(ctx context.Context) error {
+	if c.Remote() {
+		// Starting a local daemon because a remote one is unreachable would
+		// silently answer from the wrong machine, which is worse than
+		// failing.
+		if c.Ping(ctx) {
+			return nil
+		}
+		return fmt.Errorf("no mcpx daemon at %s; it is not started from here", c.endpoint)
+	}
 	if c.Ping(ctx) {
 		return nil
 	}

@@ -51,7 +51,10 @@ func (a *App) Client() *Client {
 		if cfgPath == "" && cfg != nil {
 			cfgPath = cfg.Path
 		}
-		a.client = NewClient(paths, cfgPath)
+		// A configured endpoint points at a daemon this process did not
+		// start and must not try to. That is the whole point: one daemon on
+		// a network, many machines using it.
+		a.client = NewClientAt(paths, cfgPath, a.Settings().String("daemon.endpoint"))
 	}
 	return a.client
 }

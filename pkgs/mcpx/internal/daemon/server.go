@@ -33,6 +33,9 @@ type Server struct {
 	cfg    *config.Config
 	logger *log.Logger
 
+	// Address is the interface the TCP listener binds. Empty is loopback.
+	Address string
+
 	httpSrv  *http.Server
 	tcpLn    net.Listener
 	unixLn   net.Listener
@@ -111,7 +114,14 @@ func (s *Server) Listen(tcpPort int) error {
 		unixLn.Close()
 		return err
 	}
-	tcpLn, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(tcpPort))
+	// Loopback unless told otherwise. Binding wider is a deliberate act:
+	// the API is unauthenticated, so the network it is on is the access
+	// control, and that has to be somebody's decision rather than a default.
+	host := s.Address
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	tcpLn, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(tcpPort)))
 	if err != nil {
 		unixLn.Close()
 		return fmt.Errorf("listen tcp: %w", err)
