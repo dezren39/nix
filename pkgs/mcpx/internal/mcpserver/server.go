@@ -50,6 +50,29 @@ type Backend interface {
 	Prompts(ctx context.Context) ([]PromptRef, error)
 	ReadResource(ctx context.Context, uri string) (string, string, error)
 	GetPrompt(ctx context.Context, name string, args map[string]string) (string, error)
+	ResourceTemplates(ctx context.Context) ([]ResourceRef, error)
+}
+
+// Notifier is where the server hears about things worth pushing.
+//
+// Defined as an interface so the protocol package does not depend on the
+// daemon's event bus, and so a test can feed it directly.
+type Notifier interface {
+	// Listen delivers MCP notifications matching the filter until the
+	// context ends. method and params are ready to send.
+	Listen(ctx context.Context, f ListenFilter, send func(method string, params any))
+}
+
+// ListenFilter is what a client opted in to.
+//
+// Exactly the fields the 2026-07-28 SubscriptionFilter defines, and no
+// more: the specification says a server MUST NOT send notification types the
+// client did not request, so inventing extras here would be a violation.
+type ListenFilter struct {
+	ToolsListChanged      bool     `json:"toolsListChanged,omitempty"`
+	PromptsListChanged    bool     `json:"promptsListChanged,omitempty"`
+	ResourcesListChanged  bool     `json:"resourcesListChanged,omitempty"`
+	ResourceSubscriptions []string `json:"resourceSubscriptions,omitempty"`
 }
 
 // ResourceRef is one resource a server offers.
@@ -99,6 +122,20 @@ type Server struct {
 
 	mu        sync.Mutex
 	cancelled map[string]string
+
+	// Notify is where pushed notifications come from. Nil means mcpx never
+	// pushes, and declares so.
+	Notify Notifier
+
+	// legacySubs are URIs a legacy client subscribed to with
+	// resources/subscribe. Held here because the legacy mechanism is
+	// per-connection state, and the modern one is a filter on a stream.
+	legacySubs map[string]bool
+	// push, when set, sends a frame to this connection's client. Set by the
+	// transport, because only the transport knows how to reach it.
+	push func(method string, params any)
+	// listening cancels an active subscriptions/listen stream.
+	listening context.CancelFunc
 }
 
 // New builds a server.
@@ -354,15 +391,9 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 			// speaks an older revision of a compatible protocol is better
 			// served than refused.
 			"protocolVersion": version,
-			"capabilities": map[string]any{
-				"tools":       map[string]any{"listChanged": false},
-				"resources":   map[string]any{"subscribe": false, "listChanged": false},
-				"prompts":     map[string]any{"listChanged": false},
-				"completions": map[string]any{},
-				"logging":     map[string]any{},
-			},
-			"serverInfo":   map[string]any{"name": s.name, "version": s.version},
-			"instructions": Instructions,
+			"capabilities":    s.capabilities(),
+			"serverInfo":      map[string]any{"name": s.name, "version": s.version},
+			"instructions":    Instructions,
 		})
 
 	case "server/discover":
@@ -372,14 +403,8 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 		return reply(map[string]any{
 			"protocolVersions": Supported,
 			"serverInfo":       map[string]any{"name": s.name, "version": s.version},
-			"capabilities": map[string]any{
-				"tools":       map[string]any{"listChanged": false},
-				"resources":   map[string]any{"subscribe": false, "listChanged": false},
-				"prompts":     map[string]any{"listChanged": false},
-				"completions": map[string]any{},
-				"logging":     map[string]any{},
-			},
-			"instructions": Instructions,
+			"capabilities":     s.capabilities(),
+			"instructions":     Instructions,
 		})
 
 	case "notifications/initialized", "initialized":
@@ -412,6 +437,74 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 		// notifications/message of its own. Refusing would make a
 		// well-behaved client treat the whole connection as degraded.
 		return reply(map[string]any{})
+
+	case "resources/templates/list":
+		// mcpx consumed templates from upstream servers and never offered
+		// them onward, so a parameterised resource became invisible one hop
+		// down. Passed through now, namespaced like everything else.
+		if s.backend == nil {
+			return reply(map[string]any{"resourceTemplates": []any{}})
+		}
+		ts, err := s.backend.ResourceTemplates(ctx)
+		if err != nil {
+			return fail(codeInternal, err.Error())
+		}
+		if ts == nil {
+			ts = []ResourceRef{}
+		}
+		items, next := page(ts, req.Params, s.pageSize())
+		out := map[string]any{"resourceTemplates": items}
+		if next != "" {
+			out["nextCursor"] = next
+		}
+		return reply(out)
+
+	case "resources/subscribe", "resources/unsubscribe":
+		// The legacy mechanism: per-URI, per-connection. The modern revision
+		// replaced it with resourceSubscriptions on subscriptions/listen,
+		// which is handled below; both feed the same forwarding.
+		var p struct {
+			URI string `json:"uri"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil || p.URI == "" {
+			return fail(codeInvalidParams, "uri is required")
+		}
+		s.mu.Lock()
+		if s.legacySubs == nil {
+			s.legacySubs = map[string]bool{}
+		}
+		if req.Method == "resources/subscribe" {
+			s.legacySubs[p.URI] = true
+		} else {
+			delete(s.legacySubs, p.URI)
+		}
+		uris := make([]string, 0, len(s.legacySubs))
+		for u := range s.legacySubs {
+			uris = append(uris, u)
+		}
+		s.mu.Unlock()
+		s.restartListen(ctx, ListenFilter{ResourceSubscriptions: uris})
+		return reply(map[string]any{})
+
+	case "subscriptions/listen":
+		// A long-lived stream. On stdio its result arrives only when it
+		// ends, so the reply is withheld here and notifications flow in the
+		// meantime; the transport sends the terminating
+		// notifications/cancelled when the client closes it.
+		var p struct {
+			Notifications ListenFilter `json:"notifications"`
+		}
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return fail(codeInvalidParams, err.Error())
+		}
+		if s.Notify == nil {
+			return fail(codeMethodNotFound, "this mcpx pushes no notifications")
+		}
+		s.restartListen(ctx, p.Notifications)
+		s.push("notifications/subscriptions/acknowledged", map[string]any{
+			"subscriptionId": json.RawMessage(req.ID),
+		})
+		return nil
 
 	case "notifications/cancelled":
 		// A notification, so no reply. Recorded rather than ignored: a
@@ -728,7 +821,22 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 // ServeStdio runs the server over a pipe, which is how most MCP hosts start
 // one: spawn a process and talk newline-delimited JSON to it.
 func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) error {
-	enc := json.NewEncoder(out)
+	// One writer, guarded, because notifications now arrive from another
+	// goroutine and two frames interleaved mid-line is a corrupt stream the
+	// client cannot recover from.
+	var wmu sync.Mutex
+	rawEnc := json.NewEncoder(out)
+	enc := lockedEncoder{mu: &wmu, enc: rawEnc}
+	s.SetPush(func(method string, params any) {
+		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+	})
+	defer func() {
+		s.mu.Lock()
+		if s.listening != nil {
+			s.listening()
+		}
+		s.mu.Unlock()
+	}()
 	sc := bufio.NewScanner(in)
 	// Tool results carry whole documents, so the default 64KB line limit is
 	// far too small and the failure it produces -- a truncated request --
@@ -870,6 +978,53 @@ func ResultOf(resp *response) (string, bool, error) {
 	return strings.Join(parts, "\n"), r.IsError, nil
 }
 
+// capabilities declares what this server can actually do.
+//
+// Push-dependent capabilities are declared only when something can push.
+// Claiming listChanged or subscribe without a notifier behind them invites a
+// client to wait for notifications that will never come.
+func (s *Server) capabilities() map[string]any {
+	push := s.Notify != nil
+	return map[string]any{
+		"tools":       map[string]any{"listChanged": push},
+		"resources":   map[string]any{"subscribe": push, "listChanged": push},
+		"prompts":     map[string]any{"listChanged": push},
+		"completions": map[string]any{},
+		"logging":     map[string]any{},
+	}
+}
+
+// restartListen replaces the active notification stream with one for f.
+//
+// One stream per connection. The specification allows a client to reopen
+// with a different filter, and the simplest faithful implementation is to
+// stop the old and start the new.
+func (s *Server) restartListen(ctx context.Context, f ListenFilter) {
+	s.mu.Lock()
+	if s.listening != nil {
+		s.listening()
+		s.listening = nil
+	}
+	push := s.push
+	notify := s.Notify
+	if push == nil || notify == nil {
+		s.mu.Unlock()
+		return
+	}
+	lctx, cancel := context.WithCancel(context.Background())
+	s.listening = cancel
+	s.mu.Unlock()
+
+	go notify.Listen(lctx, f, push)
+}
+
+// SetPush installs how to reach this connection's client.
+func (s *Server) SetPush(fn func(method string, params any)) {
+	s.mu.Lock()
+	s.push = fn
+	s.mu.Unlock()
+}
+
 // pageSize is how many items one list reply carries.
 func (s *Server) pageSize() int {
 	if s.PageSize > 0 {
@@ -1003,4 +1158,15 @@ func namespaceOf(tool string) string {
 		return tool[:i]
 	}
 	return ""
+}
+
+type lockedEncoder struct {
+	mu  *sync.Mutex
+	enc *json.Encoder
+}
+
+func (l lockedEncoder) Encode(v any) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.enc.Encode(v)
 }

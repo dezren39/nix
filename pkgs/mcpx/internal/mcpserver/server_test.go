@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
@@ -68,6 +70,11 @@ func (f *fakeBackend) ReadResource(_ context.Context, uri string) (string, strin
 func (f *fakeBackend) GetPrompt(_ context.Context, name string, _ map[string]string) (string, error) {
 	f.hit("getPrompt")
 	return "rendered " + name, nil
+}
+
+func (f *fakeBackend) ResourceTemplates(context.Context) ([]mcpserver.ResourceRef, error) {
+	f.hit("templates")
+	return []mcpserver.ResourceRef{{URI: "demo://item/{id}", Name: "item"}}, nil
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
@@ -556,5 +563,122 @@ func TestCapabilitiesMatchWhatIsActuallyAnswered(t *testing.T) {
 	if _, declared := doc.Result.Capabilities["sampling"]; declared {
 		t.Errorf("sampling is not implemented and must not be declared: %v",
 			doc.Result.Capabilities)
+	}
+}
+
+// fakeNotifier lets a test push notifications at will.
+type fakeNotifier struct {
+	got  chan mcpserver.ListenFilter
+	fire chan [2]any
+}
+
+func (f *fakeNotifier) Listen(ctx context.Context, lf mcpserver.ListenFilter, send func(string, any)) {
+	f.got <- lf
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case n := <-f.fire:
+			send(n[0].(string), n[1])
+		}
+	}
+}
+
+func TestSubscriptionsListenStreamsOnlyWhatWasRequested(t *testing.T) {
+	// The specification says a server MUST NOT send notification types the
+	// client did not request. The filter reaching the notifier is exactly
+	// what the client asked for.
+	n := &fakeNotifier{got: make(chan mcpserver.ListenFilter, 1), fire: make(chan [2]any, 4)}
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	s.Notify = n
+
+	var out strings.Builder
+	var mu sync.Mutex
+	s.SetPush(func(method string, params any) {
+		mu.Lock()
+		out.WriteString(method + "\n")
+		mu.Unlock()
+	})
+
+	resp := s.Handle(context.Background(), mcpserver.Request(7, "subscriptions/listen",
+		map[string]any{"notifications": map[string]any{"toolsListChanged": true}}))
+	if resp != nil {
+		t.Errorf("a listen stream is long-lived; its result is withheld: %+v", resp)
+	}
+
+	select {
+	case lf := <-n.got:
+		if !lf.ToolsListChanged || lf.PromptsListChanged {
+			t.Errorf("the filter should be exactly what was asked: %+v", lf)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the notifier was never started")
+	}
+
+	n.fire <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := out.String()
+		mu.Unlock()
+		if strings.Contains(got, "notifications/tools/list_changed") {
+			if !strings.Contains(got, "notifications/subscriptions/acknowledged") {
+				t.Errorf("the stream should be acknowledged first: %s", got)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("the notification never arrived: %s", out.String())
+}
+
+func TestPushCapabilitiesAreDeclaredOnlyWhenSomethingCanPush(t *testing.T) {
+	// Claiming listChanged without a notifier invites a client to wait for
+	// notifications that will never come.
+	quiet := mcpserver.New(newBackend(), "mcpx", "test")
+	b, _ := json.Marshal(quiet.Handle(context.Background(),
+		mcpserver.Request(1, "initialize", map[string]any{"protocolVersion": "2025-11-25"})))
+	if strings.Contains(string(b), `"listChanged":true`) {
+		t.Errorf("nothing can push, so nothing should be promised: %s", b)
+	}
+
+	loud := mcpserver.New(newBackend(), "mcpx", "test")
+	loud.Notify = &fakeNotifier{got: make(chan mcpserver.ListenFilter, 1)}
+	b, _ = json.Marshal(loud.Handle(context.Background(),
+		mcpserver.Request(1, "initialize", map[string]any{"protocolVersion": "2025-11-25"})))
+	if !strings.Contains(string(b), `"subscribe":true`) {
+		t.Errorf("with a notifier, subscription should be declared: %s", b)
+	}
+}
+
+func TestLegacyResourceSubscribeIsAccepted(t *testing.T) {
+	n := &fakeNotifier{got: make(chan mcpserver.ListenFilter, 1), fire: make(chan [2]any, 1)}
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	s.Notify = n
+	s.SetPush(func(string, any) {})
+
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "resources/subscribe",
+		map[string]any{"uri": "demo://a"}))
+	if msg := errOf(t, resp); msg != "" {
+		t.Fatalf("got %s", msg)
+	}
+	select {
+	case lf := <-n.got:
+		if len(lf.ResourceSubscriptions) != 1 || lf.ResourceSubscriptions[0] != "demo://a" {
+			t.Errorf("the URI should reach the stream: %+v", lf)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscribing should have started a stream")
+	}
+}
+
+func TestResourceTemplatesAreServedRatherThanSwallowed(t *testing.T) {
+	// mcpx consumed templates and never offered them onward, so a templated
+	// resource became invisible one hop down.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	b, _ := json.Marshal(s.Handle(context.Background(),
+		mcpserver.Request(1, "resources/templates/list", nil)))
+	if !strings.Contains(string(b), "demo://item/{id}") {
+		t.Errorf("got %s", b)
 	}
 }

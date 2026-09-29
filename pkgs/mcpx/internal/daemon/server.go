@@ -19,6 +19,7 @@ import (
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/pool"
 )
 
@@ -35,6 +36,9 @@ type Server struct {
 
 	// Address is the interface the TCP listener binds. Empty is loopback.
 	Address string
+
+	// Events carries everything the daemon notices, to every subscriber.
+	Events *events.Bus
 
 	httpSrv  *http.Server
 	tcpLn    net.Listener
@@ -89,7 +93,17 @@ func NewServer(opts Options) (*Server, error) {
 		logger:   opts.Logger,
 		version:  opts.Version,
 		idleExit: opts.IdleExit,
+		Events:   events.New(defaults.EventHistory),
 	}
+	// The broker is optional: a daemon whose state directory cannot hold a
+	// database still serves tools, and answers every server question with
+	// cancel rather than hanging.
+	broker, berr := OpenBroker(opts.Paths)
+	if berr != nil {
+		opts.Logger.Printf("elicitation disabled: %v", berr)
+		broker = nil
+	}
+	reg.InstallHooks(srv.Events, broker, nil)
 	srv.lastReq.Store(time.Now().UnixNano())
 	return srv, nil
 }
@@ -275,6 +289,18 @@ func (s *Server) WarmAsync() {
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
+	// Server-sent events, because they are plain HTTP: they go through every
+	// proxy that HTTP goes through, reconnect themselves in a browser, and
+	// need nothing but a GET to consume. A WebSocket would buy
+	// bidirectionality nobody needs here -- answers go back as ordinary
+	// POSTs -- at the cost of an upgrade that half of all middleboxes
+	// mishandle.
+	mux.HandleFunc("GET /v1/events", s.handleEvents)
+	mux.HandleFunc("GET /v1/resource-templates", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"resourceTemplates": s.reg.ResourceTemplates(splitCSV(r.URL.Query().Get("ns"))),
+		})
+	})
 	mux.HandleFunc("GET /v1/prompts", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"prompts": s.reg.Prompts(splitCSV(r.URL.Query().Get("ns"))),
@@ -586,4 +612,86 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// handleEvents streams the event bus as server-sent events.
+//
+// Query parameters select what to hear:
+//
+//	kinds=elicit,server   prefixes; empty means everything
+//	session=s1            one session's events only
+//	server=github         one server's
+//	uri=file:///a          resource updates for these URIs
+//	since=42              replay everything after sequence 42
+//
+// Last-Event-ID is honoured as well as since, because that is the header a
+// browser's EventSource sends on reconnect -- so a reconnecting browser
+// resumes without any code knowing it disconnected.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	q := r.URL.Query()
+	f := events.Filter{
+		Kinds:   splitCSV(q.Get("kinds")),
+		Session: q.Get("session"),
+		Server:  q.Get("server"),
+		URIs:    splitCSV(q.Get("uri")),
+	}
+	since, _ := strconv.ParseUint(firstNonEmptyStr(r.Header.Get("Last-Event-ID"), q.Get("since")), 10, 64)
+
+	sub, gap := s.Events.Subscribe(f, since)
+	defer sub.Close()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Nginx buffers event streams by default, which turns a live stream
+	// into one that arrives all at once when the connection closes.
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprintf(w, "retry: 2000\n")
+	if gap {
+		// Said in-band, so a subscriber can resynchronise instead of
+		// trusting a stream with a hole in it.
+		fmt.Fprintf(w, "event: gap\ndata: {\"since\":%d,\"latest\":%d}\n\n", since, s.Events.Latest())
+	}
+	flusher.Flush()
+
+	// A comment every so often keeps idle proxies from deciding the
+	// connection is dead. Fifteen seconds sits under the usual sixty.
+	ping := time.NewTicker(15 * time.Second)
+	defer ping.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ping.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
+		case e, open := <-sub.C:
+			if !open {
+				return
+			}
+			b, err := json.Marshal(e)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", e.Seq, e.Kind, b)
+			flusher.Flush()
+		}
+	}
+}
+
+func firstNonEmptyStr(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

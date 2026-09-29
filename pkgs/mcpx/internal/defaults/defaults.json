@@ -48,7 +48,9 @@
     "logQueryLimit": 100,
     "restartBackoffStep": "2s",
     "restartBackoffMax": "30s",
-    "registryTimeout": "30s"
+    "registryTimeout": "30s",
+    "eventHistory": 1024,
+    "streamReconnect": "2s"
   },
   "elicit": {
     "ttl": "120s",

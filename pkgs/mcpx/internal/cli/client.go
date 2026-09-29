@@ -2,17 +2,21 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/events"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -503,4 +507,89 @@ func (c *Client) ReadResource(ctx context.Context, server, uri string, cc config
 		return nil, errors.New(out.Error)
 	}
 	return out.Result, nil
+}
+
+// ResourceTemplates lists every templated resource.
+func (c *Client) ResourceTemplates(ctx context.Context) ([]daemon.ResourceInfo, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/resource-templates", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		ResourceTemplates []daemon.ResourceInfo `json:"resourceTemplates"`
+	}
+	return out.ResourceTemplates, json.Unmarshal(b, &out)
+}
+
+// Stream reads the daemon's event stream until the context ends, calling fn
+// for each event.
+//
+// Server-sent events over the same connection everything else uses, so a
+// remote daemon streams exactly as a local one does. Resumes from the last
+// sequence seen when the connection drops, which is what makes a flaky
+// network lossless rather than merely reconnecting.
+func (c *Client) Stream(ctx context.Context, f events.Filter, fn func(events.Event)) error {
+	var last uint64
+	for ctx.Err() == nil {
+		q := url.Values{}
+		if len(f.Kinds) > 0 {
+			q.Set("kinds", strings.Join(f.Kinds, ","))
+		}
+		if f.Session != "" {
+			q.Set("session", f.Session)
+		}
+		if f.Server != "" {
+			q.Set("server", f.Server)
+		}
+		if len(f.URIs) > 0 {
+			q.Set("uri", strings.Join(f.URIs, ","))
+		}
+		if last > 0 {
+			q.Set("since", strconv.FormatUint(last, 10))
+		}
+		base := c.endpoint
+		if base == "" {
+			base = "http://mcpx"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/events?"+q.Encode(), nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		// No timeout on a stream; the context bounds it instead. The
+		// client's ordinary timeout would cut a healthy stream off.
+		streamClient := &http.Client{Transport: c.hc.Transport}
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(defaults.StreamReconnect):
+			}
+			continue
+		}
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+		var data strings.Builder
+		for sc.Scan() {
+			line := sc.Text()
+			switch {
+			case strings.HasPrefix(line, "data: "):
+				data.WriteString(strings.TrimPrefix(line, "data: "))
+			case line == "":
+				if data.Len() > 0 {
+					var e events.Event
+					if json.Unmarshal([]byte(data.String()), &e) == nil && e.Kind != "" {
+						if e.Seq > last {
+							last = e.Seq
+						}
+						fn(e)
+					}
+					data.Reset()
+				}
+			}
+		}
+		resp.Body.Close()
+	}
+	return ctx.Err()
 }

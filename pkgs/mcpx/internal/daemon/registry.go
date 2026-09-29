@@ -12,6 +12,8 @@ import (
 
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/elicit"
+	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/pool"
 )
@@ -22,6 +24,12 @@ import (
 // it never blocks on a child process and never pays a tools/list round trip.
 // Child processes start on first actual tool call.
 type Registry struct {
+	// Events receives what the registry notices. Nil is permitted, so a
+	// registry built for a test does not need a bus.
+	Events *events.Bus
+	// broker holds questions servers ask back.
+	broker *elicit.Broker
+
 	cfg   *config.Config
 	paths Paths
 	hash  string
@@ -640,6 +648,31 @@ func (r *Registry) Resources(namespaces []string) []ResourceInfo {
 		}
 		return out[i].URI < out[j].URI
 	})
+	return out
+}
+
+// ResourceTemplates aggregates templated resources across servers.
+func (r *Registry) ResourceTemplates(namespaces []string) []ResourceInfo {
+	want := map[string]bool{}
+	for _, n := range namespaces {
+		want[n] = true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []ResourceInfo
+	for _, name := range r.order {
+		p := r.pools[name]
+		view := r.views[name]
+		if len(want) > 0 && !want[view.Namespace] && !want[name] {
+			continue
+		}
+		for _, t := range p.CachedTemplates() {
+			out = append(out, ResourceInfo{
+				Namespace: view.Namespace, Server: name, URI: t.URITemplate,
+				Name: t.Name, Description: t.Description, MimeType: t.MimeType,
+			})
+		}
+	}
 	return out
 }
 
