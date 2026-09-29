@@ -1,0 +1,79 @@
+name: mcpx
+
+# Builds mcpx on every change to it, and repairs the one thing a dependency
+# bot cannot: the Nix vendorHash.
+#
+# Renovate updates go.mod and go.sum correctly. It has no way to know the hash
+# of the vendored module tree, so every Go dependency bump it opens leaves the
+# Nix build broken -- and without a build here, that merged silently and was
+# only found by the next person to rebuild. This job computes the new hash,
+# commits it to the Renovate branch, and fails any PR that still does not
+# build.
+
+on:
+  pull_request:
+    paths:
+      - "pkgs/mcpx/**"
+      - "flake.nix"
+      - "flake.lock"
+  push:
+    branches: [main]
+    paths:
+      - "pkgs/mcpx/**"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The Renovate branch itself, so a fixed hash can be pushed back.
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: pkgs/mcpx/go.mod
+
+      - name: Unit and end-to-end tests
+        working-directory: pkgs/mcpx
+        run: go test ./... -count=1
+
+      - name: Repair vendorHash on a dependency bump
+        # Only on bot branches. A human changing dependencies should see the
+        # failure and fix it deliberately rather than have it rewritten under
+        # them.
+        if: >-
+          github.event_name == 'pull_request' &&
+          (startsWith(github.head_ref, 'renovate/') || startsWith(github.head_ref, 'dependabot/'))
+        run: |
+          set -euo pipefail
+          file=pkgs/mcpx/package.nix
+          if nix build .#packages.x86_64-linux.mcpx --no-link 2>/dev/null; then
+            echo "builds as-is; nothing to repair"
+            exit 0
+          fi
+          # Blank the hash so Nix reports the one it computed.
+          sed -i 's|vendorHash = "sha256-[^"]*"|vendorHash = ""|' "$file"
+          got=$(nix build .#packages.x86_64-linux.mcpx --no-link 2>&1 \
+            | sed -n 's/.*got: *\(sha256-[A-Za-z0-9+/=]*\).*/\1/p' | head -1)
+          if [ -z "$got" ]; then
+            echo "could not determine the new vendorHash; the build fails for another reason"
+            git checkout -- "$file"
+            exit 1
+          fi
+          sed -i "s|vendorHash = \"\"|vendorHash = \"$got\"|" "$file"
+          git config user.name "mcpx-hash-bot"
+          git config user.email "mcpx-hash-bot@users.noreply.github.com"
+          git add "$file"
+          git commit -m "mcpx: update vendorHash for the dependency bump"
+          git push
+
+      - name: Nix build
+        run: nix build .#packages.x86_64-linux.mcpx --print-build-logs
