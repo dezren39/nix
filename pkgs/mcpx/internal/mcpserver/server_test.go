@@ -754,3 +754,23 @@ func TestTasksAreDeclaredForBothEras(t *testing.T) {
 		}
 	}
 }
+
+func TestModernResultsSayTheyAreComplete(t *testing.T) {
+	// 2026-07-28 makes resultType mandatory on every result; it is how a
+	// client tells a finished result from an input_required one. mcpx sent
+	// none, so a strict modern client could not parse any of its replies.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	modern := map[string]any{"_meta": map[string]any{
+		"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}
+	for i, method := range []string{"server/discover", "tools/list", "prompts/list"} {
+		b, _ := json.Marshal(s.Handle(context.Background(), mcpserver.Request(i+1, method, modern)))
+		if !strings.Contains(string(b), `"resultType":"complete"`) {
+			t.Errorf("%s: no resultType: %s", method, b)
+		}
+	}
+	// A legacy request is answered exactly as before.
+	b, _ := json.Marshal(s.Handle(context.Background(), mcpserver.Request(9, "tools/list", map[string]any{})))
+	if strings.Contains(string(b), "resultType") {
+		t.Errorf("a legacy result should not grow a field it never asked for: %s", b)
+	}
+}

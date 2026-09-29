@@ -1338,7 +1338,10 @@ becomes invisible one hop down.
 **`sampling/createMessage`.** A server asking the client to run a model
 completion. mcpx is not a model host, so the honest implementation is a
 pass-through to whatever is driving it -- the same shape elicitation uses.
-Worth building when something asks.
+Worth building when something asks. *Shipped, then found unreachable: `sampling` was
+never declared, because the handler was installed after the handshake that
+declares capabilities. Fixed 2026-09-29, with roots, which the same ordering
+had broken.*
 
 **`notifications/elicitation/complete`** (`2025-11-25`+). A url-mode
 elicitation finishing out of band. Without it, a server that sends somebody
