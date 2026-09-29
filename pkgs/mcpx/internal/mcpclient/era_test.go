@@ -33,20 +33,31 @@ func (f *fakeTransport) Send(_ context.Context, msg []byte) error {
 		Method string          `json:"method"`
 	}
 	_ = json.Unmarshal(msg, &req)
+	// Only requests get answered. A frame with no method is the client
+	// replying to something we asked, and treating that as a request meant
+	// answering it with an error -- onto a channel the test had already
+	// closed, which panicked whenever the reply lost the race with Close.
+	if req.Method == "" {
+		return nil
+	}
 	f.seen = append(f.seen, req.Method)
 
+	send := func(frame map[string]any) {
+		b, _ := json.Marshal(frame)
+		if !f.closed {
+			f.in <- b
+		}
+	}
 	reply := func(result any) {
-		b, _ := json.Marshal(map[string]any{
+		send(map[string]any{
 			"jsonrpc": "2.0", "id": json.RawMessage(req.ID), "result": result,
 		})
-		f.in <- b
 	}
 	fail := func(code int, message string, data any) {
-		b, _ := json.Marshal(map[string]any{
+		send(map[string]any{
 			"jsonrpc": "2.0", "id": json.RawMessage(req.ID),
 			"error": map[string]any{"code": code, "message": message, "data": data},
 		})
-		f.in <- b
 	}
 
 	switch req.Method {

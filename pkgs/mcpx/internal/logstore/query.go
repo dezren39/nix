@@ -111,7 +111,11 @@ func (q Query) where() (string, []any, error) {
 		add(`trace = ?`, q.Trace)
 	}
 	if q.Grep != "" {
-		add(`(ifnull(msg,'') REGEXP ? OR ifnull(attrs,'') REGEXP ?)`, q.Grep, q.Grep)
+		// event too. It is promoted out of attrs into its own column, so
+		// matching only msg and attrs meant `--grep server.start` found
+		// nothing while `--event server.start` found everything.
+		add(`(ifnull(msg,'') REGEXP ? OR ifnull(attrs,'') REGEXP ? OR ifnull(event,'') REGEXP ?)`,
+			q.Grep, q.Grep, q.Grep)
 	}
 	if q.AfterID > 0 {
 		add(`id > ?`, q.AfterID)

@@ -363,6 +363,26 @@ func TestGrepMatchesTheMessageAndTheAttributes(t *testing.T) {
 	}
 }
 
+func TestGrepAlsoMatchesTheEventName(t *testing.T) {
+	// event is promoted out of attrs into its own column, so a grep over
+	// msg and attrs alone could never match it: `--grep server.start` found
+	// nothing while `--event server.start` found everything.
+	dir := t.TempDir()
+	writeLog(t, dir, "mcpx-2026-09-27.jsonl",
+		line(base, "info", "a server started", map[string]any{"event": "server.start"}),
+		line(base.Add(time.Second), "info", "unrelated", nil),
+	)
+	st := open(t, dir)
+	ingest(t, st)
+	recs, err := st.Records(logstore.Query{Grep: `server\.start`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("grep on an event name matched %d records, want 1", len(recs))
+	}
+}
+
 func TestTheTimeWindowExcludesRecordsOutsideIt(t *testing.T) {
 	dir := t.TempDir()
 	writeLog(t, dir, "mcpx-2026-09-27.jsonl",
