@@ -80,6 +80,8 @@ type Client struct {
 	Era Era
 	// Negotiated is the version actually in use.
 	Negotiated string
+	// onElicit answers server-initiated requests.
+	onElicit ElicitHandler
 	// Instructions is the free-text guidance a server returns from
 	// initialize. Servers use it to explain conventions their schemas cannot:
 	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
@@ -313,6 +315,24 @@ func (c *Client) recvLoop() {
 			c.fail(err)
 			return
 		}
+		// A server-initiated request has an id AND a method. Matching only
+		// on the id -- which is what this did -- made such a frame look like
+		// a reply to nothing and dropped it, so the server waited until the
+		// call timed out and mcpx reported a timeout. True, useless, and
+		// pointing at the wrong thing.
+		var probe struct {
+			ID     *int64          `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
+			if probe.ID != nil {
+				c.handleServerRequest(*probe.ID, probe.Method, probe.Params)
+			}
+			// A method with no id is a notification; mcpx subscribes to none.
+			continue
+		}
+
 		var resp rpcResponse
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			continue // ignore malformed frames rather than killing the session
@@ -330,6 +350,66 @@ func (c *Client) recvLoop() {
 			ch <- &resp
 		}
 	}
+}
+
+// OnElicit is called when a server asks a question. Nil means mcpx answers
+// on the server's behalf, which it must do rather than ignore: a server that
+// asks into silence waits until the call times out.
+type ElicitHandler func(ctx context.Context, method string, params json.RawMessage) (any, error)
+
+// SetElicitHandler installs the handler for server-initiated requests.
+func (c *Client) SetElicitHandler(h ElicitHandler) {
+	c.mu.Lock()
+	c.onElicit = h
+	c.mu.Unlock()
+}
+
+// handleServerRequest answers a request the server sent to us.
+//
+// Always answers. The alternative -- dropping what we do not understand --
+// is what the old code did by accident, and it is indistinguishable from a
+// hung server.
+func (c *Client) handleServerRequest(id int64, method string, params json.RawMessage) {
+	c.mu.Lock()
+	h := c.onElicit
+	c.mu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		var result any
+		var rpcErr *rpcError
+
+		switch {
+		case h != nil:
+			out, err := h(ctx, method, params)
+			if err != nil {
+				rpcErr = &rpcError{Code: -32603, Message: err.Error()}
+			} else {
+				result = out
+			}
+		case method == "elicitation/create":
+			// Cancel, not decline. Nobody was asked, so nobody said no.
+			result = map[string]any{"action": "cancel"}
+		default:
+			rpcErr = &rpcError{Code: -32601, Message: "mcpx does not implement " + method}
+		}
+
+		reply := map[string]any{"jsonrpc": "2.0", "id": id}
+		if rpcErr != nil {
+			reply["error"] = rpcErr
+		} else {
+			reply["result"] = result
+		}
+		b, err := json.Marshal(reply)
+		if err != nil {
+			return
+		}
+		sctx, scancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer scancel()
+		_ = c.t.Send(sctx, b)
+	}()
 }
 
 func (c *Client) fail(err error) {

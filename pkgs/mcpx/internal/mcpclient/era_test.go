@@ -17,6 +17,7 @@ type fakeTransport struct {
 	in     chan []byte
 	seen   []string
 	closed bool
+	onSend func([]byte)
 }
 
 func newFake(era string) *fakeTransport {
@@ -24,6 +25,9 @@ func newFake(era string) *fakeTransport {
 }
 
 func (f *fakeTransport) Send(_ context.Context, msg []byte) error {
+	if f.onSend != nil {
+		f.onSend(msg)
+	}
 	var req struct {
 		ID     json.RawMessage `json:"id"`
 		Method string          `json:"method"`
@@ -189,5 +193,86 @@ func TestForcingAnEraSkipsTheFallback(t *testing.T) {
 		if m == "initialize" {
 			t.Errorf("force should mean force: %v", f.seen)
 		}
+	}
+}
+
+// TestAServerQuestionIsAnsweredRatherThanDropped is the regression for a live
+// bug: recvLoop matched inbound frames on id alone, so a server-initiated
+// request looked like a reply to nothing and was discarded. The server then
+// waited until the call timed out, and mcpx reported a timeout -- true,
+// useless, and pointing at the wrong thing.
+func TestAServerQuestionIsAnsweredRatherThanDropped(t *testing.T) {
+	f := newFake("legacy")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := mcpclient.NewWithPreference(ctx, f, "mcpx", "test", mcpclient.PreferLegacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	answered := make(chan json.RawMessage, 1)
+	f.onSend = func(msg []byte) {
+		var m struct {
+			Result json.RawMessage `json:"result"`
+			ID     *int64          `json:"id"`
+		}
+		if json.Unmarshal(msg, &m) == nil && m.Result != nil && m.ID != nil && *m.ID == 99 {
+			answered <- m.Result
+		}
+	}
+
+	c.SetElicitHandler(func(_ context.Context, method string, _ json.RawMessage) (any, error) {
+		if method != "elicitation/create" {
+			return nil, nil
+		}
+		return map[string]any{"action": "accept", "content": map[string]any{"repo": "me/thing"}}, nil
+	})
+
+	// The server asks.
+	f.in <- []byte(`{"jsonrpc":"2.0","id":99,"method":"elicitation/create",
+		"params":{"message":"which repo?","requestedSchema":{"type":"object"}}}`)
+
+	select {
+	case got := <-answered:
+		if !strings.Contains(string(got), "me/thing") {
+			t.Errorf("the handler's answer should have been sent: %s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server's question was never answered")
+	}
+}
+
+func TestWithNoHandlerAServerQuestionIsCancelledNotIgnored(t *testing.T) {
+	// Silence is indistinguishable from a hung server. Cancel is honest:
+	// nobody was asked, so nobody chose.
+	f := newFake("legacy")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := mcpclient.NewWithPreference(ctx, f, "mcpx", "test", mcpclient.PreferLegacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	answered := make(chan json.RawMessage, 1)
+	f.onSend = func(msg []byte) {
+		var m struct {
+			Result json.RawMessage `json:"result"`
+			ID     *int64          `json:"id"`
+		}
+		if json.Unmarshal(msg, &m) == nil && m.Result != nil && m.ID != nil && *m.ID == 7 {
+			answered <- m.Result
+		}
+	}
+	f.in <- []byte(`{"jsonrpc":"2.0","id":7,"method":"elicitation/create","params":{}}`)
+
+	select {
+	case got := <-answered:
+		if !strings.Contains(string(got), "cancel") {
+			t.Errorf("expected a cancel, got %s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing was sent back")
 	}
 }

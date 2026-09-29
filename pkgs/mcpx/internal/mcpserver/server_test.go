@@ -87,7 +87,7 @@ func call(t *testing.T, s *mcpserver.Server, name string, args any) (string, boo
 func TestInitializeReportsWhatTheServerIs(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
-		map[string]any{"protocolVersion": "2024-11-05"}))
+		map[string]any{"protocolVersion": "2025-06-18"}))
 	b, _ := json.Marshal(resp)
 	var doc struct {
 		Result struct {
@@ -101,9 +101,12 @@ func TestInitializeReportsWhatTheServerIs(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
-	// A client speaking an older revision is better served than refused.
-	if doc.Result.ProtocolVersion != "2024-11-05" {
-		t.Errorf("the client's version should be echoed: %q", doc.Result.ProtocolVersion)
+	// An unsupported version is refused with the list that would work, not
+	// agreed to. Echoing it was the bug: a client asking for something mcpx
+	// cannot serve was told yes.
+	// A supported legacy version is agreed to as asked.
+	if doc.Result.ProtocolVersion != "2025-06-18" {
+		t.Errorf("a supported version should be agreed: %q", doc.Result.ProtocolVersion)
 	}
 	if doc.Result.ServerInfo.Name != "mcpx" {
 		t.Errorf("got %q", doc.Result.ServerInfo.Name)
@@ -321,5 +324,88 @@ func TestCapabilitiesMatchWhatIsAnswered(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("%s should be advertised: %s", want, b)
 		}
+	}
+}
+
+func TestAnUnsupportedVersionIsRefusedWithTheListThatWouldWork(t *testing.T) {
+	// Echoing whatever was asked for was the bug: a client requesting a
+	// version mcpx cannot serve was told yes, and discovered otherwise only
+	// when a method was missing.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
+		map[string]any{"protocolVersion": "1999-01-01"}))
+	b, _ := json.Marshal(resp)
+	if !strings.Contains(string(b), "-32022") {
+		t.Errorf("expected UnsupportedProtocolVersionError: %s", b)
+	}
+	if !strings.Contains(string(b), "2025-11-25") {
+		t.Errorf("the supported list is a client's only way forward: %s", b)
+	}
+}
+
+func TestAModernVersionCannotBeAgreedOverInitialize(t *testing.T) {
+	// A client sending initialize is legacy by definition; the modern
+	// revisions have no handshake. Agreeing would promise a protocol neither
+	// side is speaking.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
+		map[string]any{"protocolVersion": "2026-07-28"}))
+	b, _ := json.Marshal(resp)
+	if !strings.Contains(string(b), "-32022") {
+		t.Errorf("expected a refusal: %s", b)
+	}
+	// Checked against the supported list rather than the whole body, which
+	// also echoes what was requested.
+	var doc struct {
+		Error struct {
+			Data struct {
+				Supported []string `json:"supported"`
+			} `json:"data"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range doc.Error.Data.Supported {
+		if v == "2026-07-28" {
+			t.Errorf("a modern version must not be offered as a legacy option: %v",
+				doc.Error.Data.Supported)
+		}
+	}
+	if len(doc.Error.Data.Supported) == 0 {
+		t.Error("the legacy options should still be listed")
+	}
+}
+
+func TestServerDiscoverAnswersForModernClients(t *testing.T) {
+	// Mandatory in the modern revisions, and the probe a dual-era client
+	// uses to decide which era it is talking to.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "server/discover", nil))
+	b, _ := json.Marshal(resp)
+	for _, want := range []string{"protocolVersions", "2026-07-28", "capabilities"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("%q missing: %s", want, b)
+		}
+	}
+}
+
+func TestAPerRequestVersionIsHonouredAndChecked(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+
+	ok := s.Handle(context.Background(), mcpserver.Request(1, "tools/list",
+		map[string]any{"_meta": map[string]any{
+			"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}))
+	b, _ := json.Marshal(ok)
+	if !strings.Contains(string(b), "mcpx_exec") {
+		t.Errorf("a modern request should be served without a handshake: %s", b)
+	}
+
+	bad := s.Handle(context.Background(), mcpserver.Request(2, "tools/list",
+		map[string]any{"_meta": map[string]any{
+			"io.modelcontextprotocol/protocolVersion": "1999-01-01"}}))
+	b, _ = json.Marshal(bad)
+	if !strings.Contains(string(b), "-32022") {
+		t.Errorf("an unsupported per-request version should be refused: %s", b)
 	}
 }
