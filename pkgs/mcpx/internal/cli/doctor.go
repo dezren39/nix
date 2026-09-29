@@ -156,9 +156,28 @@ func (a *App) CmdDoctor(ctx context.Context, args []string) error {
 		}
 	}
 
-	// The daemon.
-	dctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// The daemon, and every way of reaching one. Which rung answered is the
+	// thing somebody actually wants to know when a command is slow or is
+	// talking to the wrong machine.
+	dctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	_, ladder, lerr := a.Connect(dctx, ConnectOptions{
+		Endpoint:   a.Settings().String("daemon.endpoint"),
+		AllowSpawn: a.Settings().Bool("daemon.autostart"),
+	})
+	if lerr == nil {
+		add(check{"connection", "ok", "reached over " + ladder.Chosen, ""})
+	} else {
+		add(check{"connection", "fail", strings.TrimSpace(ladder.Describe()),
+			"run `mcpx daemon` in the foreground to see why it will not start"})
+	}
+	for _, at := range ladder.Attempts {
+		if at.How == "sibling-socket" && at.Detail != "" {
+			add(check{"other daemons", "warn", at.Detail,
+				"each configuration gets its own; this is usually fine"})
+		}
+	}
+
 	c, derr := a.ensure(dctx)
 	if derr != nil {
 		add(check{"daemon", "fail", derr.Error(),

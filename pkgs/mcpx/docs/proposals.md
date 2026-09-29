@@ -1313,6 +1313,53 @@ because matching the original includes matching its failures.
 
 2026-09-28T02:00:00-05:00
 
+## Protocol methods still missing
+
+```
+status:  audited 2026-09-29, method by method against all three schemas
+```
+
+An earlier audit assembled a feature list from the specification's index page
+and probed a few URLs. That was not good enough: doing it properly -- diffing
+every `method:` literal in `schema.ts` for `2025-06-18`, `2025-11-25` and
+`2026-07-28` against what mcpx sends and serves -- found more.
+
+Still missing, in rough order of what would be noticed:
+
+**`resources/subscribe` / `unsubscribe` / `notifications/resources/updated`.**
+A client watching a resource for changes. Present in every revision. mcpx
+declares `subscribe: false`, so it is honest, but a server publishing live
+data cannot tell mcpx when it changes.
+
+**`resources/templates/list` when serving.** mcpx *consumes* templates from
+upstream servers and does not offer them onward, so a templated resource
+becomes invisible one hop down.
+
+**`sampling/createMessage`.** A server asking the client to run a model
+completion. mcpx is not a model host, so the honest implementation is a
+pass-through to whatever is driving it -- the same shape elicitation uses.
+Worth building when something asks.
+
+**`notifications/elicitation/complete`** (`2025-11-25`+). A url-mode
+elicitation finishing out of band. Without it, a server that sends somebody
+to a browser has no way to say the flow completed, and the caller waits for
+the TTL.
+
+**`subscriptions/listen` and `notifications/subscriptions/acknowledged`**
+(`2026-07-28`). The modern revisions generalised subscriptions into one
+mechanism. This is also the answer to "can a client subscribe to the
+daemon", which mcpx currently has no way to do at all.
+
+**`tasks/*`** (`2025-11-25` core, an extension in `2026-07-28`). Long-running
+work with polling and durable handles. An extension now, so optional by
+definition, but it is what a genuinely slow tool should use.
+
+**`notifications/roots/list_changed`.** mcpx declares `listChanged: false`,
+so nothing is promised, but a root set that can change is more useful than
+one fixed at startup.
+
+2026-09-29T00:30:00-05:00
+
 ## Suggested order
 
 Shipped since this document was written: sharing/scope split, pid-scoped
