@@ -130,7 +130,16 @@ func Defines(version string, f Feature) bool {
 // the vocabulary it has -- and a content block it cannot parse is not a
 // degraded result, it is an unreadable one.
 func downgrade(result any, version string) any {
-	m, ok := asMap(result)
+	if Defines(version, FeatStructuredContent) && Defines(version, FeatResourceLink) &&
+		Defines(version, FeatAudio) && Defines(version, FeatResultType) {
+		// The newest revision defines everything mcpx builds, so there is
+		// nothing to rewrite and nothing to pay for.
+		return result
+	}
+	// Copied, not edited. The result may be a map a caller still holds -- a
+	// task's stored result is handed out more than once -- and rewriting it
+	// in place would downgrade it permanently for whoever reads it next.
+	m, ok := copyMap(result)
 	if !ok {
 		return result
 	}
@@ -158,6 +167,19 @@ func downgrade(result any, version string) any {
 		delete(m, "resultType")
 	}
 	return m
+}
+
+// copyMap renders a result as a fresh map, sharing nothing with the original.
+func copyMap(v any) (map[string]any, bool) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, false
+	}
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil || m == nil {
+		return nil, false
+	}
+	return m, true
 }
 
 func asMap(v any) (map[string]any, bool) {

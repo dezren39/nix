@@ -637,7 +637,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// A client that can answer a question gets the call run as a task
 		// it can be interrupted, and resumed, across. One that cannot gets
 		// the direct path and the broker's own routing, exactly as before.
-		if s.canAsk(c, peer) {
+		if s.canAsk(ctx, c, peer) {
 			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
 				return resp
 			}
@@ -683,7 +683,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(out)
 
 	case "resources/read":
-		if s.canAsk(c, peer) {
+		if s.canAsk(ctx, c, peer) {
 			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
 				return resp
 			}
@@ -724,7 +724,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(out)
 
 	case "prompts/get":
-		if s.canAsk(c, peer) {
+		if s.canAsk(ctx, c, peer) {
 			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
 				return resp
 			}

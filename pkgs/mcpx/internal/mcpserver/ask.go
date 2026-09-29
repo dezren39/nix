@@ -65,8 +65,16 @@ type Outcome struct {
 // declared neither elicitation nor sampling gets the direct path and the
 // broker's own routing, unchanged -- which is the behaviour that works
 // today and must keep working, because most MCP hosts implement neither.
-func (s *Server) canAsk(c *Conn, p Peer) bool {
-	return s.Ask != nil && p.AnswersInline() && (p.Modern || c.canPush())
+func (s *Server) canAsk(ctx context.Context, c *Conn, p Peer) bool {
+	if s.Ask == nil || !p.AnswersInline() {
+		return false
+	}
+	// A modern client is never sent anything: it is handed the question
+	// inside a result and retries. A legacy one has to be reachable, and on
+	// Streamable HTTP that is a property of the exchange rather than of the
+	// connection -- the frame goes out on the response stream of the
+	// request that is waiting for it.
+	return p.Modern || senderFrom(ctx) != nil || c.canPush()
 }
 
 // resumeOf reads the two fields a modern client sends when answering.
@@ -147,10 +155,18 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 	deadline := time.Now().Add(defaults.ProtoAskTimeout)
 	rounds := 0
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			// The client gave up, or the transport did. The call itself
+			// keeps running as a task, and its questions keep their
+			// deadlines; abandoning it here would throw away work somebody
+			// may still collect from /v1/tasks.
+			return fail(codeInternal, req.Method+": "+err.Error())
+		}
 		wait := defaults.ProtoAskPoll
 		if left := time.Until(deadline); left < wait {
 			wait = left
 		}
+		started := time.Now()
 		out, err := s.Ask.Poll(ctx, callID, wait)
 		if err != nil {
 			return fail(codeInternal, err.Error())
@@ -165,6 +181,16 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			// this client cannot answer -- a url flow to a form-only
 			// client, say. Either way the broker still holds it and its
 			// default audience can answer, so waiting is right.
+			//
+			// Poll is meant to block for the whole interval; sleeping out
+			// whatever it did not is what stops an implementation that
+			// returns early turning this into a busy loop.
+			if rest := wait - time.Since(started); rest > 0 {
+				select {
+				case <-ctx.Done():
+				case <-time.After(rest):
+				}
+			}
 			continue
 		}
 		if rounds++; rounds > defaults.ProtoAskRounds {
@@ -295,5 +321,5 @@ func (s *Server) mayBlockOnClient(c *Conn, req request) bool {
 	default:
 		return false
 	}
-	return s.canAsk(c, c.peerFor(req.Params))
+	return s.canAsk(context.Background(), c, c.peerFor(req.Params))
 }
