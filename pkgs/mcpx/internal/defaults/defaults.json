@@ -64,5 +64,63 @@
     "pollInterval": "250ms",
     "handlerTimeout": "5m",
     "inputRounds": 8
+  },
+  "http": {
+    "bodyLimit": "1MiB",
+    "callBodyLimit": "64MiB",
+    "controlBodyLimit": "64KiB",
+    "readHeaderTimeout": "10s",
+    "shutdownGrace": "5s",
+    "ssePing": "15s",
+    "sseRetry": "2s",
+    "streamBufferInit": "64KiB",
+    "streamBufferMax": "8MiB",
+    "idleConns": 8,
+    "remoteIdleConns": 16
+  },
+  "autostart": {
+    "bin": "",
+    "args": [
+      "daemon",
+      "--detached"
+    ],
+    "idleExit": "4h",
+    "connectTimeout": "20s",
+    "pollInterval": "50ms",
+    "pingTimeout": "2s",
+    "logTail": "2KB"
+  },
+  "limits": {
+    "searchLimit": 20,
+    "completionValues": 100,
+    "elicitPending": 100,
+    "registryPageSize": 30,
+    "leaseTTL": "30m",
+    "socketProbeTimeout": "500ms",
+    "warmTimeout": "3m",
+    "refreshTimeout": "3m",
+    "inlineStartTimeout": "5s",
+    "inlineStartPoll": "20ms",
+    "inlineProbeTimeout": "200ms",
+    "doctorTimeout": "20s",
+    "releaseTimeout": "10s",
+    "followBacklog": 1000
+  },
+  "files": {
+    "dirMode": "0700",
+    "privateMode": "0600",
+    "publicMode": "0644",
+    "publicDirMode": "0755"
+  },
+  "plugin": {
+    "bin": "mcpx",
+    "binArgs": [],
+    "backend": "auto",
+    "discoveryRetry": "60s",
+    "toolTiming": false,
+    "env": "full",
+    "instructions": false,
+    "tools": false,
+    "skills": []
   }
 }

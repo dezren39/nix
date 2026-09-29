@@ -12,10 +12,12 @@ import (
 
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // Registry holds one pool per configured server plus the schema cache.
@@ -47,6 +49,16 @@ type Registry struct {
 
 	logf     func(string, ...any)
 	degraded sync.Map
+
+	// set is the daemon's resolved configuration, so the registry reads a
+	// knob at the moment it needs it rather than from a copy taken at
+	// startup. That is what makes daemon.leaseTTL changeable at runtime.
+	set *settings.Set
+
+	// hooks is what InstallHooks attached, kept so that a pool created by a
+	// later reload gets the same wiring. Without it, a server added at
+	// runtime would be the one server whose events nobody hears.
+	hooks *pool.Hooks
 }
 
 // leaseState remembers which pool keys a caller created, so releasing a
@@ -218,7 +230,7 @@ func (r *Registry) SaveCache() error {
 	}
 	path := r.paths.SchemaCachePath(r.hash)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := os.WriteFile(tmp, b, defaults.PrivateMode); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -753,7 +765,7 @@ func (r *Registry) Reap() {
 	var stale []string
 	r.sessMu.Lock()
 	for k, s := range r.leases {
-		if now.Sub(s.lastSeen) > 30*time.Minute {
+		if now.Sub(s.lastSeen) > r.leaseTTL() {
 			stale = append(stale, k)
 		}
 	}
@@ -820,6 +832,19 @@ func (r *Registry) Restart(name string) (int, error) {
 		return 0, fmt.Errorf("unknown server or namespace %q", name)
 	}
 	return p.Restart(), nil
+}
+
+// UseSettings gives the registry the daemon's resolved configuration.
+//
+// Separate from NewRegistry for the same reason InstallHooks is: a registry
+// built for a test should work without one.
+func (r *Registry) UseSettings(set *settings.Set) { r.set = set }
+
+func (r *Registry) leaseTTL() time.Duration {
+	if r.set == nil {
+		return defaults.LeaseTTL
+	}
+	return r.set.Duration("daemon.leaseTTL")
 }
 
 // Close shuts every pool down. The caller is responsible for persisting the

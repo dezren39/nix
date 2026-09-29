@@ -16,6 +16,7 @@ package events
 
 import (
 	"encoding/json"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -128,7 +129,7 @@ type Bus struct {
 // silently given a gap.
 func New(keep int) *Bus {
 	if keep <= 0 {
-		keep = 1024
+		keep = defaults.EventHistory
 	}
 	return &Bus{subs: map[int]*Subscription{}, keep: keep}
 }

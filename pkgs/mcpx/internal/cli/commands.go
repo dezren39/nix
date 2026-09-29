@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/settings"
 	"io"
 	"log/slog"
 	"os"
@@ -285,9 +286,16 @@ func (a *App) setOutputFormat(f logging.Format) {
 // CmdSearch ranks tools across every namespace.
 func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	fs := newFlagSet("search")
-	limit := fs.Int("n", 20, "max results")
+	// -n, --limit and --search-limit are one setting, declared once. The
+	// value is sent only when somebody actually chose it: a client's
+	// inherited default must not override what the daemon is configured
+	// with, or every command would quietly impose its own.
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	limit := 0
+	if v, ok := a.Settings().Value("search.limit"); ok && v.Origin.Layer != settings.LayerDefault {
+		limit = a.Settings().Int("search.limit")
 	}
 	if fs.NArg() == 0 {
 		return errors.New("usage: mcpx search <query>")
@@ -304,7 +312,7 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
-	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), *limit)
+	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit)
 	if err != nil {
 		return err
 	}
@@ -515,7 +523,8 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// Free any pinned instances (browsers) as soon as the script ends, rather
 	// than leaving them parked until the idle timer fires.
 	defer func() {
-		rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		rctx, cancel := context.WithTimeout(context.Background(),
+			a.Settings().Duration("session.releaseTimeout"))
 		defer cancel()
 		_ = c.ReleaseCaller(rctx, sessionKey)
 	}()
@@ -959,10 +968,10 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 		fmt.Print(src)
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(*outPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*outPath), defaults.PublicDirMode); err != nil {
 		return err
 	}
-	if err := os.WriteFile(*outPath, []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(*outPath, []byte(src), defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s\n", *outPath)
@@ -1233,10 +1242,10 @@ func (a *App) CmdInit(ctx context.Context, args []string) error {
 	if _, err := os.Stat(path); err == nil && !*force {
 		return fmt.Errorf("%s already exists (use --force)", path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
+	if err := os.MkdirAll(filepath.Dir(path), defaults.PublicDirMode); err != nil && filepath.Dir(path) != "." {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(starterConfig), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(starterConfig), defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Printf("wrote %s\n", path)
@@ -1390,7 +1399,7 @@ func boolFlag(b bool) string {
 // CmdCatalog prints every namespace with as many signatures as fit a budget.
 func (a *App) CmdCatalog(ctx context.Context, args []string) error {
 	fs := newFlagSet("catalog")
-	budget := fs.Int("budget", 0, "approximate token ceiling (default 2000)")
+	budget := fs.Int("budget", 0, fmt.Sprintf("approximate token ceiling (default %d)", defaults.CatalogBudget))
 	bias := fs.String("bias", "", "promote tools matching these words")
 	nsFlag := fs.String("ns", "", "restrict to these namespaces")
 	if err := parseFlags(a, fs, args); err != nil {

@@ -126,7 +126,7 @@ type listResponse struct {
 // forecasts" finds nothing.
 func (c *Client) Search(ctx context.Context, query string, limit int) ([]Server, error) {
 	if limit <= 0 {
-		limit = 30
+		limit = defaults.RegistryPageSize
 	}
 	q := url.Values{}
 	q.Set("version", "latest")

@@ -41,7 +41,7 @@ func (a *App) logDir(override string) string {
 // than no log tool.
 func (a *App) openStore(override string) (*logstore.Store, error) {
 	dir := a.logDir(override)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, defaults.DirMode); err != nil {
 		return nil, err
 	}
 	st, err := logstore.Open(dir)
@@ -172,7 +172,7 @@ func (a *App) followLog(ctx context.Context, st *logstore.Store, q logstore.Quer
 	q.Reverse = false
 	q.Since = time.Time{}
 	q.Until = time.Time{}
-	q.Limit = 1000
+	q.Limit = a.Settings().Int("logstore.followBacklog")
 
 	tick := time.NewTicker(defaults.FollowPollInterval)
 	defer tick.Stop()

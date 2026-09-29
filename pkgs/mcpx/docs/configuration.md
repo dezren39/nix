@@ -1,0 +1,380 @@
+# Configuration
+
+Every number in mcpx is a setting, including the ones nobody will ever
+change.
+
+That sounds like an overreaction until you have hit the alternative. A
+constant written next to the code that needs it is fine right up to the day
+somebody's proxy kills an idle event stream at thirty seconds, or their
+sandbox refuses to exec the running binary, or a tool legitimately takes a
+five-megabyte argument. At that point the only remedies are a patched binary
+or a fork, and both are absurd outcomes for a number that was chosen in five
+seconds and never revisited. Declaring it costs one line and removes that
+outcome entirely.
+
+So the rule is: nothing is hardcoded. A value lives in
+`internal/defaults/defaults.json` as data, and -- wherever a user could
+conceivably want it different -- it is declared once in the settings registry,
+from which its configuration key, its environment variable, its command-line
+flag, its `/v1` representation and its MCP tool are all derived. There is no
+second place to update, which is the point: the arrangement this replaced had
+four, and they drifted.
+
+The handful of exceptions are permission bits. `0700` on the state directory
+and `0600` on the socket are not preferences. The socket grants the power to
+run tools as you; a configuration key that widens it would be a footgun with
+no legitimate use. They are in `defaults.json` as data so there is still one
+place to read them, and they are deliberately absent from the registry.
+
+A guard test enforces this. It matches inline durations in both spellings
+gofmt produces, byte sizes written as shifts, bounds assigned to variables
+whose names say they are bounds, and permission literals, with an allowlist
+that carries a reason for each exemption. The version it replaced matched
+fixed strings and missed every duration gofmt had compacted into a function
+argument -- nine of them, including the daemon's shutdown grace and the event
+stream's keepalive.
+
+## Where a value can come from
+
+Lowest to highest:
+
+1. **default** -- `internal/defaults/defaults.json`, embedded in the binary.
+2. **file** -- every configuration file on the search path, ranked by
+   distance, nearest highest. `mcpx config --sources` lists them.
+3. **env** -- `MCPX_*`. Every setting has one, derived from its path, whether
+   or not anybody uses it.
+4. **flag** -- the command line.
+5. **runtime** -- an override set through `PUT /v1/settings/{path}` or
+   `mcpx settings set`. Highest because it is the most recent statement of
+   intent: somebody changed their mind while the thing was running, and having
+   a flag from ten minutes ago win would be inexplicable.
+
+`mcpx settings get <path>` prints the winning value, where it came from, and
+what it displaced. "Why is this not what my config says" is the most common
+configuration question there is, and the answer is always in that list.
+
+Two spellings of one setting at the same level is an error rather than a race:
+`--log-level` and `--logging-level` together, or two variables that mean the
+same thing with different values. The environment has no order, so there is
+genuinely nothing to prefer, and picking one silently is how a configuration
+becomes unexplainable.
+
+## Scope: who reads it
+
+Every setting says which process acts on it. This exists because of a failure
+with no symptom.
+
+A daemon is started once, in whatever environment it happened to have, and
+then serves every command for hours. A flag on one of those commands that
+governs something the *daemon* does was simply lost: accepted, validated,
+printed back, and then ignored, because the process that would act on it had
+read its configuration an hour earlier. Nothing anywhere said so.
+
+- **daemon** -- the pooled servers, the listener, the log the daemon writes.
+  A client changes one by persisting it and restarting, or through
+  `mcpx settings set` if the setting is hot.
+- **client** -- the CLI process itself: how it renders, how it finds a daemon,
+  whether it may start one. Setting it on the daemon does nothing.
+- **call** -- meaningful per request. The CLI sends its effective value with
+  every request in an `X-Mcpx-Settings` header, and the daemon honours it for
+  that request only. This is what makes `mcpx search --limit 3` work against
+  a daemon that was started without it. Only call-scoped settings are honoured
+  from that header: widening it would make a header a way for any client to
+  reconfigure a shared daemon.
+- **plugin** -- read by the opencode plugin, which is neither. The plugin
+  reads `process.env` directly, so the variable names are the contract between
+  the two and a test pins them.
+
+## Hot: does it take effect now
+
+A **hot** setting is read afresh every time it is used, so changing it at
+runtime works. A cold one was consumed once at startup -- a listener address,
+a log file that is already open -- and recording a change to it would do
+nothing. `PUT /v1/settings/{path}` says so rather than accepting a value that
+would be silently inert.
+
+## Reaching them
+
+| surface | read | change |
+| --- | --- | --- |
+| config file | any `mcpx` config on the search path | edit it |
+| environment | `MCPX_*` | export it |
+| CLI | `mcpx settings list`, `mcpx settings get <path>` | `mcpx settings set <path> <value> [--persist runtime\|project\|user]`, `mcpx settings unset <path>` |
+| `/v1` | `GET /v1/settings`, `GET /v1/settings/{path}` | `PUT /v1/settings/{path}`, `DELETE /v1/settings/{path}` |
+| MCP | `mcpx_settings_list`, `mcpx_settings_get` | `mcpx_settings_set`, `mcpx_settings_unset` |
+
+`mcpx settings list` resolves locally, which is what the *client* will use.
+`--daemon` asks the daemon what it resolved, which is what a daemon-scoped
+setting actually is. The two differing is information, not a bug: it is
+exactly the case that used to be invisible.
+
+`--persist runtime` changes the running daemon and nothing on disk, which is
+what an experiment wants. `project` and `user` write the corresponding
+configuration file *and* apply at once where the setting allows it -- a change
+written to a file but not applied would leave `mcpx settings get` answering
+with the old value, which reads as the write having failed.
+
+## Servers
+
+Servers are configuration too, and until now adding one meant an editor and a
+restart.
+
+| surface | list | add | remove |
+| --- | --- | --- | --- |
+| CLI | `mcpx servers list` | `mcpx servers add <name> -- <cmd>...`, `mcpx registry add <n> --write` | `mcpx servers remove <name>` |
+| `/v1` | `GET /v1/servers` | `POST /v1/servers` | `DELETE /v1/servers/{name}` |
+| MCP | `mcpx_servers_list` | `mcpx_servers_add` | `mcpx_servers_remove` |
+
+The entry is written to a configuration file and the daemon reloads, so the
+server is callable immediately and is still there tomorrow. A server whose
+process definition did not change keeps its running child: adding one server
+must not restart the rest, or a stateful server -- a browser holding a session
+-- loses it because a neighbour appeared.
+
+The daemon also re-reads its configuration files when they change on disk,
+checked on the same tick that reaps idle instances (`daemon.watchConfig`). An
+edit by hand therefore takes effect within `daemon.reapInterval` without
+anything being restarted.
+
+Making that work required changing what identifies a daemon. The socket used
+to be keyed to the *contents* of the config files, so that editing one got a
+fresh daemon rather than a stale one. A daemon that reloads changes the
+contents of the files it is keyed by, which moves its own key, which makes it
+unreachable by the client that just edited it -- and hands the next command a
+different daemon that happens to match the new key with old servers loaded.
+That was observed: `mcpx servers remove` succeeded, the file was correct, and
+the next `mcpx servers list` showed the removed server. The key is now the
+file *set*, and staleness is handled where it belongs.
+
+## Every setting
+
+Generated from the registry; a test fails if this list and the registry
+disagree. `mcpx config --schema --plumbing` prints the same thing, and
+`mcpx settings list` prints it with the values that are actually in force.
+
+Entries marked *(plumbing)* are internals. They work and they are supported,
+but there is no ordinary reason to change one, so they are kept out of
+ordinary help rather than hidden -- a flag a user can find in the source and
+that `--help` denies exists is worse than a long list.
+
+### autostart
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `autostart.args` | list | `daemon,--detached` | client | no | `--autostart-args` | `MCPX_AUTOSTART_ARGS` | *(plumbing)* the arguments an auto-started daemon is given |
+| `autostart.bin` | string | *(empty)* | client | no | `--autostart-bin` | `MCPX_AUTOSTART_BIN` | which executable is started as the daemon |
+| `autostart.connectTimeout` | duration | `20s` | client | no | `--autostart-connect-timeout` | `MCPX_AUTOSTART_CONNECT_TIMEOUT` | how long to wait for a started daemon to answer |
+| `autostart.idleExit` | duration | `4h0m0s` | client | no | `--autostart-idle-exit` | `MCPX_AUTOSTART_IDLE_EXIT` | how long an auto-started daemon survives with nothing to do |
+| `autostart.logTail` | bytes | `2000` | client | no | `--autostart-log-tail` | `MCPX_AUTOSTART_LOG_TAIL` | *(plumbing)* how much of the daemon log is shown when it will not start |
+| `autostart.pingTimeout` | duration | `2s` | client | no | `--autostart-ping-timeout` | `MCPX_AUTOSTART_PING_TIMEOUT` | *(plumbing)* how long a health check waits before calling it dead |
+| `autostart.pollInterval` | duration | `50ms` | client | no | `--autostart-poll-interval` | `MCPX_AUTOSTART_POLL_INTERVAL` | *(plumbing)* how often a starting daemon is probed |
+
+### catalog
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `catalog.bias` | list | *(empty)* | call | yes | `--catalog-bias`, `--bias` | `MCPX_CATALOG_BIAS` | words that pull matching tools toward the front |
+| `catalog.budget` | int | `2000` | call | yes | `--catalog-budget`, `--budget` | `MCPX_CATALOG_BUDGET` | token ceiling for the catalog listing |
+| `catalog.instructions` | bool | `true` | call | yes | `--catalog-instructions` | `MCPX_CATALOG_INSTRUCTIONS` | include each server's own instructions |
+
+### completion
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `completion.maxValues` | int | `100` | daemon | yes | `--completion-max-values` | `MCPX_COMPLETION_MAX_VALUES` | *(plumbing)* how many completions one reply carries |
+
+### daemon
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `daemon.address` | string | `127.0.0.1` | daemon | no | `--daemon-address`, `--address` | `MCPX_DAEMON_ADDRESS` | which interface the daemon listens on |
+| `daemon.autostart` | bool | `true` | client | no | `--daemon-autostart` | `MCPX_DAEMON_AUTOSTART` | start the daemon on demand when it is not running |
+| `daemon.endpoint` | string | *(empty)* | client | no | `--daemon-endpoint` | `MCPX_DAEMON_ENDPOINT` | a daemon somewhere else, instead of the local socket |
+| `daemon.idleExit` | duration | `0s` | daemon | no | `--daemon-idle-exit`, `--idle-exit` | `MCPX_DAEMON_IDLE_EXIT` | stop the daemon after this long with nothing to do |
+| `daemon.inline` | bool | `false` | client | no | `--daemon-inline` | `MCPX_DAEMON_INLINE` | as a last resort, run servers inside this process |
+| `daemon.inlineStartPoll` | duration | `20ms` | client | no | `--daemon-inline-start-poll` | `MCPX_DAEMON_INLINE_START_POLL` | *(plumbing)* how often a starting in-process daemon is probed |
+| `daemon.inlineStartTimeout` | duration | `5s` | client | no | `--daemon-inline-start-timeout` | `MCPX_DAEMON_INLINE_START_TIMEOUT` | *(plumbing)* how long an in-process daemon has to become reachable |
+| `daemon.leaseTTL` | duration | `30m0s` | daemon | yes | `--daemon-lease-t-t-l` | `MCPX_DAEMON_LEASE_T_T_L` | *(plumbing)* how long a silent caller's instances are remembered |
+| `daemon.port` | int | `0` | daemon | no | `--daemon-port`, `--port` | `MCPX_DAEMON_PORT` | listen on a TCP port instead of choosing one |
+| `daemon.probeTimeout` | duration | `200ms` | client | no | `--daemon-probe-timeout` | `MCPX_DAEMON_PROBE_TIMEOUT` | *(plumbing)* how long another daemon's socket is given to answer |
+| `daemon.reapInterval` | duration | `30s` | daemon | no | `--daemon-reap-interval` | `MCPX_DAEMON_REAP_INTERVAL` | *(plumbing)* how often idle instances are swept |
+| `daemon.refreshTimeout` | duration | `3m0s` | daemon | yes | `--daemon-refresh-timeout` | `MCPX_DAEMON_REFRESH_TIMEOUT` | how long POST /v1/refresh may take |
+| `daemon.saveInterval` | duration | `5m` | daemon | no | `--daemon-save-interval` | `MCPX_DAEMON_SAVE_INTERVAL` | *(plumbing)* how often daemon state is written to disk |
+| `daemon.socketProbeTimeout` | duration | `500ms` | daemon | no | `--daemon-socket-probe-timeout` | `MCPX_DAEMON_SOCKET_PROBE_TIMEOUT` | *(plumbing)* how long a socket left by a crashed daemon is given to answer |
+| `daemon.warm` | bool | `true` | daemon | no | `--daemon-warm`, `--warm` | `MCPX_DAEMON_WARM` | read every server's schemas in the background at startup |
+| `daemon.warmTimeout` | duration | `3m0s` | daemon | no | `--daemon-warm-timeout` | `MCPX_DAEMON_WARM_TIMEOUT` | *(plumbing)* how long the background schema fetch may take |
+| `daemon.watchConfig` | bool | `true` | daemon | yes | `--daemon-watch-config` | `MCPX_DAEMON_WATCH_CONFIG` | re-read the configuration files when they change on disk |
+
+### doctor
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `doctor.timeout` | duration | `20s` | client | no | `--doctor-timeout` | `MCPX_DOCTOR_TIMEOUT` | how long `mcpx doctor` gives the daemon to answer |
+
+### elicit
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `elicit.pendingLimit` | int | `100` | daemon | yes | `--elicit-pending-limit` | `MCPX_ELICIT_PENDING_LIMIT` | *(plumbing)* how many unanswered questions one listing returns |
+
+### events
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `events.history` | int | `1024` | daemon | no | `--events-history` | `MCPX_EVENTS_HISTORY` | how many past events a late subscriber can replay |
+| `events.reconnect` | duration | `2s` | client | no | `--events-reconnect` | `MCPX_EVENTS_RECONNECT` | how long a client waits before resuming a dropped stream |
+
+### http
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `http.bodyLimit` | bytes | `1048576` | daemon | yes | `--http-body-limit` | `MCPX_HTTP_BODY_LIMIT` | *(plumbing)* the ceiling on an ordinary /v1 request body |
+| `http.callBodyLimit` | bytes | `67108864` | daemon | yes | `--http-call-body-limit` | `MCPX_HTTP_CALL_BODY_LIMIT` | the ceiling on a POST /v1/call body |
+| `http.controlBodyLimit` | bytes | `65536` | daemon | yes | `--http-control-body-limit` | `MCPX_HTTP_CONTROL_BODY_LIMIT` | *(plumbing)* the ceiling on a body that should hold one field |
+| `http.idleConnTimeout` | duration | `30s` | client | no | `--http-idle-conn-timeout` | `MCPX_HTTP_IDLE_CONN_TIMEOUT` | *(plumbing)* how long an unused connection is kept |
+| `http.idleConns` | int | `8` | client | no | `--http-idle-conns` | `MCPX_HTTP_IDLE_CONNS` | *(plumbing)* idle connections kept to a local daemon |
+| `http.readHeaderTimeout` | duration | `10s` | daemon | no | `--http-read-header-timeout` | `MCPX_HTTP_READ_HEADER_TIMEOUT` | *(plumbing)* how long a client has to finish sending its headers |
+| `http.remoteIdleConns` | int | `16` | client | no | `--http-remote-idle-conns` | `MCPX_HTTP_REMOTE_IDLE_CONNS` | *(plumbing)* idle connections kept to a daemon over the network |
+| `http.requestTimeout` | duration | `10m0s` | client | no | `--http-request-timeout` | `MCPX_HTTP_REQUEST_TIMEOUT` | how long a CLI request to the daemon may take |
+| `http.shutdownGrace` | duration | `5s` | daemon | yes | `--http-shutdown-grace` | `MCPX_HTTP_SHUTDOWN_GRACE` | how long in-flight requests have when the daemon stops |
+| `http.ssePing` | duration | `15s` | daemon | yes | `--http-sse-ping` | `MCPX_HTTP_SSE_PING` | *(plumbing)* how often a comment is sent on an idle event stream |
+| `http.sseRetry` | duration | `2s` | daemon | yes | `--http-sse-retry` | `MCPX_HTTP_SSE_RETRY` | *(plumbing)* how long a dropped subscriber is told to wait |
+| `http.streamBufferInit` | bytes | `65536` | client | no | `--http-stream-buffer-init` | `MCPX_HTTP_STREAM_BUFFER_INIT` | *(plumbing)* the initial line buffer when reading an event stream |
+| `http.streamBufferMax` | bytes | `8388608` | client | no | `--http-stream-buffer-max` | `MCPX_HTTP_STREAM_BUFFER_MAX` | *(plumbing)* the largest single event line that will be read |
+
+### logging
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `logging.dir` | string | *(empty)* | daemon | no | `--logging-dir`, `--log-dir` | `MCPX_LOGGING_DIR` | where the JSONL files are written |
+| `logging.file` | bool | `true` | daemon | no | `--logging-file` | `MCPX_LOGGING_FILE` | whether the durable JSONL log is written at all |
+| `logging.format` | enum | `text` | client | no | `--logging-format`, `--format` | `MCPX_LOGGING_FORMAT` | how records are rendered |
+| `logging.include` | list | `host,user,process,version` | daemon | no | `--logging-include`, `--include` | `MCPX_LOGGING_INCLUDE` | which context blocks are attached to lifecycle records |
+| `logging.keep` | int | `8` | daemon | no | `--logging-keep`, `--keep` | `MCPX_LOGGING_KEEP` | how many rolled files to keep |
+| `logging.level` | enum | `info` | daemon | yes | `--logging-level`, `--log-level` | `MCPX_LOGGING_LEVEL` | the lowest level that is kept |
+| `logging.maxAge` | duration | `24h` | daemon | no | `--logging-max-age` | `MCPX_LOGGING_MAX_AGE` | roll the log file once it is this old |
+| `logging.maxBytes` | bytes | `16MB` | daemon | no | `--logging-max-bytes` | `MCPX_LOGGING_MAX_BYTES` | roll the log file once it reaches this size |
+| `logging.maxLines` | int | `0` | daemon | no | `--logging-max-lines` | `MCPX_LOGGING_MAX_LINES` | roll the log file once it holds this many records |
+| `logging.source` | enum | `warn` | daemon | yes | `--logging-source`, `--log-source` | `MCPX_LOGGING_SOURCE` | from which level upward to record the calling file and line |
+
+### logstore
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `logstore.followBacklog` | int | `1000` | client | no | `--logstore-follow-backlog` | `MCPX_LOGSTORE_FOLLOW_BACKLOG` | *(plumbing)* how many records one poll of `mcpx log --follow` may emit |
+| `logstore.queryLimit` | int | `100` | call | yes | `--logstore-query-limit` | `MCPX_LOGSTORE_QUERY_LIMIT` | how many records a log query returns by default |
+
+### mcp
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `mcp.pageSize` | int | `100` | client | no | `--mcp-page-size` | `MCPX_MCP_PAGE_SIZE` | how many items one tools/list reply carries |
+
+### output
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `output.color` | enum | `auto` | client | no | `--output-color` | `MCPX_OUTPUT_COLOR` | whether to colourise terminal output |
+| `output.json` | bool | `false` | client | no | `--output-json`, `--json` | `MCPX_OUTPUT_JSON` | emit one machine-readable document |
+
+### paths
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `paths.adapters` | paths | *(empty)* | client | no | `--paths-adapters` | `MCPX_PATHS_ADAPTERS` | files declaring command-line programs as MCP servers |
+| `paths.apis` | paths | *(empty)* | client | no | `--paths-apis` | `MCPX_PATHS_APIS` | files naming OpenAPI documents to expose as tools |
+| `paths.cache` | string | *(empty)* | client | no | `--paths-cache` | `MCPX_PATHS_CACHE` | where generated clients and schemas are kept |
+| `paths.config` | paths | *(empty)* | client | no | `--paths-config` | `MCPX_PATHS_CONFIG` | where configuration files are looked for |
+| `paths.placeholders` | paths | *(empty)* | client | no | `--paths-placeholders` | `MCPX_PATHS_PLACEHOLDERS` | directories of files declaring launcher placeholders |
+| `paths.scripts` | paths | *(empty)* | client | no | `--paths-scripts` | `MCPX_PATHS_SCRIPTS` | where named scripts are looked for |
+| `paths.state` | string | *(empty)* | client | no | `--paths-state` | `MCPX_PATHS_STATE` | where the daemon socket, logs and index live |
+
+### plugin
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `plugin.backend` | enum | `auto` | plugin | no | `--plugin-backend` | `MCPX_PLUGIN_BACKEND` | whether the plugin talks to the daemon or spawns the binary |
+| `plugin.bin` | string | `mcpx` | plugin | no | `--plugin-bin` | `MCPX_PLUGIN_BIN` | the executable the plugin invokes |
+| `plugin.binArgs` | list | *(empty)* | plugin | no | `--plugin-bin-args` | `MCPX_PLUGIN_BIN_ARGS` | arguments put in front of every plugin invocation of mcpx |
+| `plugin.discoveryRetry` | duration | `1m0s` | plugin | no | `--plugin-discovery-retry` | `MCPX_PLUGIN_DISCOVERY_RETRY` | how long the plugin waits before looking for mcpx again |
+| `plugin.env` | enum | `full` | plugin | no | `--plugin-env` | `MCPX_PLUGIN_ENV` | how much session context is put into each command's environment |
+| `plugin.instructions` | bool | `false` | plugin | no | `--plugin-instructions` | `MCPX_PLUGIN_INSTRUCTIONS` | add mcpx usage guidance to the system prompt |
+| `plugin.skills` | list | *(empty)* | plugin | no | `--plugin-skills` | `MCPX_PLUGIN_SKILLS` | which bundled skills the plugin registers |
+| `plugin.toolTiming` | bool | `false` | plugin | no | `--plugin-tool-timing` | `MCPX_PLUGIN_TOOL_TIMING` | write every tool outcome into mcpx's log |
+| `plugin.tools` | bool | `false` | plugin | no | `--plugin-tools` | `MCPX_PLUGIN_TOOLS` | expose mcpx itself as tools the model can call |
+
+### plumbing
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `plumbing.allowTsJsOverlap` | bool | `false` | client | no | `--plumbing-allow-ts-js-overlap` | `MCPX_PLUMBING_ALLOW_TS_JS_OVERLAP` | *(plumbing)* permit a script directory holding both foo.ts and foo.js |
+| `plumbing.consoleReleaseOnExit` | bool | `true` | client | no | `--plumbing-console-release-on-exit` | `MCPX_PLUMBING_CONSOLE_RELEASE_ON_EXIT` | *(plumbing)* hand the original console back before the process ends |
+| `plumbing.indexOnQuery` | bool | `true` | daemon | no | `--plumbing-index-on-query` | `MCPX_PLUMBING_INDEX_ON_QUERY` | *(plumbing)* bring the log index up to date before answering a query |
+| `plumbing.launcherPlaceholderRepeat` | list | *(empty)* | client | no | `--plumbing-launcher-placeholder-repeat` | `MCPX_PLUMBING_LAUNCHER_PLACEHOLDER_REPEAT` | *(plumbing)* launcher placeholders permitted to resolve more than once |
+| `plumbing.sourceDirAllowed` | bool | `true` | client | no | `--plumbing-source-dir-allowed` | `MCPX_PLUMBING_SOURCE_DIR_ALLOWED` | *(plumbing)* whether a directory may stand in for a source string at all |
+| `plumbing.sourceDirRecursive` | bool | `false` | client | no | `--plumbing-source-dir-recursive` | `MCPX_PLUMBING_SOURCE_DIR_RECURSIVE` | *(plumbing)* when a directory is given as source, descend into subdirectories |
+| `plumbing.sourceProbePaths` | bool | `true` | client | no | `--plumbing-source-probe-paths` | `MCPX_PLUMBING_SOURCE_PROBE_PATHS` | *(plumbing)* treat a source argument that names an existing file as a file |
+| `plumbing.strictUnknownKeys` | bool | `false` | client | no | `--plumbing-strict-unknown-keys` | `MCPX_PLUMBING_STRICT_UNKNOWN_KEYS` | *(plumbing)* fail on a configuration key no setting claims |
+| `plumbing.validatePaths` | bool | `true` | client | no | `--plumbing-validate-paths` | `MCPX_PLUMBING_VALIDATE_PATHS` | *(plumbing)* resolve and verify every referenced path before doing any work |
+
+### pool
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `pool.callTimeout` | duration | `120s` | daemon | yes | `--pool-call-timeout` | `MCPX_POOL_CALL_TIMEOUT` | how long one tool call may take |
+| `pool.idleTimeout` | duration | `5m` | daemon | yes | `--pool-idle-timeout` | `MCPX_POOL_IDLE_TIMEOUT` | how long an unused server lingers before it is stopped |
+| `pool.max` | int | `4` | daemon | yes | `--pool-max` | `MCPX_POOL_MAX` | how many copies of one server may run at once |
+| `pool.min` | int | `0` | daemon | yes | `--pool-min` | `MCPX_POOL_MIN` | how many copies to keep started even when idle |
+| `pool.scope` | enum | `global` | daemon | no | `--pool-scope` | `MCPX_POOL_SCOPE` | what counts as the same caller for sharing purposes |
+| `pool.sharing` | enum | `shared` | daemon | no | `--pool-sharing` | `MCPX_POOL_SHARING` | whether callers reuse one instance or each get their own |
+| `pool.startTimeout` | duration | `60s` | daemon | yes | `--pool-start-timeout` | `MCPX_POOL_START_TIMEOUT` | how long a server has to become ready |
+
+### registry
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `registry.limit` | int | `20` | call | yes | `--registry-limit` | `MCPX_REGISTRY_LIMIT` | how many registry results are returned |
+| `registry.pageSize` | int | `30` | client | no | `--registry-page-size` | `MCPX_REGISTRY_PAGE_SIZE` | *(plumbing)* how many entries are fetched per registry request |
+| `registry.timeout` | duration | `30s` | client | no | `--registry-timeout` | `MCPX_REGISTRY_TIMEOUT` | how long a registry request may take |
+| `registry.url` | string | `https://registry.modelcontextprotocol.io` | client | no | `--registry-url` | `MCPX_REGISTRY_URL` | where `mcpx registry` looks for servers |
+
+### script
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `script.before` | source | *(empty)* | client | no | `--script-before` | `MCPX_SCRIPT_BEFORE` | runs first, ahead of the globals being installed |
+| `script.captureConsole` | bool | `true` | client | no | `--script-capture-console` | `MCPX_SCRIPT_CAPTURE_CONSOLE` | route console calls into the log |
+| `script.env` | list | *(empty)* | client | no | `--script-env`, `--env` | `MCPX_SCRIPT_ENV` | KEY=VALUE pairs added to the script's environment |
+| `script.launcher` | source | *(empty)* | client | no | `--script-launcher` | `MCPX_SCRIPT_LAUNCHER` | replace the generated launcher entirely |
+| `script.onError` | source | *(empty)* | client | no | `--script-on-error` | `MCPX_SCRIPT_ON_ERROR` | runs when the script throws; the error still propagates |
+| `script.onSuccess` | source | *(empty)* | client | no | `--script-on-success` | `MCPX_SCRIPT_ON_SUCCESS` | runs when the script returns without throwing |
+| `script.permissions` | string | `all` | client | no | `--script-permissions`, `--permissions` | `MCPX_SCRIPT_PERMISSIONS` | the sandbox profile, or raw runtime flags |
+| `script.prefix` | source | *(empty)* | client | no | `--script-prefix` | `MCPX_SCRIPT_PREFIX` | runs after globals are installed, before the script |
+| `script.runtime` | enum | `auto` | client | no | `--script-runtime`, `--runtime` | `MCPX_SCRIPT_RUNTIME` | which JavaScript runtime executes the script |
+| `script.suffix` | source | *(empty)* | client | no | `--script-suffix` | `MCPX_SCRIPT_SUFFIX` | runs last on both paths, like a finally |
+| `script.typecheck` | enum | `off` | client | no | `--script-typecheck` | `MCPX_SCRIPT_TYPECHECK` | check the generated program before running it |
+
+### search
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `search.limit` | int | `20` | call | yes | `--search-limit`, `--limit` | `MCPX_SEARCH_LIMIT` | how many tools a search returns |
+
+### session
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `session.releaseTimeout` | duration | `10s` | client | no | `--session-release-timeout` | `MCPX_SESSION_RELEASE_TIMEOUT` | *(plumbing)* how long releasing a finished session may take |
+
+### stats
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `stats.top` | int | `20` | call | yes | `--stats-top` | `MCPX_STATS_TOP` | how many rows a ranked statistic shows |
+
+### tasks
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `tasks.resultWait` | duration | `2m0s` | call | yes | `--tasks-result-wait` | `MCPX_TASKS_RESULT_WAIT` | how long collecting a task result blocks before giving up |
+| `tasks.ttl` | duration | `10m0s` | daemon | yes | `--tasks-ttl` | `MCPX_TASKS_TTL` | how long a finished task's result is kept |

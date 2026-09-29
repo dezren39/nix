@@ -3,12 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/opencode"
@@ -131,13 +131,13 @@ func (a *App) CmdDoctor(ctx context.Context, args []string) error {
 		if d.path == "" {
 			continue
 		}
-		if err := os.MkdirAll(d.path, 0o755); err != nil {
+		if err := os.MkdirAll(d.path, defaults.PublicDirMode); err != nil {
 			add(check{d.name + " directory", "fail", err.Error(),
 				"set paths." + d.name + " somewhere writable"})
 			continue
 		}
 		probe := filepath.Join(d.path, ".mcpx-doctor")
-		if err := os.WriteFile(probe, []byte("x"), 0o600); err != nil {
+		if err := os.WriteFile(probe, []byte("x"), defaults.PrivateMode); err != nil {
 			add(check{d.name + " directory", "fail", d.path + " is not writable",
 				"set paths." + d.name + " somewhere writable"})
 			continue
@@ -159,7 +159,7 @@ func (a *App) CmdDoctor(ctx context.Context, args []string) error {
 	// The daemon, and every way of reaching one. Which rung answered is the
 	// thing somebody actually wants to know when a command is slow or is
 	// talking to the wrong machine.
-	dctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	dctx, cancel := context.WithTimeout(ctx, a.Settings().Duration("doctor.timeout"))
 	defer cancel()
 	_, ladder, lerr := a.Connect(dctx, ConnectOptions{
 		Endpoint:   a.Settings().String("daemon.endpoint"),
