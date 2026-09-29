@@ -41,6 +41,17 @@ jobs:
         with:
           go-version-file: pkgs/mcpx/go.mod
 
+      # All three runtimes, because each reaches the daemon differently --
+      # Deno and Bun over the unix socket, Node over TCP -- and a test that
+      # skips a runtime it cannot find is a test that silently covers less.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
       - name: Unit and end-to-end tests
         working-directory: pkgs/mcpx
         run: go test ./... -count=1
