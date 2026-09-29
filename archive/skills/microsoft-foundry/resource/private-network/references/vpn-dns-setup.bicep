@@ -88,7 +88,7 @@ resource vpnGatewayPip 'Microsoft.Network/publicIPAddresses@2024-10-01' = {
 }
 
 // ── VPN Gateway ──
-resource vpnGateway 'Microsoft.Network/virtualNetworkGateways@2024-05-01' = {
+resource vpnGateway 'Microsoft.Network/virtualNetworkGateways@2024-10-01' = {
   name: 'vpn-gateway-${suffix}'
   location: location
   properties: {
