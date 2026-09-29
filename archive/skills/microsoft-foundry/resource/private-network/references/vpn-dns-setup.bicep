@@ -45,7 +45,7 @@ var aadIssuer = 'https://sts.windows.net/${aadTenantId}/'
 var aadTenant = 'https://login.microsoftonline.com/${aadTenantId}/'
 
 // ── Add subnets ──
-resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
+resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-10-01' = {
   parent: vnet
   name: 'GatewaySubnet'
   properties: {
@@ -56,7 +56,7 @@ resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = 
 
 // NOTE: NRMS policy may auto-deploy an NSG on this subnet.
 // Ensure the NSG allows inbound UDP/TCP port 53 (DNS) from the VPN client address pool.
-resource dnsResolverSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
+resource dnsResolverSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-10-01' = {
   parent: vnet
   name: 'dns-resolver-inbound'
   properties: {
