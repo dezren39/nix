@@ -128,6 +128,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		logging.SourceLevel(firstSet(logSource.Value(), os.Getenv("MCPX_LOG_SOURCE"), cfg.Logging.Source)))
 	logger := slog.NewLogLogger(handler, slog.LevelInfo)
 	srv, err := daemon.NewServer(daemon.Options{
+		Sink:     sink,
 		Config:   cfg,
 		Paths:    paths,
 		Version:  a.Version,

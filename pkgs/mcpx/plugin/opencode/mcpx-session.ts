@@ -1,4 +1,7 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
+// In a subdirectory on purpose: opencode loads every plugin/*.ts file and
+// calls each of its exports as a plugin, and the glob is not recursive.
+import { connect, type DaemonClient } from "./mcpx/daemon.ts"
 
 /**
  * Tell mcpx which opencode session it is working for.
@@ -104,6 +107,26 @@ const run = async (
 }
 
 export default (async ({ directory, worktree, project, client, $ }) => {
+  // The daemon, found once and reused. Finding it costs one spawn of
+  // `mcpx status`, so a miss is remembered for a while rather than retried
+  // on every tool call -- otherwise having no daemon would double the cost
+  // of the very fallback that exists because there is none.
+  let found: Promise<DaemonClient | undefined> | undefined
+  let missedAt = 0
+  const daemon = async (): Promise<DaemonClient | undefined> => {
+    if (!found) {
+      if (Date.now() - missedAt < 60_000) return undefined
+      found = connect($, { directory }).catch(() => undefined)
+    }
+    const c = await found
+    if (!c) forget()
+    return c
+  }
+  const forget = () => {
+    found = undefined
+    missedAt = Date.now()
+  }
+
   // Read once. These cannot change for the life of the process, and doing
   // them per command would put a subprocess in the path of every shell
   // invocation.
@@ -308,8 +331,9 @@ export default (async ({ directory, worktree, project, client, $ }) => {
      * Tool outcomes into mcpx's own log, off by default.
      *
      * When on, opencode's tool calls land in the same store as mcpx's, so one
-     * `mcpx stats` covers both. It shells out per tool call, which is exactly
-     * why it is not the default.
+     * `mcpx stats` covers both. It goes over the daemon's socket when one is
+     * running -- a fraction of a millisecond -- and spawns `mcpx log record`
+     * only when none is, since a lost record is worse than a slow one.
      */
     "tool.execute.after": async (input, output) => {
       if (!on("MCPX_PLUGIN_TOOL_TIMING")) return
@@ -319,6 +343,17 @@ export default (async ({ directory, worktree, project, client, $ }) => {
         session: input.sessionID,
         call: input.callID,
         title: (output as any)?.title,
+      }
+      const mcpx = await daemon()
+      if (mcpx) {
+        try {
+          await mcpx.record(record)
+          return
+        } catch {
+          // Stopped, restarted, or its configuration changed and the socket
+          // moved. Forget it; the next call asks again.
+          forget()
+        }
       }
       await $`mcpx log record ${JSON.stringify(record)}`.quiet().nothrow()
     },

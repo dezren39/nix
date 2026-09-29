@@ -22,6 +22,7 @@ import (
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
+	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/pool"
 )
 
@@ -54,7 +55,11 @@ type Server struct {
 	// visited once does not leave a process behind forever; a daemon run under
 	// launchd leaves it at zero and stays up.
 	idleExit time.Duration
-	lastReq  atomic.Int64
+
+	// sink is the durable log POST /v1/log appends to. Nil when the log
+	// could not be opened, which the daemon survives and the route reports.
+	sink    *logging.FileSink
+	lastReq atomic.Int64
 }
 
 // Options configure the daemon.
@@ -69,6 +74,9 @@ type Options struct {
 	Warm bool
 	// IdleExit stops an unused daemon after this long. Zero means never.
 	IdleExit time.Duration
+	// Sink is the durable log the daemon already writes; POST /v1/log
+	// appends to the same one rather than opening a second writer.
+	Sink *logging.FileSink
 }
 
 // NewServer builds the daemon but does not listen yet.
@@ -95,6 +103,7 @@ func NewServer(opts Options) (*Server, error) {
 		logger:   opts.Logger,
 		version:  opts.Version,
 		idleExit: opts.IdleExit,
+		sink:     opts.Sink,
 		Events:   events.New(defaults.EventHistory),
 	}
 	// The broker is optional: a daemon whose state directory cannot hold a
@@ -340,6 +349,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/elicit", s.handleElicitList)
 	mux.HandleFunc("GET /v1/elicit/{id}", s.handleElicitGet)
 	mux.HandleFunc("POST /v1/elicit/{id}/{action}", s.handleElicitAnswer)
+	mux.HandleFunc("POST /v1/log", s.handleLogRecord)
 	mux.HandleFunc("GET /v1/resource-templates", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"resourceTemplates": s.reg.ResourceTemplates(splitCSV(r.URL.Query().Get("ns"))),
@@ -811,5 +821,34 @@ func (s *Server) handleElicitAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Events.Publish(events.Event{Kind: events.ElicitAnswered,
 		Data: mustJSON(map[string]any{"id": r.PathValue("id"), "action": action, "by": by})})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleLogRecord is `mcpx log record` over the daemon's own API.
+//
+// The opencode plugin records a timing after every tool call. Spawning the
+// binary for that costs ~23ms a call; this costs a fraction of a
+// millisecond over the socket. The body is exactly what the command takes,
+// parsed by the same function, so a record cannot differ by how it arrived.
+//
+// The level is a query parameter rather than a body field so that it can
+// never collide with an attribute the caller happens to call "level".
+func (s *Server) handleLogRecord(w http.ResponseWriter, r *http.Request) {
+	if s.sink == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "the durable log is unavailable in this daemon"})
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	rec, err := logging.ExternalRecord(b, r.URL.Query().Get("level"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	s.sink.Write(rec, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

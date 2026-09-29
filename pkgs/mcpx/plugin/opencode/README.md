@@ -17,8 +17,13 @@ variables, mcpx reads them, and the agent never learns any of it happened.
 
 ```sh
 mkdir -p ~/.config/opencode/plugin
-cp mcpx-session.ts ~/.config/opencode/plugin/
+cp -R mcpx-session.ts mcpx ~/.config/opencode/plugin/
 ```
+
+`mcpx/` must stay a subdirectory. opencode loads every `plugin/*.ts` file and
+calls each of its exports as a plugin; `daemon.ts` beside `mcpx-session.ts`
+would have its helpers called as plugins and its class invoked without `new`.
+The glob is not recursive, so one level down it is only ever imported.
 
 ## Configuration
 
@@ -127,8 +132,9 @@ touches an MCP server twice a week.
 Records every opencode tool call into mcpx's durable log, so one `mcpx stats`
 covers the harness as well as mcpx.
 
-**Off by default** because it shells out once per tool call. That is a real
-cost on a busy session.
+**Off by default.** With a daemon running each record is a 0.09 ms POST over
+its socket, but with none it spawns `mcpx log record` per tool call, and
+either way it adds a log line for every tool call opencode makes.
 
 **Turn it on when** you are actually investigating where time goes, and want
 opencode's tools and mcpx's calls on one timeline rather than two.
@@ -152,7 +158,7 @@ everywhere.
 
 ## Talking to the daemon directly
 
-`daemon.ts` connects to the mcpx daemon over its unix socket instead of
+`mcpx/daemon.ts` connects to the mcpx daemon over its unix socket instead of
 spawning the binary. Measured here, same request, mean of thirty:
 
 | | |
@@ -172,11 +178,22 @@ The socket also beats loopback TCP by about 4×, and keep-alive is worth
 another 2.4× on TCP.
 
 ```ts
-import { connect } from "./daemon.ts"
+import { connect } from "./mcpx/daemon.ts"
 
-const mcpx = await connect($)          // undefined if no daemon
+const mcpx = await connect($, { directory })   // undefined if no daemon
 if (mcpx) await mcpx.call("fff", "grep", { query: "x" }, sessionID)
 ```
+
+`connect` finds the socket by asking `mcpx --json status` in `directory` --
+one spawn, so cache the client. It does not list the state directory: the
+socket's name carries a hash of the resolved configuration, and a long state
+path moves it elsewhere entirely, so a listing finds the wrong daemon or none.
+
+The tool-timing hook (`MCPX_PLUGIN_TOOL_TIMING`) uses it: one lookup per
+session, then each record is a POST to `/v1/log` -- measured at **0.09 ms**
+against ~23 ms for spawning `mcpx log record`. With no daemon it falls back to
+spawning, and waits a minute before looking again, so the absence of a daemon
+does not double the cost of the fallback.
 
 `connect` returns `undefined` rather than throwing. A plugin that fails to
 load because mcpx is not running has broken the editor for a tool the user may

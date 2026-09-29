@@ -990,6 +990,10 @@ func (a *App) CmdStatus(ctx context.Context, args []string) error {
 		return err
 	}
 	if a.JSON {
+		// Present both ways. It used to appear only as false, so a reader
+		// testing `running` concluded a live daemon was down -- the opencode
+		// plugin did exactly that.
+		st["running"] = true
 		return a.out(st)
 	}
 	fmt.Printf("daemon:   running (pid %v, up %v)\n", st["pid"], st["uptime"])

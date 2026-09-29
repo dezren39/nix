@@ -149,9 +149,18 @@ func privateRuntimeDir() (string, error) {
 // and sharing a daemon between them would give one project the other's
 // servers. Paths contribute as well as contents, so two identical files in
 // different places stay separate.
+//
+// "Different places" means different files, not different spellings of one.
+// Each path is resolved through symlinks first: /tmp is a symlink to
+// /private/tmp on macOS, and a process whose $PWD holds the unresolved form
+// -- a shell, an editor, the opencode plugin -- otherwise computed a second
+// key for the same file, reported no daemon running, and started another.
 func FingerprintConfig(paths []string) string {
 	h := sha256.New()
 	for _, p := range paths {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
 		h.Write([]byte(p))
 		h.Write([]byte{0})
 		if b, err := os.ReadFile(p); err == nil {
