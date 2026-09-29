@@ -2,5 +2,14 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "mcpx's Go modules. Grouped, because each bump changes the Nix vendorHash, and one hash repair per week beats one per module. The mcpx workflow recomputes the hash on the branch.",
+      "matchManagers": ["gomod"],
+      "matchFileNames": ["pkgs/mcpx/**"],
+      "groupName": "mcpx go modules",
+      "schedule": ["before 6am on monday"]
+    }
   ]
 }
