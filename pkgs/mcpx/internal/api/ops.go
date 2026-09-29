@@ -257,8 +257,12 @@ func Ops() []Op {
 			Summary: "Argument autocomplete from an upstream server",
 			Description: "Forwards MCP completion/complete to the named server, so a " +
 				"client offering completion over mcpx offers what the server itself " +
-				"would. A server that does not implement completions answers with an " +
-				"empty value list rather than an error, because a client that sees " +
+				"would -- which knows the values an argument may take, where mcpx " +
+				"knows only the names it has cached. A server that never declared " +
+				"the completions capability is not asked; the cached names are " +
+				"returned instead and `source` says which of the two you are " +
+				"looking at. An unimplemented completion answers with an empty " +
+				"value list rather than an error, because a client that sees " +
 				"method-not-found shows nothing and the user concludes the feature " +
 				"is broken.",
 			Params: append([]Param{
@@ -610,6 +614,8 @@ func (o Op) bodyIsOneObject() (string, bool) {
 		return "record", true
 	case "elicit_answer":
 		return "content", true
+	case "tool_invoke", "call_path":
+		return "arguments", true
 	}
 	return "", false
 }

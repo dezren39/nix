@@ -138,6 +138,19 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// mcpx's own MCP server, on the listeners the daemon already has. Built
+	// here because the daemon cannot import the CLI that builds it, and
+	// mounted rather than given a listener of its own: two HTTP servers with
+	// overlapping /v1 prefixes was one owner too many.
+	if a.Settings().Bool("proto.serveMCP") {
+		mcp, merr := a.MCPServer(ctx)
+		if merr != nil {
+			return merr
+		}
+		srv.MCP = mcp
+		srv.MCPPath = a.Settings().String("proto.mcpPath")
+		srv.MCPTool = mcp.InvokeTool
+	}
 	srv.Address = firstSet(*addr, a.Settings().String("daemon.address"))
 	if h := srv.Address; h != "" && h != "127.0.0.1" && h != "localhost" {
 		// Said once, loudly. The API is unauthenticated, so whoever can

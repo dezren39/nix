@@ -270,17 +270,6 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 
 // ---- completion ----
 
-// completer is what forwarding completion/complete upstream needs.
-//
-// Declared here as an interface and satisfied by *pool.Pool if and when that
-// package grows the method, rather than by reaching into the client: the
-// pool owns the protocol session and this package owns the route. Until it
-// does, the daemon answers from what it already knows, which is honest about
-// being less than the server would say.
-type completer interface {
-	Complete(ctx context.Context, sessionKey string, params json.RawMessage) (json.RawMessage, error)
-}
-
 type completeReq struct {
 	Server string `json:"server"`
 	Ref    struct {
@@ -319,29 +308,41 @@ func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// any() first: a type assertion on a concrete type is a compile error,
-	// and the point here is to light up automatically once the pool offers
-	// the method rather than to fail the build until it does.
-	if c, ok := any(p).(completer); ok {
-		params, _ := json.Marshal(map[string]any{
-			"ref":      req.Ref,
-			"argument": req.Argument,
-		})
-		cc := callContext(r, req.Context, req.Session)
-		raw, err := c.Complete(r.Context(), s.reg.keyFor(p, cc), params)
-		if err != nil {
-			writeErr(w, http.StatusBadGateway, err)
-			return
+	// Upstream first, always. The server knows the *values* an argument may
+	// take; mcpx knows only the names it has cached, which is a floor
+	// rather than a substitute.
+	params, _ := json.Marshal(map[string]any{"ref": req.Ref, "argument": req.Argument})
+	cc := callContext(r, req.Context, req.Session)
+	raw, upstream, err := p.Complete(r.Context(), s.reg.keyFor(p, cc), params)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	if upstream {
+		// The server answers a CompleteResult, whose payload is under
+		// `completion`. Passing the envelope through would nest it, and a
+		// client reading `completion.values` would find `completion.completion`.
+		var res struct {
+			Completion json.RawMessage `json:"completion"`
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"completion": json.RawMessage(raw), "upstream": true})
+		payload := json.RawMessage(raw)
+		if json.Unmarshal(raw, &res) == nil && len(res.Completion) > 0 {
+			payload = res.Completion
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"completion": payload, "upstream": true, "source": "upstream"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"completion": localCompletion(p.CachedPrompts(), p.CachedTemplates(), req),
 		// Said plainly, because a client that cannot tell an empty answer
 		// from an unimplemented one shows nothing and the user concludes
-		// completion is broken.
+		// completion is broken. `upstream` stays for the callers that read
+		// it; `source` says the same thing in a word rather than a
+		// negation.
 		"upstream": false,
+		"source":   "cache",
+		"because":  "this server did not declare the completions capability",
 	})
 }
 
@@ -452,7 +453,51 @@ func (s *Server) startCallTask(ttl int64, server, tool string, cc config.CallCon
 // ---- the specification ----
 
 func (s *Server) handleOpenAPI(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, api.OpenAPI(s.version))
+	doc := api.OpenAPI(s.version)
+	// Generated per request rather than once, so a server that appears after
+	// startup is described without a restart. The per-tool paths were served
+	// only by `mcpx serve --transport http`; a document without them
+	// describes an API whose most useful half is missing.
+	if paths, ok := doc["paths"].(map[string]any); ok {
+		for k, v := range s.toolPaths() {
+			paths[k] = v
+		}
+	}
+	writeJSON(w, http.StatusOK, doc)
+}
+
+// toolPaths describes every upstream tool as its own POST path.
+func (s *Server) toolPaths() map[string]any {
+	out := map[string]any{}
+	for _, t := range s.reg.Tools(nil) {
+		schema := any(map[string]any{"type": "object"})
+		if len(t.InputSchema) > 0 {
+			schema = json.RawMessage(t.InputSchema)
+		}
+		out["/v1/call/"+t.Namespace+"/"+t.Tool] = map[string]any{
+			"post": map[string]any{
+				"operationId": "call_" + t.Namespace + "_" + t.Tool,
+				"summary":     firstSentence(t.Description),
+				"tags":        []string{t.Namespace},
+				"requestBody": map[string]any{
+					"required": true,
+					"content": map[string]any{
+						"application/json": map[string]any{"schema": schema}}},
+				"responses": map[string]any{
+					"200": map[string]any{"description": "the tool result"}},
+			},
+		}
+	}
+	return out
+}
+
+// firstSentence keeps a summary to one line, because a whole description in
+// an OpenAPI summary renders as a wall in every viewer.
+func firstSentence(s string) string {
+	if i := strings.IndexAny(s, ".\n"); i > 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
 }
 
 // hasPrefixFold matches the way a person types: case is not a filter.

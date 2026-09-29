@@ -3,15 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/adapter"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpserver"
@@ -248,19 +247,24 @@ func (a *App) mcpSession() string {
 	return fmt.Sprintf("mcp-%d", os.Getpid())
 }
 
-// CmdServe runs mcpx as an MCP server.
-func (a *App) CmdServe(ctx context.Context, args []string) error {
-	fs := newFlagSet("serve")
-	transport := fs.String("transport", "stdio", "stdio or http")
-	addr := fs.String("addr", "127.0.0.1:0", "address to listen on with --transport http")
-	printTools := fs.Bool("tools", false, "print the exposed tool list and exit")
-	if err := parseFlags(a, fs, args); err != nil {
-		return err
-	}
-
+// MCPServer builds mcpx's own MCP server.
+//
+// Built here and mounted by whoever is listening, rather than owning a
+// listener of its own. There was a second HTTP server for exactly as long as
+// `mcpx serve --transport http` existed, with its own /v1 prefix over the
+// daemon's, and which of the two you reached decided which half of the API
+// existed.
+func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 	srv := mcpserver.New(mcpBackend{app: a}, "mcpx", a.Version)
 	srv.Notify = daemonNotifier{app: a}
 	srv.PageSize = a.Settings().Int("mcp.pageSize")
+	if a.Settings().Bool("proto.native") {
+		// Native elicitation and sampling: a question an upstream server
+		// asks is put to mcpx's own client, if that client said it could
+		// answer one. Off, every question goes to the broker's default
+		// audience, which is what happened before any client could.
+		srv.Ask = daemonAsker{app: a}
+	}
 
 	// Adapted programs are offered as tools in their own right, not only
 	// through mcpx_exec. A host that wants git as a tool should get git as a
@@ -268,7 +272,7 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	// question nobody asked.
 	specs, err := a.loadAdapters()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	extras := adapterTools(specs)
 	// Operations from declared OpenAPI documents are tools in their own
@@ -282,67 +286,41 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	if len(extras) > 0 {
 		srv = srv.WithExtras(extras)
 	}
+	return srv, nil
+}
 
+// CmdServe runs mcpx as an MCP server over stdio.
+//
+// stdio is inherent: an MCP host starts its servers by spawning a process
+// and talking down the pipe, so something has to be spawnable. It stays a
+// thin shim over the daemon for that reason and no other. Every other
+// transport is the daemon's, which already has listeners, a socket and a
+// lifetime -- see docs/protocol.md.
+func (a *App) CmdServe(ctx context.Context, args []string) error {
+	fs := newFlagSet("serve")
+	transport := fs.String("transport", "stdio", "stdio; HTTP is served by the daemon at "+defaults.ProtoMCPPath)
+	printTools := fs.Bool("tools", false, "print the exposed tool list and exit")
+	if err := parseFlags(a, fs, args); err != nil {
+		return err
+	}
+
+	srv, err := a.MCPServer(ctx)
+	if err != nil {
+		return err
+	}
 	if *printTools {
 		return a.out(srv.Tools())
 	}
-
-	switch *transport {
-	case "stdio":
-		// Nothing may write to stdout except protocol frames, or the host
-		// sees a parse error and disconnects. This is the single most common
-		// way an MCP server over stdio fails.
-		a.machineOutput = true
-		return srv.ServeStdio(ctx, os.Stdin, os.Stdout)
-
-	case "http":
-		ln, err := net.Listen("tcp", *addr)
-		if err != nil {
-			return err
-		}
-		mux := http.NewServeMux()
-		mux.Handle("/mcp", srv)
-		// The same tools as plain POSTs, so curl can ask what an agent asks.
-		for _, tool := range srv.Tools() {
-			mux.HandleFunc("/v1/tools/"+tool.Name, srv.RESTHandler(tool.Name))
-		}
-		// And every upstream tool, individually. A tool reachable from MCP
-		// and from a script but not from curl is reachable from fewer places
-		// than it needs to be.
-		upstream := a.restToolRoutes(ctx, mux)
-		mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSONResponse(w, map[string]any{"ok": true, "version": a.Version})
-		})
-		mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
-			doc := OpenAPI(a.Version)
-			// Generated per request rather than once, so a server that
-			// appears after startup is described without a restart.
-			if c, err := a.ensure(r.Context()); err == nil {
-				if tools, terr := c.Tools(r.Context(), nil); terr == nil {
-					paths, _ := doc["paths"].(map[string]any)
-					for k, v := range toolPaths(tools) {
-						paths[k] = v
-					}
-				}
-			}
-			writeJSONResponse(w, doc)
-		})
-		fmt.Fprintf(os.Stderr, "mcpx: MCP on http://%s/mcp (%d upstream tools as REST)\n",
-			ln.Addr(), upstream)
-
-		server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-		go func() {
-			<-ctx.Done()
-			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = server.Shutdown(shutdown)
-		}()
-		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-		return nil
+	if *transport != "stdio" {
+		return fmt.Errorf("no transport %q; mcpx serves MCP over stdio here, and over "+
+			"HTTP from the daemon at %s -- run `mcpx daemon --port N` and point the "+
+			"host at http://127.0.0.1:N%s", *transport, defaults.ProtoMCPPath, defaults.ProtoMCPPath)
 	}
-	return fmt.Errorf("no transport %q; stdio or http", *transport)
+	// Nothing may write to stdout except protocol frames, or the host sees a
+	// parse error and disconnects. This is the single most common way an MCP
+	// server over stdio fails.
+	a.machineOutput = true
+	return srv.ServeStdio(ctx, os.Stdin, os.Stdout)
 }
 
 func writeJSONResponse(w http.ResponseWriter, v any) {

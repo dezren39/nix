@@ -83,14 +83,15 @@ type Defaults struct {
 	// era mechanisms it offers, and how long it will hold a call open while
 	// somebody answers a question.
 	Proto struct {
-		Native      bool   `json:"native"`
-		AskTimeout  string `json:"askTimeout"`
-		AskPoll     string `json:"askPoll"`
-		AskRounds   int    `json:"askRounds"`
-		StateTTL    string `json:"stateTTL"`
-		SessionIdle string `json:"sessionIdle"`
-		AskTTL      string `json:"askTTL"`
-		MCPPath     string `json:"mcpPath"`
+		Native       bool   `json:"native"`
+		AskTimeout   string `json:"askTimeout"`
+		AskPoll      string `json:"askPoll"`
+		AskRounds    int    `json:"askRounds"`
+		StateTTL     string `json:"stateTTL"`
+		SessionIdle  string `json:"sessionIdle"`
+		AskTTL       string `json:"askTTL"`
+		AbandonGrace string `json:"abandonGrace"`
+		MCPPath      string `json:"mcpPath"`
 	} `json:"proto"`
 	Catalog struct {
 		Budget int `json:"budget"`
@@ -239,6 +240,10 @@ var (
 	// ProtoAskTTL is how long the daemon keeps a call that is waiting for
 	// an answer, and its result once it has one.
 	ProtoAskTTL = mustDur(builtin.Proto.AskTTL, "proto.askTTL")
+	// ProtoAbandonGrace bounds telling the daemon to stop a call nobody is
+	// coming back for. Best effort by definition: the request that wanted it
+	// is already being failed.
+	ProtoAbandonGrace = mustDur(builtin.Proto.AbandonGrace, "proto.abandonGrace")
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
 

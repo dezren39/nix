@@ -37,6 +37,12 @@ type Asker interface {
 	Abandon(callID string)
 }
 
+// ErrNotInterruptible means this request has nothing an upstream server
+// could interrupt -- a tool that reaches no server, a script, a /v1
+// operation. The caller runs it the ordinary way instead of paying for a
+// task and a poll loop to discover it finished immediately.
+var ErrNotInterruptible = errors.New("this request cannot be interrupted")
+
 // Outcome is where a call has got to.
 type Outcome struct {
 	// Done means the call finished, one way or another.
@@ -97,6 +103,11 @@ func forAsk(params json.RawMessage) json.RawMessage {
 
 // viaAsk answers a request that may be interrupted by a question.
 //
+// Returns nil when the request turns out not to be interruptible at all, so
+// the caller falls through to the ordinary path. That is the common case --
+// most of mcpx's own tools reach no upstream server -- and paying for a task
+// and a poll loop to discover it would be a cost on every call.
+//
 // Both eras run through here, and the difference is only how the question
 // travels: a legacy client is sent elicitation/create on the wire while its
 // own call is still open, a modern one is handed the question inside an
@@ -124,6 +135,9 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 	} else {
 		id, err := s.Ask.Begin(ctx, req.Method, forAsk(req.Params))
+		if errors.Is(err, ErrNotInterruptible) {
+			return nil
+		}
 		if err != nil {
 			return fail(codeInternal, err.Error())
 		}

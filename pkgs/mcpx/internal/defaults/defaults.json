@@ -70,6 +70,7 @@
     "stateTTL": "30m",
     "sessionIdle": "30m",
     "askTTL": "15m",
+    "abandonGrace": "5s",
     "mcpPath": "/mcp"
   }
 }

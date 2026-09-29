@@ -79,6 +79,39 @@ func protoOps() []Op {
 			},
 		},
 		{
+			Name: "tool_invoke", Method: "POST", Path: "/v1/tools/{tool}",
+			Summary: "Run one of mcpx's own MCP tools as a plain POST",
+			Description: "Most of these have a /v1 route of their own, because the tools " +
+				"are generated from this table. The ones that do not are the reason " +
+				"this exists: an adapted command-line program, an operation from a " +
+				"declared OpenAPI document, anything contributed from outside the " +
+				"fixed set. Without it they are reachable from an MCP host and from " +
+				"nowhere else.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "tool", In: InPath, Type: "string", Required: true, Desc: "the MCP tool name"},
+				{Name: "arguments", In: InBody, Type: "object", Desc: "the tool's arguments, as the whole body",
+					Schema: `{"type":"object","additionalProperties":true}`},
+			},
+		},
+		{
+			Name: "call_path", Method: "POST", Path: "/v1/call/{server}/{tool}",
+			Summary: "Call one tool, with the pair in the URL",
+			Description: "The same call as POST /v1/call, spelled the way a shell script " +
+				"wants to spell it: one path per tool, arguments as the whole body, " +
+				"nothing to assemble. It is also what the generated OpenAPI document " +
+				"describes, so a client built from that document has somewhere to " +
+				"send its request.",
+			CoveredBy: "mcpx_call", Mutating: true,
+			Params: []Param{
+				{Name: "server", In: InPath, Type: "string", Required: true, Desc: "server name or namespace"},
+				{Name: "tool", In: InPath, Type: "string", Required: true},
+				{Name: "session", In: InQuery, Type: "string", Desc: "the caller's session id"},
+				{Name: "arguments", In: InBody, Type: "object", Desc: "the tool's arguments, as the whole body",
+					Schema: `{"type":"object","additionalProperties":true}`},
+			},
+		},
+		{
 			Name: "protocol", Method: "GET", Path: "/v1/protocol",
 			Summary: "Which MCP revisions mcpx speaks, in both directions",
 			Description: "The revisions mcpx serves and the feature each one defines, " +

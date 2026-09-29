@@ -59,3 +59,12 @@ func OpTools(call OpCaller) []Extra {
 	}
 	return out
 }
+
+// InvokeTool runs one tool by name and returns its text.
+//
+// The plain-POST projection of the MCP surface goes through here rather than
+// through a copy of the dispatch, so a tool cannot behave one way for an
+// agent and another for curl.
+func (s *Server) InvokeTool(ctx context.Context, tool string, args json.RawMessage) (string, error) {
+	return s.dispatch(ctx, tool, args)
+}

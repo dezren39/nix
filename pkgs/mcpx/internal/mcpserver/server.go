@@ -638,7 +638,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// it can be interrupted, and resumed, across. One that cannot gets
 		// the direct path and the broker's own routing, exactly as before.
 		if s.canAsk(c, peer) {
-			return s.viaAsk(ctx, c, req, peer)
+			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
+				return resp
+			}
 		}
 		var p struct {
 			Name      string          `json:"name"`
@@ -682,7 +684,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 
 	case "resources/read":
 		if s.canAsk(c, peer) {
-			return s.viaAsk(ctx, c, req, peer)
+			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
+				return resp
+			}
 		}
 		var p struct {
 			URI string `json:"uri"`
@@ -721,7 +725,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 
 	case "prompts/get":
 		if s.canAsk(c, peer) {
-			return s.viaAsk(ctx, c, req, peer)
+			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
+				return resp
+			}
 		}
 		var p struct {
 			Name      string            `json:"name"`

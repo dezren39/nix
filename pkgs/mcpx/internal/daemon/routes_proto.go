@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -28,6 +30,8 @@ func (s *Server) routesProto(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/ask/{id}/answers", s.handleAskAnswers)
 	mux.HandleFunc("POST /v1/ask/{id}/abandon", s.handleAskAbandon)
 	mux.HandleFunc("GET /v1/protocol", s.handleProtocol)
+	mux.HandleFunc("POST /v1/tools/{tool}", s.handleToolInvoke)
+	mux.HandleFunc("POST /v1/call/{server}/{tool}", s.handleCallPath)
 }
 
 // ---- a call that can be interrupted ----
@@ -540,4 +544,79 @@ func (s *Server) handleProtocol(w http.ResponseWriter, r *http.Request) {
 			"servers": upstream,
 		},
 	})
+}
+
+// ---- the routes `mcpx serve --transport http` used to own ----
+//
+// They were served by a second process, on a second HTTP server, under a
+// second /v1 prefix. Whichever one a caller reached decided which half of
+// the API existed, and the two could not be told apart from the outside.
+// They live here now, declared in the same table as everything else.
+
+// handleToolInvoke runs one of mcpx's own MCP tools as a plain POST.
+//
+// Most of them have a /v1 route of their own, because the tools are
+// generated from that table. The ones that do not are the interesting case:
+// an adapted command-line program, an operation from a declared OpenAPI
+// document, anything contributed from outside the fixed set. Without this
+// they are reachable from an MCP host and from nowhere else.
+func (s *Server) handleToolInvoke(w http.ResponseWriter, r *http.Request) {
+	if s.MCPTool == nil {
+		writeErr(w, http.StatusNotFound, errors.New("this daemon serves no MCP tools"))
+		return
+	}
+	body, err := readBody(w, r, 64<<20)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	text, err := s.MCPTool(r.Context(), r.PathValue("tool"), body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": text})
+}
+
+// handleCallPath is /v1/call with the pair in the URL.
+//
+// The same call, spelled the way a shell script wants to spell it: one path
+// per tool, arguments as the whole body, nothing to assemble. It is what the
+// generated OpenAPI document describes, so a client built from that document
+// has somewhere to send its request.
+func (s *Server) handleCallPath(w http.ResponseWriter, r *http.Request) {
+	body, err := readBody(w, r, 64<<20)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var args any = map[string]any{}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &args); err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("args: %w", err))
+			return
+		}
+	}
+	cc := callContext(r, config.CallContext{}, r.URL.Query().Get("session"))
+	start := time.Now()
+	res, err := s.reg.Call(r.Context(), r.PathValue("server"), r.PathValue("tool"), cc, args)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res,
+		"durationMs": time.Since(start).Milliseconds()})
+}
+
+// readBody reads a request body, defaulting an empty one to an empty object
+// so that a caller with no arguments need not send `{}` by hand.
+func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, error) {
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		return nil, err
+	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return []byte("{}"), nil
+	}
+	return b, nil
 }
