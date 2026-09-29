@@ -2137,10 +2137,29 @@ Spawning is **135× slower** than a warm socket, and almost all of it is
 process startup rather than transport. Irrelevant for something run once;
 decisive for anything on the path of every tool call.
 
-`plugin/opencode/daemon.ts` therefore talks to the socket directly rather
+`plugin/opencode/mcpx/daemon.ts` therefore talks to the socket directly rather
 than shelling out. It returns `undefined` when no daemon is reachable rather
 than throwing, because a plugin that fails to load has broken the editor for
 a tool the user may not even be using.
+
+It sat unused for a day: written, documented, benchmarked, and imported by
+nothing. The plugin still spawned `mcpx log record` after every tool call.
+Wiring it in found three more things, each invisible until something real
+used the path:
+
+- **The socket was guessed.** The client took the newest `.sock` in the state
+  directory. Sockets are keyed by configuration, so that is the wrong daemon
+  whenever two exist, and none at all when a long state path moved the socket
+  elsewhere. It now asks `mcpx --json status`, once.
+- **`status` said `running` only when false.** Testing it read a live daemon
+  as down.
+- **One file, two daemons.** The key hashed the configuration's path as
+  spelled. `/tmp` is a symlink to `/private/tmp` on macOS, so a process whose
+  `$PWD` held the short form computed a different key, saw no daemon, and
+  started a second. Paths are now resolved through symlinks first.
+
+With those fixed, a timing record costs 0.09 ms over the socket instead of a
+23 ms spawn.
 
 2026-09-28T23:30:00-05:00
 

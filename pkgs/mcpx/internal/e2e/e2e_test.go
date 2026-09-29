@@ -2447,25 +2447,7 @@ func TestTheEventStreamDeliversCallsAndResumes(t *testing.T) {
 	e.run("call", "demo.echo", `{"message":"a"}`)
 	e.run("call", "demo.echo", `{"message":"b"}`)
 
-	// Asked rather than globbed: a long state path makes the daemon fall
-	// back to a private runtime directory, so the socket is not necessarily
-	// where the state directory would suggest.
-	var st struct {
-		Socket string `json:"socket"`
-	}
-	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
-		t.Fatal(err)
-	}
-	sock := st.Socket
-	if sock == "" {
-		t.Fatal("status did not report a socket")
-	}
-	client := &http.Client{
-		Timeout: 3 * time.Second,
-		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
-		}},
-	}
+	client := e.socketClient(t)
 	resp, err := client.Get("http://mcpx/v1/events?kinds=call&since=0")
 	if err != nil {
 		t.Fatal(err)
@@ -2482,5 +2464,95 @@ func TestTheEventStreamDeliversCallsAndResumes(t *testing.T) {
 	}
 	if !strings.Contains(body, "id: ") {
 		t.Errorf("events should carry sequence ids for resume:\n%s", body)
+	}
+}
+
+// socketClient speaks HTTP to the running daemon over its unix socket.
+//
+// The socket is asked for rather than globbed: a long state path makes the
+// daemon fall back to a private runtime directory, so it is not necessarily
+// where the state directory would suggest. The opencode plugin finds it the
+// same way, for the same reason.
+func (e *env) socketClient(t *testing.T) *http.Client {
+	t.Helper()
+	var st struct {
+		Socket string `json:"socket"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Socket == "" {
+		t.Fatal("status did not report a socket")
+	}
+	return &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", st.Socket)
+		}},
+	}
+}
+
+func TestARecordPostedToTheDaemonLandsInTheSameLogAsTheCommand(t *testing.T) {
+	// The plugin records a timing after every tool call. Over the socket
+	// that costs a fraction of a millisecond instead of a process spawn, and
+	// it must be the same record either way -- same parser, same log, same
+	// external marker.
+	e := newEnv(t, oneServer)
+	e.run("call", "demo.echo", `{"message":"warm"}`)
+	client := e.socketClient(t)
+
+	resp, err := client.Post("http://mcpx/v1/log?level=warn", "application/json",
+		strings.NewReader(`{"event":"harness.tool","tool":"bash","session":"ses-sock"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+
+	out := e.run("--json", "log", "--grep", "harness.tool", "--limit", "5")
+	for _, want := range []string{"ses-sock", `"external":true`, "warn"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the posted record should carry %s:\n%s", want, out)
+		}
+	}
+
+	// null is the case worth pinning: it decodes without error into a nil
+	// map, and before the shared parser refused it, the write that followed
+	// would have panicked inside the daemon.
+	for _, body := range []string{`null`, `[1]`, `nope`} {
+		resp, err := client.Post("http://mcpx/v1/log", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", body, resp.StatusCode)
+		}
+	}
+	if _, err := client.Get("http://mcpx/v1/health"); err != nil {
+		t.Errorf("the daemon should survive bad records: %v", err)
+	}
+}
+
+func TestStatusReportsRunningEitherWay(t *testing.T) {
+	// `running` used to appear only when false, so anything testing it --
+	// the opencode plugin did -- read a live daemon as down.
+	e := newEnv(t, oneServer)
+	var st map[string]any
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st["running"] != false {
+		t.Errorf("before anything starts a daemon: running = %v", st["running"])
+	}
+	e.run("ls")
+	st = nil
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st["running"] != true || st["socket"] == nil {
+		t.Errorf("with a daemon up: running = %v, socket = %v", st["running"], st["socket"])
 	}
 }

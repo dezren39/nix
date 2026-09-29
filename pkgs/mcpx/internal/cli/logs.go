@@ -343,7 +343,6 @@ func (a *App) cmdLogSQL(_ context.Context, args []string) error {
 	return tw.Flush()
 }
 
-// CmdStats aggregates the log.
 // CmdLogRecord appends one record to the durable log.
 //
 // The point is that mcpx's log should be able to hold what other things know.
@@ -375,31 +374,16 @@ func (a *App) CmdLogRecord(_ context.Context, args []string) error {
 		return errors.New("usage: mcpx log record '<json>'  (or pipe it on stdin)")
 	}
 
-	attrs := map[string]any{}
-	if err := json.Unmarshal([]byte(payload), &attrs); err != nil {
-		return fmt.Errorf("a record must be a JSON object: %w", err)
-	}
-	lvl, err := logging.ParseLevel(*level)
+	rec, err := logging.ExternalRecord([]byte(payload), *level)
 	if err != nil {
 		return err
 	}
-	msg, _ := attrs["msg"].(string)
-	if msg == "" {
-		msg, _ = attrs["message"].(string)
-	}
-	if msg == "" {
-		msg, _ = attrs["event"].(string)
-	}
-	delete(attrs, "msg")
-	delete(attrs, "message")
-
-	// Marked as external so a reader can tell what mcpx observed from what it
-	// was told. Without that distinction a synthetic record is indistinguishable
-	// from a measured one.
-	attrs["external"] = true
+	// The harness ids come from this process's environment, which the plugin
+	// populates. Over POST /v1/log they are in the body instead, because the
+	// daemon's environment belongs to whoever started it.
 	for k, v := range logging.HarnessIDs() {
-		if _, taken := attrs[k]; !taken {
-			attrs[k] = v
+		if _, taken := rec.Attrs[k]; !taken {
+			rec.Attrs[k] = v
 		}
 	}
 
@@ -410,12 +394,11 @@ func (a *App) CmdLogRecord(_ context.Context, args []string) error {
 		return err
 	}
 	defer sink.Close()
-	sink.Write(logging.Record{
-		Time: time.Now(), Level: lvl, Msg: msg, Attrs: attrs,
-	}, nil)
+	sink.Write(rec, nil)
 	return nil
 }
 
+// CmdStats aggregates the log.
 func (a *App) CmdStats(_ context.Context, args []string) error {
 	// The dimension is hoisted before parsing because Go's flag package stops
 	// at the first non-flag argument, so `stats slowest --top 3` would

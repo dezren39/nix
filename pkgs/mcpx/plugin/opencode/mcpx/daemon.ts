@@ -36,30 +36,32 @@ export type Target =
  */
 export const findDaemon = async (
   $: any,
-  opts: { endpoint?: string; stateDir?: string } = {},
+  opts: { endpoint?: string; directory?: string } = {},
 ): Promise<Target | undefined> => {
   const endpoint = opts.endpoint ?? process.env.MCPX_DAEMON_ENDPOINT ?? process.env.MCPX_ENDPOINT
   if (endpoint) {
     if (endpoint.startsWith("unix://")) return { kind: "socket", path: endpoint.slice(7) }
     return { kind: "url", base: endpoint.replace(/\/$/, "") }
   }
+  if (process.env.MCPX_SOCKET) return { kind: "socket", path: process.env.MCPX_SOCKET }
 
-  const state =
-    opts.stateDir ??
-    process.env.MCPX_STATE_DIR ??
-    `${process.env.HOME}/.local/state/mcpx`
-
+  // Asked, not guessed. The socket's name carries a hash of the resolved
+  // configuration, and a long state path moves it to a private runtime
+  // directory entirely, so neither "the newest .sock in the state directory"
+  // nor any other listing finds the right one reliably. mcpx itself knows.
+  //
+  // This is one spawn, and callers cache the result: the cost that matters
+  // is the one on every tool call, not the one at the start of a session.
   try {
-    // The socket name carries a hash of the configuration, so there may be
-    // several and the newest is the one this directory is currently using.
-    const out = await $`ls -t ${state}`.quiet().nothrow().text()
-    const name = String(out)
-      .split("\n")
-      .map((s) => s.trim())
-      .find((s) => s.endsWith(".sock"))
-    if (name) return { kind: "socket", path: `${state}/${name}` }
+    const cmd = opts.directory
+      ? $`mcpx --json status`.cwd(opts.directory)
+      : $`mcpx --json status`
+    const st = JSON.parse(String(await cmd.quiet().nothrow().text()))
+    if (st?.running === true && typeof st.socket === "string" && st.socket) {
+      return { kind: "socket", path: st.socket }
+    }
   } catch {
-    /* no daemon, or no state directory yet */
+    /* mcpx not installed, or printed something that is not JSON */
   }
   return undefined
 }
@@ -81,9 +83,10 @@ export class DaemonClient {
 
   private init(extra: RequestInit = {}): RequestInit {
     if (this.target.kind !== "socket") return extra
-    // Bun understands `unix`; undici understands a dispatcher. Passing both
-    // is harmless on whichever does not recognise its counterpart, and
-    // avoids branching on which runtime opencode happens to be using.
+    // Bun's fetch takes `unix`. opencode runs plugins under Bun, so that is
+    // the one that matters here. Node's fetch ignores the option and would
+    // dial the placeholder host instead -- a URL target is the way to reach
+    // a daemon from Node.
     return { ...extra, unix: this.target.path } as RequestInit
   }
 
@@ -153,6 +156,16 @@ export class DaemonClient {
   answer(id: string, action: "accept" | "decline" | "cancel", content?: unknown): Promise<unknown> {
     return this.post(`/v1/elicit/${encodeURIComponent(id)}/${action}`, content ?? {})
   }
+
+  /**
+   * Append a record to mcpx's durable log -- `mcpx log record` without the
+   * process. Same parser on the daemon side, so the record is identical to
+   * one sent by spawning the binary.
+   */
+  record(record: Record<string, unknown>, level?: "debug" | "info" | "warn" | "error"): Promise<unknown> {
+    const q = level ? `?level=${level}` : ""
+    return this.post(`/v1/log${q}`, record)
+  }
 }
 
 /**
@@ -164,7 +177,7 @@ export class DaemonClient {
  */
 export const connect = async (
   $: any,
-  opts: { endpoint?: string; stateDir?: string } = {},
+  opts: { endpoint?: string; directory?: string } = {},
 ): Promise<DaemonClient | undefined> => {
   const target = await findDaemon($, opts)
   if (!target) return undefined
