@@ -1880,6 +1880,154 @@ restart.
 
 2026-09-28T16:30:00-05:00
 
+## Two protocol eras
+
+```
+created:      2026-09-28T20:00:00-05:00
+last-updated: 2026-09-28T20:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  legacy and modern, both directions.
+```
+
+The specification splits implementations in two. Legacy revisions
+(`2025-11-25` and earlier) negotiate once through an `initialize` handshake.
+`2026-07-28`, the current one, carries the version in `_meta` on every
+request, has no handshake at all, and requires `server/discover`.
+
+The matrix is unforgiving: modern against legacy fails, legacy against modern
+fails, only a dual-era implementation bridges. mcpx is dual-era on both sides.
+
+**As a client** it probes and falls back. Legacy first by default, because
+nearly every server in existence is legacy and probing modern first costs a
+wasted round trip on all of them. That is correct today and will stop being
+correct, which is why `PreferModern`, `ForceLegacy` and `ForceModern` exist.
+A recognised `UnsupportedProtocolVersionError` stops the fallback: it
+identifies a modern server, so the version is wrong rather than the era, and
+falling back would report the wrong problem.
+
+**As a server** it answers both, and no longer lies. `negotiate()` used to
+echo whatever version was asked for, so a client requesting `2026-07-28` was
+told yes and then found no `server/discover`. It now answers
+`UnsupportedProtocolVersionError` (`-32022`) with the list that would work,
+and refuses a modern version over `initialize` at all -- a client sending
+`initialize` is legacy by definition, so agreeing would promise a protocol
+neither side is speaking.
+
+2026-09-28T20:00:00-05:00
+
+## When a server asks a question
+
+```
+created:      2026-09-28T20:00:00-05:00
+last-updated: 2026-09-28T20:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  elicitation, stored rather than blocked on.
+```
+
+Every other MCP method runs client to server. Elicitation runs the other way:
+a server stops mid-call and asks something -- which repository, are you sure,
+log in here.
+
+### The bug that came first
+
+`recvLoop` matched inbound frames on their id alone. A server-initiated
+request has an id *and* a method, so it looked like a reply to nothing and was
+discarded. The server waited, the call hit its timeout, and mcpx reported a
+timeout: true, useless, and pointing at the wrong thing.
+
+Frames are now routed by shape, and a question is **always** answered -- with
+`cancel` when nobody was asked, because silence is indistinguishable from a
+hung server while cancel is honest about nobody having chosen.
+
+### A question is state, not a blocked call
+
+That is the whole design. A question gets an identity, a deadline and a row
+in the database beside the log index. The call stops and says "I need input,
+here is the ticket".
+
+So **whoever answers need not be whoever asked.** CI raises a question a
+person answers from a laptop twenty minutes later; the reattach works because
+nothing was ever held in memory. A call that is waiting exits `75`
+(`EX_TEMPFAIL`), which is what it is: not a failure, a "try again when you
+have an answer".
+
+Expiry answers `cancel`, never `decline`. Expiry means dismissed without
+choosing; telling a server the user declined would say something different and
+untrue. Overdue questions expire when something reads them rather than on a
+timer, so there is no sweeper to go wrong and nothing is reported as pending
+when it is not.
+
+### Who answers
+
+The specification leaves this to the client, deliberately: *"If the client is
+an agent, it might decide how to handle the elicitation."*
+
+The default is **the agent**, and that is usually right -- it asked for the
+thing, the question is part of that request, and it has the context. A human
+is pulled in only for what an agent cannot know or should not hold: a
+credential, a browser flow, or a bare confirmation, since consent is not the
+agent's to give.
+
+Every routing decision records its reason. Routing nobody can inspect is
+routing nobody can correct.
+
+### Answering
+
+```sh
+mcpx elicit list
+mcpx elicit answer elc-9f2c1a84 repo=me/thing    # key=value, or JSON
+mcpx elicit decline elc-9f2c1a84
+```
+
+`key=value` is accepted because most answers are one short string, and making
+somebody quote JSON for that is ceremony. `mcpx elicit show` prints the
+command that answers a question, because the alternative is assembling it from
+three fields and getting it wrong once.
+
+2026-09-28T20:00:00-05:00
+
+## Credentials
+
+```
+created:      2026-09-28T20:00:00-05:00
+last-updated: 2026-09-28T20:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  what the specification actually requires, which is little.
+```
+
+The specification's position is short and the opposite of what people assume:
+
+- Authorization is **optional**.
+- stdio transports **SHOULD NOT** use OAuth. They take credentials from the
+  environment -- a child process is trusted because you started it.
+- HTTP transports **SHOULD** use OAuth 2.1 when the server is protected.
+
+So most servers need nothing.
+
+```jsonc
+{ "mcpServers": { "api": {
+    "url": "https://example.com/mcp",
+    "auth": { "type": "bearer", "token": "${API_TOKEN}" } } } }
+```
+
+`bearer`, `basic`, `header`, `query` and `env`, all with `${VAR}` expansion so
+the secret is never in the file. An unset variable is **named up front**
+rather than surfacing as a 401 three layers away.
+
+`Describe()` prints a reference but never a literal, because its output is
+what people paste into issues.
+
+`oauth` is declared but not performed. A server requiring it says so before
+the first request rather than failing with a 401 nobody can interpret.
+
+2026-09-28T20:00:00-05:00
+
 ## Nix packaging
 
 ```

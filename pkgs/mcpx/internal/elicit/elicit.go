@@ -466,6 +466,13 @@ func scanRequests(rows *sql.Rows) ([]Request, error) {
 		r.Created = time.UnixMilli(created)
 		r.ExpiresAt = time.UnixMilli(expires)
 		r.PID = int(pid.Int64)
+		// Route on read when the stored row has no audience. A question
+		// written by an older version, or by something else holding the same
+		// file, is unrouted rather than wrong -- and an unrouted question
+		// that silently goes nowhere is worse than one routed late.
+		if r.Audience == "" {
+			r.Audience, r.Reason = Route(r)
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()

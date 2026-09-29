@@ -2250,3 +2250,99 @@ func keysOf(m map[string]any) []string {
 	sort.Strings(out)
 	return out
 }
+
+func TestElicitationsCanBeListedAndAnsweredFromTheCommandLine(t *testing.T) {
+	// The whole point of storing a question rather than blocking on one:
+	// this process never asked it, and can still answer it.
+	e := newEnv(t, oneServer)
+	e.run("elicit", "list") // creates the store
+
+	seedElicitation(t, e, "elc-test1", "github", "form",
+		`{"type":"object","properties":{"repo":{"type":"string"}},"required":["repo"]}`)
+
+	list := e.run("elicit", "list")
+	if !strings.Contains(list, "elc-test1") {
+		t.Fatalf("the question should be listed:\n%s", list)
+	}
+	// The command to answer is spelled out, because otherwise every caller
+	// assembles it from three fields and gets it wrong once.
+	show := e.run("elicit", "show", "elc-test1")
+	if !strings.Contains(show, "mcpx elicit answer elc-test1") {
+		t.Errorf("the answer command should be shown:\n%s", show)
+	}
+
+	// key=value, because most answers are one short string.
+	e.run("elicit", "answer", "elc-test1", "repo=me/thing")
+
+	out := e.run("--json", "elicit", "result", "elc-test1")
+	var ans struct {
+		Action  string          `json:"action"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &ans); err != nil {
+		t.Fatal(err)
+	}
+	if ans.Action != "accept" || !strings.Contains(string(ans.Content), "me/thing") {
+		t.Errorf("got %+v", ans)
+	}
+	if after := e.run("elicit", "list"); strings.Contains(after, "elc-test1") {
+		t.Errorf("an answered question should not still be pending:\n%s", after)
+	}
+}
+
+func TestACredentialQuestionIsRoutedToAHuman(t *testing.T) {
+	// The default is the agent -- it asked for the thing and has the context.
+	// A credential is the exception: a model cannot know one and should not
+	// hold one.
+	e := newEnv(t, oneServer)
+	e.run("elicit", "list")
+
+	seedElicitation(t, e, "elc-agent", "demo", "form",
+		`{"type":"object","properties":{"repo":{"type":"string"}}}`)
+	seedElicitation(t, e, "elc-human", "demo", "form",
+		`{"type":"object","properties":{"api_token":{"type":"string"}}}`)
+
+	out := e.run("--json", "elicit", "list")
+	var pending []struct {
+		ID       string `json:"id"`
+		Audience string `json:"audience"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &pending); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	reasons := map[string]string{}
+	for _, p := range pending {
+		got[p.ID] = p.Audience
+		reasons[p.ID] = p.Reason
+	}
+	if got["elc-agent"] != "agent" {
+		t.Errorf("an ordinary choice belongs to the agent: %v", got)
+	}
+	if got["elc-human"] != "human" {
+		t.Errorf("a token field belongs to a person: %v", got)
+	}
+	// Routing nobody can inspect is routing nobody can correct.
+	if reasons["elc-human"] == "" {
+		t.Error("the reason should be recorded")
+	}
+}
+
+// seedElicitation writes a question straight into the store, standing in for
+// a server that asked one.
+func seedElicitation(t *testing.T, e *env, id, server, mode, schema string) {
+	t.Helper()
+	script := fmt.Sprintf(`
+import sqlite3, time, sys
+now = int(time.time()*1000)
+db = sqlite3.connect(%q)
+db.execute("INSERT OR REPLACE INTO elicitations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+  (%q,"cal-x","","s1",%q,"tool",%q,"which one?",%q,"", "", "", now, now+120000,"pending",1))
+db.commit()
+`, filepath.Join(e.dir, "state", "logs", "elicit.db"), id, server, mode, schema)
+	cmd := exec.Command("python3", "-c", script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("seeding: %v\n%s", err, out)
+	}
+}
