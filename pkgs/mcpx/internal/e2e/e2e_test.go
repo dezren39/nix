@@ -2417,12 +2417,25 @@ func TestWithoutInlineANoDaemonSituationFailsClearly(t *testing.T) {
 
 func TestScriptsReachTheDaemonOverItsSocketWhereTheRuntimeCan(t *testing.T) {
 	// Deno and Bun take the socket; Node falls back to TCP because its fetch
-	// cannot address one without undici.
-	e := newEnv(t, oneServer)
-	out := e.run("exec", "--format", "bare",
-		`const r = await demo.echo({message:"x"}); console.log("via", transport());`)
-	if !strings.Contains(out, "via unix") {
-		t.Errorf("deno should reach the socket:\n%s", out)
+	// cannot address one without undici. Each runtime is checked only where
+	// it is installed, and the expectation is per runtime -- the first
+	// version of this assumed Deno, and on a runner without it the script
+	// correctly ran under Node, used TCP, and failed the test for being
+	// right.
+	for _, c := range []struct{ rt, want string }{
+		{"deno", "via unix"}, {"bun", "via unix"}, {"node", "via tcp"},
+	} {
+		t.Run(c.rt, func(t *testing.T) {
+			if _, err := exec.LookPath(c.rt); err != nil {
+				t.Skipf("%s not installed", c.rt)
+			}
+			e := newEnv(t, oneServer)
+			out := e.run("exec", "--runtime", c.rt, "--format", "bare",
+				`const r = await demo.echo({message:"x"}); console.log("via", transport());`)
+			if !strings.Contains(out, c.want) {
+				t.Errorf("%s should report %q:\n%s", c.rt, c.want, out)
+			}
+		})
 	}
 }
 

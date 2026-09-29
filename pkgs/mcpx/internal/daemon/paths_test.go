@@ -1,6 +1,7 @@
 package daemon_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,8 +31,36 @@ func TestSocketFallsBackWhenPathTooLongForSunPath(t *testing.T) {
 	if len(p.Socket) > 100 {
 		t.Fatalf("fallback socket is still too long (%d bytes): %q", len(p.Socket), p.Socket)
 	}
-	if !strings.Contains(p.Socket, "mcpx-") {
+	// Recognisable as mcpx's, wherever it landed. On Linux XDG_RUNTIME_DIR
+	// is set and the fallback goes to /run/user/<uid>/mcpx/; on macOS it goes
+	// under the temp directory. Asserting one shape made this pass on the
+	// machine it was written on and fail on the first Linux runner.
+	if !strings.Contains(p.Socket, "mcpx") {
 		t.Fatalf("fallback socket should be recognisable: %q", p.Socket)
+	}
+}
+
+func TestTheFallbackSocketUsesXDGRuntimeDirWhenSet(t *testing.T) {
+	// XDG_RUNTIME_DIR is already private to the user, which is exactly the
+	// property the fallback needs.
+	//
+	// A short directory, deliberately. t.TempDir() on macOS is long enough
+	// that the socket inside it exceeds the path limit too, and the code
+	// then -- correctly -- falls through to the next candidate, which is not
+	// what this test is about.
+	dir, err := os.MkdirTemp("/tmp", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	long := "/tmp/" + strings.Repeat("abcdefghij/", 12) + "state"
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+	t.Setenv("MCPX_SOCKET", "")
+	t.Setenv("MCPX_STATE_DIR", long)
+	t.Setenv("MCPX_CACHE_DIR", "/tmp/c")
+	p := daemon.ResolvePaths()
+	if !strings.HasPrefix(p.Socket, dir) {
+		t.Errorf("with XDG_RUNTIME_DIR set, the socket should be under it: %q", p.Socket)
 	}
 }
 
