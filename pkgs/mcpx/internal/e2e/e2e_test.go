@@ -2346,3 +2346,36 @@ db.commit()
 		t.Fatalf("seeding: %v\n%s", err, out)
 	}
 }
+
+func TestTheConnectionLadderReportsEveryRungItTried(t *testing.T) {
+	// "Why is this slow" and "why did it answer from the wrong machine" are
+	// both answered by the list of what was tried, so every rung is recorded
+	// whether or not it worked.
+	e := newEnv(t, oneServer)
+
+	cold := e.run("doctor", "-v")
+	if !strings.Contains(cold, "reached over spawn") {
+		t.Errorf("a cold start should climb to the spawn rung:\n%s", cold)
+	}
+	warm := e.run("doctor", "-v")
+	if !strings.Contains(warm, "reached over socket") {
+		t.Errorf("a warm one should stop at the socket:\n%s", warm)
+	}
+}
+
+func TestANamedEndpointIsNotSilentlyReplacedByALocalDaemon(t *testing.T) {
+	// Falling back would answer from the wrong machine, which is worse than
+	// failing.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_ENDPOINT=http://127.0.0.1:1")
+	out, err := e.try("doctor")
+	if err == nil {
+		t.Fatal("an unreachable named endpoint should fail")
+	}
+	if !strings.Contains(out, "not started from here") {
+		t.Errorf("the reason should be stated:\n%s", out)
+	}
+	if strings.Contains(out, "reached over spawn") {
+		t.Errorf("it must not have started a local daemon instead:\n%s", out)
+	}
+}
