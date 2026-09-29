@@ -17,7 +17,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +29,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/dezren39/mcpx/internal/defaults"
 )
 
 // Backend is what the server exposes. Defined here rather than taken from the
@@ -120,24 +125,42 @@ type Server struct {
 	// OnCancel is called when a client cancels a request.
 	OnCancel func(id, reason string)
 
-	mu        sync.Mutex
-	cancelled map[string]string
+	mu sync.Mutex
 
 	// Notify is where pushed notifications come from. Nil means mcpx never
 	// pushes, and declares so.
 	Notify Notifier
 
-	// legacySubs are URIs a legacy client subscribed to with
-	// resources/subscribe. Held here because the legacy mechanism is
-	// per-connection state, and the modern one is a filter on a stream.
-	legacySubs map[string]bool
-	// push, when set, sends a frame to this connection's client. Set by the
-	// transport, because only the transport knows how to reach it.
-	push func(method string, params any)
-	// listening cancels an active subscriptions/listen stream.
-	listening context.CancelFunc
+	// Ask runs a request that may ask questions back. Nil means mcpx
+	// answers every upstream question through the daemon's broker, which is
+	// what it did before any client could answer one inline.
+	Ask Asker
+
+	// def is the connection the in-process entry points use. A transport
+	// that serves many clients makes one Conn apiece instead.
+	def     *Conn
+	defOnce sync.Once
+
 	// taskStore holds background requests.
 	taskStore *taskStore
+
+	// sessions are the Streamable HTTP connections, keyed by the id mcpx
+	// issued at initialize.
+	sessMu   sync.Mutex
+	sessions map[string]*Conn
+
+	// signer mints the opaque requestState a modern client resumes with.
+	stateOnce sync.Once
+	signer    *stateSigner
+}
+
+// conn returns the connection the in-process entry points share.
+func (s *Server) conn() *Conn {
+	// Given an identity even though no transport issued one: the default
+	// connection outlives every request on it, so a requestState bound to
+	// it is safe, and stdio has no session header to take one from.
+	s.defOnce.Do(func() { s.def = s.newConn(newSessionID(), nil) })
+	return s.def
 }
 
 // New builds a server.
@@ -157,6 +180,7 @@ func (s *Server) WithExtras(extras []Extra) *Server {
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
 		Notify: s.Notify,
+		Ask:    s.Ask,
 		extras: append(append([]Extra(nil), s.extras...), extras...),
 	}
 }
@@ -380,10 +404,29 @@ with top-level await available. log.info() and emit() are there too.`
 // finished result from an input_required one. Legacy results are left as
 // they were; the field means nothing to a client that never asked for it.
 func (s *Server) Handle(ctx context.Context, req request) *response {
-	resp := s.handle(ctx, req)
-	if resp != nil && resp.Error == nil && Modern(requestVersion(req.Params)) {
+	return s.HandleOn(ctx, s.conn(), req)
+}
+
+// HandleOn answers one request on a named connection.
+//
+// The connection is what decides whether a question can be put to this
+// client, which notifications it asked for, and which revision governs the
+// reply. Everything that used to sit on the Server and be correct for one
+// stdio client lives there now.
+func (s *Server) HandleOn(ctx context.Context, c *Conn, req request) *response {
+	peer := c.peerFor(req.Params)
+	resp := s.handle(ctx, c, req)
+	if resp == nil || resp.Error != nil {
+		return resp
+	}
+	if peer.Modern {
+		// Mandatory in 2026-07-28: it is how a client tells a finished
+		// result from one still asking for input.
 		resp.Result = stampComplete(resp.Result)
 	}
+	// Send conservatively. Everything above builds results in the newest
+	// shape; this is the one place that spells them in the client's own.
+	resp.Result = downgrade(resp.Result, peer.Version)
 	return resp
 }
 
@@ -402,7 +445,7 @@ func stampComplete(result any) any {
 	return m
 }
 
-func (s *Server) handle(ctx context.Context, req request) *response {
+func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	reply := func(result any) *response {
 		return &response{JSONRPC: "2.0", ID: req.ID, Result: result}
 	}
@@ -416,6 +459,7 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 	if v := requestVersion(req.Params); v != "" && !supports(v) {
 		return unsupportedVersion(req.ID, req.Params, false)
 	}
+	peer := c.peerFor(req.Params)
 
 	switch req.Method {
 	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel":
@@ -430,7 +474,10 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 			inner := req
 			inner.Params = withoutTask(req.Params)
 			t := s.startTask(ttl, func(tctx context.Context) (any, *rpcError) {
-				resp := s.Handle(tctx, inner)
+				// Answered on the same connection, so a question the call
+				// raises reaches the client that started it rather than
+				// whichever one the server happens to call default.
+				resp := s.HandleOn(tctx, c, inner)
 				if resp == nil {
 					return nil, &rpcError{Code: codeInternal, Message: "no result"}
 				}
@@ -450,13 +497,21 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 		if version == "" {
 			return unsupportedVersion(req.ID, req.Params, true)
 		}
+		// What the client declared here governs everything mcpx may send it
+		// for the life of the connection. A legacy server never asks again,
+		// so not recording it is the same as deciding the answer is "no".
+		var ip struct {
+			Capabilities map[string]json.RawMessage `json:"capabilities"`
+		}
+		_ = json.Unmarshal(req.Params, &ip)
+		c.SetCapabilities(ip.Capabilities, version)
 		return reply(map[string]any{
 			// Echo the protocol version the client asked for when it is one
 			// we understand, rather than insisting on ours. A client that
 			// speaks an older revision of a compatible protocol is better
 			// served than refused.
 			"protocolVersion": version,
-			"capabilities":    s.capabilities(),
+			"capabilities":    s.capabilities(version),
 			"serverInfo":      map[string]any{"name": s.name, "version": s.version},
 			"instructions":    Instructions,
 		})
@@ -468,7 +523,7 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 		return reply(map[string]any{
 			"protocolVersions": Supported,
 			"serverInfo":       map[string]any{"name": s.name, "version": s.version},
-			"capabilities":     s.capabilities(),
+			"capabilities":     s.capabilities(ModernLatest),
 			"instructions":     Instructions,
 		})
 
@@ -534,21 +589,21 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil || p.URI == "" {
 			return fail(codeInvalidParams, "uri is required")
 		}
-		s.mu.Lock()
-		if s.legacySubs == nil {
-			s.legacySubs = map[string]bool{}
+		c.mu.Lock()
+		if c.subs == nil {
+			c.subs = map[string]bool{}
 		}
 		if req.Method == "resources/subscribe" {
-			s.legacySubs[p.URI] = true
+			c.subs[p.URI] = true
 		} else {
-			delete(s.legacySubs, p.URI)
+			delete(c.subs, p.URI)
 		}
-		uris := make([]string, 0, len(s.legacySubs))
-		for u := range s.legacySubs {
+		uris := make([]string, 0, len(c.subs))
+		for u := range c.subs {
 			uris = append(uris, u)
 		}
-		s.mu.Unlock()
-		s.restartListen(ctx, ListenFilter{ResourceSubscriptions: uris})
+		c.mu.Unlock()
+		s.restartListen(c, ListenFilter{ResourceSubscriptions: uris})
 		return reply(map[string]any{})
 
 	case "subscriptions/listen":
@@ -565,8 +620,8 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 		if s.Notify == nil {
 			return fail(codeMethodNotFound, "this mcpx pushes no notifications")
 		}
-		s.restartListen(ctx, p.Notifications)
-		s.push("notifications/subscriptions/acknowledged", map[string]any{
+		s.restartListen(c, p.Notifications)
+		c.push("notifications/subscriptions/acknowledged", map[string]any{
 			"subscriptionId": json.RawMessage(req.ID),
 		})
 		return nil
@@ -575,10 +630,16 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 		// A notification, so no reply. Recorded rather than ignored: a
 		// client that cancels and sees work continue has no way to tell
 		// whether the message arrived.
-		s.cancel(req.Params)
+		c.cancel(req.Params)
 		return nil
 
 	case "tools/call":
+		// A client that can answer a question gets the call run as a task
+		// it can be interrupted, and resumed, across. One that cannot gets
+		// the direct path and the broker's own routing, exactly as before.
+		if s.canAsk(c, peer) {
+			return s.viaAsk(ctx, c, req, peer)
+		}
 		var p struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
@@ -620,6 +681,9 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 		return reply(out)
 
 	case "resources/read":
+		if s.canAsk(c, peer) {
+			return s.viaAsk(ctx, c, req, peer)
+		}
 		var p struct {
 			URI string `json:"uri"`
 		}
@@ -656,6 +720,9 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 		return reply(out)
 
 	case "prompts/get":
+		if s.canAsk(c, peer) {
+			return s.viaAsk(ctx, c, req, peer)
+		}
 		var p struct {
 			Name      string            `json:"name"`
 			Arguments map[string]string `json:"arguments"`
@@ -687,6 +754,10 @@ func (s *Server) handle(ctx context.Context, req request) *response {
 // modern against legacy fails, legacy against modern fails, and only a
 // dual-era implementation bridges them.
 var Supported = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"}
+
+// ModernLatest is the newest per-request-metadata revision mcpx serves.
+// server/discover answers with this one's capability shape.
+const ModernLatest = "2026-07-28"
 
 // Latest is what mcpx prefers when the client expresses no opinion.
 //
@@ -900,6 +971,10 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 
 // ServeStdio runs the server over a pipe, which is how most MCP hosts start
 // one: spawn a process and talk newline-delimited JSON to it.
+//
+// stdio is also the only transport on which a legacy client can be asked a
+// question without any session machinery: the pipe is the session, and it
+// stays open for as long as the process does.
 func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) error {
 	// One writer, guarded, because notifications now arrive from another
 	// goroutine and two frames interleaved mid-line is a corrupt stream the
@@ -907,16 +982,20 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 	var wmu sync.Mutex
 	rawEnc := json.NewEncoder(out)
 	enc := lockedEncoder{mu: &wmu, enc: rawEnc}
-	s.SetPush(func(method string, params any) {
+	c := s.conn()
+	c.mu.Lock()
+	c.send = func(frame any) error { return enc.Encode(frame) }
+	c.pushFn = func(method string, params any) {
 		_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
-	})
-	defer func() {
-		s.mu.Lock()
-		if s.listening != nil {
-			s.listening()
-		}
-		s.mu.Unlock()
-	}()
+	}
+	c.mu.Unlock()
+	defer c.stopListen()
+	// Requests that may stop to ask the client something run concurrently,
+	// and their answers arrive on this same loop; the wait group is what
+	// stops the stream closing under one of them.
+	var inflight sync.WaitGroup
+	defer inflight.Wait()
+
 	sc := bufio.NewScanner(in)
 	// Tool results carry whole documents, so the default 64KB line limit is
 	// far too small and the failure it produces -- a truncated request --
@@ -926,6 +1005,14 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
+			continue
+		}
+		// A frame with an id and no method is the client answering something
+		// mcpx asked it. Dispatching it as a request -- which is what
+		// matching on method alone did -- answers the client's own answer
+		// with method-not-found and leaves the question hanging.
+		if id, result, rerr, ok := replyOf([]byte(line)); ok {
+			c.deliver(id, result, rerr)
 			continue
 		}
 		var req request
@@ -939,7 +1026,19 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 				Error: &rpcError{Code: codeInvalidRequest, Message: "unsupported jsonrpc version"}})
 			continue
 		}
-		if resp := s.Handle(ctx, req); resp != nil {
+		// In line by default, so replies keep the order a reader expects.
+		// A request that may stop to ask the client something cannot be:
+		// it would be waiting for a frame that arrives on this very loop,
+		// which is a deadlock rather than a slow answer.
+		if s.mayBlockOnClient(c, req) {
+			inflight.Add(1)
+			go func(req request) {
+				defer inflight.Done()
+				if resp := s.HandleOn(ctx, c, req); resp != nil {
+					_ = enc.Encode(resp)
+				}
+			}(req)
+		} else if resp := s.HandleOn(ctx, c, req); resp != nil {
 			if err := enc.Encode(resp); err != nil {
 				return err
 			}
@@ -985,12 +1084,27 @@ func (s *Server) RESTHandler(tool string) http.HandlerFunc {
 
 // ServeHTTP answers a Streamable HTTP request, which is how a remote host
 // reaches a server it did not start.
+//
+// Three things arrive on this one endpoint, and telling them apart is the
+// whole of the transport:
+//
+//   - a request, answered with JSON, or with an event stream when mcpx has
+//     to ask the client something before it can finish;
+//   - a response to something mcpx asked, which belongs to a request still
+//     in flight on another connection and is acknowledged with 202;
+//   - a DELETE, which ends the session.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		s.dropSession(r.Header.Get(sessionHeader))
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.Method != http.MethodPost {
 		// GET is where a client opens the server-sent event stream. mcpx
-		// never pushes, so saying so immediately is kinder than holding a
-		// connection open that will never carry anything.
-		w.Header().Set("Allow", "POST")
+		// pushes only within a request it is already answering, so saying so
+		// immediately is kinder than holding a connection open that will
+		// never carry anything.
+		w.Header().Set("Allow", "POST, DELETE")
 		http.Error(w, "mcpx sends no unsolicited messages; POST a request", http.StatusMethodNotAllowed)
 		return
 	}
@@ -999,18 +1113,197 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// A response to something mcpx asked. It carries the session header, and
+	// the request that is waiting for it is being answered on another
+	// goroutine with its stream still open.
+	if id, result, rerr, ok := replyOf(body); ok {
+		c, found := s.session(r.Header.Get(sessionHeader))
+		if !found || !c.deliver(id, result, rerr) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "no request is waiting for that id on this session"})
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
 	var req request
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0",
 			Error: &rpcError{Code: codeParse, Message: err.Error()}})
 		return
 	}
-	resp := s.Handle(r.Context(), req)
+	// The header MUST agree with the version in _meta, or the request is
+	// ambiguous about which protocol it is written in.
+	if h := r.Header.Get("MCP-Protocol-Version"); h != "" {
+		if v := requestVersion(req.Params); v != "" && v != h {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "MCP-Protocol-Version " + h + " does not match the " +
+					v + " in _meta"})
+			return
+		}
+	}
+
+	c, issued := s.sessionFor(r, req)
+	if issued != "" {
+		w.Header().Set(sessionHeader, issued)
+	}
+
+	ex := &httpExchange{w: w, flusher: asFlusher(w)}
+	ctx := withSender(r.Context(), ex.send)
+	resp := s.HandleOn(ctx, c, req)
+
+	if ex.streaming {
+		// The stream carried the questions; it carries the answer too, and
+		// then ends. A client reading SSE has no other signal that the
+		// exchange is over.
+		if resp != nil {
+			_ = ex.send(resp)
+		}
+		return
+	}
 	if resp == nil {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// sessionHeader is what the Streamable HTTP transport keys a session by.
+const sessionHeader = "Mcp-Session-Id"
+
+// sessionFor resolves the connection a request belongs to.
+//
+// A modern client never sends initialize, so the session is issued on
+// server/discover instead. Without one it has no identity that outlives a
+// POST, and mcpx cannot hand it a requestState it could verify later.
+//
+// A session exists so that a client's *answer* -- which arrives on a later,
+// separate POST -- can be matched to the request still waiting for it. A
+// modern client never needs one, because it is never asked anything
+// mid-request; it gets an input_required result and retries.
+func (s *Server) sessionFor(r *http.Request, req request) (*Conn, string) {
+	if id := r.Header.Get(sessionHeader); id != "" {
+		if c, ok := s.session(id); ok {
+			return c, ""
+		}
+	}
+	if req.Method != "initialize" && req.Method != "server/discover" {
+		// Stateless. Correct for every modern request and for a legacy one
+		// that will never be asked anything, and the alternative -- minting
+		// a session per request -- is a map that only grows.
+		return s.newConn("", nil), ""
+	}
+	id := newSessionID()
+	c := s.newConn(id, nil)
+	s.sessMu.Lock()
+	if s.sessions == nil {
+		s.sessions = map[string]*Conn{}
+	}
+	s.reapSessionsLocked()
+	s.sessions[id] = c
+	s.sessMu.Unlock()
+	return c, id
+}
+
+func (s *Server) session(id string) (*Conn, bool) {
+	if id == "" {
+		return nil, false
+	}
+	s.sessMu.Lock()
+	defer s.sessMu.Unlock()
+	c, ok := s.sessions[id]
+	if ok {
+		c.mu.Lock()
+		c.lastUsed = time.Now()
+		c.mu.Unlock()
+	}
+	return c, ok
+}
+
+func (s *Server) dropSession(id string) {
+	if id == "" {
+		return
+	}
+	s.sessMu.Lock()
+	c := s.sessions[id]
+	delete(s.sessions, id)
+	s.sessMu.Unlock()
+	if c != nil {
+		c.stopListen()
+	}
+}
+
+// reapSessionsLocked drops connections nothing has used for a while.
+//
+// A session is only ever ended by a DELETE the client may never send, so
+// without this the map is a leak that grows with every host that connects
+// once.
+func (s *Server) reapSessionsLocked() {
+	cutoff := time.Now().Add(-defaults.ProtoSessionIdle)
+	for id, c := range s.sessions {
+		c.mu.Lock()
+		idle := c.lastUsed.Before(cutoff)
+		c.mu.Unlock()
+		if idle {
+			delete(s.sessions, id)
+			c.stopListen()
+		}
+	}
+}
+
+func newSessionID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "sess-0"
+	}
+	return "sess-" + hex.EncodeToString(b[:])
+}
+
+// httpExchange turns one POST response into an event stream, but only if
+// something actually needs to be sent before the result.
+//
+// Lazily, because a stream is the more expensive answer for both sides and
+// almost no request needs one: a client that asked a plain question should
+// get a plain JSON object back.
+type httpExchange struct {
+	w         http.ResponseWriter
+	flusher   http.Flusher
+	mu        sync.Mutex
+	streaming bool
+}
+
+func (e *httpExchange) send(frame any) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.flusher == nil {
+		// Without flushing, the frame sits in a buffer until the handler
+		// returns -- which is exactly when it is too late, because the
+		// handler is waiting for the answer to it.
+		return ErrNoPush
+	}
+	if !e.streaming {
+		e.w.Header().Set("Content-Type", "text/event-stream")
+		e.w.Header().Set("Cache-Control", "no-cache")
+		e.w.Header().Set("X-Accel-Buffering", "no")
+		e.w.WriteHeader(http.StatusOK)
+		e.streaming = true
+	}
+	b, err := json.Marshal(frame)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(e.w, "data: %s\n\n", b); err != nil {
+		return err
+	}
+	e.flusher.Flush()
+	return nil
+}
+
+func asFlusher(w http.ResponseWriter) http.Flusher {
+	f, _ := w.(http.Flusher)
+	return f
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -1063,25 +1356,35 @@ func ResultOf(resp *response) (string, bool, error) {
 // Push-dependent capabilities are declared only when something can push.
 // Claiming listChanged or subscribe without a notifier behind them invites a
 // client to wait for notifications that will never come.
-func (s *Server) capabilities() map[string]any {
+func (s *Server) capabilities(version string) map[string]any {
 	push := s.Notify != nil
-	return map[string]any{
+	caps := map[string]any{
 		"tools":       map[string]any{"listChanged": push},
 		"resources":   map[string]any{"subscribe": push, "listChanged": push},
 		"prompts":     map[string]any{"listChanged": push},
 		"completions": map[string]any{},
-		"logging":     map[string]any{},
-		// Tasks are core in 2025-11-25 and an extension in 2026-07-28, so
-		// they are declared both ways. A client of either era finds them
-		// where it looks.
-		"tasks": map[string]any{
+	}
+	if Defines(version, FeatLoggingSetLevel) {
+		// 2026-07-28 removed logging/setLevel, so declaring `logging` to a
+		// modern client offers a method that revision does not have.
+		caps["logging"] = map[string]any{}
+	}
+	if Defines(version, FeatTasks) {
+		// Core in 2025-11-25 and an extension in 2026-07-28, so it is
+		// declared both ways and a client of either era finds it where it
+		// looks. mcpx accepts tasks/* from an older client too -- offering
+		// more than a revision requires withholds nothing -- but it does
+		// not advertise them there, because a declaration is a promise
+		// about the revision in force.
+		caps["tasks"] = map[string]any{
 			"list": map[string]any{}, "cancel": map[string]any{},
 			"requests": map[string]any{"tools": map[string]any{"call": map[string]any{}}},
-		},
-		"extensions": map[string]any{
+		}
+		caps["extensions"] = map[string]any{
 			"io.modelcontextprotocol/tasks": map[string]any{},
-		},
+		}
 	}
+	return caps
 }
 
 // restartListen replaces the active notification stream with one for f.
@@ -1089,30 +1392,41 @@ func (s *Server) capabilities() map[string]any {
 // One stream per connection. The specification allows a client to reopen
 // with a different filter, and the simplest faithful implementation is to
 // stop the old and start the new.
-func (s *Server) restartListen(ctx context.Context, f ListenFilter) {
-	s.mu.Lock()
-	if s.listening != nil {
-		s.listening()
-		s.listening = nil
+func (s *Server) restartListen(c *Conn, f ListenFilter) {
+	c.mu.Lock()
+	if c.listening != nil {
+		c.listening()
+		c.listening = nil
 	}
-	push := s.push
+	push := c.pushFn
 	notify := s.Notify
 	if push == nil || notify == nil {
-		s.mu.Unlock()
+		c.mu.Unlock()
 		return
 	}
 	lctx, cancel := context.WithCancel(context.Background())
-	s.listening = cancel
-	s.mu.Unlock()
+	c.listening = cancel
+	c.mu.Unlock()
 
 	go notify.Listen(lctx, f, push)
 }
 
-// SetPush installs how to reach this connection's client.
+// stopListen ends any stream this connection opened.
+func (c *Conn) stopListen() {
+	c.mu.Lock()
+	if c.listening != nil {
+		c.listening()
+		c.listening = nil
+	}
+	c.mu.Unlock()
+}
+
+// SetPush installs how to reach the default connection's client.
 func (s *Server) SetPush(fn func(method string, params any)) {
-	s.mu.Lock()
-	s.push = fn
-	s.mu.Unlock()
+	c := s.conn()
+	c.mu.Lock()
+	c.pushFn = fn
+	c.mu.Unlock()
 }
 
 // pageSize is how many items one list reply carries.
@@ -1172,7 +1486,7 @@ func decodeCursor(c string) (int, error) {
 // pool's business and needs the request id plumbed through it -- but a
 // cancellation that is silently dropped leaves a client unable to tell
 // whether the message arrived at all.
-func (s *Server) cancel(params json.RawMessage) {
+func (c *Conn) cancel(params json.RawMessage) {
 	var p struct {
 		RequestID any    `json:"requestId"`
 		Reason    string `json:"reason"`
@@ -1180,22 +1494,24 @@ func (s *Server) cancel(params json.RawMessage) {
 	if json.Unmarshal(params, &p) != nil {
 		return
 	}
-	s.mu.Lock()
-	if s.cancelled == nil {
-		s.cancelled = map[string]string{}
+	c.mu.Lock()
+	if c.cancelled == nil {
+		c.cancelled = map[string]string{}
 	}
-	s.cancelled[fmt.Sprint(p.RequestID)] = p.Reason
-	s.mu.Unlock()
-	if s.OnCancel != nil {
-		s.OnCancel(fmt.Sprint(p.RequestID), p.Reason)
+	c.cancelled[fmt.Sprint(p.RequestID)] = p.Reason
+	c.mu.Unlock()
+	if c.s.OnCancel != nil {
+		c.s.OnCancel(fmt.Sprint(p.RequestID), p.Reason)
 	}
 }
 
-// Cancelled reports whether a request was cancelled, and why.
+// Cancelled reports whether a request was cancelled on the default
+// connection, and why.
 func (s *Server) Cancelled(id string) (string, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	reason, ok := s.cancelled[id]
+	c := s.conn()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	reason, ok := c.cancelled[id]
 	return reason, ok
 }
 

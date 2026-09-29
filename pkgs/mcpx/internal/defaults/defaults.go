@@ -79,6 +79,19 @@ type Defaults struct {
 		HandlerTimeout string `json:"handlerTimeout"`
 		InputRounds    int    `json:"inputRounds"`
 	} `json:"elicit"`
+	// Proto governs how mcpx speaks the protocol to its own clients: which
+	// era mechanisms it offers, and how long it will hold a call open while
+	// somebody answers a question.
+	Proto struct {
+		Native      bool   `json:"native"`
+		AskTimeout  string `json:"askTimeout"`
+		AskPoll     string `json:"askPoll"`
+		AskRounds   int    `json:"askRounds"`
+		StateTTL    string `json:"stateTTL"`
+		SessionIdle string `json:"sessionIdle"`
+		AskTTL      string `json:"askTTL"`
+		MCPPath     string `json:"mcpPath"`
+	} `json:"proto"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -204,6 +217,30 @@ var (
 	// input_required. A server that keeps asking is broken or adversarial,
 	// and without a bound the client would answer it forever.
 	InputRounds = builtin.Elicit.InputRounds
+
+	// ProtoNative turns native elicitation and sampling to mcpx's own MCP
+	// clients on. Off, every upstream question goes to the broker's default
+	// audience, which is what happened before a client could answer one.
+	ProtoNative = builtin.Proto.Native
+	// ProtoAskTimeout bounds how long one client request may be held while
+	// a question goes unanswered. A legacy client is blocked for all of it,
+	// so it has to sit inside whatever that client's own timeout is.
+	ProtoAskTimeout = mustDur(builtin.Proto.AskTimeout, "proto.askTimeout")
+	ProtoAskPoll    = mustDur(builtin.Proto.AskPoll, "proto.askPoll")
+	// ProtoAskRounds bounds how many times one request may come back asking
+	// for more. A server that never stops asking is broken or adversarial.
+	ProtoAskRounds = builtin.Proto.AskRounds
+	// ProtoStateTTL is how long a requestState may be resumed with. Beyond
+	// it the call it names has been reaped anyway, so a longer window would
+	// only turn a gone call into a confusing one.
+	ProtoStateTTL = mustDur(builtin.Proto.StateTTL, "proto.stateTTL")
+	// ProtoSessionIdle drops a Streamable HTTP session nothing has used.
+	ProtoSessionIdle = mustDur(builtin.Proto.SessionIdle, "proto.sessionIdle")
+	// ProtoAskTTL is how long the daemon keeps a call that is waiting for
+	// an answer, and its result once it has one.
+	ProtoAskTTL = mustDur(builtin.Proto.AskTTL, "proto.askTTL")
+	// ProtoMCPPath is where the daemon serves MCP itself.
+	ProtoMCPPath = builtin.Proto.MCPPath
 
 	CatalogBudget = builtin.Catalog.Budget
 

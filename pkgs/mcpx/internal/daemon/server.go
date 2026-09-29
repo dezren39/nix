@@ -408,6 +408,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// Everything declared in internal/api that is not above. A parity test
 	// fails if the two ever disagree.
 	s.routesV1Ops(mux)
+	s.routesProto(mux)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

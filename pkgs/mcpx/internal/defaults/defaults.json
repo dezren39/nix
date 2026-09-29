@@ -61,5 +61,15 @@
     "pollInterval": "250ms",
     "handlerTimeout": "5m",
     "inputRounds": 8
+  },
+  "proto": {
+    "native": true,
+    "askTimeout": "10m",
+    "askPoll": "500ms",
+    "askRounds": 8,
+    "stateTTL": "30m",
+    "sessionIdle": "30m",
+    "askTTL": "15m",
+    "mcpPath": "/mcp"
   }
 }

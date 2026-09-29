@@ -99,7 +99,7 @@ func mustJSON(v any) json.RawMessage {
 // *model* to write something. mcpx is neither a person nor a model, so both
 // become a stored question that whatever drives mcpx can answer -- which is
 // exactly what "passthrough" means.
-func (r *Registry) answerServer(ctx context.Context, server, method string, params json.RawMessage) (any, error) {
+func (r *Registry) answerServer(ctx context.Context, server, key, method string, params json.RawMessage) (any, error) {
 	if r.broker == nil {
 		// Nothing can answer, so say so rather than hang. Cancel is honest:
 		// nobody was asked, so nobody chose.
@@ -111,14 +111,14 @@ func (r *Registry) answerServer(ctx context.Context, server, method string, para
 
 	switch method {
 	case "elicitation/create":
-		return r.elicitViaBroker(ctx, server, params)
+		return r.elicitViaBroker(ctx, server, key, params)
 	case "sampling/createMessage":
-		return r.sampleViaBroker(ctx, server, params)
+		return r.sampleViaBroker(ctx, server, key, params)
 	}
 	return nil, fmt.Errorf("mcpx does not implement %s", method)
 }
 
-func (r *Registry) elicitViaBroker(ctx context.Context, server string, params json.RawMessage) (any, error) {
+func (r *Registry) elicitViaBroker(ctx context.Context, server, key string, params json.RawMessage) (any, error) {
 	var p struct {
 		Mode            string          `json:"mode"`
 		Message         string          `json:"message"`
@@ -140,12 +140,20 @@ func (r *Registry) elicitViaBroker(ctx context.Context, server string, params js
 		Message:   p.Message,
 		Schema:    p.RequestedSchema,
 		URL:       p.URL,
+		Trace:     r.askIDFor(server, key),
 		ExpiresAt: time.Now().Add(defaults.ElicitTTL),
 	})
 	if err != nil {
 		return nil, err
 	}
-	r.publish(events.Event{Kind: events.ElicitOpened, Server: server, Data: mustJSON(req)})
+	// Bound to the call it interrupted, where one can be identified, so a
+	// client of mcpx can be handed it inline. Where one cannot -- two
+	// callers sharing an instance -- it stays a broker question and its
+	// audience answers, which is the behaviour that existed before any of
+	// this and is still correct.
+	callID, _ := r.attach(server, key, req, "elicitation/create", params)
+	r.publish(events.Event{Kind: events.ElicitOpened, Server: server, Trace: callID,
+		Data: mustJSON(req)})
 
 	ans, err := r.broker.Await(ctx, req.ID)
 	if err != nil {
@@ -168,7 +176,7 @@ func (r *Registry) elicitViaBroker(ctx context.Context, server string, params js
 // it to. It is stored exactly as sent, and whoever answers -- the opencode
 // plugin handing it to the session's own model, a person, a script --
 // produces the completion.
-func (r *Registry) sampleViaBroker(ctx context.Context, server string, params json.RawMessage) (any, error) {
+func (r *Registry) sampleViaBroker(ctx context.Context, server, key string, params json.RawMessage) (any, error) {
 	var p struct {
 		MaxTokens    int    `json:"maxTokens"`
 		SystemPrompt string `json:"systemPrompt"`
@@ -177,6 +185,7 @@ func (r *Registry) sampleViaBroker(ctx context.Context, server string, params js
 
 	req, err := r.broker.OpenRequest(elicit.Request{
 		Server: server,
+		Trace:  r.askIDFor(server, key),
 		Mode:   elicit.Sample,
 		// A sampling request has no question as such. The system prompt is
 		// the closest thing to one, and it is what a human reading the
@@ -190,7 +199,9 @@ func (r *Registry) sampleViaBroker(ctx context.Context, server string, params js
 	if err != nil {
 		return nil, err
 	}
-	r.publish(events.Event{Kind: events.SampleOpened, Server: server, Data: mustJSON(req)})
+	callID, _ := r.attach(server, key, req, "sampling/createMessage", params)
+	r.publish(events.Event{Kind: events.SampleOpened, Server: server, Trace: callID,
+		Data: mustJSON(req)})
 
 	ans, err := r.broker.Await(ctx, req.ID)
 	if err != nil {
@@ -259,4 +270,16 @@ func (s *Server) PublishLifecycle(event string, attrs map[string]any) {
 		e.Trace = v
 	}
 	s.Events.Publish(e)
+}
+
+// askIDFor names the interruptible call a question belongs to, or "" when
+// none can be identified.
+func (r *Registry) askIDFor(server, key string) string {
+	if r.asks == nil {
+		return ""
+	}
+	if a, ok := r.asks.forKey(server, key); ok {
+		return a.ID
+	}
+	return ""
 }

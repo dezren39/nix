@@ -107,6 +107,12 @@ func (c *Client) answer(ctx context.Context, method string, params json.RawMessa
 	c.mu.Unlock()
 
 	switch method {
+	case "ping":
+		// A server is allowed to ping its client in every revision. mcpx
+		// answered method-not-found, which a server reasonably reads as a
+		// dead connection -- so the liveness probe reported the opposite of
+		// the truth.
+		return map[string]any{}, nil
 	case "roots/list":
 		if roots == nil {
 			roots = []Root{}

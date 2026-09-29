@@ -45,6 +45,12 @@ type Registry struct {
 	sessMu sync.Mutex
 	leases map[string]*leaseState
 
+	// asks correlates a question a server asked back to the call that
+	// provoked it. Built on first use, because a registry that never runs an
+	// interruptible call should carry nothing.
+	askOnce sync.Once
+	asks    *askTable
+
 	logf     func(string, ...any)
 	degraded sync.Map
 }

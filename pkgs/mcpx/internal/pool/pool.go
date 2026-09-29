@@ -389,10 +389,11 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	// never be declared and the first roots/list could arrive before any
 	// roots were set.
 	opts := mcpclient.Options{ClientName: "mcpx", ClientVersion: Version, Preference: p.preference()}
+	ref := &instanceRef{p: p}
 	if h := p.Hooks; h != nil {
 		if h.Elicit != nil {
 			opts.OnServerRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
-				return h.Elicit(ctx, p.cfg.Name, method, params)
+				return h.Elicit(ctx, p.cfg.Name, ref.key(), method, params)
 			}
 		}
 		opts.Roots = h.Roots
@@ -428,6 +429,7 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		startedAt: time.Now(),
 		lastUsed:  time.Now(),
 	}
+	ref.set(in)
 	lifecycle("server.start", map[string]any{
 		"server": p.cfg.Name, "instance": in.ID, "pid": in.PID(),
 		"trace": in.trace, "sharing": string(p.cfg.Sharing), "scope": string(p.cfg.Scope),
@@ -600,7 +602,11 @@ type Hooks struct {
 	// OnElicitationComplete fires when a url-mode flow finishes.
 	OnElicitationComplete func(server, id string)
 	// Elicit answers server-initiated requests: elicitation and sampling.
-	Elicit func(ctx context.Context, server, method string, params json.RawMessage) (any, error)
+	// key is the scope key of the instance the question arrived on, which is
+	// how a question is attributed to the call that provoked it: one
+	// connection serves one key, so whoever is calling on that key is who
+	// the server is asking.
+	Elicit func(ctx context.Context, server, key, method string, params json.RawMessage) (any, error)
 	Roots  []mcpclient.Root
 	// LogLevel is requested from every server that supports logging.
 	LogLevel string
