@@ -64,6 +64,21 @@ type Server struct {
 	sink    *logging.FileSink
 	lastReq atomic.Int64
 
+	// cfgMu guards cfg, contentHash and stamp. The daemon re-reads its
+	// configuration from a request goroutine now, so what used to be
+	// write-once state is not.
+	cfgMu sync.RWMutex
+	// reloadMu serialises reloads, so two requests arriving together do not
+	// each rebuild the pool map from the same starting point.
+	reloadMu sync.Mutex
+	// contentHash is what the configuration files said when they were last
+	// read, so an edit made behind the daemon's back is noticed rather than
+	// silently ignored until a restart.
+	contentHash string
+	// stamp is the cheap version of the same question: modification times
+	// and sizes, so the common case costs a stat rather than a read.
+	stamp string
+
 	// set is the daemon's resolved configuration. Read on every request
 	// rather than copied into fields at startup, so a runtime change through
 	// PUT /v1/settings reaches the code that acts on it without a restart.
@@ -141,6 +156,10 @@ func NewServer(opts Options) (*Server, error) {
 	}
 	reg.UseSettings(opts.Settings)
 	reg.InstallHooks(srv.Events, broker, nil)
+	if opts.Config != nil {
+		srv.contentHash = ContentFingerprint(opts.Config.Sources)
+		srv.stamp = stampConfig(opts.Config.Sources)
+	}
 	srv.lastReq.Store(time.Now().UnixNano())
 	return srv, nil
 }
@@ -182,8 +201,8 @@ func (s *Server) Listen(tcpPort int) error {
 	s.started = time.Now()
 
 	cfgPath := ""
-	if s.cfg != nil {
-		cfgPath = s.cfg.Path
+	if cfg := s.currentConfig(); cfg != nil {
+		cfgPath = cfg.Path
 	}
 	return s.paths.WriteInfo(Info{
 		PID:        os.Getpid(),
@@ -259,8 +278,8 @@ func (s *Server) Serve(ctx context.Context) error {
 	go func() { errCh <- s.httpSrv.Serve(s.tcpLn) }()
 
 	s.logger.Printf("mcpx %s listening on %s and %s", s.version, s.paths.Socket, s.endpoint)
-	if s.cfg != nil && s.cfg.Path != "" {
-		s.logger.Printf("config: %s (%d servers)", s.cfg.Path, len(s.cfg.MCPServers))
+	if cfg := s.currentConfig(); cfg != nil && cfg.Path != "" {
+		s.logger.Printf("config: %s (%d servers)", cfg.Path, len(cfg.MCPServers))
 	} else {
 		s.logger.Printf("no config file found; run `mcpx init` to create one")
 	}
@@ -287,6 +306,7 @@ func (s *Server) Serve(ctx context.Context) error {
 				return err
 			}
 		case <-reapT.C:
+			s.watchConfig()
 			s.reg.Reap()
 			if s.shouldIdleExit() {
 				s.logger.Printf("no activity for %s and no live instances; exiting", s.idleExit)
@@ -305,6 +325,10 @@ func (s *Server) Serve(ctx context.Context) error {
 func (s *Server) trackActivity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.lastReq.Store(time.Now().UnixNano())
+		// Checked here so that an edit is live on the *next command*, not on
+		// the next reap tick. Two stats and a string compare; the read only
+		// happens when something moved.
+		s.watchConfig()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -462,8 +486,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	cfgPath := ""
-	if s.cfg != nil {
-		cfgPath = s.cfg.Path
+	if cfg := s.currentConfig(); cfg != nil {
+		cfgPath = cfg.Path
 	}
 	writeJSON(w, 200, map[string]any{
 		"version":  s.version,

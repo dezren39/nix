@@ -51,8 +51,8 @@ func (s *Server) logDir() string {
 			return filepath.Dir(p)
 		}
 	}
-	if s.cfg != nil && s.cfg.Logging.Dir != "" {
-		return s.cfg.Logging.Dir
+	if cfg := s.currentConfig(); cfg != nil && cfg.Logging.Dir != "" {
+		return cfg.Logging.Dir
 	}
 	return filepath.Join(s.paths.State, "logs")
 }

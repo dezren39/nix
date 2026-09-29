@@ -169,7 +169,7 @@ func limitSettings() []Setting {
 			Path: "search.limit", Kind: KindInt, Default: defaults.Num(defaults.SearchLimit),
 			Scope: ScopeCall, Hot: true,
 			Commands:    []string{"search", "serve"},
-			FlagAliases: []string{"limit"},
+			FlagAliases: []string{"limit", "n"},
 			Name:        "Search results", Short: "how many tools a search returns",
 			Long: "Call-scoped: the CLI sends its effective value with the request, " +
 				"so --limit on one command reaches a daemon that was started " +
@@ -266,6 +266,17 @@ func serviceSettings() []Setting {
 			Scope: ScopeDaemon, Commands: []string{"daemon"},
 			FlagAliases: []string{"warm"},
 			Name:        "Warm at startup", Short: "read every server's schemas in the background at startup",
+		},
+		{
+			Path: "daemon.watchConfig", Kind: KindBool, Default: "true",
+			Scope: ScopeDaemon, Hot: true,
+			Name:  "Watch the configuration",
+			Short: "re-read the configuration files when they change on disk",
+			Long: "Checked on the same tick that reaps idle instances, so an edit " +
+				"takes effect within daemon.reapInterval without anything being " +
+				"restarted. Off, a file edited by hand does nothing until the " +
+				"daemon is restarted -- which was the old behaviour, and was not " +
+				"guessable from anything mcpx printed.",
 		},
 		{
 			Path: "daemon.warmTimeout", Kind: KindDuration, Default: defaults.Str(defaults.WarmTimeout),

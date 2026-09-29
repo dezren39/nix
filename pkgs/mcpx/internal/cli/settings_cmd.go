@@ -93,6 +93,11 @@ func (a *App) settingsList(ctx context.Context, args []string) error {
 
 func (a *App) settingsGet(ctx context.Context, args []string) error {
 	fs := newFlagSet("settings")
+	// Go's parser stops at the first positional, and the path is one, so
+	// `settings get x --daemon` would silently drop the flag and answer from
+	// the wrong process -- which is exactly the class of bug this command
+	// exists to expose.
+	args = hoistFlags(args, nil)
 	fromDaemon := fs.Bool("daemon", false, "ask the daemon rather than resolving here")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err

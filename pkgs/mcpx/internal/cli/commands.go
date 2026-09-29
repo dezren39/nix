@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/settings"
 	"io"
 	"log/slog"
 	"os"
@@ -285,9 +286,16 @@ func (a *App) setOutputFormat(f logging.Format) {
 // CmdSearch ranks tools across every namespace.
 func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	fs := newFlagSet("search")
-	limit := fs.Int("n", 20, "max results")
+	// -n, --limit and --search-limit are one setting, declared once. The
+	// value is sent only when somebody actually chose it: a client's
+	// inherited default must not override what the daemon is configured
+	// with, or every command would quietly impose its own.
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	limit := 0
+	if v, ok := a.Settings().Value("search.limit"); ok && v.Origin.Layer != settings.LayerDefault {
+		limit = a.Settings().Int("search.limit")
 	}
 	if fs.NArg() == 0 {
 		return errors.New("usage: mcpx search <query>")
@@ -304,7 +312,7 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
-	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), *limit)
+	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit)
 	if err != nil {
 		return err
 	}

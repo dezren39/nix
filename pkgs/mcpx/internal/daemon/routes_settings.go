@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 
@@ -445,7 +446,7 @@ func (s *Server) handleServersRemove(w http.ResponseWriter, r *http.Request) {
 // looks for. Preferring a file already in the set avoids that whenever there
 // is one.
 func (s *Server) configPathFor(scope config.WriteScope) string {
-	cfg := s.reg.Config()
+	cfg := s.currentConfig()
 	if cfg == nil || scope != config.ScopeProject {
 		return ""
 	}
@@ -455,13 +456,82 @@ func (s *Server) configPathFor(scope config.WriteScope) string {
 	return cfg.Path
 }
 
+// watchConfig re-reads the configuration when a file has changed on disk.
+//
+// Polled on the reap tick rather than watched with an OS notification: the
+// interval is already there, the files are a handful, and a filesystem
+// watcher that works on macOS, Linux and a network mount is a dependency and
+// a class of bug for something that needs to be right within half a minute.
+//
+// The alternative -- and what happened before -- is that an edit to a config
+// file does nothing until somebody notices the daemon is stale and restarts
+// it. A server added by hand was invisible, and the reason was not guessable
+// from anything mcpx printed.
+func (s *Server) watchConfig() {
+	cfg := s.currentConfig()
+	if !s.set.Bool("daemon.watchConfig") || cfg == nil {
+		return
+	}
+	// Two stages, because this runs on every request. The cheap stage is
+	// stat: mtime and size of a handful of files, microseconds, and it is
+	// unchanged almost always. Only when that moves is anything read.
+	s.cfgMu.RLock()
+	unchanged := stampConfig(cfg.Sources) == s.stamp
+	s.cfgMu.RUnlock()
+	if unchanged {
+		return
+	}
+
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	s.cfgMu.Lock()
+	s.stamp = stampConfig(cfg.Sources)
+	changed := ContentFingerprint(cfg.Sources) != s.contentHash
+	s.cfgMu.Unlock()
+	if !changed {
+		// A touched file with identical contents. Recording the new stamp
+		// and doing nothing else is the point of the second stage.
+		return
+	}
+	added, removed, err := s.reloadConfig()
+	if err != nil {
+		s.logger.Printf("a configuration file changed but could not be loaded: %v", err)
+		return
+	}
+	if len(added) > 0 || len(removed) > 0 {
+		s.logger.Printf("configuration changed on disk: %v added, %v removed", added, removed)
+	}
+}
+
+// stampConfig is a cheap "did anything move" check: no file is read.
+func stampConfig(paths []string) string {
+	var b strings.Builder
+	for _, p := range paths {
+		st, err := os.Stat(p)
+		if err != nil {
+			b.WriteString(p + ":gone;")
+			continue
+		}
+		fmt.Fprintf(&b, "%s:%d:%d;", p, st.ModTime().UnixNano(), st.Size())
+	}
+	return b.String()
+}
+
+// currentConfig returns the configuration in force, safely.
+func (s *Server) currentConfig() *config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
 // reloadConfig re-reads the configuration and swaps it in.
 func (s *Server) reloadConfig() (added, removed []string, err error) {
+	cur := s.currentConfig()
 	explicit := ""
-	if s.cfg != nil && len(s.cfg.Sources) == 1 && s.cfg.Path != "" {
+	if cur != nil && len(cur.Sources) == 1 && cur.Path != "" {
 		// An explicit --config was given; reloading has to read the same one
 		// rather than rediscovering the search path.
-		explicit = s.cfg.Path
+		explicit = cur.Path
 	}
 	// Persist what the surviving pools know before the hash moves, or the
 	// cache is written under a key nothing will look for.
@@ -476,7 +546,11 @@ func (s *Server) reloadConfig() (added, removed []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	s.cfgMu.Lock()
 	s.cfg = cfg
+	s.contentHash = ContentFingerprint(cfg.Sources)
+	s.stamp = stampConfig(cfg.Sources)
+	s.cfgMu.Unlock()
 	s.logger.Printf("config reloaded: %d added, %d removed", len(added), len(removed))
 	return added, removed, nil
 }
