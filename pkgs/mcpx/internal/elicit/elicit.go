@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
+
 	_ "modernc.org/sqlite"
 	"os"
 	"sort"
@@ -143,7 +145,7 @@ func Open(path string) (*Broker, error) {
 		db.Close()
 		return nil, fmt.Errorf("creating elicitation tables: %w", err)
 	}
-	return &Broker{db: db, waiters: map[string][]chan Answer{}, poll: 250 * time.Millisecond}, nil
+	return &Broker{db: db, waiters: map[string][]chan Answer{}, poll: defaults.ElicitPollInterval}, nil
 }
 
 func (b *Broker) Close() error { return b.db.Close() }
@@ -197,7 +199,7 @@ func (b *Broker) OpenRequest(r Request) (Request, error) {
 		r.Created = time.Now()
 	}
 	if r.ExpiresAt.IsZero() {
-		r.ExpiresAt = r.Created.Add(2 * time.Minute)
+		r.ExpiresAt = r.Created.Add(defaults.ElicitTTL)
 	}
 	if r.Audience == "" {
 		r.Audience, r.Reason = Route(r)

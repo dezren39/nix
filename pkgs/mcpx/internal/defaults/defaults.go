@@ -66,6 +66,12 @@ type Defaults struct {
 		RestartBackoffMax    string `json:"restartBackoffMax"`
 		RegistryTimeout      string `json:"registryTimeout"`
 	} `json:"plumbing"`
+	// Elicit governs questions a server asks back.
+	Elicit struct {
+		TTL            string `json:"ttl"`
+		PollInterval   string `json:"pollInterval"`
+		HandlerTimeout string `json:"handlerTimeout"`
+	} `json:"elicit"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -177,6 +183,10 @@ var (
 	RestartBackoffStep   = mustDur(builtin.Plumbing.RestartBackoffStep, "plumbing.restartBackoffStep")
 	RestartBackoffMax    = mustDur(builtin.Plumbing.RestartBackoffMax, "plumbing.restartBackoffMax")
 	RegistryTimeout      = mustDur(builtin.Plumbing.RegistryTimeout, "plumbing.registryTimeout")
+
+	ElicitTTL            = mustDur(builtin.Elicit.TTL, "elicit.ttl")
+	ElicitPollInterval   = mustDur(builtin.Elicit.PollInterval, "elicit.pollInterval")
+	ElicitHandlerTimeout = mustDur(builtin.Elicit.HandlerTimeout, "elicit.handlerTimeout")
 
 	CatalogBudget = builtin.Catalog.Budget
 

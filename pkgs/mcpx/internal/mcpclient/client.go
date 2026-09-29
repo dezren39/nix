@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/dezren39/mcpx/internal/defaults"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -375,7 +377,7 @@ func (c *Client) handleServerRequest(id int64, method string, params json.RawMes
 	c.mu.Unlock()
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), defaults.ElicitHandlerTimeout)
 		defer cancel()
 
 		var result any

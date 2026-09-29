@@ -49,5 +49,10 @@
     "restartBackoffStep": "2s",
     "restartBackoffMax": "30s",
     "registryTimeout": "30s"
+  },
+  "elicit": {
+    "ttl": "120s",
+    "pollInterval": "250ms",
+    "handlerTimeout": "5m"
   }
 }
