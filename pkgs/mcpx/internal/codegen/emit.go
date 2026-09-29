@@ -724,7 +724,7 @@ function callSite(): LogAttrs | undefined {
   };
 }
 
-function send(kind: "log" | "result", payload: Record<string, unknown>): void {
+function send(kind: "log" | "result" | "artifact", payload: Record<string, unknown>): void {
   writeStderr(LOG_SENTINEL + JSON.stringify({ kind, ts: new Date().toISOString(), ...payload }));
 }
 
@@ -1189,6 +1189,7 @@ export function installGlobals(): void {
   g.tools ??= tools;
   g.call ??= call;
   g.readResource ??= readResource;
+  g.artifact ??= artifact;
   g.ToolError ??= ToolError;
   g.paths ??= paths;
   g.here ??= here;
@@ -1226,6 +1227,164 @@ export async function readResource(server: string, uri: string): Promise<ToolRes
   return body.result;
 }
 
+/** What artifact() hands back. Small on purpose: no bytes. */
+export interface ArtifactRef {
+  /** The random handle the artifact is fetched by. */
+  readonly id: string;
+  /** The sanitised name. It may differ from what was asked for. */
+  readonly name: string;
+  /** mcpx://artifacts/<id>, readable as an MCP resource. */
+  readonly uri: string;
+  readonly size: number;
+  readonly mime: string;
+  readonly sha256: string;
+}
+
+export interface ArtifactOptions {
+  /** Overrides the type guessed from the name. */
+  mime?: string;
+  /** How long to keep it, as a Go duration string. Default from settings. */
+  ttl?: string;
+}
+
+/**
+ * Hand a file back to whoever asked for this run.
+ *
+ *     const shot = await chrome_devtools.take_screenshot({ format: "png" });
+ *     await artifact("checkout.png", shot);
+ *     return { total };
+ *
+ * The data may be a string, bytes, an ArrayBuffer, { path } for a file
+ * already on disk, or an MCP image/audio/resource content item straight from
+ * a tool result.
+ *
+ * This behaves identically wherever the script runs, and that is the whole
+ * point of it. Locally the daemon hardlinks the file it was pointed at.
+ * Remotely the bytes travel once, to the daemon, and the caller fetches them
+ * only if it wants them. The script does not ask which case it is in, because
+ * a script that has to ask is a script with two code paths and one of them is
+ * never tested.
+ */
+export async function artifact(
+  name: string,
+  data: string | Uint8Array | ArrayBuffer | { path: string } | ContentBlock | { raw?: RawToolResult },
+  opts?: ArtifactOptions,
+): Promise<ArtifactRef> {
+  const norm = normaliseArtifact(data);
+  const query = new URLSearchParams({ name });
+  if (opts?.mime ?? norm.mime) query.set("mime", (opts?.mime ?? norm.mime) as string);
+  if (opts?.ttl) query.set("ttl", opts.ttl);
+  const run = env("MCPX_RUN");
+  if (run) query.set("run", run);
+  if (SESSION) query.set("session", SESSION);
+
+  const headers: Record<string, string> = { "x-mcpx-session": SESSION };
+  // Only when it is actually known. Sending the generic type would beat the
+  // daemon's guess from the extension, and "shot.png" is a better source of
+  // truth than "some bytes".
+  const declared = opts?.mime ?? norm.mime;
+  if (declared) headers["content-type"] = declared;
+  let body: BodyInit | undefined;
+  if (norm.path !== undefined && env("MCPX_ARTIFACTS_LOCAL") === "1") {
+    // The daemon can see this file. Naming it lets the store hardlink rather
+    // than read, hash into memory and write again.
+    headers["x-mcpx-path"] = norm.path;
+  } else if (norm.path !== undefined) {
+    body = await readFileBytes(norm.path) as unknown as BodyInit;
+  } else {
+    body = norm.bytes as unknown as BodyInit;
+  }
+
+  const resp = await TRANSPORT.fetch(base() + "/v1/artifacts?" + query.toString(), {
+    method: "POST",
+    headers,
+    body,
+  });
+  const out = await resp.json();
+  if (!resp.ok || out.error) {
+    throw new Error("artifact " + JSON.stringify(name) + ": " + (out.error ?? "http " + resp.status));
+  }
+  // Announced on the same channel as log and emit, so a consumer watching a
+  // run learns the artifact exists while it is still running rather than at
+  // the end.
+  send("artifact", { id: out.id, name: out.name });
+  return out as ArtifactRef;
+}
+
+type NormalisedArtifact = { bytes?: Uint8Array; path?: string; mime?: string };
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function readFileBytes(path: string): Promise<Uint8Array> {
+  const d = (globalThis as any).Deno;
+  if (typeof d?.readFile === "function") return await d.readFile(path);
+  const fsp = builtin("node:fs/promises");
+  if (typeof fsp?.readFile === "function") return new Uint8Array(await fsp.readFile(path));
+  throw new Error("cannot read " + path + " in this runtime");
+}
+
+/**
+ * Reduce whatever was passed to bytes or a path.
+ *
+ * Accepting an MCP content item directly is what makes the common case one
+ * line: a screenshot arrives as { type: "image", data, mimeType } and that is
+ * exactly what gets passed in, with no unwrapping at the call site.
+ */
+function normaliseArtifact(data: unknown): NormalisedArtifact {
+  if (typeof data === "string") {
+    return { bytes: new TextEncoder().encode(data), mime: "text/plain; charset=utf-8" };
+  }
+  if (data instanceof Uint8Array) return { bytes: data };
+  if (data instanceof ArrayBuffer) return { bytes: new Uint8Array(data) };
+  if (ArrayBuffer.isView(data)) {
+    const v = data as ArrayBufferView;
+    return { bytes: new Uint8Array(v.buffer, v.byteOffset, v.byteLength) };
+  }
+  if (data && typeof data === "object") {
+    const o = data as Record<string, any>;
+    if (typeof o.path === "string") return { path: o.path };
+    // A tool result carries its envelope on .raw; reach through to the first
+    // content block that has a body rather than making every call site do it.
+    if (o.raw && typeof o.raw === "object") {
+      const blocks = (o.raw as RawToolResult).content ?? [];
+      for (const b of blocks) {
+        const inner = normaliseContent(b);
+        if (inner) return inner;
+      }
+    }
+    const direct = normaliseContent(o as ContentBlock);
+    if (direct) return direct;
+  }
+  // Anything else is a value, and a value's file form is its JSON.
+  return {
+    bytes: new TextEncoder().encode(JSON.stringify(data, null, 2)),
+    mime: "application/json",
+  };
+}
+
+function normaliseContent(b: ContentBlock | undefined): NormalisedArtifact | undefined {
+  if (!b || typeof b !== "object") return undefined;
+  if ((b.type === "image" || b.type === "audio") && typeof b.data === "string") {
+    return { bytes: b64ToBytes(b.data), mime: b.mimeType };
+  }
+  if (b.type === "resource") {
+    const r = (b as any).resource;
+    if (r && typeof r.blob === "string") return { bytes: b64ToBytes(r.blob), mime: r.mimeType };
+    if (r && typeof r.text === "string") {
+      return { bytes: new TextEncoder().encode(r.text), mime: r.mimeType ?? "text/plain" };
+    }
+  }
+  if (b.type === "text" && typeof b.text === "string") {
+    return { bytes: new TextEncoder().encode(b.text), mime: "text/plain; charset=utf-8" };
+  }
+  return undefined;
+}
+
 `
 
 // GlobalDeclarations emits ambient declarations for the surface the launcher
@@ -1249,6 +1408,8 @@ func GlobalDeclarations(nss []Namespace) string {
 	b.WriteString("  /** Call any tool by name. */\n")
 	b.WriteString("  const call: typeof __mcpx.call;\n")
 	b.WriteString("  const readResource: typeof __mcpx.readResource;\n")
+	b.WriteString("  /** Hand a file back to whoever asked for this run. */\n")
+	b.WriteString("  const artifact: typeof __mcpx.artifact;\n")
 	b.WriteString("  const ToolError: typeof __mcpx.ToolError;\n")
 	b.WriteString("  const paths: typeof __mcpx.paths;\n")
 	b.WriteString("  const here: typeof __mcpx.here;\n")

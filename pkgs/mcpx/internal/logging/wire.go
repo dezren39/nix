@@ -21,10 +21,12 @@ import (
 // something a human types, and it survives being written by every runtime.
 const Sentinel = "\x1emcpx\x1e"
 
-// wireRecord is the JSON a script emits. Two kinds travel the same channel:
-// "log" is diagnostics, "result" is a streamed value. Sharing the channel
-// keeps them ordered relative to one another, which matters when a log line
-// explains the result that follows it.
+// wireRecord is the JSON a script emits. Three kinds travel the same channel:
+// "log" is diagnostics, "result" is a streamed value, and "artifact" is a
+// file the script registered with the daemon. Sharing the channel keeps them
+// ordered relative to one another, which matters when a log line explains the
+// result that follows it, and when a consumer wants to know an artifact
+// exists before the run has finished.
 type wireRecord struct {
 	Kind     string          `json:"kind,omitempty"`
 	Level    string          `json:"level"`
@@ -34,12 +36,44 @@ type wireRecord struct {
 	Attrs    map[string]any  `json:"attrs,omitempty"`
 	Value    json.RawMessage `json:"value,omitempty"`
 	FileOnly bool            `json:"fileOnly,omitempty"`
+	ID       string          `json:"id,omitempty"`
+	Name     string          `json:"name,omitempty"`
 }
 
 // Streamed is a result a script produced before finishing.
 type Streamed struct {
 	Time  time.Time
 	Value json.RawMessage
+}
+
+// Artifacted is a file a script registered while it ran.
+//
+// Only the identity travels here. The metadata of record is the daemon's,
+// read back from the index: what the script says it stored is a claim, and
+// what the store holds is a fact.
+type Artifacted struct {
+	Time time.Time
+	ID   string
+	Name string
+}
+
+// ParseArtifact returns an artifact announcement if the line carries one.
+func ParseArtifact(line string) (Artifacted, bool) {
+	rest, ok := strings.CutPrefix(line, Sentinel)
+	if !ok {
+		return Artifacted{}, false
+	}
+	var w wireRecord
+	if err := json.Unmarshal([]byte(rest), &w); err != nil || w.Kind != "artifact" {
+		return Artifacted{}, false
+	}
+	ts := time.Now()
+	if w.Time != "" {
+		if parsed, perr := time.Parse(time.RFC3339Nano, w.Time); perr == nil {
+			ts = parsed
+		}
+	}
+	return Artifacted{Time: ts, ID: w.ID, Name: w.Name}, true
 }
 
 // ParseResult returns a streamed value if the line carries one.
@@ -74,7 +108,7 @@ func ParseLine(line string) (Record, bool) {
 		return Record{}, false
 	}
 	var w wireRecord
-	if err := json.Unmarshal([]byte(rest), &w); err == nil && w.Kind == "result" {
+	if err := json.Unmarshal([]byte(rest), &w); err == nil && (w.Kind == "result" || w.Kind == "artifact") {
 		return Record{}, false
 	} else if err != nil {
 		// A malformed record is still more useful surfaced than dropped.
@@ -123,6 +157,8 @@ type StreamOptions struct {
 	// Result receives each streamed value, in the order the script produced
 	// them.
 	Result func(Streamed)
+	// Artifact receives each file the script registered, in order.
+	Artifact func(Artifacted)
 }
 
 // Stream reads a script's stderr, rendering structured records through w and
@@ -137,6 +173,12 @@ func Stream(src io.Reader, w *Writer, opts StreamOptions) error {
 		if streamed, ok := ParseResult(line); ok {
 			if opts.Result != nil {
 				opts.Result(streamed)
+			}
+			continue
+		}
+		if art, ok := ParseArtifact(line); ok {
+			if opts.Artifact != nil {
+				opts.Artifact(art)
 			}
 			continue
 		}

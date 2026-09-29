@@ -65,6 +65,26 @@
     "handlerTimeout": "5m",
     "inputRounds": 8
   },
+  "exec": {
+    "timeout": "120s",
+    "stderrLimit": 65536,
+    "output": "text",
+    "remoteOutput": "structured",
+    "delivery": "reference"
+  },
+  "artifacts": {
+    "ttl": "24h",
+    "maxBytes": "64MiB",
+    "quota": "1GiB",
+    "inlineMaxBytes": "1MiB",
+    "chunkBytes": "256KiB",
+    "gcInterval": "10m",
+    "interceptImages": true,
+    "nameMaxLength": 200,
+    "nameCollisionLimit": 1000,
+    "idBytes": 16,
+    "listLimit": 200
+  },
   "http": {
     "bodyLimit": "1MiB",
     "callBodyLimit": "64MiB",

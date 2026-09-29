@@ -93,6 +93,30 @@ type Defaults struct {
 		CaptureConsole   bool   `json:"captureConsole"`
 		TypecheckTimeout string `json:"typecheckTimeout"`
 	} `json:"script"`
+	// Exec governs running a script, whether the CLI does it or the daemon
+	// does it on a caller's behalf.
+	Exec struct {
+		Timeout      string `json:"timeout"`
+		StderrLimit  int    `json:"stderrLimit"`
+		Output       string `json:"output"`
+		RemoteOutput string `json:"remoteOutput"`
+		Delivery     string `json:"delivery"`
+	} `json:"exec"`
+	// Artifacts governs the outbox: files a script produced, held for a
+	// caller to fetch rather than printed into its context.
+	Artifacts struct {
+		TTL                string `json:"ttl"`
+		MaxBytes           string `json:"maxBytes"`
+		Quota              string `json:"quota"`
+		InlineMaxBytes     string `json:"inlineMaxBytes"`
+		ChunkBytes         string `json:"chunkBytes"`
+		GCInterval         string `json:"gcInterval"`
+		InterceptImages    bool   `json:"interceptImages"`
+		NameMaxLength      int    `json:"nameMaxLength"`
+		NameCollisionLimit int    `json:"nameCollisionLimit"`
+		IDBytes            int    `json:"idBytes"`
+		ListLimit          int    `json:"listLimit"`
+	} `json:"artifacts"`
 	// HTTP governs the daemon's own listener and the clients that talk to
 	// it. Every one of these was an inline literal beside the code that
 	// happened to need it, which meant the request body ceiling was three
@@ -296,6 +320,39 @@ var (
 	CaptureConsole   = builtin.Script.CaptureConsole
 	TypecheckTimeout = mustDur(builtin.Script.TypecheckTimeout, "script.typecheckTimeout")
 
+	ExecTimeout = mustDur(builtin.Exec.Timeout, "exec.timeout")
+	ExecOutput  = builtin.Exec.Output
+	// ExecStderrLimit bounds how much of a failed script's stderr is kept to
+	// explain the failure. Unbounded, a script looping on stderr would be
+	// held in memory in full, by the daemon, on someone else's behalf.
+	ExecStderrLimit  = builtin.Exec.StderrLimit
+	ExecRemoteOutput = builtin.Exec.RemoteOutput
+	ExecDelivery     = builtin.Exec.Delivery
+
+	ArtifactTTL = mustDur(builtin.Artifacts.TTL, "artifacts.ttl")
+	// ArtifactMaxBytes is the ceiling for one artifact. A screenshot is
+	// under a megabyte; the headroom is for the video and the core dump
+	// somebody will eventually want to hand back.
+	ArtifactMaxBytes = mustBytes(builtin.Artifacts.MaxBytes, "artifacts.maxBytes")
+	ArtifactQuota    = mustBytes(builtin.Artifacts.Quota, "artifacts.quota")
+	// ArtifactInlineMaxBytes bounds what may be base64'd into a structured
+	// result. Well under the per-artifact cap on purpose: inline delivery
+	// puts bytes in the caller's context, which is the cost this whole
+	// feature exists to avoid.
+	ArtifactInlineMaxBytes  = mustBytes(builtin.Artifacts.InlineMaxBytes, "artifacts.inlineMaxBytes")
+	ArtifactChunkBytes      = mustBytes(builtin.Artifacts.ChunkBytes, "artifacts.chunkBytes")
+	ArtifactGCInterval      = mustDur(builtin.Artifacts.GCInterval, "artifacts.gcInterval")
+	ArtifactInterceptImages = builtin.Artifacts.InterceptImages
+	ArtifactNameMaxLength   = builtin.Artifacts.NameMaxLength
+	// ArtifactNameCollisionLimit bounds the -1, -2, -3 search when a name is
+	// already taken in an output directory. A directory holding this many
+	// files of one name is a bug in the caller, and looping forever hides it.
+	ArtifactNameCollisionLimit = builtin.Artifacts.NameCollisionLimit
+	// ArtifactIDBytes is the width of the random handle an artifact is
+	// served by. It is the whole of the access control until OAuth scopes
+	// land, so it is sized as a secret rather than as an identifier.
+	ArtifactIDBytes       = builtin.Artifacts.IDBytes
+	ArtifactListLimit     = builtin.Artifacts.ListLimit
 	HTTPBodyLimit         = mustBytes(builtin.HTTP.BodyLimit, "http.bodyLimit")
 	HTTPCallBodyLimit     = mustBytes(builtin.HTTP.CallBodyLimit, "http.callBodyLimit")
 	HTTPControlBodyLimit  = mustBytes(builtin.HTTP.ControlBodyLimit, "http.controlBodyLimit")

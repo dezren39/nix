@@ -88,6 +88,8 @@ type Server struct {
 	// first use, because a daemon that never runs one should carry nothing.
 	taskOnce sync.Once
 	tasks    *tasks.Store
+
+	artifactState
 }
 
 // Options configure the daemon.
@@ -452,6 +454,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/refresh", s.handleRefresh)
 	mux.HandleFunc("POST /v1/restart", s.handleRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
+	s.routesExec(mux)
 	s.routesSettings(mux)
 	// Everything declared in internal/api that is not above. A parity test
 	// fails if the two ever disagree.

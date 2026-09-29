@@ -157,6 +157,22 @@ but there is no ordinary reason to change one, so they are kept out of
 ordinary help rather than hidden -- a flag a user can find in the source and
 that `--help` denies exists is worse than a long list.
 
+### artifacts
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `artifacts.chunkBytes` | bytes | `256KiB` | daemon | no | `--artifacts-chunk-bytes` | `MCPX_ARTIFACTS_CHUNK_BYTES` | *(plumbing)* how much of a body one streamed frame carries |
+| `artifacts.delivery` | enum | `reference` | call | yes | `--artifacts-delivery` | `MCPX_ARTIFACTS_DELIVERY` | how artifact bodies reach the caller |
+| `artifacts.dir` | string | `` | call | yes | `--artifacts-dir` | `MCPX_ARTIFACTS_DIR` | write this run's artifacts here |
+| `artifacts.enabled` | bool | `true` | daemon | no | `--artifacts-enabled` | `MCPX_ARTIFACTS_ENABLED` | whether the daemon keeps files scripts produce |
+| `artifacts.gcInterval` | duration | `10m` | daemon | no | `--artifacts-gc-interval` | `MCPX_ARTIFACTS_GC_INTERVAL` | *(plumbing)* how often expired artifacts are swept |
+| `artifacts.inlineMaxBytes` | bytes | `1MiB` | call | yes | `--artifacts-inline-max-bytes` | `MCPX_ARTIFACTS_INLINE_MAX_BYTES` | the largest artifact that may be base64'd into a result |
+| `artifacts.interceptImages` | bool | `true` | call | yes | `--artifacts-intercept-images` | `MCPX_ARTIFACTS_INTERCEPT_IMAGES` | turn image and audio content in a result into artifact references |
+| `artifacts.maxBytes` | bytes | `64MiB` | daemon | no | `--artifacts-max-bytes` | `MCPX_ARTIFACTS_MAX_BYTES` | the largest single artifact that may be stored |
+| `artifacts.quota` | bytes | `1GiB` | daemon | no | `--artifacts-quota` | `MCPX_ARTIFACTS_QUOTA` | the total the artifact store may hold |
+| `artifacts.ttl` | duration | `24h` | daemon | no | `--artifacts-ttl` | `MCPX_ARTIFACTS_TTL` | how long an artifact is kept before it is collected |
+
+
 ### autostart
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -169,6 +185,7 @@ that `--help` denies exists is worse than a long list.
 | `autostart.pingTimeout` | duration | `2s` | client | no | `--autostart-ping-timeout` | `MCPX_AUTOSTART_PING_TIMEOUT` | *(plumbing)* how long a health check waits before calling it dead |
 | `autostart.pollInterval` | duration | `50ms` | client | no | `--autostart-poll-interval` | `MCPX_AUTOSTART_POLL_INTERVAL` | *(plumbing)* how often a starting daemon is probed |
 
+
 ### catalog
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -177,11 +194,13 @@ that `--help` denies exists is worse than a long list.
 | `catalog.budget` | int | `2000` | call | yes | `--catalog-budget`, `--budget` | `MCPX_CATALOG_BUDGET` | token ceiling for the catalog listing |
 | `catalog.instructions` | bool | `true` | call | yes | `--catalog-instructions` | `MCPX_CATALOG_INSTRUCTIONS` | include each server's own instructions |
 
+
 ### completion
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `completion.maxValues` | int | `100` | daemon | yes | `--completion-max-values` | `MCPX_COMPLETION_MAX_VALUES` | *(plumbing)* how many completions one reply carries |
+
 
 ### daemon
 
@@ -205,11 +224,13 @@ that `--help` denies exists is worse than a long list.
 | `daemon.warmTimeout` | duration | `3m0s` | daemon | no | `--daemon-warm-timeout` | `MCPX_DAEMON_WARM_TIMEOUT` | *(plumbing)* how long the background schema fetch may take |
 | `daemon.watchConfig` | bool | `true` | daemon | yes | `--daemon-watch-config` | `MCPX_DAEMON_WATCH_CONFIG` | re-read the configuration files when they change on disk |
 
+
 ### doctor
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `doctor.timeout` | duration | `20s` | client | no | `--doctor-timeout` | `MCPX_DOCTOR_TIMEOUT` | how long `mcpx doctor` gives the daemon to answer |
+
 
 ### elicit
 
@@ -217,12 +238,23 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `elicit.pendingLimit` | int | `100` | daemon | yes | `--elicit-pending-limit` | `MCPX_ELICIT_PENDING_LIMIT` | *(plumbing)* how many unanswered questions one listing returns |
 
+
 ### events
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `events.history` | int | `1024` | daemon | no | `--events-history` | `MCPX_EVENTS_HISTORY` | how many past events a late subscriber can replay |
 | `events.reconnect` | duration | `2s` | client | no | `--events-reconnect` | `MCPX_EVENTS_RECONNECT` | how long a client waits before resuming a dropped stream |
+
+
+### exec
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `exec.output` | enum | `text` | call | yes | `--exec-output` | `MCPX_EXEC_OUTPUT` | text for a terminal, structured for one document, stream for frames |
+| `exec.timeout` | duration | `120s` | call | yes | `--exec-timeout` | `MCPX_EXEC_TIMEOUT` | kill a script after this long |
+| `exec.where` | enum | `auto` | call | yes | `--exec-where` | `MCPX_EXEC_WHERE` | in this process, or on the daemon |
+
 
 ### http
 
@@ -242,6 +274,7 @@ that `--help` denies exists is worse than a long list.
 | `http.streamBufferInit` | bytes | `65536` | client | no | `--http-stream-buffer-init` | `MCPX_HTTP_STREAM_BUFFER_INIT` | *(plumbing)* the initial line buffer when reading an event stream |
 | `http.streamBufferMax` | bytes | `8388608` | client | no | `--http-stream-buffer-max` | `MCPX_HTTP_STREAM_BUFFER_MAX` | *(plumbing)* the largest single event line that will be read |
 
+
 ### logging
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -257,6 +290,7 @@ that `--help` denies exists is worse than a long list.
 | `logging.maxLines` | int | `0` | daemon | no | `--logging-max-lines` | `MCPX_LOGGING_MAX_LINES` | roll the log file once it holds this many records |
 | `logging.source` | enum | `warn` | daemon | yes | `--logging-source`, `--log-source` | `MCPX_LOGGING_SOURCE` | from which level upward to record the calling file and line |
 
+
 ### logstore
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -264,11 +298,13 @@ that `--help` denies exists is worse than a long list.
 | `logstore.followBacklog` | int | `1000` | client | no | `--logstore-follow-backlog` | `MCPX_LOGSTORE_FOLLOW_BACKLOG` | *(plumbing)* how many records one poll of `mcpx log --follow` may emit |
 | `logstore.queryLimit` | int | `100` | call | yes | `--logstore-query-limit` | `MCPX_LOGSTORE_QUERY_LIMIT` | how many records a log query returns by default |
 
+
 ### mcp
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `mcp.pageSize` | int | `100` | client | no | `--mcp-page-size` | `MCPX_MCP_PAGE_SIZE` | how many items one tools/list reply carries |
+
 
 ### output
 
@@ -276,6 +312,7 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `output.color` | enum | `auto` | client | no | `--output-color` | `MCPX_OUTPUT_COLOR` | whether to colourise terminal output |
 | `output.json` | bool | `false` | client | no | `--output-json`, `--json` | `MCPX_OUTPUT_JSON` | emit one machine-readable document |
+
 
 ### paths
 
@@ -288,6 +325,7 @@ that `--help` denies exists is worse than a long list.
 | `paths.placeholders` | paths | *(empty)* | client | no | `--paths-placeholders` | `MCPX_PATHS_PLACEHOLDERS` | directories of files declaring launcher placeholders |
 | `paths.scripts` | paths | *(empty)* | client | no | `--paths-scripts` | `MCPX_PATHS_SCRIPTS` | where named scripts are looked for |
 | `paths.state` | string | *(empty)* | client | no | `--paths-state` | `MCPX_PATHS_STATE` | where the daemon socket, logs and index live |
+
 
 ### plugin
 
@@ -303,6 +341,7 @@ that `--help` denies exists is worse than a long list.
 | `plugin.toolTiming` | bool | `false` | plugin | no | `--plugin-tool-timing` | `MCPX_PLUGIN_TOOL_TIMING` | write every tool outcome into mcpx's log |
 | `plugin.tools` | bool | `false` | plugin | no | `--plugin-tools` | `MCPX_PLUGIN_TOOLS` | expose mcpx itself as tools the model can call |
 
+
 ### plumbing
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -317,6 +356,7 @@ that `--help` denies exists is worse than a long list.
 | `plumbing.strictUnknownKeys` | bool | `false` | client | no | `--plumbing-strict-unknown-keys` | `MCPX_PLUMBING_STRICT_UNKNOWN_KEYS` | *(plumbing)* fail on a configuration key no setting claims |
 | `plumbing.validatePaths` | bool | `true` | client | no | `--plumbing-validate-paths` | `MCPX_PLUMBING_VALIDATE_PATHS` | *(plumbing)* resolve and verify every referenced path before doing any work |
 
+
 ### pool
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -329,6 +369,7 @@ that `--help` denies exists is worse than a long list.
 | `pool.sharing` | enum | `shared` | daemon | no | `--pool-sharing` | `MCPX_POOL_SHARING` | whether callers reuse one instance or each get their own |
 | `pool.startTimeout` | duration | `60s` | daemon | yes | `--pool-start-timeout` | `MCPX_POOL_START_TIMEOUT` | how long a server has to become ready |
 
+
 ### registry
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -337,6 +378,7 @@ that `--help` denies exists is worse than a long list.
 | `registry.pageSize` | int | `30` | client | no | `--registry-page-size` | `MCPX_REGISTRY_PAGE_SIZE` | *(plumbing)* how many entries are fetched per registry request |
 | `registry.timeout` | duration | `30s` | client | no | `--registry-timeout` | `MCPX_REGISTRY_TIMEOUT` | how long a registry request may take |
 | `registry.url` | string | `https://registry.modelcontextprotocol.io` | client | no | `--registry-url` | `MCPX_REGISTRY_URL` | where `mcpx registry` looks for servers |
+
 
 ### script
 
@@ -354,11 +396,13 @@ that `--help` denies exists is worse than a long list.
 | `script.suffix` | source | *(empty)* | client | no | `--script-suffix` | `MCPX_SCRIPT_SUFFIX` | runs last on both paths, like a finally |
 | `script.typecheck` | enum | `off` | client | no | `--script-typecheck` | `MCPX_SCRIPT_TYPECHECK` | check the generated program before running it |
 
+
 ### search
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `search.limit` | int | `20` | call | yes | `--search-limit`, `--limit` | `MCPX_SEARCH_LIMIT` | how many tools a search returns |
+
 
 ### session
 
@@ -366,11 +410,13 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `session.releaseTimeout` | duration | `10s` | client | no | `--session-release-timeout` | `MCPX_SESSION_RELEASE_TIMEOUT` | *(plumbing)* how long releasing a finished session may take |
 
+
 ### stats
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `stats.top` | int | `20` | call | yes | `--stats-top` | `MCPX_STATS_TOP` | how many rows a ranked statistic shows |
+
 
 ### tasks
 
