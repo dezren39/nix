@@ -68,6 +68,9 @@ type Defaults struct {
 		EventHistory         int    `json:"eventHistory"`
 		StreamReconnect      string `json:"streamReconnect"`
 		TaskTTL              string `json:"taskTTL"`
+		TaskResultWait       string `json:"taskResultWait"`
+		StatsTop             int    `json:"statsTop"`
+		RegistryLimit        int    `json:"registryLimit"`
 	} `json:"plumbing"`
 	// Elicit governs questions a server asks back.
 	Elicit struct {
@@ -190,6 +193,9 @@ var (
 	EventHistory         = builtin.Plumbing.EventHistory
 	StreamReconnect      = mustDur(builtin.Plumbing.StreamReconnect, "plumbing.streamReconnect")
 	TaskTTL              = mustDur(builtin.Plumbing.TaskTTL, "plumbing.taskTTL")
+	TaskResultWait       = mustDur(builtin.Plumbing.TaskResultWait, "plumbing.taskResultWait")
+	StatsTop             = builtin.Plumbing.StatsTop
+	RegistryLimit        = builtin.Plumbing.RegistryLimit
 
 	ElicitTTL            = mustDur(builtin.Elicit.TTL, "elicit.ttl")
 	ElicitPollInterval   = mustDur(builtin.Elicit.PollInterval, "elicit.pollInterval")

@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/tasks"
 )
 
 // Server is the local HTTP API.
@@ -60,6 +62,11 @@ type Server struct {
 	// could not be opened, which the daemon survives and the route reports.
 	sink    *logging.FileSink
 	lastReq atomic.Int64
+
+	// tasks holds calls a client asked to run in the background. Created on
+	// first use, because a daemon that never runs one should carry nothing.
+	taskOnce sync.Once
+	tasks    *tasks.Store
 }
 
 // Options configure the daemon.
@@ -398,6 +405,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/refresh", s.handleRefresh)
 	mux.HandleFunc("POST /v1/restart", s.handleRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
+	// Everything declared in internal/api that is not above. A parity test
+	// fails if the two ever disagree.
+	s.routesV1Ops(mux)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -528,6 +538,10 @@ type callReq struct {
 	Context config.CallContext `json:"context"`
 	// Session is the shorthand a caller may send instead of a full context.
 	Session string `json:"session"`
+	// Task, when present, asks for a handle now and the result later.
+	Task *struct {
+		TTL int64 `json:"ttl"`
+	} `json:"task"`
 }
 
 // callContext merges the JSON body with the header shorthands, so a plain
@@ -575,6 +589,15 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, fmt.Errorf("args: %w", err))
 			return
 		}
+	}
+
+	// A caller that asked for a task gets a handle immediately and collects
+	// from /v1/tasks, rather than holding this request open for however long
+	// the tool takes.
+	if req.Task != nil {
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"task": *s.startCallTask(req.Task.TTL, req.Server, req.Tool, cc, args)})
+		return
 	}
 
 	start := time.Now()

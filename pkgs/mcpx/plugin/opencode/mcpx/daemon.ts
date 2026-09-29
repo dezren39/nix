@@ -158,6 +158,80 @@ export class DaemonClient {
   }
 
   /**
+   * Query the durable log -- `mcpx log` without the process.
+   *
+   * The filters are the ones the command takes, and the daemon runs them
+   * through the same query builder, so a plugin and a prompt select the same
+   * records.
+   */
+  logQuery(filter: LogFilter = {}): Promise<{ records: LogRecord[]; chain?: LogChainLevel[] }> {
+    return this.get(`/v1/log${query(filter)}`)
+  }
+
+  /** Aggregate the log: `mcpx stats` as JSON. */
+  stats(opts: StatsQuery = {}): Promise<{ dimension: string; rows: unknown }> {
+    return this.get(`/v1/stats${query(opts)}`)
+  }
+
+  /** Search the public registry for servers that are not configured here. */
+  registrySearch(q: string, limit?: number): Promise<{ servers: RegistryEntry[] }> {
+    return this.get(`/v1/registry/search${query({ q, limit })}`)
+  }
+
+  /**
+   * Argument autocomplete from an upstream server.
+   *
+   * `upstream: false` means the answer came from what mcpx already knows
+   * rather than from the server itself -- worth showing differently, because
+   * an empty list from a server and an empty list from a guess mean
+   * different things.
+   */
+  complete(req: CompleteRequest): Promise<{ completion: Completion; upstream: boolean }> {
+    return this.post("/v1/complete", req)
+  }
+
+  /**
+   * Call a tool as a task: a handle now, the result later.
+   *
+   * For anything slow enough that holding a request open would invite an
+   * intermediary to time it out.
+   */
+  callAsTask(
+    namespace: string,
+    tool: string,
+    args: Record<string, unknown>,
+    opts: { ttl?: number; session?: string } = {},
+  ): Promise<{ task: Task }> {
+    return this.post("/v1/call", {
+      server: namespace,
+      tool,
+      args,
+      session: opts.session,
+      task: { ttl: opts.ttl },
+    })
+  }
+
+  /** Every task this daemon holds. */
+  tasks(): Promise<{ tasks: Task[] }> {
+    return this.get("/v1/tasks")
+  }
+
+  /** One task's status. */
+  task(id: string): Promise<Task> {
+    return this.get(`/v1/tasks/${encodeURIComponent(id)}`)
+  }
+
+  /** Wait for a task and collect its result. */
+  taskResult(id: string, waitMs?: number): Promise<{ result: unknown }> {
+    return this.get(`/v1/tasks/${encodeURIComponent(id)}/result${query({ waitMs })}`)
+  }
+
+  /** Stop a running task. */
+  cancelTask(id: string): Promise<Task> {
+    return this.post(`/v1/tasks/${encodeURIComponent(id)}/cancel`, {})
+  }
+
+  /**
    * Append a record to mcpx's durable log -- `mcpx log record` without the
    * process. Same parser on the daemon side, so the record is identical to
    * one sent by spawning the binary.
@@ -166,6 +240,98 @@ export class DaemonClient {
     const q = level ? `?level=${level}` : ""
     return this.post(`/v1/log${q}`, record)
   }
+}
+
+/** A filter over the durable log, matching the flags `mcpx log` takes. */
+export type LogFilter = {
+  since?: string
+  until?: string
+  level?: "debug" | "info" | "warn" | "error"
+  event?: string
+  server?: string
+  tool?: string
+  session?: string
+  trace?: string
+  /** A trace and every ancestor, returned as a tree rather than a list. */
+  chain?: string
+  grep?: string
+  limit?: number
+  reverse?: "0" | "1"
+}
+
+/** One indexed log line. */
+export type LogRecord = {
+  id: number
+  time: string
+  level: string
+  msg?: string
+  template?: string
+  attrs?: Record<string, unknown>
+}
+
+/** One trace in an ancestry, with the records that belong to it. */
+export type LogChainLevel = {
+  trace: string
+  parent?: string
+  depth: number
+  records: LogRecord[]
+}
+
+/** What to aggregate the log by. */
+export type StatsQuery = {
+  by?: "calls" | "servers" | "instances" | "errors" | "sessions" | "volume" | "slowest"
+  since?: string
+  until?: string
+  server?: string
+  tool?: string
+  session?: string
+  top?: number
+}
+
+/** One server the registry knows about. */
+export type RegistryEntry = {
+  name: string
+  namespace: string
+  description?: string
+  version?: string
+  install?: string
+  addWith: string
+}
+
+/** An autocomplete request for one argument of a prompt or a resource. */
+export type CompleteRequest = {
+  server: string
+  ref: { type: "ref/prompt" | "ref/resource"; name?: string; uri?: string }
+  argument: { name: string; value?: string }
+  session?: string
+  context?: Record<string, unknown>
+}
+
+/** What a completion reply carries; the specification caps values at 100. */
+export type Completion = { values: string[]; total: number; hasMore: boolean }
+
+/** A call running in the background. */
+export type Task = {
+  taskId: string
+  status: "working" | "input_required" | "completed" | "failed" | "cancelled"
+  statusMessage?: string
+  createdAt: string
+  lastUpdatedAt: string
+  ttl: number
+  pollInterval?: number
+}
+
+/**
+ * Build a query string, dropping anything absent.
+ *
+ * Sending `limit=undefined` is worse than sending nothing: the daemon reads
+ * it as a literal and answers with an empty page.
+ */
+const query = (params: Record<string, unknown>): string => {
+  const parts = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+  return parts.length ? `?${parts.join("&")}` : ""
 }
 
 /**
