@@ -487,7 +487,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 				return resp.Result, nil
 			})
 			return &response{JSONRPC: "2.0", ID: req.ID,
-				Result: map[string]any{"task": *t}}
+				Result: map[string]any{"task": t}}
 		}
 	}
 

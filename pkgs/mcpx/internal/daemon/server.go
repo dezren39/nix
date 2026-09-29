@@ -620,7 +620,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	// the tool takes.
 	if req.Task != nil {
 		writeJSON(w, http.StatusAccepted, map[string]any{
-			"task": *s.startCallTask(req.Task.TTL, req.Server, req.Tool, cc, args)})
+			"task": s.startCallTask(req.Task.TTL, req.Server, req.Tool, cc, args)})
 		return
 	}
 

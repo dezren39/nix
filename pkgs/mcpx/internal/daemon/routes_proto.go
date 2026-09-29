@@ -162,9 +162,6 @@ func (t *askTable) forKey(server, key string) (*askCall, bool) {
 // attach records a question against the call that provoked it, if one can be
 // identified, and returns whether it was.
 func (r *Registry) attach(server, key string, req elicit.Request, method string, params json.RawMessage) (string, bool) {
-	if r.asks == nil {
-		return "", false
-	}
 	a, ok := r.asks.forKey(server, key)
 	if !ok {
 		return "", false
@@ -213,21 +210,13 @@ func (r *Registry) GetPromptAsk(ctx context.Context, id, server, name string, ar
 }
 
 func (r *Registry) beginAsk(id, server, key, session string) {
-	r.askOnce.Do(func() { r.asks = newAskTable() })
 	r.asks.begin(id, server, key, session)
 }
 
-func (r *Registry) endAsk(id string) {
-	if r.asks != nil {
-		r.asks.end(id)
-	}
-}
+func (r *Registry) endAsk(id string) { r.asks.end(id) }
 
 // Asks exposes the table so the routes below can read it.
-func (r *Registry) Asks() *askTable {
-	r.askOnce.Do(func() { r.asks = newAskTable() })
-	return r.asks
-}
+func (r *Registry) Asks() *askTable { return r.asks }
 
 // ---- the routes ----
 
@@ -306,7 +295,7 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 	})
 	ready <- t.TaskID
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"callId": t.TaskID, "task": *t})
+	writeJSON(w, http.StatusAccepted, map[string]any{"callId": t.TaskID, "task": t})
 }
 
 // handleAskPoll reports where a call has got to, waiting for it to move.
@@ -329,9 +318,11 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 	call, live := s.reg.Asks().get(id)
 	if !tasks.Terminal(t.Status) && live {
 		before, changed := call.snapshot()
-		if len(before) == 0 {
-			// Nothing asked yet: wait for the first question, for the call
-			// to finish, or for the caller to give up.
+		// Wait when there is nothing to answer -- which is not the same as
+		// nothing having been asked. After a question is answered the call
+		// keeps running, and returning immediately because it once asked
+		// something would turn the caller's long poll into a spin.
+		if len(s.openQuestions(before)) == 0 {
 			ctx, cancel := context.WithTimeout(r.Context(), wait)
 			done := s.taskDone(ctx, id)
 			select {

@@ -46,10 +46,10 @@ type Registry struct {
 	leases map[string]*leaseState
 
 	// asks correlates a question a server asked back to the call that
-	// provoked it. Built on first use, because a registry that never runs an
-	// interruptible call should carry nothing.
-	askOnce sync.Once
-	asks    *askTable
+	// provoked it. Built up front rather than on first use: a question can
+	// arrive from any pool at any time, and a table created lazily would be
+	// read by that goroutine while another wrote it.
+	asks *askTable
 
 	logf     func(string, ...any)
 	degraded sync.Map
@@ -99,6 +99,7 @@ func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*R
 		pools:  make(map[string]*pool.Pool, len(servers)),
 		views:  make(map[string]*config.Resolved, len(servers)),
 		leases: map[string]*leaseState{},
+		asks:   newAskTable(),
 		logf:   logf,
 	}
 	seen := map[string]string{}

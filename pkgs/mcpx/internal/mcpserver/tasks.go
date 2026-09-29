@@ -56,7 +56,7 @@ func wantsTask(params json.RawMessage) (bool, int64) {
 }
 
 // startTask runs fn in the background and returns its handle at once.
-func (s *Server) startTask(ttl int64, fn func(ctx context.Context) (any, *rpcError)) *Task {
+func (s *Server) startTask(ttl int64, fn func(ctx context.Context) (any, *rpcError)) Task {
 	return s.tasks().Start(ttl, func(ctx context.Context) (any, *tasks.Fault) {
 		result, err := fn(ctx)
 		if err != nil {

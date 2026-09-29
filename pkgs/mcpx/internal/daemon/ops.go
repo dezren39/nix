@@ -438,7 +438,7 @@ func (s *Server) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 // startCallTask runs a tool call in the background and hands back a handle.
-func (s *Server) startCallTask(ttl int64, server, tool string, cc config.CallContext, args any) *tasks.Task {
+func (s *Server) startCallTask(ttl int64, server, tool string, cc config.CallContext, args any) tasks.Task {
 	return s.taskStore().Start(ttl, func(ctx context.Context) (any, *tasks.Fault) {
 		start := time.Now()
 		res, err := s.reg.Call(ctx, server, tool, cc, args)

@@ -240,8 +240,13 @@ func TestATaskCanBeCancelled(t *testing.T) {
 	e.run("ls")
 	c := e.socketClient(t)
 
+	// A tool slow enough to still be running when the cancellation
+	// arrives. With `echo` this was a race the test won almost always and
+	// not quite: the call finished first, Cancel found a terminal status,
+	// and the assertion below read "completed" for reasons that had nothing
+	// to do with cancellation.
 	_, doc := postJSON(t, c, "/v1/call",
-		`{"server":"demo","tool":"echo","args":{"message":"cancel me"},"task":{}}`)
+		`{"server":"demo","tool":"slow","args":{"ms":5000},"task":{}}`)
 	task, _ := doc["task"].(map[string]any)
 	id, _ := task["taskId"].(string)
 	if id == "" {
