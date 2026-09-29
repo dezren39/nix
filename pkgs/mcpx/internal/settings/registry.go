@@ -331,6 +331,19 @@ func daemonSettings() []Setting {
 			Commands: []string{"daemon"},
 		},
 		{
+			Path: "daemon.inline", Kind: KindBool, Default: "false",
+			Name:  "Run without a daemon",
+			Short: "as a last resort, run servers inside this process",
+			Long: "The final rung of the connection ladder, tried only after an " +
+				"existing daemon and a spawned one have both failed. Servers start " +
+				"when first called and die when the command exits, so nothing is " +
+				"pooled between commands and a stateful server -- a browser -- " +
+				"cannot outlive one. Slower every time, but it works in a sandbox " +
+				"with no fork, on a read-only filesystem, or in a container whose " +
+				"init will not reap. Off by default because a pool that silently " +
+				"stops pooling is a performance bug nobody can see.",
+		},
+		{
 			Path: "daemon.autostart", Kind: KindBool, Default: "true",
 			Name:  "Autostart",
 			Short: "start the daemon on demand when it is not running",

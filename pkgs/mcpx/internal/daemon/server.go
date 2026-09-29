@@ -173,6 +173,40 @@ func (s *Server) clearStaleSocket() error {
 }
 
 // Serve runs until the context is cancelled or a signal arrives.
+// ServeInline runs the daemon's API inside the calling process, on a private
+// socket, until the context ends.
+//
+// This is the last rung of the connection ladder: no separate process at all.
+// It serves the identical handler the real daemon serves, so inline mode
+// cannot drift from daemon mode -- there is only one API, hosted in two
+// places.
+//
+// What changes is lifetime. Servers start when first called and die when the
+// calling process exits, so nothing is pooled across invocations and a
+// stateful server -- a browser -- cannot outlive one command. That is the
+// price of not having a daemon, and it is paid on every run.
+func (s *Server) ServeInline(ctx context.Context, socket string) error {
+	_ = os.Remove(socket)
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		return err
+	}
+	s.unixLn = ln
+	mux := http.NewServeMux()
+	s.routes(mux)
+	s.httpSrv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.httpSrv.Shutdown(shutdown)
+		s.reg.Close()
+		_ = os.Remove(socket)
+	}()
+	go func() { _ = s.httpSrv.Serve(ln) }()
+	return nil
+}
+
 func (s *Server) Serve(ctx context.Context) error {
 	mux := http.NewServeMux()
 	s.routes(mux)
@@ -640,9 +674,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		Server:  q.Get("server"),
 		URIs:    splitCSV(q.Get("uri")),
 	}
-	since, _ := strconv.ParseUint(firstNonEmptyStr(r.Header.Get("Last-Event-ID"), q.Get("since")), 10, 64)
-
-	sub, gap := s.Events.Subscribe(f, since)
+	raw := firstNonEmptyStr(r.Header.Get("Last-Event-ID"), q.Get("since"))
+	since, _ := strconv.ParseUint(raw, 10, 64)
+	// Present-but-zero replays everything retained; absent is live only.
+	sub, gap := s.Events.SubscribeFrom(f, since, raw != "")
 	defer sub.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")

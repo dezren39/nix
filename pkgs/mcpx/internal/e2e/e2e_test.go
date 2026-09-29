@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2372,10 +2375,99 @@ func TestANamedEndpointIsNotSilentlyReplacedByALocalDaemon(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unreachable named endpoint should fail")
 	}
-	if !strings.Contains(out, "not started from here") {
+	if !strings.Contains(out, "will not start a local one") {
 		t.Errorf("the reason should be stated:\n%s", out)
 	}
 	if strings.Contains(out, "reached over spawn") {
 		t.Errorf("it must not have started a local daemon instead:\n%s", out)
+	}
+}
+
+func TestInlineModeRunsWithNoDaemonAndLeavesNothingBehind(t *testing.T) {
+	// The last rung of the ladder: no separate process. It must work, and it
+	// must not leave a daemon or a socket behind -- an in-process daemon
+	// lives exactly as long as the command.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_AUTOSTART=false", "MCPX_DAEMON_INLINE=true")
+
+	out := e.run("call", "demo.echo", `{"message":"inline"}`)
+	if !strings.Contains(out, "inline") {
+		t.Fatalf("the call should have worked with no daemon:\n%s", out)
+	}
+	if socks, _ := filepath.Glob(filepath.Join(e.dir, "state", "*.sock")); len(socks) > 0 {
+		t.Errorf("no daemon socket should remain: %v", socks)
+	}
+}
+
+func TestWithoutInlineANoDaemonSituationFailsClearly(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_AUTOSTART=false")
+	out, err := e.try("ls")
+	if err == nil {
+		t.Fatal("with no daemon and no way to make one, it should fail")
+	}
+	// Every rung is named, because the list of what was tried is the answer
+	// to "why did this not work".
+	for _, want := range []string{"socket", "spawn", "disabled by daemon.autostart"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q missing from:\n%s", want, out)
+		}
+	}
+}
+
+func TestScriptsReachTheDaemonOverItsSocketWhereTheRuntimeCan(t *testing.T) {
+	// Deno and Bun take the socket; Node falls back to TCP because its fetch
+	// cannot address one without undici.
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--format", "bare",
+		`const r = await demo.echo({message:"x"}); console.log("via", transport());`)
+	if !strings.Contains(out, "via unix") {
+		t.Errorf("deno should reach the socket:\n%s", out)
+	}
+}
+
+func TestTheEventStreamDeliversCallsAndResumes(t *testing.T) {
+	// The stream is what hooks read. Every event carries a sequence number,
+	// and a reconnect replays what was missed -- lossless, not merely
+	// resumable.
+	e := newEnv(t, oneServer)
+	e.run("call", "demo.echo", `{"message":"a"}`)
+	e.run("call", "demo.echo", `{"message":"b"}`)
+
+	// Asked rather than globbed: a long state path makes the daemon fall
+	// back to a private runtime directory, so the socket is not necessarily
+	// where the state directory would suggest.
+	var st struct {
+		Socket string `json:"socket"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+	sock := st.Socket
+	if sock == "" {
+		t.Fatal("status did not report a socket")
+	}
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+		}},
+	}
+	resp, err := client.Get("http://mcpx/v1/events?kinds=call&since=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("content type %q", ct)
+	}
+	buf := make([]byte, 8192)
+	n, _ := io.ReadAtLeast(resp.Body, buf, 64)
+	body := string(buf[:n])
+	if !strings.Contains(body, "event: call.finished") {
+		t.Errorf("replayed calls should arrive:\n%s", body)
+	}
+	if !strings.Contains(body, "id: ") {
+		t.Errorf("events should carry sequence ids for resume:\n%s", body)
 	}
 }

@@ -3,14 +3,16 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
 )
 
@@ -199,9 +201,58 @@ func siblingSockets(paths daemon.Paths) []string {
 // started, this is the difference between mcpx working slowly and not
 // working.
 func (a *App) inlineDaemon(ctx context.Context) (*Client, error) {
-	if _, err := exec.LookPath(os.Args[0]); err != nil && !filepath.IsAbs(os.Args[0]) {
-		return nil, fmt.Errorf("cannot locate the mcpx binary to run inline")
+	cfg, err := config.Load(a.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("inline mode needs a configuration: %w", err)
 	}
-	return nil, fmt.Errorf("inline mode is not built yet; " +
-		"run `mcpx daemon` in the foreground, or set daemon.endpoint")
+	// A private socket in a private directory, so two inline runs in the
+	// same shell cannot find each other's servers.
+	dir, err := os.MkdirTemp("", "mcpx-inline-")
+	if err != nil {
+		return nil, err
+	}
+	paths := a.Paths
+	paths.Socket = filepath.Join(dir, "d.sock")
+
+	// A discarding logger. A daemon's operational chatter belongs in its
+	// log file; in-process it would land in the middle of the command's own
+	// output, which is the one place it must not go.
+	srv, err := daemon.NewServer(daemon.Options{
+		Config: cfg, Paths: paths, Version: a.Version,
+		Logger: log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	// Tied to the process rather than to ctx. The caller's context is for
+	// the connection attempt; the servers have to live as long as the
+	// command using them does.
+	life, stop := context.WithCancel(context.Background())
+	a.inlineStop = func() {
+		stop()
+		_ = os.RemoveAll(dir)
+	}
+	if err := srv.ServeInline(life, paths.Socket); err != nil {
+		a.inlineStop()
+		return nil, err
+	}
+	c := NewClient(paths, a.ConfigPath)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if c.Ping(ctx) {
+			return c, nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	a.inlineStop()
+	return nil, fmt.Errorf("the in-process daemon did not answer")
+}
+
+// CloseInline stops an in-process daemon, if one was started.
+func (a *App) CloseInline() {
+	if a.inlineStop != nil {
+		a.inlineStop()
+		a.inlineStop = nil
+	}
 }

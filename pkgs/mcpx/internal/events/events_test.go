@@ -146,3 +146,20 @@ func TestOnlySpecDefinedEventsBecomeMCPNotifications(t *testing.T) {
 		t.Errorf("got %s", m)
 	}
 }
+
+func TestPositionZeroReplaysEverythingButAbsentIsLiveOnly(t *testing.T) {
+	// Conflating them made "replay from the start" silently return nothing,
+	// which is indistinguishable from nothing having happened.
+	b := events.New(0)
+	b.Publish(events.Event{Kind: events.CallFinished})
+	b.Publish(events.Event{Kind: events.CallFinished})
+
+	all, _ := b.SubscribeFrom(events.Filter{}, 0, true)
+	defer all.Close()
+	recv(t, all)
+	recv(t, all)
+
+	live, _ := b.SubscribeFrom(events.Filter{}, 0, false)
+	defer live.Close()
+	none(t, live)
+}

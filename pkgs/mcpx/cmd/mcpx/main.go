@@ -183,6 +183,11 @@ func main() {
 		os.Exit(2)
 	}
 
+	// An in-process daemon lives exactly as long as this command. Stopped on
+	// every exit path, including an error, or its servers would outlive the
+	// process that owns them.
+	defer app.CloseInline()
+
 	if err := h(ctx, rest); err != nil {
 		if errors.Is(err, cli.ErrNoDaemon) {
 			fmt.Fprintln(os.Stderr, "mcpx: daemon is not running and could not be started")

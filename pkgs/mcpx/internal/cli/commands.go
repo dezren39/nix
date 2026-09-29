@@ -35,6 +35,12 @@ type App struct {
 	// machineOutput suppresses progress notices when the caller has asked
 	// for a shape something else will parse.
 	machineOutput bool
+	// inlineStop shuts down an in-process daemon when the command ends.
+	inlineStop func()
+	// connected records that the ladder has been walked for this command.
+	connected bool
+	// ladder is how the connection was made, for doctor and --json output.
+	ladder *Ladder
 	// stdoutOverride collects a script's output instead of printing it.
 	// Used by the MCP server, which must return what a script produced
 	// rather than write it to a stream the host is parsing as protocol.
@@ -59,11 +65,25 @@ func (a *App) Client() *Client {
 	return a.client
 }
 
+// ensure returns a client connected to a daemon, walking the connection
+// ladder: an existing socket, a named endpoint, a spawned daemon, and --
+// only when explicitly allowed -- an in-process one.
+//
+// The result is cached for the life of the command, so a command that makes
+// ten requests walks the ladder once.
 func (a *App) ensure(ctx context.Context) (*Client, error) {
-	c := a.Client()
-	if err := c.EnsureDaemon(ctx); err != nil {
+	if a.client != nil && a.connected {
+		return a.client, nil
+	}
+	c, ladder, err := a.Connect(ctx, ConnectOptions{
+		Endpoint:    a.Settings().String("daemon.endpoint"),
+		AllowSpawn:  a.Settings().Bool("daemon.autostart"),
+		AllowInline: a.Settings().Bool("daemon.inline"),
+	})
+	if err != nil {
 		return nil, err
 	}
+	a.client, a.connected, a.ladder = c, true, ladder
 	return c, nil
 }
 

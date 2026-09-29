@@ -156,13 +156,23 @@ func (s *Subscription) Close() {
 	s.bus.mu.Unlock()
 }
 
-// Subscribe starts listening. since is the last sequence number already
-// seen; events after it are replayed first. Zero means live only.
+// Subscribe starts listening, live only.
+func (b *Bus) Subscribe(f Filter, since uint64) (sub *Subscription, gap bool) {
+	return b.SubscribeFrom(f, since, since > 0)
+}
+
+// SubscribeFrom starts listening. since is the last sequence number already
+// seen, and replay says whether to send what came after it.
+//
+// "No position given" and "position zero" are different requests. The first
+// means live only; the second means everything still retained. Conflating
+// them -- treating zero as absent -- made "replay from the start" silently
+// return nothing, which is indistinguishable from nothing having happened.
 //
 // gap is true when since predates the retained history, so the subscriber
 // knows it missed something and can resynchronise instead of trusting a
 // stream with a hole in it.
-func (b *Bus) Subscribe(f Filter, since uint64) (sub *Subscription, gap bool) {
+func (b *Bus) SubscribeFrom(f Filter, since uint64, replay bool) (sub *Subscription, gap bool) {
 	ch := make(chan Event, 256)
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -170,8 +180,8 @@ func (b *Bus) Subscribe(f Filter, since uint64) (sub *Subscription, gap bool) {
 	sub = &Subscription{C: ch, ch: ch, filter: f, id: b.next, bus: b}
 	b.next++
 
-	if since > 0 {
-		if len(b.history) > 0 && b.history[0].Seq > since+1 {
+	if replay {
+		if since > 0 && len(b.history) > 0 && b.history[0].Seq > since+1 {
 			gap = true
 		}
 		for _, e := range b.history {
