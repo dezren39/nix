@@ -66,11 +66,7 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	fs := newFlagSet("daemon")
 	cfgPath := fs.String("config", a.ConfigPath, "config file")
-	port := fs.Int("port", 0, "TCP port for script clients (0 = ephemeral)")
-	addr := fs.String("address", "", "interface to bind (default loopback)")
 	detached := fs.Bool("detached", false, "internal: started in the background by the CLI")
-	warm := fs.Bool("warm", true, "read every server's schemas in the background at startup")
-	idleExit := fs.Duration("idle-exit", 0, "exit after this long with no requests and no live instances (0 = never)")
 	format := fs.String("format", "", "log rendering: text, json, json-pretty, logfmt, compact, bare")
 	include := fs.String("include", "", "ambient blocks on lifecycle records: host, user, process, network, version, env, all, none")
 	logDir := fs.String("log-dir", "", "durable log directory (default: the state directory)")
@@ -133,12 +129,13 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		Paths:    paths,
 		Version:  a.Version,
 		Logger:   logger,
-		IdleExit: *idleExit,
+		IdleExit: a.Settings().Duration("daemon.idleExit"),
+		Settings: a.Settings(),
 	})
 	if err != nil {
 		return err
 	}
-	srv.Address = firstSet(*addr, a.Settings().String("daemon.address"))
+	srv.Address = a.Settings().String("daemon.address")
 	if h := srv.Address; h != "" && h != "127.0.0.1" && h != "localhost" {
 		// Said once, loudly. The API is unauthenticated, so whoever can
 		// route to this port can run tools as this user, and that should be
@@ -175,7 +172,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		srv.PublishLifecycle(event, attrs)
 	}
 
-	if err := srv.Listen(*port); err != nil {
+	if err := srv.Listen(a.Settings().Int("daemon.port")); err != nil {
 		return err
 	}
 	defer func() {
@@ -185,7 +182,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	if *detached {
 		logger.Printf("started detached")
 	}
-	if *warm {
+	if a.Settings().Bool("daemon.warm") {
 		srv.WarmAsync()
 	}
 	return srv.Serve(ctx)
@@ -208,11 +205,11 @@ func (a *App) CmdMan(ctx context.Context, args []string) error {
 		return nil
 	}
 	dir := filepath.Join(*install, "man1")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, defaults.PublicDirMode); err != nil {
 		return err
 	}
 	path := filepath.Join(dir, "mcpx.1")
-	if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(page), defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Println(path)
@@ -515,6 +512,8 @@ MANAGEMENT
   mcpx daemons                   list every running daemon
   mcpx daemon [--port N]         run the daemon in the foreground
   mcpx config [--path|--sources] show the resolved configuration and where it came from
+  mcpx settings [get|set] ...    every setting, its value, and where that value came from
+  mcpx servers add <n> -- <cmd>  add or remove an MCP server, live
   mcpx init [--global]           write a starter config
 
 DIAGNOSTICS

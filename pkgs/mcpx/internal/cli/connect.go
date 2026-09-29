@@ -164,6 +164,14 @@ func (l *Ladder) Describe() string {
 	return b.String()
 }
 
+// probeTimeout bounds how long a stranger's socket is given to answer.
+//
+// Short by design: the listing probes each daemon in turn, and one dead
+// socket should not hold up the rest of the answer.
+func probeTimeout() time.Duration {
+	return clientSettings().Duration("daemon.probeTimeout")
+}
+
 // siblingSockets lists other daemons in the same state directory.
 func siblingSockets(paths daemon.Paths) []string {
 	dir := filepath.Dir(paths.Socket)
@@ -179,7 +187,7 @@ func siblingSockets(paths daemon.Paths) []string {
 		}
 		// Only count one that is actually listening; a stale socket file
 		// outlives the process that made it.
-		conn, err := net.DialTimeout("unix", filepath.Join(dir, name), 200*time.Millisecond)
+		conn, err := net.DialTimeout("unix", filepath.Join(dir, name), probeTimeout())
 		if err != nil {
 			continue
 		}
@@ -219,7 +227,8 @@ func (a *App) inlineDaemon(ctx context.Context) (*Client, error) {
 	// output, which is the one place it must not go.
 	srv, err := daemon.NewServer(daemon.Options{
 		Config: cfg, Paths: paths, Version: a.Version,
-		Logger: log.New(io.Discard, "", 0),
+		Logger:   log.New(io.Discard, "", 0),
+		Settings: a.Settings(),
 	})
 	if err != nil {
 		_ = os.RemoveAll(dir)
@@ -238,12 +247,12 @@ func (a *App) inlineDaemon(ctx context.Context) (*Client, error) {
 		return nil, err
 	}
 	c := NewClient(paths, a.ConfigPath)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(a.Settings().Duration("daemon.inlineStartTimeout"))
 	for time.Now().Before(deadline) {
 		if c.Ping(ctx) {
 			return c, nil
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(a.Settings().Duration("daemon.inlineStartPoll"))
 	}
 	a.inlineStop()
 	return nil, fmt.Errorf("the in-process daemon did not answer")

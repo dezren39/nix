@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"net/http"
 	"os"
 	"sort"
@@ -143,7 +144,7 @@ func (a *App) CmdSchema(ctx context.Context, args []string) error {
 	}
 
 	if *out != "" {
-		if err := os.WriteFile(*out, []byte(text+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(*out, []byte(text+"\n"), defaults.PublicMode); err != nil {
 			return err
 		}
 		fmt.Println(*out)

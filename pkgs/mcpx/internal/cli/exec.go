@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"net/http"
 	"net/url"
@@ -159,7 +160,9 @@ func (a *App) execRemoteStream(ctx context.Context, c *Client, req map[string]an
 	}
 	defer resp.Body.Close()
 	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+	// The same ceiling the daemon writes with, rather than a second number
+	// that happens to be larger today.
+	sc.Buffer(make([]byte, 0, int(defaults.HTTPStreamBufferInit)), int(defaults.HTTPStreamBufferMax))
 	var res execsvc.Result
 	pending := map[string]*os.File{}
 	defer func() {

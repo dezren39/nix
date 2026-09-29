@@ -13,7 +13,7 @@ func execSettings() []Setting {
 func execRunSettings() []Setting {
 	return []Setting{
 		{
-			Path: "exec.timeout", Commands: runCommands, Kind: KindDuration, Default: "120s",
+			Path: "exec.timeout", Scope: ScopeCall, Hot: true, Commands: runCommands, Kind: KindDuration, Default: "120s",
 			Name:  "Exec timeout",
 			Short: "kill a script after this long",
 			Long: "Applies wherever the script runs. A run over /v1/exec is bounded " +
@@ -21,7 +21,7 @@ func execRunSettings() []Setting {
 				"worse than a terminal holding one: nobody is watching it.",
 		},
 		{
-			Path: "exec.output", Commands: runCommands, Kind: KindEnum, Default: "text",
+			Path: "exec.output", Scope: ScopeCall, Hot: true, Commands: runCommands, Kind: KindEnum, Default: "text",
 			Enum:        []string{"text", "structured", "stream"},
 			FlagAliases: []string{"output"},
 			Name:        "Output shape",
@@ -36,7 +36,7 @@ func execRunSettings() []Setting {
 				"artifacts it does not want.",
 		},
 		{
-			Path: "exec.where", Commands: runCommands, Kind: KindEnum, Default: "auto",
+			Path: "exec.where", Scope: ScopeCall, Hot: true, Commands: runCommands, Kind: KindEnum, Default: "auto",
 			Enum:  []string{"auto", "local", "remote"},
 			Name:  "Where a script runs",
 			Short: "in this process, or on the daemon",
@@ -54,7 +54,7 @@ func execRunSettings() []Setting {
 func artifactSettings() []Setting {
 	return []Setting{
 		{
-			Path: "artifacts.enabled", Kind: KindBool, Default: "true",
+			Path: "artifacts.enabled", Scope: ScopeDaemon, Kind: KindBool, Default: "true",
 			Name:  "Artifacts",
 			Short: "whether the daemon keeps files scripts produce",
 			Long: "Off, artifact() fails and nothing is written. The store is a " +
@@ -62,7 +62,7 @@ func artifactSettings() []Setting {
 				"somewhere it should not exist at all.",
 		},
 		{
-			Path: "artifacts.dir", Commands: runCommands, Kind: KindString, Default: "",
+			Path: "artifacts.dir", Scope: ScopeCall, Hot: true, Commands: runCommands, Kind: KindString, Default: "",
 			Name:  "Artifacts directory",
 			Short: "write this run's artifacts here",
 			Long: "A directory the caller can read. When it is on the same machine " +
@@ -71,7 +71,7 @@ func artifactSettings() []Setting {
 				"collisions get a numeric suffix; nothing is ever overwritten.",
 		},
 		{
-			Path: "artifacts.delivery", Commands: runCommands, Kind: KindEnum, Default: "reference",
+			Path: "artifacts.delivery", Scope: ScopeCall, Hot: true, Commands: runCommands, Kind: KindEnum, Default: "reference",
 			Enum:  []string{"reference", "inline", "stream"},
 			Name:  "Delivery",
 			Short: "how artifact bodies reach the caller",
@@ -83,12 +83,12 @@ func artifactSettings() []Setting {
 				"disconnect before paying for them.",
 		},
 		{
-			Path: "artifacts.ttl", Kind: KindDuration, Default: "24h",
+			Path: "artifacts.ttl", Scope: ScopeDaemon, Kind: KindDuration, Default: "24h",
 			Name:  "Artifact retention",
 			Short: "how long an artifact is kept before it is collected",
 		},
 		{
-			Path: "artifacts.maxBytes", Kind: KindBytes, Default: "64MiB",
+			Path: "artifacts.maxBytes", Scope: ScopeDaemon, Kind: KindBytes, Default: "64MiB",
 			Name:  "Per-artifact limit",
 			Short: "the largest single artifact that may be stored",
 			Long: "Exceeding it is an error rather than a truncation. A truncated " +
@@ -96,14 +96,14 @@ func artifactSettings() []Setting {
 				"worked.",
 		},
 		{
-			Path: "artifacts.quota", Kind: KindBytes, Default: "1GiB",
+			Path: "artifacts.quota", Scope: ScopeDaemon, Kind: KindBytes, Default: "1GiB",
 			Name:  "Store quota",
 			Short: "the total the artifact store may hold",
 			Long: "Counted over distinct content: the store is addressed by sha256, " +
 				"so two registrations of the same bytes cost one copy.",
 		},
 		{
-			Path: "artifacts.inlineMaxBytes", Kind: KindBytes, Default: "1MiB",
+			Path: "artifacts.inlineMaxBytes", Scope: ScopeCall, Hot: true, Kind: KindBytes, Default: "1MiB",
 			Name:  "Inline limit",
 			Short: "the largest artifact that may be base64'd into a result",
 			Long: "Well under the per-artifact limit on purpose. Inline delivery " +
@@ -111,19 +111,19 @@ func artifactSettings() []Setting {
 				"whole feature exists to avoid.",
 		},
 		{
-			Path: "artifacts.chunkBytes", Kind: KindBytes, Default: "256KiB",
+			Path: "artifacts.chunkBytes", Scope: ScopeDaemon, Kind: KindBytes, Default: "256KiB",
 			Plumbing: true,
 			Name:     "Stream chunk size",
 			Short:    "how much of a body one streamed frame carries",
 		},
 		{
-			Path: "artifacts.gcInterval", Kind: KindDuration, Default: "10m",
+			Path: "artifacts.gcInterval", Scope: ScopeDaemon, Kind: KindDuration, Default: "10m",
 			Plumbing: true,
 			Name:     "Collection interval",
 			Short:    "how often expired artifacts are swept",
 		},
 		{
-			Path: "artifacts.interceptImages", Kind: KindBool, Default: "true",
+			Path: "artifacts.interceptImages", Scope: ScopeCall, Hot: true, Kind: KindBool, Default: "true",
 			Name:  "Intercept inline media",
 			Short: "turn image and audio content in a result into artifact references",
 			Long: "An upstream tool that returns a screenshot returns it as base64 " +
