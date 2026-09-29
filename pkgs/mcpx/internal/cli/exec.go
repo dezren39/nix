@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -497,4 +498,53 @@ func (a *App) execOnDaemon(ctx context.Context, c *Client, fs *flag.FlagSet, inl
 		opts.Output = execsvc.OutputText
 	}
 	return a.execRemote(ctx, c, map[string]any{"source": source, "options": opts}, eo)
+}
+
+// Artifacts lists what the daemon holds, optionally for one run or session.
+func (c *Client) Artifacts(ctx context.Context, run, session string) ([]artifacts.Meta, error) {
+	q := url.Values{}
+	if run != "" {
+		q.Set("run", run)
+	}
+	if session != "" {
+		q.Set("session", session)
+	}
+	path := "/v1/artifacts"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	b, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Artifacts []artifacts.Meta `json:"artifacts"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out.Artifacts, nil
+}
+
+// ArtifactBody fetches one artifact as a string and its media type.
+//
+// Text comes back as itself; anything else is base64, because the one
+// transport this feeds -- MCP resources/read -- carries text. A caller that
+// wants bytes should GET /v1/artifacts/{id}, which is why that route exists
+// with Range support.
+func (c *Client) ArtifactBody(ctx context.Context, id string) (string, string, error) {
+	resp, err := c.stream(ctx, http.MethodGet, "/v1/artifacts/"+id, nil, "")
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", err
+	}
+	mime := resp.Header.Get("Content-Type")
+	if strings.HasPrefix(mime, "text/") || strings.HasPrefix(mime, "application/json") {
+		return string(body), mime, nil
+	}
+	return base64.StdEncoding.EncodeToString(body), mime, nil
 }

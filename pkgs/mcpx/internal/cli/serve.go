@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/adapter"
+	"github.com/dezren39/mcpx/internal/artifacts"
 	"github.com/dezren39/mcpx/internal/events"
+	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
@@ -114,29 +116,75 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	return renderResult(res.Result), nil
 }
 
+// Exec runs a script through the daemon's /v1/exec.
+//
+// Through the daemon rather than in this process, so that the model's script
+// and a person's script are the same execution with the same artifact
+// behaviour. It also means `mcpx serve` can front a daemon on another machine
+// and the script runs where the servers are, which is the case that made the
+// service exist.
+//
+// The caller declares artifacts, because an MCP client can always be handed a
+// resource_link and told to read it. That is what keeps a screenshot out of
+// the model's context: the link costs a line, the megabyte costs a
+// resources/read the model only makes if it needs to look.
 func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (string, error) {
-	if timeoutSec <= 0 {
-		timeoutSec = 120
-	}
-	rctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
-	defer cancel()
-
-	// Routed through the same path `mcpx exec` uses rather than a parallel
-	// one, so a script behaves identically whether a person or a model wrote
-	// it. Two ways to run a script is two sets of bugs.
-	var out strings.Builder
-	err := b.app.runInline(rctx, source, &out)
-	text := strings.TrimRight(out.String(), "\n")
+	c, err := b.app.ensure(ctx)
 	if err != nil {
-		if text != "" {
-			return "", fmt.Errorf("%w\n\n%s", err, text)
-		}
 		return "", err
 	}
-	if text == "" {
+	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
+		return "", err
+	}
+	session := b.app.mcpSession()
+	opts := execsvc.Options{
+		Session:      session,
+		Output:       execsvc.OutputStructured,
+		Capabilities: []string{execsvc.CapabilityArtifacts},
+	}
+	if timeoutSec > 0 {
+		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
+	}
+	body, err := c.do(ctx, http.MethodPost, "/v1/exec",
+		map[string]any{"source": source, "options": opts})
+	if err != nil {
+		return "", err
+	}
+	var res execsvc.Result
+	if err := json.Unmarshal(body, &res); err != nil {
+		return "", err
+	}
+
+	var sb strings.Builder
+	for _, e := range res.Emits {
+		sb.Write(e)
+		sb.WriteByte('\n')
+	}
+	sb.WriteString(res.Stdout)
+	text := strings.TrimRight(sb.String(), "\n")
+	if res.Error != "" {
+		if text != "" {
+			return "", fmt.Errorf("%s\n\n%s", res.Error, text)
+		}
+		return "", errors.New(res.Error)
+	}
+	if text == "" && len(res.Artifacts) == 0 {
 		return "(the script printed nothing; use console.log or emit to return a value)", nil
 	}
-	return text, nil
+	// One resource_link per artifact. The specification's own answer to "a
+	// tool produced a file": a URI, a name and a type, which the client reads
+	// with resources/read if and when it wants the bytes.
+	var blocks []map[string]any
+	for _, art := range res.Artifacts {
+		blocks = append(blocks, map[string]any{
+			"type":        "resource_link",
+			"uri":         art.URI,
+			"name":        art.Name,
+			"mimeType":    art.Mime,
+			"description": fmt.Sprintf("%d bytes, produced by this script", art.Size),
+		})
+	}
+	return mcpserver.EncodeResult(text, blocks), nil
 }
 
 func (b mcpBackend) Log(ctx context.Context, since, level, event string, limit int) (string, error) {
@@ -456,7 +504,37 @@ func (b mcpBackend) Resources(ctx context.Context) ([]mcpserver.ResourceRef, err
 			MimeType:    r.MimeType,
 		})
 	}
-	return out, nil
+	return append(out, b.artifactResources(ctx)...), nil
+}
+
+// artifactResources lists what scripts produced, as resources.
+//
+// Artifacts are resources in the protocol's own sense -- a URI, a name, a
+// type, bytes behind them -- so they belong in resources/list rather than
+// behind a tool of their own. A client that already knows how to read a
+// resource needs nothing new to collect a screenshot.
+//
+// Listed rather than only linked because a link in a result scrolls out of a
+// conversation and the file does not.
+func (b mcpBackend) artifactResources(ctx context.Context) []mcpserver.ResourceRef {
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return nil
+	}
+	list, err := c.Artifacts(ctx, "", b.app.mcpSession())
+	if err != nil || len(list) == 0 {
+		return nil
+	}
+	out := make([]mcpserver.ResourceRef, 0, len(list))
+	for _, a := range list {
+		out = append(out, mcpserver.ResourceRef{
+			URI:         a.URI,
+			Name:        a.Name,
+			Description: fmt.Sprintf("%d bytes, produced by run %s", a.Size, a.Run),
+			MimeType:    a.Mime,
+		})
+	}
+	return out
 }
 
 // Prompts passes through what the upstream servers publish.
@@ -492,6 +570,11 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 
 // ReadResource resolves a namespaced URI back to its server.
 func (b mcpBackend) ReadResource(ctx context.Context, uri string) (string, string, error) {
+	// Artifacts are answered before the namespace split, because "artifacts"
+	// is not a server and would otherwise be looked up as one.
+	if id, ok := artifacts.IDFromURI(uri); ok {
+		return b.readArtifact(ctx, id)
+	}
 	ns, rest, ok := strings.Cut(strings.TrimPrefix(uri, "mcpx://"), "/")
 	if !ok {
 		return "", "", fmt.Errorf("a resource URI looks like mcpx://<namespace>/<uri>, got %q", uri)
@@ -606,7 +689,16 @@ func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.Resource
 	if err != nil {
 		return nil, err
 	}
-	out := make([]mcpserver.ResourceRef, 0, len(list))
+	// The template comes first because it is always true, where the list
+	// below depends on what happens to be configured. A client reading this
+	// learns it can address any artifact by id without having listed it.
+	out := []mcpserver.ResourceRef{{
+		URI:  "mcpx://artifacts/{id}",
+		Name: "mcpx artifact",
+		Description: "A file a script produced. The id comes from a resource_link in " +
+			"an mcpx_exec result, or from GET /v1/artifacts. Binary bodies arrive " +
+			"base64 encoded with their type stated.",
+	}}
 	for _, r := range list {
 		out = append(out, mcpserver.ResourceRef{
 			URI:         "mcpx://" + r.Namespace + "/" + strings.TrimPrefix(r.URI, "/"),
@@ -616,6 +708,20 @@ func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.Resource
 		})
 	}
 	return out, nil
+}
+
+// readArtifact fetches one artifact's body from the daemon.
+//
+// resources/read carries text, so a binary body comes back base64 with its
+// real type stated beside it. That is lossy in exactly one way -- the client
+// has to decode -- and it is what the protocol offers; the alternative is a
+// URI the client fetches over HTTP, which is what /v1/artifacts/{id} is for.
+func (b mcpBackend) readArtifact(ctx context.Context, id string) (string, string, error) {
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	return c.ArtifactBody(ctx, id)
 }
 
 // daemonNotifier reads the daemon's event stream and forwards the parts MCP
