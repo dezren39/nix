@@ -74,6 +74,7 @@ type Defaults struct {
 		TTL            string `json:"ttl"`
 		PollInterval   string `json:"pollInterval"`
 		HandlerTimeout string `json:"handlerTimeout"`
+		InputRounds    int    `json:"inputRounds"`
 	} `json:"elicit"`
 	Catalog struct {
 		Budget int `json:"budget"`
@@ -193,6 +194,10 @@ var (
 	ElicitTTL            = mustDur(builtin.Elicit.TTL, "elicit.ttl")
 	ElicitPollInterval   = mustDur(builtin.Elicit.PollInterval, "elicit.pollInterval")
 	ElicitHandlerTimeout = mustDur(builtin.Elicit.HandlerTimeout, "elicit.handlerTimeout")
+	// InputRounds bounds how many times one 2026-07-28 request may come back
+	// input_required. A server that keeps asking is broken or adversarial,
+	// and without a bound the client would answer it forever.
+	InputRounds = builtin.Elicit.InputRounds
 
 	CatalogBudget = builtin.Catalog.Budget
 

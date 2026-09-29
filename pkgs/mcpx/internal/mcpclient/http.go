@@ -66,9 +66,23 @@ func NewHTTP(opts HTTPOptions) (*HTTPTransport, error) {
 }
 
 func (t *HTTPTransport) setHeaders(req *http.Request) {
+	t.setHeadersFor(req, nil)
+}
+
+// setHeadersFor sets headers for one outgoing frame.
+//
+// The version header follows the frame. In 2026-07-28 every request carries
+// its version in _meta, and the header MUST match it or the server answers
+// 400 -- so a fixed header was correct only until the client started saying
+// which version it spoke, and then wrong on every modern request.
+func (t *HTTPTransport) setHeadersFor(req *http.Request, msg []byte) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	req.Header.Set("MCP-Protocol-Version", ProtocolVersion)
+	version := ProtocolVersion
+	if v := frameVersion(msg); v != "" {
+		version = v
+	}
+	req.Header.Set("MCP-Protocol-Version", version)
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
 	}
@@ -102,7 +116,7 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 	if err != nil {
 		return err
 	}
-	t.setHeaders(req)
+	t.setHeadersFor(req, msg)
 
 	resp, err := t.hc.Do(req)
 	if err != nil {
@@ -241,3 +255,21 @@ func (t *HTTPTransport) Close() error {
 
 // Info describes the endpoint.
 func (t *HTTPTransport) Info() string { return t.url }
+
+// frameVersion reads the per-request protocol version from a frame's _meta,
+// or "" for a legacy frame that carries none.
+func frameVersion(msg []byte) string {
+	if len(msg) == 0 {
+		return ""
+	}
+	var f struct {
+		Params struct {
+			Meta map[string]any `json:"_meta"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(msg, &f) != nil {
+		return ""
+	}
+	v, _ := f.Params.Meta[MetaProtocolVersion].(string)
+	return v
+}
