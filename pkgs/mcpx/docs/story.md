@@ -2602,6 +2602,9 @@ else in this document is detail underneath those four verbs.
   has a shape, with answers recorded inline.
 - [`docs/dependencies.md`](./dependencies.md) — every library and external
   program, and why each is needed.
+- [`docs/opencode-plugin.md`](./opencode-plugin.md) — what the plugin does and
+  why, opencode v1 against v2, and which parts are opencode's rather than
+  general enough to port to another harness.
 - [`scripts/stress.sh`](../scripts/stress.sh) — concurrency and leak checks
   against real servers. [`scripts/bench.sh`](../scripts/bench.sh) — latency
   comparison.

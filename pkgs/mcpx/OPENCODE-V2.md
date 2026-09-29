@@ -1,5 +1,14 @@
 # opencode v2 Code Mode vs mcpx
 
+> **Corrections, 2026-09-29.** Checked against the pinned sources. Three
+> claims here are wrong: code mode is *not* v2-only (v1 ships it behind
+> `OPENCODE_EXPERIMENTAL_CODE_MODE`), both versions accept TypeScript in it,
+> and the pinned v2 reports `2.0.3` rather than `2.0.18`. The conclusion
+> about one MCP connection per server per location, and what that does to
+> Chrome sharing, still holds. See
+> [`docs/opencode-plugin.md`](./docs/opencode-plugin.md).
+
+
 Reviewed against `anomalyco/opencode` branch `v2` at `37049a5` (2026-09-26), and
 the build pinned in `~/.config/nix` (`d0a9028`, v2.0.18).
 
