@@ -2556,3 +2556,61 @@ func TestStatusReportsRunningEitherWay(t *testing.T) {
 		t.Errorf("with a daemon up: running = %v, socket = %v", st["running"], st["socket"])
 	}
 }
+
+// TestResolveTellsAPluginWhichDaemonServesADirectory is the no-binary case
+// from the plugin's side: everything the opencode plugin needs to pick a
+// daemon comes back from one request to a daemon it already reached.
+func TestResolveTellsAPluginWhichDaemonServesADirectory(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.run("ls")
+	client := e.socketClient(t)
+
+	var st struct {
+		Socket string `json:"socket"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := client.Get("http://mcpx/v1/resolve?dir=" + e.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var got struct {
+		Socket     string   `json:"socket"`
+		ConfigPath string   `json:"configPath"`
+		ConfigHash string   `json:"configHash"`
+		Running    bool     `json:"running"`
+		Sources    []string `json:"sources"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Socket != st.Socket {
+		t.Errorf("resolve named %q, the daemon is on %q", got.Socket, st.Socket)
+	}
+	if !got.Running {
+		t.Error("the daemon answering the question is running, by construction")
+	}
+	if got.ConfigHash == "" || len(got.Sources) == 0 {
+		t.Errorf("resolve must say which configuration it fingerprinted: %+v", got)
+	}
+	if !strings.HasSuffix(got.ConfigPath, ".mcpx.json") {
+		t.Errorf("configPath = %q", got.ConfigPath)
+	}
+
+	// A relative directory is a caller bug, and a silent wrong answer would
+	// be worse than an error: it would name some other project's daemon.
+	bad, err := client.Get("http://mcpx/v1/resolve?dir=relative")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad.Body.Close()
+	if bad.StatusCode != http.StatusBadRequest {
+		t.Errorf("relative dir: status %d, want 400", bad.StatusCode)
+	}
+}

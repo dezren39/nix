@@ -72,6 +72,11 @@ type Defaults struct {
 		StatsTop             int    `json:"statsTop"`
 		RegistryLimit        int    `json:"registryLimit"`
 	} `json:"plumbing"`
+	// Resolve governs GET /v1/resolve, which answers "which daemon serves
+	// this directory" for a caller that has no mcpx binary.
+	Resolve struct {
+		DialTimeout string `json:"dialTimeout"`
+	} `json:"resolve"`
 	// Elicit governs questions a server asks back.
 	Elicit struct {
 		TTL            string `json:"ttl"`
@@ -219,6 +224,12 @@ var (
 	TaskResultWait       = mustDur(builtin.Plumbing.TaskResultWait, "plumbing.taskResultWait")
 	StatsTop             = builtin.Plumbing.StatsTop
 	RegistryLimit        = builtin.Plumbing.RegistryLimit
+
+	// ResolveDialTimeout bounds the liveness check /v1/resolve makes against
+	// the socket it is about to name. It is a local connect on a unix
+	// socket, so it either succeeds immediately or the daemon is gone;
+	// waiting longer only makes a dead daemon slower to report.
+	ResolveDialTimeout = mustDur(builtin.Resolve.DialTimeout, "resolve.dialTimeout")
 
 	ElicitTTL            = mustDur(builtin.Elicit.TTL, "elicit.ttl")
 	ElicitPollInterval   = mustDur(builtin.Elicit.PollInterval, "elicit.pollInterval")
