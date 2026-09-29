@@ -84,6 +84,10 @@ type Client struct {
 	Negotiated string
 	// onElicit answers server-initiated requests.
 	onElicit ElicitHandler
+	// notif holds notification handlers.
+	notif Notifications
+	// roots are the directories servers may work within.
+	roots []Root
 	// Instructions is the free-text guidance a server returns from
 	// initialize. Servers use it to explain conventions their schemas cannot:
 	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
@@ -238,11 +242,12 @@ func NewWithPreference(ctx context.Context, t Transport, clientName, clientVersi
 func (c *Client) initializeLegacy(ctx context.Context, clientName, clientVersion string) error {
 	params, _ := json.Marshal(map[string]any{
 		"protocolVersion": ProtocolVersion,
+		// Declared only where mcpx can actually deliver. Claiming a
+		// capability it cannot serve invites a server to use it and get
+		// silence, which is worse than not offering it.
 		"capabilities": map[string]any{
-			// Declared because mcpx can now carry a question back to
-			// whoever called it. Claiming it without the broker behind it
-			// would invite servers to ask into silence.
 			"elicitation": map[string]any{},
+			"roots":       map[string]any{"listChanged": false},
 		},
 		"clientInfo": map[string]any{"name": clientName, "version": clientVersion},
 	})
@@ -330,8 +335,9 @@ func (c *Client) recvLoop() {
 		if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 			if probe.ID != nil {
 				c.handleServerRequest(*probe.ID, probe.Method, probe.Params)
+			} else {
+				c.handleNotification(probe.Method, probe.Params)
 			}
-			// A method with no id is a notification; mcpx subscribes to none.
 			continue
 		}
 
@@ -391,6 +397,14 @@ func (c *Client) handleServerRequest(id int64, method string, params json.RawMes
 			} else {
 				result = out
 			}
+		case method == "roots/list":
+			c.mu.Lock()
+			roots := append([]Root(nil), c.roots...)
+			c.mu.Unlock()
+			if roots == nil {
+				roots = []Root{}
+			}
+			result = map[string]any{"roots": roots}
 		case method == "elicitation/create":
 			// Cancel, not decline. Nobody was asked, so nobody said no.
 			result = map[string]any{"action": "cancel"}
@@ -412,6 +426,116 @@ func (c *Client) handleServerRequest(id int64, method string, params json.RawMes
 		defer scancel()
 		_ = c.t.Send(sctx, b)
 	}()
+}
+
+// ServerMessage is a log line a server sent us.
+//
+// Servers emit these to explain what they are doing, and mcpx dropped every
+// one. A server that logs "retrying against the replica" is telling you
+// exactly why a call was slow, and losing it means diagnosing from the
+// outside what was explained from the inside.
+type ServerMessage struct {
+	Level  string          `json:"level"`
+	Logger string          `json:"logger,omitempty"`
+	Data   json.RawMessage `json:"data,omitempty"`
+}
+
+// Progress is an update on a long operation.
+type Progress struct {
+	Token    any     `json:"progressToken"`
+	Progress float64 `json:"progress"`
+	Total    float64 `json:"total,omitempty"`
+	Message  string  `json:"message,omitempty"`
+}
+
+// Notifications a caller may subscribe to.
+type Notifications struct {
+	// OnMessage receives a server's log lines.
+	OnMessage func(ServerMessage)
+	// OnProgress receives progress on a long call.
+	OnProgress func(Progress)
+	// OnListChanged fires when the server says its tools, resources or
+	// prompts have changed. The kind is "tools", "resources" or "prompts".
+	OnListChanged func(kind string)
+}
+
+// Subscribe installs notification handlers.
+func (c *Client) Subscribe(n Notifications) {
+	c.mu.Lock()
+	c.notif = n
+	c.mu.Unlock()
+}
+
+// handleNotification routes a server-initiated notification.
+//
+// Every one of these was previously discarded. They are the server
+// explaining itself, and throwing that away means every diagnosis starts
+// from the outside.
+func (c *Client) handleNotification(method string, params json.RawMessage) {
+	c.mu.Lock()
+	n := c.notif
+	c.mu.Unlock()
+
+	switch method {
+	case "notifications/message":
+		if n.OnMessage == nil {
+			return
+		}
+		var m ServerMessage
+		if json.Unmarshal(params, &m) == nil {
+			n.OnMessage(m)
+		}
+	case "notifications/progress":
+		if n.OnProgress == nil {
+			return
+		}
+		var p Progress
+		if json.Unmarshal(params, &p) == nil {
+			n.OnProgress(p)
+		}
+	case "notifications/tools/list_changed":
+		c.invalidate("tools", n)
+	case "notifications/resources/list_changed":
+		c.invalidate("resources", n)
+	case "notifications/prompts/list_changed":
+		c.invalidate("prompts", n)
+	}
+}
+
+func (c *Client) invalidate(kind string, n Notifications) {
+	if n.OnListChanged != nil {
+		n.OnListChanged(kind)
+	}
+}
+
+// SetLogLevel asks the server to send messages at or above a level.
+//
+// Servers send nothing until asked, so a client that never calls this sees
+// no log messages and concludes the server does not emit any.
+func (c *Client) SetLogLevel(ctx context.Context, level string) error {
+	if !c.Supports("logging") {
+		return nil
+	}
+	params, _ := json.Marshal(map[string]string{"level": level})
+	var out json.RawMessage
+	return c.call(ctx, "logging/setLevel", params, &out)
+}
+
+// Root is a directory a server may work within.
+type Root struct {
+	URI  string `json:"uri"`
+	Name string `json:"name,omitempty"`
+}
+
+// SetRoots declares the directories servers may operate on.
+//
+// Without this a filesystem server has no idea what it is allowed to touch
+// and must be told through its own configuration, separately, in a second
+// place that drifts from the first.
+func (c *Client) SetRoots(roots []Root) {
+	c.mu.Lock()
+	c.roots = roots
+	c.mu.Unlock()
 }
 
 func (c *Client) fail(err error) {
