@@ -463,6 +463,7 @@ func Ops() []Op {
 			Description: "Generated from the same table the routes and the MCP tools are.",
 		},
 	}
+	ops = append(ops, consumerOps()...)
 	sort.Slice(ops, func(i, j int) bool {
 		if ops[i].Path == ops[j].Path {
 			return ops[i].Method < ops[j].Method

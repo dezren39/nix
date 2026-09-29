@@ -67,6 +67,10 @@ type Server struct {
 	// first use, because a daemon that never runs one should carry nothing.
 	taskOnce sync.Once
 	tasks    *tasks.Store
+
+	// consumer holds the policy and the schema history behind the things
+	// mcpx asks for itself. See internal/daemon/consumer.go.
+	consumer *consumerState
 }
 
 // Options configure the daemon.
@@ -122,6 +126,7 @@ func NewServer(opts Options) (*Server, error) {
 		broker = nil
 	}
 	reg.InstallHooks(srv.Events, broker, nil)
+	srv.initConsumer()
 	srv.lastReq.Store(time.Now().UnixNano())
 	return srv, nil
 }
@@ -408,6 +413,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// Everything declared in internal/api that is not above. A parity test
 	// fails if the two ever disagree.
 	s.routesV1Ops(mux)
+	s.routesConsumer(mux)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

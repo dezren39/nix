@@ -506,6 +506,8 @@ RUNNING
   mcpx scripts                   list named scripts mcpx can run
   mcpx call <ns>.<tool> '<json>' one-shot call, no JavaScript runtime involved
   mcpx client -o <path>          write the typed client for a checked-in script
+  mcpx recipes [run <name> k=v]  saved scripts that declare their own parameters
+  mcpx prompt "<what you want>"  match a recipe, or generate a script to review
 
 MANAGEMENT
   mcpx status [-v]               daemon, pools and live instances
@@ -518,6 +520,7 @@ MANAGEMENT
   mcpx init [--global]           write a starter config
 
 DIAGNOSTICS
+  mcpx diagnose <script|source>  explain what a script calls wrongly, and why
   mcpx log [--since 1h] [-f]     query the durable log
   mcpx log --chain <trace>       a call and everything that led to it, as a tree
   mcpx log sql '<select ...>'    raw read-only SQL over the log index

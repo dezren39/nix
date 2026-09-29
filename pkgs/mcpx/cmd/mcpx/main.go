@@ -154,6 +154,9 @@ func main() {
 		"doctor":     app.CmdDoctor,
 		"schema":     app.CmdSchema,
 		"elicit":     app.CmdElicit,
+		"diagnose":   app.CmdDiagnose,
+		"recipes":    app.CmdRecipes,
+		"prompt":     app.CmdPrompt,
 	}
 
 	h, ok := handlers[cmd]

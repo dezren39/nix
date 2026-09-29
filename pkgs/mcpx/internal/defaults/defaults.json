@@ -61,5 +61,22 @@
     "pollInterval": "250ms",
     "handlerTimeout": "5m",
     "inputRounds": 8
+  },
+  "consumer": {
+    "disambiguate": "never",
+    "disambiguateDefault": "new",
+    "confirmDestructive": false,
+    "askTimeout": "45s",
+    "diagnosePreflight": true,
+    "historyPerTool": 8,
+    "recipeMinScore": 30,
+    "recipeMatchMargin": 150,
+    "recipeLimit": 5,
+    "promptMode": "script",
+    "promptSample": "never",
+    "promptCatalogBudget": 1200,
+    "promptSampleTimeout": "90s",
+    "promptMaxTokens": 1500,
+    "runTimeout": "5m"
   }
 }

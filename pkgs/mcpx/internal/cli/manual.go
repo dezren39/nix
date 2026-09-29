@@ -66,6 +66,57 @@ func Commands() []Command {
 				"marked, because otherwise the shadowing is invisible.",
 		},
 		{
+			Name: "recipes", Group: "running",
+			Usage:   "[list|show|match|save|run] [<name>] [key=value...]",
+			Summary: "saved scripts that declare their own holes",
+			Detail: "A recipe is a script on the search path with a header declaring " +
+				"its parameters: `// @param repo:string which repository`. " +
+				"References to @repo in the body are replaced by the value, encoded " +
+				"as JSON, so a recipe cannot be an injection site. Values not " +
+				"supplied and without a default are asked for as one form, with a " +
+				"deadline. Matching free text to a recipe is a deterministic score " +
+				"over the name, the description, the parameter names and the tools " +
+				"it calls -- no model, no cost, same answer every time.",
+			Examples: []string{
+				"mcpx recipes",
+				"mcpx recipes run close-stale repo=me/thing days=14",
+				"mcpx recipes match 'close old issues'",
+			},
+		},
+		{
+			Name: "prompt", Group: "running",
+			Usage:   `[--run] [--set key=value] "<what you want done>"`,
+			Summary: "a request in words, a script back",
+			Detail: "Tries the recipes first, deterministically and for nothing. Only " +
+				"when none matches does it ask for a script to be written, and " +
+				"mcpx has no model to ask: the request goes out as MCP sampling " +
+				"through the same broker that carries every other question, so " +
+				"whatever drives mcpx answers it. It is given only the slice of " +
+				"the catalog the search ranked for this request. Without an " +
+				"answerer, it prints the ranked recipes and says plainly that no " +
+				"model is available. The script is returned rather than run unless " +
+				"--run is given, because generated code runs with your credentials.",
+			Examples: []string{
+				`mcpx prompt "take a screenshot of the checkout page"`,
+				`mcpx prompt --run "list my open issues"`,
+			},
+		},
+		{
+			Name: "diagnose", Group: "inspection",
+			Usage:   "<script|file|-|'<source>'>",
+			Summary: "explain what is wrong with a script, without running it",
+			Detail: "Compares every tool call in the source against the schemas the " +
+				"servers publish now, and against what those schemas used to be. " +
+				"The answer names the tool, the argument at fault, what changed " +
+				"and when, the line as written, and the minimum that works. No " +
+				"model is involved: these are facts mcpx already holds, and an " +
+				"error being specific is worth more than an error being reworded.",
+			Examples: []string{
+				"mcpx diagnose report",
+				"mcpx diagnose - < ./draft.ts",
+			},
+		},
+		{
 			Name: "ls", Aliases: []string{"list", "namespaces"}, Group: "discovery",
 			Summary: "list configured servers and their namespaces",
 		},

@@ -87,6 +87,29 @@ type Defaults struct {
 		CaptureConsole   bool   `json:"captureConsole"`
 		TypecheckTimeout string `json:"typecheckTimeout"`
 	} `json:"script"`
+	// Consumer governs the things mcpx asks for on its own behalf: which
+	// instance to lease, whether to confirm a destructive call, how a
+	// request in words is turned into a script. Grouped under one name
+	// because they share a justification -- mcpx initiating a conversation
+	// rather than forwarding one -- and that is the thing a reader will want
+	// to find or switch off as a whole.
+	Consumer struct {
+		Disambiguate        string `json:"disambiguate"`
+		DisambiguateDefault string `json:"disambiguateDefault"`
+		ConfirmDestructive  bool   `json:"confirmDestructive"`
+		AskTimeout          string `json:"askTimeout"`
+		DiagnosePreflight   bool   `json:"diagnosePreflight"`
+		HistoryPerTool      int    `json:"historyPerTool"`
+		RecipeMinScore      int    `json:"recipeMinScore"`
+		RecipeMatchMargin   int    `json:"recipeMatchMargin"`
+		RecipeLimit         int    `json:"recipeLimit"`
+		PromptMode          string `json:"promptMode"`
+		PromptSample        string `json:"promptSample"`
+		PromptCatalogBudget int    `json:"promptCatalogBudget"`
+		PromptSampleTimeout string `json:"promptSampleTimeout"`
+		PromptMaxTokens     int    `json:"promptMaxTokens"`
+		RunTimeout          string `json:"runTimeout"`
+	} `json:"consumer"`
 }
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
@@ -210,4 +233,20 @@ var (
 	Permissions      = builtin.Script.Permissions
 	CaptureConsole   = builtin.Script.CaptureConsole
 	TypecheckTimeout = mustDur(builtin.Script.TypecheckTimeout, "script.typecheckTimeout")
+
+	Disambiguate        = builtin.Consumer.Disambiguate
+	DisambiguateDefault = builtin.Consumer.DisambiguateDefault
+	ConfirmDestructive  = builtin.Consumer.ConfirmDestructive
+	AskTimeout          = mustDur(builtin.Consumer.AskTimeout, "consumer.askTimeout")
+	DiagnosePreflight   = builtin.Consumer.DiagnosePreflight
+	HistoryPerTool      = builtin.Consumer.HistoryPerTool
+	RecipeMinScore      = builtin.Consumer.RecipeMinScore
+	RecipeMatchMargin   = builtin.Consumer.RecipeMatchMargin
+	RecipeLimit         = builtin.Consumer.RecipeLimit
+	PromptMode          = builtin.Consumer.PromptMode
+	PromptSample        = builtin.Consumer.PromptSample
+	PromptCatalogBudget = builtin.Consumer.PromptCatalogBudget
+	PromptSampleTimeout = mustDur(builtin.Consumer.PromptSampleTimeout, "consumer.promptSampleTimeout")
+	PromptMaxTokens     = builtin.Consumer.PromptMaxTokens
+	RunTimeout          = mustDur(builtin.Consumer.RunTimeout, "consumer.runTimeout")
 )

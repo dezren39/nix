@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/dezren39/mcpx/internal/recipes"
 	"github.com/dezren39/mcpx/internal/runner"
 	"github.com/dezren39/mcpx/internal/searchpath"
 	"github.com/dezren39/mcpx/internal/settings"
@@ -18,10 +19,7 @@ import (
 // ScriptsDirNames are the per-project directories mcpx looks in for named
 // scripts, most specific first. `.config/mcpx` wins over `.mcpx` because it is
 // the more explicit spelling and nests with other tools' config.
-var ScriptsDirNames = []string{
-	filepath.Join(".config", "mcpx", "scripts"),
-	filepath.Join(".mcpx", "scripts"),
-}
+var ScriptsDirNames = recipes.DirNames
 
 // ScriptsDirName is the directory mcpx suggests creating.
 var ScriptsDirName = ScriptsDirNames[0]
@@ -61,46 +59,20 @@ func scriptPath() searchpath.Resolved {
 	})
 }
 
+// builtinScriptDirs is recipes.Dirs plus the warning.
+//
+// The list itself lives in internal/recipes because the daemon serves
+// recipes from the same directories and two copies would drift the moment
+// one of them gained a spelling. The warning stays here: a package that
+// prints is a package a daemon cannot use.
 func builtinScriptDirs() []string {
-	var out []string
-	seen := map[string]bool{}
-	add := func(p string) {
-		if p == "" || seen[p] {
-			return
-		}
-		seen[p] = true
-		out = append(out, p)
-	}
-
-	if wd, err := os.Getwd(); err == nil {
-		dir := wd
-		for {
-			present := 0
-			for _, name := range ScriptsDirNames {
-				candidate := filepath.Join(dir, name)
-				if st, err := os.Stat(candidate); err == nil && st.IsDir() {
-					present++
-				}
-				add(candidate)
-			}
-			if present > 1 {
-				warnBothScriptDirs(dir)
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
+	wd, _ := os.Getwd()
 	home, _ := os.UserHomeDir()
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		add(filepath.Join(xdg, "mcpx", "scripts"))
+	dirs, both := recipes.Dirs(wd, home, os.Getenv("XDG_CONFIG_HOME"))
+	for _, dir := range both {
+		warnBothScriptDirs(dir)
 	}
-	if home != "" {
-		add(filepath.Join(home, ".config", "mcpx", "scripts"))
-	}
-	return out
+	return dirs
 }
 
 // scriptSearchDirs is the flat list, kept for the environment variable the
