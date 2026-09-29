@@ -199,3 +199,34 @@ func TestResolveOverHTTPAnswersForTheAskingDaemonItself(t *testing.T) {
 		t.Errorf("sources = %v, want [%s]", got.Sources, cfg)
 	}
 }
+
+// A directory with no configuration anywhere above it belongs to the unkeyed
+// default daemon -- not to whichever daemon happened to be asked. Answering
+// with the asked daemon's own socket would be a confident wrong answer, and
+// the caller has no way to tell it from a right one.
+func TestResolveForADirectoryWithNoConfigNamesTheDefaultDaemon(t *testing.T) {
+	home := isolate(t)
+	state := t.TempDir()
+	project := t.TempDir()
+	cfg := writeConfig(t, project, emptyConfig)
+
+	// A daemon serving some other project, asked about a directory that has
+	// no configuration of its own.
+	s := &Server{paths: Paths{State: state}.ForConfig(FingerprintConfig([]string{cfg})), endpoint: "http://127.0.0.1:1"}
+	rec := httptest.NewRecorder()
+	s.handleResolve(rec, httptest.NewRequest("GET", "/v1/resolve?dir="+home, nil))
+
+	var got Resolution
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Socket == s.paths.Socket {
+		t.Errorf("resolve named the asking daemon's own socket %q for a directory it does not serve", got.Socket)
+	}
+	if got.ConfigHash != "" {
+		t.Errorf("configHash = %q, want empty: nothing contributed", got.ConfigHash)
+	}
+	if got.Running {
+		t.Error("no default daemon is running")
+	}
+}

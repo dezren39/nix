@@ -48,7 +48,7 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	out := resolveDir(s.paths, dir)
+	out := resolveDir(unkeyed(s.paths), dir)
 
 	// Live facts beat the file when the answer is this daemon. The info file
 	// is written once at startup; the endpoint can be ephemeral, and a
@@ -61,6 +61,22 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// unkeyed strips the configuration key from this daemon's paths.
+//
+// s.paths is already keyed to the config this daemon loaded, so its Socket
+// and Info name *this* daemon. Resolution has to start from the state
+// directory instead: otherwise a directory with no configuration at all
+// resolves to whichever daemon happened to be asked, which is precisely the
+// wrong answer given confidently.
+func unkeyed(p Paths) Paths {
+	return Paths{
+		State:  p.State,
+		Cache:  p.Cache,
+		Socket: socketPath(p.State, ""),
+		Info:   filepath.Join(p.State, "daemon.json"),
+	}
 }
 
 // resolveDir answers for a directory without changing this process's.
