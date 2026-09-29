@@ -275,6 +275,10 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	// right too, for the same reason adapted programs are: a host that wants
 	// an endpoint should get the endpoint.
 	extras = append(extras, a.apiTools(ctx)...)
+	// And every /v1 operation the daemon serves, as a tool apiece. An
+	// endpoint reachable from curl and from the plugin but not from MCP is
+	// reachable from fewer places than it needs to be.
+	extras = append(extras, a.v1OpTools()...)
 	if len(extras) > 0 {
 		srv = srv.WithExtras(extras)
 	}

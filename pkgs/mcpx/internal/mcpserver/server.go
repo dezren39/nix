@@ -153,6 +153,10 @@ func (s *Server) WithExtras(extras []Extra) *Server {
 	return &Server{
 		backend: s.backend, name: s.name, version: s.version,
 		PageSize: s.PageSize, OnCancel: s.OnCancel,
+		// Notify comes along. Dropping it silently turned off every push
+		// capability the moment a single extra tool existed, and a client
+		// cannot detect a server that declared nothing.
+		Notify: s.Notify,
 		extras: append(append([]Extra(nil), s.extras...), extras...),
 	}
 }
@@ -223,6 +227,10 @@ type Tool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"`
+	// Annotations are the specification's behavioural hints -- readOnlyHint,
+	// destructiveHint -- which is how a client decides whether a tool may be
+	// run without asking. Omitted where mcpx has nothing to declare.
+	Annotations json.RawMessage `json:"annotations,omitempty"`
 }
 
 // Tools is the surface.

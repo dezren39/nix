@@ -51,7 +51,10 @@
     "registryTimeout": "30s",
     "eventHistory": 1024,
     "streamReconnect": "2s",
-    "taskTTL": "10m"
+    "taskTTL": "10m",
+    "taskResultWait": "2m",
+    "statsTop": 20,
+    "registryLimit": 20
   },
   "elicit": {
     "ttl": "120s",
