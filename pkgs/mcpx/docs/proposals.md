@@ -1313,6 +1313,42 @@ because matching the original includes matching its failures.
 
 2026-09-28T02:00:00-05:00
 
+## Elicitation
+
+```
+status:  designed, not built
+effort:  ~1200 lines across five pieces
+see:     docs/elicitation.md
+```
+
+A server asking the client a question mid-call. The full design is in
+`docs/elicitation.md`; three things from it belong here.
+
+**There is a live bug.** `mcpx_client.recvLoop` treats every inbound frame as
+a reply to something it sent, so a server-initiated request finds no pending
+entry and is dropped. The server waits, the call hits its timeout, and the
+error says "timed out" -- true, useless, and pointing at the wrong thing. Any
+server that elicits fails opaquely against mcpx today. Worth fixing on its
+own.
+
+**The newer spec is the easier one.** Revision 2025-06-18 keeps the tool call
+open while the question is outstanding. Revision 2026-07-28 replaced that
+with a retry: the call returns "input required", ends, and the client re-sends
+with the answer attached. For mcpx that is dramatically simpler -- nothing has
+to stay open, so a CLI invocation can return and a person can answer an hour
+later. This is the rare case where the newer specification is also the less
+demanding one.
+
+**It is the missing half of four existing features.** OAuth is url-mode
+elicitation, and it is the only thing OPENCODE-V2.md still lists as a gap.
+Safe write access in the OpenAPI and CLI adapters is elicitation plus a
+confirmation, which is a better third option than the current "no writes" or
+"all writes, unasked". Credentials-on-first-use is elicitation.
+Disambiguation is elicitation. Each is currently either absent or solved by
+refusing to do the risky thing.
+
+2026-09-28T18:00:00-05:00
+
 ## Suggested order
 
 Shipped since this document was written: sharing/scope split, pid-scoped
