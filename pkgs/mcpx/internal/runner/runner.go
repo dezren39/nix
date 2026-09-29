@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -135,6 +136,8 @@ type Options struct {
 	CollectLogs func(logging.Record)
 	// OnResult receives values a script streamed with emit().
 	OnResult func(logging.Streamed)
+	// OnArtifact receives files a script registered with artifact().
+	OnArtifact func(logging.Artifacted)
 	// Export names the function to call instead of the default export.
 	Export string
 	// Permissions is the sandbox setting; empty means wide open.
@@ -161,6 +164,14 @@ type Options struct {
 	// TypeCheckTimeout bounds that check.
 	TypeCheckTimeout time.Duration
 	Stdout, Stderr   interface{ Write([]byte) (int, error) }
+	// Stdin is what the script reads. Nil inherits the caller's, which is
+	// right for a terminal and wrong for a daemon: a script run on somebody
+	// else's behalf must not be able to read the daemon's standard input.
+	Stdin io.Reader
+	// Placeholders are values a caller supplied for @names a launcher
+	// template refers to. They lose to the built-in fills, which name the
+	// machinery the launcher cannot work without.
+	Placeholders map[string]string
 }
 
 // Phases are the injection points in a file script's launcher, in the order
@@ -345,6 +356,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 				Passthrough: passthrough,
 				Collect:     opts.CollectLogs,
 				Result:      opts.OnResult,
+				Artifact:    opts.OnArtifact,
 			})
 		}()
 		defer func() {
@@ -356,7 +368,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	} else {
 		cmd.Stderr = os.Stderr
 	}
-	cmd.Stdin = os.Stdin
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	} else {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	start := time.Now()
@@ -609,6 +625,16 @@ func expandCustom(text string, opts Options, scriptPath, base, export string,
 	fill, berr = launcher.Bind(fill, defs)
 	if berr != nil {
 		return "", berr
+	}
+	// Caller-supplied values lose to the built-in fills. @entry naming
+	// something other than the entry point would be a launcher that silently
+	// runs the wrong thing, and no option is worth that.
+	for k, v := range opts.Placeholders {
+		p := launcher.Placeholder(strings.TrimPrefix(k, "@"))
+		if _, taken := fill[p]; taken {
+			continue
+		}
+		fill[p] = v
 	}
 
 	var allow []launcher.Placeholder

@@ -61,5 +61,24 @@
     "pollInterval": "250ms",
     "handlerTimeout": "5m",
     "inputRounds": 8
+  },
+  "exec": {
+    "timeout": "120s",
+    "output": "text",
+    "remoteOutput": "structured",
+    "delivery": "reference"
+  },
+  "artifacts": {
+    "ttl": "24h",
+    "maxBytes": "64MiB",
+    "quota": "1GiB",
+    "inlineMaxBytes": "1MiB",
+    "chunkBytes": "256KiB",
+    "gcInterval": "10m",
+    "interceptImages": true,
+    "nameMaxLength": 200,
+    "nameCollisionLimit": 1000,
+    "idBytes": 16,
+    "listLimit": 200
   }
 }

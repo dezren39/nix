@@ -15,6 +15,7 @@ func Registry() []Setting {
 	s = append(s, poolSettings()...)
 	s = append(s, loggingSettings()...)
 	s = append(s, scriptSettings()...)
+	s = append(s, execSettings()...)
 	s = append(s, pathSettings()...)
 	s = append(s, daemonSettings()...)
 	s = append(s, outputSettings()...)
