@@ -526,6 +526,20 @@ func (c *Config) ResolveAll() ([]*Resolved, error) {
 
 // SearchPath returns the ordered list of config locations mcpx will try.
 func SearchPath() []string {
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = ""
+	}
+	return SearchPathFrom(wd)
+}
+
+// SearchPathFrom is SearchPath for a directory other than this process's.
+//
+// The daemon needs it to answer "which daemon serves /some/other/project?"
+// without chdir, which in a server would be a race against every other
+// request. An empty directory means "no project part", leaving only the
+// user-level and system files.
+func SearchPathFrom(wd string) []string {
 	var out []string
 	add := func(p string) {
 		if p != "" {
@@ -535,7 +549,7 @@ func SearchPath() []string {
 	if p := os.Getenv("MCPX_CONFIG"); p != "" {
 		return []string{p}
 	}
-	if wd, err := os.Getwd(); err == nil {
+	if wd != "" {
 		// Walk up from the working directory so a repo-local config wins.
 		// `.config/mcpx` comes first at every level: it is the more explicit
 		// spelling and nests with other tools' configuration.
@@ -575,6 +589,16 @@ func SearchPath() []string {
 // it inherited. Top-level scalars and defaults follow the same rule. An
 // explicit --config is used alone, because naming a file means meaning it.
 func Load(explicit string) (*Config, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = ""
+	}
+	return LoadFrom(explicit, wd)
+}
+
+// LoadFrom is Load for a directory other than this process's, so one daemon
+// can resolve configuration on behalf of a caller sitting somewhere else.
+func LoadFrom(explicit, wd string) (*Config, error) {
 	if explicit != "" {
 		b, err := os.ReadFile(explicit)
 		if err != nil {
@@ -591,7 +615,7 @@ func Load(explicit string) (*Config, error) {
 	}
 
 	merged := &Config{MCPServers: map[string]*Server{}, Origin: map[string]string{}}
-	for _, p := range SearchPath() {
+	for _, p := range SearchPathFrom(wd) {
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue

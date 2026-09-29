@@ -56,6 +56,9 @@
     "statsTop": 20,
     "registryLimit": 20
   },
+  "resolve": {
+    "dialTimeout": "200ms"
+  },
   "elicit": {
     "ttl": "120s",
     "pollInterval": "250ms",
