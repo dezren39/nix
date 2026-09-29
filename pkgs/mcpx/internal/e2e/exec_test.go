@@ -488,3 +488,44 @@ func postStream(t *testing.T, client *http.Client, url string, body any) *http.R
 	}
 	return resp
 }
+
+// Three renderings of one run. The failure this guards against is a bare
+// JSON line landing in the middle of a document a caller is parsing.
+func TestTheThreeOutputShapesDoNotContaminateEachOther(t *testing.T) {
+	e := newEnv(t, oneServer)
+	script := `emit({ a: 1 }); console.log(JSON.stringify({ ok: 1 }))`
+
+	structured := e.run("exec", "--output", "structured", script)
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(jsonOf(t, structured)), &doc); err != nil {
+		t.Fatalf("structured output should be one document: %v\n%s", err, structured)
+	}
+	if strings.Count(structured, "\n{\"a\"") > 0 {
+		t.Errorf("the emit was also printed raw:\n%s", structured)
+	}
+	emits, _ := doc["emits"].([]any)
+	if len(emits) != 1 {
+		t.Errorf("emits = %v", doc["emits"])
+	}
+
+	stream := e.run("exec", "--output", "stream", script)
+	var kinds []string
+	for _, line := range strings.Split(strings.TrimSpace(stream), "\n") {
+		var f struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(line), &f); err != nil {
+			t.Fatalf("every line of a stream must be a frame, got %q", line)
+		}
+		kinds = append(kinds, f.Type)
+	}
+	if indexOf(kinds, "emit") < 0 || indexOf(kinds, "stdout") < 0 || kinds[len(kinds)-1] != "end" {
+		t.Errorf("frames = %v", kinds)
+	}
+
+	// Text is unchanged: the emit on its own line, then what was printed.
+	text := e.run("exec", script)
+	if !strings.Contains(text, `{"a":1}`) || !strings.Contains(text, `{"ok":1}`) {
+		t.Errorf("text output changed shape:\n%s", text)
+	}
+}

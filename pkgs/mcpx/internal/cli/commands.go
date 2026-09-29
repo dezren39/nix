@@ -626,7 +626,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// preserving order.
 	var streamed []logging.Streamed
 	onResult := func(v logging.Streamed) { streamed = append(streamed, v) }
-	if !a.JSON {
+	// Only the text shape writes streamed values straight to stdout. The
+	// other two carry them as fields -- in the document, or in an emit frame
+	// -- and printing them here as well would put a bare JSON line in the
+	// middle of a document a caller is parsing.
+	if !a.JSON && eo.Output == execsvc.OutputText {
 		stdout := io.Writer(os.Stdout)
 		onResult = func(v logging.Streamed) {
 			fmt.Fprintln(stdout, string(v.Value))

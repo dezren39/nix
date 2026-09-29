@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -459,5 +458,3 @@ func InlineArtifact(store *artifacts.Store, id string) (string, string, error) {
 	}
 	return base64.StdEncoding.EncodeToString(b), meta.Mime, nil
 }
-
-var _ = io.Discard
