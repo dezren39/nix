@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/config"
@@ -221,4 +222,42 @@ func (d daemonAsker) Abandon(callID string) {
 	if c, err := d.client(ctx); err == nil {
 		_, _ = c.do(ctx, http.MethodPost, "/v1/ask/"+callID+"/abandon", nil)
 	}
+}
+
+// lazyMCP builds mcpx's MCP server the first time something asks for it.
+//
+// Built lazily because constructing it reads adapter declarations and may
+// fetch a declared OpenAPI document over the network. The daemon auto-starts
+// on the first command anybody runs, and a remote document that is slow to
+// answer would become a daemon that is slow to start -- for a surface that
+// particular invocation is not using.
+type lazyMCP struct {
+	app  *App
+	once sync.Once
+	srv  *mcpserver.Server
+	err  error
+}
+
+func (l *lazyMCP) get(ctx context.Context) (*mcpserver.Server, error) {
+	l.once.Do(func() { l.srv, l.err = l.app.MCPServer(ctx) })
+	return l.srv, l.err
+}
+
+func (l *lazyMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	srv, err := l.get(r.Context())
+	if err != nil {
+		http.Error(w, "mcpx could not build its MCP surface: "+err.Error(),
+			http.StatusInternalServerError)
+		return
+	}
+	srv.ServeHTTP(w, r)
+}
+
+// InvokeTool runs one tool, for the plain-POST projection of the surface.
+func (l *lazyMCP) InvokeTool(ctx context.Context, tool string, args json.RawMessage) (string, error) {
+	srv, err := l.get(ctx)
+	if err != nil {
+		return "", err
+	}
+	return srv.InvokeTool(ctx, tool, args)
 }

@@ -143,10 +143,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	// mounted rather than given a listener of its own: two HTTP servers with
 	// overlapping /v1 prefixes was one owner too many.
 	if a.Settings().Bool("proto.serveMCP") {
-		mcp, merr := a.MCPServer(ctx)
-		if merr != nil {
-			return merr
-		}
+		mcp := &lazyMCP{app: a}
 		srv.MCP = mcp
 		srv.MCPPath = a.Settings().String("proto.mcpPath")
 		srv.MCPTool = mcp.InvokeTool
