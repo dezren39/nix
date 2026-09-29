@@ -17,12 +17,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // Backend is what the server exposes. Defined here rather than taken from the
@@ -87,6 +91,14 @@ type Server struct {
 	name    string
 	version string
 	extras  []Extra
+
+	// PageSize caps how many items a list reply carries.
+	PageSize int
+	// OnCancel is called when a client cancels a request.
+	OnCancel func(id, reason string)
+
+	mu        sync.Mutex
+	cancelled map[string]string
 }
 
 // New builds a server.
@@ -101,6 +113,7 @@ func New(b Backend, name, version string) *Server {
 func (s *Server) WithExtras(extras []Extra) *Server {
 	return &Server{
 		backend: s.backend, name: s.name, version: s.version,
+		PageSize: s.PageSize, OnCancel: s.OnCancel,
 		extras: append(append([]Extra(nil), s.extras...), extras...),
 	}
 }
@@ -342,9 +355,11 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 			// served than refused.
 			"protocolVersion": version,
 			"capabilities": map[string]any{
-				"tools":     map[string]any{"listChanged": false},
-				"resources": map[string]any{"subscribe": false, "listChanged": false},
-				"prompts":   map[string]any{"listChanged": false},
+				"tools":       map[string]any{"listChanged": false},
+				"resources":   map[string]any{"subscribe": false, "listChanged": false},
+				"prompts":     map[string]any{"listChanged": false},
+				"completions": map[string]any{},
+				"logging":     map[string]any{},
 			},
 			"serverInfo":   map[string]any{"name": s.name, "version": s.version},
 			"instructions": Instructions,
@@ -358,9 +373,11 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 			"protocolVersions": Supported,
 			"serverInfo":       map[string]any{"name": s.name, "version": s.version},
 			"capabilities": map[string]any{
-				"tools":     map[string]any{"listChanged": false},
-				"resources": map[string]any{"subscribe": false, "listChanged": false},
-				"prompts":   map[string]any{"listChanged": false},
+				"tools":       map[string]any{"listChanged": false},
+				"resources":   map[string]any{"subscribe": false, "listChanged": false},
+				"prompts":     map[string]any{"listChanged": false},
+				"completions": map[string]any{},
+				"logging":     map[string]any{},
 			},
 			"instructions": Instructions,
 		})
@@ -372,7 +389,36 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 		return reply(map[string]any{})
 
 	case "tools/list":
-		return reply(map[string]any{"tools": s.Tools()})
+		// Paginated, because mcpx fronts every tool of every configured
+		// server and a client with a frame limit has no other way to read
+		// the list. Ignoring the cursor meant a large installation was
+		// simply unreadable by such a client.
+		tools, next := page(s.Tools(), req.Params, s.pageSize())
+		out := map[string]any{"tools": tools}
+		if next != "" {
+			out["nextCursor"] = next
+		}
+		return reply(out)
+
+	case "completion/complete":
+		// Argument autocomplete. Answered from what mcpx already knows --
+		// namespace names, tool names -- because a client offering
+		// completion and receiving method-not-found simply shows nothing,
+		// and the user concludes the feature is broken.
+		return reply(map[string]any{"completion": s.complete(ctx, req.Params)})
+
+	case "logging/setLevel":
+		// Accepted so a client can ask, even though mcpx currently emits no
+		// notifications/message of its own. Refusing would make a
+		// well-behaved client treat the whole connection as degraded.
+		return reply(map[string]any{})
+
+	case "notifications/cancelled":
+		// A notification, so no reply. Recorded rather than ignored: a
+		// client that cancels and sees work continue has no way to tell
+		// whether the message arrived.
+		s.cancel(req.Params)
+		return nil
 
 	case "tools/call":
 		var p struct {
@@ -408,7 +454,12 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 		if rs == nil {
 			rs = []ResourceRef{}
 		}
-		return reply(map[string]any{"resources": rs})
+		items, next := page(rs, req.Params, s.pageSize())
+		out := map[string]any{"resources": items}
+		if next != "" {
+			out["nextCursor"] = next
+		}
+		return reply(out)
 
 	case "resources/read":
 		var p struct {
@@ -439,7 +490,12 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 		if ps == nil {
 			ps = []PromptRef{}
 		}
-		return reply(map[string]any{"prompts": ps})
+		items, next := page(ps, req.Params, s.pageSize())
+		out := map[string]any{"prompts": items}
+		if next != "" {
+			out["nextCursor"] = next
+		}
+		return reply(out)
 
 	case "prompts/get":
 		var p struct {
@@ -812,4 +868,139 @@ func ResultOf(resp *response) (string, bool, error) {
 		parts = append(parts, c.Text)
 	}
 	return strings.Join(parts, "\n"), r.IsError, nil
+}
+
+// pageSize is how many items one list reply carries.
+func (s *Server) pageSize() int {
+	if s.PageSize > 0 {
+		return s.PageSize
+	}
+	return 100
+}
+
+// page slices a list according to an opaque cursor.
+//
+// The cursor is the offset, encoded, because the specification says it is
+// opaque and a client that parses one is relying on something it was told not
+// to. Encoding it costs nothing and removes the temptation.
+func page[T any](all []T, params json.RawMessage, size int) ([]T, string) {
+	start := 0
+	if len(params) > 0 {
+		var p struct {
+			Cursor string `json:"cursor"`
+		}
+		if json.Unmarshal(params, &p) == nil && p.Cursor != "" {
+			if n, err := decodeCursor(p.Cursor); err == nil {
+				start = n
+			}
+		}
+	}
+	if start >= len(all) {
+		return []T{}, ""
+	}
+	end := start + size
+	if end >= len(all) {
+		return all[start:], ""
+	}
+	return all[start:end], encodeCursor(end)
+}
+
+func encodeCursor(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte("o:" + strconv.Itoa(offset)))
+}
+
+func decodeCursor(c string) (int, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(c)
+	if err != nil {
+		return 0, err
+	}
+	s := string(raw)
+	if !strings.HasPrefix(s, "o:") {
+		return 0, fmt.Errorf("bad cursor")
+	}
+	return strconv.Atoi(s[2:])
+}
+
+// cancel records a client's cancellation.
+//
+// mcpx cannot interrupt an in-flight upstream call from here -- that is the
+// pool's business and needs the request id plumbed through it -- but a
+// cancellation that is silently dropped leaves a client unable to tell
+// whether the message arrived at all.
+func (s *Server) cancel(params json.RawMessage) {
+	var p struct {
+		RequestID any    `json:"requestId"`
+		Reason    string `json:"reason"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+	s.mu.Lock()
+	if s.cancelled == nil {
+		s.cancelled = map[string]string{}
+	}
+	s.cancelled[fmt.Sprint(p.RequestID)] = p.Reason
+	s.mu.Unlock()
+	if s.OnCancel != nil {
+		s.OnCancel(fmt.Sprint(p.RequestID), p.Reason)
+	}
+}
+
+// Cancelled reports whether a request was cancelled, and why.
+func (s *Server) Cancelled(id string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	reason, ok := s.cancelled[id]
+	return reason, ok
+}
+
+// complete answers an autocomplete request.
+//
+// Only from what mcpx already holds: namespaces and tool names. A client that
+// offers completion and gets method-not-found shows nothing, and the user
+// concludes the feature is broken rather than unimplemented.
+func (s *Server) complete(ctx context.Context, params json.RawMessage) map[string]any {
+	var p struct {
+		Argument struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"argument"`
+	}
+	_ = json.Unmarshal(params, &p)
+
+	prefix := strings.ToLower(p.Argument.Value)
+	var values []string
+	seen := map[string]bool{}
+	for _, t := range s.Tools() {
+		for _, candidate := range []string{t.Name, namespaceOf(t.Name)} {
+			if candidate == "" || seen[candidate] {
+				continue
+			}
+			if prefix == "" || strings.Contains(strings.ToLower(candidate), prefix) {
+				seen[candidate] = true
+				values = append(values, candidate)
+			}
+		}
+	}
+	sort.Strings(values)
+	// The specification caps a completion reply at 100.
+	total := len(values)
+	if len(values) > 100 {
+		values = values[:100]
+	}
+	if values == nil {
+		values = []string{}
+	}
+	return map[string]any{
+		"values":  values,
+		"total":   total,
+		"hasMore": total > len(values),
+	}
+}
+
+func namespaceOf(tool string) string {
+	if i := strings.Index(tool, "_"); i > 0 {
+		return tool[:i]
+	}
+	return ""
 }

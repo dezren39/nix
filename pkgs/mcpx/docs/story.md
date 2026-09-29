@@ -2028,6 +2028,67 @@ the first request rather than failing with a 401 nobody can interpret.
 
 2026-09-28T20:00:00-05:00
 
+## The rest of the protocol
+
+```
+created:      2026-09-28T22:00:00-05:00
+last-updated: 2026-09-28T22:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  the features that are not tools, and which of them mcpx has.
+```
+
+Tools, resources and prompts are the famous three. The specification defines
+several more, and mcpx was silently dropping most of them.
+
+### Now implemented
+
+**Roots.** A client tells a server which directories it may work within.
+Without it a filesystem server has to be told through its own configuration,
+separately, in a second place that drifts from the first.
+
+**Server log messages.** `notifications/message` carries a server explaining
+itself -- "retrying against the replica" tells you exactly why a call was
+slow. Every one was discarded. Note that servers send none until asked, via
+`logging/setLevel`, so a client that never asks concludes servers do not
+emit any.
+
+**Progress.** `notifications/progress` on a long call, previously dropped.
+
+**List-changed notifications.** A server saying its tools have changed means
+the cached schema is stale. mcpx already computes catalog diffs; it just was
+not listening for the event that should trigger one.
+
+**Pagination when serving.** mcpx fronts every tool of every configured
+server, and a client with a frame limit had no way to read that list. The
+cursor is opaque -- base64 of an offset -- because the specification says so
+and a client that parses one is relying on something it was told not to. An
+*invalid* cursor starts from the beginning rather than failing: a client
+cannot validate an opaque value before sending it, so refusing would strand
+one that has nothing better to send.
+
+**Completion.** `completion/complete` answers from what mcpx already holds.
+A client that offers autocomplete and receives method-not-found shows
+nothing, and the user concludes the feature is broken rather than absent.
+
+**Cancellation, inbound.** Recorded rather than dropped. mcpx cannot yet
+interrupt an in-flight upstream call -- that needs the request id plumbed
+through the pool -- but a cancellation silently discarded leaves a client
+unable to tell whether the message arrived.
+
+### Still not implemented, and declared as such
+
+**Sampling.** A server asking the client for a model completion. mcpx has no
+model. The honest answer is a pass-through to whatever is driving it, the
+same shape elicitation uses, and that is worth building once something asks.
+
+Capabilities are declared only where mcpx can actually deliver. Claiming one
+it cannot serve invites a server to use it and get silence, which is worse
+than not offering it at all.
+
+2026-09-28T22:00:00-05:00
+
 ## Nix packaging
 
 ```
