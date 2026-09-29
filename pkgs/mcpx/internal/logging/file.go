@@ -73,7 +73,7 @@ func NewFileSink(opts FileOptions) (*FileSink, error) {
 	if opts.Dir == "" {
 		return nil, fmt.Errorf("log directory is empty")
 	}
-	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
+	if err := os.MkdirAll(opts.Dir, defaults.DirMode); err != nil {
 		return nil, err
 	}
 	s := &FileSink{
@@ -114,7 +114,7 @@ func (s *FileSink) reopen(now time.Time) error {
 	// Whatever is already on disk counts against the thresholds, or a daemon
 	// restarted every few minutes would never rotate at all.
 	s.lines, s.oldest = surveyLog(path)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, defaults.PrivateMode)
 	if err != nil {
 		return err
 	}

@@ -157,6 +157,8 @@ func main() {
 		"diagnose":   app.CmdDiagnose,
 		"recipes":    app.CmdRecipes,
 		"prompt":     app.CmdPrompt,
+		"settings":   app.CmdSettings,
+		"servers":    app.CmdServers,
 	}
 
 	h, ok := handlers[cmd]

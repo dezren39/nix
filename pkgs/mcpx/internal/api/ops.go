@@ -434,10 +434,13 @@ func Ops() []Op {
 		},
 		{
 			Name: "refresh", Method: "POST", Path: "/v1/refresh",
-			Summary: "Re-read every server's schemas",
-			Description: "Starts every configured server. Cheap to ask for and expensive " +
-				"to serve, which is the reason it is marked privileged rather than " +
-				"anything it destroys.",
+			Summary: "Re-read the configuration and every server's schemas",
+			Description: "Picks up configuration files edited since the daemon started " +
+				"-- a server added by hand, or by `mcpx registry add` -- and then " +
+				"starts every configured server to read its schemas. A server whose " +
+				"definition did not change keeps its running process. Cheap to ask " +
+				"for and expensive to serve, which is the reason it is marked " +
+				"privileged rather than anything it destroys.",
 			Admin: true, Mutating: true,
 		},
 		{
@@ -464,6 +467,9 @@ func Ops() []Op {
 		},
 	}
 	ops = append(ops, consumerOps()...)
+	ops = append(ops, execOps()...)
+	ops = append(ops, settingsOps()...)
+	ops = append(ops, resolveOps()...)
 	sort.Slice(ops, func(i, j int) bool {
 		if ops[i].Path == ops[j].Path {
 			return ops[i].Method < ops[j].Method

@@ -23,6 +23,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // Client talks to the daemon over its unix socket, starting one if needed.
@@ -33,6 +34,59 @@ type Client struct {
 	// endpoint is empty for the local socket, or a base URL for a daemon
 	// somewhere else.
 	endpoint string
+	// set is this process's resolved configuration.
+	set *settings.Set
+	// callSettings is the JSON header carrying whatever call-scoped settings
+	// this invocation actually chose. Computed once: it cannot change within
+	// a run, and recomputing it per request would put a schema walk on the
+	// path of every call.
+	callSettings string
+}
+
+// clientSettings is the resolved configuration a client should use.
+//
+// Read through the package-level App the script resolver already uses,
+// because a client is built from several places that do not carry one and
+// threading it through every call site would be a wide change for one map
+// lookup. A process that never set one -- a test -- gets the declared
+// defaults, which is the right answer rather than a nil dereference.
+func clientSettings() *settings.Set {
+	if plumbingApp != nil {
+		return plumbingApp.Settings()
+	}
+	sch, err := settings.New(settings.Registry())
+	if err != nil {
+		panic("mcpx: settings registry is invalid: " + err.Error())
+	}
+	return settings.NewSet(sch)
+}
+
+// callHeader is the call-scoped settings this client should send.
+//
+// Only what somebody actually set: sending a default would make it
+// indistinguishable, at the daemon, from a deliberate choice, and the daemon
+// would then prefer a client's inherited default over its own configured
+// value.
+func callHeader(set *settings.Set) string {
+	ov := map[string]string{}
+	for _, decl := range set.Schema().All() {
+		if decl.Scope != settings.ScopeCall {
+			continue
+		}
+		v, ok := set.Value(decl.Path)
+		if !ok || v.Origin.Layer == settings.LayerDefault {
+			continue
+		}
+		ov[decl.Path] = v.Raw
+	}
+	if len(ov) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(ov)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // NewClient builds a socket-backed API client.
@@ -51,18 +105,23 @@ func NewClient(paths daemon.Paths, configPath string) *Client {
 // so pointing it at a real address costs nothing in code and was only ever
 // prevented by the dialler being hardcoded.
 func NewClientAt(paths daemon.Paths, configPath, endpoint string) *Client {
-	c := &Client{paths: paths, cfg: configPath, endpoint: strings.TrimRight(endpoint, "/")}
+	set := clientSettings()
+	c := &Client{paths: paths, cfg: configPath, set: set,
+		callSettings: callHeader(set),
+		endpoint:     strings.TrimRight(endpoint, "/")}
+	timeout := set.Duration("http.requestTimeout")
+	idle := set.Duration("http.idleConnTimeout")
 
 	if c.endpoint == "" {
 		c.hc = &http.Client{
-			Timeout: defaults.HTTPRequestTimeout,
+			Timeout: timeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var d net.Dialer
 					return d.DialContext(ctx, "unix", paths.Socket)
 				},
-				MaxIdleConns:    8,
-				IdleConnTimeout: defaults.HTTPIdleTimeout,
+				MaxIdleConns:    set.Int("http.idleConns"),
+				IdleConnTimeout: idle,
 			},
 		}
 		return c
@@ -74,26 +133,26 @@ func NewClientAt(paths daemon.Paths, configPath, endpoint string) *Client {
 	if sock, ok := strings.CutPrefix(c.endpoint, "unix://"); ok {
 		c.endpoint = ""
 		c.hc = &http.Client{
-			Timeout: defaults.HTTPRequestTimeout,
+			Timeout: timeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var d net.Dialer
 					return d.DialContext(ctx, "unix", sock)
 				},
-				MaxIdleConns: 8, IdleConnTimeout: defaults.HTTPIdleTimeout,
+				MaxIdleConns: set.Int("http.idleConns"), IdleConnTimeout: idle,
 			},
 		}
 		return c
 	}
 	c.hc = &http.Client{
-		Timeout: defaults.HTTPRequestTimeout,
+		Timeout: timeout,
 		Transport: &http.Transport{
 			// Keep-alive matters far more over a network than it does over a
 			// socket: without it every call pays a handshake, which on a VPN
 			// is most of the latency.
-			MaxIdleConns:        16,
-			MaxIdleConnsPerHost: 16,
-			IdleConnTimeout:     defaults.HTTPIdleTimeout,
+			MaxIdleConns:        set.Int("http.remoteIdleConns"),
+			MaxIdleConnsPerHost: set.Int("http.remoteIdleConns"),
+			IdleConnTimeout:     idle,
 			ForceAttemptHTTP2:   true,
 		},
 	}
@@ -127,6 +186,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.callSettings != "" {
+		req.Header.Set(daemon.CallSettingsHeader, c.callSettings)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -176,7 +238,7 @@ func isDialErr(err error) bool {
 
 // Ping reports whether a daemon is reachable.
 func (c *Client) Ping(ctx context.Context) bool {
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, c.set.Duration("autostart.pingTimeout"))
 	defer cancel()
 	_, err := c.do(cctx, http.MethodGet, "/v1/health", nil)
 	return err == nil
@@ -198,14 +260,24 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 	if c.Ping(ctx) {
 		return nil
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
+	if !c.set.Bool("daemon.autostart") {
+		return fmt.Errorf("%w and daemon.autostart is off, so mcpx will not start one",
+			ErrNoDaemon)
+	}
+	exe := c.set.String("autostart.bin")
+	if exe == "" {
+		var err error
+		if exe, err = os.Executable(); err != nil {
+			return err
+		}
 	}
 	// An auto-started daemon shuts itself down once a repo stops being used,
 	// so visiting many projects does not accumulate idle processes. A daemon
 	// started deliberately (launchd, `mcpx daemon`) has no idle timer.
-	args := []string{"daemon", "--detached", "--idle-exit", "4h"}
+	args := append([]string{}, c.set.List("autostart.args")...)
+	if idle := c.set.Duration("autostart.idleExit"); idle > 0 {
+		args = append(args, "--idle-exit", idle.String())
+	}
 	if c.cfg != "" {
 		args = append(args, "--config", c.cfg)
 	}
@@ -213,7 +285,7 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 	if err := c.paths.EnsureDirs(); err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, defaults.PrivateMode)
 	if err != nil {
 		return err
 	}
@@ -229,16 +301,16 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 	}
 	_ = cmd.Process.Release()
 
-	deadline := time.Now().Add(defaults.DaemonConnectTimeout)
+	deadline := time.Now().Add(c.set.Duration("autostart.connectTimeout"))
 	for time.Now().Before(deadline) {
 		if c.Ping(ctx) {
 			return nil
 		}
-		time.Sleep(defaults.DaemonPollInterval)
+		time.Sleep(c.set.Duration("autostart.pollInterval"))
 	}
 	tail, _ := os.ReadFile(logPath)
-	if len(tail) > 2000 {
-		tail = tail[len(tail)-2000:]
+	if max := c.set.Bytes("autostart.logTail"); int64(len(tail)) > max {
+		tail = tail[int64(len(tail))-max:]
 	}
 	return fmt.Errorf("daemon did not become ready; see %s\n%s", logPath, strings.TrimSpace(string(tail)))
 }
@@ -578,12 +650,13 @@ func (c *Client) Stream(ctx context.Context, f events.Filter, fn func(events.Eve
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(defaults.StreamReconnect):
+			case <-time.After(c.set.Duration("events.reconnect")):
 			}
 			continue
 		}
 		sc := bufio.NewScanner(resp.Body)
-		sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+		sc.Buffer(make([]byte, 0, c.set.Bytes("http.streamBufferInit")),
+			int(c.set.Bytes("http.streamBufferMax")))
 		var data strings.Builder
 		for sc.Scan() {
 			line := sc.Text()

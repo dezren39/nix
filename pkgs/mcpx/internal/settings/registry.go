@@ -15,11 +15,14 @@ func Registry() []Setting {
 	s = append(s, poolSettings()...)
 	s = append(s, loggingSettings()...)
 	s = append(s, scriptSettings()...)
+	s = append(s, execSettings()...)
 	s = append(s, pathSettings()...)
 	s = append(s, daemonSettings()...)
 	s = append(s, outputSettings()...)
 	s = append(s, plumbingSettings()...)
 	s = append(s, consumerSettings()...)
+	s = append(s, wireSettings()...)
+	s = append(s, pluginSettings()...)
 	return s
 }
 
@@ -27,6 +30,7 @@ func poolSettings() []Setting {
 	return []Setting{
 		{
 			Path: "pool.max", Kind: KindInt, Default: "4",
+			Scope: ScopeDaemon, Hot: true,
 			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
 			Name:     "Maximum instances",
 			Short:    "how many copies of one server may run at once",
@@ -35,6 +39,7 @@ func poolSettings() []Setting {
 		},
 		{
 			Path: "pool.min", Kind: KindInt, Default: "0",
+			Scope: ScopeDaemon, Hot: true,
 			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
 			Name:     "Warm instances",
 			Short:    "how many copies to keep started even when idle",
@@ -43,27 +48,32 @@ func poolSettings() []Setting {
 		},
 		{
 			Path: "pool.idleTimeout", Kind: KindDuration, Default: "5m",
+			Scope: ScopeDaemon, Hot: true,
 			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
 			Name:     "Idle timeout", Short: "how long an unused server lingers before it is stopped",
 		},
 		{
 			Path: "pool.callTimeout", Kind: KindDuration, Default: "120s",
+			Scope: ScopeDaemon, Hot: true,
 			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
 			Name:     "Call timeout", Short: "how long one tool call may take",
 		},
 		{
 			Path: "pool.startTimeout", Kind: KindDuration, Default: "60s",
+			Scope: ScopeDaemon, Hot: true,
 			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
 			Name:     "Start timeout", Short: "how long a server has to become ready",
 		},
 		{
 			Path: "pool.sharing", Kind: KindEnum, Default: "shared",
+			Scope:    ScopeDaemon,
 			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
 			Enum:     []string{"shared", "exclusive"},
 			Name:     "Sharing", Short: "whether callers reuse one instance or each get their own",
 		},
 		{
 			Path: "pool.scope", Kind: KindEnum, Default: "global",
+			Scope:    ScopeDaemon,
 			Commands: []string{"run", "exec", "call", "daemon", "status", "restart"},
 			Enum:     []string{"global", "repo", "worktree", "cwd", "session", "parent-session", "pid", "call"},
 			Name:     "Scope", Short: "what counts as the same caller for sharing purposes",
@@ -75,12 +85,14 @@ func loggingSettings() []Setting {
 	return []Setting{
 		{
 			Path: "logging.format", Kind: KindEnum, Default: "text",
+			Scope:       ScopeClient,
 			Enum:        []string{"text", "json", "json-pretty", "logfmt", "compact", "bare"},
 			FlagAliases: []string{"format"},
 			Name:        "Log format", Short: "how records are rendered",
 		},
 		{
 			Path: "logging.level", Kind: KindEnum, Default: "info",
+			Scope: ScopeDaemon, Hot: true,
 			Enum:        []string{"debug", "info", "warn", "error"},
 			FlagAliases: []string{"log-level"},
 			EnvAliases:  []string{"MCPX_LOG_LEVEL"},
@@ -88,6 +100,7 @@ func loggingSettings() []Setting {
 		},
 		{
 			Path: "logging.source", Kind: KindEnum, Default: "warn",
+			Scope: ScopeDaemon, Hot: true,
 			Enum: []string{"none", "debug", "info", "warn", "error", "all"},
 			Bare: "all", FlagAliases: []string{"log-source"},
 			Name:  "Source capture",
@@ -97,6 +110,7 @@ func loggingSettings() []Setting {
 		},
 		{
 			Path: "logging.dir", Kind: KindString, Default: "",
+			Scope:       ScopeDaemon,
 			FlagAliases: []string{"log-dir"},
 			Name:        "Log directory", Short: "where the JSONL files are written",
 			Long: "Empty means the state directory. The files are the durable record; " +
@@ -104,6 +118,7 @@ func loggingSettings() []Setting {
 		},
 		{
 			Path: "logging.include", Kind: KindList, Default: "host,user,process,version",
+			Scope:       ScopeDaemon,
 			FlagAliases: []string{"include"},
 			Repeatable:  true,
 			Name:        "Ambient blocks",
@@ -114,27 +129,32 @@ func loggingSettings() []Setting {
 		},
 		{
 			Path: "logging.maxBytes", Kind: KindBytes, Default: "16MB",
-			Name: "Rotate at size", Short: "roll the log file once it reaches this size",
+			Scope: ScopeDaemon,
+			Name:  "Rotate at size", Short: "roll the log file once it reaches this size",
 		},
 		{
 			Path: "logging.maxLines", Kind: KindInt, Default: "0",
-			Name: "Rotate at lines", Short: "roll the log file once it holds this many records",
+			Scope: ScopeDaemon,
+			Name:  "Rotate at lines", Short: "roll the log file once it holds this many records",
 			Long: "Zero disables the check. Size is usually the better trigger, but a " +
 				"line ceiling is predictable in a way bytes are not when record " +
 				"width varies wildly.",
 		},
 		{
 			Path: "logging.maxAge", Kind: KindDuration, Default: "24h",
-			Name: "Rotate at age", Short: "roll the log file once it is this old",
+			Scope: ScopeDaemon,
+			Name:  "Rotate at age", Short: "roll the log file once it is this old",
 		},
 		{
 			Path: "logging.keep", Kind: KindInt, Default: "8",
+			Scope:       ScopeDaemon,
 			FlagAliases: []string{"keep"},
 			Name:        "Retention", Short: "how many rolled files to keep",
 		},
 		{
 			Path: "logging.file", Kind: KindBool, Default: "true",
-			Name: "Write files", Short: "whether the durable JSONL log is written at all",
+			Scope: ScopeDaemon,
+			Name:  "Write files", Short: "whether the durable JSONL log is written at all",
 		},
 	}
 }
@@ -153,12 +173,14 @@ func scriptSettings() []Setting {
 	return []Setting{
 		{
 			Path: "script.runtime", Commands: runCommands, Kind: KindEnum, Default: "auto",
+			Scope:       ScopeClient,
 			Enum:        []string{"auto", "deno", "bun", "node"},
 			FlagAliases: []string{"runtime"},
 			Name:        "Runtime", Short: "which JavaScript runtime executes the script",
 		},
 		{
 			Path: "script.permissions", Commands: runCommands, Kind: KindString, Default: "all",
+			Scope:       ScopeClient,
 			FlagAliases: []string{"permissions"},
 			Name:        "Permissions", Short: "the sandbox profile, or raw runtime flags",
 			Long: "One of all, net, read, read-net, strict, or flags passed through " +
@@ -166,6 +188,7 @@ func scriptSettings() []Setting {
 		},
 		{
 			Path: "script.captureConsole", Commands: runCommands, Kind: KindBool, Default: "true",
+			Scope: ScopeClient,
 			Name:  "Capture console",
 			Short: "route console calls into the log",
 			Long: "When on, console.info and friends become records. console.log still " +
@@ -175,6 +198,7 @@ func scriptSettings() []Setting {
 		},
 		{
 			Path: "script.launcher", Commands: runCommands, Kind: KindSource, Default: "",
+			Scope: ScopeClient,
 			Name:  "Launcher",
 			Short: "replace the generated launcher entirely",
 			Long: "Given source or a file, that becomes the launcher, with @entry, " +
@@ -186,21 +210,25 @@ func scriptSettings() []Setting {
 		},
 		{
 			Path: "script.before", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
-			Name: "Before phase", Short: "runs first, ahead of the globals being installed",
+			Scope: ScopeClient,
+			Name:  "Before phase", Short: "runs first, ahead of the globals being installed",
 			Long: srcLong, AllowDir: false,
 		},
 		{
 			Path: "script.prefix", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
-			Name: "Prefix phase", Short: "runs after globals are installed, before the script",
+			Scope: ScopeClient,
+			Name:  "Prefix phase", Short: "runs after globals are installed, before the script",
 			Long: srcLong, AllowDir: false,
 		},
 		{
 			Path: "script.onSuccess", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
-			Name: "On success", Short: "runs when the script returns without throwing",
+			Scope: ScopeClient,
+			Name:  "On success", Short: "runs when the script returns without throwing",
 			Long: srcLong, AllowDir: false,
 		},
 		{
 			Path: "script.onError", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
+			Scope: ScopeClient,
 			Name:  "On error",
 			Short: "runs when the script throws; the error still propagates",
 			Long: "A hook, not a handler. The error is rethrown afterwards, so the exit " +
@@ -209,11 +237,13 @@ func scriptSettings() []Setting {
 		},
 		{
 			Path: "script.suffix", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
-			Name: "Suffix phase", Short: "runs last on both paths, like a finally",
+			Scope: ScopeClient,
+			Name:  "Suffix phase", Short: "runs last on both paths, like a finally",
 			Long: srcLong, AllowDir: false,
 		},
 		{
 			Path: "script.typecheck", Commands: runCommands, Kind: KindEnum, Default: "off",
+			Scope: ScopeClient,
 			Enum:  []string{"off", "on", "strict"},
 			Name:  "Type check",
 			Short: "check the generated program before running it",
@@ -223,6 +253,7 @@ func scriptSettings() []Setting {
 		},
 		{
 			Path: "script.env", Commands: runCommands, Kind: KindList, Default: "", Repeatable: true,
+			Scope:       ScopeClient,
 			FlagAliases: []string{"env"},
 			Name:        "Extra environment", Short: "KEY=VALUE pairs added to the script's environment",
 		},
@@ -238,16 +269,19 @@ func pathSettings() []Setting {
 	return []Setting{
 		{
 			Path: "paths.config", Kind: KindPathList, Default: "", Repeatable: true,
-			Name: "Config search path", Short: "where configuration files are looked for",
+			Scope: ScopeClient,
+			Name:  "Config search path", Short: "where configuration files are looked for",
 			Long: spliceLong,
 		},
 		{
 			Path: "paths.scripts", Kind: KindPathList, Default: "", Repeatable: true,
-			Name: "Script search path", Short: "where named scripts are looked for",
+			Scope: ScopeClient,
+			Name:  "Script search path", Short: "where named scripts are looked for",
 			Long: spliceLong,
 		},
 		{
 			Path: "paths.placeholders", Kind: KindPathList, Default: "", Repeatable: true,
+			Scope: ScopeClient,
 			Name:  "Placeholder search path",
 			Short: "directories of files declaring launcher placeholders",
 			Long: "A file may declare the @name it provides, with a " +
@@ -257,6 +291,7 @@ func pathSettings() []Setting {
 		},
 		{
 			Path: "paths.adapters", Kind: KindPathList, Default: "", Repeatable: true,
+			Scope: ScopeClient,
 			Name:  "Adapter declarations",
 			Short: "files declaring command-line programs as MCP servers",
 			Long: "An enormous amount of capability already exists as command-line " +
@@ -267,6 +302,7 @@ func pathSettings() []Setting {
 		},
 		{
 			Path: "paths.apis", Kind: KindPathList, Default: "", Repeatable: true,
+			Scope: ScopeClient,
 			Name:  "OpenAPI declarations",
 			Short: "files naming OpenAPI documents to expose as tools",
 			Long: "An enormous amount of capability is already described by a " +
@@ -277,11 +313,13 @@ func pathSettings() []Setting {
 		},
 		{
 			Path: "paths.state", Kind: KindString, Default: "",
+			Scope:      ScopeClient,
 			EnvAliases: []string{"MCPX_STATE_DIR"},
 			Name:       "State directory", Short: "where the daemon socket, logs and index live",
 		},
 		{
 			Path: "paths.cache", Kind: KindString, Default: "",
+			Scope:      ScopeClient,
 			EnvAliases: []string{"MCPX_CACHE_DIR"},
 			Name:       "Cache directory", Short: "where generated clients and schemas are kept",
 		},
@@ -292,22 +330,26 @@ func daemonSettings() []Setting {
 	return []Setting{
 		{
 			Path: "daemon.reapInterval", Kind: KindDuration, Default: "30s",
+			Scope:    ScopeDaemon,
 			Plumbing: true,
 			Name:     "Reap interval", Short: "how often idle instances are swept",
 		},
 		{
 			Path: "daemon.saveInterval", Kind: KindDuration, Default: "5m",
+			Scope:    ScopeDaemon,
 			Plumbing: true,
 			Name:     "Save interval", Short: "how often daemon state is written to disk",
 		},
 		{
 			Path: "daemon.port", Kind: KindInt, Default: "0",
+			Scope:       ScopeDaemon,
 			Commands:    []string{"daemon", "status"},
 			FlagAliases: []string{"port"},
 			Name:        "Port", Short: "listen on a TCP port instead of choosing one",
 		},
 		{
 			Path: "daemon.endpoint", Kind: KindString, Default: "",
+			Scope: ScopeClient,
 			Name:  "Daemon endpoint",
 			Short: "a daemon somewhere else, instead of the local socket",
 			Long: "Empty uses the local unix socket, which is the fast path: no " +
@@ -322,6 +364,7 @@ func daemonSettings() []Setting {
 		},
 		{
 			Path: "daemon.address", Kind: KindString, Default: "127.0.0.1",
+			Scope: ScopeDaemon, FlagAliases: []string{"address"},
 			Name:  "Bind address",
 			Short: "which interface the daemon listens on",
 			Long: "Loopback by default. The API is unauthenticated, so the network " +
@@ -333,6 +376,7 @@ func daemonSettings() []Setting {
 		},
 		{
 			Path: "daemon.inline", Kind: KindBool, Default: "false",
+			Scope: ScopeClient,
 			Name:  "Run without a daemon",
 			Short: "as a last resort, run servers inside this process",
 			Long: "The final rung of the connection ladder, tried only after an " +
@@ -346,6 +390,7 @@ func daemonSettings() []Setting {
 		},
 		{
 			Path: "daemon.autostart", Kind: KindBool, Default: "true",
+			Scope: ScopeClient,
 			Name:  "Autostart",
 			Short: "start the daemon on demand when it is not running",
 			Long: "With this off, a command that needs the daemon fails instead of " +
@@ -359,6 +404,7 @@ func outputSettings() []Setting {
 	return []Setting{
 		{
 			Path: "registry.url", Kind: KindString,
+			Scope:   ScopeClient,
 			Default: "https://registry.modelcontextprotocol.io",
 			Name:    "Registry",
 			Short:   "where `mcpx registry` looks for servers",
@@ -370,6 +416,7 @@ func outputSettings() []Setting {
 		},
 		{
 			Path: "mcp.pageSize", Kind: KindInt, Default: "100",
+			Scope: ScopeClient,
 			Name:  "MCP page size",
 			Short: "how many items one tools/list reply carries",
 			Long: "mcpx fronts every tool of every configured server, and a client " +
@@ -379,28 +426,33 @@ func outputSettings() []Setting {
 		},
 		{
 			Path: "output.json", Kind: KindBool, Default: "false",
+			Scope:       ScopeClient,
 			FlagAliases: []string{"json"},
 			Name:        "JSON output", Short: "emit one machine-readable document",
 		},
 		{
 			Path: "output.color", Kind: KindEnum, Default: "auto",
-			Enum: []string{"auto", "always", "never"},
-			Name: "Colour", Short: "whether to colourise terminal output",
+			Scope: ScopeClient,
+			Enum:  []string{"auto", "always", "never"},
+			Name:  "Colour", Short: "whether to colourise terminal output",
 		},
 		{
 			Path: "catalog.budget", Kind: KindInt, Default: "2000",
+			Scope: ScopeCall, Hot: true,
 			Commands:    []string{"catalog", "types", "ls", "search"},
 			FlagAliases: []string{"budget"},
 			Name:        "Catalog budget", Short: "token ceiling for the catalog listing",
 		},
 		{
 			Path: "catalog.bias", Kind: KindList, Default: "", Repeatable: true,
+			Scope: ScopeCall, Hot: true,
 			Commands:    []string{"catalog", "search"},
 			FlagAliases: []string{"bias"},
 			Name:        "Catalog bias", Short: "words that pull matching tools toward the front",
 		},
 		{
 			Path: "catalog.instructions", Kind: KindBool, Default: "true",
+			Scope: ScopeCall, Hot: true,
 			Commands: []string{"catalog", "types", "ls"},
 			Name:     "Server instructions", Short: "include each server's own instructions",
 		},
@@ -418,6 +470,7 @@ func plumbingSettings() []Setting {
 	return []Setting{
 		{
 			Path: "plumbing.allowTsJsOverlap", Kind: KindBool, Default: "false",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Allow .ts and .js side by side",
 			Short:    "permit a script directory holding both foo.ts and foo.js",
@@ -426,18 +479,21 @@ func plumbingSettings() []Setting {
 		},
 		{
 			Path: "plumbing.sourceDirRecursive", Kind: KindBool, Default: "false",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Recurse into source directories",
 			Short:    "when a directory is given as source, descend into subdirectories",
 		},
 		{
 			Path: "plumbing.sourceDirAllowed", Kind: KindBool, Default: "true",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Allow directories as source",
 			Short:    "whether a directory may stand in for a source string at all",
 		},
 		{
 			Path: "plumbing.sourceProbePaths", Kind: KindBool, Default: "true",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Probe for files",
 			Short:    "treat a source argument that names an existing file as a file",
@@ -447,6 +503,7 @@ func plumbingSettings() []Setting {
 		},
 		{
 			Path: "plumbing.strictUnknownKeys", Kind: KindBool, Default: "false",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Reject unknown config keys",
 			Short:    "fail on a configuration key no setting claims",
@@ -455,12 +512,14 @@ func plumbingSettings() []Setting {
 		},
 		{
 			Path: "plumbing.validatePaths", Kind: KindBool, Default: "true",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Check paths up front",
 			Short:    "resolve and verify every referenced path before doing any work",
 		},
 		{
 			Path: "plumbing.launcherPlaceholderRepeat", Kind: KindList, Default: "",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Placeholders that may repeat",
 			Short:    "launcher placeholders permitted to resolve more than once",
@@ -469,12 +528,14 @@ func plumbingSettings() []Setting {
 		},
 		{
 			Path: "plumbing.indexOnQuery", Kind: KindBool, Default: "true",
+			Scope:    ScopeDaemon,
 			Plumbing: true,
 			Name:     "Index on demand",
 			Short:    "bring the log index up to date before answering a query",
 		},
 		{
 			Path: "plumbing.consoleReleaseOnExit", Kind: KindBool, Default: "true",
+			Scope:    ScopeClient,
 			Plumbing: true,
 			Name:     "Restore console at exit",
 			Short:    "hand the original console back before the process ends",

@@ -189,6 +189,41 @@ func Commands() []Command {
 			},
 		},
 		{
+			Name: "settings", Group: "configuration",
+			Usage:   "list|get|set|unset [<path>] [<value>] [--persist runtime|project|user]",
+			Summary: "read and change any setting, from anywhere",
+			Detail: "`mcpx config --schema` prints what exists; this prints what is " +
+				"in force and where each value came from, which is the question " +
+				"people actually have. set applies to the running daemon at once " +
+				"when the setting allows it, and --persist writes the project or " +
+				"user configuration file. Each setting names the process that reads " +
+				"it -- daemon, client, one call, or the plugin -- so a value that " +
+				"cannot take effect says so instead of being silently ignored.",
+			Examples: []string{
+				"mcpx settings list --changed",
+				"mcpx settings get pool.idleTimeout",
+				"mcpx settings set logging.level debug",
+				"mcpx settings set pool.max 8 --persist project",
+			},
+		},
+		{
+			Name: "servers", Group: "configuration",
+			Usage:   "list|add|remove [<name>] [-- <command> ...]",
+			Summary: "add or remove an MCP server without restarting anything",
+			Detail: "The entry is written to a configuration file and the daemon " +
+				"reloads, so a server added here is callable immediately and is " +
+				"still there tomorrow. Servers whose definition did not change keep " +
+				"their running process, so adding one does not restart the rest. " +
+				"`mcpx registry add` is the same operation for a server a public " +
+				"registry already describes.",
+			Examples: []string{
+				"mcpx servers list",
+				"mcpx servers add fs -- npx -y @modelcontextprotocol/server-filesystem /tmp",
+				"mcpx servers add remote --url https://example.com/mcp --header AUTHORIZATION",
+				"mcpx servers remove fs",
+			},
+		},
+		{
 			Name: "init", Group: "configuration",
 			Summary: "write a starter configuration file",
 		},

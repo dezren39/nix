@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
 
 	"github.com/dezren39/mcpx/internal/mcpserver"
@@ -177,7 +178,7 @@ func (a *App) CmdOpenAPI(_ context.Context, args []string) error {
 		_, err = os.Stdout.Write(doc)
 		return err
 	}
-	if err := os.WriteFile(*out, doc, 0o644); err != nil {
+	if err := os.WriteFile(*out, doc, defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Println(*out)

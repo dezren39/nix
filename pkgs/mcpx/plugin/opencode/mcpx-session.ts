@@ -1,10 +1,33 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
 // In a subdirectory on purpose: opencode loads every plugin/*.ts file and
-// calls each of its exports as a plugin, and the glob is not recursive.
-import { connect, type DaemonClient } from "./mcpx/daemon.ts"
+// calls each of its exports as a plugin, and the glob is not recursive. For
+// the same reason this file exports nothing but its default.
+import {
+  DaemonClient,
+  TUNING,
+  ago,
+  discover,
+  forgetRemembered,
+  label,
+  rank,
+  readRemembered,
+  runBin,
+  splitArgs,
+  stateDir,
+  summarise,
+  targetKey,
+  writeRemembered,
+  type Candidate,
+  type Discovery,
+  type DiscoverOptions,
+  type Target,
+} from "./mcpx/daemon.ts"
+// The only reliable way to tell, in v1, whether anyone is looking at a
+// screen. See `headless` below.
+import { isMainThread } from "node:worker_threads"
 
 /**
- * Tell mcpx which opencode session it is working for.
+ * Tell mcpx which opencode session it is working for, and find the daemon.
  *
  * mcpx leases MCP servers per session: two agents running at once get separate
  * processes rather than corrupting one shared browser. That only works if mcpx
@@ -30,46 +53,61 @@ import { connect, type DaemonClient } from "./mcpx/daemon.ts"
  * reasoning that a variable nobody reads is cheaper than a variable that is
  * missing and needs another release to add.
  *
- * What stays out is anything that would need work per command: token counts,
- * transcript lengths, cost. Those come from `mcpx stats --opencode`, which
- * asks once over the whole database instead of once per shell invocation.
+ * ## No binary required
+ *
+ * Nothing here needs `mcpx` on PATH. The daemon is found by reading the info
+ * files it publishes and health-checking the sockets they name; every feature
+ * speaks the daemon's own `/v1` API. A binary, when present, is one more rung
+ * on the ladder rather than its foundation -- which matters now, because
+ * opencode v2 removes Bun's `$` from the plugin API entirely.
  *
  * ## Configuration
  *
- *   MCPX_PLUGIN_ENV=minimal|standard|full   how much to inject (default full)
- *   MCPX_PLUGIN_INSTRUCTIONS=1              add mcpx usage to the system prompt
- *   MCPX_PLUGIN_TOOL_TIMING=1               record tool outcomes into mcpx's log
- *   MCPX_PLUGIN_TOOLS=1                     offer mcpx as opencode tools
- *   MCPX_PLUGIN_SKILLS=...                  see plugin/opencode/skills/
+ * Every setting below can be given three ways, and they are read in this
+ * order: a plugin option, an environment variable, then the default.
  *
- * Everything past the session id is off by default, and each has a reason to
- * turn it on rather than a reason to have it. See the README.
+ * Plugin options arrive as the second argument, which opencode fills in from
+ * a config entry of the form `"plugin": [["./mcpx-session.ts", { ... }]]`. A
+ * plugin discovered by being dropped into `plugin/` gets no options, so the
+ * environment is the way to configure that installation. See the README.
  */
+
+/** Everything this plugin can be told, from config or from the environment. */
+type Options = {
+  /** A daemon named outright. `unix:///path` or `http://host:port`. */
+  endpoint?: string
+  /** A socket named outright. */
+  socket?: string
+  /** The mcpx binary, or "" to forbid spawning one. */
+  bin?: string
+  /** Arguments to put before mcpx's own, as a vector or a string. */
+  binArgs?: string[] | string
+  /** Where the opt-in tools get their answers: auto, v1 or cli. */
+  backend?: "auto" | "v1" | "cli"
+  /** Default scope for a daemon choice made this session. */
+  remember?: "session" | "until-gone" | "indefinite"
+  /** How much to inject into shell environments. */
+  env?: "minimal" | "standard" | "full"
+  instructions?: boolean
+  toolTiming?: boolean
+  tools?: boolean
+  /** Offer mcpx_daemon_status and mcpx_daemon_select. Default: when unclear. */
+  daemonTools?: boolean
+  /** Report ambiguity on tool results. Default on. */
+  annotate?: boolean
+  /** Override the "is anyone looking at this" guess. */
+  headless?: boolean
+}
 
 type Level = "minimal" | "standard" | "full"
 
-/**
- * How much to inject. Full by default.
- *
- * Environment variables are not context -- the model never sees them, and an
- * unread one costs a few bytes. So the default is everything already in hand,
- * on the reasoning that a variable nobody reads is cheaper than a variable
- * that is missing and needs another release to add.
- *
- * The session lookup that `full` performs happens once per session and is
- * cached, so the cost is one request per session rather than per command.
- * `standard` exists for anyone who would rather not have that request at all,
- * and `minimal` is the session id alone -- the only part leasing strictly
- * requires.
- */
-const level = (): Level => {
-  const v = (process.env.MCPX_PLUGIN_ENV ?? "full").toLowerCase()
-  return v === "minimal" || v === "standard" ? v : "full"
-}
-
-const on = (name: string): boolean => {
-  const v = process.env[name]
-  return v === "1" || v === "true" || v === "yes"
+const truthy = (v: unknown): boolean | undefined => {
+  if (v === undefined || v === null || v === "") return undefined
+  if (typeof v === "boolean") return v
+  const s = String(v).toLowerCase()
+  if (s === "1" || s === "true" || s === "yes" || s === "on") return true
+  if (s === "0" || s === "false" || s === "no" || s === "off") return false
+  return undefined
 }
 
 /** Set a variable only when it is actually something. */
@@ -94,49 +132,240 @@ type Cached = {
   ancestry: string[]
 }
 
-/** Run mcpx and return what it said, whichever stream it used. */
-const run = async (
-  $: any,
-  argv: string[],
-): Promise<string> => {
-  const res = await $`mcpx ${argv}`.quiet().nothrow()
-  const out = String(res.stdout ?? "").trim()
-  const err = String(res.stderr ?? "").trim()
-  if (out && err) return out + "\n\nstderr:\n" + err
-  return out || err || "(no output)"
+/**
+ * Whether anyone can answer a question.
+ *
+ * v1 gives no direct answer -- `client.tui.showToast` publishes an event and
+ * returns true whether or not a TUI is listening -- so this reads the process
+ * shape instead. `opencode tui` runs the server in a Worker and the interface
+ * on the main thread; `opencode run`, `opencode serve` and every CI
+ * invocation run the server on the main thread with nothing attached. So
+ * "this code is not on the main thread" is exactly "a TUI is attached", in
+ * v1. It is checked once, because it cannot change.
+ *
+ * Getting it wrong in the safe direction costs a toast nobody sees. Getting
+ * it wrong in the other direction would hang a headless run on a question,
+ * which is why the permission prompt is never raised on this path -- only
+ * `mcpx_daemon_select`, which the agent calls deliberately, asks anything.
+ */
+/** The remembered choice as a comparable string, or undefined. */
+const remembered = (
+  env: Record<string, string | undefined>,
+  directory: string,
+): string | undefined => {
+  const t = readRemembered(env, directory)
+  return t ? targetKey(t) : undefined
 }
 
-export default (async ({ directory, worktree, project, client, $ }) => {
-  // The daemon, found once and reused. Finding it costs one spawn of
-  // `mcpx status`, so a miss is remembered for a while rather than retried
-  // on every tool call -- otherwise having no daemon would double the cost
-  // of the very fallback that exists because there is none.
-  let found: Promise<DaemonClient | undefined> | undefined
+const headlessByDefault = (): boolean => {
+  try {
+    return isMainThread
+  } catch {
+    return true
+  }
+}
+
+export default (async ({ directory, worktree, project, client }, options) => {
+  const raw = (options ?? {}) as Options
+  const env = process.env as Record<string, string | undefined>
+
+  /** option, then environment, then default. */
+  const str = (o: string | undefined, e: string | undefined, d?: string) => o ?? e ?? d
+  const bool = (o: boolean | undefined, e: string | undefined, d: boolean) =>
+    o ?? truthy(e) ?? d
+
+  const settings = {
+    endpoint: str(raw.endpoint, env.MCPX_DAEMON_ENDPOINT ?? env.MCPX_ENDPOINT),
+    socket: str(raw.socket, env.MCPX_SOCKET),
+    bin: str(raw.bin, env.MCPX_PLUGIN_BIN, TUNING.bin)!,
+    binArgs: Array.isArray(raw.binArgs)
+      ? raw.binArgs
+      : splitArgs(typeof raw.binArgs === "string" ? raw.binArgs : env.MCPX_PLUGIN_BIN_ARGS),
+    backend: (str(raw.backend, env.MCPX_PLUGIN_BACKEND, "auto") as Options["backend"])!,
+    remember: (str(raw.remember, env.MCPX_PLUGIN_REMEMBER, "session") as "session" | "until-gone" | "indefinite")!,
+    level: ((str(raw.env, env.MCPX_PLUGIN_ENV, "full") as Level) ?? "full") as Level,
+    instructions: bool(raw.instructions, env.MCPX_PLUGIN_INSTRUCTIONS, false),
+    toolTiming: bool(raw.toolTiming, env.MCPX_PLUGIN_TOOL_TIMING, false),
+    tools: bool(raw.tools, env.MCPX_PLUGIN_TOOLS, false),
+    annotate: bool(raw.annotate, env.MCPX_PLUGIN_ANNOTATE, true),
+    headless: raw.headless ?? truthy(env.MCPX_PLUGIN_HEADLESS) ?? headlessByDefault(),
+  }
+  const level: Level =
+    settings.level === "minimal" || settings.level === "standard" ? settings.level : "full"
+
+  const ladderOptions = (): DiscoverOptions => ({
+    directory,
+    endpoint: settings.endpoint,
+    socket: settings.socket,
+    bin: settings.bin,
+    binArgs: settings.binArgs,
+    remembered: chosen,
+    env,
+  })
+
+  /**
+   * The daemon, found once and reused.
+   *
+   * A miss is remembered for a while rather than retried on every tool call:
+   * the whole point of the ladder is that it is cheap, but it is not free,
+   * and a machine with no daemon at all would otherwise pay for the scan on
+   * every single tool result.
+   */
+  let chosen: Target | undefined
+  let found: Promise<Discovery> | undefined
   let missedAt = 0
-  const daemon = async (): Promise<DaemonClient | undefined> => {
-    if (!found) {
-      if (Date.now() - missedAt < 60_000) return undefined
-      found = connect($, { directory }).catch(() => undefined)
+
+  /**
+   * Notice a choice made somewhere else.
+   *
+   * The optional TUI picker lives in the other realm and shares nothing with
+   * this one but the filesystem, so the remembered choice is the only channel
+   * between them. Re-read rarely rather than never: never would make the
+   * picker take effect only in the next session, and always would put a file
+   * read in front of every tool call.
+   */
+  let rememberedKey = remembered(env, directory)
+  let rememberedAt = Date.now()
+  const rememberMoved = (): boolean => {
+    if (Date.now() - rememberedAt < TUNING.rememberRecheckMs) return false
+    rememberedAt = Date.now()
+    const now = remembered(env, directory)
+    if (now === rememberedKey) return false
+    rememberedKey = now
+    return true
+  }
+
+  const look = async (): Promise<Discovery> => {
+    if (found && rememberMoved()) {
+      found = undefined
+      chosen = undefined
     }
-    const c = await found
-    if (!c) forget()
-    return c
+    if (!found) {
+      if (Date.now() - missedAt < TUNING.missCooldownMs) {
+        return { candidates: [], rung: 6, reason: "none", ambiguous: false }
+      }
+      found = discover(ladderOptions())
+    }
+    const d = await found
+    if (!d.target) {
+      found = undefined
+      missedAt = Date.now()
+    }
+    return d
+  }
+  const daemon = async (): Promise<DaemonClient | undefined> => {
+    const d = await look()
+    return d.target ? new DaemonClient(d.target) : undefined
   }
   const forget = () => {
     found = undefined
     missedAt = Date.now()
   }
 
+  // One discovery at boot, awaited.
+  //
+  // It costs a readdir and a parallel health check -- a few milliseconds --
+  // and it buys two things worth more than that: the boot toast can be
+  // accurate, and the daemon-selection tools can be offered only when they
+  // would actually help, since opencode fixes the tool list at load time.
+  const boot = await look().catch(
+    (): Discovery => ({ candidates: [], rung: 6, reason: "none", ambiguous: false }),
+  )
+
+  /**
+   * Say something, at most once per reason per session.
+   *
+   * Never when headless: `showToast` succeeds whether or not anyone is
+   * watching, so an unbounded toast in CI is a silent leak rather than a
+   * visible one. The reason, not the message, is the key -- a message that
+   * differs only in a timestamp is still the same thing being said twice.
+   */
+  const said = new Set<string>()
+  const toast = async (
+    reason: string,
+    message: string,
+    variant: "info" | "warning" | "error" = "warning",
+  ): Promise<void> => {
+    if (settings.headless) return
+    if (said.has(reason)) return
+    said.add(reason)
+    try {
+      await client.tui.showToast({ body: { title: "mcpx", message, variant } })
+    } catch {
+      /* no TUI attached after all, which is not a failure */
+    }
+  }
+
+  if (boot.ambiguous && boot.warning) {
+    // Fire and forget: a plugin that waits on the interface during load
+    // delays every session for a message.
+    void toast("ambiguous", boot.warning + " Ask for mcpx_daemon_status to change it.")
+  }
+
+  /**
+   * One line on every mcpx result, naming the daemon that answered.
+   *
+   * Cheaper than a toast and impossible to miss in a transcript, which is the
+   * point: the user should never have to wonder which daemon a result came
+   * from, and should never have to go looking for the answer.
+   */
+  const annotation = async (): Promise<string> => {
+    const d = await look()
+    if (!settings.annotate || !d.ambiguous || !d.chosen) return ""
+    return (
+      `\n\n---\nmcpx: answered by ${label(d.chosen)} (${targetKey(d.chosen.target)}); ` +
+      `${d.candidates.length} daemons match this directory. ` +
+      `Call mcpx_daemon_status to see them, mcpx_daemon_select to change.`
+    )
+  }
+
+  /** The toast that fires the first time mcpx is actually used. */
+  const announceOnUse = async (): Promise<void> => {
+    const d = await look()
+    if (d.ambiguous && d.warning) await toast("ambiguous", d.warning)
+  }
+
+  /**
+   * Run something against the daemon, falling back to the binary.
+   *
+   * `backend` decides how hard to try: `v1` never spawns, `cli` never uses
+   * the socket, and `auto` prefers the socket and spawns only when there is
+   * no daemon or the daemon is too old to have the route.
+   */
+  const viaDaemon = async <T>(fn: (c: DaemonClient) => Promise<T>): Promise<T | undefined> => {
+    if (settings.backend === "cli") return undefined
+    const c = await daemon()
+    if (!c) return undefined
+    try {
+      return await fn(c)
+    } catch (err) {
+      // Stopped, restarted, or its configuration changed and the socket
+      // moved. Forget it; the next call asks again.
+      forget()
+      throw err
+    }
+  }
+  const viaCLI = async (argv: string[]): Promise<string> => {
+    if (settings.backend === "v1") {
+      return "mcpx: no daemon is reachable, and backend=v1 forbids running the binary."
+    }
+    const out = await runBin(ladderOptions(), argv)
+    if (out === undefined) {
+      return (
+        "mcpx: no daemon is reachable and no mcpx binary could be run. " +
+        "Start one with `mcpx daemon`, or point the plugin at one with MCPX_DAEMON_ENDPOINT."
+      )
+    }
+    return out || "(no output)"
+  }
+
+  const pretty = (v: unknown): string => JSON.stringify(v, null, 2)
+
   // Read once. These cannot change for the life of the process, and doing
   // them per command would put a subprocess in the path of every shell
   // invocation.
   const startedAt = new Date().toISOString()
-  let version = ""
-  try {
-    version = (await $`opencode --version`.quiet().nothrow().text()).trim()
-  } catch {
-    /* absent rather than fatal */
-  }
+  const version = process.env.OPENCODE_VERSION ?? ""
 
   const sessions = new Map<string, Cached>()
   let commands = 0
@@ -179,58 +408,317 @@ export default (async ({ directory, worktree, project, client, $ }) => {
     return out
   }
 
+  /** One candidate as a line in the status table. */
+  const describeCandidate = (c: Candidate, i: number, current?: Target): string => {
+    const mark = current && targetKey(current) === targetKey(c.target) ? "*" : " "
+    const bits = [
+      `${mark} [${i}] ${label(c)}`,
+      `      config:   ${c.configPath ?? "(unknown)"}`,
+      `      socket:   ${targetKey(c.target)}`,
+    ]
+    if (c.startedAt) bits.push(`      started:  ${c.startedAt} (${ago(c.startedAt)})`)
+    if (c.version) bits.push(`      version:  ${c.version}`)
+    if (c.servers !== undefined) bits.push(`      servers:  ${c.servers}`)
+    if (c.sessions !== undefined) bits.push(`      sessions: ${c.sessions}`)
+    if (c.instances !== undefined) bits.push(`      live:     ${c.instances}`)
+    return bits.join("\n")
+  }
+
+  /** Apply a choice, at the scope asked for. */
+  const applyChoice = async (
+    target: Target,
+    scope: "session" | "until-gone" | "indefinite" | "permanent",
+  ): Promise<string> => {
+    chosen = target
+    found = Promise.resolve(await discover({ ...ladderOptions(), remembered: target }))
+    if (scope === "session") return "Remembered for this session only."
+    if (scope === "permanent") {
+      const res = await new DaemonClient(target).putSetting("daemon.endpoint", targetKey(target))
+      if (res === "ok") return "Written to your mcpx configuration as daemon.endpoint."
+      if (res === "absent") {
+        // Being added concurrently. Say what to do rather than failing, and
+        // leave a durable choice behind so the user is not stuck.
+        await writeRemembered(env, directory, target, "indefinite")
+        return (
+          "This daemon has no settings API (PUT /v1/settings returned 404), so the choice " +
+          "was remembered indefinitely for this directory instead. To make it permanent, " +
+          `set "daemon": { "endpoint": "${targetKey(target)}" } in your mcpx config.`
+        )
+      }
+      return "Writing the setting failed; the choice holds for this session."
+    }
+    await writeRemembered(env, directory, target, scope)
+    return scope === "until-gone"
+      ? "Remembered until this daemon stops answering."
+      : "Remembered indefinitely for this directory."
+  }
+
+  // The daemon tools are offered when they can help: when the user asked for
+  // them, when the full tool set is on, or when discovery found more than one
+  // daemon and somebody may want to choose. They are never a gate -- the
+  // plugin works whether or not anyone ever calls them, which is the whole
+  // point of rung 6.
+  const wantDaemonTools =
+    raw.daemonTools ?? truthy(env.MCPX_PLUGIN_DAEMON_TOOLS) ?? (settings.tools || boot.ambiguous)
+
+  const daemonTools = {
+    mcpx_daemon_status: tool({
+      description:
+        "List every mcpx daemon running on this machine, best match first, and say " +
+        "which one this session is using. Call this before mcpx_daemon_select: the " +
+        "index it prints is what select takes.",
+      args: {},
+      async execute() {
+        const d = await discover({ ...ladderOptions(), useRememberFile: true })
+        const list = rank(d.candidates, directory)
+        if (list.length === 0) {
+          if (d.target) {
+            return `Using ${targetKey(d.target)} (named explicitly; no scan was done).`
+          }
+          return "No mcpx daemon is running. Start one with `mcpx daemon`, or set MCPX_DAEMON_ENDPOINT."
+        }
+        const head =
+          `${list.length} daemon${list.length === 1 ? "" : "s"} running. ` +
+          (d.target ? `This session is using ${targetKey(d.target)} (${d.reason}).` : "") +
+          "\n\n"
+        return head + list.map((c, i) => describeCandidate(c, i, d.target)).join("\n\n")
+      },
+    }),
+
+    mcpx_daemon_select: tool({
+      description:
+        "Point this session at one of the daemons mcpx_daemon_status listed, by its " +
+        "index. The user is asked to confirm, and the tool sets the socket itself -- " +
+        "pass the index, never a path.",
+      args: {
+        candidate: tool.schema
+          .number()
+          .int()
+          .describe("the [index] from mcpx_daemon_status"),
+        remember: tool.schema
+          .enum(["session", "until-gone", "indefinite", "permanent"])
+          .optional()
+          .describe(
+            "session: this session only (default). until-gone: until that daemon stops " +
+              "answering. indefinite: for this directory, until changed. permanent: " +
+              "written into the mcpx config.",
+          ),
+        stopOthers: tool.schema
+          .boolean()
+          .optional()
+          .describe("stop every other daemon after selecting. Destructive: their sessions end."),
+      },
+      async execute(args, ctx) {
+        const d = await discover({ ...ladderOptions(), useRememberFile: true })
+        const list = rank(d.candidates, directory)
+        if (list.length === 0) return "No daemon to select. Run mcpx_daemon_status first."
+        const pick = list[args.candidate]
+        if (!pick) {
+          return `No candidate [${args.candidate}]. mcpx_daemon_status lists 0..${list.length - 1}.`
+        }
+        const scope = args.remember ?? settings.remember
+
+        // The user confirms, and sees what they are confirming. This is the
+        // only interactive channel a v1 server plugin has, and "always" is
+        // most of what "remember this" means.
+        await ctx.ask({
+          permission: "mcpx_daemon_select",
+          patterns: [targetKey(pick.target)],
+          always: [targetKey(pick.target)],
+          metadata: {
+            daemon: label(pick),
+            socket: targetKey(pick.target),
+            config: pick.configPath,
+            started: pick.startedAt,
+            version: pick.version,
+            servers: pick.servers,
+            sessions: pick.sessions,
+            remember: scope,
+            stopOthers: args.stopOthers === true,
+            others: list.filter((c) => c !== pick).map((c) => targetKey(c.target)),
+          },
+        })
+
+        const note = await applyChoice(pick.target, scope)
+        let stopped = ""
+        if (args.stopOthers) {
+          const others = list.filter((c) => targetKey(c.target) !== targetKey(pick.target))
+          const results = await Promise.all(
+            others.map(async (c) => ({ c, ok: await new DaemonClient(c.target).shutdown() })),
+          )
+          stopped =
+            "\nStopped: " +
+            (results.length
+              ? results.map((r) => `${label(r.c)}${r.ok ? "" : " (failed)"}`).join(", ")
+              : "none")
+        }
+        return `Now using ${label(pick)} (${targetKey(pick.target)}). ${note}${stopped}`
+      },
+    }),
+
+    mcpx_daemon_forget: tool({
+      description:
+        "Drop the remembered daemon choice for this directory, so discovery decides again.",
+      args: {},
+      async execute() {
+        await forgetRemembered(env, directory)
+        chosen = undefined
+        found = undefined
+        const d = await look()
+        return d.target
+          ? `Forgotten. Discovery now chooses ${targetKey(d.target)} (${d.reason}).`
+          : `Forgotten. No daemon is reachable. Remembered choices live in ${stateDir(env)}.`
+      },
+    }),
+  }
+
+  const mcpxTools = {
+    mcpx_discover: tool({
+      description:
+        "List the MCP servers mcpx knows about, or show signatures for one. " +
+        "Call with no arguments first: the answer is small and tells you " +
+        "what else is worth asking for.",
+      args: {
+        namespace: tool.schema
+          .string()
+          .optional()
+          .describe("a namespace to show signatures for; omit to list all"),
+      },
+      async execute(args) {
+        await announceOnUse()
+        const out = await viaDaemon(async (c) => {
+          if (args.namespace) return await c.types(args.namespace)
+          const ns = await c.namespaces()
+          return ns
+            .map((n) => `${n.namespace}  (${n.tools} tools)${n.description ? "  " + n.description : ""}`)
+            .join("\n")
+        })
+        const body = out ?? (await viaCLI(args.namespace ? ["types", args.namespace] : ["ls"]))
+        return body + (await annotation())
+      },
+    }),
+
+    mcpx_exec: tool({
+      description:
+        "Run TypeScript against every MCP server at once. Tools are bound as " +
+        "await tools.<namespace>.<tool>({...}) and only what you print comes " +
+        "back, so filter and summarise here rather than reading a megabyte " +
+        "of JSON into your context. This is the one that saves tokens.",
+      args: {
+        source: tool.schema.string().describe("TypeScript; top-level await works"),
+      },
+      async execute(args) {
+        await announceOnUse()
+        // undefined from the daemon means the route is absent -- an older
+        // daemon -- which is a reason to fall back, not a failure to report.
+        const out = await viaDaemon((c) => c.exec(args.source))
+        const body =
+          out === undefined
+            ? await viaCLI(["exec", args.source])
+            : (out.output ?? pretty(out.result ?? out))
+        return body + (await annotation())
+      },
+    }),
+
+    mcpx_observe: tool({
+      description:
+        "Query what mcpx has been doing: the durable log, or aggregate " +
+        "statistics. Use it when a call failed and you want to know why " +
+        "without running it again.",
+      args: {
+        what: tool.schema
+          .enum(["log", "calls", "errors", "servers", "slowest"])
+          .describe("log for records, the rest are aggregates"),
+        since: tool.schema.string().optional().describe("15m, 2h, or an RFC3339 time"),
+      },
+      async execute(args) {
+        await announceOnUse()
+        const out = await viaDaemon(async (c) => {
+          if (args.what === "log") {
+            const res = await c.logQuery({ limit: TUNING.observeLimit, since: args.since })
+            return pretty(res.records)
+          }
+          return pretty(await c.stats({ by: args.what, since: args.since }))
+        })
+        if (out !== undefined) return out + (await annotation())
+        const argv =
+          args.what === "log"
+            ? ["log", "--limit", String(TUNING.observeLimit), ...(args.since ? ["--since", args.since] : [])]
+            : ["stats", args.what, ...(args.since ? ["--since", args.since] : [])]
+        return (await viaCLI(argv)) + (await annotation())
+      },
+    }),
+  }
+
+  const tools = {
+    ...(settings.tools ? mcpxTools : {}),
+    ...(wantDaemonTools ? daemonTools : {}),
+  }
+
   return {
     "shell.env": async (input, output) => {
-      const env: Record<string, string> = (output.env ??= {})
-      const lvl = level()
+      const e: Record<string, string> = (output.env ??= {})
 
       // The one thing always injected. Without it session-scoped leasing
       // silently degrades to a single shared instance, which is the failure
       // this whole file exists to prevent.
-      put(env, "MCPX_SESSION_ID", input.sessionID)
-      if (lvl === "minimal") return
+      put(e, "MCPX_SESSION_ID", input.sessionID)
+      if (level === "minimal") return
 
       // Both of the other fields the hook is given. cwd is the directory the
       // command will actually run in, which is not always the project root,
       // and callID distinguishes two commands issued in the same turn.
-      put(env, "MCPX_OPENCODE_CWD", input.cwd)
-      put(env, "MCPX_CALL_ID", input.callID)
+      put(e, "MCPX_OPENCODE_CWD", input.cwd)
+      put(e, "MCPX_CALL_ID", input.callID)
 
-      put(env, "MCPX_OPENCODE_DIRECTORY", directory)
-      put(env, "MCPX_OPENCODE_WORKTREE", worktree)
-      if (worktree) put(env, "MCPX_WORKTREE_NAME", String(worktree).split("/").pop())
-      put(env, "MCPX_PROJECT_ID", (project as any)?.id)
+      put(e, "MCPX_OPENCODE_DIRECTORY", directory)
+      put(e, "MCPX_OPENCODE_WORKTREE", worktree)
+      if (worktree) put(e, "MCPX_WORKTREE_NAME", String(worktree).split("/").pop())
+      put(e, "MCPX_PROJECT_ID", (project as any)?.id)
 
-      put(env, "MCPX_HARNESS", "opencode")
-      put(env, "MCPX_HARNESS_VERSION", version)
-      put(env, "MCPX_HARNESS_PID", process.env.OPENCODE_PID)
-      put(env, "MCPX_HARNESS_STARTED", startedAt)
-      put(env, "MCPX_SHELL_SEQ", String(++commands))
+      put(e, "MCPX_HARNESS", "opencode")
+      put(e, "MCPX_HARNESS_VERSION", version)
+      put(e, "MCPX_HARNESS_PID", process.env.OPENCODE_PID)
+      put(e, "MCPX_HARNESS_STARTED", startedAt)
+      put(e, "MCPX_SHELL_SEQ", String(++commands))
+
+      // The daemon this session settled on, so a command that runs the mcpx
+      // binary talks to the same one the plugin does. Without it a shell
+      // command would walk its own ladder from a different directory and
+      // could land on a different daemon -- which is exactly the confusion
+      // the whole ladder exists to end.
+      //
+      // MCPX_DAEMON_ENDPOINT rather than MCPX_SOCKET: the endpoint setting is
+      // only ever read when *connecting*, while MCPX_SOCKET also decides
+      // where `mcpx daemon` binds -- so injecting that one would stop a user
+      // starting a second daemon from a shell inside opencode.
+      const active = chosen ?? boot.target
+      if (active) put(e, "MCPX_DAEMON_ENDPOINT", targetKey(active))
 
       const trace: Array<[string, ...string[]]> = []
       if (input.sessionID) trace.push(["session_id", input.sessionID])
       if (input.callID) trace.push(["call_id", input.callID])
       if (worktree) trace.push(["worktree", String(worktree)])
 
-      if (lvl === "full" && input.sessionID) {
+      if (level === "full" && input.sessionID) {
         // Only at full, because the first command of a session pays for the
         // fetch. Cached thereafter, so the cost is per session rather than
         // per command.
         const s = await describe(input.sessionID)
-        put(env, "MCPX_PARENT_SESSION_ID", s.parentID)
-        put(env, "MCPX_SESSION_TITLE", s.title)
-        put(env, "MCPX_SESSION_DIRECTORY", s.directory)
-        put(env, "MCPX_SESSION_VERSION", s.version)
-        put(env, "MCPX_SESSION_DEPTH", String(s.depth))
+        put(e, "MCPX_PARENT_SESSION_ID", s.parentID)
+        put(e, "MCPX_SESSION_TITLE", s.title)
+        put(e, "MCPX_SESSION_DIRECTORY", s.directory)
+        put(e, "MCPX_SESSION_VERSION", s.version)
+        put(e, "MCPX_SESSION_DEPTH", String(s.depth))
         if (s.created) {
-          put(env, "MCPX_SESSION_CREATED", new Date(s.created).toISOString())
-          put(env, "MCPX_SESSION_AGE_MS", String(Date.now() - s.created))
+          put(e, "MCPX_SESSION_CREATED", new Date(s.created).toISOString())
+          put(e, "MCPX_SESSION_AGE_MS", String(Date.now() - s.created))
         }
         if (s.parentID) trace.push(["parent_session_id", s.parentID])
         if (s.ancestry.length) trace.push(["ancestry", ...s.ancestry])
       }
 
-      if (trace.length) put(env, "MCPX_TRACE_IDS", JSON.stringify(trace))
+      if (trace.length) put(e, "MCPX_TRACE_IDS", JSON.stringify(trace))
     },
 
     /**
@@ -242,7 +730,7 @@ export default (async ({ directory, worktree, project, client, $ }) => {
      * mcpx, wasteful everywhere else.
      */
     "experimental.chat.system.transform": async (_input, output) => {
-      if (!on("MCPX_PLUGIN_INSTRUCTIONS")) return
+      if (!settings.instructions) return
       const text = [
         "MCP servers are reached through `mcpx`, not through tool calls.",
         "`mcpx ls` lists namespaces, `mcpx types <ns>` prints signatures, and",
@@ -258,85 +746,27 @@ export default (async ({ directory, worktree, project, client, $ }) => {
      *
      * The default is off because an agent that can run shell commands can
      * already run mcpx, and a tool definition costs context on every request
-     * whether or not it is used. Three definitions is cheap, but cheap is not
-     * free and most sessions never touch an MCP server.
+     * whether or not it is used. Worth turning on when the agent has no
+     * shell, when mcpx calls should appear in the transcript, or when a model
+     * keeps forgetting mcpx exists.
      *
-     * Worth turning on when:
-     *
-     *  - the agent has no shell, or its shell is heavily restricted;
-     *  - you want mcpx calls to appear as tool calls in the transcript,
-     *    which makes them visible to opencode's own timing and permissions;
-     *  - a model keeps forgetting mcpx exists, which a tool in the list
-     *    fixes and a sentence in the prompt does not.
+     * The two daemon tools are the exception: they appear when discovery
+     * found something worth choosing between, because a user who has to ask
+     * "which daemon?" has no other way to answer it.
      */
-    tool: on("MCPX_PLUGIN_TOOLS")
-      ? {
-          mcpx_discover: tool({
-            description:
-              "List the MCP servers mcpx knows about, or show signatures for one. " +
-              "Call with no arguments first: the answer is small and tells you " +
-              "what else is worth asking for.",
-            args: {
-              namespace: tool.schema
-                .string()
-                .optional()
-                .describe("a namespace to show signatures for; omit to list all"),
-            },
-            async execute(args) {
-              if (args.namespace) {
-                return await run($, ["types", args.namespace])
-              }
-              return await run($, ["ls"])
-            },
-          }),
-
-          mcpx_exec: tool({
-            description:
-              "Run TypeScript against every MCP server at once. Tools are bound as " +
-              "await tools.<namespace>.<tool>({...}) and only what you print comes " +
-              "back, so filter and summarise here rather than reading a megabyte " +
-              "of JSON into your context. This is the one that saves tokens.",
-            args: {
-              source: tool.schema.string().describe("TypeScript; top-level await works"),
-            },
-            async execute(args) {
-              return await run($, ["exec", args.source])
-            },
-          }),
-
-          mcpx_observe: tool({
-            description:
-              "Query what mcpx has been doing: the durable log, or aggregate " +
-              "statistics. Use it when a call failed and you want to know why " +
-              "without running it again.",
-            args: {
-              what: tool.schema
-                .enum(["log", "calls", "errors", "servers", "slowest"])
-                .describe("log for records, the rest are aggregates"),
-              since: tool.schema.string().optional().describe("15m, 2h, or an RFC3339 time"),
-            },
-            async execute(args) {
-              if (args.what === "log") {
-                const argv = ["log", "--limit", "40"]
-                if (args.since) argv.push("--since", args.since)
-                return await run($, argv)
-              }
-              return await run($, ["stats", args.what])
-            },
-          }),
-        }
-      : undefined,
+    tool: Object.keys(tools).length ? tools : undefined,
 
     /**
      * Tool outcomes into mcpx's own log, off by default.
      *
      * When on, opencode's tool calls land in the same store as mcpx's, so one
-     * `mcpx stats` covers both. It goes over the daemon's socket when one is
-     * running -- a fraction of a millisecond -- and spawns `mcpx log record`
-     * only when none is, since a lost record is worse than a slow one.
+     * `mcpx stats` covers both. It goes over the daemon's socket, which is a
+     * fraction of a millisecond. With no daemon the record is dropped rather
+     * than spawning a process per tool call: a timing is not worth 23 ms of
+     * every tool call, and certainly not worth failing one.
      */
     "tool.execute.after": async (input, output) => {
-      if (!on("MCPX_PLUGIN_TOOL_TIMING")) return
+      if (!settings.toolTiming) return
       const record = {
         event: "harness.tool",
         tool: input.tool,
@@ -345,17 +775,12 @@ export default (async ({ directory, worktree, project, client, $ }) => {
         title: (output as any)?.title,
       }
       const mcpx = await daemon()
-      if (mcpx) {
-        try {
-          await mcpx.record(record)
-          return
-        } catch {
-          // Stopped, restarted, or its configuration changed and the socket
-          // moved. Forget it; the next call asks again.
-          forget()
-        }
+      if (!mcpx) return
+      try {
+        await mcpx.record(record)
+      } catch {
+        forget()
       }
-      await $`mcpx log record ${JSON.stringify(record)}`.quiet().nothrow()
     },
   }
 }) satisfies Plugin

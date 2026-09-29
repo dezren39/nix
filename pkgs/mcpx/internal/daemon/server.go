@@ -25,6 +25,7 @@ import (
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/settings"
 	"github.com/dezren39/mcpx/internal/tasks"
 )
 
@@ -63,6 +64,26 @@ type Server struct {
 	sink    *logging.FileSink
 	lastReq atomic.Int64
 
+	// cfgMu guards cfg, contentHash and stamp. The daemon re-reads its
+	// configuration from a request goroutine now, so what used to be
+	// write-once state is not.
+	cfgMu sync.RWMutex
+	// reloadMu serialises reloads, so two requests arriving together do not
+	// each rebuild the pool map from the same starting point.
+	reloadMu sync.Mutex
+	// contentHash is what the configuration files said when they were last
+	// read, so an edit made behind the daemon's back is noticed rather than
+	// silently ignored until a restart.
+	contentHash string
+	// stamp is the cheap version of the same question: modification times
+	// and sizes, so the common case costs a stat rather than a read.
+	stamp string
+
+	// set is the daemon's resolved configuration. Read on every request
+	// rather than copied into fields at startup, so a runtime change through
+	// PUT /v1/settings reaches the code that acts on it without a restart.
+	set *settings.Set
+
 	// tasks holds calls a client asked to run in the background. Created on
 	// first use, because a daemon that never runs one should carry nothing.
 	taskOnce sync.Once
@@ -71,6 +92,7 @@ type Server struct {
 	// consumer holds the policy and the schema history behind the things
 	// mcpx asks for itself. See internal/daemon/consumer.go.
 	consumer *consumerState
+	artifactState
 }
 
 // Options configure the daemon.
@@ -88,6 +110,10 @@ type Options struct {
 	// Sink is the durable log the daemon already writes; POST /v1/log
 	// appends to the same one rather than opening a second writer.
 	Sink *logging.FileSink
+	// Settings is the resolved configuration. Nil means the built-in
+	// defaults, which is what a test that only wants a daemon should get
+	// rather than a nil dereference.
+	Settings *settings.Set
 }
 
 // NewServer builds the daemon but does not listen yet.
@@ -107,7 +133,15 @@ func NewServer(opts Options) (*Server, error) {
 	if os.Getenv("MCPX_TRACE") != "" {
 		pool.Trace = func(f string, a ...any) { opts.Logger.Printf(f, a...) }
 	}
+	if opts.Settings == nil {
+		sch, serr := settings.New(settings.Registry())
+		if serr != nil {
+			return nil, serr
+		}
+		opts.Settings = settings.NewSet(sch)
+	}
 	srv := &Server{
+		set:      opts.Settings,
 		reg:      reg,
 		paths:    opts.Paths,
 		cfg:      opts.Config,
@@ -115,7 +149,7 @@ func NewServer(opts Options) (*Server, error) {
 		version:  opts.Version,
 		idleExit: opts.IdleExit,
 		sink:     opts.Sink,
-		Events:   events.New(defaults.EventHistory),
+		Events:   events.New(opts.Settings.Int("events.history")),
 	}
 	// The broker is optional: a daemon whose state directory cannot hold a
 	// database still serves tools, and answers every server question with
@@ -125,8 +159,13 @@ func NewServer(opts Options) (*Server, error) {
 		opts.Logger.Printf("elicitation disabled: %v", berr)
 		broker = nil
 	}
+	reg.UseSettings(opts.Settings)
 	reg.InstallHooks(srv.Events, broker, nil)
 	srv.initConsumer()
+	if opts.Config != nil {
+		srv.contentHash = ContentFingerprint(opts.Config.Sources)
+		srv.stamp = stampConfig(opts.Config.Sources)
+	}
 	srv.lastReq.Store(time.Now().UnixNano())
 	return srv, nil
 }
@@ -147,7 +186,7 @@ func (s *Server) Listen(tcpPort int) error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", s.paths.Socket, err)
 	}
-	if err := os.Chmod(s.paths.Socket, 0o600); err != nil {
+	if err := os.Chmod(s.paths.Socket, defaults.PrivateMode); err != nil {
 		unixLn.Close()
 		return err
 	}
@@ -156,7 +195,7 @@ func (s *Server) Listen(tcpPort int) error {
 	// control, and that has to be somebody's decision rather than a default.
 	host := s.Address
 	if host == "" {
-		host = "127.0.0.1"
+		host = s.set.String("daemon.address")
 	}
 	tcpLn, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(tcpPort)))
 	if err != nil {
@@ -168,8 +207,8 @@ func (s *Server) Listen(tcpPort int) error {
 	s.started = time.Now()
 
 	cfgPath := ""
-	if s.cfg != nil {
-		cfgPath = s.cfg.Path
+	if cfg := s.currentConfig(); cfg != nil {
+		cfgPath = cfg.Path
 	}
 	return s.paths.WriteInfo(Info{
 		PID:        os.Getpid(),
@@ -186,7 +225,7 @@ func (s *Server) clearStaleSocket() error {
 	if _, err := os.Stat(s.paths.Socket); err != nil {
 		return nil
 	}
-	c, err := net.DialTimeout("unix", s.paths.Socket, 500*time.Millisecond)
+	c, err := net.DialTimeout("unix", s.paths.Socket, s.set.Duration("daemon.socketProbeTimeout"))
 	if err == nil {
 		c.Close()
 		return fmt.Errorf("a daemon is already listening on %s", s.paths.Socket)
@@ -217,10 +256,12 @@ func (s *Server) ServeInline(ctx context.Context, socket string) error {
 	s.unixLn = ln
 	mux := http.NewServeMux()
 	s.routes(mux)
-	s.httpSrv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	s.httpSrv = &http.Server{Handler: mux,
+		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout")}
 	go func() {
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(),
+			s.set.Duration("http.shutdownGrace"))
 		defer cancel()
 		_ = s.httpSrv.Shutdown(shutdown)
 		s.reg.Close()
@@ -235,7 +276,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	s.routes(mux)
 	s.httpSrv = &http.Server{
 		Handler:           s.trackActivity(mux),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout"),
 	}
 
 	errCh := make(chan error, 2)
@@ -243,15 +284,15 @@ func (s *Server) Serve(ctx context.Context) error {
 	go func() { errCh <- s.httpSrv.Serve(s.tcpLn) }()
 
 	s.logger.Printf("mcpx %s listening on %s and %s", s.version, s.paths.Socket, s.endpoint)
-	if s.cfg != nil && s.cfg.Path != "" {
-		s.logger.Printf("config: %s (%d servers)", s.cfg.Path, len(s.cfg.MCPServers))
+	if cfg := s.currentConfig(); cfg != nil && cfg.Path != "" {
+		s.logger.Printf("config: %s (%d servers)", cfg.Path, len(cfg.MCPServers))
 	} else {
 		s.logger.Printf("no config file found; run `mcpx init` to create one")
 	}
 
-	reapT := time.NewTicker(defaults.ReapInterval)
+	reapT := time.NewTicker(s.set.Duration("daemon.reapInterval"))
 	defer reapT.Stop()
-	saveT := time.NewTicker(defaults.SaveInterval)
+	saveT := time.NewTicker(s.set.Duration("daemon.saveInterval"))
 	defer saveT.Stop()
 
 	sigCh := make(chan os.Signal, 1)
@@ -271,6 +312,7 @@ func (s *Server) Serve(ctx context.Context) error {
 				return err
 			}
 		case <-reapT.C:
+			s.watchConfig()
 			s.reg.Reap()
 			if s.shouldIdleExit() {
 				s.logger.Printf("no activity for %s and no live instances; exiting", s.idleExit)
@@ -289,6 +331,10 @@ func (s *Server) Serve(ctx context.Context) error {
 func (s *Server) trackActivity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.lastReq.Store(time.Now().UnixNano())
+		// Checked here so that an edit is live on the *next command*, not on
+		// the next reap tick. Two stats and a string compare; the read only
+		// happens when something moved.
+		s.watchConfig()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -317,7 +363,8 @@ func (s *Server) shutdown() error {
 		s.logger.Printf("save cache: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(),
+		s.set.Duration("http.shutdownGrace"))
 	defer cancel()
 	if s.httpSrv != nil {
 		_ = s.httpSrv.Shutdown(ctx)
@@ -333,7 +380,8 @@ func (s *Server) shutdown() error {
 // without delaying the listener.
 func (s *Server) WarmAsync() {
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(),
+			s.set.Duration("daemon.warmTimeout"))
 		defer cancel()
 		start := time.Now()
 		errs := s.reg.Warm(ctx, false)
@@ -410,10 +458,13 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/refresh", s.handleRefresh)
 	mux.HandleFunc("POST /v1/restart", s.handleRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
+	s.routesExec(mux)
+	s.routesSettings(mux)
 	// Everything declared in internal/api that is not above. A parity test
 	// fails if the two ever disagree.
 	s.routesV1Ops(mux)
 	s.routesConsumer(mux)
+	s.routesResolve(mux)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -444,8 +495,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	cfgPath := ""
-	if s.cfg != nil {
-		cfgPath = s.cfg.Path
+	if cfg := s.currentConfig(); cfg != nil {
+		cfgPath = cfg.Path
 	}
 	writeJSON(w, 200, map[string]any{
 		"version":  s.version,
@@ -480,7 +531,10 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
-		limit = 20
+		// The caller's own effective value, sent with the request, so
+		// `mcpx search --limit 5` against a daemon started without it still
+		// returns five.
+		limit = s.callSettings(r).Int("search.limit")
 	}
 	writeJSON(w, 200, s.reg.Search(r.URL.Query().Get("q"), limit))
 }
@@ -505,10 +559,18 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err)
 		return
 	}
+	cs := s.callSettings(r)
 	budget, _ := strconv.Atoi(r.URL.Query().Get("budget"))
+	if budget <= 0 {
+		budget = cs.Int("catalog.budget")
+	}
+	bias := splitWords(r.URL.Query().Get("bias"))
+	if len(bias) == 0 {
+		bias = cs.List("catalog.bias")
+	}
 	writeText(w, 200, codegen.Catalog(nss, codegen.CatalogOptions{
 		Budget: budget,
-		Bias:   splitWords(r.URL.Query().Get("bias")),
+		Bias:   bias,
 	}))
 }
 
@@ -579,7 +641,7 @@ func callContext(r *http.Request, body config.CallContext, session string) confi
 
 func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	var req callReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<20)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.set.Bytes("http.callBodyLimit"))).Decode(&req); err != nil {
 		writeErr(w, 400, err)
 		return
 	}
@@ -626,7 +688,7 @@ type resourceReq struct {
 
 func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	var req resourceReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.set.Bytes("http.bodyLimit"))).Decode(&req); err != nil {
 		writeErr(w, 400, err)
 		return
 	}
@@ -643,7 +705,7 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Session string `json:"session"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req)
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, s.set.Bytes("http.controlBodyLimit"))).Decode(&req)
 	if req.Session == "" {
 		req.Session = r.Header.Get("X-Mcpx-Session")
 	}
@@ -651,21 +713,32 @@ func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	// The configuration is re-read first. Refreshing schemas while still
+	// serving a server list from a file read hours ago answered half the
+	// question and made the other half look broken: an entry added by hand,
+	// or by `mcpx registry add`, stayed invisible until the daemon was
+	// restarted.
+	added, removed, rerr := s.reloadConfig()
+	if rerr != nil {
+		s.logger.Printf("reload during refresh: %v", rerr)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), s.set.Duration("daemon.refreshTimeout"))
 	defer cancel()
 	errs := s.reg.Warm(ctx, true)
 	out := map[string]string{}
 	for k, v := range errs {
 		out[k] = v.Error()
 	}
-	writeJSON(w, 200, map[string]any{"namespaces": s.reg.Namespaces(config.Profile{All: true}), "errors": out})
+	writeJSON(w, 200, map[string]any{
+		"namespaces": s.reg.Namespaces(config.Profile{All: true}),
+		"added":      added, "removed": removed, "errors": out})
 }
 
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Server string `json:"server"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req)
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, s.set.Bytes("http.controlBodyLimit"))).Decode(&req)
 	n, err := s.reg.Restart(req.Server)
 	if err != nil {
 		writeErr(w, 400, err)
@@ -737,7 +810,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
-	fmt.Fprintf(w, "retry: 2000\n")
+	fmt.Fprintf(w, "retry: %d\n", s.set.Duration("http.sseRetry").Milliseconds())
 	if gap {
 		// Said in-band, so a subscriber can resynchronise instead of
 		// trusting a stream with a hole in it.
@@ -746,8 +819,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	// A comment every so often keeps idle proxies from deciding the
-	// connection is dead. Fifteen seconds sits under the usual sixty.
-	ping := time.NewTicker(15 * time.Second)
+	// connection is dead. The default sits under the usual sixty.
+	ping := time.NewTicker(s.set.Duration("http.ssePing"))
 	defer ping.Stop()
 
 	for {
@@ -833,7 +906,7 @@ func (s *Server) handleElicitAnswer(w http.ResponseWriter, r *http.Request) {
 	}
 	var content json.RawMessage
 	if action == elicit.Accept {
-		b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		b, _ := io.ReadAll(io.LimitReader(r.Body, s.set.Bytes("http.bodyLimit")))
 		if len(b) > 0 {
 			content = b
 		}
@@ -868,7 +941,7 @@ func (s *Server) handleLogRecord(w http.ResponseWriter, r *http.Request) {
 			"error": "the durable log is unavailable in this daemon"})
 		return
 	}
-	b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	b, err := io.ReadAll(io.LimitReader(r.Body, s.set.Bytes("http.bodyLimit")))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return

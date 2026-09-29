@@ -20,7 +20,7 @@ import (
 func consumerSettings() []Setting {
 	return []Setting{
 		{
-			Path: "elicit.disambiguate", Kind: KindEnum, Default: defaults.Disambiguate,
+			Path: "elicit.disambiguate", Scope: ScopeDaemon, Kind: KindEnum, Default: defaults.Disambiguate,
 			Enum: []string{"never", "ask"},
 			Name: "Disambiguate instances",
 			Short: "ask which instance of a stateful server to use when several " +
@@ -33,7 +33,7 @@ func consumerSettings() []Setting {
 				"answers costs the whole deadline.",
 		},
 		{
-			Path: "elicit.disambiguateDefault", Kind: KindEnum, Default: defaults.DisambiguateDefault,
+			Path: "elicit.disambiguateDefault", Scope: ScopeDaemon, Kind: KindEnum, Default: defaults.DisambiguateDefault,
 			Enum: []string{"new", "recent"},
 			Name: "Disambiguation default",
 			Short: "which instance is used when nobody answers in time: the one " +
@@ -44,7 +44,7 @@ func consumerSettings() []Setting {
 				"so gets a fresh one rather than somebody else's.",
 		},
 		{
-			Path: "elicit.confirmDestructive", Kind: KindBool, Default: boolDefault(defaults.ConfirmDestructive),
+			Path: "elicit.confirmDestructive", Scope: ScopeDaemon, Kind: KindBool, Default: boolDefault(defaults.ConfirmDestructive),
 			Name:  "Confirm destructive calls",
 			Short: "ask before a call to a tool annotated destructiveHint",
 			Long: "MCP tool annotations carry destructiveHint, and a human-driven " +
@@ -54,7 +54,7 @@ func consumerSettings() []Setting {
 				"answer waits out the deadline before the call proceeds.",
 		},
 		{
-			Path: "elicit.askTimeout", Kind: KindDuration, Default: defaults.AskTimeout.String(),
+			Path: "elicit.askTimeout", Scope: ScopeDaemon, Kind: KindDuration, Default: defaults.AskTimeout.String(),
 			Name:  "Question deadline",
 			Short: "how long mcpx waits for an answer to a question it raised itself",
 			Long: "Bounded far below the deadline on a question an upstream server " +
@@ -62,7 +62,7 @@ func consumerSettings() []Setting {
 				"otherwise have already happened.",
 		},
 		{
-			Path: "diagnose.preflight", Kind: KindBool, Default: boolDefault(defaults.DiagnosePreflight),
+			Path: "diagnose.preflight", Scope: ScopeCall, Hot: true, Kind: KindBool, Default: boolDefault(defaults.DiagnosePreflight),
 			Commands: []string{"run", "exec", "diagnose"},
 			Name:     "Diagnose before running",
 			Short:    "check a script's tool calls against the live schemas first",
@@ -71,18 +71,18 @@ func consumerSettings() []Setting {
 				"in terms of what changed and when. No model is involved.",
 		},
 		{
-			Path: "diagnose.history", Kind: KindInt, Default: strconv.Itoa(defaults.HistoryPerTool),
+			Path: "diagnose.history", Scope: ScopeDaemon, Kind: KindInt, Default: strconv.Itoa(defaults.HistoryPerTool),
 			Plumbing: true,
 			Name:     "Schema changes remembered",
 			Short:    "how many changes are kept per tool",
 		},
 		{
-			Path: "recipes.minScore", Kind: KindInt, Default: strconv.Itoa(defaults.RecipeMinScore),
+			Path: "recipes.minScore", Scope: ScopeCall, Hot: true, Kind: KindInt, Default: strconv.Itoa(defaults.RecipeMinScore),
 			Name:  "Recipe match floor",
 			Short: "the score below which a request is not considered a match for any recipe",
 		},
 		{
-			Path: "recipes.matchMargin", Kind: KindInt, Default: strconv.Itoa(defaults.RecipeMatchMargin),
+			Path: "recipes.matchMargin", Scope: ScopeCall, Hot: true, Kind: KindInt, Default: strconv.Itoa(defaults.RecipeMatchMargin),
 			Name:  "Recipe match margin",
 			Short: "how far ahead the best recipe must be, as a percentage of the next one",
 			Long: "150 means half as much again. Below the margin mcpx returns the " +
@@ -90,11 +90,11 @@ func consumerSettings() []Setting {
 				"script is a side effect rather than a wrong answer.",
 		},
 		{
-			Path: "recipes.limit", Kind: KindInt, Default: strconv.Itoa(defaults.RecipeLimit),
+			Path: "recipes.limit", Scope: ScopeCall, Hot: true, Kind: KindInt, Default: strconv.Itoa(defaults.RecipeLimit),
 			Name: "Recipe candidates", Short: "how many ranked recipes are returned",
 		},
 		{
-			Path: "prompt.mode", Kind: KindEnum, Default: defaults.PromptMode,
+			Path: "prompt.mode", Scope: ScopeCall, Hot: true, Kind: KindEnum, Default: defaults.PromptMode,
 			Enum: []string{"script", "run"},
 			Name: "Prompt mode", Short: "whether a request returns the script or runs it",
 			Long: "Returning the script is the default and the safe direction: " +
@@ -102,7 +102,7 @@ func consumerSettings() []Setting {
 				"execution needs no new trust decision.",
 		},
 		{
-			Path: "prompt.sample", Kind: KindEnum, Default: defaults.PromptSample,
+			Path: "prompt.sample", Scope: ScopeDaemon, Kind: KindEnum, Default: defaults.PromptSample,
 			Enum: []string{"never", "ask"},
 			Name: "Generate by sampling",
 			Short: "whether a request with no matching recipe may ask the caller's " +
@@ -116,7 +116,7 @@ func consumerSettings() []Setting {
 				"an MCP client that declared the capability.",
 		},
 		{
-			Path: "prompt.catalogBudget", Kind: KindInt, Default: strconv.Itoa(defaults.PromptCatalogBudget),
+			Path: "prompt.catalogBudget", Scope: ScopeCall, Hot: true, Kind: KindInt, Default: strconv.Itoa(defaults.PromptCatalogBudget),
 			Name:  "Prompt catalog budget",
 			Short: "approximate token ceiling for the slice of catalog sent with a sampling request",
 			Long: "The point of mcpx is that tool schemas stay out of a model's " +
@@ -124,19 +124,19 @@ func consumerSettings() []Setting {
 				"slice the existing search ranked for this request and no more.",
 		},
 		{
-			Path: "prompt.sampleTimeout", Kind: KindDuration, Default: defaults.PromptSampleTimeout.String(),
+			Path: "prompt.sampleTimeout", Scope: ScopeDaemon, Kind: KindDuration, Default: defaults.PromptSampleTimeout.String(),
 			Name:  "Sampling deadline",
 			Short: "how long a generation request waits for a model",
 			Long: "When it expires, mcpx concludes there is no sampling answerer and " +
 				"returns the ranked recipes instead.",
 		},
 		{
-			Path: "prompt.maxTokens", Kind: KindInt, Default: strconv.Itoa(defaults.PromptMaxTokens),
+			Path: "prompt.maxTokens", Scope: ScopeCall, Hot: true, Kind: KindInt, Default: strconv.Itoa(defaults.PromptMaxTokens),
 			Plumbing: true,
 			Name:     "Sampling token ceiling", Short: "maxTokens on the sampling request",
 		},
 		{
-			Path: "prompt.runTimeout", Kind: KindDuration, Default: defaults.RunTimeout.String(),
+			Path: "prompt.runTimeout", Scope: ScopeCall, Hot: true, Kind: KindDuration, Default: defaults.RunTimeout.String(),
 			Name: "Recipe run timeout", Short: "how long a recipe or generated script may run",
 		},
 	}
