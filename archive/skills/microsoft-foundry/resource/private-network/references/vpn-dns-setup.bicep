@@ -75,7 +75,7 @@ resource dnsResolverSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01
 }
 
 // ── Public IP for VPN Gateway ──
-resource vpnGatewayPip 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
+resource vpnGatewayPip 'Microsoft.Network/publicIPAddresses@2024-10-01' = {
   name: 'vpn-gateway-pip-${suffix}'
   location: location
   sku: {
