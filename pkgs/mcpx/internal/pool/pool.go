@@ -383,7 +383,21 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
 	}
 
-	cl, err := mcpclient.NewWithPreference(sctx, tr, "mcpx", Version, p.preference())
+	// The server-request handler and roots go in before the handshake, not
+	// after it: the handshake is where capabilities are declared, and a
+	// legacy server never asks again. Installed afterwards, sampling could
+	// never be declared and the first roots/list could arrive before any
+	// roots were set.
+	opts := mcpclient.Options{ClientName: "mcpx", ClientVersion: Version, Preference: p.preference()}
+	if h := p.Hooks; h != nil {
+		if h.Elicit != nil {
+			opts.OnServerRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+				return h.Elicit(ctx, p.cfg.Name, method, params)
+			}
+		}
+		opts.Roots = h.Roots
+	}
+	cl, err := mcpclient.NewWithOptions(sctx, tr, opts)
 	if err != nil {
 		_ = tr.Close()
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
@@ -394,12 +408,6 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	// is lost.
 	if h := p.Hooks; h != nil {
 		cl.Subscribe(h.notifications(p.cfg.Name))
-		if h.Elicit != nil {
-			cl.SetElicitHandler(func(ctx context.Context, method string, params json.RawMessage) (any, error) {
-				return h.Elicit(ctx, p.cfg.Name, method, params)
-			})
-		}
-		cl.SetRoots(h.Roots)
 		// Servers send nothing until asked, so a client that never sets a
 		// level concludes a server emits no logs at all.
 		if h.LogLevel != "" {

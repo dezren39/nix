@@ -2254,6 +2254,66 @@ content.
 
 2026-09-29T11:00:00-05:00
 
+### It did not work, and nothing said so
+
+The passthrough above shipped unreachable. A server only sends a sampling
+request to a client that declared `sampling`, and mcpx never did: capabilities
+are declared in the handshake, and the handler that made sampling possible was
+installed on the connection *after* it. Every test of the passthrough called
+it directly, so every test passed.
+
+The same ordering broke roots. Once the daemon's handler was installed -- which
+is always -- it received every server request, `roots/list` included, and knew
+only elicitation and sampling. Roots were configured, and every server that
+asked for them was told "not implemented".
+
+Both are fixed by giving the connection its handler and roots at construction,
+and by answering roots before consulting the handler at all.
+
+2026-09-29T15:00:00-05:00
+
+## What 2026-07-28 actually asks of a client
+
+```
+created:      2026-09-29T15:00:00-05:00
+last-updated: 2026-09-29T15:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  three MUSTs the first modern implementation missed.
+```
+
+The first modern-era client probed with `server/discover`, chose a version,
+and then spoke exactly as a legacy client would. Reading the schema rather than
+the prose found three requirements it did not meet:
+
+| requirement | was | now |
+| --- | --- | --- |
+| `_meta` carries `protocolVersion` and `clientCapabilities` on **every** request -- a server MUST NOT infer capabilities from an earlier one | sent on none, not even `server/discover` | stamped on every modern request, with `clientInfo` |
+| the HTTP `MCP-Protocol-Version` header MUST match that `_meta` version, or 400 | a constant: the legacy version | read from the frame being sent |
+| every result MUST carry `resultType` | mcpx's server sent none | `"complete"` on every reply to a modern request |
+
+And one mechanism it did not know existed. A modern server cannot send the
+client a request of its own -- there is no connection to send it on -- so it
+elicits, samples and asks for roots by *answering*: `resultType:
+"input_required"`, a map of `inputRequests`, an opaque `requestState`. The
+client answers each, and sends the original request again with
+`inputResponses` and the state, exactly as received. mcpx returned the "not
+yet" as though it were the result, so against a modern server, elicitation,
+sampling and roots silently did nothing.
+
+Both eras now answer through one function, so a question is answered the same
+way whether it arrived on the wire or inside a result. The retry loop is
+bounded (`elicit.inputRounds`, 8): a server that never stops asking is broken
+or adversarial, and without a bound the client would answer it forever.
+
+Still missing, and honest about it: mcpx's *server* does not yet turn an
+upstream question into `input_required` for a modern client of its own. It
+answers through the broker instead, which works, but a modern client cannot
+answer inline.
+
+2026-09-29T15:00:00-05:00
+
 ## Running without a daemon
 
 ```
@@ -2542,6 +2602,9 @@ else in this document is detail underneath those four verbs.
   has a shape, with answers recorded inline.
 - [`docs/dependencies.md`](./dependencies.md) — every library and external
   program, and why each is needed.
+- [`docs/opencode-plugin.md`](./opencode-plugin.md) — what the plugin does and
+  why, opencode v1 against v2, and which parts are opencode's rather than
+  general enough to port to another harness.
 - [`scripts/stress.sh`](../scripts/stress.sh) — concurrency and leak checks
   against real servers. [`scripts/bench.sh`](../scripts/bench.sh) — latency
   comparison.

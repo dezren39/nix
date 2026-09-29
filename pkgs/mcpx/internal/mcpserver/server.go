@@ -374,7 +374,35 @@ Tools inside mcpx_exec are bound as tools.<namespace>.<tool>(args), all async,
 with top-level await available. log.info() and emit() are there too.`
 
 // Handle answers one request.
+//
+// A request that declared a 2026-07-28 version gets `resultType` on its
+// result, which that revision makes mandatory: it is how a client tells a
+// finished result from an input_required one. Legacy results are left as
+// they were; the field means nothing to a client that never asked for it.
 func (s *Server) Handle(ctx context.Context, req request) *response {
+	resp := s.handle(ctx, req)
+	if resp != nil && resp.Error == nil && Modern(requestVersion(req.Params)) {
+		resp.Result = stampComplete(resp.Result)
+	}
+	return resp
+}
+
+// stampComplete marks a result complete unless it already says otherwise.
+func stampComplete(result any) any {
+	m, ok := result.(map[string]any)
+	if !ok {
+		b, err := json.Marshal(result)
+		if err != nil || json.Unmarshal(b, &m) != nil || m == nil {
+			return result
+		}
+	}
+	if _, set := m["resultType"]; !set {
+		m["resultType"] = "complete"
+	}
+	return m
+}
+
+func (s *Server) handle(ctx context.Context, req request) *response {
 	reply := func(result any) *response {
 		return &response{JSONRPC: "2.0", ID: req.ID, Result: result}
 	}

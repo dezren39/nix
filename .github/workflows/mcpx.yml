@@ -16,6 +16,9 @@ on:
       - "pkgs/mcpx/**"
       - "flake.nix"
       - "flake.lock"
+      # Itself, so a bot bumping one of the actions below is tested by the
+      # job it is changing. Without this, those bumps merged unverified.
+      - ".github/workflows/mcpx.yml"
   push:
     branches: [main]
     paths:

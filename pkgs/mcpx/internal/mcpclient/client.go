@@ -88,6 +88,11 @@ type Client struct {
 	notif Notifications
 	// roots are the directories servers may work within.
 	roots []Root
+	// clientName and clientVersion identify mcpx on every modern request.
+	clientName, clientVersion string
+	// metaVersion is the version stamped into each request's _meta. Empty
+	// for a legacy connection, whose version was settled by the handshake.
+	metaVersion string
 	// Instructions is the free-text guidance a server returns from
 	// initialize. Servers use it to explain conventions their schemas cannot:
 	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
@@ -185,10 +190,18 @@ func New(ctx context.Context, t Transport, clientName, clientVersion string) (*C
 // and will stop being correct, which is why it is configurable rather than
 // decided.
 func NewWithPreference(ctx context.Context, t Transport, clientName, clientVersion string, pref Preference) (*Client, error) {
+	return newClient(ctx, t, Options{ClientName: clientName, ClientVersion: clientVersion, Preference: pref})
+}
+
+func newClient(ctx context.Context, t Transport, o Options) (*Client, error) {
 	c := &Client{
-		t:       t,
-		pending: map[int64]chan *rpcResponse{},
-		closeCh: make(chan struct{}),
+		t:             t,
+		pending:       map[int64]chan *rpcResponse{},
+		closeCh:       make(chan struct{}),
+		clientName:    o.ClientName,
+		clientVersion: o.ClientVersion,
+		onElicit:      o.OnServerRequest,
+		roots:         append([]Root(nil), o.Roots...),
 	}
 	go c.recvLoop()
 
@@ -197,12 +210,12 @@ func NewWithPreference(ctx context.Context, t Transport, clientName, clientVersi
 		case EraModern:
 			return c.discoverModern(ctx)
 		default:
-			return c.initializeLegacy(ctx, clientName, clientVersion)
+			return c.initializeLegacy(ctx, c.clientName, c.clientVersion)
 		}
 	}
 
 	var first, second Era
-	switch pref {
+	switch o.Preference {
 	case PreferModern:
 		first, second = EraModern, EraLegacy
 	case ForceModern:
@@ -242,14 +255,9 @@ func NewWithPreference(ctx context.Context, t Transport, clientName, clientVersi
 func (c *Client) initializeLegacy(ctx context.Context, clientName, clientVersion string) error {
 	params, _ := json.Marshal(map[string]any{
 		"protocolVersion": ProtocolVersion,
-		// Declared only where mcpx can actually deliver. Claiming a
-		// capability it cannot serve invites a server to use it and get
-		// silence, which is worse than not offering it.
-		"capabilities": map[string]any{
-			"elicitation": map[string]any{},
-			"roots":       map[string]any{"listChanged": false},
-		},
-		"clientInfo": map[string]any{"name": clientName, "version": clientVersion},
+		// Declared only where mcpx can actually deliver; see capabilities.
+		"capabilities": c.capabilities(),
+		"clientInfo":   map[string]any{"name": clientName, "version": clientVersion},
 	})
 	var ir initResult
 	if err := c.call(ctx, "initialize", params, &ir); err != nil {
@@ -274,8 +282,13 @@ type discoverResult struct {
 }
 
 func (c *Client) discoverModern(ctx context.Context) error {
+	// Discover is itself a modern request, so it carries the version mcpx
+	// would most like to speak; a server that cannot answers with the list
+	// it can, as an UnsupportedProtocolVersionError.
+	c.metaVersion = ModernVersions[0]
 	var dr discoverResult
 	if err := c.call(ctx, "server/discover", json.RawMessage(`{}`), &dr); err != nil {
+		c.metaVersion = ""
 		return fmt.Errorf("server/discover: %w", err)
 	}
 	// Pick the newest version both sides implement, rather than assuming the
@@ -293,9 +306,11 @@ func (c *Client) discoverModern(ctx context.Context) error {
 		}
 	}
 	if chosen == "" {
+		c.metaVersion = ""
 		return fmt.Errorf("no shared protocol version; the server offers %v",
 			dr.ProtocolVersions)
 	}
+	c.metaVersion = chosen
 	c.ServerInfo = dr.ServerInfo
 	c.Capabilities = dr.Capabilities
 	c.Instructions = dr.Instructions
@@ -378,39 +393,11 @@ func (c *Client) SetElicitHandler(h ElicitHandler) {
 // is what the old code did by accident, and it is indistinguishable from a
 // hung server.
 func (c *Client) handleServerRequest(id int64, method string, params json.RawMessage) {
-	c.mu.Lock()
-	h := c.onElicit
-	c.mu.Unlock()
-
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), defaults.ElicitHandlerTimeout)
 		defer cancel()
 
-		var result any
-		var rpcErr *rpcError
-
-		switch {
-		case h != nil:
-			out, err := h(ctx, method, params)
-			if err != nil {
-				rpcErr = &rpcError{Code: -32603, Message: err.Error()}
-			} else {
-				result = out
-			}
-		case method == "roots/list":
-			c.mu.Lock()
-			roots := append([]Root(nil), c.roots...)
-			c.mu.Unlock()
-			if roots == nil {
-				roots = []Root{}
-			}
-			result = map[string]any{"roots": roots}
-		case method == "elicitation/create":
-			// Cancel, not decline. Nobody was asked, so nobody said no.
-			result = map[string]any{"action": "cancel"}
-		default:
-			rpcErr = &rpcError{Code: -32601, Message: "mcpx does not implement " + method}
-		}
+		result, rpcErr := c.answer(ctx, method, params)
 
 		reply := map[string]any{"jsonrpc": "2.0", "id": id}
 		if rpcErr != nil {
@@ -645,6 +632,47 @@ func (c *Client) notify(ctx context.Context, method string, params json.RawMessa
 }
 
 func (c *Client) call(ctx context.Context, method string, params json.RawMessage, out any) error {
+	version := c.metaVersion
+	if version == "" {
+		raw, err := c.roundTrip(ctx, method, params)
+		if err != nil || out == nil {
+			return err
+		}
+		return json.Unmarshal(raw, out)
+	}
+
+	// Modern: every request carries its own version and capabilities, and a
+	// result may come back input_required -- answered here and retried, so
+	// callers see only the final result, exactly as they would from a
+	// legacy server that asked its questions on the wire.
+	for round := 0; ; round++ {
+		withMeta, err := c.withMeta(params, version)
+		if err != nil {
+			return err
+		}
+		raw, err := c.roundTrip(ctx, method, withMeta)
+		if err != nil {
+			return err
+		}
+		var ir inputRequired
+		_ = json.Unmarshal(raw, &ir)
+		if ir.ResultType != "input_required" {
+			if out == nil {
+				return nil
+			}
+			return json.Unmarshal(raw, out)
+		}
+		if round+1 >= maxInputRounds {
+			return fmt.Errorf("%s: the server was still asking for input after %d rounds", method, maxInputRounds)
+		}
+		if params, err = c.resolveInput(ctx, params, ir); err != nil {
+			return fmt.Errorf("%s: %w", method, err)
+		}
+	}
+}
+
+// roundTrip sends one request and returns its raw result.
+func (c *Client) roundTrip(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	id := c.nextID.Add(1)
 	ch := make(chan *rpcResponse, 1)
 
@@ -655,20 +683,20 @@ func (c *Client) call(ctx context.Context, method string, params json.RawMessage
 		if err == nil {
 			err = errors.New("client closed")
 		}
-		return err
+		return nil, err
 	}
 	c.pending[id] = ch
 	c.mu.Unlock()
 
 	b, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: &id, Method: method, Params: params})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := c.t.Send(ctx, b); err != nil {
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
-		return err
+		return nil, err
 	}
 
 	select {
@@ -679,15 +707,12 @@ func (c *Client) call(ctx context.Context, method string, params json.RawMessage
 		// Best-effort cancellation so the server can stop work.
 		cp, _ := json.Marshal(map[string]any{"requestId": id, "reason": "timeout"})
 		_ = c.notify(context.Background(), "notifications/cancelled", cp)
-		return ctx.Err()
+		return nil, ctx.Err()
 	case resp := <-ch:
 		if resp.Error != nil {
-			return resp.Error
+			return nil, resp.Error
 		}
-		if out == nil {
-			return nil
-		}
-		return json.Unmarshal(resp.Result, out)
+		return resp.Result, nil
 	}
 }
 

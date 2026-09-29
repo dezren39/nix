@@ -59,6 +59,7 @@
   "elicit": {
     "ttl": "120s",
     "pollInterval": "250ms",
-    "handlerTimeout": "5m"
+    "handlerTimeout": "5m",
+    "inputRounds": 8
   }
 }
