@@ -96,6 +96,7 @@ type Defaults struct {
 	// does it on a caller's behalf.
 	Exec struct {
 		Timeout      string `json:"timeout"`
+		StderrLimit  int    `json:"stderrLimit"`
 		Output       string `json:"output"`
 		RemoteOutput string `json:"remoteOutput"`
 		Delivery     string `json:"delivery"`
@@ -245,8 +246,12 @@ var (
 	CaptureConsole   = builtin.Script.CaptureConsole
 	TypecheckTimeout = mustDur(builtin.Script.TypecheckTimeout, "script.typecheckTimeout")
 
-	ExecTimeout      = mustDur(builtin.Exec.Timeout, "exec.timeout")
-	ExecOutput       = builtin.Exec.Output
+	ExecTimeout = mustDur(builtin.Exec.Timeout, "exec.timeout")
+	ExecOutput  = builtin.Exec.Output
+	// ExecStderrLimit bounds how much of a failed script's stderr is kept to
+	// explain the failure. Unbounded, a script looping on stderr would be
+	// held in memory in full, by the daemon, on someone else's behalf.
+	ExecStderrLimit  = builtin.Exec.StderrLimit
 	ExecRemoteOutput = builtin.Exec.RemoteOutput
 	ExecDelivery     = builtin.Exec.Delivery
 

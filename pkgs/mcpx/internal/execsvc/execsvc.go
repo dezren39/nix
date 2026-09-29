@@ -25,6 +25,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -415,6 +416,7 @@ func (s *Service) RunWith(ctx context.Context, ropts runner.Options, opts Option
 		}
 		return len(p), nil
 	})
+	var stderr *tailBuffer
 	if ropts.Log == nil {
 		// Records arrive on the script's stderr behind a sentinel; without a
 		// writer the runner forwards stderr verbatim and they are never
@@ -422,7 +424,13 @@ func (s *Service) RunWith(ctx context.Context, ropts runner.Options, opts Option
 		// the records as data.
 		ropts.Log = logging.NewWriter(io.Discard, logging.FormatText, slog.LevelDebug)
 		if ropts.Stderr == nil {
-			ropts.Stderr = io.Discard
+			// Kept, not discarded. A script that runs and exits non-zero is
+			// not an error to the runner, so nothing else fills in Error:
+			// discarding stderr left a caller with exitCode 1 and no way at
+			// all to find out why -- which is most of what /v1/exec exists
+			// to tell an agent.
+			stderr = &tailBuffer{limit: defaults.ExecStderrLimit}
+			ropts.Stderr = stderr
 		}
 	}
 
@@ -502,6 +510,14 @@ func (s *Service) RunWith(ctx context.Context, ropts runner.Options, opts Option
 	res.TimedOut = rres.TimedOut
 	if rerr != nil {
 		res.Error = rerr.Error()
+	}
+	// A non-zero exit is not an error to the runner, so if nothing above
+	// explained it, the script's own message is the explanation.
+	if res.Error == "" && res.ExitCode != 0 && stderr != nil {
+		if msg := strings.TrimSpace(stripANSI(stderr.String())); msg != "" {
+			res.Error = msg
+			emitFrame(Frame{Type: FrameError, Error: msg})
+		}
 	}
 
 	// A script whose stdout is JSON almost always means it as its answer, so
@@ -799,3 +815,39 @@ func ArtifactsDirFor(cwd, dir string) string {
 	}
 	return filepath.Join(cwd, dir)
 }
+
+// tailBuffer keeps the last limit bytes written to it.
+//
+// The tail rather than the head: a stack trace ends with the line that
+// matters, and a script that floods stderr floods it from the start.
+type tailBuffer struct {
+	limit int
+	buf   []byte
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if t.limit > 0 && len(p) > t.limit {
+		p = p[len(p)-t.limit:]
+	}
+	t.buf = append(t.buf, p...)
+	if t.limit > 0 && len(t.buf) > t.limit {
+		t.buf = t.buf[len(t.buf)-t.limit:]
+	}
+	return n, nil
+}
+
+func (t *tailBuffer) String() string {
+	if t == nil {
+		return ""
+	}
+	return string(t.buf)
+}
+
+// ansi matches the escape sequences a runtime colours its errors with.
+//
+// Deno writes them whenever it thinks it has a terminal, and this reaches a
+// caller as JSON, where they are noise an agent has to read past.
+var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSI(s string) string { return ansi.ReplaceAllString(s, "") }

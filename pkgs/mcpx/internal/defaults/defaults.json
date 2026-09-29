@@ -67,6 +67,7 @@
   },
   "exec": {
     "timeout": "120s",
+    "stderrLimit": 65536,
     "output": "text",
     "remoteOutput": "structured",
     "delivery": "reference"

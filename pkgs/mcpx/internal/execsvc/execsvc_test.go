@@ -399,3 +399,28 @@ func TestWantsArtifactsReadsBothWaysOfAskingForThem(t *testing.T) {
 		t.Error("naming a directory is declaring the capability")
 	}
 }
+
+func TestAFailedScriptExplainsItself(t *testing.T) {
+	// A script that runs and exits non-zero is not an error to the runner,
+	// so nothing filled in Error and the script's stderr was discarded: the
+	// caller got exitCode 1 and nothing else. Over /v1 that is the whole
+	// diagnostic an agent would ever see.
+	needRuntime(t)
+	svc := service(t, store(t))
+	for _, src := range []string{
+		`throw new Error("boom");`,
+		`return 1;`, // illegal at the top level of a module
+		`nonexistent_fn();`,
+	} {
+		res, _ := svc.RunWith(context.Background(), runner.Options{
+			Source: src, ClientSource: minimalClient, Permissions: "all",
+		}, execsvc.Options{Output: execsvc.OutputStructured}, func(execsvc.Frame) error { return nil })
+		if res == nil || res.ExitCode == 0 {
+			t.Errorf("%s: expected a failure", src)
+			continue
+		}
+		if strings.TrimSpace(res.Error) == "" {
+			t.Errorf("%s: exit %d with no error to show for it", src, res.ExitCode)
+		}
+	}
+}
