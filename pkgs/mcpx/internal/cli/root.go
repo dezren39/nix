@@ -66,7 +66,8 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	fs := newFlagSet("daemon")
 	cfgPath := fs.String("config", a.ConfigPath, "config file")
-	port := fs.Int("port", 0, "loopback TCP port for script clients (0 = ephemeral)")
+	port := fs.Int("port", 0, "TCP port for script clients (0 = ephemeral)")
+	addr := fs.String("address", "", "interface to bind (default loopback)")
 	detached := fs.Bool("detached", false, "internal: started in the background by the CLI")
 	warm := fs.Bool("warm", true, "read every server's schemas in the background at startup")
 	idleExit := fs.Duration("idle-exit", 0, "exit after this long with no requests and no live instances (0 = never)")
@@ -135,6 +136,15 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	})
 	if err != nil {
 		return err
+	}
+	srv.Address = firstSet(*addr, a.Settings().String("daemon.address"))
+	if h := srv.Address; h != "" && h != "127.0.0.1" && h != "localhost" {
+		// Said once, loudly. The API is unauthenticated, so whoever can
+		// route to this port can run tools as this user, and that should be
+		// a sentence somebody read rather than a surprise.
+		fmt.Fprintf(os.Stderr,
+			"mcpx: listening on %s; the API is unauthenticated, so anything that "+
+				"can reach this port can run tools as you\n", h)
 	}
 	blocks := logging.ParseIncludes(firstSet(*include, os.Getenv("MCPX_INCLUDE"), cfg.Logging.Include))
 	// The opening record carries everything about the environment, so later

@@ -2089,6 +2089,61 @@ than not offering it at all.
 
 2026-09-28T22:00:00-05:00
 
+## One daemon, many clients
+
+```
+created:      2026-09-28T23:30:00-05:00
+last-updated: 2026-09-28T23:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  a socket, a port, or a machine somewhere else.
+```
+
+The daemon has always served its whole API over HTTP. Two things stopped that
+being useful beyond one machine: the client hardcoded a unix-socket dialler,
+and the listener hardcoded loopback. Both were one line.
+
+```sh
+MCPX_DAEMON_ENDPOINT=http://mcpx.internal:8899    # a daemon on a VPN
+MCPX_DAEMON_ENDPOINT=unix:///run/mcpx/other.sock  # a different local socket
+mcpx daemon --address 0.0.0.0 --port 8899         # serve a network
+```
+
+Works for the CLI, the plugin, and generated scripts -- which could already
+do it, since they were given `MCPX_ENDPOINT` from the start.
+
+A configured endpoint also means mcpx **will not try to start** that daemon.
+Falling back to a local one when a remote is unreachable would silently
+answer from the wrong machine, which is worse than failing.
+
+Binding beyond loopback prints a warning, once, because the API is
+unauthenticated: whatever can route to the port can run tools as you. That
+should be a sentence somebody read rather than a default they inherited.
+
+### What each transport costs
+
+Same request, mean of thirty:
+
+| | |
+| --- | --- |
+| spawn `mcpx status` | 23.12 ms |
+| unix socket, new connection | 0.27 ms |
+| unix socket, keep-alive | **0.17 ms** |
+| tcp loopback, new connection | 1.59 ms |
+| tcp loopback, keep-alive | 0.65 ms |
+
+Spawning is **135× slower** than a warm socket, and almost all of it is
+process startup rather than transport. Irrelevant for something run once;
+decisive for anything on the path of every tool call.
+
+`plugin/opencode/daemon.ts` therefore talks to the socket directly rather
+than shelling out. It returns `undefined` when no daemon is reachable rather
+than throwing, because a plugin that fails to load has broken the editor for
+a tool the user may not even be using.
+
+2026-09-28T23:30:00-05:00
+
 ## Nix packaging
 
 ```
