@@ -10,13 +10,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // ProtocolVersion is the MCP revision mcpx negotiates.
-const ProtocolVersion = "2025-06-18"
+const ProtocolVersion = "2025-11-25"
+
+// ModernVersions are the per-request-metadata revisions mcpx can speak,
+// newest first.
+var ModernVersions = []string{"2026-07-28"}
 
 // Transport moves JSON-RPC frames to and from a server.
 type Transport interface {
@@ -71,6 +76,10 @@ type Client struct {
 
 	ServerInfo   ServerInfo
 	Capabilities map[string]json.RawMessage
+	// Era is which protocol generation this connection settled on.
+	Era Era
+	// Negotiated is the version actually in use.
+	Negotiated string
 	// Instructions is the free-text guidance a server returns from
 	// initialize. Servers use it to explain conventions their schemas cannot:
 	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
@@ -124,8 +133,50 @@ type resourceTemplatesListResult struct {
 	NextCursor        string     `json:"nextCursor,omitempty"`
 }
 
-// New starts the receive loop and performs the MCP initialize handshake.
+// Era is which protocol generation a server speaks.
+type Era string
+
+const (
+	// EraLegacy establishes a session with an initialize handshake.
+	// Everything published today.
+	EraLegacy Era = "legacy"
+	// EraModern carries the version on every request and has no handshake.
+	EraModern Era = "modern"
+)
+
+// Preference controls which era to try first.
+type Preference string
+
+const (
+	// PreferLegacy tries initialize first. The right default today: nearly
+	// every server in existence is legacy, and probing modern first costs a
+	// round trip on every one of them.
+	PreferLegacy Preference = "legacy"
+	// PreferModern probes server/discover first.
+	PreferModern Preference = "modern"
+	// ForceLegacy and ForceModern skip the fallback, for a server known to
+	// be one or the other, or to diagnose which it is.
+	ForceLegacy Preference = "force-legacy"
+	ForceModern Preference = "force-modern"
+)
+
+// New connects, discovering which era the server speaks.
 func New(ctx context.Context, t Transport, clientName, clientVersion string) (*Client, error) {
+	return NewWithPreference(ctx, t, clientName, clientVersion, PreferLegacy)
+}
+
+// NewWithPreference connects, trying the given era first.
+//
+// The fallback is what makes mcpx dual-era. A modern client against a legacy
+// server fails, and a legacy client against a modern server fails; only
+// something that can do both reaches the whole ecosystem.
+//
+// The probe order is a real trade. Legacy first costs a modern server one
+// wasted initialize; modern first costs every legacy server -- which is to
+// say almost all of them -- a wasted discover. Legacy first is correct today
+// and will stop being correct, which is why it is configurable rather than
+// decided.
+func NewWithPreference(ctx context.Context, t Transport, clientName, clientVersion string, pref Preference) (*Client, error) {
 	c := &Client{
 		t:       t,
 		pending: map[int64]chan *rpcResponse{},
@@ -133,25 +184,120 @@ func New(ctx context.Context, t Transport, clientName, clientVersion string) (*C
 	}
 	go c.recvLoop()
 
+	try := func(era Era) error {
+		switch era {
+		case EraModern:
+			return c.discoverModern(ctx)
+		default:
+			return c.initializeLegacy(ctx, clientName, clientVersion)
+		}
+	}
+
+	var first, second Era
+	switch pref {
+	case PreferModern:
+		first, second = EraModern, EraLegacy
+	case ForceModern:
+		first, second = EraModern, ""
+	case ForceLegacy:
+		first, second = EraLegacy, ""
+	default:
+		first, second = EraLegacy, EraModern
+	}
+
+	err := try(first)
+	if err == nil {
+		c.Era = first
+		return c, nil
+	}
+	if second == "" {
+		c.Close()
+		return nil, err
+	}
+	// A recognised modern error identifies a modern server, so there is
+	// nothing to fall back to -- the version is wrong, not the era.
+	if isVersionError(err) {
+		c.Close()
+		return nil, err
+	}
+	if ferr := try(second); ferr != nil {
+		c.Close()
+		// The first error is the one worth reporting: it came from the era
+		// this server most likely is.
+		return nil, fmt.Errorf("%s handshake failed (%w); %s also failed (%v)",
+			first, err, second, ferr)
+	}
+	c.Era = second
+	return c, nil
+}
+
+func (c *Client) initializeLegacy(ctx context.Context, clientName, clientVersion string) error {
 	params, _ := json.Marshal(map[string]any{
 		"protocolVersion": ProtocolVersion,
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": clientName, "version": clientVersion},
+		"capabilities": map[string]any{
+			// Declared because mcpx can now carry a question back to
+			// whoever called it. Claiming it without the broker behind it
+			// would invite servers to ask into silence.
+			"elicitation": map[string]any{},
+		},
+		"clientInfo": map[string]any{"name": clientName, "version": clientVersion},
 	})
 	var ir initResult
 	if err := c.call(ctx, "initialize", params, &ir); err != nil {
-		c.Close()
-		return nil, fmt.Errorf("initialize: %w", err)
+		return fmt.Errorf("initialize: %w", err)
 	}
 	c.ServerInfo = ir.ServerInfo
 	c.Capabilities = ir.Capabilities
 	c.Instructions = ir.Instructions
+	c.Negotiated = ir.ProtocolVersion
 
 	if err := c.notify(ctx, "notifications/initialized", json.RawMessage(`{}`)); err != nil {
-		c.Close()
-		return nil, fmt.Errorf("initialized notification: %w", err)
+		return fmt.Errorf("initialized notification: %w", err)
 	}
-	return c, nil
+	return nil
+}
+
+type discoverResult struct {
+	ProtocolVersions []string                   `json:"protocolVersions"`
+	ServerInfo       ServerInfo                 `json:"serverInfo"`
+	Capabilities     map[string]json.RawMessage `json:"capabilities"`
+	Instructions     string                     `json:"instructions"`
+}
+
+func (c *Client) discoverModern(ctx context.Context) error {
+	var dr discoverResult
+	if err := c.call(ctx, "server/discover", json.RawMessage(`{}`), &dr); err != nil {
+		return fmt.Errorf("server/discover: %w", err)
+	}
+	// Pick the newest version both sides implement, rather than assuming the
+	// first one listed is acceptable.
+	chosen := ""
+	for _, want := range ModernVersions {
+		for _, have := range dr.ProtocolVersions {
+			if want == have {
+				chosen = want
+				break
+			}
+		}
+		if chosen != "" {
+			break
+		}
+	}
+	if chosen == "" {
+		return fmt.Errorf("no shared protocol version; the server offers %v",
+			dr.ProtocolVersions)
+	}
+	c.ServerInfo = dr.ServerInfo
+	c.Capabilities = dr.Capabilities
+	c.Instructions = dr.Instructions
+	c.Negotiated = chosen
+	return nil
+}
+
+// isVersionError reports an UnsupportedProtocolVersionError, which identifies
+// a modern server whatever else went wrong.
+func isVersionError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "-32022")
 }
 
 // Supports reports whether the server advertised a capability.

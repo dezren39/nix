@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/mcpauth"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -134,7 +135,11 @@ type Server struct {
 	URL       string            `json:"url,omitempty"`
 	Transport string            `json:"transport,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
-	Cwd       string            `json:"cwd,omitempty"`
+	// Auth declares credentials. The specification says stdio servers take
+	// theirs from the environment and HTTP servers use OAuth when protected;
+	// most need nothing at all.
+	Auth *mcpauth.Auth `json:"auth,omitempty"`
+	Cwd  string        `json:"cwd,omitempty"`
 	// AliasOf names another server whose process definition this entry reuses.
 	// An alias is a second *view* -- its own namespace, tool subset, prelude
 	// and description -- over the same command. Whether it also shares a

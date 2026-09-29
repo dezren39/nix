@@ -135,7 +135,36 @@ const (
 	codeMethodNotFound = -32601
 	codeInvalidParams  = -32602
 	codeInternal       = -32603
+	// codeUnsupportedVersion is defined by the specification, not by
+	// JSON-RPC, and carries the supported list in its data.
+	codeUnsupportedVersion = -32022
 )
+
+// unsupportedVersion is the answer to a version mcpx does not implement.
+//
+// The list matters: a client has no other way to discover what would work,
+// and the specification says it SHOULD retry with something from it.
+func supportedFor(legacyOnly bool) []string {
+	if legacyOnly {
+		return LegacySupported()
+	}
+	return Supported
+}
+
+func unsupportedVersion(id json.RawMessage, params json.RawMessage, legacyOnly bool) *response {
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	_ = json.Unmarshal(params, &p)
+	return &response{JSONRPC: "2.0", ID: id, Error: &rpcError{
+		Code:    codeUnsupportedVersion,
+		Message: "Unsupported protocol version",
+		Data: map[string]any{
+			"supported": supportedFor(legacyOnly),
+			"requested": p.ProtocolVersion,
+		},
+	}}
+}
 
 // Tool is one exposed function.
 type Tool struct {
@@ -293,20 +322,46 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
 	}
 
+	// A modern request carries its version in _meta and expects no
+	// handshake. Checked before dispatch so an unsupported one is refused
+	// uniformly rather than by whichever handler happens to notice.
+	if v := requestVersion(req.Params); v != "" && !supports(v) {
+		return unsupportedVersion(req.ID, req.Params, false)
+	}
+
 	switch req.Method {
 	case "initialize":
+		version := negotiate(req.Params)
+		if version == "" {
+			return unsupportedVersion(req.ID, req.Params, true)
+		}
 		return reply(map[string]any{
 			// Echo the protocol version the client asked for when it is one
 			// we understand, rather than insisting on ours. A client that
 			// speaks an older revision of a compatible protocol is better
 			// served than refused.
-			"protocolVersion": negotiate(req.Params),
+			"protocolVersion": version,
 			"capabilities": map[string]any{
 				"tools":     map[string]any{"listChanged": false},
 				"resources": map[string]any{"subscribe": false, "listChanged": false},
 				"prompts":   map[string]any{"listChanged": false},
 			},
 			"serverInfo":   map[string]any{"name": s.name, "version": s.version},
+			"instructions": Instructions,
+		})
+
+	case "server/discover":
+		// Mandatory in the modern revisions, and the probe a dual-era client
+		// uses to decide which era it is talking to. Answering it is what
+		// makes mcpx reachable from a modern client at all.
+		return reply(map[string]any{
+			"protocolVersions": Supported,
+			"serverInfo":       map[string]any{"name": s.name, "version": s.version},
+			"capabilities": map[string]any{
+				"tools":     map[string]any{"listChanged": false},
+				"resources": map[string]any{"subscribe": false, "listChanged": false},
+				"prompts":   map[string]any{"listChanged": false},
+			},
 			"instructions": Instructions,
 		})
 
@@ -409,15 +464,87 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 }
 
 // negotiate picks a protocol version.
+// Supported are the protocol versions mcpx actually implements, newest first.
+//
+// Both eras. The legacy revisions negotiate once through an initialize
+// handshake; 2026-07-28 carries the version on every request and has no
+// handshake at all. Supporting only one would make mcpx unreachable from half
+// the ecosystem, and the matrix in the specification is unforgiving about it:
+// modern against legacy fails, legacy against modern fails, and only a
+// dual-era implementation bridges them.
+var Supported = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"}
+
+// Latest is what mcpx prefers when the client expresses no opinion.
+//
+// The newest legacy revision rather than the newest overall, because a client
+// that sent `initialize` has already told us it is legacy, and answering with
+// a modern version would be answering a question it did not ask.
+const Latest = "2025-11-25"
+
+// Modern reports whether a version uses per-request metadata rather than a
+// handshake.
+func Modern(version string) bool { return version >= "2026-07-28" }
+
+// requestVersion reads the per-request protocol version the modern revisions
+// carry in _meta. Empty means the request did not declare one, which is how
+// every legacy request looks.
+func requestVersion(params json.RawMessage) string {
+	var p struct {
+		Meta map[string]any `json:"_meta"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return ""
+	}
+	v, _ := p.Meta["io.modelcontextprotocol/protocolVersion"].(string)
+	return v
+}
+
+// supports reports whether mcpx implements a version.
+func supports(version string) bool {
+	for _, v := range Supported {
+		if v == version {
+			return true
+		}
+	}
+	return false
+}
+
+// negotiate picks a version for a legacy initialize.
+//
+// It returns the empty string when the requested version is one mcpx does not
+// implement, so the caller can answer with an UnsupportedProtocolVersionError
+// rather than agreeing to something it cannot do.
+//
+// The previous implementation echoed whatever was asked for. A client
+// requesting 2026-07-28 was told yes, and then found no server/discover and
+// no per-request metadata handling. Agreeing to everything is the same as
+// declaring nothing.
 func negotiate(params json.RawMessage) string {
-	const ours = "2025-06-18"
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if json.Unmarshal(params, &p) == nil && p.ProtocolVersion != "" {
+	if json.Unmarshal(params, &p) != nil || p.ProtocolVersion == "" {
+		return Latest
+	}
+	// Only a legacy version can be agreed here. A client that sent
+	// `initialize` is legacy by definition -- the modern revisions have no
+	// handshake at all -- so agreeing to a modern version over this channel
+	// would promise a protocol neither side is speaking.
+	if supports(p.ProtocolVersion) && !Modern(p.ProtocolVersion) {
 		return p.ProtocolVersion
 	}
-	return ours
+	return ""
+}
+
+// LegacySupported is what an initialize may negotiate.
+func LegacySupported() []string {
+	var out []string
+	for _, v := range Supported {
+		if !Modern(v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage) (string, error) {
