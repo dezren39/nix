@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,11 @@ const (
 	LayerFile                 // a configuration file, furthest first
 	LayerEnv                  // the environment
 	LayerFlag                 // the command line
+	// LayerRuntime is an override set through the API after the process
+	// started. It is highest because it is the most recent statement of
+	// intent: somebody changed their mind while the thing was running, and
+	// having a flag from ten minutes ago win would be inexplicable.
+	LayerRuntime
 )
 
 func (l Layer) String() string {
@@ -29,6 +35,8 @@ func (l Layer) String() string {
 		return "env"
 	case LayerFlag:
 		return "flag"
+	case LayerRuntime:
+		return "runtime"
 	}
 	return "?"
 }
@@ -64,15 +72,34 @@ type Value struct {
 }
 
 // Set is a resolved configuration.
+//
+// A Set is read from many goroutines at once inside the daemon while another
+// is applying a runtime override, so the map is guarded. Apply itself is
+// still expected to run during start-up on one goroutine; the lock is there
+// for the reads, which happen forever.
 type Set struct {
 	schema  *Schema
+	mu      sync.RWMutex
 	values  map[string]*Value
 	unknown []UnknownKeys
+
+	// base is the set this one layers on. A per-request view of the daemon's
+	// configuration is a Set with a handful of overrides and no copy of the
+	// eighty values underneath it, because a copy per request would be eighty
+	// allocations to change one number.
+	base *Set
+	// override are values applied above every declared layer: a runtime
+	// change on the root set, or the call-scoped values a client sent with
+	// one request on a view.
+	override map[string]string
+	// overrideDetail describes where the overrides came from, for provenance.
+	overrideDetail string
 }
 
 // NewSet starts from the schema's declared defaults.
 func NewSet(schema *Schema) *Set {
-	s := &Set{schema: schema, values: map[string]*Value{}}
+	s := &Set{schema: schema, values: map[string]*Value{},
+		override: map[string]string{}, overrideDetail: "api"}
 	for _, set := range schema.All() {
 		s.values[set.Path] = &Value{
 			Path:   set.Path,
@@ -81,6 +108,66 @@ func NewSet(schema *Schema) *Set {
 		}
 	}
 	return s
+}
+
+// WithOverrides returns a view of this set with some values replaced.
+//
+// The view does not copy anything: it holds the overrides and defers
+// everything else. This is what carries a call-scoped setting from a client's
+// command line into the daemon serving that one request, without the value
+// leaking into the next request or into another client.
+func (s *Set) WithOverrides(ov map[string]string, detail string) *Set {
+	if len(ov) == 0 {
+		return s
+	}
+	copied := make(map[string]string, len(ov))
+	for k, v := range ov {
+		copied[k] = v
+	}
+	return &Set{schema: s.schema, base: s, override: copied, overrideDetail: detail}
+}
+
+// SetRuntime applies an override above every declared layer, live.
+//
+// Validated exactly as a value from a file would be, because a runtime change
+// that skips the parser is the one way to get an invalid value into a running
+// process.
+func (s *Set) SetRuntime(path, raw string) error {
+	set, ok := s.schema.Lookup(path)
+	if !ok {
+		return fmt.Errorf("unknown setting %q", path)
+	}
+	if err := Validate(*set, raw); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.override == nil {
+		s.override = map[string]string{}
+	}
+	s.override[path] = raw
+	return nil
+}
+
+// ClearRuntime drops a runtime override, so the value falls back to whatever
+// the flags, environment and files said. Reports whether one was there.
+func (s *Set) ClearRuntime(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, had := s.override[path]
+	delete(s.override, path)
+	return had
+}
+
+// RuntimeOverrides returns the overrides currently in force.
+func (s *Set) RuntimeOverrides() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]string, len(s.override))
+	for k, v := range s.override {
+		out[k] = v
+	}
+	return out
 }
 
 // Apply records a value at a layer. Later calls at a higher-or-equal layer
@@ -98,6 +185,8 @@ func (s *Set) Apply(path, raw string, origin Origin) error {
 	if err := Validate(*set, raw); err != nil {
 		return fmt.Errorf("%s (from %s): %w", path, origin, err)
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	cur, seen := s.values[path]
 	if !seen {
 		s.values[path] = &Value{Path: path, Raw: raw, Origin: origin}
@@ -120,17 +209,42 @@ func (s *Set) Apply(path, raw string, origin Origin) error {
 	return nil
 }
 
-// Value returns the resolved value for a path.
+// Value returns the resolved value for a path, overrides included.
 func (s *Set) Value(path string) (*Value, bool) {
-	v, ok := s.values[path]
-	return v, ok
+	s.mu.RLock()
+	raw, overridden := s.override[path]
+	detail := s.overrideDetail
+	s.mu.RUnlock()
+
+	var under *Value
+	if s.base != nil {
+		under, _ = s.base.Value(path)
+	} else {
+		s.mu.RLock()
+		if v, ok := s.values[path]; ok {
+			c := *v
+			under = &c
+		}
+		s.mu.RUnlock()
+	}
+	if !overridden {
+		return under, under != nil
+	}
+	out := &Value{Path: path, Raw: raw,
+		Origin: Origin{Layer: LayerRuntime, Detail: detail}}
+	if under != nil {
+		out.Shadowed = append([]Origin{under.Origin}, under.Shadowed...)
+	}
+	return out, true
 }
 
 // All returns every resolved value, path-ordered.
 func (s *Set) All() []Value {
-	out := make([]Value, 0, len(s.values))
-	for _, v := range s.values {
-		out = append(out, *v)
+	out := make([]Value, 0, len(s.schema.settings))
+	for _, set := range s.schema.All() {
+		if v, ok := s.Value(set.Path); ok {
+			out = append(out, *v)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
@@ -146,7 +260,7 @@ func (s *Set) Schema() *Schema { return s.schema }
 // call is better than returning a zero value that looks like a user's choice.
 
 func (s *Set) raw(path string) string {
-	v, ok := s.values[path]
+	v, ok := s.Value(path)
 	if !ok {
 		panic("settings: no such setting " + path)
 	}

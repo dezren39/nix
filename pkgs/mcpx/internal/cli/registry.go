@@ -188,8 +188,9 @@ func installEntry(s registry.Server, in *registry.Install) map[string]any {
 
 // addServerToConfig inserts a server into a configuration file.
 //
-// Read, modify, write, preserving everything else. A generated file would
-// lose comments and ordering somebody put there deliberately.
+// The read-modify-write lives in internal/config now, because the daemon and
+// `mcpx servers add` need the identical thing and three copies of it would be
+// three chances to truncate somebody's file.
 func (a *App) addServerToConfig(explicit, name string, entry map[string]any) (string, error) {
 	path := explicit
 	if path == "" {
@@ -201,29 +202,16 @@ func (a *App) addServerToConfig(explicit, name string, entry map[string]any) (st
 	if path == "" {
 		path = ".mcpx.json"
 	}
-	doc := map[string]any{}
-	if b, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(config.StripJSONC(b), &doc); err != nil {
-			return "", fmt.Errorf("%s is not valid JSON, so mcpx will not rewrite it: %w", path, err)
+	if err := config.AddServer(path, name, entry, false); err != nil {
+		return "", err
+	}
+	// The daemon re-reads its configuration on refresh, so a server added
+	// here is callable without a restart. Best effort: a write that
+	// succeeded is not undone because no daemon was listening.
+	if c := a.Client(); c != nil && c.Ping(context.Background()) {
+		if _, err := c.Refresh(context.Background()); err != nil {
+			fmt.Fprintf(os.Stderr, "mcpx: added, but the daemon did not reload: %v\n", err)
 		}
-	}
-	servers, _ := doc["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
-	}
-	if _, exists := servers[name]; exists {
-		return "", fmt.Errorf("%s already defines %q; remove it first or pick another name",
-			path, name)
-	}
-	servers[name] = entry
-	doc["mcpServers"] = servers
-
-	out, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
-		return "", err
 	}
 	return path, nil
 }

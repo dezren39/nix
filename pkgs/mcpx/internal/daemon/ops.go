@@ -63,7 +63,7 @@ func (s *Server) logDir() string {
 // be quietly stale.
 func (s *Server) openStore() (*logstore.Store, error) {
 	dir := s.logDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, defaults.DirMode); err != nil {
 		return nil, err
 	}
 	st, err := logstore.Open(dir)
@@ -104,6 +104,9 @@ func wireRecords(recs []logstore.Record) []logRecord {
 func (s *Server) handleLogQuery(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit == 0 {
+		limit = s.callSettings(r).Int("logstore.queryLimit")
+	}
 	query := logstore.Query{
 		Level: q.Get("level"), Event: q.Get("event"), Server: q.Get("server"),
 		Tool: q.Get("tool"), Session: q.Get("session"), Trace: q.Get("trace"),
@@ -164,7 +167,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 	top, _ := strconv.Atoi(q.Get("top"))
 	if top <= 0 {
-		top = defaults.StatsTop
+		top = s.callSettings(r).Int("stats.top")
 	}
 	// Limit -1 is "every record in the window": an aggregate over the last
 	// hundred rows is not an aggregate, it is a sample nobody asked for.
@@ -236,15 +239,17 @@ func capped[T any](rows []T, top int) []T {
 // ---- the registry ----
 
 func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
+	cs := s.callSettings(r)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
-		limit = defaults.RegistryLimit
+		limit = cs.Int("registry.limit")
 	}
-	// The registry URL comes from the environment rather than from the
-	// config file, because the daemon has no settings resolver and the
-	// setting is a single string. A caller that needs a private registry
-	// sets it on the daemon.
-	client := registry.New(os.Getenv("MCPX_REGISTRY_URL"))
+	// The daemon now has a settings resolver, so the registry URL is read
+	// the same way everywhere: a config file, MCPX_REGISTRY_URL, or a flag.
+	// It used to be environment-only here and config-only in the CLI, which
+	// meant `mcpx registry search` and GET /v1/registry/search could quietly
+	// query two different registries.
+	client := registry.New(cs.String("registry.url"))
 	servers, err := client.Search(r.Context(), r.URL.Query().Get("q"), limit)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
@@ -298,7 +303,8 @@ type completeReq struct {
 
 func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request) {
 	var req completeReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body,
+		s.set.Bytes("http.bodyLimit"))).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -313,6 +319,7 @@ func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request) {
 			errors.New(`ref.type is "ref/prompt" or "ref/resource"`))
 		return
 	}
+	cs := s.callSettings(r)
 	p, ok := s.reg.Pool(req.Server)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("unknown server or namespace %q", req.Server))
@@ -337,7 +344,8 @@ func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"completion": localCompletion(p.CachedPrompts(), p.CachedTemplates(), req),
+		"completion": localCompletion(p.CachedPrompts(), p.CachedTemplates(), req,
+			cs.Int("completion.maxValues")),
 		// Said plainly, because a client that cannot tell an empty answer
 		// from an unimplemented one shows nothing and the user concludes
 		// completion is broken.
@@ -350,7 +358,7 @@ func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request) {
 // Only the names it knows: prompt names and resource template URIs. A
 // server's own completion knows the *values* an argument may take, which
 // mcpx cannot guess, so this is a floor rather than a substitute.
-func localCompletion(prompts []mcpclient.Prompt, templates []mcpclient.Resource, req completeReq) map[string]any {
+func localCompletion(prompts []mcpclient.Prompt, templates []mcpclient.Resource, req completeReq, max int) map[string]any {
 	var values []string
 	switch req.Ref.Type {
 	case "ref/prompt":
@@ -369,10 +377,11 @@ func localCompletion(prompts []mcpclient.Prompt, templates []mcpclient.Resource,
 	if values == nil {
 		values = []string{}
 	}
-	// The specification caps a completion reply at 100.
+	// The specification caps a completion reply at a hundred; the setting
+	// may lower that but a conforming client will reject more.
 	total := len(values)
-	if len(values) > 100 {
-		values = values[:100]
+	if max > 0 && len(values) > max {
+		values = values[:max]
 	}
 	return map[string]any{"values": values, "total": total, "hasMore": total > len(values)}
 }
@@ -400,7 +409,7 @@ func (s *Server) handleTaskGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTaskResult(w http.ResponseWriter, r *http.Request) {
-	wait := defaults.TaskResultWait
+	wait := s.callSettings(r).Duration("tasks.resultWait")
 	if ms, err := strconv.Atoi(r.URL.Query().Get("waitMs")); err == nil && ms > 0 {
 		wait = time.Duration(ms) * time.Millisecond
 	}

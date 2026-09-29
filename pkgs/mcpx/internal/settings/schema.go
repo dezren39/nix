@@ -59,6 +59,69 @@ func (k Kind) String() string {
 	return "unknown"
 }
 
+// Scope is which process a setting governs.
+//
+// It exists because a flag on a CLI command and a value inside an
+// already-running daemon are not the same thing, and pretending they are
+// produces the worst configuration bug there is: a flag that is accepted,
+// validated, printed back, and then silently ignored because the process that
+// would act on it was started an hour ago with a different environment.
+//
+// Knowing the scope lets each surface do the right thing. A daemon-scoped
+// setting is read by the daemon and a client that sets it must either restart
+// the daemon or ask it to change at runtime. A call-scoped setting travels
+// with the request, so a flag on one command reaches the daemon serving it.
+type Scope int
+
+const (
+	// ScopeUnset is the zero value, and is not a legal scope. A setting that
+	// does not say who reads it is a setting nobody can reason about from
+	// the outside, so a test refuses one rather than guessing on its behalf.
+	ScopeUnset Scope = iota
+	// ScopeDaemon is daemon-wide: the pooled servers, the listener, the log
+	// the daemon writes.
+	ScopeDaemon
+	// ScopeClient is the CLI process itself: output rendering, how to reach
+	// a daemon, whether to start one.
+	ScopeClient
+	// ScopeCall is meaningful per request. The CLI sends its effective value
+	// with the request and the daemon honours it for that request only.
+	ScopeCall
+	// ScopePlugin is read by the opencode plugin, which is neither.
+	ScopePlugin
+)
+
+func (s Scope) String() string {
+	switch s {
+	case ScopeUnset:
+		return "unset"
+	case ScopeDaemon:
+		return "daemon"
+	case ScopeClient:
+		return "client"
+	case ScopeCall:
+		return "call"
+	case ScopePlugin:
+		return "plugin"
+	}
+	return "unknown"
+}
+
+// ParseScope reads a scope name.
+func ParseScope(v string) (Scope, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "daemon":
+		return ScopeDaemon, true
+	case "client":
+		return ScopeClient, true
+	case "call":
+		return ScopeCall, true
+	case "plugin":
+		return ScopePlugin, true
+	}
+	return ScopeUnset, false
+}
+
 // Setting is one knob.
 type Setting struct {
 	// Path is the dotted location in the configuration file, and the basis
@@ -118,6 +181,16 @@ type Setting struct {
 	// legal value for it, and whether that directory is read recursively.
 	AllowDir  bool
 	Recursive bool
+
+	// Scope says which process reads this. See Scope.
+	Scope Scope
+
+	// Hot marks a setting that takes effect the moment it changes, because
+	// whoever reads it reads it afresh on every use. A setting that is not
+	// hot was consumed once at startup -- a listener address, a log file --
+	// and changing it at runtime would be recorded and then do nothing, so
+	// the runtime API refuses it and says a restart is needed instead.
+	Hot bool
 }
 
 // Requirement is a cross-field condition.

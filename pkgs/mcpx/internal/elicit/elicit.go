@@ -412,7 +412,7 @@ func (b *Broker) Pending(f Filter) ([]Request, error) {
 	}
 	limit := f.Limit
 	if limit <= 0 {
-		limit = 100
+		limit = defaults.ElicitPending
 	}
 	q := selectRequests + " WHERE " + strings.Join(where, " AND ") +
 		" ORDER BY created_ms ASC LIMIT ?"

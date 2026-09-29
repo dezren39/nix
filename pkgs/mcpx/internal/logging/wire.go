@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"log/slog"
 	"runtime"
@@ -130,7 +131,7 @@ func Stream(src io.Reader, w *Writer, opts StreamOptions) error {
 	sc := bufio.NewScanner(src)
 	// Script output can be long; a snapshot or a stack trace easily exceeds
 	// the default 64 KiB line limit.
-	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
+	sc.Buffer(make([]byte, 0, int(defaults.HTTPStreamBufferInit)), int(defaults.HTTPStreamBufferMax))
 	for sc.Scan() {
 		line := sc.Text()
 		if streamed, ok := ParseResult(line); ok {

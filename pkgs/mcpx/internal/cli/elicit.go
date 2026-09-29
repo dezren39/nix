@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ const ExitInputRequired = 75
 func (a *App) broker() (*elicit.Broker, error) {
 	dir := firstNonEmpty(a.Settings().String("logging.dir"),
 		filepath.Join(a.Paths.State, "logs"))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, defaults.PublicDirMode); err != nil {
 		return nil, err
 	}
 	return elicit.Open(filepath.Join(dir, "elicit.db"))
