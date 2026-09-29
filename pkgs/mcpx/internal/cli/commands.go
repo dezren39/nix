@@ -606,8 +606,12 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			"cwd":     mustGetwd(),
 		}, logging.HarnessIDs()),
 		Env: map[string]string{
-			"MCPX_SESSION":    sessionKey,
-			"MCPX_ENDPOINT":   endpoint,
+			"MCPX_SESSION":  sessionKey,
+			"MCPX_ENDPOINT": endpoint,
+			// The socket as well as the port, so a script can use whichever
+			// is faster. Empty when the daemon is remote: a socket on another
+			// machine is not reachable from here.
+			"MCPX_SOCKET":     a.localSocket(),
 			"MCPX_LOG_SOURCE": logging.SourceSpec(sourceLevel),
 			"MCPX_LOG_LEVEL":  logging.LevelName(minLevel),
 			// Path facts travel through the environment so that a module three
@@ -824,6 +828,18 @@ func enrichWith(base, extra map[string]any) map[string]any {
 		base[k] = v
 	}
 	return base
+}
+
+// localSocket is the daemon socket when the daemon is on this machine.
+func (a *App) localSocket() string {
+	if a.Settings().String("daemon.endpoint") != "" {
+		return ""
+	}
+	paths, _ := a.resolvePathsForConfig()
+	if _, err := os.Stat(paths.Socket); err != nil {
+		return ""
+	}
+	return paths.Socket
 }
 
 func firstNonEmpty(v ...string) string {

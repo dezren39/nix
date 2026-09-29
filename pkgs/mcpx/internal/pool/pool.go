@@ -589,6 +589,8 @@ type Hooks struct {
 	OnProgress        func(server string, p mcpclient.Progress)
 	OnListChanged     func(server, kind string)
 	OnResourceUpdated func(server, uri string)
+	// OnElicitationComplete fires when a url-mode flow finishes.
+	OnElicitationComplete func(server, id string)
 	// Elicit answers server-initiated requests: elicitation and sampling.
 	Elicit func(ctx context.Context, server, method string, params json.RawMessage) (any, error)
 	Roots  []mcpclient.Root
@@ -609,6 +611,9 @@ func (h *Hooks) notifications(server string) mcpclient.Notifications {
 	}
 	if h.OnResourceUpdated != nil {
 		n.OnResourceUpdated = func(uri string) { h.OnResourceUpdated(server, uri) }
+	}
+	if h.OnElicitationComplete != nil {
+		n.OnElicitationComplete = func(id string) { h.OnElicitationComplete(server, id) }
 	}
 	return n
 }

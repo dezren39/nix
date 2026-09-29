@@ -52,6 +52,20 @@ func (r *Registry) InstallHooks(bus *events.Bus, broker *elicit.Broker, roots []
 		OnResourceUpdated: func(server, uri string) {
 			r.publish(events.Event{Kind: events.ResourceUpdated, Server: server, URI: uri})
 		},
+		OnElicitationComplete: func(server, id string) {
+			// The server says the out-of-band flow finished. The question it
+			// was attached to is therefore answered, and whatever is waiting
+			// on it should hear so now rather than at its deadline.
+			if r.broker != nil {
+				_ = r.broker.Respond(elicit.Answer{
+					ID: id, Action: elicit.Accept, By: "server:" + server,
+				})
+			}
+			r.publish(events.Event{
+				Kind: events.ElicitCompleted, Server: server,
+				Data: mustJSON(map[string]string{"elicitationId": id}),
+			})
+		},
 		Elicit: r.answerServer,
 	}
 	seen := map[*pool.Pool]bool{}

@@ -459,6 +459,10 @@ type Notifications struct {
 	OnListChanged func(kind string)
 	// OnResourceUpdated fires when a subscribed resource changes.
 	OnResourceUpdated func(uri string)
+	// OnElicitationComplete fires when a url-mode elicitation finishes out
+	// of band -- the person came back from the browser. Without it the
+	// caller waits for the deadline to find out something already happened.
+	OnElicitationComplete func(id string)
 }
 
 // Subscribe installs notification handlers.
@@ -501,6 +505,16 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		c.invalidate("resources", n)
 	case "notifications/prompts/list_changed":
 		c.invalidate("prompts", n)
+	case "notifications/elicitation/complete":
+		if n.OnElicitationComplete == nil {
+			return
+		}
+		var d struct {
+			ElicitationID string `json:"elicitationId"`
+		}
+		if json.Unmarshal(params, &d) == nil && d.ElicitationID != "" {
+			n.OnElicitationComplete(d.ElicitationID)
+		}
 	case "notifications/resources/updated":
 		if n.OnResourceUpdated == nil {
 			return
