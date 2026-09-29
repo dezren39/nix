@@ -44,22 +44,61 @@ Three answers, and the distinction matters:
 Collapsing decline and cancel is the obvious mistake. A server that treats
 "not now" as "never" stops offering something the user wanted.
 
-### The spec changed, in our favour
+### Two eras, and mcpx is in the older one
 
-Revision `2025-06-18` makes this a genuine mid-flight bidirectional request:
-the server sends `elicitation/create` while `tools/call` is still open.
+This is bigger than elicitation, and correcting it is a prerequisite.
 
-Revision `2026-07-28` and the current draft replace it with a **retry**: the
-tool call returns an `InputRequiredResult` carrying `inputRequests`, the call
-*ends*, and the client re-sends the original request with `inputResponses`
-attached.
+The spec divides implementations into two **eras**:
 
-That second shape is dramatically easier for mcpx, because nothing has to stay
-open. A CLI invocation can return, a person can answer an hour later, and a
-new invocation carries the answer. **The design below targets the retry model
-as primary and treats the bidirectional model as a compatibility path**, which
-inverts the usual preference for the newer spec — here the newer one is also
-the simpler one.
+| | versions | how it works |
+| --- | --- | --- |
+| **legacy** | `2025-11-25` and earlier | `initialize` handshake establishes a session; version negotiated once |
+| **modern** | `2026-07-28` (current) and later | no handshake; every request carries its version in `_meta`; `server/discover` is mandatory |
+
+The current version is **`2026-07-28`**. It is not a draft.
+
+The compatibility matrix is unforgiving. A modern client against a legacy
+server **fails**. A legacy client against a modern server **fails**. Only a
+*dual-era* implementation bridges them, and it must implement both.
+
+mcpx is legacy on both sides: its client sends `initialize` with
+`ProtocolVersion = "2025-06-18"`, and its server answers `initialize`.
+
+**And its server lies.** `negotiate()` echoes whatever version the client
+asked for:
+
+```console
+$ printf '{"jsonrpc":"2.0","id":1,"method":"initialize",
+           "params":{"protocolVersion":"2026-07-28"}}\n' | mcpx serve
+  we claimed: 2026-07-28
+$ ... server/discover
+  -32601 no method server/discover
+```
+
+A modern client is told "yes, I speak 2026-07-28", and then finds no
+`server/discover` and no `_meta` handling. The spec says an unsupported
+version **MUST** get an `UnsupportedProtocolVersionError` (`-32022`) listing
+what is actually supported. This is a second live bug, independent of
+elicitation, and cheaper to fix than to explain.
+
+### Elicitation in each era
+
+The delivery mechanism differs, which is why the era question comes first.
+
+- **Legacy**: a genuine mid-flight request. The server sends
+  `elicitation/create` while `tools/call` is still open, and waits.
+- **Modern**: a **retry**. The call returns an `InputRequiredResult` carrying
+  `inputRequests`, the call *ends*, and the client re-sends the original
+  request with `inputResponses` attached.
+
+The modern shape is dramatically easier for mcpx, because nothing stays open:
+an invocation can return and a person can answer an hour later. The legacy
+shape is what every server that exists today actually speaks.
+
+So the broker below is designed around the modern semantics -- a question is
+state with a deadline -- and the legacy path is implemented by holding the
+call open and feeding it from the same broker. **Both are needed.** One shape
+of storage, two shapes of wire.
 
 ---
 
@@ -350,6 +389,40 @@ Two new tools on the MCP surface:
 - `mcpx_elicit_pending` — what is waiting, with schemas and deadlines
 - `mcpx_elicit_answer` — answer one
 
+### 5.4a Who is the question for: the agent or the person?
+
+The spec does not have a field for this, and deliberately so. From the Python
+SDK's own words: *"If the client is an agent, it might decide how to handle
+the elicitation -- either by asking the user or automatically generating a
+response."* **The decision is the client's, not the server's.**
+
+So mcpx needs a routing policy, and the useful thing is that the elicitation
+itself carries enough to route on:
+
+| signal | route to | why |
+| --- | --- | --- |
+| `mode: "url"` | **human** | the point is a browser and a person's consent |
+| `format: "password"`, or a name matching `token\|secret\|key\|password` | **human** | a model should not be handed a credential, and cannot know one |
+| a `confirm`/`approve` boolean on a destructive call | **human** | consent is the whole content of the question |
+| an enum the agent can evaluate from context | **agent** | "which of these three repos" is answerable from what it just read |
+| free text with no constraint | **agent first, human on decline** | the agent may know; if it does not it should decline, not invent |
+
+The last row is the one that matters. A model asked "which repository?" with
+no way to know will produce a plausible name. **The default for anything the
+agent cannot verify must be decline, not guess**, and the skill in §5.7 exists
+mostly to say so.
+
+A server may *hint* through `_meta` -- `io.mcpx/audience: "user"` -- and mcpx
+should honour a hint toward the human and ignore one toward the agent, because
+a server pushing a question past a person is exactly the direction that needs
+resisting.
+
+In the plugin this becomes concrete: `notify` puts it to the agent, `ask` puts
+it to the person, and the routing policy decides which when the mode is
+`auto`. A question routed to the agent that the agent declines is *re-raised*
+to the person rather than failing -- that escalation is the behaviour somebody
+would expect and would otherwise have to build by hand.
+
 ### 5.5 The opencode plugin
 
 The plugin is where this becomes genuinely good, because opencode has a real
@@ -404,12 +477,21 @@ The skill's job is to say: if you do not know, `decline` and explain why.
 Elicitation is not only a feature. It is the missing half of four things mcpx
 already has.
 
-### OAuth, which is a named gap
+### Third-party authorisation flows
 
-`url` mode **is** how MCP does OAuth. A server that needs authorisation elicits
-a URL, the user visits it, the server notices out of band. The entire OAuth
-story that `OPENCODE-V2.md` lists as missing is a consequence of this design
-rather than separate work. Nothing else is needed.
+I overstated this in the first draft. Two different things share the word
+OAuth:
+
+1. **MCP's own authorization spec** -- how a *client authenticates to a remote
+   MCP server* over HTTP. That is a separate document, separate machinery
+   (OAuth 2.1, resource metadata, token handling), and elicitation does not
+   provide it. It remains a genuine gap.
+2. **A server sending its user through someone else's authorisation flow** --
+   "connect your GitHub account". *That* is url-mode elicitation, and it does
+   fall out of this design.
+
+The second is common and currently impossible. The first is unaffected. The
+line in `OPENCODE-V2.md` should be split accordingly rather than crossed off.
 
 ### Write operations in OpenAPI and CLI adapters
 
@@ -453,6 +535,70 @@ the call resumes. That is a different product feature that falls out of the
 same machinery.
 
 ---
+
+## 6a. How the answer travels: four mechanisms, not one
+
+The re-exec shape in §5.1 is right for one case and wrong as the only option.
+There are four ways an answer can reach the broker, and each is best somewhere.
+
+| mechanism | latency | survives exit | best for |
+| --- | --- | --- | --- |
+| **stdin/stdout prompt** | immediate | no | a person at a terminal |
+| **re-exec** (`mcpx elicit answer`) | seconds to hours | yes | scripts, CI, anything that returned |
+| **daemon socket subscription** | immediate | while connected | the TUI, the plugin, any long-lived client |
+| **HTTP** (`POST /v1/elicit/<id>/answer`) | immediate | yes | remote callers, webhooks, another machine |
+
+The daemon already owns a unix socket and a loopback port. A long-lived
+client -- the TUI, the plugin, a `mcpx elicit watch` left running -- should
+**subscribe** rather than poll:
+
+```
+GET /v1/elicit/subscribe          → server-sent events
+```
+
+That removes the polling in §3 for every case that matters, and polling
+survives only as the fallback for a process that cannot hold a connection.
+
+The defaults follow from the table:
+
+- terminal → prompt, no re-exec, no state to reconcile
+- non-terminal → return the document, expect `mcpx elicit answer`
+- TUI, plugin → subscribe
+- REST caller → the HTTP endpoints, which they are already speaking
+
+Re-exec is the *conventional* shape because it is the only one that works when
+the asking process is gone, and that is the case a CLI has to handle. It is
+not the best shape when the process is still there.
+
+## 6b. Continuity across the re-exec
+
+A re-exec means a new process, and the question is whether anything is lost.
+
+Nothing needs to be, because session identity already lives in the
+environment rather than the process. `MCPX_SESSION_ID` is injected by the
+harness; a second invocation in the same shell carries the same value and
+therefore leases the same pooled server.
+
+What the audit trail needs, and what the design should record:
+
+```
+elicit.open      trace=cal-d13e… elicit=elc-9f2c… session=s876… pid=41201
+elicit.answered  elicit=elc-9f2c… action=accept by=cli
+                 session=s876… pid=41533 answeredAfterMs=18420
+elicit.resumed   trace=cal-a77b… parent=cal-d13e… elicit=elc-9f2c…
+```
+
+Three things fall out of that. The **pid changes and is recorded on both
+sides**, so "who answered this" is answerable. The **session is the same**, so
+`mcpx log --chain` walks from the resumed call back through the elicitation to
+the original call. And `answeredAfterMs` is the metric worth having: it is the
+human latency, and it is the number that tells you whether a TTL is set
+sensibly.
+
+If the session id is *absent* -- a bare shell, no harness -- the broker binds
+the question to the config fingerprint and the working directory instead, and
+says so in the record. Refusing to work without a session would make the
+feature unusable from a plain terminal, which is where people debug.
 
 ## 7. Cost, and what could go wrong
 
