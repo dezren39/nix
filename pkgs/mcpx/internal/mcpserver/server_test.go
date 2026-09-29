@@ -409,3 +409,152 @@ func TestAPerRequestVersionIsHonouredAndChecked(t *testing.T) {
 		t.Errorf("an unsupported per-request version should be refused: %s", b)
 	}
 }
+
+func TestListsArePaginatedSoALargeInstallationIsReadable(t *testing.T) {
+	// mcpx fronts every tool of every configured server. A client with a
+	// frame limit has no way to read that list except by paging, and
+	// ignoring the cursor made a large installation simply unreadable.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	s.PageSize = 3
+
+	first := s.Handle(context.Background(), mcpserver.Request(1, "tools/list", nil))
+	b, _ := json.Marshal(first)
+	var page struct {
+		Result struct {
+			Tools      []map[string]any `json:"tools"`
+			NextCursor string           `json:"nextCursor"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(b, &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Result.Tools) != 3 {
+		t.Fatalf("expected a page of 3, got %d", len(page.Result.Tools))
+	}
+	if page.Result.NextCursor == "" {
+		t.Fatal("more remains, so a cursor should have been offered")
+	}
+	// Opaque, because the specification says so and a client that parses one
+	// is relying on something it was told not to.
+	if strings.Contains(page.Result.NextCursor, "3") {
+		t.Errorf("the cursor should not be a readable offset: %q", page.Result.NextCursor)
+	}
+
+	second := s.Handle(context.Background(), mcpserver.Request(2, "tools/list",
+		map[string]any{"cursor": page.Result.NextCursor}))
+	b, _ = json.Marshal(second)
+	var next struct {
+		Result struct {
+			Tools []map[string]any `json:"tools"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(b, &next)
+	if len(next.Result.Tools) == 0 {
+		t.Fatal("the second page should have content")
+	}
+	if next.Result.Tools[0]["name"] == page.Result.Tools[0]["name"] {
+		t.Error("the second page should not repeat the first")
+	}
+}
+
+func TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing(t *testing.T) {
+	// A cursor is opaque, so a client cannot validate one before sending it.
+	// Refusing would strand a client that has nothing better to send.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "tools/list",
+		map[string]any{"cursor": "not-a-cursor"}))
+	// Parsed rather than substring-matched: a tool description legitimately
+	// contains the word "errors", and matching on it made this pass or fail
+	// for reasons unrelated to cursors.
+	if errOf(t, resp) != "" {
+		t.Errorf("an opaque cursor cannot be validated by the client: %s", errOf(t, resp))
+	}
+}
+
+// errOf returns a response's JSON-RPC error message, or empty.
+func errOf(t *testing.T, resp any) string {
+	t.Helper()
+	b, _ := json.Marshal(resp)
+	var doc struct {
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(b, &doc) != nil || doc.Error == nil {
+		return ""
+	}
+	return doc.Error.Message
+}
+
+func TestCompletionAnswersFromWhatMcpxKnows(t *testing.T) {
+	// A client offering completion and receiving method-not-found shows
+	// nothing, and the user concludes the feature is broken.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "completion/complete",
+		map[string]any{"argument": map[string]any{"name": "tool", "value": "exec"}}))
+	b, _ := json.Marshal(resp)
+	if !strings.Contains(string(b), "mcpx_exec") {
+		t.Errorf("expected a match: %s", b)
+	}
+	if !strings.Contains(string(b), `"hasMore"`) {
+		t.Errorf("the reply shape is values/total/hasMore: %s", b)
+	}
+}
+
+func TestCancellationIsRecordedRatherThanDropped(t *testing.T) {
+	// A client that cancels and sees work continue cannot tell whether the
+	// message arrived.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	var gotID, gotReason string
+	s.OnCancel = func(id, reason string) { gotID, gotReason = id, reason }
+
+	if resp := s.Handle(context.Background(), mcpserver.Request(0,
+		"notifications/cancelled",
+		map[string]any{"requestId": 42, "reason": "user pressed escape"})); resp != nil {
+		t.Error("a notification has no reply")
+	}
+	if gotID != "42" || gotReason != "user pressed escape" {
+		t.Errorf("the hook should have fired: %q %q", gotID, gotReason)
+	}
+	if reason, ok := s.Cancelled("42"); !ok || reason == "" {
+		t.Errorf("it should be queryable: %q %v", reason, ok)
+	}
+}
+
+func TestLoggingSetLevelIsAcceptedRatherThanRefused(t *testing.T) {
+	// Refusing would make a well-behaved client treat the whole connection
+	// as degraded.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "logging/setLevel",
+		map[string]any{"level": "info"}))
+	if msg := errOf(t, resp); msg != "" {
+		t.Errorf("got %s", msg)
+	}
+}
+
+func TestCapabilitiesMatchWhatIsActuallyAnswered(t *testing.T) {
+	// Declaring a capability mcpx cannot serve invites a client to use it
+	// and get silence, which is worse than not offering it.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
+		map[string]any{"protocolVersion": "2025-11-25"}))
+	b, _ := json.Marshal(resp)
+	for _, want := range []string{"completions", "logging", "tools", "resources", "prompts"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("%q is answered and should be declared: %s", want, b)
+		}
+	}
+	// Not declared, because mcpx cannot do it. Checked against the
+	// capabilities object rather than the whole body, which also carries
+	// instructions.
+	var doc struct {
+		Result struct {
+			Capabilities map[string]any `json:"capabilities"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(b, &doc)
+	if _, declared := doc.Result.Capabilities["sampling"]; declared {
+		t.Errorf("sampling is not implemented and must not be declared: %v",
+			doc.Result.Capabilities)
+	}
+}

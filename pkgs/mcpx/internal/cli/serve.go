@@ -258,6 +258,7 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	}
 
 	srv := mcpserver.New(mcpBackend{app: a}, "mcpx", a.Version)
+	srv.PageSize = a.Settings().Int("mcp.pageSize")
 
 	// Adapted programs are offered as tools in their own right, not only
 	// through mcpx_exec. A host that wants git as a tool should get git as a

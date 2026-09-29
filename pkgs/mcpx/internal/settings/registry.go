@@ -330,6 +330,15 @@ func outputSettings() []Setting {
 			Commands: []string{"registry"},
 		},
 		{
+			Path: "mcp.pageSize", Kind: KindInt, Default: "100",
+			Name:  "MCP page size",
+			Short: "how many items one tools/list reply carries",
+			Long: "mcpx fronts every tool of every configured server, and a client " +
+				"with a frame limit has no other way to read the list than to page " +
+				"through it.",
+			Commands: []string{"serve"},
+		},
+		{
 			Path: "output.json", Kind: KindBool, Default: "false",
 			FlagAliases: []string{"json"},
 			Name:        "JSON output", Short: "emit one machine-readable document",
