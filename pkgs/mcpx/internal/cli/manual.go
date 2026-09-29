@@ -155,6 +155,23 @@ func Commands() []Command {
 			},
 		},
 		{
+			Name: "elicit", Group: "inspection",
+			Usage:   "[list|show|answer|decline|cancel|watch|result] [<id>] [<json>|key=value...]",
+			Summary: "answer a question a server asked",
+			Detail: "A server may stop mid-call and ask something -- which repository, " +
+				"are you sure, log in here. mcpx stores the question with a " +
+				"deadline rather than blocking on it, so whoever answers need not " +
+				"be whoever asked: a call from CI can be answered from a laptop " +
+				"twenty minutes later. A call that is waiting exits 75, which is " +
+				"EX_TEMPFAIL, and prints the question and the command that answers " +
+				"it.",
+			Examples: []string{
+				"mcpx elicit list",
+				"mcpx elicit answer elc-9f2c1a84 repo=me/thing",
+				"mcpx elicit decline elc-9f2c1a84",
+			},
+		},
+		{
 			Name: "doctor", Group: "inspection",
 			Usage: "[-v]", Summary: "diagnose the installation",
 			Detail: "Checks the runtime, git, the configuration chain, whether every " +

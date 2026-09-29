@@ -454,6 +454,17 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return errors.New("usage: mcpx run <script.ts> [args...]")
 	}
 
+	// Resolved before anything can print. A progress notice is suppressed
+	// for a machine-readable format, and the first thing that emits one is
+	// the schema fetch below -- so deciding the format afterwards meant the
+	// suppression never applied on a cold cache. The failure appeared only
+	// when the cache happened to be cold, which is the worst kind of
+	// ordering bug: correct on every run that had already been run.
+	if f, ferr := logging.ParseFormat(firstNonEmpty(*format,
+		a.Settings().String("logging.format"))); ferr == nil {
+		a.setOutputFormat(f)
+	}
+
 	c, err := a.ensure(ctx)
 	if err != nil {
 		return err
