@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/adapter"
+	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
@@ -258,6 +259,7 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	}
 
 	srv := mcpserver.New(mcpBackend{app: a}, "mcpx", a.Version)
+	srv.Notify = daemonNotifier{app: a}
 	srv.PageSize = a.Settings().Int("mcp.pageSize")
 
 	// Adapted programs are offered as tools in their own right, not only
@@ -588,4 +590,76 @@ func renderPrompt(raw json.RawMessage) string {
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// ResourceTemplates passes through what upstream servers publish.
+func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.ResourceRef, error) {
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := c.ResourceTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcpserver.ResourceRef, 0, len(list))
+	for _, r := range list {
+		out = append(out, mcpserver.ResourceRef{
+			URI:         "mcpx://" + r.Namespace + "/" + strings.TrimPrefix(r.URI, "/"),
+			Name:        r.Name,
+			Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
+			MimeType:    r.MimeType,
+		})
+	}
+	return out, nil
+}
+
+// daemonNotifier reads the daemon's event stream and forwards the parts MCP
+// has a notification for.
+//
+// `mcpx serve` is a separate process from the daemon, so it cannot touch the
+// daemon's bus directly. It subscribes over the same socket everything else
+// uses, and translates. The translation is deliberately narrow: only the four
+// notification kinds the specification defines leave this function, because
+// a server MUST NOT send what the client did not ask for.
+type daemonNotifier struct{ app *App }
+
+func (n daemonNotifier) Listen(ctx context.Context, f mcpserver.ListenFilter, send func(string, any)) {
+	var kinds []string
+	if f.ToolsListChanged {
+		kinds = append(kinds, string(events.ToolsChanged))
+	}
+	if f.PromptsListChanged {
+		kinds = append(kinds, string(events.PromptsChanged))
+	}
+	if f.ResourcesListChanged {
+		kinds = append(kinds, string(events.ResourcesChanged))
+	}
+	if len(f.ResourceSubscriptions) > 0 {
+		kinds = append(kinds, string(events.ResourceUpdated))
+	}
+	if len(kinds) == 0 {
+		return
+	}
+	c, err := n.app.ensure(ctx)
+	if err != nil {
+		return
+	}
+	// Resource URIs arrive namespaced from mcpx's own listings; the daemon
+	// knows them by their upstream form.
+	uris := make([]string, 0, len(f.ResourceSubscriptions))
+	for _, u := range f.ResourceSubscriptions {
+		if rest, ok := strings.CutPrefix(u, "mcpx://"); ok {
+			if _, uri, ok := strings.Cut(rest, "/"); ok {
+				uris = append(uris, uri)
+				continue
+			}
+		}
+		uris = append(uris, u)
+	}
+	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: uris}, func(e events.Event) {
+		if method, params, ok := events.MCPNotification(e); ok {
+			send(method, params)
+		}
+	})
 }

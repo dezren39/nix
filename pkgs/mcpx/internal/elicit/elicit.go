@@ -51,6 +51,10 @@ const (
 	// URL sends the user somewhere out of band -- an authorisation flow, a
 	// payment page -- so the answer never passes through a model.
 	URL Mode = "url"
+	// Sample is a request for a model completion rather than a question.
+	// Stored in the same table because it has the same life: asked by a
+	// server, answered by whatever drives mcpx, bounded by a deadline.
+	Sample Mode = "sample"
 )
 
 // State is where a question is in its life.
@@ -304,7 +308,7 @@ func (b *Broker) Respond(a Answer) error {
 		// first answer stands and the caller is told so.
 		return fmt.Errorf("%s was already %s", a.ID, r.State)
 	}
-	if a.Action == Accept && r.Mode == Form && len(a.Content) == 0 {
+	if a.Action == Accept && (r.Mode == Form || r.Mode == Sample) && len(a.Content) == 0 {
 		return errors.New("an accepted form elicitation needs content")
 	}
 
@@ -485,6 +489,9 @@ func scanRequests(rows *sql.Rows) ([]Request, error) {
 // has the context to answer. A human is pulled in only for what an agent
 // cannot know or should not hold.
 func Route(r Request) (Audience, string) {
+	if r.Mode == Sample {
+		return ToAgent, "sampling asks a model, and the agent driving mcpx has one"
+	}
 	if r.Mode == URL {
 		return ToHuman, "url mode needs a browser and a person's consent"
 	}

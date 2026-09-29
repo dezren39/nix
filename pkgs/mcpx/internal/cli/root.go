@@ -168,6 +168,10 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 			attrs[logging.KeyParent] = string(daemonTrace)
 		}
 		logStructured(writer, slog.LevelDebug, event, attrs)
+		// The same events reach live subscribers. The log is for what
+		// happened; the stream is for what is happening, and a hook that
+		// has to poll the log to find out has already missed the moment.
+		srv.PublishLifecycle(event, attrs)
 	}
 
 	if err := srv.Listen(*port); err != nil {

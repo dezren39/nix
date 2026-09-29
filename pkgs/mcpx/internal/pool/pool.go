@@ -106,6 +106,9 @@ func (l *Lease) Release() {
 
 // Pool owns every instance of a single configured server.
 type Pool struct {
+	// Hooks receive what this pool's servers volunteer.
+	Hooks *Hooks
+
 	cfg *config.Resolved
 
 	mu        sync.Mutex
@@ -380,10 +383,28 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
 	}
 
-	cl, err := mcpclient.New(sctx, tr, "mcpx", Version)
+	cl, err := mcpclient.NewWithPreference(sctx, tr, "mcpx", Version, p.preference())
 	if err != nil {
 		_ = tr.Close()
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
+	}
+	// Everything the server volunteers flows to whoever installed hooks: log
+	// lines, progress, list changes, resource updates. Installed before the
+	// instance is handed out, so nothing a server says in its first moments
+	// is lost.
+	if h := p.Hooks; h != nil {
+		cl.Subscribe(h.notifications(p.cfg.Name))
+		if h.Elicit != nil {
+			cl.SetElicitHandler(func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+				return h.Elicit(ctx, p.cfg.Name, method, params)
+			})
+		}
+		cl.SetRoots(h.Roots)
+		// Servers send nothing until asked, so a client that never sets a
+		// level concludes a server emits no logs at all.
+		if h.LogLevel != "" {
+			_ = cl.SetLogLevel(sctx, h.LogLevel)
+		}
 	}
 
 	p.mu.Lock()
@@ -513,6 +534,33 @@ func (p *Pool) CachedSchemas() ([]mcpclient.Tool, []mcpclient.Resource, time.Tim
 	return p.tools, p.resources, p.schemaAt
 }
 
+// Invalidate forgets the cached schema, so the next read fetches it afresh.
+//
+// Called when a server announces its list changed. Keeping the old schema
+// would have mcpx describe tools that no longer exist, or omit ones that
+// now do, until somebody thought to run refresh.
+func (p *Pool) Invalidate() {
+	p.schemaMu.Lock()
+	p.schemaAt = time.Time{}
+	p.schemaMu.Unlock()
+}
+
+// CachedTemplates returns the resource templates last seen.
+//
+// Templates arrive mixed with static resources from ListResources, which
+// appends them; they are separated here by the field only a template has.
+func (p *Pool) CachedTemplates() []mcpclient.Resource {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+	var out []mcpclient.Resource
+	for _, r := range p.resources {
+		if r.URITemplate != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // CachedPrompts returns the prompts last seen.
 func (p *Pool) CachedPrompts() []mcpclient.Prompt {
 	p.schemaMu.RLock()
@@ -530,6 +578,57 @@ func (p *Pool) GetPrompt(ctx context.Context, sessionKey, name string, args map[
 	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
 	defer cancel()
 	return lease.Client().GetPrompt(cctx, name, args)
+}
+
+// Hooks receive what servers volunteer.
+//
+// Installed on every instance a pool starts. The daemon supplies one set and
+// fans the results onto its event bus; a pool built for a test supplies none.
+type Hooks struct {
+	OnMessage         func(server string, m mcpclient.ServerMessage)
+	OnProgress        func(server string, p mcpclient.Progress)
+	OnListChanged     func(server, kind string)
+	OnResourceUpdated func(server, uri string)
+	// OnElicitationComplete fires when a url-mode flow finishes.
+	OnElicitationComplete func(server, id string)
+	// Elicit answers server-initiated requests: elicitation and sampling.
+	Elicit func(ctx context.Context, server, method string, params json.RawMessage) (any, error)
+	Roots  []mcpclient.Root
+	// LogLevel is requested from every server that supports logging.
+	LogLevel string
+}
+
+func (h *Hooks) notifications(server string) mcpclient.Notifications {
+	var n mcpclient.Notifications
+	if h.OnMessage != nil {
+		n.OnMessage = func(m mcpclient.ServerMessage) { h.OnMessage(server, m) }
+	}
+	if h.OnProgress != nil {
+		n.OnProgress = func(p mcpclient.Progress) { h.OnProgress(server, p) }
+	}
+	if h.OnListChanged != nil {
+		n.OnListChanged = func(kind string) { h.OnListChanged(server, kind) }
+	}
+	if h.OnResourceUpdated != nil {
+		n.OnResourceUpdated = func(uri string) { h.OnResourceUpdated(server, uri) }
+	}
+	if h.OnElicitationComplete != nil {
+		n.OnElicitationComplete = func(id string) { h.OnElicitationComplete(server, id) }
+	}
+	return n
+}
+
+// preference is which protocol era to probe first for this server.
+func (p *Pool) preference() mcpclient.Preference {
+	switch p.cfg.Protocol {
+	case "modern":
+		return mcpclient.PreferModern
+	case "force-legacy":
+		return mcpclient.ForceLegacy
+	case "force-modern":
+		return mcpclient.ForceModern
+	}
+	return mcpclient.PreferLegacy
 }
 
 // Call runs a tool on a leased instance.

@@ -457,6 +457,12 @@ type Notifications struct {
 	// OnListChanged fires when the server says its tools, resources or
 	// prompts have changed. The kind is "tools", "resources" or "prompts".
 	OnListChanged func(kind string)
+	// OnResourceUpdated fires when a subscribed resource changes.
+	OnResourceUpdated func(uri string)
+	// OnElicitationComplete fires when a url-mode elicitation finishes out
+	// of band -- the person came back from the browser. Without it the
+	// caller waits for the deadline to find out something already happened.
+	OnElicitationComplete func(id string)
 }
 
 // Subscribe installs notification handlers.
@@ -499,6 +505,26 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 		c.invalidate("resources", n)
 	case "notifications/prompts/list_changed":
 		c.invalidate("prompts", n)
+	case "notifications/elicitation/complete":
+		if n.OnElicitationComplete == nil {
+			return
+		}
+		var d struct {
+			ElicitationID string `json:"elicitationId"`
+		}
+		if json.Unmarshal(params, &d) == nil && d.ElicitationID != "" {
+			n.OnElicitationComplete(d.ElicitationID)
+		}
+	case "notifications/resources/updated":
+		if n.OnResourceUpdated == nil {
+			return
+		}
+		var u struct {
+			URI string `json:"uri"`
+		}
+		if json.Unmarshal(params, &u) == nil && u.URI != "" {
+			n.OnResourceUpdated(u.URI)
+		}
 	}
 }
 
@@ -506,6 +532,40 @@ func (c *Client) invalidate(kind string, n Notifications) {
 	if n.OnListChanged != nil {
 		n.OnListChanged(kind)
 	}
+}
+
+// Subscribe asks for notifications when a resource changes.
+//
+// The legacy revisions do this with resources/subscribe per URI. The modern
+// one replaced it with a filter on subscriptions/listen; that is handled by
+// the listening stream rather than here, so this is a no-op against a modern
+// server rather than a method-not-found.
+func (c *Client) SubscribeResource(ctx context.Context, uri string) error {
+	if c.Era == EraModern {
+		return nil
+	}
+	params, _ := json.Marshal(map[string]string{"uri": uri})
+	var out json.RawMessage
+	return c.call(ctx, "resources/subscribe", params, &out)
+}
+
+// UnsubscribeResource stops notifications for a resource.
+func (c *Client) UnsubscribeResource(ctx context.Context, uri string) error {
+	if c.Era == EraModern {
+		return nil
+	}
+	params, _ := json.Marshal(map[string]string{"uri": uri})
+	var out json.RawMessage
+	return c.call(ctx, "resources/unsubscribe", params, &out)
+}
+
+// ListResourceTemplates returns the server's parameterised resources.
+func (c *Client) ListResourceTemplates(ctx context.Context) ([]Resource, error) {
+	var tres resourceTemplatesListResult
+	if err := c.call(ctx, "resources/templates/list", json.RawMessage(`{}`), &tres); err != nil {
+		return nil, err
+	}
+	return tres.ResourceTemplates, nil
 }
 
 // SetLogLevel asks the server to send messages at or above a level.
