@@ -2144,6 +2144,166 @@ a tool the user may not even be using.
 
 2026-09-28T23:30:00-05:00
 
+## Hearing what the daemon is doing
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  one event bus, two views of it.
+```
+
+MCP's own subscription mechanism, `subscriptions/listen`, carries four kinds of
+notification: tools, prompts and resources changing, and a subscribed resource
+updating. That is the right set for a server telling a client its catalogue
+moved, and nowhere near enough for what a client of mcpx wants to hear -- a
+question waiting for an answer, a server that crashed, a call that finished.
+
+So there is one bus and two views of it:
+
+| | carries | for |
+| --- | --- | --- |
+| `subscriptions/listen` | the four the specification defines | any MCP client |
+| `GET /v1/events` | everything mcpx notices | the plugin, the TUI, a script, curl |
+
+Both read the same stream, so they cannot disagree about what happened. The
+MCP view is deliberately narrow: the specification says a server MUST NOT send
+a notification type the client did not request, so nothing mcpx-specific leaks
+into it.
+
+### Server-sent events, not WebSockets
+
+SSE is plain HTTP. It goes through every proxy HTTP does, a browser's
+`EventSource` reconnects it without any code knowing, and consuming it takes a
+GET. WebSockets would buy bidirectionality nothing here needs -- answers go
+back as ordinary POSTs -- at the cost of an upgrade that half of all
+middleboxes mishandle.
+
+### Lossless reconnection
+
+Every event carries a sequence number. Reconnect with `Last-Event-ID` (which
+`EventSource` sends for you) or `?since=N` and everything after N is replayed.
+
+`?since=0` replays everything retained; *no* position means live only. Those
+are different requests, and conflating them -- which an early version did --
+made "replay from the start" silently return nothing, indistinguishable from
+nothing having happened.
+
+A reconnect older than the retained history gets an in-band `gap` event, so
+the subscriber can resynchronise rather than trust a stream with a hole in it.
+
+Publishing never blocks. One slow reader cannot stall the daemon; it misses
+events and has a counter to say so.
+
+2026-09-29T11:00:00-05:00
+
+## Sampling
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  a server asking for a model's help, passed to whoever has one.
+```
+
+Sampling is part of the MCP specification, in every revision -- not an
+opencode feature. It lets a **server ask its client for a model completion**:
+"summarise this", "classify that", "draft a reply". The server gets an
+intelligence it does not have to host or pay for.
+
+It is the mirror of elicitation:
+
+| | asks | for |
+| --- | --- | --- |
+| elicitation | a person or agent | a value -- which repository, are you sure |
+| sampling | a model | text -- a completion the server will use |
+
+mcpx has no model, so it cannot answer either itself. What it can do is carry
+the request to something that can. A sampling request becomes a stored
+question -- same table, same deadline, same routing as elicitation -- and
+whatever drives mcpx answers it. The opencode plugin is the natural answerer:
+it holds a session with a real model already.
+
+Declining a sampling request becomes an error, because the specification has
+no decline result for it. A result missing `role` or `model` has them filled,
+since strict servers reject one without them for a reason unrelated to its
+content.
+
+2026-09-29T11:00:00-05:00
+
+## Running without a daemon
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  the last rung, and what it costs.
+```
+
+Every command walks the same ladder, cheapest first:
+
+```
+1. socket    an existing local daemon          0.17 ms
+2. url       a named remote one                0.65 ms
+3. spawn     start a daemon, then use it       ~23 ms, once
+4. inline    run the servers in this process   every time
+```
+
+A named endpoint stops the ladder at step 2: falling back to a local daemon
+would answer from the wrong machine.
+
+**Inline** hosts the daemon's own API inside the command, on a private socket,
+for as long as the command runs. It is the identical handler, so it cannot
+drift from daemon mode.
+
+What changes is lifetime, and it changes completely:
+
+| | with a daemon | inline |
+| --- | --- | --- |
+| a server starts | once, reused | every command |
+| between commands | kept warm | gone |
+| a browser session | survives across commands | dies with the command |
+| schema cache | shared | read from disk each time |
+
+That is why inline is the last rung and off by default. It is for a sandbox
+with no fork, a read-only filesystem, or a container whose init will not reap
+-- places where the alternative is not working at all. A pool that silently
+stops pooling is a performance bug nobody can see, so it has to be asked for.
+
+2026-09-29T11:00:00-05:00
+
+## Tasks
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  a slow tool call as a handle rather than a held request.
+```
+
+Add `task` to a `tools/call` and the reply is a handle, immediately. Poll it
+with `tasks/get`, wait on it with `tasks/result`, stop it with `tasks/cancel`.
+
+For a genuinely slow tool -- a build, a crawl, a browser session -- holding a
+request open for minutes invites every proxy, load balancer and client timeout
+in between to cut it off. A handle does not.
+
+Core in `2025-11-25`, an extension in `2026-07-28`, so mcpx declares it both
+ways and a client of either era finds it where it looks.
+
+Every task has a TTL. The specification allows an unbounded one; mcpx never
+offers it, because a result nobody collects is memory nobody frees.
+
+2026-09-29T11:00:00-05:00
+
 ## Nix packaging
 
 ```

@@ -50,7 +50,8 @@
     "restartBackoffMax": "30s",
     "registryTimeout": "30s",
     "eventHistory": 1024,
-    "streamReconnect": "2s"
+    "streamReconnect": "2s",
+    "taskTTL": "10m"
   },
   "elicit": {
     "ttl": "120s",

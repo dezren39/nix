@@ -142,6 +142,17 @@ export class DaemonClient {
     const q = session ? `?session=${encodeURIComponent(session)}` : ""
     return this.get(`/v1/elicit${q}`)
   }
+
+  /**
+   * Answer a question.
+   *
+   * The action is in the path and the body is only ever content, so there is
+   * no way to send an accept with the wrong shape or a decline with content
+   * that will be ignored.
+   */
+  answer(id: string, action: "accept" | "decline" | "cancel", content?: unknown): Promise<unknown> {
+    return this.post(`/v1/elicit/${encodeURIComponent(id)}/${action}`, content ?? {})
+  }
 }
 
 /**

@@ -682,3 +682,75 @@ func TestResourceTemplatesAreServedRatherThanSwallowed(t *testing.T) {
 		t.Errorf("got %s", b)
 	}
 }
+
+func TestAToolCallCanRunAsATask(t *testing.T) {
+	// For a genuinely slow tool, holding a request open for minutes invites
+	// every intermediary to time it out. A task hands back a handle at once.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	resp := s.Handle(context.Background(), mcpserver.Request(1, "tools/call", map[string]any{
+		"name": "mcpx_namespaces", "arguments": map[string]any{},
+		"task": map[string]any{"ttl": 60000},
+	}))
+	b, _ := json.Marshal(resp)
+	var got struct {
+		Result struct {
+			Task struct {
+				TaskID string `json:"taskId"`
+				Status string `json:"status"`
+			} `json:"task"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(b, &got); err != nil || got.Result.Task.TaskID == "" {
+		t.Fatalf("a task handle should come back at once: %s", b)
+	}
+	id := got.Result.Task.TaskID
+
+	// tasks/result waits for it and returns the tool's own result.
+	res := s.Handle(context.Background(), mcpserver.Request(2, "tasks/result",
+		map[string]any{"taskId": id}))
+	text, isErr, err := mcpserver.ResultOf(res)
+	if err != nil || isErr {
+		t.Fatalf("got %q %v %v", text, isErr, err)
+	}
+	if !strings.Contains(text, "alpha") {
+		t.Errorf("the tool's result should arrive: %q", text)
+	}
+
+	// tasks/get reports it completed.
+	get := s.Handle(context.Background(), mcpserver.Request(3, "tasks/get",
+		map[string]any{"taskId": id}))
+	b, _ = json.Marshal(get)
+	if !strings.Contains(string(b), `"completed"`) {
+		t.Errorf("the task should be completed: %s", b)
+	}
+}
+
+func TestATaskCanBeListedAndCancelled(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	s.Handle(context.Background(), mcpserver.Request(1, "tools/call", map[string]any{
+		"name": "mcpx_status", "arguments": map[string]any{}, "task": map[string]any{},
+	}))
+	list := s.Handle(context.Background(), mcpserver.Request(2, "tasks/list", nil))
+	b, _ := json.Marshal(list)
+	if !strings.Contains(string(b), "tsk-") {
+		t.Fatalf("the task should be listed: %s", b)
+	}
+	missing := s.Handle(context.Background(), mcpserver.Request(3, "tasks/get",
+		map[string]any{"taskId": "tsk-nope"}))
+	if errOf(t, missing) == "" {
+		t.Error("an unknown task should be an error")
+	}
+}
+
+func TestTasksAreDeclaredForBothEras(t *testing.T) {
+	// Core in 2025-11-25, an extension in 2026-07-28. Declared both ways so
+	// a client of either era finds them where it looks.
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	b, _ := json.Marshal(s.Handle(context.Background(),
+		mcpserver.Request(1, "server/discover", nil)))
+	for _, want := range []string{`"tasks"`, "io.modelcontextprotocol/tasks"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("%s should be declared: %s", want, b)
+		}
+	}
+}

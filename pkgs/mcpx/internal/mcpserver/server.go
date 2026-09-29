@@ -136,6 +136,8 @@ type Server struct {
 	push func(method string, params any)
 	// listening cancels an active subscriptions/listen stream.
 	listening context.CancelFunc
+	// taskStore holds background requests.
+	taskStore *taskStore
 }
 
 // New builds a server.
@@ -377,6 +379,33 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 	// uniformly rather than by whichever handler happens to notice.
 	if v := requestVersion(req.Params); v != "" && !supports(v) {
 		return unsupportedVersion(req.ID, req.Params, false)
+	}
+
+	switch req.Method {
+	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel":
+		return s.handleTask(ctx, req)
+	case "tools/call":
+		// A caller that asked for a task gets a handle now and the result
+		// later, rather than holding a request open for however long the
+		// tool takes. Handled here, ahead of the ordinary dispatch, by
+		// running that same dispatch in the background with the task
+		// request stripped off.
+		if want, ttl := wantsTask(req.Params); want {
+			inner := req
+			inner.Params = withoutTask(req.Params)
+			t := s.startTask(ttl, func(tctx context.Context) (any, *rpcError) {
+				resp := s.Handle(tctx, inner)
+				if resp == nil {
+					return nil, &rpcError{Code: codeInternal, Message: "no result"}
+				}
+				if resp.Error != nil {
+					return nil, resp.Error
+				}
+				return resp.Result, nil
+			})
+			return &response{JSONRPC: "2.0", ID: req.ID,
+				Result: map[string]any{"task": *t}}
+		}
 	}
 
 	switch req.Method {
@@ -633,6 +662,21 @@ const Latest = "2025-11-25"
 // Modern reports whether a version uses per-request metadata rather than a
 // handshake.
 func Modern(version string) bool { return version >= "2026-07-28" }
+
+// withoutTask removes the task field, so the background run of a request does
+// not ask to become a task again and recurse.
+func withoutTask(params json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(params, &m) != nil {
+		return params
+	}
+	delete(m, "task")
+	b, err := json.Marshal(m)
+	if err != nil {
+		return params
+	}
+	return b
+}
 
 // requestVersion reads the per-request protocol version the modern revisions
 // carry in _meta. Empty means the request did not declare one, which is how
@@ -991,6 +1035,16 @@ func (s *Server) capabilities() map[string]any {
 		"prompts":     map[string]any{"listChanged": push},
 		"completions": map[string]any{},
 		"logging":     map[string]any{},
+		// Tasks are core in 2025-11-25 and an extension in 2026-07-28, so
+		// they are declared both ways. A client of either era finds them
+		// where it looks.
+		"tasks": map[string]any{
+			"list": map[string]any{}, "cancel": map[string]any{},
+			"requests": map[string]any{"tools": map[string]any{"call": map[string]any{}}},
+		},
+		"extensions": map[string]any{
+			"io.modelcontextprotocol/tasks": map[string]any{},
+		},
 	}
 }
 

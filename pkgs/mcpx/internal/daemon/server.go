@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/pool"
 )
@@ -330,6 +332,14 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// POSTs -- at the cost of an upgrade that half of all middleboxes
 	// mishandle.
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
+	// Elicitation over the daemon's own API, so a client that already holds
+	// the socket -- the plugin, the TUI -- can see and answer questions
+	// without spawning the binary to do it. The 135x difference between a
+	// socket call and a spawn is exactly the difference that matters for
+	// something sitting on the path of every tool call.
+	mux.HandleFunc("GET /v1/elicit", s.handleElicitList)
+	mux.HandleFunc("GET /v1/elicit/{id}", s.handleElicitGet)
+	mux.HandleFunc("POST /v1/elicit/{id}/{action}", s.handleElicitAnswer)
 	mux.HandleFunc("GET /v1/resource-templates", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"resourceTemplates": s.reg.ResourceTemplates(splitCSV(r.URL.Query().Get("ns"))),
@@ -729,4 +739,77 @@ func firstNonEmptyStr(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+func (s *Server) handleElicitList(w http.ResponseWriter, r *http.Request) {
+	if s.reg.broker == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	pending, err := s.reg.broker.Pending(elicit.Filter{
+		Session:  r.URL.Query().Get("session"),
+		Audience: elicit.Audience(r.URL.Query().Get("audience")),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if pending == nil {
+		pending = []elicit.Request{}
+	}
+	writeJSON(w, http.StatusOK, pending)
+}
+
+func (s *Server) handleElicitGet(w http.ResponseWriter, r *http.Request) {
+	if s.reg.broker == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "elicitation is disabled"})
+		return
+	}
+	req, ok, err := s.reg.broker.Get(r.PathValue("id"))
+	if err != nil || !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no elicitation " + r.PathValue("id")})
+		return
+	}
+	out := map[string]any{"request": req}
+	if ans, answered, _ := s.reg.broker.Lookup(req.ID); answered {
+		out["answer"] = ans
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleElicitAnswer takes accept, decline or cancel as the last path
+// segment, so the action is in the URL and the body is only ever content.
+func (s *Server) handleElicitAnswer(w http.ResponseWriter, r *http.Request) {
+	if s.reg.broker == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "elicitation is disabled"})
+		return
+	}
+	action := elicit.Action(r.PathValue("action"))
+	switch action {
+	case elicit.Accept, elicit.Decline, elicit.Cancel:
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "action is accept, decline or cancel"})
+		return
+	}
+	var content json.RawMessage
+	if action == elicit.Accept {
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if len(b) > 0 {
+			content = b
+		}
+	}
+	by := r.Header.Get("X-Mcpx-Answerer")
+	if by == "" {
+		by = "api"
+	}
+	if err := s.reg.broker.Respond(elicit.Answer{
+		ID: r.PathValue("id"), Action: action, Content: content, By: by,
+	}); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+		return
+	}
+	s.Events.Publish(events.Event{Kind: events.ElicitAnswered,
+		Data: mustJSON(map[string]any{"id": r.PathValue("id"), "action": action, "by": by})})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

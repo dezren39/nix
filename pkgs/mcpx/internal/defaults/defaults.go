@@ -67,6 +67,7 @@ type Defaults struct {
 		RegistryTimeout      string `json:"registryTimeout"`
 		EventHistory         int    `json:"eventHistory"`
 		StreamReconnect      string `json:"streamReconnect"`
+		TaskTTL              string `json:"taskTTL"`
 	} `json:"plumbing"`
 	// Elicit governs questions a server asks back.
 	Elicit struct {
@@ -187,6 +188,7 @@ var (
 	RegistryTimeout      = mustDur(builtin.Plumbing.RegistryTimeout, "plumbing.registryTimeout")
 	EventHistory         = builtin.Plumbing.EventHistory
 	StreamReconnect      = mustDur(builtin.Plumbing.StreamReconnect, "plumbing.streamReconnect")
+	TaskTTL              = mustDur(builtin.Plumbing.TaskTTL, "plumbing.taskTTL")
 
 	ElicitTTL            = mustDur(builtin.Elicit.TTL, "elicit.ttl")
 	ElicitPollInterval   = mustDur(builtin.Elicit.PollInterval, "elicit.pollInterval")
