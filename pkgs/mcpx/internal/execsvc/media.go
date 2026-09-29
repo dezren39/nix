@@ -67,7 +67,7 @@ func (s *Service) rewrite(v any, runID, session string, capture func(artifacts.M
 		}
 		return x
 	case map[string]any:
-		if m, name, mime, data, ok := mediaBlock(x); ok {
+		if name, mime, data, ok := mediaBlock(x); ok {
 			if meta, err := s.storeMedia(name, mime, data, runID, session); err == nil {
 				capture(meta)
 				return map[string]any{
@@ -80,7 +80,6 @@ func (s *Service) rewrite(v any, runID, session string, capture func(artifacts.M
 					"size": meta.Size,
 				}
 			}
-			_ = m
 		}
 		for k, item := range x {
 			x[k] = s.rewrite(item, runID, session, capture)
@@ -96,28 +95,28 @@ func (s *Service) rewrite(v any, runID, session string, capture func(artifacts.M
 // both have a required base64 `data` and a required `mimeType`, and
 // EmbeddedResource carries a BlobResourceContents with `blob` and a `uri`.
 // Text content is left alone -- it is already the cheap form.
-func mediaBlock(x map[string]any) (kind, name, mime, data string, ok bool) {
+func mediaBlock(x map[string]any) (name, mime, data string, ok bool) {
 	t, _ := x["type"].(string)
 	switch t {
 	case "image", "audio":
 		d, _ := x["data"].(string)
 		if d == "" {
-			return "", "", "", "", false
+			return "", "", "", false
 		}
 		mime, _ = x["mimeType"].(string)
 		name, _ = x["name"].(string)
 		if name == "" {
 			name = t + extensionFor(mime)
 		}
-		return t, name, mime, d, true
+		return name, mime, d, true
 	case "resource":
 		r, _ := x["resource"].(map[string]any)
 		if r == nil {
-			return "", "", "", "", false
+			return "", "", "", false
 		}
 		blob, _ := r["blob"].(string)
 		if blob == "" {
-			return "", "", "", "", false
+			return "", "", "", false
 		}
 		mime, _ = r["mimeType"].(string)
 		uri, _ := r["uri"].(string)
@@ -125,9 +124,9 @@ func mediaBlock(x map[string]any) (kind, name, mime, data string, ok bool) {
 		if name == "" {
 			name = "resource" + extensionFor(mime)
 		}
-		return t, name, mime, blob, true
+		return name, mime, blob, true
 	}
-	return "", "", "", "", false
+	return "", "", "", false
 }
 
 func (s *Service) storeMedia(name, mime, b64, runID, session string) (artifacts.Meta, error) {

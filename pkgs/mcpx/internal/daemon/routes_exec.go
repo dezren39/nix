@@ -227,7 +227,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		store := s.taskStore()
 		t := store.Start(req.Options.Task.TTL, func(ctx context.Context) (any, *tasks.Fault) {
 			res, err := svc.Run(ctx, execsvc.Request{Source: req.Source, File: req.File, Opts: req.Options}, nil)
-			if err != nil {
+			if err != nil && res == nil {
 				return nil, &tasks.Fault{Code: -32603, Message: err.Error()}
 			}
 			return res, nil
@@ -244,7 +244,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		s.execStream(w, r, svc, req)
 	case "", execsvc.OutputStructured, execsvc.OutputText:
 		res, err := svc.Run(r.Context(), execsvc.Request{Source: req.Source, File: req.File, Opts: req.Options}, nil)
-		if err != nil {
+		if err != nil && res == nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}

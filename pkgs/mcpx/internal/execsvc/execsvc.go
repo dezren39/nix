@@ -292,20 +292,15 @@ type Request struct {
 // how a disconnected HTTP client kills the script it was watching.
 type Sink func(Frame) error
 
-// Run executes the script.
+// Run executes the script, building the runner options itself.
 //
-// The sink sees every frame; the returned Result carries the same
-// information collected, so a caller wanting one document does not have to
-// reassemble it from frames. Both are always produced, because the cost is a
-// few slices and the alternative is two code paths that disagree.
+// This is the /v1 and MCP entry point: everything the caller can ask for
+// arrives as Options and nothing is inherited from a terminal that is not
+// there.
 func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, error) {
 	if req.Source == "" && req.File == "" {
 		return nil, errors.New("exec: need source or a file")
 	}
-	if sink == nil {
-		sink = func(Frame) error { return nil }
-	}
-	runID := NewRunID()
 	opts := req.Opts
 
 	timeout := s.Limits.Timeout
@@ -317,16 +312,74 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 		timeout = d
 	}
 
-	session := opts.Session
-	if session == "" {
-		session = "exec-" + runID
-	}
-
 	clientSrc, err := s.Src.ClientModule(ctx, opts.NS)
 	if err != nil {
 		return nil, err
 	}
 	globals, _ := s.Src.Globals(ctx, opts.NS)
+
+	ropts := runner.Options{
+		Source:         req.Source,
+		File:           req.File,
+		ClientSource:   clientSrc,
+		GlobalsSource:  globals,
+		WorkDir:        s.WorkDir,
+		Runtime:        firstNonEmpty(opts.Runtime, s.Limits.Runtime),
+		Timeout:        timeout,
+		Permissions:    firstNonEmpty(opts.Permissions, s.Limits.Permissions),
+		CaptureConsole: s.Limits.CaptureConsole,
+		TypeCheck:      s.Limits.Typecheck,
+		Export:         opts.Export,
+		Args:           opts.Args,
+		Dir:            opts.Cwd,
+		// Explicitly not the daemon's standard input. A script run on
+		// somebody else's behalf reading the daemon's stdin would be reading
+		// whatever started the daemon.
+		Stdin: strings.NewReader(opts.Stdin),
+	}
+	if len(opts.Placeholders) > 0 {
+		ropts.Placeholders = stringify(opts.Placeholders)
+	}
+	if req.Source != "" {
+		prelude, perr := s.prelude(ctx, opts.NS)
+		if perr != nil {
+			return nil, perr
+		}
+		ropts.Prelude = prelude
+	}
+	return s.RunWith(ctx, ropts, opts, sink)
+}
+
+// RunWith executes a script whose runner options the caller assembled.
+//
+// The CLI assembles its own, because `mcpx run` genuinely has more knobs than
+// /v1/exec does -- launcher templates, phases, --keep, a typecheck mode -- and
+// flattening all of that into the wire Options would make the wire type a
+// mirror of one command's flag list. What must not be duplicated is the part
+// after the process starts: which frames are produced, how artifacts are
+// reconciled, when media is intercepted and how delivery is applied. That is
+// all here, and it is the same code for both callers.
+//
+// Hooks the caller already set are chained rather than replaced, so the CLI
+// keeps rendering logs to a terminal while the service collects the same
+// records for the result.
+func (s *Service) RunWith(ctx context.Context, ropts runner.Options, opts Options, sink Sink) (*Result, error) {
+	if sink == nil {
+		sink = func(Frame) error { return nil }
+	}
+	if ropts.Env == nil {
+		ropts.Env = map[string]string{}
+	}
+	runID := ropts.Env["MCPX_RUN"]
+	if runID == "" {
+		runID = NewRunID()
+	}
+	session := firstNonEmpty(opts.Session, ropts.Env["MCPX_SESSION"], "exec-"+runID)
+	for k, v := range s.scriptEnv(runID, session, opts) {
+		if _, taken := ropts.Env[k]; !taken {
+			ropts.Env[k] = v
+		}
+	}
 
 	res := &Result{RunID: runID, Emits: []json.RawMessage{}, Logs: []LogRecord{},
 		Artifacts: []Artifact{}}
@@ -353,46 +406,27 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 	}
 
 	var stdout strings.Builder
-	ropts := runner.Options{
-		Source:         req.Source,
-		File:           req.File,
-		ClientSource:   clientSrc,
-		GlobalsSource:  globals,
-		WorkDir:        s.WorkDir,
-		Runtime:        firstNonEmpty(opts.Runtime, s.Limits.Runtime),
-		Timeout:        timeout,
-		Permissions:    firstNonEmpty(opts.Permissions, s.Limits.Permissions),
-		CaptureConsole: s.Limits.CaptureConsole,
-		TypeCheck:      s.Limits.Typecheck,
-		Export:         opts.Export,
-		Args:           opts.Args,
-		Dir:            opts.Cwd,
-		Stdin:          strings.NewReader(opts.Stdin),
-		Stdout: writerFunc(func(p []byte) (int, error) {
-			stdout.Write(p)
-			emitFrame(Frame{Type: FrameStdout, Text: string(p)})
-			return len(p), nil
-		}),
-		Stderr: io.Discard,
-	}
-	if len(opts.Placeholders) > 0 {
-		ropts.Placeholders = stringify(opts.Placeholders)
-	}
-
-	if req.Source != "" {
-		prelude, perr := s.prelude(ctx, opts.NS)
-		if perr != nil {
-			return nil, perr
+	priorStdout := ropts.Stdout
+	ropts.Stdout = writerFunc(func(p []byte) (int, error) {
+		stdout.Write(p)
+		emitFrame(Frame{Type: FrameStdout, Text: string(p)})
+		if priorStdout != nil {
+			return priorStdout.Write(p)
 		}
-		ropts.Prelude = prelude
+		return len(p), nil
+	})
+	if ropts.Log == nil {
+		// Records arrive on the script's stderr behind a sentinel; without a
+		// writer the runner forwards stderr verbatim and they are never
+		// parsed. Discarding the rendering is right for a caller that wants
+		// the records as data.
+		ropts.Log = logging.NewWriter(io.Discard, logging.FormatText, slog.LevelDebug)
+		if ropts.Stderr == nil {
+			ropts.Stderr = io.Discard
+		}
 	}
 
-	ropts.Env = s.scriptEnv(runID, session, opts)
-
-	// Records travel on the script's stderr with a sentinel prefix; the
-	// writer is what separates them from the script's own diagnostics.
-	writer := logging.NewWriter(io.Discard, logging.FormatText, slog.LevelDebug)
-	ropts.Log = writer
+	priorLogs := ropts.CollectLogs
 	ropts.CollectLogs = func(r logging.Record) {
 		rec := LogRecord{
 			Time:    r.Time.Format(time.RFC3339Nano),
@@ -405,19 +439,30 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 			s.Logs(r)
 		}
 		emitFrame(Frame{Type: FrameLog, Level: rec.Level, Message: rec.Message, Attrs: rec.Attrs})
+		if priorLogs != nil {
+			priorLogs(r)
+		}
 	}
+	priorResult := ropts.OnResult
 	ropts.OnResult = func(v logging.Streamed) {
 		res.Emits = append(res.Emits, v.Value)
 		emitFrame(Frame{Type: FrameEmit, Value: v.Value})
+		if priorResult != nil {
+			priorResult(v)
+		}
 	}
+	priorArtifact := ropts.OnArtifact
 	ropts.OnArtifact = func(a logging.Artifacted) {
-		// The metadata the script was handed. Re-read from the store so the
-		// frame carries what the daemon recorded rather than what the script
-		// said, which is the difference between a fact and a claim.
+		// Re-read from the store so the frame carries what the daemon
+		// recorded rather than what the script said, which is the difference
+		// between a fact and a claim.
 		art := s.lookup(a.ID, a.Name)
 		res.Artifacts = append(res.Artifacts, art)
 		frameArt := art
 		emitFrame(Frame{Type: FrameArtifact, Artifact: &frameArt})
+		if priorArtifact != nil {
+			priorArtifact(a)
+		}
 	}
 
 	rres, rerr := runner.Run(runCtx, ropts)
@@ -431,13 +476,24 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 		// has already been killed by the cancelled context.
 		return res, sinkErr
 	}
-	if rerr != nil && rres == nil {
-		emitFrame(Frame{Type: FrameError, Error: rerr.Error()})
-		res.Error = rerr.Error()
+	if rres == nil {
+		// The script never started: a missing runtime, an unreadable
+		// launcher, a type error found before execution. The result carries
+		// it for a caller reading one document, and the error is returned as
+		// well for a caller that expects a failed command to fail.
+		msg := "the script did not start"
+		if rerr != nil {
+			msg = rerr.Error()
+		}
+		res.Error = msg
 		res.ExitCode = 1
-		zero := res.ExitCode
-		emitFrame(Frame{Type: FrameEnd, ExitCode: &zero})
-		return res, nil
+		emitFrame(Frame{Type: FrameError, Error: msg})
+		code := res.ExitCode
+		emitFrame(Frame{Type: FrameEnd, ExitCode: &code})
+		if rerr == nil {
+			rerr = errors.New(msg)
+		}
+		return res, rerr
 	}
 	res.Stdout = stdout.String()
 	res.ExitCode = rres.ExitCode
