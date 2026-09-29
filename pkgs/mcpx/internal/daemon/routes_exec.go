@@ -325,8 +325,11 @@ func (s *Server) handleArtifactPut(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	put := artifacts.PutOptions{
-		Name:    q.Get("name"),
-		Mime:    firstNonEmpty(q.Get("mime"), r.Header.Get("Content-Type")),
+		Name: q.Get("name"),
+		// The generic type is not a type. Ignoring it here lets the store
+		// guess from the extension instead, and "shot.png" says more than
+		// "some bytes" does.
+		Mime:    firstNonEmpty(q.Get("mime"), specificType(r.Header.Get("Content-Type"))),
 		Run:     q.Get("run"),
 		Session: firstNonEmpty(q.Get("session"), r.Header.Get("X-Mcpx-Session")),
 	}
@@ -422,6 +425,14 @@ func (s *Server) handleArtifactDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": r.PathValue("id")})
+}
+
+// specificType drops the content type that means "no idea".
+func specificType(v string) string {
+	if strings.HasPrefix(v, "application/octet-stream") {
+		return ""
+	}
+	return v
 }
 
 // artifactState is embedded in Server.

@@ -1278,10 +1278,12 @@ export async function artifact(
   if (run) query.set("run", run);
   if (SESSION) query.set("session", SESSION);
 
-  const headers: Record<string, string> = {
-    "content-type": (opts?.mime ?? norm.mime) || "application/octet-stream",
-    "x-mcpx-session": SESSION,
-  };
+  const headers: Record<string, string> = { "x-mcpx-session": SESSION };
+  // Only when it is actually known. Sending the generic type would beat the
+  // daemon's guess from the extension, and "shot.png" is a better source of
+  // truth than "some bytes".
+  const declared = opts?.mime ?? norm.mime;
+  if (declared) headers["content-type"] = declared;
   let body: BodyInit | undefined;
   if (norm.path !== undefined && env("MCPX_ARTIFACTS_LOCAL") === "1") {
     // The daemon can see this file. Naming it lets the store hardlink rather
