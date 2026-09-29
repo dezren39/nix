@@ -512,6 +512,8 @@ MANAGEMENT
   mcpx daemons                   list every running daemon
   mcpx daemon [--port N]         run the daemon in the foreground
   mcpx config [--path|--sources] show the resolved configuration and where it came from
+  mcpx settings [get|set] ...    every setting, its value, and where that value came from
+  mcpx servers add <n> -- <cmd>  add or remove an MCP server, live
   mcpx init [--global]           write a starter config
 
 DIAGNOSTICS
