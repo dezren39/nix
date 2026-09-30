@@ -79,8 +79,9 @@ type Notifier interface {
 // say which of the requested resources it will deliver once it has tried.
 //
 // A server MUST NOT agree to what it cannot deliver: the subscriptions/listen
-// acknowledgement exists to report what was honoured, and a legacy
-// resources/subscribe that succeeds is a promise. Both wait for ready.
+// acknowledgement exists to report what was honoured. A legacy
+// resources/subscribe cannot report it (#251), so it succeeds regardless, but
+// still waits for ready so only honoured URIs are ever delivered.
 type ResourceNotifier interface {
 	Notifier
 	// ListenResources is Listen for a filter that names resources. ready
@@ -374,6 +375,16 @@ type Tool struct {
 	Annotations json.RawMessage `json:"annotations,omitempty"`
 }
 
+// hasTool reports whether name is one of the tools mcpx publishes.
+func (s *Server) hasTool(name string) bool {
+	for _, t := range s.Tools() {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // Tools is the surface.
 //
 // Deliberately small. The whole reason mcpx exists is that three hundred tool
@@ -645,6 +656,17 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel", "tasks/update":
 		return s.handleTask(ctx, c, req, peer)
 	case "tools/call":
+		// An unknown tool is a protocol error (-32602), not a failed tool:
+		// every revision's tools page lists "Unknown tool" under protocol
+		// errors. Checked before any path runs it, because answering with
+		// an isError result told the official suite the tool had executed
+		// (sep-2575-server-rejects-undeclared-capability).
+		var named struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(req.Params, &named) == nil && !s.hasTool(named.Name) {
+			return fail(codeInvalidParams, "Unknown tool: "+named.Name)
+		}
 		if resp := s.maybeTask(ctx, c, req, peer); resp != nil {
 			return resp
 		}
@@ -683,9 +705,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return nil // a notification: no reply, by definition
 
 	case "ping":
-		// Removed from 2026-07-28 and answered anyway: accept liberally. A
-		// modern client that pings is asking whether mcpx is alive, and
-		// method-not-found would be the wrong answer to that.
+		// Legacy only. 2026-07-28 removed ping (changelog item 5), so a
+		// modern request never reaches here: the Removed check above
+		// answers it -32601, which on HTTP is the 404 streamable-http
+		// requires for "does not implement the requested RPC method".
 		return reply(map[string]any{})
 
 	case "tools/list":
@@ -713,9 +736,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// sends log messages to the client", and mcpx sends none: there is no
 		// notifications/message anywhere in this package. Declaring it was a
 		// promise of a stream that does not exist. The method still answers
-		// -- including from a 2026-07-28 client, which no longer has it --
-		// because refusing would make a well-behaved client that asked anyway
-		// treat the whole connection as degraded.
+		// a legacy client, because refusing would make a well-behaved client
+		// that asked anyway treat the whole connection as degraded. A
+		// 2026-07-28 client, whose revision removed it (changelog item 5),
+		// is answered -32601 by the Removed check above and never gets here.
 		return reply(map[string]any{})
 
 	case "resources/templates/list":
@@ -766,17 +790,17 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		}
 		c.mu.Unlock()
 		sort.Strings(uris)
-		refused := s.restartListen(ctx, c, ListenFilter{ResourceSubscriptions: uris})
-		if reason, no := refused[p.URI]; no && req.Method == "resources/subscribe" {
-			// A subscription that succeeds is a promise of updates. When
-			// the resource's server cannot make them -- it does not declare
-			// resources.subscribe, or is not there -- the honest answer is
-			// a refusal, not an empty result followed by silence.
-			c.mu.Lock()
-			delete(c.subs, p.URI)
-			c.mu.Unlock()
-			return fail(codeInvalidParams, "cannot subscribe to "+p.URI+": "+reason)
-		}
+		// A legacy subscription always succeeds, even where mcpx can
+		// arrange no updates (a URI no server owns, a server without
+		// resources.subscribe). It is a standing interest, not a lookup:
+		// the spec does not require the resource to exist, nor updates to
+		// be deliverable, and the legacy revisions have no way to say
+		// "agreed, but nothing will come" -- refusing broke every client
+		// that subscribes before it knows (#251). The URI stays out of the
+		// stream's agreed set, so nothing is delivered for it; the daemon
+		// records why as a warning. The 2026-07-28 listen acknowledgement,
+		// which can say it, still lists only what will be delivered.
+		s.restartListen(ctx, c, ListenFilter{ResourceSubscriptions: uris})
 		return reply(map[string]any{})
 
 	case "subscriptions/listen":

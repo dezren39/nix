@@ -199,12 +199,33 @@ func TestResourceSubscriptionsReachUpstream(t *testing.T) {
 			t.Errorf("upstream subscribed %d times, want 1: %v", n, subLines(t, log))
 		}
 
-		// A server that does not declare resources.subscribe: refused, not
-		// accepted and then silent.
+		// A server that does not declare resources.subscribe: the legacy
+		// subscribe still succeeds (#251 -- it is a standing interest, and
+		// legacy has no way to say "agreed, but nothing will come"), and
+		// the daemon records why nothing will arrive.
 		write(`{"jsonrpc":"2.0","id":4,"method":"resources/subscribe","params":{"uri":"mcpx://plain/demo://greeting"}}`)
-		r := await(t, in, "refused subscribe", isReply(4))
-		if r["error"] == nil || !strings.Contains(fmt.Sprint(r["error"]), "resources.subscribe") {
+		if r := await(t, in, "subscribe reply", isReply(4)); r["error"] != nil {
 			t.Errorf("subscribing where upstream cannot: %v", r)
+		}
+		warned := func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://mcpx/v1/events?kinds=server.log&since=0", nil)
+			resp, err := e.socketClient(t).Do(req)
+			if err != nil {
+				return false
+			}
+			defer resp.Body.Close()
+			sc := bufio.NewScanner(resp.Body)
+			for sc.Scan() {
+				if strings.Contains(sc.Text(), "no updates will be delivered for mcpx://plain/demo://greeting") {
+					return true
+				}
+			}
+			return false
+		}
+		if !warned() {
+			t.Errorf("no warning recorded for a subscription whose updates cannot be delivered")
 		}
 
 		// The connection ending ends the subscription upstream.

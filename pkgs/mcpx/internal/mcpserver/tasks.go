@@ -210,6 +210,20 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 	missing := func() *response {
 		return fail(codeInvalidParams, tasks.ErrNoTask{ID: p.TaskID}.Error())
 	}
+	if peer.Modern && req.Method != "tasks/list" && req.Method != "tasks/result" &&
+		!peer.DeclaredExtension(ExtTasks) {
+		// The extension's methods belong to clients that declared it:
+		// "Servers MUST return this error for non-declaring clients issuing
+		// tasks/get, tasks/update, and tasks/cancel requests" (SEP-2663),
+		// the error being 2026-07-28's -32021 with requiredCapabilities.
+		// Checked before the id, so a non-declaring client learns nothing
+		// about which tasks exist. tasks/list and tasks/result are removed
+		// methods and keep their -32601.
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{
+			Code: codeMissingCapability, Message: "Missing required client capability",
+			Data: map[string]any{"requiredCapabilities": map[string]any{
+				"extensions": map[string]any{ExtTasks: map[string]any{}}}}}}
+	}
 	if req.Method != "tasks/list" && !s.visible(p.TaskID, c) {
 		// Said exactly as for a task that does not exist. Anything else
 		// confirms to a stranger that the id is live.
