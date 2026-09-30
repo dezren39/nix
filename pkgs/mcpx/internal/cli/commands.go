@@ -674,12 +674,12 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			// Whether artifact({path}) may hand the daemon a path instead of
 			// bytes. A socket is the evidence that the daemon shares this
 			// filesystem; a remote endpoint has none.
-			"MCPX_ARTIFACTS_LOCAL": boolFlag(a.localSocket() != ""),
+			"MCPX_ARTIFACTS_LOCAL": boolFlag(c.Socket() != ""),
 			"MCPX_ENDPOINT":        endpoint,
 			// The socket as well as the port, so a script can use whichever
 			// is faster. Empty when the daemon is remote: a socket on another
 			// machine is not reachable from here.
-			"MCPX_SOCKET":     a.localSocket(),
+			"MCPX_SOCKET":     c.Socket(),
 			"MCPX_LOG_SOURCE": logging.SourceSpec(sourceLevel),
 			"MCPX_LOG_LEVEL":  logging.LevelName(minLevel),
 			// Path facts travel through the environment so that a module three
@@ -823,7 +823,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// Only worth failing for when the caller actually asked for files.
 		return serr
 	}
-	svc := a.localService(store, a.localSocket())
+	svc := a.localService(store, c.Socket())
 	wire := execsvc.Options{
 		Session:   sessionKey,
 		Output:    eo.Output,
@@ -963,18 +963,6 @@ func enrichWith(base, extra map[string]any) map[string]any {
 		base[k] = v
 	}
 	return base
-}
-
-// localSocket is the daemon socket when the daemon is on this machine.
-func (a *App) localSocket() string {
-	if a.Settings().String("daemon.endpoint") != "" {
-		return ""
-	}
-	paths, _ := a.resolvePathsForConfig()
-	if _, err := os.Stat(paths.Socket); err != nil {
-		return ""
-	}
-	return paths.Socket
 }
 
 func firstNonEmpty(v ...string) string {
