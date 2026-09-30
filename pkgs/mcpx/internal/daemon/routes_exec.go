@@ -189,9 +189,10 @@ func (s *Server) ExecService() *execsvc.Service {
 		// can link rather than read.
 		Local:  true,
 		Limits: lim,
-		// Kept between runs so the runtime's module cache stays warm. A cold
-		// cache is the difference between tens of milliseconds and seconds.
-		WorkDir: filepath.Join(s.paths.Cache, "exec"),
+		// Kept between runs so the runtime's module cache stays warm, and
+		// one directory per catalogue so two configurations cannot
+		// overwrite each other's generated client.
+		WorkRoot: filepath.Join(s.paths.Cache, "exec"),
 		Release: func(ctx context.Context, session string) error {
 			s.reg.ReleaseCaller(session)
 			return nil

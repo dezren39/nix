@@ -274,6 +274,9 @@ type Service struct {
 	// WorkDir holds the generated client between runs, so the runtime's
 	// module cache stays warm. Empty means a temporary directory per run.
 	WorkDir string
+	// WorkRoot keeps one working directory per distinct client, so two
+	// configurations cannot overwrite each other's generated code.
+	WorkRoot string
 	// Release frees the pooled instances a finished run created.
 	Release func(ctx context.Context, session string) error
 	// Logs, when set, receives every record the script produced, for the
@@ -325,6 +328,7 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 		ClientSource:   clientSrc,
 		GlobalsSource:  globals,
 		WorkDir:        s.WorkDir,
+		WorkRoot:       s.WorkRoot,
 		Runtime:        firstNonEmpty(opts.Runtime, s.Limits.Runtime),
 		Timeout:        timeout,
 		Permissions:    firstNonEmpty(opts.Permissions, s.Limits.Permissions),
