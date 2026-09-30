@@ -348,12 +348,12 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	e.run("ls")
 	out := filepath.Join(e.dir, "events.ndjson")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "-o", out)
 	cmd.Dir, cmd.Env = e.dir, e.envVars
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -361,8 +361,9 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 
 	// Keep producing server events until the file has one, for the same
 	// reason TestEventsStreamAsNDJSON retries: the subscription may not be
-	// established when the first event fires.
-	deadline := time.Now().Add(15 * time.Second)
+	// established when the first event fires. The budget is generous because
+	// a restart costs a process start, and a slow runner failed a 15s one.
+	deadline := time.Now().Add(60 * time.Second)
 	var got string
 	for time.Now().Before(deadline) {
 		_, _ = e.try("restart", "demo")
@@ -370,10 +371,14 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 			got = string(b)
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 	if got == "" {
-		t.Fatalf("-o is in this command's usage but nothing was written to %s", out)
+		// stderr, because the interesting failure is the one where the
+		// command exited immediately and the loop then waited out its whole
+		// budget for a file that was never going to be written.
+		t.Fatalf("-o is in this command's usage but nothing was written to %s\nstderr: %s\nstdout: %s",
+			out, stderr.String(), stdout.String())
 	}
 	if !strings.Contains(got, `"kind"`) {
 		t.Errorf("the file should hold the event stream, got:\n%s", got)
