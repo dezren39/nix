@@ -633,6 +633,14 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	}
 	peer := c.peerFor(req.Params)
 
+	// A method the peer's own revision removed is method-not-found for that
+	// peer, whatever mcpx is still willing to do for an older one. See
+	// removedIn: the 404 this becomes on HTTP is how a dual-era client tells
+	// a modern server from a legacy endpoint that is simply not there.
+	if peer.Modern && Removed(peer.Version, req.Method) {
+		return fail(codeMethodNotFound, "no method "+req.Method+" in "+peer.Version)
+	}
+
 	switch req.Method {
 	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel", "tasks/update":
 		return s.handleTask(ctx, c, req, peer)

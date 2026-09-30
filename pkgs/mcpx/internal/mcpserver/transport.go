@@ -282,6 +282,14 @@ func headerMismatch(id json.RawMessage, format string, a ...any) *response {
 		Code: codeHeaderMismatch, Message: "Header mismatch: " + fmt.Sprintf(format, a...)}}
 }
 
+// missingMeta is the answer to a modern request that left out a _meta field
+// the revision requires. Invalid params rather than header mismatch: the
+// field is absent from the body, not contradicted by a header.
+func missingMeta(id json.RawMessage, key string) *response {
+	return &response{JSONRPC: "2.0", ID: id, Error: &rpcError{
+		Code: codeInvalidParams, Message: "Invalid params: _meta is missing the required " + key}}
+}
+
 // checkModernHeaders validates the headers a 2026-07-28 POST mirrors from
 // its body. nil means they are present and agree.
 //
@@ -301,8 +309,16 @@ func checkModernHeaders(r *http.Request, req request) *response {
 	case hv == "":
 		return headerMismatch(req.ID, "MCP-Protocol-Version header is required")
 	case bv == "":
-		return headerMismatch(req.ID, "MCP-Protocol-Version header value '%s' has no "+
-			"io.modelcontextprotocol/protocolVersion in _meta to match", hv)
+		// A missing body field is not a header mismatch. The headers are
+		// mirrors of the body, and -32020 says the mirror disagrees with what
+		// it reflects; here there is nothing to reflect. basic/index makes
+		// this case invalid params: "A request missing any required field is
+		// malformed; the server MUST reject it with JSON-RPC error code
+		// -32602 (Invalid params)." modernStatus already maps -32602 to 400,
+		// and its own comment already called this the missing-_meta case --
+		// so the two halves of the rule disagreed, and the half a client
+		// reads was the wrong one.
+		return missingMeta(req.ID, MetaProtocolVersion)
 	case hv != bv:
 		return headerMismatch(req.ID, "MCP-Protocol-Version header value '%s' does not "+
 			"match body value '%s'", hv, bv)
