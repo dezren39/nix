@@ -2399,6 +2399,28 @@ func TestInlineModeRunsWithNoDaemonAndLeavesNothingBehind(t *testing.T) {
 	}
 }
 
+func TestInlineModeRunsAScriptThatCallsATool(t *testing.T) {
+	// The case the inline test above missed. `call` goes from this process
+	// straight to the in-process daemon; a script goes out to a runtime
+	// subprocess and has to come *back* over the socket. That return path
+	// was broken: the socket handed to the script was recomputed from the
+	// configuration key, and inline mode listens on a private temporary
+	// socket instead, so the script was told to reach a daemon at "".
+	//
+	// Every inline script that called a tool failed, and nothing noticed,
+	// because the only inline test called a tool from the CLI.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_AUTOSTART=false", "MCPX_DAEMON_INLINE=true")
+
+	out := e.run("exec", `const r = await demo.echo({message: "from-a-script"}); emit({text: JSON.stringify(r).includes("from-a-script")});`)
+	if !strings.Contains(out, "true") {
+		t.Fatalf("a script must reach the inline daemon:\n%s", out)
+	}
+	if socks, _ := filepath.Glob(filepath.Join(e.dir, "state", "*.sock")); len(socks) > 0 {
+		t.Errorf("no daemon socket should remain: %v", socks)
+	}
+}
+
 func TestWithoutInlineANoDaemonSituationFailsClearly(t *testing.T) {
 	e := newEnv(t, oneServer)
 	e.envVars = append(e.envVars, "MCPX_DAEMON_AUTOSTART=false")

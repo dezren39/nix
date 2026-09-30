@@ -160,6 +160,20 @@ func NewClientAt(paths daemon.Paths, configPath, endpoint string) *Client {
 }
 
 // Remote reports whether this client talks to a daemon it cannot start.
+// Socket is the unix socket this client is actually using, or "" when the
+// daemon is somewhere else.
+//
+// Asked of the connection rather than recomputed from the configuration.
+// Inline mode listens on a private temporary socket, so deriving the path
+// from the config key gave the wrong answer -- and an empty one, which the
+// generated client turned into "cannot reach the mcpx daemon at ".
+func (c *Client) Socket() string {
+	if c.endpoint != "" {
+		return ""
+	}
+	return c.paths.Socket
+}
+
 func (c *Client) Remote() bool { return c.endpoint != "" }
 
 // ErrNoDaemon means nothing is listening on the socket.
