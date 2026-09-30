@@ -15,7 +15,7 @@ param vnetName string
 param vnetResourceGroup string = resourceGroup().name
 
 // ── Existing VNet ──
-resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
+resource vnet 'Microsoft.Network/virtualNetworks@2024-10-01' existing = {
   name: vnetName
   scope: resourceGroup(vnetResourceGroup)
 }
