@@ -19,6 +19,7 @@ func Registry() []Setting {
 	s = append(s, pathSettings()...)
 	s = append(s, daemonSettings()...)
 	s = append(s, outputSettings()...)
+	s = append(s, protoSettings()...)
 	s = append(s, plumbingSettings()...)
 	s = append(s, consumerSettings()...)
 	s = append(s, wireSettings()...)

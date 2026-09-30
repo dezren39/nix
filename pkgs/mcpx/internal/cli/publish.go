@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/dezren39/mcpx/internal/defaults"
-	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -194,47 +194,6 @@ func renderJSONSchema(tools []daemon.ToolInfo) (string, error) {
 	return string(b), err
 }
 
-// restToolRoutes serves every upstream tool as a plain POST.
-//
-// The same reasoning as the OpenAPI paths: a tool reachable from MCP and from
-// a script but not from curl is reachable from fewer places than it needs to
-// be, and the code to serve it is three lines.
-func (a *App) restToolRoutes(ctx context.Context, mux *http.ServeMux) int {
-	c, err := a.ensure(ctx)
-	if err != nil {
-		return 0
-	}
-	if err := a.ensureAnySchemas(ctx, c); err != nil {
-		return 0
-	}
-	tools, err := c.Tools(ctx, nil)
-	if err != nil {
-		return 0
-	}
-	for _, t := range tools {
-		t := t
-		mux.HandleFunc("/v1/call/"+t.Namespace+"/"+t.Tool,
-			func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodPost {
-					w.Header().Set("Allow", "POST")
-					http.Error(w, "POST a JSON object of arguments", http.StatusMethodNotAllowed)
-					return
-				}
-				var args json.RawMessage
-				if err := json.NewDecoder(r.Body).Decode(&args); err != nil || len(args) == 0 {
-					args = json.RawMessage(`{}`)
-				}
-				session := a.mcpSession()
-				res, err := c.Call(r.Context(), t.Namespace, t.Tool,
-					a.callContext(session, session), args)
-				if err != nil {
-					writeJSONResponse(w, map[string]any{"ok": false, "error": err.Error()})
-					return
-				}
-				writeJSONResponse(w, map[string]any{
-					"ok": true, "result": json.RawMessage(res.Result),
-				})
-			})
-	}
-	return len(tools)
-}
+// The per-tool POST routes this file used to serve live on the daemon now,
+// as POST /v1/call/{server}/{tool}. They were reachable only while a second
+// HTTP server was running, which is the problem they were part of.

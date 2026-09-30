@@ -65,6 +65,17 @@
     "handlerTimeout": "5m",
     "inputRounds": 8
   },
+  "proto": {
+    "native": true,
+    "askTimeout": "10m",
+    "askPoll": "500ms",
+    "askRounds": 8,
+    "stateTTL": "30m",
+    "sessionIdle": "30m",
+    "askTTL": "15m",
+    "abandonGrace": "5s",
+    "mcpPath": "/mcp"
+  },
   "consumer": {
     "disambiguate": "never",
     "disambiguateDefault": "new",

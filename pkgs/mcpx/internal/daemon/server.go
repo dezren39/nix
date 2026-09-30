@@ -43,6 +43,19 @@ type Server struct {
 	// Address is the interface the TCP listener binds. Empty is loopback.
 	Address string
 
+	// MCP is mcpx's own MCP server, mounted on the daemon's listeners.
+	//
+	// Supplied from outside because the daemon cannot import the CLI that
+	// builds it -- the dependency runs one way, and inverting it to put the
+	// two HTTP servers together would be a worse cure than the disease.
+	// Nil means the daemon serves /v1 only.
+	MCP http.Handler
+	// MCPPath is where MCP is mounted.
+	MCPPath string
+	// MCPTool invokes one of mcpx's own MCP tools by name, for the plain
+	// POST projection of it. Supplied alongside MCP, for the same reason.
+	MCPTool func(ctx context.Context, tool string, args json.RawMessage) (string, error)
+
 	// Events carries everything the daemon notices, to every subscriber.
 	Events *events.Bus
 
@@ -463,6 +476,17 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// Everything declared in internal/api that is not above. A parity test
 	// fails if the two ever disagree.
 	s.routesV1Ops(mux)
+	s.routesProto(mux)
+	// mcpx's own MCP surface, on the listeners the daemon already has.
+	// Two HTTP servers with overlapping /v1 prefixes was one owner too
+	// many: whichever you reached decided which half of the API existed.
+	if s.MCP != nil {
+		path := s.MCPPath
+		if path == "" {
+			path = defaults.ProtoMCPPath
+		}
+		mux.Handle(path, s.MCP)
+	}
 	s.routesConsumer(mux)
 	s.routesResolve(mux)
 }
@@ -664,7 +688,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	// the tool takes.
 	if req.Task != nil {
 		writeJSON(w, http.StatusAccepted, map[string]any{
-			"task": *s.startCallTask(req.Task.TTL, req.Server, req.Tool, cc, args)})
+			"task": s.startCallTask(req.Task.TTL, req.Server, req.Tool, cc, args)})
 		return
 	}
 

@@ -94,7 +94,14 @@ func NewID() string {
 func DefaultTTL() int64 { return int64(defaults.TaskTTL / time.Millisecond) }
 
 // Start runs fn in the background and returns its handle at once.
-func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) *Task {
+//
+// The handle is a value, not a pointer into the store. A pointer is a
+// reference to something the goroutine below is already writing: every
+// caller copied it to put on the wire, and every one of those copies raced
+// with the first status update. It never failed a test because the suite
+// does not run under -race, which is the whole difficulty with this class
+// of bug.
+func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Task {
 	if ttl <= 0 {
 		ttl = DefaultTTL()
 	}
@@ -143,7 +150,11 @@ func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) *Ta
 		s.mu.Unlock()
 		cancel()
 	})
-	return t
+	// Snapshotted under the lock, so the value handed back cannot be read
+	// while the goroutine above is writing the original.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return *t
 }
 
 // List returns a snapshot, oldest first.
