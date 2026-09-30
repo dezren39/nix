@@ -213,7 +213,7 @@ that `--help` denies exists is worse than a long list.
 | `daemon.inline` | bool | `false` | client | no | `--daemon-inline` | `MCPX_DAEMON_INLINE` | as a last resort, run servers inside this process |
 | `daemon.inlineStartPoll` | duration | `20ms` | client | no | `--daemon-inline-start-poll` | `MCPX_DAEMON_INLINE_START_POLL` | *(plumbing)* how often a starting in-process daemon is probed |
 | `daemon.inlineStartTimeout` | duration | `5s` | client | no | `--daemon-inline-start-timeout` | `MCPX_DAEMON_INLINE_START_TIMEOUT` | *(plumbing)* how long an in-process daemon has to become reachable |
-| `daemon.leaseTTL` | duration | `30m0s` | daemon | yes | `--daemon-lease-t-t-l` | `MCPX_DAEMON_LEASE_T_T_L` | *(plumbing)* how long a silent caller's instances are remembered |
+| `daemon.leaseTTL` | duration | `30m0s` | daemon | yes | `--daemon-lease-ttl` | `MCPX_DAEMON_LEASE_TTL` | *(plumbing)* how long a silent caller's instances are remembered |
 | `daemon.port` | int | `0` | daemon | no | `--daemon-port`, `--port` | `MCPX_DAEMON_PORT` | listen on a TCP port instead of choosing one |
 | `daemon.probeTimeout` | duration | `200ms` | client | no | `--daemon-probe-timeout` | `MCPX_DAEMON_PROBE_TIMEOUT` | *(plumbing)* how long another daemon's socket is given to answer |
 | `daemon.reapInterval` | duration | `30s` | daemon | no | `--daemon-reap-interval` | `MCPX_DAEMON_REAP_INTERVAL` | *(plumbing)* how often idle instances are swept |
@@ -400,13 +400,13 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `proto.askPoll` | duration | `500ms` | daemon | no | `--proto-ask-poll` | `MCPX_PROTO_ASK_POLL` | *(plumbing)* how long one wait for a question may block |
 | `proto.askRounds` | int | `8` | daemon | no | `--proto-ask-rounds` | `MCPX_PROTO_ASK_ROUNDS` | how many times one request may come back asking for more |
-| `proto.askTTL` | duration | `15m` | daemon | no | `--proto-ask-t-t-l` | `MCPX_PROTO_ASK_T_T_L` | *(plumbing)* how long the daemon keeps a call waiting for an answer |
+| `proto.askTTL` | duration | `15m` | daemon | no | `--proto-ask-ttl` | `MCPX_PROTO_ASK_TTL` | *(plumbing)* how long the daemon keeps a call waiting for an answer |
 | `proto.askTimeout` | duration | `10m` | daemon | no | `--proto-ask-timeout` | `MCPX_PROTO_ASK_TIMEOUT` | how long one request may be held while a question goes unanswered |
 | `proto.mcpPath` | string | `/mcp` | daemon | no | `--proto-mcp-path` | `MCPX_PROTO_MCP_PATH` | where the daemon serves MCP |
 | `proto.native` | bool | `true` | daemon | no | `--proto-native` | `MCPX_PROTO_NATIVE` | put an upstream server's questions to mcpx's own MCP client |
-| `proto.serveMCP` | bool | `true` | daemon | no | `--proto-serve-m-c-p` | `MCPX_PROTO_SERVE_M_C_P` | mount mcpx's own MCP server on the daemon's listeners |
+| `proto.serveMCP` | bool | `true` | daemon | no | `--proto-serve-mcp` | `MCPX_PROTO_SERVE_MCP` | mount mcpx's own MCP server on the daemon's listeners |
 | `proto.sessionIdle` | duration | `30m` | daemon | no | `--proto-session-idle` | `MCPX_PROTO_SESSION_IDLE` | *(plumbing)* how long an unused Streamable HTTP session is kept |
-| `proto.stateTTL` | duration | `30m` | daemon | no | `--proto-state-t-t-l` | `MCPX_PROTO_STATE_T_T_L` | *(plumbing)* how long a client may resume an interrupted request with |
+| `proto.stateTTL` | duration | `30m` | daemon | no | `--proto-state-ttl` | `MCPX_PROTO_STATE_TTL` | *(plumbing)* how long a client may resume an interrupted request with |
 
 
 ### recipes

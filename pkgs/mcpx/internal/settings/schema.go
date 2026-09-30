@@ -224,23 +224,39 @@ func (s Setting) EnvName() string {
 	return "MCPX_" + strings.ToUpper(strings.ReplaceAll(dashed(s.Path), "-", "_"))
 }
 
+// dashed splits a dotted camelCase path into lower-case dash-separated words.
+//
+// A run of capitals is one word, because it is an acronym: `askTTL` is
+// ask-ttl, not ask-t-t-l. The one exception is the last capital of a run that
+// is followed by a lower-case letter, which starts the next word -- the P in
+// `HTTPTimeout` ends HTTP, the T begins Timeout. Treating every capital as a
+// word of its own derived MCPX_PROTO_ASK_T_T_L, which nobody would ever type.
 func dashed(path string) string {
+	rs := []rune(path)
 	var b strings.Builder
-	for i, r := range path {
-		switch {
-		case r == '.':
+	for i, r := range rs {
+		if r == '.' {
 			b.WriteByte('-')
-		case r >= 'A' && r <= 'Z':
-			if i > 0 {
+			continue
+		}
+		if !isUpper(r) {
+			b.WriteRune(r)
+			continue
+		}
+		if i > 0 && rs[i-1] != '.' {
+			prev := rs[i-1]
+			nextLower := i+1 < len(rs) && isLower(rs[i+1])
+			if !isUpper(prev) || nextLower {
 				b.WriteByte('-')
 			}
-			b.WriteRune(r - 'A' + 'a')
-		default:
-			b.WriteRune(r)
 		}
+		b.WriteRune(r - 'A' + 'a')
 	}
 	return b.String()
 }
+
+func isUpper(r rune) bool { return r >= 'A' && r <= 'Z' }
+func isLower(r rune) bool { return r >= 'a' && r <= 'z' }
 
 // Schema is the whole set.
 type Schema struct {
