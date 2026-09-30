@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
+	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/tasks"
 )
 
@@ -104,11 +106,8 @@ func (a *askCall) snapshot() ([]mcpserver.Question, chan struct{}) {
 // A script (mcpx_exec) is one ask-call making many upstream calls. Each of
 // them joins the table under (server, key) as the *run's* askCall, so a
 // question on a connection whose in-flight calls all belong to one run is
-// that run's. Every other /v1/call joins as an anonymous entry: it can own
-// nothing, but its presence is what makes a shared key ambiguous. Before
-// runs existed, plain calls were not registered at all, so an ask-call
-// sharing a key with somebody's ordinary /v1/call was handed that caller's
-// question.
+// that run's. Plain calls do not register; the pool's in-flight count is what
+// makes a shared key ambiguous (see askFor).
 type askTable struct {
 	mu    sync.Mutex
 	byID  map[string]*askCall
@@ -146,15 +145,16 @@ func (t *askTable) beginRun(id, run, session string) *askCall {
 	return a
 }
 
-// join records one in-flight upstream call on (server, key), as a member of
-// run when that run is live, anonymously otherwise. leave undoes exactly
-// this entry.
+// join records one in-flight upstream call on (server, key) as a member of
+// run, when that run is live. leave undoes exactly this entry. A call from no
+// live run registers nothing: the pool's in-flight count already sees it.
 func (t *askTable) join(run, server, key string) (leave func()) {
 	k := askKey(server, key)
 	t.mu.Lock()
 	owner := t.byRun[run]
 	if run == "" || owner == nil {
-		owner = &askCall{}
+		t.mu.Unlock()
+		return func() {}
 	}
 	t.byKey[k] = append(t.byKey[k], owner)
 	t.mu.Unlock()
@@ -210,31 +210,61 @@ func (t *askTable) get(id string) (*askCall, bool) {
 	return a, ok
 }
 
-// forKey returns the one call a question on this connection belongs to.
-func (t *askTable) forKey(server, key string) (*askCall, bool) {
+// owner returns the one call that owns every registered entry on this
+// connection, and how many entries that is. Entries are interruptible calls
+// and the in-flight upstream calls of a running script (its members); plain
+// calls are not registered here -- the pool counts them (see askFor).
+func (t *askTable) owner(server, key string) (*askCall, int, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	list := t.byKey[askKey(server, key)]
 	if len(list) == 0 {
-		return nil, false
+		return nil, 0, false
 	}
-	// Several entries are fine when they are one run calling in parallel;
-	// any second owner, or an anonymous call, makes it ambiguous.
+	// Several entries are one run calling in parallel; a second owner is
+	// two callers sharing an instance, which is ambiguous.
 	for _, a := range list[1:] {
 		if a != list[0] {
-			return nil, false
+			return nil, 0, false
 		}
 	}
-	if list[0].ID == "" {
+	return list[0], len(list), true
+}
+
+// askFor returns the call a question on (server, key) belongs to.
+//
+// One rule for single calls and scripts alike: a call owns the question when
+// every upstream request in flight on the key is one of its own. The table
+// knows the owned requests; the pool counts all of them, from /v1/call, exec,
+// the CLI and the plugin, none of which register. Equal counts mean nobody
+// else is on the connection. Before #229 the table alone decided, and one ask
+// call beside a plain call on the same key was handed the plain caller's
+// question.
+//
+// The residual window: an entry is registered just before its request is
+// counted, so a stranger's question arriving in that instant, while the
+// owner's request has not yet been sent, can still be misattributed.
+func (r *Registry) askFor(server, key string) (*askCall, bool) {
+	p, ok := r.Pool(server)
+	if !ok {
 		return nil, false
 	}
-	return list[0], true
+	return r.asks.sole(server, key, p.InFlight(key))
+}
+
+// sole is askFor's rule given the pool's in-flight count for the key.
+func (t *askTable) sole(server, key string, inflight int) (*askCall, bool) {
+	a, n, ok := t.owner(server, key)
+	if !ok || inflight != n {
+		return nil, false
+	}
+	return a, true
 }
 
 // attach records a question against the call that provoked it, if one can be
 // identified, and returns whether it was.
 func (r *Registry) attach(server, key string, req elicit.Request, method string, params json.RawMessage) (string, bool) {
-	a, ok := r.asks.forKey(server, key)
+	a, ok := r.askFor(server, key)
 	if !ok {
 		return "", false
 	}
@@ -251,7 +281,14 @@ func (r *Registry) CallAsk(ctx context.Context, id, server, tool string, cc conf
 	if !ok {
 		return nil, fmt.Errorf("unknown server or namespace %q", server)
 	}
-	key := r.keyFor(p, cc)
+	// The key is only known after disambiguation, and the call has to be in
+	// the table before the upstream request goes out, so it is registered
+	// between the two. The guard's own questions are mcpx's, not the
+	// server's, and are never attributed through the table.
+	key, err := r.resolveAndGuard(ctx, p, tool, cc)
+	if err != nil {
+		return nil, err
+	}
 	r.beginAsk(id, server, key, cc.SessionID)
 	defer r.endAsk(id)
 	return p.Call(ctx, key, tool, args)
@@ -633,12 +670,17 @@ func (s *Server) handleAskAbandon(w http.ResponseWriter, r *http.Request) {
 // This is the same table the code consults, so the two cannot disagree.
 func (s *Server) handleProtocol(w http.ResponseWriter, r *http.Request) {
 	type serverRow struct {
-		Server     string   `json:"server"`
-		Namespace  string   `json:"namespace"`
-		Preference string   `json:"preference,omitempty"`
-		Era        string   `json:"era,omitempty"`
-		Negotiated string   `json:"negotiated,omitempty"`
-		Declared   []string `json:"declared,omitempty"`
+		Server     string `json:"server"`
+		Namespace  string `json:"namespace"`
+		Preference string `json:"preference,omitempty"`
+		Era        string `json:"era,omitempty"`
+		Negotiated string `json:"negotiated,omitempty"`
+		// EraSource is how the live instance's era was settled: probe,
+		// cache or forced.
+		EraSource string `json:"eraSource,omitempty"`
+		// Cached is what the era cache remembers, live instance or not.
+		Cached   *pool.EraRecord `json:"cached,omitempty"`
+		Declared []string        `json:"declared,omitempty"`
 	}
 	var upstream []serverRow
 	for _, name := range s.reg.Names() {
@@ -648,7 +690,11 @@ func (s *Server) handleProtocol(w http.ResponseWriter, r *http.Request) {
 		}
 		era, negotiated := p.Era()
 		row := serverRow{Server: name, Namespace: p.Namespace(),
-			Preference: p.Config().Protocol, Era: string(era), Negotiated: negotiated}
+			Preference: string(p.Preference()), Era: string(era), Negotiated: negotiated,
+			EraSource: p.EraSource()}
+		if rec, ok := p.CachedEra(); ok {
+			row.Cached = &rec
+		}
 		for cap := range p.Capabilities() {
 			row.Declared = append(row.Declared, cap)
 		}
@@ -698,6 +744,13 @@ func (s *Server) handleToolInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text, err := s.MCPTool(r.Context(), r.PathValue("tool"), body)
+	var failed ToolFailure
+	if errors.As(err, &failed) {
+		// The tool ran and said it failed: the same 200-with-a-flag /v1/call
+		// gives, not the 400 reserved for a request mcpx could not carry out.
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "result": failed.Text})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 		return
@@ -731,8 +784,24 @@ func (s *Server) handleCallPath(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res,
+	writeJSON(w, http.StatusOK, map[string]any{"ok": !resultFailed(res), "result": res,
 		"durationMs": time.Since(start).Milliseconds()})
+}
+
+// ToolFailure is a tool that ran and returned isError. It travels as an error
+// so the MCP server's existing path sets isError, and is typed so /v1/tools
+// can report it as the tool's failure rather than as a bad request.
+type ToolFailure struct{ Text string }
+
+func (f ToolFailure) Error() string { return f.Text }
+
+// resultFailed reports a CallToolResult's isError. /v1/call/{s}/{t} said
+// ok:true beside isError:true, which is two answers to one question.
+func resultFailed(raw json.RawMessage) bool {
+	var r struct {
+		IsError bool `json:"isError"`
+	}
+	return json.Unmarshal(raw, &r) == nil && r.IsError
 }
 
 // readBody reads a request body, defaulting an empty one to an empty object
@@ -746,4 +815,22 @@ func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, erro
 		return []byte("{}"), nil
 	}
 	return b, nil
+}
+
+// upstreamHooks sets how pools connect to their servers: the era preference
+// for a server that names none, the probe timeout, and the era cache. Read
+// once, when hooks are installed, because a pool's era is settled per start
+// and the cache file is opened once.
+func (r *Registry) upstreamHooks(h *pool.Hooks) {
+	h.Protocol = mcpclient.Preference(defaults.UpstreamProtocol)
+	h.ProbeTimeout = defaults.UpstreamProbeTimeout
+	cache := defaults.UpstreamEraCache
+	if r.set != nil {
+		h.Protocol = mcpclient.Preference(r.set.String("upstream.protocol"))
+		h.ProbeTimeout = r.set.Duration("upstream.probeTimeout")
+		cache = r.set.Bool("upstream.eraCache")
+	}
+	if cache && r.paths.State != "" {
+		h.Eras = pool.OpenEraFile(filepath.Join(r.paths.State, defaults.UpstreamEraFile))
+	}
 }

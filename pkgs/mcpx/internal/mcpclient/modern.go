@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
 )
@@ -28,6 +29,16 @@ type Options struct {
 	// Roots are the directories servers may work within, served from the
 	// first request rather than from whenever they happen to be set.
 	Roots []Root
+	// Cached is the era this server configuration was last found to speak,
+	// tried first in place of the preference's order. Ignored when the
+	// preference forces an era.
+	Cached Era
+	// ProbeTimeout bounds how long a stdio server/discover may go unanswered
+	// before initialize is sent alongside it. Zero means the default.
+	ProbeTimeout time.Duration
+	// ModernVersions narrows the modern revisions offered, newest first.
+	// Nil means all of ModernVersions.
+	ModernVersions []string
 }
 
 // NewWithOptions connects with everything known up front.

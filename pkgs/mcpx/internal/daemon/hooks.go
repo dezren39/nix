@@ -68,6 +68,7 @@ func (r *Registry) InstallHooks(bus *events.Bus, broker *elicit.Broker, roots []
 		},
 		Elicit: r.answerServer,
 	}
+	r.upstreamHooks(hooks)
 	r.hooks = hooks
 	seen := map[*pool.Pool]bool{}
 	for _, p := range r.pools {
@@ -279,7 +280,7 @@ func (r *Registry) askIDFor(server, key string) string {
 	if r.asks == nil {
 		return ""
 	}
-	if a, ok := r.asks.forKey(server, key); ok {
+	if a, ok := r.askFor(server, key); ok {
 		return a.ID
 	}
 	return ""

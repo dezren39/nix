@@ -646,6 +646,13 @@ func callContext(r *http.Request, body config.CallContext, session string) confi
 	if cc.CallID == "" {
 		cc.CallID = firstNonEmpty(r.Header.Get("X-Mcpx-Call"), cc.SessionID)
 	}
+	// With nothing to name the caller, the scope fallback would put every
+	// such request in one shared "call:anonymous" instance -- the accidental
+	// sharing config/scope.go promises it avoids. A fresh id per request is
+	// the per-call isolation it promises instead; the lease reaper releases it.
+	if cc.CallID == "" {
+		cc.CallID = string(logging.NewTraceID("anon"))
+	}
 	if cc.ParentSessionID == "" {
 		cc.ParentSessionID = r.Header.Get("X-Mcpx-Parent-Session")
 	}

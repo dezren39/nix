@@ -243,11 +243,15 @@ is genuinely ambiguous. mcpx makes none, and the question goes to the broker.
 Guessing would hand one client's credential prompt to another client, and that
 is not a trade worth making for a convenience.
 
-**Every** `/v1/call` in flight is registered on its key, not only the
-interruptible ones. Until #77 plain calls were invisible here, so an
-interruptible call sharing a key with somebody's ordinary `mcpx call` was
-handed that caller's question. A plain call can own nothing; its presence is
-what makes the key ambiguous.
+The rule is one comparison. The ask table holds the upstream requests a
+call *owns*; the pool counts every upstream request in flight on the key,
+whoever made it (`/v1/call`, exec, the CLI, the plugin). A call owns a question
+when all the table's entries on the key are its own **and** their number equals
+the pool's count — nobody else is on the connection. Until #229 the table
+alone decided, and an interruptible call sharing a key with somebody's
+ordinary `mcpx call` was handed that caller's question. One window remains: an
+entry is registered an instant before its request is counted, so a stranger's
+question arriving in exactly that instant can still be misattributed.
 
 **A script** (`mcpx_exec`) is one call that makes many. It runs as an
 interruptible call too (`/v1/ask` kind `exec`), and its run id is chosen and

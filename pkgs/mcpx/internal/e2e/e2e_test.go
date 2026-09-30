@@ -1094,22 +1094,36 @@ func TestLogSourceIsOffByDefault(t *testing.T) {
 	}
 }
 
-func TestFilteredLogCallsAreCheap(t *testing.T) {
+// A filtered call must not touch what it was given, which is the whole point
+// of checking the level first: the cost a caller is trying to avoid is
+// building the argument, not the call.
+//
+// This was a wall-clock assertion -- 50k calls, fail over 0.5us each -- and it
+// failed at 1.559us on a loaded machine while short-circuiting perfectly.
+// The threshold did sit in a real gap (a call that formats and writes measures
+// ~16.5us here, not the ~0.1us the old comment claimed), but a 0.5us budget
+// measured by a wall clock on a shared machine loses that margin to a noisy
+// neighbour, and it did.
+//
+// A getter counts reads instead. Untouched is exactly the property, it is the
+// same answer whatever else the machine is doing, and it still discriminates:
+// at --log-level debug this same script reports touched=1000.
+func TestAFilteredLogCallNeverTouchesItsArguments(t *testing.T) {
 	e := newEnv(t, oneServer)
 	script := filepath.Join(e.dir, "cost.ts")
 	os.WriteFile(script, []byte(`import { log } from "./mcpx-client.ts";
 export default function main() {
-  const N = 50_000;
-  const t = performance.now();
-  for (let i = 0; i < N; i++) log.debug("filtered {i}", { i });
-  return { perCallUs: (performance.now() - t) * 1000 / N, enabled: log.enabled("debug") };
+  let touched = 0;
+  const probe = { get i() { touched++; return 1; } };
+  for (let i = 0; i < 1000; i++) log.debug("filtered {i}", probe);
+  return { touched, enabled: log.enabled("debug") };
 }
 `), 0o644)
 	out := e.run("run", "--log-level", "info", "--format", "bare", script)
 	start := strings.Index(out, "{")
 	var doc struct {
-		PerCallUs float64 `json:"perCallUs"`
-		Enabled   bool    `json:"enabled"`
+		Touched int  `json:"touched"`
+		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(out[start:]), &doc); err != nil {
 		t.Fatalf("bad result: %v\n%s", err, out)
@@ -1117,10 +1131,8 @@ export default function main() {
 	if doc.Enabled {
 		t.Error("debug should report disabled at an info threshold")
 	}
-	// Serialising and writing would be ~0.1us; a stack trace ~5us. A
-	// short-circuited call should be far below either.
-	if doc.PerCallUs > 0.5 {
-		t.Errorf("a filtered call cost %.3fus; the level check is not short-circuiting", doc.PerCallUs)
+	if doc.Touched != 0 {
+		t.Errorf("a filtered call read its arguments %d times; the level check is not short-circuiting", doc.Touched)
 	}
 }
 

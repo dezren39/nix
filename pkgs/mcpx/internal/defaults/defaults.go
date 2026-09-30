@@ -99,6 +99,14 @@ type Defaults struct {
 		AbandonGrace string `json:"abandonGrace"`
 		MCPPath      string `json:"mcpPath"`
 	} `json:"proto"`
+	// Transport governs how mcpx's own MCP server behaves on the wire, as
+	// opposed to what it says: keep-alives, shutdown, who may connect.
+	Transport struct {
+		SSEKeepAlive   string   `json:"sseKeepAlive"`
+		StdioDrain     string   `json:"stdioDrain"`
+		LoopbackHosts  []string `json:"loopbackHosts"`
+		AllowedOrigins []string `json:"allowedOrigins"`
+	} `json:"transport"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -216,6 +224,17 @@ type Defaults struct {
 		PrivateMode   string `json:"privateMode"`
 		PublicMode    string `json:"publicMode"`
 	} `json:"files"`
+	// Git is how the repo and worktree scopes find a repository. Discovery
+	// reads .git itself (internal/config/gitdiscover.go); Bin is only run for
+	// the layouts that port does not vouch for, and GitfileMaxBytes is git's
+	// own ceiling on a .git file, kept so an absurd one is refused by both
+	// rather than read into the daemon's memory. Neither is a setting: PATH
+	// already chooses the git, and changing the ceiling would only make mcpx
+	// disagree with git about which files are valid.
+	Git struct {
+		Bin             string `json:"bin"`
+		GitfileMaxBytes string `json:"gitfileMaxBytes"`
+	} `json:"git"`
 	// Plugin is read by the opencode plugin rather than by this binary. It
 	// is declared here so that `mcpx settings` can answer what the plugin
 	// will do, which is otherwise only discoverable by reading TypeScript.
@@ -231,7 +250,37 @@ type Defaults struct {
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
 	} `json:"plugin"`
+	// Upstream governs how mcpx connects to the servers it fronts: which
+	// protocol era it tries first, how long it waits to find out, and where
+	// it remembers the answer.
+	Upstream struct {
+		Protocol       string `json:"protocol"`
+		ProbeTimeout   string `json:"probeTimeout"`
+		EraCache       bool   `json:"eraCache"`
+		EraFile        string `json:"eraFile"`
+		EraFileVersion int    `json:"eraFileVersion"`
+		ErrorBodyLimit string `json:"errorBodyLimit"`
+	} `json:"upstream"`
 }
+
+// Upstream connection defaults.
+var (
+	// UpstreamProtocol is the era preference for a server that names none.
+	UpstreamProtocol = builtin.Upstream.Protocol
+	// UpstreamProbeTimeout is how long a stdio server/discover may go
+	// unanswered before initialize is sent alongside it.
+	UpstreamProbeTimeout = mustDur(builtin.Upstream.ProbeTimeout, "upstream.probeTimeout")
+	// UpstreamEraCache remembers each server configuration's era.
+	UpstreamEraCache = builtin.Upstream.EraCache
+	// UpstreamEraFile is the era cache's name inside the state directory.
+	UpstreamEraFile = builtin.Upstream.EraFile
+	// UpstreamEraFileVersion is bumped when the file's shape changes; a file
+	// of any other version is ignored and rewritten.
+	UpstreamEraFileVersion = builtin.Upstream.EraFileVersion
+	// HTTPErrorBodyLimit bounds how much of a non-2xx body is read: enough
+	// for a JSON-RPC error, not enough for an HTML error page to matter.
+	HTTPErrorBodyLimit = mustBytes(builtin.Upstream.ErrorBodyLimit, "upstream.errorBodyLimit")
+)
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
 // package variables before it runs init(), so the exported values below would
@@ -383,6 +432,20 @@ var (
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
 
+	// TransportSSEKeepAlive is how often an otherwise quiet event stream
+	// carries a comment line, so an intermediary or a client idle timeout
+	// does not close a stream that is merely waiting.
+	TransportSSEKeepAlive = mustDur(builtin.Transport.SSEKeepAlive, "transport.sseKeepAlive")
+	// TransportStdioDrain bounds how long `mcpx serve` keeps answering
+	// requests already in flight after its input closes, before it cancels
+	// them and exits.
+	TransportStdioDrain = mustDur(builtin.Transport.StdioDrain, "transport.stdioDrain")
+	// TransportLoopbackHosts are the Origin hosts a browser page on this
+	// machine presents; any port, http or https.
+	TransportLoopbackHosts = builtin.Transport.LoopbackHosts
+	// TransportAllowedOrigins are further Origins allowed to reach /mcp.
+	TransportAllowedOrigins = builtin.Transport.AllowedOrigins
+
 	CatalogBudget = builtin.Catalog.Budget
 
 	Permissions      = builtin.Script.Permissions
@@ -485,6 +548,9 @@ var (
 	PublicDirMode = mustMode(builtin.Files.PublicDirMode, "files.publicDirMode")
 	PrivateMode   = mustMode(builtin.Files.PrivateMode, "files.privateMode")
 	PublicMode    = mustMode(builtin.Files.PublicMode, "files.publicMode")
+
+	GitBin          = builtin.Git.Bin
+	GitfileMaxBytes = mustBytes(builtin.Git.GitfileMaxBytes, "git.gitfileMaxBytes")
 
 	PluginBin            = builtin.Plugin.Bin
 	PluginBinArgs        = builtin.Plugin.BinArgs

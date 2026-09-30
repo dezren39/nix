@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/adapter"
 	"github.com/dezren39/mcpx/internal/artifacts"
+	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/execsvc"
@@ -113,7 +115,14 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if err != nil {
 		return "", err
 	}
-	return renderResult(res.Result), nil
+	text, failed := renderResult(res.Result)
+	if failed {
+		// mcpserver turns a backend error into a result with isError, and
+		// /v1/tools into ok:false; ToolFailure lets the latter tell it from
+		// a call mcpx could not make.
+		return "", daemon.ToolFailure{Text: text}
+	}
+	return text, nil
 }
 
 // Exec runs a script through the daemon's /v1/exec.
@@ -328,7 +337,20 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 		AskRounds:   a.Settings().Int("proto.askRounds"),
 		StateTTL:    a.Settings().Duration("proto.stateTTL"),
 		SessionIdle: a.Settings().Duration("proto.sessionIdle"),
+
+		SSEKeepAlive: a.Settings().Duration("transport.sseKeepAlive"),
+		StdioDrain:   a.Settings().Duration("transport.stdioDrain"),
 	}
+	// Browser origins the HTTP transport serves: loopback at any port, the
+	// daemon's own address when it listens somewhere else, and whatever
+	// was configured. The daemon's address is named explicitly rather than
+	// taken from the request's Host, which DNS rebinding controls.
+	hosts := append([]string(nil), defaults.TransportLoopbackHosts...)
+	if addr := a.Settings().String("daemon.address"); addr != "" && !unspecifiedHost(addr) {
+		hosts = append(hosts, addr)
+	}
+	srv.Origins = mcpserver.OriginPolicy{Hosts: hosts,
+		Origins: a.Settings().List("transport.allowedOrigins")}
 	if a.Settings().Bool("proto.native") {
 		// Native elicitation and sampling: a question an upstream server
 		// asks is put to mcpx's own client, if that client said it could
@@ -392,6 +414,13 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	// server over stdio fails.
 	a.machineOutput = true
 	return srv.ServeStdio(ctx, os.Stdin, os.Stdout)
+}
+
+// unspecifiedHost reports whether an address means every interface, which
+// names no origin a browser could present.
+func unspecifiedHost(h string) bool {
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsUnspecified()
 }
 
 func writeJSONResponse(w http.ResponseWriter, v any) {
