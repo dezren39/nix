@@ -49,7 +49,6 @@ func main() {
 		supported = strings.Split(s, ",")
 	}
 	in := bufio.NewScanner(os.Stdin)
-	in.Buffer(make([]byte, 0, 1<<20), 1<<24)
 	first := true
 	for in.Scan() {
 		var f frame
