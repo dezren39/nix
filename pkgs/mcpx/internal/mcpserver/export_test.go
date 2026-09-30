@@ -1,5 +1,7 @@
 package mcpserver
 
+import "encoding/json"
+
 // Exported for the tests in this package's external test file. They exercise
 // the two things that have no other way in: the downgrade at the edge, which
 // is applied inside Handle, and the requestState signer, whose key is
@@ -19,3 +21,13 @@ func (s *Server) MintState(callID, binding string) (string, error) {
 func (s *Server) VerifyState(token, binding string) (string, error) {
 	return s.states().verify(token, binding)
 }
+
+// ConnForTest is a connection with a given identity, standing in for a
+// second Streamable HTTP session.
+func (s *Server) ConnForTest(id string) *Conn { return s.newConn(id, nil) }
+
+// ConnWithSend is a connection whose frames go to send, as stdio's do.
+func (s *Server) ConnWithSend(id string, send func(any) error) *Conn { return s.newConn(id, send) }
+
+// ParamsFor renders a question for a client's revision.
+func (q Question) ParamsFor(p Peer) (json.RawMessage, error) { return q.paramsFor(p) }

@@ -26,8 +26,24 @@ func TestWhichRevisionDefinesWhat(t *testing.T) {
 			"2025-03-26": false, "2025-06-18": true, "2025-11-25": true, "2026-07-28": true}},
 		{mcpserver.FeatElicitationURL, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": true}},
+		// Core tasks are 2025-11-25's alone; 2026-07-28 moved them to an
+		// extension with different shapes.
 		{mcpserver.FeatTasks, map[string]bool{
-			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": true}},
+			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": false}},
+		{mcpserver.FeatTasksExtension, map[string]bool{
+			"2025-11-25": false, "2026-07-28": true}},
+		{mcpserver.FeatExtensions, map[string]bool{
+			"2025-11-25": false, "2026-07-28": true}},
+		{mcpserver.FeatAudio, map[string]bool{
+			"2024-11-05": false, "2025-03-26": true}},
+		{mcpserver.FeatToolAnnotations, map[string]bool{
+			"2024-11-05": false, "2025-03-26": true}},
+		{mcpserver.FeatCompletions, map[string]bool{
+			"2024-11-05": false, "2025-03-26": true}},
+		{mcpserver.FeatTitle, map[string]bool{
+			"2025-03-26": false, "2025-06-18": true}},
+		{mcpserver.FeatIcons, map[string]bool{
+			"2025-06-18": false, "2025-11-25": true}},
 		{mcpserver.FeatResultType, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": false, "2026-07-28": true}},
 		// Removed rather than added: a ceiling, not a floor. The three below
@@ -40,7 +56,7 @@ func TestWhichRevisionDefinesWhat(t *testing.T) {
 		{mcpserver.FeatElicitationComplete, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": false}},
 		{mcpserver.FeatInitialize, map[string]bool{
-			"2025-03-26": true, "2025-06-18": true, "2025-11-25": true, "2026-07-28": false}},
+			"2024-11-05": true, "2025-03-26": true, "2025-06-18": true, "2025-11-25": true, "2026-07-28": false}},
 		{mcpserver.FeatDiscover, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": false, "2026-07-28": true}},
 	}
@@ -169,8 +185,7 @@ func TestOutboundShapesAreDowngradedToTheNegotiatedRevision(t *testing.T) {
 
 func TestResultTypeGoesOnlyToARevisionThatDefinesIt(t *testing.T) {
 	srv := mcpserver.New(newBackend(), "mcpx", "test")
-	modern := map[string]any{"_meta": map[string]any{
-		mcpserver.MetaProtocolVersion: "2026-07-28"}}
+	modern := modernParams(nil)
 	got := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(1, "ping", modern)).Result)
 	if !strings.Contains(got, `"resultType":"complete"`) {
 		t.Errorf("2026-07-28 makes resultType mandatory:\n%s", got)
@@ -198,7 +213,7 @@ func TestCapabilitiesAreDeclaredOnlyWhereTheRevisionDefinesThem(t *testing.T) {
 	}
 
 	modern := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(2, "server/discover",
-		map[string]any{"_meta": map[string]any{mcpserver.MetaProtocolVersion: "2026-07-28"}})).Result)
+		modernParams(nil))).Result)
 	if strings.Contains(modern, `"logging"`) {
 		t.Errorf("2026-07-28 removed logging/setLevel:\n%s", modern)
 	}
@@ -220,8 +235,7 @@ func TestEveryMethodIsAcceptedWhateverWasNegotiated(t *testing.T) {
 			map[string]any{}},
 		{"subscriptions/listen from a legacy client", "tools/list", map[string]any{}},
 		{"resources/subscribe from a modern one", "resources/subscribe",
-			map[string]any{"uri": "x://y", "_meta": map[string]any{
-				mcpserver.MetaProtocolVersion: "2026-07-28"}}},
+			modernParams(map[string]any{"uri": "x://y"})},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

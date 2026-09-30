@@ -21,8 +21,9 @@ import (
 // nothing about what a server should put in it. That silence is the whole
 // risk: a bare call id is opaque to a well-behaved client and a handle
 // anyone can guess to a hostile one, and resuming someone else's call is
-// reading their tool results. So it is signed, bound to the connection that
-// started the call, and expires.
+// reading their tool results. So it is signed, bound to the request that
+// started the call -- its method and a digest of its parameters, see
+// requestBinding -- and expires.
 //
 // The key is per process and never persisted. A requestState does not need
 // to survive a restart, because the call it names does not either.
@@ -62,7 +63,7 @@ func (s *stateSigner) mint(callID, binding string) (string, error) {
 		return "", ErrNoStateKey
 	}
 	if binding == "" {
-		return "", errors.New("this connection has no stable identity to bind a requestState to")
+		return "", errors.New("a requestState must be bound to something")
 	}
 	b, err := json.Marshal(statePayload{Call: callID, Binding: binding,
 		Expires: time.Now().Add(ttl).Unix()})
@@ -101,10 +102,10 @@ func (s *stateSigner) verify(token, binding string) (string, error) {
 		return "", errors.New("requestState is malformed")
 	}
 	if p.Binding != binding {
-		// The signature was ours, so this is a valid token presented by the
-		// wrong connection. Said plainly rather than as "invalid": the
+		// The signature was ours, so this is a valid token presented on the
+		// wrong request. Said plainly rather than as "invalid": the
 		// difference is a bug in a client versus somebody replaying.
-		return "", errors.New("this requestState belongs to another session")
+		return "", errors.New("this requestState was issued for a different request")
 	}
 	if time.Now().Unix() > p.Expires {
 		return "", fmt.Errorf("this requestState expired; the call it named is gone")

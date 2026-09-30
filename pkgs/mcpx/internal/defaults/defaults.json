@@ -185,6 +185,11 @@
     "remember": "session",
     "annotate": true
   },
+  "protoMessages": {
+    "listMaxAge": "1m",
+    "readMaxAge": "0s",
+    "taskAfter": "2s"
+  },
   "upstream": {
     "protocol": "modern",
     "probeTimeout": "2s",
