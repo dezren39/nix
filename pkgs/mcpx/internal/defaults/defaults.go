@@ -108,6 +108,12 @@ type Defaults struct {
 		LoopbackHosts  []string `json:"loopbackHosts"`
 		AllowedOrigins []string `json:"allowedOrigins"`
 	} `json:"transport"`
+
+	// CLI governs how the command line renders what it did not write a
+	// formatter for: the commands generated from the /v1 operation table.
+	CLI struct {
+		CellWidth int `json:"cellWidth"`
+	} `json:"cli"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -517,6 +523,10 @@ var (
 	TransportAllowedOrigins = builtin.Transport.AllowedOrigins
 
 	CatalogBudget = builtin.Catalog.Budget
+
+	// OpCellWidth caps a table cell in a generated command's output; a
+	// description in full turns a table into a wall.
+	OpCellWidth = builtin.CLI.CellWidth
 
 	Permissions      = builtin.Script.Permissions
 	CaptureConsole   = builtin.Script.CaptureConsole

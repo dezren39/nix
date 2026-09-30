@@ -14,6 +14,7 @@ func settingsOps() []Op {
 	return []Op{
 		{
 			Name: "settings_list", Method: "GET", Path: "/v1/settings",
+			Command: "settings list",
 			Summary: "Every setting, its effective value and where that value came from",
 			Description: "The whole registry: path, kind, effective value, default, " +
 				"the file or variable or flag that decided it, the environment " +
@@ -33,6 +34,7 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "settings_get", Method: "GET", Path: "/v1/settings/{path}",
+			Command:     "settings get",
 			Summary:     "One setting",
 			Description: "The same record the listing carries, for one dotted path.",
 			Params: []Param{
@@ -42,6 +44,7 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "settings_set", Method: "PUT", Path: "/v1/settings/{path}",
+			Command: "settings set",
 			Summary: "Change a setting",
 			Description: "persist=runtime changes the running daemon and nothing on " +
 				"disk, which is what you want for an experiment. project and user " +
@@ -61,6 +64,7 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "settings_unset", Method: "DELETE", Path: "/v1/settings/{path}",
+			Command: "settings unset",
 			Summary: "Drop a runtime override",
 			Description: "The value falls back to whatever the flags, the environment " +
 				"and the configuration files say. It does not remove anything from " +
@@ -72,6 +76,7 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "servers_list", Method: "GET", Path: "/v1/servers",
+			Command: "servers list",
 			Summary: "Every configured server as it is written in the configuration",
 			Description: "The entries themselves -- command, arguments, environment " +
 				"keys, URL -- and which file each came from. /v1/namespaces is the " +
@@ -80,6 +85,7 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "servers_add", Method: "POST", Path: "/v1/servers",
+			Command: "servers add",
 			Summary: "Add a server, live",
 			Description: "Writes the entry to a configuration file and reloads, so the " +
 				"server is callable immediately and is still there after a " +
@@ -109,6 +115,7 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "servers_remove", Method: "DELETE", Path: "/v1/servers/{name}",
+			Command: "servers remove",
 			Summary: "Remove a server, live",
 			Description: "Deletes the entry from whichever file defines it and reloads. " +
 				"Instances of that server stop; a caller mid-call against it fails.",
