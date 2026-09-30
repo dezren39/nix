@@ -135,12 +135,18 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 	}
 	// Outside the profile, the direct path answers -- with the same refusal
 	// it gives every client, rather than the ask path starting the call.
-	visible, err := d.app.visibleNamespaces(ctx, c)
-	if err != nil {
-		return "", err
-	}
-	if server, _ := body["server"].(string); !visible(server) {
-		return "", mcpserver.ErrNotInterruptible
+	// Only a request that names a server has one to check: a script
+	// (kind "exec") names none, and treating "" as a hidden namespace sent
+	// every mcpx_exec down the direct path, where its questions could not
+	// reach the client.
+	if server, named := body["server"].(string); named {
+		visible, err := d.app.visibleNamespaces(ctx, c)
+		if err != nil {
+			return "", err
+		}
+		if !visible(server) {
+			return "", mcpserver.ErrNotInterruptible
+		}
 	}
 	raw, err := c.do(ctx, http.MethodPost, "/v1/ask", body)
 	if err != nil {
