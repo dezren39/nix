@@ -252,6 +252,13 @@ func TestMessagesServer(t *testing.T) {
 		ss.send(t, []byte(`{nope`))
 		r := decode(t, ss.next(t))
 		out[errorCode(r)] = r["error"].(map[string]any)
+		if rev != rev20250326 {
+			// A batch where the revision has none.
+			ss.send(t, append(append([]byte("["), frame(98, "tools/list", params(rev, nil))...), ']'))
+			if b := decode(t, ss.next(t)); errorCode(b) != 0 {
+				out[errorCode(b)] = b["error"].(map[string]any)
+			}
+		}
 		return out
 	}
 	allowedModern := map[int]bool{-32700: true, -32600: true, -32601: true, -32602: true, -32603: true,

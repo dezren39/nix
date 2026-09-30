@@ -52,6 +52,7 @@ Each fix has a test in this package that fails without it.
 - `logging/setLevel` with a level that is not one of the eight answered `{}`; it is `-32602` now. A valid level is
   still accepted though mcpx sends no log messages.
 - `completion.maxValues` could raise a completion past the 100 values every revision allows.
+- The batch refusal was two sentences; error messages are one.
 - `tasks/cancel` of a finished task succeeded; 2025-11-25 makes it `-32602`.
 - An unknown tool name was an `isError` result; it is `-32602`, before any task or question starts.
 - `prompts/get` did not check required arguments; a missing one is now `-32602` before anything runs or asks. (The
