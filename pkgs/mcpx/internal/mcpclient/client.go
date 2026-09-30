@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/dezren39/mcpx/internal/defaults"
 	"sync"
@@ -63,6 +62,9 @@ type rpcResponse struct {
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *rpcError       `json:"error,omitempty"`
 	Method  string          `json:"method,omitempty"`
+	// sendErr is set, instead of a reply, when the request never reached
+	// the server; see begin.
+	sendErr error
 }
 
 // Client is a connected MCP session.
@@ -93,6 +95,18 @@ type Client struct {
 	// metaVersion is the version stamped into each request's _meta. Empty
 	// for a legacy connection, whose version was settled by the handshake.
 	metaVersion string
+	// Source says how Era was settled: SourceProbe, SourceCache or
+	// SourceForced.
+	Source string
+	// CachedEraWrong is set when a cached era was tried first and the server
+	// turned out to speak the other one.
+	CachedEraWrong bool
+	// modernVersions are the modern revisions this client offers, newest
+	// first; ModernVersions unless a caller narrowed them.
+	modernVersions []string
+	// probeTimeout is how long server/discover may go unanswered on stdio
+	// before initialize is sent alongside it.
+	probeTimeout time.Duration
 	// Instructions is the free-text guidance a server returns from
 	// initialize. Servers use it to explain conventions their schemas cannot:
 	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
@@ -167,11 +181,14 @@ const (
 type Preference string
 
 const (
-	// PreferLegacy tries initialize first. The right default today: nearly
-	// every server in existence is legacy, and probing modern first costs a
-	// round trip on every one of them.
+	// PreferLegacy tries initialize first and probes server/discover only
+	// if that fails. Kept for a server known to be legacy but not worth
+	// forcing: it saves the probe's round trip on every start.
 	PreferLegacy Preference = "legacy"
-	// PreferModern probes server/discover first.
+	// PreferModern probes server/discover first and falls back to
+	// initialize. The default, because it is what the 2026-07-28 transport
+	// pages prescribe for a dual-era client, and because the era cache makes
+	// its cost a one-time one per server configuration.
 	PreferModern Preference = "modern"
 	// ForceLegacy and ForceModern skip the fallback, for a server known to
 	// be one or the other, or to diagnose which it is.
@@ -179,9 +196,16 @@ const (
 	ForceModern Preference = "force-modern"
 )
 
+// Where an era determination came from, as reported on Client.Source.
+const (
+	SourceProbe  = "probe"
+	SourceCache  = "cache"
+	SourceForced = "forced"
+)
+
 // New connects, discovering which era the server speaks.
 func New(ctx context.Context, t Transport, clientName, clientVersion string) (*Client, error) {
-	return NewWithPreference(ctx, t, clientName, clientVersion, PreferLegacy)
+	return NewWithPreference(ctx, t, clientName, clientVersion, PreferModern)
 }
 
 // NewWithPreference connects, trying the given era first.
@@ -189,145 +213,110 @@ func New(ctx context.Context, t Transport, clientName, clientVersion string) (*C
 // The fallback is what makes mcpx dual-era. A modern client against a legacy
 // server fails, and a legacy client against a modern server fails; only
 // something that can do both reaches the whole ecosystem.
-//
-// The probe order is a real trade. Legacy first costs a modern server one
-// wasted initialize; modern first costs every legacy server -- which is to
-// say almost all of them -- a wasted discover. Legacy first is correct today
-// and will stop being correct, which is why it is configurable rather than
-// decided.
 func NewWithPreference(ctx context.Context, t Transport, clientName, clientVersion string, pref Preference) (*Client, error) {
 	return newClient(ctx, t, Options{ClientName: clientName, ClientVersion: clientVersion, Preference: pref})
 }
 
 func newClient(ctx context.Context, t Transport, o Options) (*Client, error) {
 	c := &Client{
-		t:             t,
-		pending:       map[int64]chan *rpcResponse{},
-		closeCh:       make(chan struct{}),
-		clientName:    o.ClientName,
-		clientVersion: o.ClientVersion,
-		onElicit:      o.OnServerRequest,
-		roots:         append([]Root(nil), o.Roots...),
+		t:              t,
+		pending:        map[int64]chan *rpcResponse{},
+		closeCh:        make(chan struct{}),
+		clientName:     o.ClientName,
+		clientVersion:  o.ClientVersion,
+		onElicit:       o.OnServerRequest,
+		roots:          append([]Root(nil), o.Roots...),
+		modernVersions: o.ModernVersions,
+		probeTimeout:   o.ProbeTimeout,
+	}
+	if len(c.modernVersions) == 0 {
+		c.modernVersions = ModernVersions
+	}
+	if c.probeTimeout <= 0 {
+		c.probeTimeout = defaults.UpstreamProbeTimeout
 	}
 	go c.recvLoop()
 
-	try := func(era Era) error {
-		switch era {
-		case EraModern:
-			return c.discoverModern(ctx)
-		default:
-			return c.initializeLegacy(ctx, c.clientName, c.clientVersion)
-		}
+	pref := o.Preference
+	if pref == "" {
+		pref = PreferModern
+	}
+	cached := o.Cached
+	if pref == ForceLegacy || pref == ForceModern {
+		// A forced era is an instruction, not a guess, so nothing learned
+		// earlier may override it.
+		cached = ""
+	}
+	// A cached era replaces the preference's order, not its fallback: the
+	// cache is only ever a better first guess.
+	switch cached {
+	case EraLegacy:
+		pref = PreferLegacy
+	case EraModern:
+		pref = PreferModern
 	}
 
-	var first, second Era
-	switch o.Preference {
-	case PreferModern:
-		first, second = EraModern, EraLegacy
-	case ForceModern:
-		first, second = EraModern, ""
+	var err error
+	switch pref {
 	case ForceLegacy:
-		first, second = EraLegacy, ""
+		err = c.initializeLegacy(ctx, c.clientName, c.clientVersion)
+		if err == nil {
+			c.Era = EraLegacy
+		}
+	case ForceModern:
+		err = c.probe(ctx, false)
+	case PreferLegacy:
+		err = c.legacyFirst(ctx)
 	default:
-		first, second = EraLegacy, EraModern
+		err = c.probe(ctx, true)
 	}
-
-	err := try(first)
-	if err == nil {
-		c.Era = first
-		return c, nil
-	}
-	if second == "" {
+	if err != nil {
 		c.Close()
 		return nil, err
 	}
-	// A recognised modern error identifies a modern server, so there is
-	// nothing to fall back to -- the version is wrong, not the era.
-	if isVersionError(err) {
-		c.Close()
-		return nil, err
+	switch {
+	case o.Preference == ForceLegacy || o.Preference == ForceModern:
+		c.Source = SourceForced
+	case cached != "" && cached == c.Era:
+		c.Source = SourceCache
+	default:
+		c.Source = SourceProbe
+		c.CachedEraWrong = cached != ""
 	}
-	if ferr := try(second); ferr != nil {
-		c.Close()
-		// The first error is the one worth reporting: it came from the era
-		// this server most likely is.
-		return nil, fmt.Errorf("%s handshake failed (%w); %s also failed (%v)",
-			first, err, second, ferr)
-	}
-	c.Era = second
 	return c, nil
 }
 
 func (c *Client) initializeLegacy(ctx context.Context, clientName, clientVersion string) error {
+	var ir initResult
+	if err := c.call(ctx, "initialize", c.initializeParams(), &ir); err != nil {
+		return fmt.Errorf("initialize: %w", legacyHTTPRefusal(err))
+	}
+	return c.finishLegacy(ctx, ir)
+}
+
+func (c *Client) initializeParams() json.RawMessage {
 	params, _ := json.Marshal(map[string]any{
 		"protocolVersion": ProtocolVersion,
 		// Declared only where mcpx can actually deliver; see capabilities.
 		"capabilities": c.capabilities(),
-		"clientInfo":   map[string]any{"name": clientName, "version": clientVersion},
+		"clientInfo":   map[string]any{"name": c.clientName, "version": c.clientVersion},
 	})
-	var ir initResult
-	if err := c.call(ctx, "initialize", params, &ir); err != nil {
-		return fmt.Errorf("initialize: %w", err)
-	}
+	return params
+}
+
+// finishLegacy records an initialize result and completes the handshake.
+func (c *Client) finishLegacy(ctx context.Context, ir initResult) error {
+	c.metaVersion = ""
 	c.ServerInfo = ir.ServerInfo
 	c.Capabilities = ir.Capabilities
 	c.Instructions = ir.Instructions
 	c.Negotiated = ir.ProtocolVersion
+	c.Era = EraLegacy
 
 	if err := c.notify(ctx, "notifications/initialized", json.RawMessage(`{}`)); err != nil {
 		return fmt.Errorf("initialized notification: %w", err)
 	}
 	return nil
-}
-
-type discoverResult struct {
-	ProtocolVersions []string                   `json:"protocolVersions"`
-	ServerInfo       ServerInfo                 `json:"serverInfo"`
-	Capabilities     map[string]json.RawMessage `json:"capabilities"`
-	Instructions     string                     `json:"instructions"`
-}
-
-func (c *Client) discoverModern(ctx context.Context) error {
-	// Discover is itself a modern request, so it carries the version mcpx
-	// would most like to speak; a server that cannot answers with the list
-	// it can, as an UnsupportedProtocolVersionError.
-	c.metaVersion = ModernVersions[0]
-	var dr discoverResult
-	if err := c.call(ctx, "server/discover", json.RawMessage(`{}`), &dr); err != nil {
-		c.metaVersion = ""
-		return fmt.Errorf("server/discover: %w", err)
-	}
-	// Pick the newest version both sides implement, rather than assuming the
-	// first one listed is acceptable.
-	chosen := ""
-	for _, want := range ModernVersions {
-		for _, have := range dr.ProtocolVersions {
-			if want == have {
-				chosen = want
-				break
-			}
-		}
-		if chosen != "" {
-			break
-		}
-	}
-	if chosen == "" {
-		c.metaVersion = ""
-		return fmt.Errorf("no shared protocol version; the server offers %v",
-			dr.ProtocolVersions)
-	}
-	c.metaVersion = chosen
-	c.ServerInfo = dr.ServerInfo
-	c.Capabilities = dr.Capabilities
-	c.Instructions = dr.Instructions
-	c.Negotiated = chosen
-	return nil
-}
-
-// isVersionError reports an UnsupportedProtocolVersionError, which identifies
-// a modern server whatever else went wrong.
-func isVersionError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "-32022")
 }
 
 // Supports reports whether the server advertised a capability.

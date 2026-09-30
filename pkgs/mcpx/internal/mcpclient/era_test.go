@@ -84,9 +84,11 @@ func (f *fakeTransport) Send(_ context.Context, msg []byte) error {
 			return nil
 		}
 		reply(map[string]any{
-			"protocolVersions": []string{"2026-07-28"},
-			"serverInfo":       map[string]any{"name": "fake", "version": "1"},
-			"capabilities":     map[string]any{"tools": map[string]any{}},
+			"supportedVersions": []string{"2026-07-28"},
+			"_meta": map[string]any{
+				"io.modelcontextprotocol/serverInfo": map[string]any{"name": "fake", "version": "1"},
+			},
+			"capabilities": map[string]any{"tools": map[string]any{}},
 		})
 	default:
 		fail(-32601, "no method "+req.Method, nil)

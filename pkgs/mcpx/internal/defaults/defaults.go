@@ -239,7 +239,37 @@ type Defaults struct {
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
 	} `json:"plugin"`
+	// Upstream governs how mcpx connects to the servers it fronts: which
+	// protocol era it tries first, how long it waits to find out, and where
+	// it remembers the answer.
+	Upstream struct {
+		Protocol       string `json:"protocol"`
+		ProbeTimeout   string `json:"probeTimeout"`
+		EraCache       bool   `json:"eraCache"`
+		EraFile        string `json:"eraFile"`
+		EraFileVersion int    `json:"eraFileVersion"`
+		ErrorBodyLimit string `json:"errorBodyLimit"`
+	} `json:"upstream"`
 }
+
+// Upstream connection defaults.
+var (
+	// UpstreamProtocol is the era preference for a server that names none.
+	UpstreamProtocol = builtin.Upstream.Protocol
+	// UpstreamProbeTimeout is how long a stdio server/discover may go
+	// unanswered before initialize is sent alongside it.
+	UpstreamProbeTimeout = mustDur(builtin.Upstream.ProbeTimeout, "upstream.probeTimeout")
+	// UpstreamEraCache remembers each server configuration's era.
+	UpstreamEraCache = builtin.Upstream.EraCache
+	// UpstreamEraFile is the era cache's name inside the state directory.
+	UpstreamEraFile = builtin.Upstream.EraFile
+	// UpstreamEraFileVersion is bumped when the file's shape changes; a file
+	// of any other version is ignored and rewritten.
+	UpstreamEraFileVersion = builtin.Upstream.EraFileVersion
+	// HTTPErrorBodyLimit bounds how much of a non-2xx body is read: enough
+	// for a JSON-RPC error, not enough for an HTML error page to matter.
+	HTTPErrorBodyLimit = mustBytes(builtin.Upstream.ErrorBodyLimit, "upstream.errorBodyLimit")
+)
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
 // package variables before it runs init(), so the exported values below would
