@@ -38,18 +38,27 @@ Every daemon the script starts is stopped on exit.
 
 ## Results
 
-Run on `main` at `a93be43` (after #283 and #284), merged into this branch.
-Raw output is per leg in the out-dir (`<leg>/out.txt`,
+Every column is a run of `scripts/conformance.sh` against a daemon built from
+that commit. Raw output is per leg in the out-dir (`<leg>/out.txt`,
 `<leg>/results/**/checks.json`), and `failures.txt` has one line per failed
 check.
 
-| leg | at `05c78b2` (first run) | at `408bc2b` | at `a93be43` |
-| --- | --- | --- | --- |
-| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | **45 / 21** |
-| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | **110 / 62** |
-| server `--suite all` | 84 / 106 | 136 / 61 | **131 / 67** |
-| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | **20 / 56** |
-| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | **63 / 68** |
+| leg | at `05c78b2` (first run) | at `408bc2b` | at `a93be43` | at `60068c6` |
+| --- | --- | --- | --- | --- |
+| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | 45 / 21 | **45 / 21** |
+| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | 110 / 62 | **109 / 62** |
+| server `--suite all` | 84 / 106 | 136 / 61 | 131 / 67 | **128 / 67** |
+| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | 20 / 56 | **20 / 48** |
+| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | 63 / 68 | **63 / 59** |
+
+`60068c6` is the closeout of this build-out: #287, #288 and #289 on top of
+`a93be43`, none of which touch `internal/mcpserver`. The server 2026 leg moved
+by one check and was **run twice with an identical failure set**, so the
+difference from `a93be43` is a single scenario, not noise in the total. The
+client legs lost failures rather than gaining passes — the suite stops
+reporting a check once an earlier one in the same scenario fails differently,
+so a falling *failed* count is not by itself an improvement.
+
 
 **The server numbers went down because two passes were false.** The suite's
 `tools-call-simple-text` and `tools-call-error` call fixture tools
@@ -91,6 +100,18 @@ suite's own "Not testable: server does not list the diagnostic tool …". One
 2026-07-28 warning is fixture-bound too: the suite mutates its own prompt list
 and waits for `notifications/prompts/list_changed` on a listen stream, and
 mcpx's prompt list is its upstreams'.
+
+Two of them do not say so in their own message, and are worth naming because
+they read like protocol failures: `sep-2322-multi-round-r1` ("Expected
+InputRequiredResult with inputRequests and requestState") and
+`sep-2322-reject-tampered-state` ("Prerequisite failed: could not get initial
+InputRequiredResult"). Both are downstream of the same absent fixture —
+`checks.json` for the sibling scenarios in that run shows
+`no tool named "test_input_required_result_elicitation"` and its eleven
+relatives — so the round that was supposed to produce a `requestState` never
+happened. A failure message that names a consequence rather than a cause is
+the reason this section reads `checks.json` per scenario rather than the
+summary line.
 
 Of the four defects #252 named, one was fixed (the tasks extension's methods
 answer `-32021` to a client that did not declare it, #284), one is a decision
