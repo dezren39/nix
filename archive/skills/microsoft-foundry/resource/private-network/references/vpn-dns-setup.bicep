@@ -15,7 +15,7 @@ param vnetName string
 param vnetResourceGroup string = resourceGroup().name
 
 // ── Existing VNet ──
-resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
+resource vnet 'Microsoft.Network/virtualNetworks@2024-10-01' existing = {
   name: vnetName
   scope: resourceGroup(vnetResourceGroup)
 }
@@ -45,7 +45,7 @@ var aadIssuer = 'https://sts.windows.net/${aadTenantId}/'
 var aadTenant = 'https://login.microsoftonline.com/${aadTenantId}/'
 
 // ── Add subnets ──
-resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
+resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-10-01' = {
   parent: vnet
   name: 'GatewaySubnet'
   properties: {
@@ -56,7 +56,7 @@ resource gatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = 
 
 // NOTE: NRMS policy may auto-deploy an NSG on this subnet.
 // Ensure the NSG allows inbound UDP/TCP port 53 (DNS) from the VPN client address pool.
-resource dnsResolverSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
+resource dnsResolverSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-10-01' = {
   parent: vnet
   name: 'dns-resolver-inbound'
   properties: {
@@ -75,7 +75,7 @@ resource dnsResolverSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01
 }
 
 // ── Public IP for VPN Gateway ──
-resource vpnGatewayPip 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
+resource vpnGatewayPip 'Microsoft.Network/publicIPAddresses@2024-10-01' = {
   name: 'vpn-gateway-pip-${suffix}'
   location: location
   sku: {
@@ -88,7 +88,7 @@ resource vpnGatewayPip 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
 }
 
 // ── VPN Gateway ──
-resource vpnGateway 'Microsoft.Network/virtualNetworkGateways@2024-05-01' = {
+resource vpnGateway 'Microsoft.Network/virtualNetworkGateways@2024-10-01' = {
   name: 'vpn-gateway-${suffix}'
   location: location
   properties: {

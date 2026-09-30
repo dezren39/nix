@@ -143,7 +143,7 @@ func TestUnknownKeysAreIgnored(t *testing.T) {
 
 func TestFileDefaultsApplyToEveryServer(t *testing.T) {
 	c := &config.Config{
-		Defaults: config.Extras{Scope: config.ScopeSession, Max: 7, IdleTimeout: "1m"},
+		Pool: config.Extras{Scope: config.ScopeSession, Max: 7, IdleTimeout: "1m"},
 		MCPServers: map[string]*config.Server{
 			"a": {Name: "a", Command: "x"},
 			"b": {Name: "b", Command: "y", Mcpx: &config.Extras{Max: 2}},
@@ -274,5 +274,60 @@ func TestLoggingConfigIsParsed(t *testing.T) {
 	}
 	if r.LogLevel != "warn" {
 		t.Errorf("per-server level should resolve, got %q", r.LogLevel)
+	}
+}
+
+func TestPoolBlockAppliesToEveryServer(t *testing.T) {
+	// The block is named for the dotted path the registry uses, so that
+	// `mcpx config --schema` and a configuration file agree on what these
+	// knobs are called.
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".mcpx.json")
+	if err := os.WriteFile(path, []byte(`{
+		"mcpServers": { "a": { "command": "true" } },
+		"pool": { "max": 7, "sharing": "exclusive", "scope": "session", "idleTimeout": "90s" }
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := cfg.Resolve("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Max != 7 {
+		t.Errorf("pool.max = %d, want 7", r.Max)
+	}
+	if r.Sharing != config.SharingExclusive {
+		t.Errorf("pool.sharing = %v", r.Sharing)
+	}
+	if r.IdleTimeout != 90*time.Second {
+		t.Errorf("pool.idleTimeout = %v", r.IdleTimeout)
+	}
+}
+
+func TestAServerOverridesThePoolBlock(t *testing.T) {
+	// The block is a default, not a mandate: a server that states a value
+	// keeps it.
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".mcpx.json")
+	if err := os.WriteFile(path, []byte(`{
+		"mcpServers": { "a": { "command": "true", "mcpx": { "max": 3 } } },
+		"pool": { "max": 7, "scope": "session" }
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(path)
+	r, err := cfg.Resolve("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Max != 3 {
+		t.Errorf("the server's own value should win: got %d", r.Max)
+	}
+	if r.Scope != config.ScopeSession {
+		t.Errorf("pool.scope should still apply where the server is silent: %v", r.Scope)
 	}
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,16 +10,17 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/dezren39/mcpx/internal/recipes"
 	"github.com/dezren39/mcpx/internal/runner"
+	"github.com/dezren39/mcpx/internal/searchpath"
+	"github.com/dezren39/mcpx/internal/settings"
+	"github.com/dezren39/mcpx/internal/source"
 )
 
 // ScriptsDirNames are the per-project directories mcpx looks in for named
 // scripts, most specific first. `.config/mcpx` wins over `.mcpx` because it is
 // the more explicit spelling and nests with other tools' config.
-var ScriptsDirNames = []string{
-	filepath.Join(".config", "mcpx", "scripts"),
-	filepath.Join(".mcpx", "scripts"),
-}
+var ScriptsDirNames = recipes.DirNames
 
 // ScriptsDirName is the directory mcpx suggests creating.
 var ScriptsDirName = ScriptsDirNames[0]
@@ -31,46 +33,209 @@ const ScriptExt = ".ts"
 // filesystem root (nearest wins, so a repo overrides a parent), then the user
 // directory. It mirrors how the config file is discovered, so a project can
 // keep its scripts and its server list together.
+// ScriptExtensions are tried in order for a name given without one. The
+// order is deliberate: a project holding both foo.ts and foo.js is almost
+// always compiling one into the other, and the source is what someone means
+// to run.
+var ScriptExtensions = []string{".ts", ".mts", ".js", ".mjs"}
+
+// scriptPath resolves the configured search path, splicing the built-in list
+// wherever the user left a null.
+func scriptPath() searchpath.Resolved {
+	wd, _ := os.Getwd()
+	// The resolved settings carry the configured list, wherever it was set.
+	// The environment variable is read directly as well, because script
+	// resolution happens on paths that do not always have an App -- notably
+	// inside the daemon.
+	var configured []string
+	if plumbingApp != nil {
+		configured = splitPathList(plumbingApp.Settings().String("paths.scripts"))
+	}
+	if len(configured) == 0 {
+		configured = splitPathList(os.Getenv("MCPX_PATHS_SCRIPTS"))
+	}
+	return searchpath.Resolve(configured, settings.NullMarker, searchpath.Options{
+		Dir:     wd,
+		Builtin: builtinScriptDirs(),
+	})
+}
+
+// builtinScriptDirs is recipes.Dirs plus the warning.
+//
+// The list itself lives in internal/recipes because the daemon serves
+// recipes from the same directories and two copies would drift the moment
+// one of them gained a spelling. The warning stays here: a package that
+// prints is a package a daemon cannot use.
+func builtinScriptDirs() []string {
+	wd, _ := os.Getwd()
+	home, _ := os.UserHomeDir()
+	dirs, both := recipes.Dirs(wd, home, os.Getenv("XDG_CONFIG_HOME"))
+	for _, dir := range both {
+		warnBothScriptDirs(dir)
+	}
+	return dirs
+}
+
+// scriptSearchDirs is the flat list, kept for the environment variable the
+// runner passes to scripts.
 func scriptSearchDirs() []string {
 	var out []string
-	seen := map[string]bool{}
-	add := func(p string) {
-		if p == "" || seen[p] {
-			return
-		}
-		seen[p] = true
-		out = append(out, p)
-	}
-
-	if wd, err := os.Getwd(); err == nil {
-		dir := wd
-		for {
-			present := 0
-			for _, name := range ScriptsDirNames {
-				candidate := filepath.Join(dir, name)
-				if st, err := os.Stat(candidate); err == nil && st.IsDir() {
-					present++
-				}
-				add(candidate)
-			}
-			if present > 1 {
-				warnBothScriptDirs(dir)
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
-	}
-	home, _ := os.UserHomeDir()
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		add(filepath.Join(xdg, "mcpx", "scripts"))
-	}
-	if home != "" {
-		add(filepath.Join(home, ".config", "mcpx", "scripts"))
+	for _, e := range scriptPath().Entries {
+		out = append(out, e.Path)
 	}
 	return out
+}
+
+// plumbingApp is the App whose settings the free functions in this file
+// consult. Script resolution is reached from several places that do not carry
+// an App, and threading one through every call site to read two booleans
+// would be a worse trade than a package-level pointer set once at startup.
+var plumbingApp *App
+
+// SetPlumbingSource tells the script resolver which App to read settings from.
+func SetPlumbingSource(a *App) { plumbingApp = a }
+
+func plumbingBool(path string) bool {
+	if plumbingApp == nil {
+		// No App means no config file and no flags -- a daemon, or a test
+		// calling in directly. The declared default is still the right
+		// answer, and it used to return false regardless, which silently
+		// inverted every switch whose default is on.
+		return defaultPlumbing().Bool(path)
+	}
+	return plumbingApp.Plumbing(path)
+}
+
+var (
+	defaultPlumbingOnce sync.Once
+	defaultPlumbingSet  *settings.Set
+)
+
+func defaultPlumbing() *settings.Set {
+	defaultPlumbingOnce.Do(func() {
+		sch, err := settings.New(settings.Registry())
+		if err != nil {
+			panic("mcpx: settings registry is invalid: " + err.Error())
+		}
+		defaultPlumbingSet = settings.NewSet(sch)
+	})
+	return defaultPlumbingSet
+}
+
+func allowOverlap() bool { return plumbingBool("plumbing.allowTsJsOverlap") }
+
+// plumbingSourceOptions builds source.Options from the plumbing settings.
+//
+// source.Options has always said in its doc comment that it comes from the
+// plumbing settings; it did not. Every call site wrote the three booleans as
+// literals, so plumbing.sourceDirAllowed, sourceDirRecursive and
+// sourceProbePaths were three switches wired to nothing. The literals also
+// disagreed with each other -- a launcher refused a directory while a phase
+// accepted one -- which is the kind of difference a setting exists to make
+// deliberate.
+//
+// Extensions stays a caller's argument: it is not a policy, it is what this
+// particular call is willing to read.
+func plumbingSourceOptions(dir string, exts []string) source.Options {
+	return source.Options{
+		Dir:        dir,
+		AllowDir:   plumbingBool("plumbing.sourceDirAllowed"),
+		Recursive:  plumbingBool("plumbing.sourceDirRecursive"),
+		Probe:      plumbingBool("plumbing.sourceProbePaths"),
+		Extensions: exts,
+	}
+}
+
+// PlaceholderFiles lists every file on the placeholder search path.
+//
+// Empty by default: declaring placeholders is opt-in, because scanning every
+// script directory for declarations would make an ordinary script's filename
+// quietly meaningful.
+func PlaceholderFiles() []string {
+	if plumbingApp == nil {
+		return nil
+	}
+	configured := splitPathList(plumbingApp.Settings().String("paths.placeholders"))
+	if len(configured) == 0 {
+		return nil
+	}
+	wd, _ := os.Getwd()
+	resolved := searchpath.Resolve(configured, settings.NullMarker, searchpath.Options{
+		Dir:           wd,
+		Builtin:       builtinPlaceholderDirs(),
+		RequireExists: true,
+	})
+	var out []string
+	for _, e := range resolved.Entries {
+		if e.IsFile {
+			out = append(out, e.Path)
+			continue
+		}
+		entries, err := os.ReadDir(e.Path)
+		if err != nil {
+			continue
+		}
+		for _, de := range entries {
+			if de.IsDir() {
+				continue
+			}
+			switch strings.ToLower(filepath.Ext(de.Name())) {
+			case ".ts", ".js", ".mts", ".mjs":
+				out = append(out, filepath.Join(e.Path, de.Name()))
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func builtinPlaceholderDirs() []string {
+	var out []string
+	if wd, err := os.Getwd(); err == nil {
+		out = append(out,
+			filepath.Join(wd, ".config", "mcpx", "placeholders"),
+			filepath.Join(wd, ".mcpx", "placeholders"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		out = append(out, filepath.Join(home, ".config", "mcpx", "placeholders"))
+	}
+	return out
+}
+
+// splitPathList accepts either a JSON array, as a configuration file holds
+// it, or a separator-joined string, as an environment variable must. "-" and
+// "null" both stand for the built-in list, because one of them is what
+// somebody will type.
+func splitPathList(v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	var parts []string
+	if strings.HasPrefix(v, "[") {
+		var arr []any
+		if json.Unmarshal([]byte(v), &arr) == nil {
+			for _, e := range arr {
+				if e == nil {
+					parts = append(parts, settings.NullMarker)
+					continue
+				}
+				parts = append(parts, fmt.Sprint(e))
+			}
+			return parts
+		}
+	}
+	for _, part := range strings.Split(v, string(os.PathListSeparator)) {
+		part = strings.TrimSpace(part)
+		switch part {
+		case "":
+		case "-", "null":
+			parts = append(parts, settings.NullMarker)
+		default:
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }
 
 // looksLikePath reports whether an argument should be used verbatim rather
@@ -90,15 +255,19 @@ func resolveScript(arg string) (string, error) {
 	if looksLikePath(arg) {
 		return arg, nil
 	}
-	dirs := scriptSearchDirs()
-	for _, dir := range dirs {
-		candidate := filepath.Join(dir, arg+ScriptExt)
-		if st, err := os.Stat(candidate); err == nil && !st.IsDir() {
-			return candidate, nil
-		}
+	path := scriptPath()
+	found, _, err := path.Find(arg, searchpath.FindOptions{
+		Extensions:   ScriptExtensions,
+		AllowOverlap: allowOverlap(),
+	})
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("no script named %q; looked in:\n  %s\n\nCreate one with:\n  mkdir -p %s && $EDITOR %s",
-		arg, strings.Join(dirs, "\n  "), ScriptsDirName, filepath.Join(ScriptsDirName, arg+ScriptExt))
+	if found != "" {
+		return found, nil
+	}
+	return "", fmt.Errorf("no script named %q; looked in:\n%s\nCreate one with:\n  mkdir -p %s && $EDITOR %s",
+		arg, path.Describe(), ScriptsDirName, filepath.Join(ScriptsDirName, arg+ScriptExt))
 }
 
 // ScriptEntry is one discoverable script.

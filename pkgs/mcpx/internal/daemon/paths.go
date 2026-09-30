@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,27 @@ func ResolvePaths() Paths {
 	}
 }
 
+// PathsAt is ResolvePaths with the two directories supplied.
+//
+// ResolvePaths runs before any configuration file has been found, so it can
+// only read the environment; that is why MCPX_STATE_DIR is read by name
+// there. Once the settings are resolved the caller may know better -- a
+// paths.state in a config file, or --paths-state -- and this is how it says
+// so without a second copy of the socket-naming rule. An empty argument keeps
+// what ResolvePaths worked out.
+func PathsAt(state, cache string) Paths {
+	p := ResolvePaths()
+	if state != "" {
+		p.State = state
+		p.Socket = socketPath(state, "")
+		p.Info = filepath.Join(state, "daemon.json")
+	}
+	if cache != "" {
+		p.Cache = cache
+	}
+	return p
+}
+
 // ForConfig keys the daemon to a particular configuration.
 //
 // Two things fall out of this, both of which matter once more than one repo is
@@ -90,13 +112,55 @@ func socketPath(state, key string) string {
 	if len(preferred) <= maxSocketPath {
 		return preferred
 	}
-	sum := sha256.Sum256([]byte(state + "\x00" + key))
-	short := filepath.Join(os.TempDir(), "mcpx-"+hex.EncodeToString(sum[:])[:16]+".sock")
-	if len(short) <= maxSocketPath {
-		return short
+	raw := sha256.Sum256([]byte(state + "\x00" + key))
+	sum := hex.EncodeToString(raw[:])[:16]
+
+	// The fallback puts the socket in a private directory rather than
+	// directly in a shared temp directory.
+	//
+	// A control socket at a predictable path in a world-writable directory
+	// can be pre-created by anyone else on the machine, and then the CLI
+	// sends daemon commands to whatever is listening there. The directory is
+	// per-user and 0700, so the name being predictable stops mattering.
+	if dir, err := privateRuntimeDir(); err == nil {
+		short := filepath.Join(dir, "d-"+sum+".sock")
+		if len(short) <= maxSocketPath {
+			return short
+		}
 	}
-	// Last resort: /tmp is present on every platform mcpx targets.
-	return "/tmp/mcpx-" + hex.EncodeToString(sum[:])[:16] + ".sock"
+	// Last resort, still inside a directory this user owns.
+	return filepath.Join(os.TempDir(), "mcpx-"+sum+".sock")
+}
+
+// privateRuntimeDir returns a per-user directory only that user can enter.
+//
+// XDG_RUNTIME_DIR is already private where it exists. Elsewhere -- macOS
+// among them -- a directory is created under the temp directory with the
+// user id in its name, and its permissions are verified rather than assumed,
+// because a directory that already exists may not be ours.
+func privateRuntimeDir() (string, error) {
+	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
+		dir := filepath.Join(d, "mcpx")
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			return dir, nil
+		}
+	}
+	dir := filepath.Join(os.TempDir(), fmt.Sprintf("mcpx-%d", os.Getuid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode().Perm() != 0o700 {
+		// Pre-existing and more permissive than we would have made it.
+		// Tightening is better than trusting, and an error if that fails.
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
 }
 
 // FingerprintConfig derives the daemon key from every file that contributed.
@@ -106,9 +170,47 @@ func socketPath(state, key string) string {
 // and sharing a daemon between them would give one project the other's
 // servers. Paths contribute as well as contents, so two identical files in
 // different places stay separate.
+//
+// "Different places" means different files, not different spellings of one.
+// Each path is resolved through symlinks first: /tmp is a symlink to
+// /private/tmp on macOS, and a process whose $PWD holds the unresolved form
+// -- a shell, an editor, the opencode plugin -- otherwise computed a second
+// key for the same file, reported no daemon running, and started another.
+//
+// The *contents* used to be in the key as well, so that editing a config got
+// a fresh daemon rather than a stale one. That stopped being a good trade the
+// moment the daemon learned to reload: a daemon that reloads changes the
+// contents of the files it was keyed by, which moves its own key, which makes
+// it unreachable by the client that just edited it -- and, worse, hands the
+// next command a *different* daemon that happens to match the new key with
+// old servers loaded. That was observed: `mcpx servers remove` succeeded, the
+// file was correct, and the next `mcpx servers list` showed the removed
+// server, because it had found a daemon started two edits ago.
+//
+// So the key is the file set, and staleness is handled where it belongs: the
+// daemon notices its files changed and re-reads them.
 func FingerprintConfig(paths []string) string {
 	h := sha256.New()
 	for _, p := range paths {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		h.Write([]byte(p))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+// ContentFingerprint hashes what the config files currently say.
+//
+// Not the daemon key -- that is the file set -- but the thing the daemon
+// compares against to notice somebody edited one behind its back.
+func ContentFingerprint(paths []string) string {
+	h := sha256.New()
+	for _, p := range paths {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
 		h.Write([]byte(p))
 		h.Write([]byte{0})
 		if b, err := os.ReadFile(p); err == nil {

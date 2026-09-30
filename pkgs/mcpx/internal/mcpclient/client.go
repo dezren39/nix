@@ -10,13 +10,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/dezren39/mcpx/internal/defaults"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // ProtocolVersion is the MCP revision mcpx negotiates.
-const ProtocolVersion = "2025-06-18"
+const ProtocolVersion = "2025-11-25"
+
+// ModernVersions are the per-request-metadata revisions mcpx can speak,
+// newest first.
+var ModernVersions = []string{"2026-07-28"}
 
 // Transport moves JSON-RPC frames to and from a server.
 type Transport interface {
@@ -71,6 +78,21 @@ type Client struct {
 
 	ServerInfo   ServerInfo
 	Capabilities map[string]json.RawMessage
+	// Era is which protocol generation this connection settled on.
+	Era Era
+	// Negotiated is the version actually in use.
+	Negotiated string
+	// onElicit answers server-initiated requests.
+	onElicit ElicitHandler
+	// notif holds notification handlers.
+	notif Notifications
+	// roots are the directories servers may work within.
+	roots []Root
+	// clientName and clientVersion identify mcpx on every modern request.
+	clientName, clientVersion string
+	// metaVersion is the version stamped into each request's _meta. Empty
+	// for a legacy connection, whose version was settled by the handshake.
+	metaVersion string
 	// Instructions is the free-text guidance a server returns from
 	// initialize. Servers use it to explain conventions their schemas cannot:
 	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
@@ -98,6 +120,12 @@ type Tool struct {
 	Description  string          `json:"description,omitempty"`
 	InputSchema  json.RawMessage `json:"inputSchema,omitempty"`
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	// Annotations are the behaviour hints a server attaches to a tool:
+	// readOnlyHint, destructiveHint, idempotentHint, openWorldHint. They are
+	// kept raw because mcpx forwards them unchanged and reads only the one
+	// it acts on. Without them a client has nothing but the description to
+	// decide whether a call is worth confirming.
+	Annotations json.RawMessage `json:"annotations,omitempty"`
 }
 
 type toolsListResult struct {
@@ -124,34 +152,182 @@ type resourceTemplatesListResult struct {
 	NextCursor        string     `json:"nextCursor,omitempty"`
 }
 
-// New starts the receive loop and performs the MCP initialize handshake.
+// Era is which protocol generation a server speaks.
+type Era string
+
+const (
+	// EraLegacy establishes a session with an initialize handshake.
+	// Everything published today.
+	EraLegacy Era = "legacy"
+	// EraModern carries the version on every request and has no handshake.
+	EraModern Era = "modern"
+)
+
+// Preference controls which era to try first.
+type Preference string
+
+const (
+	// PreferLegacy tries initialize first. The right default today: nearly
+	// every server in existence is legacy, and probing modern first costs a
+	// round trip on every one of them.
+	PreferLegacy Preference = "legacy"
+	// PreferModern probes server/discover first.
+	PreferModern Preference = "modern"
+	// ForceLegacy and ForceModern skip the fallback, for a server known to
+	// be one or the other, or to diagnose which it is.
+	ForceLegacy Preference = "force-legacy"
+	ForceModern Preference = "force-modern"
+)
+
+// New connects, discovering which era the server speaks.
 func New(ctx context.Context, t Transport, clientName, clientVersion string) (*Client, error) {
+	return NewWithPreference(ctx, t, clientName, clientVersion, PreferLegacy)
+}
+
+// NewWithPreference connects, trying the given era first.
+//
+// The fallback is what makes mcpx dual-era. A modern client against a legacy
+// server fails, and a legacy client against a modern server fails; only
+// something that can do both reaches the whole ecosystem.
+//
+// The probe order is a real trade. Legacy first costs a modern server one
+// wasted initialize; modern first costs every legacy server -- which is to
+// say almost all of them -- a wasted discover. Legacy first is correct today
+// and will stop being correct, which is why it is configurable rather than
+// decided.
+func NewWithPreference(ctx context.Context, t Transport, clientName, clientVersion string, pref Preference) (*Client, error) {
+	return newClient(ctx, t, Options{ClientName: clientName, ClientVersion: clientVersion, Preference: pref})
+}
+
+func newClient(ctx context.Context, t Transport, o Options) (*Client, error) {
 	c := &Client{
-		t:       t,
-		pending: map[int64]chan *rpcResponse{},
-		closeCh: make(chan struct{}),
+		t:             t,
+		pending:       map[int64]chan *rpcResponse{},
+		closeCh:       make(chan struct{}),
+		clientName:    o.ClientName,
+		clientVersion: o.ClientVersion,
+		onElicit:      o.OnServerRequest,
+		roots:         append([]Root(nil), o.Roots...),
 	}
 	go c.recvLoop()
 
+	try := func(era Era) error {
+		switch era {
+		case EraModern:
+			return c.discoverModern(ctx)
+		default:
+			return c.initializeLegacy(ctx, c.clientName, c.clientVersion)
+		}
+	}
+
+	var first, second Era
+	switch o.Preference {
+	case PreferModern:
+		first, second = EraModern, EraLegacy
+	case ForceModern:
+		first, second = EraModern, ""
+	case ForceLegacy:
+		first, second = EraLegacy, ""
+	default:
+		first, second = EraLegacy, EraModern
+	}
+
+	err := try(first)
+	if err == nil {
+		c.Era = first
+		return c, nil
+	}
+	if second == "" {
+		c.Close()
+		return nil, err
+	}
+	// A recognised modern error identifies a modern server, so there is
+	// nothing to fall back to -- the version is wrong, not the era.
+	if isVersionError(err) {
+		c.Close()
+		return nil, err
+	}
+	if ferr := try(second); ferr != nil {
+		c.Close()
+		// The first error is the one worth reporting: it came from the era
+		// this server most likely is.
+		return nil, fmt.Errorf("%s handshake failed (%w); %s also failed (%v)",
+			first, err, second, ferr)
+	}
+	c.Era = second
+	return c, nil
+}
+
+func (c *Client) initializeLegacy(ctx context.Context, clientName, clientVersion string) error {
 	params, _ := json.Marshal(map[string]any{
 		"protocolVersion": ProtocolVersion,
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": clientName, "version": clientVersion},
+		// Declared only where mcpx can actually deliver; see capabilities.
+		"capabilities": c.capabilities(),
+		"clientInfo":   map[string]any{"name": clientName, "version": clientVersion},
 	})
 	var ir initResult
 	if err := c.call(ctx, "initialize", params, &ir); err != nil {
-		c.Close()
-		return nil, fmt.Errorf("initialize: %w", err)
+		return fmt.Errorf("initialize: %w", err)
 	}
 	c.ServerInfo = ir.ServerInfo
 	c.Capabilities = ir.Capabilities
 	c.Instructions = ir.Instructions
+	c.Negotiated = ir.ProtocolVersion
 
 	if err := c.notify(ctx, "notifications/initialized", json.RawMessage(`{}`)); err != nil {
-		c.Close()
-		return nil, fmt.Errorf("initialized notification: %w", err)
+		return fmt.Errorf("initialized notification: %w", err)
 	}
-	return c, nil
+	return nil
+}
+
+type discoverResult struct {
+	ProtocolVersions []string                   `json:"protocolVersions"`
+	ServerInfo       ServerInfo                 `json:"serverInfo"`
+	Capabilities     map[string]json.RawMessage `json:"capabilities"`
+	Instructions     string                     `json:"instructions"`
+}
+
+func (c *Client) discoverModern(ctx context.Context) error {
+	// Discover is itself a modern request, so it carries the version mcpx
+	// would most like to speak; a server that cannot answers with the list
+	// it can, as an UnsupportedProtocolVersionError.
+	c.metaVersion = ModernVersions[0]
+	var dr discoverResult
+	if err := c.call(ctx, "server/discover", json.RawMessage(`{}`), &dr); err != nil {
+		c.metaVersion = ""
+		return fmt.Errorf("server/discover: %w", err)
+	}
+	// Pick the newest version both sides implement, rather than assuming the
+	// first one listed is acceptable.
+	chosen := ""
+	for _, want := range ModernVersions {
+		for _, have := range dr.ProtocolVersions {
+			if want == have {
+				chosen = want
+				break
+			}
+		}
+		if chosen != "" {
+			break
+		}
+	}
+	if chosen == "" {
+		c.metaVersion = ""
+		return fmt.Errorf("no shared protocol version; the server offers %v",
+			dr.ProtocolVersions)
+	}
+	c.metaVersion = chosen
+	c.ServerInfo = dr.ServerInfo
+	c.Capabilities = dr.Capabilities
+	c.Instructions = dr.Instructions
+	c.Negotiated = chosen
+	return nil
+}
+
+// isVersionError reports an UnsupportedProtocolVersionError, which identifies
+// a modern server whatever else went wrong.
+func isVersionError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "-32022")
 }
 
 // Supports reports whether the server advertised a capability.
@@ -167,6 +343,25 @@ func (c *Client) recvLoop() {
 			c.fail(err)
 			return
 		}
+		// A server-initiated request has an id AND a method. Matching only
+		// on the id -- which is what this did -- made such a frame look like
+		// a reply to nothing and dropped it, so the server waited until the
+		// call timed out and mcpx reported a timeout. True, useless, and
+		// pointing at the wrong thing.
+		var probe struct {
+			ID     *int64          `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
+			if probe.ID != nil {
+				c.handleServerRequest(*probe.ID, probe.Method, probe.Params)
+			} else {
+				c.handleNotification(probe.Method, probe.Params)
+			}
+			continue
+		}
+
 		var resp rpcResponse
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			continue // ignore malformed frames rather than killing the session
@@ -184,6 +379,216 @@ func (c *Client) recvLoop() {
 			ch <- &resp
 		}
 	}
+}
+
+// OnElicit is called when a server asks a question. Nil means mcpx answers
+// on the server's behalf, which it must do rather than ignore: a server that
+// asks into silence waits until the call times out.
+type ElicitHandler func(ctx context.Context, method string, params json.RawMessage) (any, error)
+
+// SetElicitHandler installs the handler for server-initiated requests.
+func (c *Client) SetElicitHandler(h ElicitHandler) {
+	c.mu.Lock()
+	c.onElicit = h
+	c.mu.Unlock()
+}
+
+// handleServerRequest answers a request the server sent to us.
+//
+// Always answers. The alternative -- dropping what we do not understand --
+// is what the old code did by accident, and it is indistinguishable from a
+// hung server.
+func (c *Client) handleServerRequest(id int64, method string, params json.RawMessage) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), defaults.ElicitHandlerTimeout)
+		defer cancel()
+
+		result, rpcErr := c.answer(ctx, method, params)
+
+		reply := map[string]any{"jsonrpc": "2.0", "id": id}
+		if rpcErr != nil {
+			reply["error"] = rpcErr
+		} else {
+			reply["result"] = result
+		}
+		b, err := json.Marshal(reply)
+		if err != nil {
+			return
+		}
+		sctx, scancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer scancel()
+		_ = c.t.Send(sctx, b)
+	}()
+}
+
+// ServerMessage is a log line a server sent us.
+//
+// Servers emit these to explain what they are doing, and mcpx dropped every
+// one. A server that logs "retrying against the replica" is telling you
+// exactly why a call was slow, and losing it means diagnosing from the
+// outside what was explained from the inside.
+type ServerMessage struct {
+	Level  string          `json:"level"`
+	Logger string          `json:"logger,omitempty"`
+	Data   json.RawMessage `json:"data,omitempty"`
+}
+
+// Progress is an update on a long operation.
+type Progress struct {
+	Token    any     `json:"progressToken"`
+	Progress float64 `json:"progress"`
+	Total    float64 `json:"total,omitempty"`
+	Message  string  `json:"message,omitempty"`
+}
+
+// Notifications a caller may subscribe to.
+type Notifications struct {
+	// OnMessage receives a server's log lines.
+	OnMessage func(ServerMessage)
+	// OnProgress receives progress on a long call.
+	OnProgress func(Progress)
+	// OnListChanged fires when the server says its tools, resources or
+	// prompts have changed. The kind is "tools", "resources" or "prompts".
+	OnListChanged func(kind string)
+	// OnResourceUpdated fires when a subscribed resource changes.
+	OnResourceUpdated func(uri string)
+	// OnElicitationComplete fires when a url-mode elicitation finishes out
+	// of band -- the person came back from the browser. Without it the
+	// caller waits for the deadline to find out something already happened.
+	OnElicitationComplete func(id string)
+}
+
+// Subscribe installs notification handlers.
+func (c *Client) Subscribe(n Notifications) {
+	c.mu.Lock()
+	c.notif = n
+	c.mu.Unlock()
+}
+
+// handleNotification routes a server-initiated notification.
+//
+// Every one of these was previously discarded. They are the server
+// explaining itself, and throwing that away means every diagnosis starts
+// from the outside.
+func (c *Client) handleNotification(method string, params json.RawMessage) {
+	c.mu.Lock()
+	n := c.notif
+	c.mu.Unlock()
+
+	switch method {
+	case "notifications/message":
+		if n.OnMessage == nil {
+			return
+		}
+		var m ServerMessage
+		if json.Unmarshal(params, &m) == nil {
+			n.OnMessage(m)
+		}
+	case "notifications/progress":
+		if n.OnProgress == nil {
+			return
+		}
+		var p Progress
+		if json.Unmarshal(params, &p) == nil {
+			n.OnProgress(p)
+		}
+	case "notifications/tools/list_changed":
+		c.invalidate("tools", n)
+	case "notifications/resources/list_changed":
+		c.invalidate("resources", n)
+	case "notifications/prompts/list_changed":
+		c.invalidate("prompts", n)
+	case "notifications/elicitation/complete":
+		if n.OnElicitationComplete == nil {
+			return
+		}
+		var d struct {
+			ElicitationID string `json:"elicitationId"`
+		}
+		if json.Unmarshal(params, &d) == nil && d.ElicitationID != "" {
+			n.OnElicitationComplete(d.ElicitationID)
+		}
+	case "notifications/resources/updated":
+		if n.OnResourceUpdated == nil {
+			return
+		}
+		var u struct {
+			URI string `json:"uri"`
+		}
+		if json.Unmarshal(params, &u) == nil && u.URI != "" {
+			n.OnResourceUpdated(u.URI)
+		}
+	}
+}
+
+func (c *Client) invalidate(kind string, n Notifications) {
+	if n.OnListChanged != nil {
+		n.OnListChanged(kind)
+	}
+}
+
+// Subscribe asks for notifications when a resource changes.
+//
+// The legacy revisions do this with resources/subscribe per URI. The modern
+// one replaced it with a filter on subscriptions/listen; that is handled by
+// the listening stream rather than here, so this is a no-op against a modern
+// server rather than a method-not-found.
+func (c *Client) SubscribeResource(ctx context.Context, uri string) error {
+	if c.Era == EraModern {
+		return nil
+	}
+	params, _ := json.Marshal(map[string]string{"uri": uri})
+	var out json.RawMessage
+	return c.call(ctx, "resources/subscribe", params, &out)
+}
+
+// UnsubscribeResource stops notifications for a resource.
+func (c *Client) UnsubscribeResource(ctx context.Context, uri string) error {
+	if c.Era == EraModern {
+		return nil
+	}
+	params, _ := json.Marshal(map[string]string{"uri": uri})
+	var out json.RawMessage
+	return c.call(ctx, "resources/unsubscribe", params, &out)
+}
+
+// ListResourceTemplates returns the server's parameterised resources.
+func (c *Client) ListResourceTemplates(ctx context.Context) ([]Resource, error) {
+	var tres resourceTemplatesListResult
+	if err := c.call(ctx, "resources/templates/list", json.RawMessage(`{}`), &tres); err != nil {
+		return nil, err
+	}
+	return tres.ResourceTemplates, nil
+}
+
+// SetLogLevel asks the server to send messages at or above a level.
+//
+// Servers send nothing until asked, so a client that never calls this sees
+// no log messages and concludes the server does not emit any.
+func (c *Client) SetLogLevel(ctx context.Context, level string) error {
+	if !c.Supports("logging") {
+		return nil
+	}
+	params, _ := json.Marshal(map[string]string{"level": level})
+	var out json.RawMessage
+	return c.call(ctx, "logging/setLevel", params, &out)
+}
+
+// Root is a directory a server may work within.
+type Root struct {
+	URI  string `json:"uri"`
+	Name string `json:"name,omitempty"`
+}
+
+// SetRoots declares the directories servers may operate on.
+//
+// Without this a filesystem server has no idea what it is allowed to touch
+// and must be told through its own configuration, separately, in a second
+// place that drifts from the first.
+func (c *Client) SetRoots(roots []Root) {
+	c.mu.Lock()
+	c.roots = roots
+	c.mu.Unlock()
 }
 
 func (c *Client) fail(err error) {
@@ -233,6 +638,47 @@ func (c *Client) notify(ctx context.Context, method string, params json.RawMessa
 }
 
 func (c *Client) call(ctx context.Context, method string, params json.RawMessage, out any) error {
+	version := c.metaVersion
+	if version == "" {
+		raw, err := c.roundTrip(ctx, method, params)
+		if err != nil || out == nil {
+			return err
+		}
+		return json.Unmarshal(raw, out)
+	}
+
+	// Modern: every request carries its own version and capabilities, and a
+	// result may come back input_required -- answered here and retried, so
+	// callers see only the final result, exactly as they would from a
+	// legacy server that asked its questions on the wire.
+	for round := 0; ; round++ {
+		withMeta, err := c.withMeta(params, version)
+		if err != nil {
+			return err
+		}
+		raw, err := c.roundTrip(ctx, method, withMeta)
+		if err != nil {
+			return err
+		}
+		var ir inputRequired
+		_ = json.Unmarshal(raw, &ir)
+		if ir.ResultType != "input_required" {
+			if out == nil {
+				return nil
+			}
+			return json.Unmarshal(raw, out)
+		}
+		if round+1 >= maxInputRounds {
+			return fmt.Errorf("%s: the server was still asking for input after %d rounds", method, maxInputRounds)
+		}
+		if params, err = c.resolveInput(ctx, params, ir); err != nil {
+			return fmt.Errorf("%s: %w", method, err)
+		}
+	}
+}
+
+// roundTrip sends one request and returns its raw result.
+func (c *Client) roundTrip(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	id := c.nextID.Add(1)
 	ch := make(chan *rpcResponse, 1)
 
@@ -243,20 +689,20 @@ func (c *Client) call(ctx context.Context, method string, params json.RawMessage
 		if err == nil {
 			err = errors.New("client closed")
 		}
-		return err
+		return nil, err
 	}
 	c.pending[id] = ch
 	c.mu.Unlock()
 
 	b, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: &id, Method: method, Params: params})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := c.t.Send(ctx, b); err != nil {
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
-		return err
+		return nil, err
 	}
 
 	select {
@@ -267,15 +713,12 @@ func (c *Client) call(ctx context.Context, method string, params json.RawMessage
 		// Best-effort cancellation so the server can stop work.
 		cp, _ := json.Marshal(map[string]any{"requestId": id, "reason": "timeout"})
 		_ = c.notify(context.Background(), "notifications/cancelled", cp)
-		return ctx.Err()
+		return nil, ctx.Err()
 	case resp := <-ch:
 		if resp.Error != nil {
-			return resp.Error
+			return nil, resp.Error
 		}
-		if out == nil {
-			return nil
-		}
-		return json.Unmarshal(resp.Result, out)
+		return resp.Result, nil
 	}
 }
 
@@ -330,6 +773,72 @@ func (c *Client) ListResources(ctx context.Context) ([]Resource, error) {
 		all = append(all, tres.ResourceTemplates...)
 	}
 	return all, nil
+}
+
+// Prompt is a reusable template a server offers.
+//
+// Prompts are the part of MCP that is not tools: a server saying "here is the
+// wording that works for this" rather than "here is a function". A server
+// that publishes a good one has encoded expertise that would otherwise have
+// to be rediscovered by whoever writes the request.
+type Prompt struct {
+	Name        string           `json:"name"`
+	Title       string           `json:"title,omitempty"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+// PromptArgument is one substitution a prompt takes.
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type promptsListResult struct {
+	Prompts    []Prompt `json:"prompts"`
+	NextCursor string   `json:"nextCursor"`
+}
+
+// ListPrompts returns every prompt a server offers.
+func (c *Client) ListPrompts(ctx context.Context) ([]Prompt, error) {
+	var all []Prompt
+	cursor := ""
+	for i := 0; i < 100; i++ {
+		params := json.RawMessage(`{}`)
+		if cursor != "" {
+			params, _ = json.Marshal(map[string]string{"cursor": cursor})
+		}
+		var res promptsListResult
+		if err := c.call(ctx, "prompts/list", params, &res); err != nil {
+			// A server without prompts answers method-not-found, which is an
+			// absence rather than a failure. Treating it as an error would
+			// make every listing fail on the majority of servers.
+			return all, nil
+		}
+		all = append(all, res.Prompts...)
+		if res.NextCursor == "" {
+			break
+		}
+		cursor = res.NextCursor
+	}
+	return all, nil
+}
+
+// GetPrompt renders one prompt with its arguments filled in.
+func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]string) (json.RawMessage, error) {
+	if args == nil {
+		args = map[string]string{}
+	}
+	params, err := json.Marshal(map[string]any{"name": name, "arguments": args})
+	if err != nil {
+		return nil, err
+	}
+	var raw json.RawMessage
+	if err := c.call(ctx, "prompts/get", params, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }
 
 // CallTool invokes a tool and returns the raw CallToolResult.

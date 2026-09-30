@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -32,12 +37,7 @@ func newEnv(t *testing.T, cfgBody string) *env {
 	dir := t.TempDir()
 	fake := testsupport.FakeMCPBinary(t)
 
-	mcpx := filepath.Join(dir, "mcpx")
-	build := exec.Command("go", "build", "-o", mcpx, "./cmd/mcpx")
-	build.Dir = repoRoot(t)
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build mcpx: %v\n%s", err, out)
-	}
+	mcpx := testsupport.MCPXBinary(t)
 
 	cfg := strings.ReplaceAll(cfgBody, "FAKE", fake)
 	if err := os.WriteFile(filepath.Join(dir, ".mcpx.json"), []byte(cfg), 0o644); err != nil {
@@ -50,6 +50,11 @@ func newEnv(t *testing.T, cfgBody string) *env {
 		mcpx: mcpx,
 		fake: fake,
 		envVars: append(os.Environ(),
+			// Never the real registry. A test that reaches the internet
+			// fails wherever the internet is slow, which is every CI runner
+			// -- `/v1/registry/search` timed out there while passing on a
+			// laptop, and took a merge with it.
+			"MCPX_REGISTRY_URL="+stubRegistry(t),
 			"MCPX_STATE_DIR="+filepath.Join(dir, "state"),
 			"MCPX_CACHE_DIR="+filepath.Join(dir, "cache"),
 			"MCPX_CONFIG="+filepath.Join(dir, ".mcpx.json"),
@@ -88,6 +93,21 @@ func (e *env) try(args ...string) (string, error) {
 	cmd.Env = e.envVars
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// runStdin runs mcpx with something on standard input, which is how a
+// protocol server is spoken to.
+func (e *env) runStdin(stdin string, args ...string) string {
+	e.t.Helper()
+	cmd := exec.Command(e.mcpx, args...)
+	cmd.Dir = e.dir
+	cmd.Env = e.envVars
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		e.t.Fatalf("mcpx %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
 }
 
 func (e *env) run(args ...string) string {
@@ -629,12 +649,22 @@ const profileServers = `{
 }`
 
 // jsonOf trims anything printed before a JSON document begins.
+//
+// Both brackets, because a top-level array is as valid a document as an
+// object. Looking only for "{" skipped an array's opening bracket and landed
+// on its first element, which then failed on the comma after it.
 func jsonOf(t *testing.T, out string) string {
 	t.Helper()
-	if i := strings.Index(out, "{"); i >= 0 {
-		return out[i:]
+	obj := strings.Index(out, "{")
+	arr := strings.Index(out, "[")
+	switch {
+	case obj < 0 && arr < 0:
+		return out
+	case arr < 0 || (obj >= 0 && obj < arr):
+		return out[obj:]
+	default:
+		return out[arr:]
 	}
-	return out
 }
 
 // firstRecord finds the first JSON log record in mixed output. Taking line
@@ -1551,11 +1581,17 @@ func TestEveryConsoleMethodIsCoveredAndNameIsKept(t *testing.T) {
 		// console.createTask requires a non-empty string in Deno too, so a
 		// throw there is fidelity rather than a defect. Compare against the
 		// unwrapped console instead of assuming nothing throws.
+		//
+		// Members absent from the snapshot are skipped rather than failed:
+		// if we never captured it we never replaced it, so console[k] IS the
+		// original and there is nothing it could diverge from. console.Console
+		// is one -- a class that correctly throws when called without new.
 		const native = (console as any).__mcpxOriginal ?? {};
 		for (const k of names) {
+			if (typeof native[k] !== "function") continue;
 			let ours = false, theirs = false;
 			try { (console as any)[k](); } catch { ours = true; }
-			try { native[k]?.(); } catch { theirs = true; }
+			try { native[k](); } catch { theirs = true; }
 			if (ours !== theirs) console.log("divergent:", k, ours, theirs);
 		}
 	`)
@@ -1602,6 +1638,1206 @@ func TestConfigDefaultsPrintsTheEmbeddedLayer(t *testing.T) {
 	for _, section := range []string{"pool", "logging", "daemon", "catalog", "script"} {
 		if _, ok := doc[section]; !ok {
 			t.Errorf("the %q section should be present: %v", section, doc)
+		}
+	}
+}
+
+func mustWrite(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestACustomLauncherReplacesTheGeneratedOne(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hello.ts")
+	mustWrite(t, script, `export default function main(argv: string[]) {
+		log.info("script ran", { argv });
+		return "done";
+	}`)
+	custom := filepath.Join(dir, "mine.ts")
+	mustWrite(t, custom, "@header\nlog.info(\"mine speaking\");\n@globals\n@console\n@entry\n")
+
+	out := e.run("run", "--launcher", custom, "--format", "compact", script, "A")
+	if !strings.Contains(out, "mine speaking") {
+		t.Errorf("the custom launcher should run:\n%s", out)
+	}
+	if !strings.Contains(out, "script ran") {
+		t.Errorf("@entry should still reach the script:\n%s", out)
+	}
+}
+
+func TestNoLauncherHandsTheScriptStraightToTheRuntime(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "raw.ts")
+	mustWrite(t, script, `console.log("globals:", typeof (globalThis as any).log);`)
+
+	bare := e.run("run", "--no-launcher", script)
+	if !strings.Contains(bare, "globals: undefined") {
+		t.Errorf("with no launcher nothing should be installed:\n%s", bare)
+	}
+	wrapped := e.run("run", script)
+	if !strings.Contains(wrapped, "globals: function") {
+		t.Errorf("normally the globals are there:\n%s", wrapped)
+	}
+}
+
+func TestLauncherAndNoLauncherTogetherIsRefused(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+	out, err := e.try("run", "--launcher", "@entry", "--no-launcher", script)
+	if err == nil {
+		t.Fatal("the two contradict each other and should be refused")
+	}
+	if !strings.Contains(out, "contradict") {
+		t.Errorf("the error should say why: %s", out)
+	}
+}
+
+func TestALauncherCycleIsRefusedBeforeAnythingRuns(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+	out, err := e.try("run", "--launcher=@prefix", "--prefix", "@suffix",
+		"--suffix", "@prefix", script)
+	if err == nil {
+		t.Fatal("a reference loop should be refused, not hung on")
+	}
+	if !strings.Contains(out, "loop") {
+		t.Errorf("the error should name the loop: %s", out)
+	}
+}
+
+func TestARepeatedPlaceholderNeedsPermissionAndThenWorks(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "twice.ts")
+	mustWrite(t, script, `export default function main() { log.info("ran"); }`)
+
+	if _, err := e.try("run", "--launcher=@header @globals @entry @entry", script); err == nil {
+		t.Fatal("a repeated placeholder should be refused by default")
+	}
+	out := e.run("run", "--launcher=@header @globals @entry @entry",
+		"--allow-repeat", "entry", "--format", "compact", script)
+	if n := strings.Count(out, "ran"); n != 2 {
+		t.Errorf("once permitted it should genuinely run twice, got %d:\n%s", n, out)
+	}
+}
+
+func TestAPhaseCanBeAFileInsteadOfAString(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+	hook := filepath.Join(dir, "hook.ts")
+	mustWrite(t, hook, `log.info("from a file");`)
+
+	out := e.run("run", "--prefix", hook, "--format", "compact", script)
+	if !strings.Contains(out, "from a file") {
+		t.Errorf("a phase given a path should read it:\n%s", out)
+	}
+}
+
+// TestCapturedConsoleMatchesTheRuntimeExactly is the question that matters for
+// a script that was written against an ordinary console: does redirecting it
+// change what the script sees or produces? Every line is compared against the
+// same script run with no launcher at all.
+func TestCapturedConsoleMatchesTheRuntimeExactly(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fmt.ts")
+	mustWrite(t, script, `
+console.info("%s scored %d and %f%%", "alice", 42, 1.5);
+console.info("%o and %O and %j", {a:1}, {b:2}, {c:3});
+console.info("%c styled", "color: red");
+console.info("literal %% percent");
+console.info("too few %s %s", "one");
+console.info("surplus %s", "a", "b", "c");
+console.info({ nested: { deep: [1, 2, { x: true }] } });
+`)
+	raw := e.run("run", "--no-launcher", script)
+	captured := e.run("run", "--format", "bare", script)
+
+	rawLines := nonEmptyLines(raw)
+	capLines := nonEmptyLines(captured)
+	if len(rawLines) != len(capLines) {
+		t.Fatalf("line counts differ\nraw:\n%s\ncaptured:\n%s", raw, captured)
+	}
+	for i := range rawLines {
+		if rawLines[i] != capLines[i] {
+			t.Errorf("line %d differs:\n  runtime:  %q\n  captured: %q",
+				i+1, rawLines[i], capLines[i])
+		}
+	}
+}
+
+// nonEmptyLines drops blanks and mcpx's own progress notices.
+//
+// The notices have to go because the two runs being compared do not agree
+// about whether to print them: one uses the default text format and gets
+// them, the other asks for a machine format and does not. On a warm cache
+// neither prints anything and the comparison passes; on a cold one the line
+// counts differ and the test fails for a reason that has nothing to do with
+// the console.
+func nonEmptyLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		l = strings.TrimRight(l, "\r")
+		if strings.TrimSpace(l) == "" || strings.HasPrefix(l, "mcpx: ") {
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// TestConsoleSurvivesValuesThatBreakNaiveSerialisers is the other half: a
+// script must not start throwing because its console was redirected.
+func TestConsoleSurvivesValuesThatBreakNaiveSerialisers(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hostile.ts")
+	mustWrite(t, script, `
+const circ: any = { name: "loop" }; circ.self = circ;
+class Weird { get boom() { throw new Error("getter threw"); } }
+const sym = Symbol("tag");
+const checks: Record<string, unknown> = {};
+const guard = (k: string, f: () => void) => {
+  try { f(); checks[k] = "ok"; } catch (e) { checks[k] = "THREW " + (e as Error).message; }
+};
+guard("circular", () => console.info(circ));
+guard("throwingGetter", () => console.info(new Weird()));
+guard("symbolKeyed", () => console.info({ [sym]: "s", big: 123n, u: undefined, n: null }));
+guard("noArguments", () => console.info());
+guard("typedArray", () => console.info(new Uint8Array([1, 2, 3])));
+guard("collections", () => console.info(new Map([["k", "v"]]), new Set([1])));
+guard("veryLarge", () => console.info("x".repeat(200000)));
+guard("functionValue", () => console.info(function named() {}));
+checks.returnsUndefined = console.info("x") === undefined ? "ok" : "BAD";
+checks.keepsItsName = console.info.name === "info" ? "ok" : "BAD:" + console.info.name;
+console.log("RESULT " + JSON.stringify(checks));
+`)
+	out := e.run("run", "--format", "bare", script)
+	line := ""
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "RESULT ") {
+			line = strings.TrimPrefix(strings.TrimSpace(l), "RESULT ")
+		}
+	}
+	if line == "" {
+		t.Fatalf("the script should have finished:\n%s", out)
+	}
+	var checks map[string]string
+	if err := json.Unmarshal([]byte(line), &checks); err != nil {
+		t.Fatalf("%v\n%s", err, line)
+	}
+	if len(checks) < 10 {
+		t.Fatalf("expected every case to report, got %d: %v", len(checks), checks)
+	}
+	for name, got := range checks {
+		if got != "ok" {
+			t.Errorf("%s: %s", name, got)
+		}
+	}
+}
+
+// TestEverySettingTheSchemaAdvertisesActuallyWorks is the test that would have
+// caught the registry promising flags no command accepted. `mcpx config
+// --schema` and the man page are both generated from the registry, so a
+// setting listed there and rejected by the command is documentation that
+// lies.
+func TestEverySettingTheSchemaAdvertisesActuallyWorks(t *testing.T) {
+	e := newEnv(t, oneServer)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => "ok";`)
+
+	out := e.run("--json", "config", "--schema")
+	var entries []struct {
+		Path     string   `json:"path"`
+		Flag     string   `json:"flag"`
+		Kind     string   `json:"kind"`
+		Default  string   `json:"default"`
+		Enum     []string `json:"enum"`
+		Commands []string `json:"commands"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &entries); err != nil {
+		t.Fatalf("--schema --json should be parseable: %v", err)
+	}
+	if len(entries) < 20 {
+		t.Fatalf("expected a real registry, got %d entries", len(entries))
+	}
+
+	// Every command, not just run. The same gap existed on catalog, search
+	// and status, and checking one command would have left it there.
+	commands := []string{"run", "exec", "catalog", "search", "ls", "status", "types"}
+	checked := 0
+	for _, cmd := range commands {
+		for _, entry := range entries {
+			if !appliesTo(entry.Commands, cmd) {
+				continue
+			}
+			value := entry.Default
+			if len(entry.Enum) > 0 {
+				value = entry.Enum[0]
+			}
+			if value == "" {
+				switch entry.Kind {
+				case "int":
+					value = "1"
+				case "duration":
+					value = "30s"
+				case "bytes":
+					value = "1MB"
+				case "bool":
+					value = "true"
+				default:
+					continue // nothing safe to pass
+				}
+			}
+			checked++
+			args := []string{cmd, "--" + entry.Flag + "=" + value}
+			switch cmd {
+			case "run", "exec":
+				args = append(args, script)
+			case "search", "types":
+				args = append(args, "demo")
+			}
+			if out, err := e.try(args...); err != nil && strings.Contains(out, "not defined") {
+				t.Errorf("--%s is advertised by --schema for %q but that command rejects it (%s=%q)",
+					entry.Flag, cmd, entry.Path, value)
+			}
+		}
+	}
+	if checked < 20 {
+		t.Fatalf("only %d settings were exercised; the check is not doing its job", checked)
+	}
+}
+
+func appliesTo(commands []string, cmd string) bool {
+	if len(commands) == 0 {
+		return true
+	}
+	for _, c := range commands {
+		if c == cmd {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSettingsFromAConfigFileActuallyTakeEffect is the difference between a
+// setting being accepted and a setting being applied. Validation alone is
+// documentation that lies more quietly: the value is checked, reported as
+// fine, and then ignored.
+func TestSettingsFromAConfigFileActuallyTakeEffect(t *testing.T) {
+	cfg := strings.TrimSuffix(strings.TrimSpace(oneServer), "}") +
+		`, "logging": { "format": "compact", "level": "debug" },
+		   "catalog": { "budget": 300 } }`
+	e := newEnv(t, cfg)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "x.ts")
+	mustWrite(t, script, `export default () => { log.info("ran"); };`)
+
+	// compact renders "INFO msg key=value"; text would render a timestamp.
+	out := e.run("run", script)
+	if !strings.Contains(out, "INFO ") || strings.Contains(out, `"level"`) {
+		t.Errorf("logging.format from the config file should apply:\n%s", out)
+	}
+
+	// Two environments rather than two flags, so what differs is the config
+	// file and nothing else. The fake server's catalog is small, so the
+	// budgets have to be far apart to produce a visible difference.
+	tight := newEnv(t, strings.TrimSuffix(strings.TrimSpace(oneServer), "}")+
+		`, "catalog": { "budget": 1 } }`)
+	loose := newEnv(t, strings.TrimSuffix(strings.TrimSpace(oneServer), "}")+
+		`, "catalog": { "budget": 9000 } }`)
+	if a, b := len(tight.run("catalog")), len(loose.run("catalog")); a >= b {
+		t.Errorf("catalog.budget from the config file should apply: %d vs %d", a, b)
+	}
+}
+
+func TestExploreRefusesWithoutATerminal(t *testing.T) {
+	// It reads a prompt loop from stdin; run from a script it would consume
+	// whatever was piped and do something surprising. Saying so and naming
+	// the scriptable commands is better than half-working.
+	e := newEnv(t, oneServer)
+	out, err := e.try("explore")
+	if err == nil {
+		t.Fatal("explore should refuse when stdin is not a terminal")
+	}
+	if !strings.Contains(out, "needs a terminal") {
+		t.Errorf("the reason should be stated: %s", out)
+	}
+	for _, alt := range []string{"ls", "types", "catalog", "log"} {
+		if !strings.Contains(out, alt) {
+			t.Errorf("the scriptable alternative %q should be named: %s", alt, out)
+		}
+	}
+}
+
+func TestHarnessTraceIdsReachTheLog(t *testing.T) {
+	// The harness knows what the agent does not. Pairs rather than a flat id,
+	// because a flat one cannot say "this session, whose parent is that one".
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars,
+		`MCPX_TRACE_IDS=[["session_id","abc123"],["worktree","/w/x"],["aliases","a","b"]]`)
+	out := e.run("exec", "--format", "json", `log.info("hello")`)
+	doc := firstRecord(t, out)
+
+	if doc["id.session_id"] != "abc123" {
+		t.Errorf("session id should ride along: %v", doc)
+	}
+	if doc["id.worktree"] != "/w/x" {
+		t.Errorf("worktree should ride along: %v", doc)
+	}
+	// An entry longer than a pair names several ids for one key.
+	aliases, ok := doc["id.aliases"].([]any)
+	if !ok || len(aliases) != 2 {
+		t.Errorf("a variadic entry should survive as a list: %v", doc["id.aliases"])
+	}
+}
+
+func TestHarnessIdsCannotRewriteTheRealSession(t *testing.T) {
+	// A caller may add context; it may not rewrite which session a call was
+	// actually leased for, or leasing becomes advisory.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, `MCPX_TRACE_IDS=[["session","impostor"]]`)
+	out := e.run("exec", "--format", "json", `log.info("hello")`)
+	doc := firstRecord(t, out)
+	if doc["session"] == "impostor" {
+		t.Error("the harness should not be able to overwrite the resolved session")
+	}
+}
+
+func TestLogRecordAcceptsWhatOtherThingsKnow(t *testing.T) {
+	// mcpx's log should be able to hold what the harness knows, so that one
+	// `mcpx stats` covers both. A caller that can produce JSON should not
+	// also have to learn a schema.
+	e := newEnv(t, oneServer)
+
+	e.run("log", "record", `{"event":"harness.tool","tool":"bash","ok":true}`)
+	e.run("log", "record", "--level", "warn", `{"msg":"something odd","n":42}`)
+
+	out := e.run("log", "--grep", "harness.tool|something odd", "--limit", "10")
+	if !strings.Contains(out, "harness.tool") {
+		t.Errorf("an event-only record should land:\n%s", out)
+	}
+	if !strings.Contains(out, "something odd") {
+		t.Errorf("a message record should land:\n%s", out)
+	}
+	// Told, not observed: without the distinction a synthetic record is
+	// indistinguishable from a measured one.
+	if !strings.Contains(out, "external=true") {
+		t.Errorf("records from outside should be marked:\n%s", out)
+	}
+	if !strings.Contains(out, "WARN") {
+		t.Errorf("the level should be honoured:\n%s", out)
+	}
+}
+
+func TestLogRecordRejectsWhatIsNotAnObject(t *testing.T) {
+	e := newEnv(t, oneServer)
+	if _, err := e.try("log", "record", `not json`); err == nil {
+		t.Fatal("a record that is not a JSON object should be refused")
+	}
+	if _, err := e.try("log", "record", `[1,2,3]`); err == nil {
+		t.Fatal("an array is not a record")
+	}
+}
+
+// TestEveryTuiViewProducesRowsFromRealData exercises the source
+// implementations against a real store. The view itself is tested with a
+// fake; this is the other half -- that the queries behind each view actually
+// return something, which a fake can never tell you.
+func TestEveryTuiViewProducesRowsFromRealData(t *testing.T) {
+	e := newEnv(t, oneServer)
+	// Generate something to report on.
+	e.run("exec", `const r = await demo.echo({ message: "hi" }); emit(r);`)
+	e.run("log", "record", `{"event":"harness.tool","tool":"bash"}`)
+
+	out := e.run("--json", "tui", "--dump")
+	var dump map[string]struct {
+		Columns []string   `json:"columns"`
+		Rows    [][]string `json:"rows"`
+		Note    string     `json:"note"`
+		Error   string     `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &dump); err != nil {
+		t.Fatalf("--dump should be parseable: %v\n%s", err, out)
+	}
+	for _, view := range []string{"stats:calls", "servers", "storage", "sessions"} {
+		got, ok := dump[view]
+		if !ok {
+			t.Errorf("%s is missing from the dump", view)
+			continue
+		}
+		if got.Error != "" {
+			t.Errorf("%s failed: %s", view, got.Error)
+			continue
+		}
+		if len(got.Columns) == 0 {
+			t.Errorf("%s has no columns", view)
+		}
+	}
+	// Storage always has something: the index itself exists by now.
+	if len(dump["storage"].Rows) == 0 {
+		t.Errorf("storage should list at least the index: %+v", dump["storage"])
+	}
+	if !strings.Contains(dump["storage"].Note, "total") {
+		t.Errorf("storage should total what it found: %q", dump["storage"].Note)
+	}
+	// And calls, because a tool call was just made.
+	if len(dump["stats:calls"].Rows) == 0 {
+		t.Errorf("a call was made; stats should show it: %+v", dump["stats:calls"])
+	}
+}
+
+func TestPromptsAndResourcesReachThroughFromUpstream(t *testing.T) {
+	// Prompts are the half of MCP that is not tools. mcpx reported none,
+	// which threw away everything a server published that was not a
+	// function.
+	e := newEnv(t, oneServer)
+
+	prompts := e.run("prompts")
+	if !strings.Contains(prompts, "summarise") {
+		t.Errorf("the server's prompt should be listed:\n%s", prompts)
+	}
+	if !strings.Contains(prompts, "text, style?") {
+		t.Errorf("required and optional arguments should be distinguished:\n%s", prompts)
+	}
+
+	rendered := e.run("prompts", "demo.summarise", "text=a long document", "style=in one line")
+	if !strings.Contains(rendered, "Summarise in one line: a long document") {
+		t.Errorf("arguments should be substituted:\n%s", rendered)
+	}
+
+	resources := e.run("resources")
+	if !strings.Contains(resources, "demo://greeting") {
+		t.Errorf("the server's resource should be listed:\n%s", resources)
+	}
+	read := e.run("resources", "demo/demo://greeting")
+	if !strings.Contains(read, "hello from a resource") {
+		t.Errorf("reading it should return its contents:\n%s", read)
+	}
+}
+
+func TestTheMCPServerAdvertisesWhatItActuallyHas(t *testing.T) {
+	// Returning empty lists while declaring the capability is a lie a client
+	// cannot detect: it asks once, gets nothing, and never asks again.
+	e := newEnv(t, oneServer)
+	out := e.runStdin(
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`+"\n"+
+			`{"jsonrpc":"2.0","id":2,"method":"prompts/list"}`+"\n"+
+			`{"jsonrpc":"2.0","id":3,"method":"resources/list"}`+"\n",
+		"serve")
+
+	if !strings.Contains(out, "summarise") {
+		t.Errorf("prompts/list should pass through:\n%s", out)
+	}
+	if !strings.Contains(out, "greeting") {
+		t.Errorf("resources/list should pass through:\n%s", out)
+	}
+}
+
+func TestDoctorFindsAServerWhoseCommandIsMissing(t *testing.T) {
+	// The single most common cause of "mcpx does not work", and invisible
+	// until something tries to call it.
+	e := newEnv(t, `{"mcpServers":{"ghost":{"command":"definitely-not-installed-xyz"}}}`)
+	out, err := e.try("doctor")
+	if err == nil {
+		t.Fatal("an unrunnable server should make doctor unhealthy")
+	}
+	if !strings.Contains(out, "definitely-not-installed-xyz") {
+		t.Errorf("the missing command should be named:\n%s", out)
+	}
+	if !strings.Contains(out, "remove those servers") {
+		t.Errorf("a check that only reports leaves the reader where they started:\n%s", out)
+	}
+}
+
+func TestDoctorIsQuietWhenEverythingIsFine(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := e.run("doctor")
+	if strings.Contains(out, "FAIL") {
+		t.Errorf("a healthy install should have nothing to report:\n%s", out)
+	}
+	// Section names and mcpServers are the document's own content, not
+	// typos. Reporting them made the warning useless by burying real ones.
+	if strings.Contains(out, "mcpServers") {
+		t.Errorf("config sections should not read as unknown keys:\n%s", out)
+	}
+}
+
+func TestDoctorStillCatchesARealTypo(t *testing.T) {
+	cfg := strings.TrimSuffix(strings.TrimSpace(oneServer), "}") +
+		`, "logging": { "levl": "debug" } }`
+	e := newEnv(t, cfg)
+	out := e.run("doctor")
+	if !strings.Contains(out, "logging.levl") {
+		t.Errorf("a misspelled key should still be reported:\n%s", out)
+	}
+}
+
+func TestTypesArePublishedInEveryFormSomethingConsumes(t *testing.T) {
+	// The same information, reshaped. TypeScript is what a script imports,
+	// JSON Schema is what a validator reads, OpenAPI is what a client
+	// generator reads, and the MCP form is what an MCP host reads. A caller
+	// should not have to convert one into another.
+	e := newEnv(t, oneServer)
+
+	ts := e.run("schema", "--format", "typescript")
+	if !strings.Contains(ts, "function echo") {
+		t.Errorf("typescript should declare the tool:\n%s", ts)
+	}
+
+	js := e.run("schema", "--format", "json-schema")
+	var jsDoc struct {
+		Schema string         `json:"$schema"`
+		Defs   map[string]any `json:"$defs"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, js)), &jsDoc); err != nil {
+		t.Fatalf("json-schema should parse: %v", err)
+	}
+	if !strings.Contains(jsDoc.Schema, "json-schema.org") {
+		t.Errorf("it should declare its dialect: %q", jsDoc.Schema)
+	}
+	if _, ok := jsDoc.Defs["demo.echo"]; !ok {
+		t.Errorf("the tool should be under $defs: %v", jsDoc.Defs)
+	}
+
+	mcp := e.run("schema", "--format", "mcp")
+	if !strings.Contains(mcp, "inputSchema") {
+		t.Errorf("the MCP form should carry inputSchema:\n%s", mcp)
+	}
+}
+
+func TestTheOpenAPIDocumentDescribesTheToolsItFrontsNotOnlyItself(t *testing.T) {
+	// Describing the wrapper but not what it wraps is a specification of the
+	// wrong thing: the tools were reachable from MCP and from a script and
+	// from nowhere a generated client could see.
+	e := newEnv(t, oneServer)
+	out := e.run("schema", "--format", "openapi")
+
+	var doc struct {
+		Paths map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var upstream []string
+	for p := range doc.Paths {
+		if strings.HasPrefix(p, "/v1/call/") {
+			upstream = append(upstream, p)
+		}
+	}
+	if len(upstream) == 0 {
+		t.Fatalf("upstream tools should have paths; got %v", keysOf(doc.Paths))
+	}
+	found := false
+	for _, p := range upstream {
+		if strings.Contains(p, "/demo/echo") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the demo tool should be addressable: %v", upstream)
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestElicitationsCanBeListedAndAnsweredFromTheCommandLine(t *testing.T) {
+	// The whole point of storing a question rather than blocking on one:
+	// this process never asked it, and can still answer it.
+	e := newEnv(t, oneServer)
+	e.run("elicit", "list") // creates the store
+
+	seedElicitation(t, e, "elc-test1", "github", "form",
+		`{"type":"object","properties":{"repo":{"type":"string"}},"required":["repo"]}`)
+
+	list := e.run("elicit", "list")
+	if !strings.Contains(list, "elc-test1") {
+		t.Fatalf("the question should be listed:\n%s", list)
+	}
+	// The command to answer is spelled out, because otherwise every caller
+	// assembles it from three fields and gets it wrong once.
+	show := e.run("elicit", "show", "elc-test1")
+	if !strings.Contains(show, "mcpx elicit answer elc-test1") {
+		t.Errorf("the answer command should be shown:\n%s", show)
+	}
+
+	// key=value, because most answers are one short string.
+	e.run("elicit", "answer", "elc-test1", "repo=me/thing")
+
+	out := e.run("--json", "elicit", "result", "elc-test1")
+	var ans struct {
+		Action  string          `json:"action"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &ans); err != nil {
+		t.Fatal(err)
+	}
+	if ans.Action != "accept" || !strings.Contains(string(ans.Content), "me/thing") {
+		t.Errorf("got %+v", ans)
+	}
+	if after := e.run("elicit", "list"); strings.Contains(after, "elc-test1") {
+		t.Errorf("an answered question should not still be pending:\n%s", after)
+	}
+}
+
+func TestACredentialQuestionIsRoutedToAHuman(t *testing.T) {
+	// The default is the agent -- it asked for the thing and has the context.
+	// A credential is the exception: a model cannot know one and should not
+	// hold one.
+	e := newEnv(t, oneServer)
+	e.run("elicit", "list")
+
+	seedElicitation(t, e, "elc-agent", "demo", "form",
+		`{"type":"object","properties":{"repo":{"type":"string"}}}`)
+	seedElicitation(t, e, "elc-human", "demo", "form",
+		`{"type":"object","properties":{"api_token":{"type":"string"}}}`)
+
+	out := e.run("--json", "elicit", "list")
+	var pending []struct {
+		ID       string `json:"id"`
+		Audience string `json:"audience"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, out)), &pending); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	reasons := map[string]string{}
+	for _, p := range pending {
+		got[p.ID] = p.Audience
+		reasons[p.ID] = p.Reason
+	}
+	if got["elc-agent"] != "agent" {
+		t.Errorf("an ordinary choice belongs to the agent: %v", got)
+	}
+	if got["elc-human"] != "human" {
+		t.Errorf("a token field belongs to a person: %v", got)
+	}
+	// Routing nobody can inspect is routing nobody can correct.
+	if reasons["elc-human"] == "" {
+		t.Error("the reason should be recorded")
+	}
+}
+
+// seedElicitation writes a question straight into the store, standing in for
+// a server that asked one.
+func seedElicitation(t *testing.T, e *env, id, server, mode, schema string) {
+	t.Helper()
+	script := fmt.Sprintf(`
+import sqlite3, time, sys
+now = int(time.time()*1000)
+db = sqlite3.connect(%q)
+db.execute("INSERT OR REPLACE INTO elicitations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+  (%q,"cal-x","","s1",%q,"tool",%q,"which one?",%q,"", "", "", now, now+120000,"pending",1))
+db.commit()
+`, filepath.Join(e.dir, "state", "logs", "elicit.db"), id, server, mode, schema)
+	cmd := exec.Command("python3", "-c", script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("seeding: %v\n%s", err, out)
+	}
+}
+
+func TestTheConnectionLadderReportsEveryRungItTried(t *testing.T) {
+	// "Why is this slow" and "why did it answer from the wrong machine" are
+	// both answered by the list of what was tried, so every rung is recorded
+	// whether or not it worked.
+	e := newEnv(t, oneServer)
+
+	cold := e.run("doctor", "-v")
+	if !strings.Contains(cold, "reached over spawn") {
+		t.Errorf("a cold start should climb to the spawn rung:\n%s", cold)
+	}
+	warm := e.run("doctor", "-v")
+	if !strings.Contains(warm, "reached over socket") {
+		t.Errorf("a warm one should stop at the socket:\n%s", warm)
+	}
+}
+
+func TestANamedEndpointIsNotSilentlyReplacedByALocalDaemon(t *testing.T) {
+	// Falling back would answer from the wrong machine, which is worse than
+	// failing.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_ENDPOINT=http://127.0.0.1:1")
+	out, err := e.try("doctor")
+	if err == nil {
+		t.Fatal("an unreachable named endpoint should fail")
+	}
+	if !strings.Contains(out, "will not start a local one") {
+		t.Errorf("the reason should be stated:\n%s", out)
+	}
+	if strings.Contains(out, "reached over spawn") {
+		t.Errorf("it must not have started a local daemon instead:\n%s", out)
+	}
+}
+
+func TestInlineModeRunsWithNoDaemonAndLeavesNothingBehind(t *testing.T) {
+	// The last rung of the ladder: no separate process. It must work, and it
+	// must not leave a daemon or a socket behind -- an in-process daemon
+	// lives exactly as long as the command.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_AUTOSTART=false", "MCPX_DAEMON_INLINE=true")
+
+	out := e.run("call", "demo.echo", `{"message":"inline"}`)
+	if !strings.Contains(out, "inline") {
+		t.Fatalf("the call should have worked with no daemon:\n%s", out)
+	}
+	if socks, _ := filepath.Glob(filepath.Join(e.dir, "state", "*.sock")); len(socks) > 0 {
+		t.Errorf("no daemon socket should remain: %v", socks)
+	}
+}
+
+func TestInlineModeRunsAScriptThatCallsATool(t *testing.T) {
+	// The case the inline test above missed. `call` goes from this process
+	// straight to the in-process daemon; a script goes out to a runtime
+	// subprocess and has to come *back* over the socket. That return path
+	// was broken: the socket handed to the script was recomputed from the
+	// configuration key, and inline mode listens on a private temporary
+	// socket instead, so the script was told to reach a daemon at "".
+	//
+	// Every inline script that called a tool failed, and nothing noticed,
+	// because the only inline test called a tool from the CLI.
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_AUTOSTART=false", "MCPX_DAEMON_INLINE=true")
+
+	out := e.run("exec", `const r = await demo.echo({message: "from-a-script"}); emit({text: JSON.stringify(r).includes("from-a-script")});`)
+	if !strings.Contains(out, "true") {
+		t.Fatalf("a script must reach the inline daemon:\n%s", out)
+	}
+	if socks, _ := filepath.Glob(filepath.Join(e.dir, "state", "*.sock")); len(socks) > 0 {
+		t.Errorf("no daemon socket should remain: %v", socks)
+	}
+}
+
+func TestWithoutInlineANoDaemonSituationFailsClearly(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.envVars = append(e.envVars, "MCPX_DAEMON_AUTOSTART=false")
+	out, err := e.try("ls")
+	if err == nil {
+		t.Fatal("with no daemon and no way to make one, it should fail")
+	}
+	// Every rung is named, because the list of what was tried is the answer
+	// to "why did this not work".
+	for _, want := range []string{"socket", "spawn", "disabled by daemon.autostart"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q missing from:\n%s", want, out)
+		}
+	}
+}
+
+func TestScriptsReachTheDaemonOverItsSocketWhereTheRuntimeCan(t *testing.T) {
+	// Deno and Bun take the socket; Node falls back to TCP because its fetch
+	// cannot address one without undici. Each runtime is checked only where
+	// it is installed, and the expectation is per runtime -- the first
+	// version of this assumed Deno, and on a runner without it the script
+	// correctly ran under Node, used TCP, and failed the test for being
+	// right.
+	for _, c := range []struct{ rt, want string }{
+		{"deno", "via unix"}, {"bun", "via unix"}, {"node", "via tcp"},
+	} {
+		t.Run(c.rt, func(t *testing.T) {
+			if _, err := exec.LookPath(c.rt); err != nil {
+				t.Skipf("%s not installed", c.rt)
+			}
+			e := newEnv(t, oneServer)
+			out := e.run("exec", "--runtime", c.rt, "--format", "bare",
+				`const r = await demo.echo({message:"x"}); console.log("via", transport());`)
+			if !strings.Contains(out, c.want) {
+				t.Errorf("%s should report %q:\n%s", c.rt, c.want, out)
+			}
+		})
+	}
+}
+
+func TestTheEventStreamDeliversCallsAndResumes(t *testing.T) {
+	// The stream is what hooks read. Every event carries a sequence number,
+	// and a reconnect replays what was missed -- lossless, not merely
+	// resumable.
+	e := newEnv(t, oneServer)
+	e.run("call", "demo.echo", `{"message":"a"}`)
+	e.run("call", "demo.echo", `{"message":"b"}`)
+
+	client := e.socketClient(t)
+	resp, err := client.Get("http://mcpx/v1/events?kinds=call&since=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("content type %q", ct)
+	}
+	buf := make([]byte, 8192)
+	n, _ := io.ReadAtLeast(resp.Body, buf, 64)
+	body := string(buf[:n])
+	if !strings.Contains(body, "event: call.finished") {
+		t.Errorf("replayed calls should arrive:\n%s", body)
+	}
+	if !strings.Contains(body, "id: ") {
+		t.Errorf("events should carry sequence ids for resume:\n%s", body)
+	}
+}
+
+// socketClient speaks HTTP to the running daemon over its unix socket.
+//
+// The socket is asked for rather than globbed: a long state path makes the
+// daemon fall back to a private runtime directory, so it is not necessarily
+// where the state directory would suggest. The opencode plugin finds it the
+// same way, for the same reason.
+func (e *env) socketClient(t *testing.T) *http.Client {
+	t.Helper()
+	var st struct {
+		Socket string `json:"socket"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Socket == "" {
+		t.Fatal("status did not report a socket")
+	}
+	return &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", st.Socket)
+		}},
+	}
+}
+
+func TestARecordPostedToTheDaemonLandsInTheSameLogAsTheCommand(t *testing.T) {
+	// The plugin records a timing after every tool call. Over the socket
+	// that costs a fraction of a millisecond instead of a process spawn, and
+	// it must be the same record either way -- same parser, same log, same
+	// external marker.
+	e := newEnv(t, oneServer)
+	e.run("call", "demo.echo", `{"message":"warm"}`)
+	client := e.socketClient(t)
+
+	resp, err := client.Post("http://mcpx/v1/log?level=warn", "application/json",
+		strings.NewReader(`{"event":"harness.tool","tool":"bash","session":"ses-sock"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+
+	out := e.run("--json", "log", "--grep", "harness.tool", "--limit", "5")
+	for _, want := range []string{"ses-sock", `"external":true`, "warn"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the posted record should carry %s:\n%s", want, out)
+		}
+	}
+
+	// null is the case worth pinning: it decodes without error into a nil
+	// map, and before the shared parser refused it, the write that followed
+	// would have panicked inside the daemon.
+	for _, body := range []string{`null`, `[1]`, `nope`} {
+		resp, err := client.Post("http://mcpx/v1/log", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", body, resp.StatusCode)
+		}
+	}
+	if _, err := client.Get("http://mcpx/v1/health"); err != nil {
+		t.Errorf("the daemon should survive bad records: %v", err)
+	}
+}
+
+func TestStatusReportsRunningEitherWay(t *testing.T) {
+	// `running` used to appear only when false, so anything testing it --
+	// the opencode plugin did -- read a live daemon as down.
+	e := newEnv(t, oneServer)
+	var st map[string]any
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st["running"] != false {
+		t.Errorf("before anything starts a daemon: running = %v", st["running"])
+	}
+	e.run("ls")
+	st = nil
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st["running"] != true || st["socket"] == nil {
+		t.Errorf("with a daemon up: running = %v, socket = %v", st["running"], st["socket"])
+	}
+}
+
+// TestResolveTellsAPluginWhichDaemonServesADirectory is the no-binary case
+// from the plugin's side: everything the opencode plugin needs to pick a
+// daemon comes back from one request to a daemon it already reached.
+func TestResolveTellsAPluginWhichDaemonServesADirectory(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.run("ls")
+	client := e.socketClient(t)
+
+	var st struct {
+		Socket string `json:"socket"`
+	}
+	if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "status"))), &st); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := client.Get("http://mcpx/v1/resolve?dir=" + e.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var got struct {
+		Socket     string   `json:"socket"`
+		ConfigPath string   `json:"configPath"`
+		ConfigHash string   `json:"configHash"`
+		Running    bool     `json:"running"`
+		Sources    []string `json:"sources"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Socket != st.Socket {
+		t.Errorf("resolve named %q, the daemon is on %q", got.Socket, st.Socket)
+	}
+	if !got.Running {
+		t.Error("the daemon answering the question is running, by construction")
+	}
+	if got.ConfigHash == "" || len(got.Sources) == 0 {
+		t.Errorf("resolve must say which configuration it fingerprinted: %+v", got)
+	}
+	if !strings.HasSuffix(got.ConfigPath, ".mcpx.json") {
+		t.Errorf("configPath = %q", got.ConfigPath)
+	}
+
+	// A relative directory is a caller bug, and a silent wrong answer would
+	// be worse than an error: it would name some other project's daemon.
+	bad, err := client.Get("http://mcpx/v1/resolve?dir=relative")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad.Body.Close()
+	if bad.StatusCode != http.StatusBadRequest {
+		t.Errorf("relative dir: status %d, want 400", bad.StatusCode)
+	}
+}
+
+func TestTypeCheckCatchesAnUnknownNamespaceBeforeAnythingRuns(t *testing.T) {
+	// Three separate faults let a typo'd namespace run half a script:
+	// preflight ignores unknown namespaces on purpose, --typecheck was
+	// silently dropped on the exec path, and when it did run it failed on
+	// mcpx's own generated client, so nobody could leave it on.
+	//
+	// The emit before the bad call is the point: without a check, it ran,
+	// and so would anything else with a side effect.
+	e := newEnv(t, oneServer)
+	out, err := e.try("exec", "--typecheck=on",
+		`emit({step: "before"}); await totally_made_up.some_tool({});`)
+	if err == nil {
+		t.Fatalf("an unknown namespace should stop the run:\n%s", out)
+	}
+	if !strings.Contains(out, "totally_made_up") {
+		t.Errorf("the error should name the namespace:\n%s", out)
+	}
+	if strings.Contains(out, `"step"`) {
+		t.Errorf("nothing should have run:\n%s", out)
+	}
+}
+
+func TestTypeCheckPassesForAScriptThatUsesTheGlobals(t *testing.T) {
+	// The other half: the ambient declarations must actually load, or a
+	// check that works reports "Cannot find name 'emit'" for every script.
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--typecheck=on",
+		`const r = await demo.echo({message: "hi"}); emit({ok: r != null});`)
+	if !strings.Contains(out, "true") {
+		t.Fatalf("a correct script must pass the check and run:\n%s", out)
+	}
+}
+
+// stubRegistry serves the shape registry.Client.Search parses, and nothing
+// else. It exists so no test depends on a network it cannot control.
+func stubRegistry(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"servers":[{"server":{"name":"io.example/demo",` +
+			`"description":"a stub entry","version":"1.0.0"}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestTwoConfigurationsDoNotShareAGeneratedClient(t *testing.T) {
+	// One working directory for every run meant two projects overwrote each
+	// other's generated client: a script was type-checked, and would have
+	// run, against another project's catalogue. Seven of twelve concurrent
+	// cross-project runs failed that way.
+	//
+	// The cache root is shared deliberately here -- that is the condition
+	// that used to break it. The directory inside it is named for the
+	// client's contents, so two catalogues never meet.
+	cache := t.TempDir()
+	a := newEnv(t, oneServer)
+	b := newEnv(t, strings.ReplaceAll(oneServer, "demo", "other"))
+	for _, e := range []*env{a, b} {
+		e.envVars = append(e.envVars, "MCPX_CACHE_DIR="+cache,
+			"MCPX_DAEMON_AUTOSTART=false", "MCPX_DAEMON_INLINE=true")
+	}
+
+	type outcome struct {
+		out string
+		err error
+	}
+	results := make(chan outcome, 8)
+	for i := 0; i < 4; i++ {
+		go func() {
+			out, err := a.try("exec", "--typecheck=on", `emit({t: typeof demo});`)
+			results <- outcome{out, err}
+		}()
+		go func() {
+			out, err := b.try("exec", "--typecheck=on", `emit({t: typeof other});`)
+			results <- outcome{out, err}
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Errorf("a run saw the other configuration's client:\n%s", r.out)
+		}
+	}
+}
+
+// TestEveryExecFlagChangesSomething is the guard for a fault this repository
+// has now shipped three times: a flag defined on a shared flag set, described
+// in the help, and read on only one of the two paths that share it.
+//
+// --typecheck was dropped on the exec path; --launcher, --no-launcher,
+// --export and --allow-repeat were all set only when a file was given. Each
+// was found by accident, never by a test, because a flag that does nothing
+// looks exactly like a flag that worked.
+//
+// A flag earns its place by changing an observable outcome. Add a row when
+// you add a flag to `mcpx exec`.
+func TestEveryExecFlagChangesSomething(t *testing.T) {
+	e := newEnv(t, oneServer)
+	for _, c := range []struct {
+		flag   string
+		args   []string
+		source string
+		// want must appear with the flag and must not appear without it.
+		want string
+		// fails marks a flag whose whole purpose is to refuse the run.
+		fails bool
+	}{
+		{
+			flag:   "--export",
+			args:   []string{"--export=main"},
+			source: `export const main = async () => { emit({via: "main"}); };`,
+			want:   `"via":"main"`,
+		},
+		{
+			flag:   "--launcher",
+			args:   []string{"--launcher", `console.log("LAUNCHED"); @entry`},
+			source: `emit({ok: 1});`,
+			want:   "LAUNCHED",
+		},
+		{
+			flag:   "--prefix",
+			args:   []string{"--prefix", "const shared = 41;"},
+			source: `emit({v: shared + 1});`,
+			want:   `"v":42`,
+		},
+		{
+			// The marker is the point: with the check the script is refused
+			// before it runs, without it the emit has already happened by
+			// the time the name turns out not to exist.
+			flag:   "--typecheck",
+			args:   []string{"--typecheck=on"},
+			source: `emit({ran: 1}); await totally_made_up.x({});`,
+			want:   "does not type check",
+			fails:  true,
+		},
+	} {
+		t.Run(c.flag, func(t *testing.T) {
+			argv := append([]string{"exec"}, c.args...)
+			argv = append(argv, c.source)
+			with, werr := e.try(argv...)
+			if !c.fails && werr != nil {
+				t.Fatalf("%s: %v\n%s", c.flag, werr, with)
+			}
+			if !strings.Contains(with, c.want) {
+				t.Errorf("%s did nothing: wanted %q in\n%s", c.flag, c.want, with)
+			}
+			// And without it, the same source must not produce that outcome,
+			// or the flag is not what caused it.
+			without, _ := e.try("exec", c.source)
+			if strings.Contains(without, c.want) {
+				t.Errorf("%s: %q appears without the flag too, so the test proves nothing:\n%s",
+					c.flag, c.want, without)
+			}
+		})
+	}
+}
+
+func TestConcurrentRunsOfOneScriptKeepTheirOwnLauncher(t *testing.T) {
+	// The generated entry point was named for the script, so every
+	// concurrent run of that script wrote the same file: six runs with six
+	// different launchers all executed the fourth one's. Placeholders make
+	// the same mistake quieter -- two runs of one script with different
+	// @values are two different programs sharing a path.
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "s.ts")
+	// No default export: a module that runs on import, so a launcher that
+	// only prints does not have to reproduce the entry-point scaffolding.
+	if err := os.WriteFile(script, []byte("void 0;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 6
+	type res struct {
+		want string
+		out  string
+		err  error
+	}
+	out := make(chan res, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			mark := fmt.Sprintf("LAUNCHER-%d", i)
+			o, err := e.try("run", "--launcher",
+				fmt.Sprintf("console.log(%q); @entry", mark), script)
+			out <- res{mark, o, err}
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		r := <-out
+		if r.err != nil {
+			t.Errorf("%s: %v\n%s", r.want, r.err, r.out)
+			continue
+		}
+		if !strings.Contains(r.out, r.want) {
+			t.Errorf("a run executed another run's launcher: wanted %s, got:\n%s", r.want, r.out)
 		}
 	}
 }

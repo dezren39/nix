@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -132,8 +133,72 @@ func Module(nss []Namespace, endpoint, session string) string {
 	for _, ns := range nss {
 		fmt.Fprintf(&b, "  %s,\n", ns.Name)
 	}
-	b.WriteString("};\n\nexport default tools;\n")
+	b.WriteString("};\n\n")
+
+	// Metadata for search() and describe(), emitted as data rather than
+	// reconstructed from the functions. A function cannot be asked what its
+	// parameters are called once it is compiled, and the descriptions are
+	// only in comments.
+	b.WriteString(toolMeta(nss))
+	b.WriteString("\nexport default tools;\n")
 	return b.String()
+}
+
+// toolMeta renders what search and describe read.
+func toolMeta(nss []Namespace) string {
+	type meta struct {
+		Description string   `json:"description"`
+		Params      []string `json:"params"`
+		Required    []string `json:"required"`
+	}
+	out := map[string]map[string]meta{}
+	for _, ns := range nss {
+		group := map[string]meta{}
+		for _, t := range ns.Tools {
+			params, required := schemaFields(t.InputSchema)
+			group[t.Name] = meta{
+				Description: firstLine(t.Description),
+				Params:      params,
+				Required:    required,
+			}
+		}
+		out[ns.Name] = group
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "const __toolMeta: Record<string, Record<string, { description: string; params: string[]; required: string[] }>> = {};\n"
+	}
+	return "/** Parameter names and descriptions, for search() and describe(). */\n" +
+		"const __toolMeta: Record<string, Record<string, { description: string; params: string[]; required: string[] }>> = " +
+		string(b) + ";\n"
+}
+
+// schemaFields pulls parameter names out of a JSON Schema.
+func schemaFields(raw json.RawMessage) (params, required []string) {
+	// Never nil. A nil slice marshals to JSON null, and the emitted type
+	// says string[] -- so one tool with no parameters made the generated
+	// client fail to type check, and with it every script, whatever the
+	// script said. "No parameters" is an empty list, not an absent one.
+	params, required = []string{}, []string{}
+	if len(raw) == 0 {
+		return params, required
+	}
+	var doc struct {
+		Properties map[string]any `json:"properties"`
+		Required   []string       `json:"required"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return params, required
+	}
+	for k := range doc.Properties {
+		params = append(params, k)
+	}
+	sort.Strings(params)
+	if doc.Required != nil {
+		required = doc.Required
+	}
+	sort.Strings(required)
+	return params, required
 }
 
 func toolImpl(server string, t Tool, indent string) string {
@@ -187,6 +252,53 @@ const moduleRuntime = `function env(name: string): string {
 const ENDPOINT = env("MCPX_ENDPOINT") || DEFAULT_ENDPOINT;
 const SESSION = env("MCPX_SESSION") || DEFAULT_SESSION;
 
+/**
+ * The daemon's unix socket, when one is available.
+ *
+ * Measured against the same daemon: a warm socket answers in about 0.17ms,
+ * loopback TCP in about 0.65ms. Small per call, but a script making a
+ * thousand calls spends half a second on it, and the socket's filesystem
+ * permissions are a better access control than an open port.
+ *
+ * Each runtime spells a unix-socket fetch differently -- Deno a custom HTTP
+ * client, Bun an option on fetch, Node an agent on http -- so the choice is
+ * made once here and every call goes through it. When none works, or no
+ * socket is named, it falls back to the TCP endpoint every runtime supports.
+ */
+const SOCKET = env("MCPX_SOCKET");
+
+type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
+
+const makeFetcher = (): { fetch: Fetcher; via: string } => {
+  const g = globalThis as any;
+  if (!SOCKET) return { fetch: (u, i) => fetch(u, i), via: "tcp" };
+
+  // Deno: a client whose transport is the socket.
+  if (g.Deno?.createHttpClient) {
+    try {
+      const client = g.Deno.createHttpClient({ proxy: { transport: "unix", path: SOCKET } });
+      return { fetch: (u, i) => fetch(u, { ...i, client } as any), via: "unix" };
+    } catch {
+      /* an older Deno; fall through to TCP */
+    }
+  }
+  // Bun: fetch takes the socket directly.
+  if (g.Bun) {
+    return { fetch: (u, i) => fetch(u, { ...i, unix: SOCKET } as any), via: "unix" };
+  }
+  // Node's fetch cannot address a socket without undici, which is not
+  // guaranteed to be importable here. TCP is correct and nearly as fast.
+  return { fetch: (u, i) => fetch(u, i), via: "tcp" };
+};
+
+const TRANSPORT = makeFetcher();
+
+/** Where calls are going, for a script that wants to know. */
+export const transport = (): string => TRANSPORT.via;
+
+/** The base URL to put in front of a path, given the transport. */
+const base = (): string => (TRANSPORT.via === "unix" ? "http://mcpx" : ENDPOINT);
+
 /** A filesystem location, as given and as fully resolved. */
 export interface PathPair {
   /** The path as mcpx was given it, symlinks and all. */
@@ -214,6 +326,64 @@ function realpath(p: string): string {
 
 function pair(p: string): PathPair {
   return { path: p, real: realpath(p) };
+}
+
+function builtin(name: string): any {
+  try {
+    const g = globalThis as any;
+    const req = g.require ?? g.process?.getBuiltinModule?.bind(g.process);
+    return req ? req(name) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function permissionDenied(kind: string, path?: string): Error {
+  const target = path ? " " + String(path) : "";
+  const err = new Error("Requires " + kind + " access" + target);
+  (err as any).name = "PermissionDenied";
+  return err;
+}
+
+function installDenoCompat(): void {
+  const g = globalThis as any;
+  const d = g.Deno ??= {};
+  d.args ??= g.process?.argv?.slice(2) ?? [];
+  if (!d.env?.get) {
+    d.env = {
+      get(name: string): string | undefined {
+        return g.process?.env?.[name];
+      },
+    };
+  }
+  if (typeof d.inspect !== "function") {
+    if (typeof g.Bun?.inspect === "function") {
+      d.inspect = (v: unknown, opts?: { colors?: boolean; depth?: number }) =>
+        g.Bun.inspect(v, opts);
+    } else {
+      const util = builtin("node:util");
+      if (typeof util?.inspect === "function") {
+        d.inspect = (v: unknown, opts?: { colors?: boolean; depth?: number }) =>
+          util.inspect(v, { colors: false, depth: 4, ...opts });
+      }
+    }
+  }
+  if (typeof d.readTextFileSync !== "function") {
+    d.readTextFileSync = (path: string): string => {
+      if (env("MCPX_ALLOW_READ") !== "1") throw permissionDenied("read", path);
+      const fs = builtin("node:fs");
+      if (!fs?.readFileSync) throw new Error("readTextFileSync is unavailable in this runtime");
+      return fs.readFileSync(path, "utf8");
+    };
+  }
+  if (typeof d.readTextFile !== "function") {
+    d.readTextFile = async (path: string): Promise<string> => {
+      if (env("MCPX_ALLOW_READ") !== "1") throw permissionDenied("read", path);
+      const fsp = builtin("node:fs/promises");
+      if (typeof fsp?.readFile === "function") return await fsp.readFile(path, "utf8");
+      return d.readTextFileSync(path);
+    };
+  }
 }
 
 function fromFileUrl(url: string): string {
@@ -351,7 +521,7 @@ function unwrap(server: string, tool: string, raw: RawToolResult): ToolResult {
 async function __call(server: string, tool: string, args: unknown): Promise<ToolResult> {
   let resp: Response;
   try {
-    resp = await fetch(ENDPOINT + "/v1/call", {
+    resp = await TRANSPORT.fetch(base() + "/v1/call", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -561,7 +731,7 @@ function callSite(): LogAttrs | undefined {
   };
 }
 
-function send(kind: "log" | "result", payload: Record<string, unknown>): void {
+function send(kind: "log" | "result" | "artifact", payload: Record<string, unknown>): void {
   writeStderr(LOG_SENTINEL + JSON.stringify({ kind, ts: new Date().toISOString(), ...payload }));
 }
 
@@ -708,11 +878,16 @@ export function captureConsole(): void {
   // the structured copy of the value is already in args, so the message is
   // free to be the human form.
   const g = globalThis as any;
+  const nodeInspect = builtin("node:util")?.inspect;
   const native: ((v: unknown) => string) | undefined =
-    typeof g.Deno?.inspect === "function"
+    env("MCPX_RUNTIME") === "node" && typeof nodeInspect === "function"
+      ? (v) => nodeInspect(v)
+      : typeof g.Deno?.inspect === "function"
       ? (v) => g.Deno.inspect(v, { colors: false, depth: 4 })
       : typeof g.Bun?.inspect === "function"
       ? (v) => g.Bun.inspect(v)
+      : typeof nodeInspect === "function"
+      ? (v) => nodeInspect(v)
       : undefined;
   const one = (a: unknown) => {
     if (typeof a === "string") return a;
@@ -725,7 +900,58 @@ export function captureConsole(): void {
     }
     return safeInspect(a);
   };
-  const render = (args: unknown[]) => "  ".repeat(depth) + args.map(one).join(" ");
+  // Format specifiers, because a script that writes console.info("%s: %d",
+  // name, n) expects to read "alice: 42". Dropping the substitution and
+  // printing the template beside its arguments is the kind of difference that
+  // makes a captured console feel broken rather than redirected.
+  //
+  // Matches the runtimes: substitution happens only when there are arguments
+  // to substitute, leftover specifiers stay as written, and surplus arguments
+  // are appended.
+  const FORMAT = /%[sdifjoOc%]/g;
+  const applyFormat = (template: string, rest: unknown[]): [string, unknown[]] => {
+    let i = 0;
+    const text = template.replace(FORMAT, (spec) => {
+      if (spec === "%%") return "%";
+      if (i >= rest.length) return spec;
+      const v = rest[i++];
+      switch (spec) {
+        case "%s":
+          return typeof v === "string" ? v : one(v);
+        case "%d":
+        case "%i": {
+          if (typeof v === "bigint") return String(v);
+          const n = Number(v);
+          return Number.isNaN(n) ? "NaN" : String(Math.trunc(n));
+        }
+        case "%f":
+          return String(Number(v));
+        case "%j":
+          return safeInspect(v);
+        case "%o":
+        case "%O":
+          return one(v);
+        case "%c":
+          // Styling has no meaning outside a browser. The argument is still
+          // consumed, which is what keeps the remaining substitutions lined
+          // up with their specifiers.
+          return "";
+      }
+      return spec;
+    });
+    return [text, rest.slice(i)];
+  };
+
+  const render = (args: unknown[]) => {
+    const pad = "  ".repeat(depth);
+    if (args.length > 1 && typeof args[0] === "string" && FORMAT.test(args[0] as string)) {
+      FORMAT.lastIndex = 0;
+      const [text, rest] = applyFormat(args[0] as string, args.slice(1));
+      return pad + [text, ...rest.map(one)].join(" ");
+    }
+    FORMAT.lastIndex = 0;
+    return pad + args.map(one).join(" ");
+  };
 
   // Keep the original name on every replacement. Something reading
   // console.info.name should still see "info"; losing it breaks introspection
@@ -869,13 +1095,108 @@ function safeInspect(v: unknown): string {
  * work: the launcher installs these before importing the module, and the
  * generated declarations tell an editor they exist.
  */
+/** One tool, as search returns it. */
+export interface ToolMatch {
+  namespace: string;
+  tool: string;
+  /** Call it as tools[namespace][tool](args). */
+  call: (args?: Record<string, unknown>) => Promise<ToolResult>;
+  description: string;
+  /** Parameter names, so a caller can check before invoking. */
+  params: string[];
+  required: string[];
+}
+
+/**
+ * Find tools by name or description, from inside a script.
+ *
+ * Without this, discovering a tool means ending the script, running
+ * "mcpx search", reading the result, and writing a new script. That round
+ * trip is the expensive part -- for a model it is a whole turn, and the
+ * intermediate result passes through its context on the way.
+ *
+ * Synchronous, because everything it searches is already in this file. A
+ * promise here would only be a promise of work already done.
+ */
+export function search(query: string, limit = 20): ToolMatch[] {
+  const words = String(query).toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const scored: Array<{ score: number; match: ToolMatch }> = [];
+  for (const [ns, group] of Object.entries(tools)) {
+    for (const [name, fn] of Object.entries(group as Record<string, unknown>)) {
+      if (typeof fn !== "function") continue;
+      const meta = __toolMeta[ns]?.[name] ?? { description: "", params: [], required: [] };
+      const hay = (ns + " " + name + " " + meta.description).toLowerCase();
+
+      let score = 0;
+      for (const w of words) {
+        if (!hay.includes(w)) {
+          score = -1;
+          break;
+        }
+        // A word in the name is worth more than a word in the prose. A tool
+        // called "grep" beats one whose description merely mentions grepping.
+        score += (ns + " " + name).toLowerCase().includes(w) ? 10 : 1;
+      }
+      if (score < 0) continue;
+      scored.push({
+        score,
+        match: {
+          namespace: ns,
+          tool: name,
+          call: fn as ToolMatch["call"],
+          description: meta.description,
+          params: meta.params,
+          required: meta.required,
+        },
+      });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score || a.match.tool.localeCompare(b.match.tool));
+  return scored.slice(0, limit).map((s) => s.match);
+}
+
+/**
+ * The signature of one tool, or of a whole namespace.
+ *
+ * The companion to search: found something, now what does it take. Returns
+ * text because that is what it is for -- reading, or printing when a script
+ * is exploring rather than doing.
+ */
+export function describe(name: string): string {
+  const parts = String(name).split(".");
+  const ns = parts[0];
+  const tool = parts[1];
+  const group = __toolMeta[ns];
+  if (!group) {
+    return "no namespace " + JSON.stringify(ns) +
+      "; there is " + Object.keys(tools).join(", ");
+  }
+  const render = (t: string): string => {
+    const m = group[t];
+    if (!m) return "  " + t + "(...)";
+    const args = m.params
+      .map((p) => (m.required.indexOf(p) >= 0 ? p : p + "?"))
+      .join(", ");
+    const head = "  " + ns + "." + t + "({ " + args + " })";
+    return m.description ? head + "\n      " + m.description : head;
+  };
+  if (!tool) {
+    return Object.keys(group).sort().map(render).join("\n");
+  }
+  return render(tool);
+}
+
 export function installGlobals(): void {
   const g = globalThis as any;
+  installDenoCompat();
   g.log ??= log;
   g.emit ??= emitResult;
   g.tools ??= tools;
   g.call ??= call;
   g.readResource ??= readResource;
+  g.artifact ??= artifact;
   g.ToolError ??= ToolError;
   g.paths ??= paths;
   g.here ??= here;
@@ -883,6 +1204,9 @@ export function installGlobals(): void {
   g.releaseConsole ??= releaseConsole;
   g.captureFrames ??= captureFrames;
   g.errorFrames ??= errorFrames;
+  g.search ??= search;
+  g.transport ??= transport;
+  g.describe ??= describe;
   for (const [name, ns] of Object.entries(tools)) g[name] ??= ns;
 }
 
@@ -893,7 +1217,7 @@ export async function call(server: string, tool: string, args?: unknown): Promis
 
 /** Read an MCP resource URI. */
 export async function readResource(server: string, uri: string): Promise<ToolResult> {
-  const resp = await fetch(ENDPOINT + "/v1/resource", {
+  const resp = await TRANSPORT.fetch(base() + "/v1/resource", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -908,6 +1232,164 @@ export async function readResource(server: string, uri: string): Promise<ToolRes
   const body = await resp.json();
   if (!resp.ok || body.error) throw new ToolError(body.error ?? ` + "`" + `http ${resp.status}` + "`" + `, server, uri);
   return body.result;
+}
+
+/** What artifact() hands back. Small on purpose: no bytes. */
+export interface ArtifactRef {
+  /** The random handle the artifact is fetched by. */
+  readonly id: string;
+  /** The sanitised name. It may differ from what was asked for. */
+  readonly name: string;
+  /** mcpx://artifacts/<id>, readable as an MCP resource. */
+  readonly uri: string;
+  readonly size: number;
+  readonly mime: string;
+  readonly sha256: string;
+}
+
+export interface ArtifactOptions {
+  /** Overrides the type guessed from the name. */
+  mime?: string;
+  /** How long to keep it, as a Go duration string. Default from settings. */
+  ttl?: string;
+}
+
+/**
+ * Hand a file back to whoever asked for this run.
+ *
+ *     const shot = await chrome_devtools.take_screenshot({ format: "png" });
+ *     await artifact("checkout.png", shot);
+ *     return { total };
+ *
+ * The data may be a string, bytes, an ArrayBuffer, { path } for a file
+ * already on disk, or an MCP image/audio/resource content item straight from
+ * a tool result.
+ *
+ * This behaves identically wherever the script runs, and that is the whole
+ * point of it. Locally the daemon hardlinks the file it was pointed at.
+ * Remotely the bytes travel once, to the daemon, and the caller fetches them
+ * only if it wants them. The script does not ask which case it is in, because
+ * a script that has to ask is a script with two code paths and one of them is
+ * never tested.
+ */
+export async function artifact(
+  name: string,
+  data: string | Uint8Array | ArrayBuffer | { path: string } | ContentBlock | { raw?: RawToolResult },
+  opts?: ArtifactOptions,
+): Promise<ArtifactRef> {
+  const norm = normaliseArtifact(data);
+  const query = new URLSearchParams({ name });
+  if (opts?.mime ?? norm.mime) query.set("mime", (opts?.mime ?? norm.mime) as string);
+  if (opts?.ttl) query.set("ttl", opts.ttl);
+  const run = env("MCPX_RUN");
+  if (run) query.set("run", run);
+  if (SESSION) query.set("session", SESSION);
+
+  const headers: Record<string, string> = { "x-mcpx-session": SESSION };
+  // Only when it is actually known. Sending the generic type would beat the
+  // daemon's guess from the extension, and "shot.png" is a better source of
+  // truth than "some bytes".
+  const declared = opts?.mime ?? norm.mime;
+  if (declared) headers["content-type"] = declared;
+  let body: BodyInit | undefined;
+  if (norm.path !== undefined && env("MCPX_ARTIFACTS_LOCAL") === "1") {
+    // The daemon can see this file. Naming it lets the store hardlink rather
+    // than read, hash into memory and write again.
+    headers["x-mcpx-path"] = norm.path;
+  } else if (norm.path !== undefined) {
+    body = await readFileBytes(norm.path) as unknown as BodyInit;
+  } else {
+    body = norm.bytes as unknown as BodyInit;
+  }
+
+  const resp = await TRANSPORT.fetch(base() + "/v1/artifacts?" + query.toString(), {
+    method: "POST",
+    headers,
+    body,
+  });
+  const out = await resp.json();
+  if (!resp.ok || out.error) {
+    throw new Error("artifact " + JSON.stringify(name) + ": " + (out.error ?? "http " + resp.status));
+  }
+  // Announced on the same channel as log and emit, so a consumer watching a
+  // run learns the artifact exists while it is still running rather than at
+  // the end.
+  send("artifact", { id: out.id, name: out.name });
+  return out as ArtifactRef;
+}
+
+type NormalisedArtifact = { bytes?: Uint8Array; path?: string; mime?: string };
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function readFileBytes(path: string): Promise<Uint8Array> {
+  const d = (globalThis as any).Deno;
+  if (typeof d?.readFile === "function") return await d.readFile(path);
+  const fsp = builtin("node:fs/promises");
+  if (typeof fsp?.readFile === "function") return new Uint8Array(await fsp.readFile(path));
+  throw new Error("cannot read " + path + " in this runtime");
+}
+
+/**
+ * Reduce whatever was passed to bytes or a path.
+ *
+ * Accepting an MCP content item directly is what makes the common case one
+ * line: a screenshot arrives as { type: "image", data, mimeType } and that is
+ * exactly what gets passed in, with no unwrapping at the call site.
+ */
+function normaliseArtifact(data: unknown): NormalisedArtifact {
+  if (typeof data === "string") {
+    return { bytes: new TextEncoder().encode(data), mime: "text/plain; charset=utf-8" };
+  }
+  if (data instanceof Uint8Array) return { bytes: data };
+  if (data instanceof ArrayBuffer) return { bytes: new Uint8Array(data) };
+  if (ArrayBuffer.isView(data)) {
+    const v = data as ArrayBufferView;
+    return { bytes: new Uint8Array(v.buffer, v.byteOffset, v.byteLength) };
+  }
+  if (data && typeof data === "object") {
+    const o = data as Record<string, any>;
+    if (typeof o.path === "string") return { path: o.path };
+    // A tool result carries its envelope on .raw; reach through to the first
+    // content block that has a body rather than making every call site do it.
+    if (o.raw && typeof o.raw === "object") {
+      const blocks = (o.raw as RawToolResult).content ?? [];
+      for (const b of blocks) {
+        const inner = normaliseContent(b);
+        if (inner) return inner;
+      }
+    }
+    const direct = normaliseContent(o as ContentBlock);
+    if (direct) return direct;
+  }
+  // Anything else is a value, and a value's file form is its JSON.
+  return {
+    bytes: new TextEncoder().encode(JSON.stringify(data, null, 2)),
+    mime: "application/json",
+  };
+}
+
+function normaliseContent(b: ContentBlock | undefined): NormalisedArtifact | undefined {
+  if (!b || typeof b !== "object") return undefined;
+  if ((b.type === "image" || b.type === "audio") && typeof b.data === "string") {
+    return { bytes: b64ToBytes(b.data), mime: b.mimeType };
+  }
+  if (b.type === "resource") {
+    const r = (b as any).resource;
+    if (r && typeof r.blob === "string") return { bytes: b64ToBytes(r.blob), mime: r.mimeType };
+    if (r && typeof r.text === "string") {
+      return { bytes: new TextEncoder().encode(r.text), mime: r.mimeType ?? "text/plain" };
+    }
+  }
+  if (b.type === "text" && typeof b.text === "string") {
+    return { bytes: new TextEncoder().encode(b.text), mime: "text/plain; charset=utf-8" };
+  }
+  return undefined;
 }
 
 `
@@ -933,6 +1415,8 @@ func GlobalDeclarations(nss []Namespace) string {
 	b.WriteString("  /** Call any tool by name. */\n")
 	b.WriteString("  const call: typeof __mcpx.call;\n")
 	b.WriteString("  const readResource: typeof __mcpx.readResource;\n")
+	b.WriteString("  /** Hand a file back to whoever asked for this run. */\n")
+	b.WriteString("  const artifact: typeof __mcpx.artifact;\n")
 	b.WriteString("  const ToolError: typeof __mcpx.ToolError;\n")
 	b.WriteString("  const paths: typeof __mcpx.paths;\n")
 	b.WriteString("  const here: typeof __mcpx.here;\n")

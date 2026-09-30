@@ -2,22 +2,28 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/events"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // Client talks to the daemon over its unix socket, starting one if needed.
@@ -25,26 +31,150 @@ type Client struct {
 	paths daemon.Paths
 	hc    *http.Client
 	cfg   string
+	// endpoint is empty for the local socket, or a base URL for a daemon
+	// somewhere else.
+	endpoint string
+	// set is this process's resolved configuration.
+	set *settings.Set
+	// callSettings is the JSON header carrying whatever call-scoped settings
+	// this invocation actually chose. Computed once: it cannot change within
+	// a run, and recomputing it per request would put a schema walk on the
+	// path of every call.
+	callSettings string
+}
+
+// clientSettings is the resolved configuration a client should use.
+//
+// Read through the package-level App the script resolver already uses,
+// because a client is built from several places that do not carry one and
+// threading it through every call site would be a wide change for one map
+// lookup. A process that never set one -- a test -- gets the declared
+// defaults, which is the right answer rather than a nil dereference.
+func clientSettings() *settings.Set {
+	if plumbingApp != nil {
+		return plumbingApp.Settings()
+	}
+	sch, err := settings.New(settings.Registry())
+	if err != nil {
+		panic("mcpx: settings registry is invalid: " + err.Error())
+	}
+	return settings.NewSet(sch)
+}
+
+// callHeader is the call-scoped settings this client should send.
+//
+// Only what somebody actually set: sending a default would make it
+// indistinguishable, at the daemon, from a deliberate choice, and the daemon
+// would then prefer a client's inherited default over its own configured
+// value.
+func callHeader(set *settings.Set) string {
+	ov := map[string]string{}
+	for _, decl := range set.Schema().All() {
+		if decl.Scope != settings.ScopeCall {
+			continue
+		}
+		v, ok := set.Value(decl.Path)
+		if !ok || v.Origin.Layer == settings.LayerDefault {
+			continue
+		}
+		ov[decl.Path] = v.Raw
+	}
+	if len(ov) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(ov)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // NewClient builds a socket-backed API client.
 func NewClient(paths daemon.Paths, configPath string) *Client {
-	return &Client{
-		paths: paths,
-		cfg:   configPath,
-		hc: &http.Client{
-			Timeout: 10 * time.Minute,
+	return NewClientAt(paths, configPath, "")
+}
+
+// NewClientAt targets a specific daemon.
+//
+// An empty endpoint means the local unix socket, which is the case that
+// matters for speed: no network stack, no port, and the filesystem
+// permissions are the access control.
+//
+// A URL points somewhere else -- another machine on a VPN, a container, a
+// shared daemon for a team. The whole API is already HTTP over that socket,
+// so pointing it at a real address costs nothing in code and was only ever
+// prevented by the dialler being hardcoded.
+func NewClientAt(paths daemon.Paths, configPath, endpoint string) *Client {
+	set := clientSettings()
+	c := &Client{paths: paths, cfg: configPath, set: set,
+		callSettings: callHeader(set),
+		endpoint:     strings.TrimRight(endpoint, "/")}
+	timeout := set.Duration("http.requestTimeout")
+	idle := set.Duration("http.idleConnTimeout")
+
+	if c.endpoint == "" {
+		c.hc = &http.Client{
+			Timeout: timeout,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var d net.Dialer
 					return d.DialContext(ctx, "unix", paths.Socket)
 				},
-				MaxIdleConns:    8,
-				IdleConnTimeout: 30 * time.Second,
+				MaxIdleConns:    set.Int("http.idleConns"),
+				IdleConnTimeout: idle,
 			},
+		}
+		return c
+	}
+
+	// A remote endpoint may also be a socket path, written as a URL, because
+	// "which socket" is a question somebody will have on a machine running
+	// two daemons.
+	if sock, ok := strings.CutPrefix(c.endpoint, "unix://"); ok {
+		c.endpoint = ""
+		c.hc = &http.Client{
+			Timeout: timeout,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					var d net.Dialer
+					return d.DialContext(ctx, "unix", sock)
+				},
+				MaxIdleConns: set.Int("http.idleConns"), IdleConnTimeout: idle,
+			},
+		}
+		return c
+	}
+	c.hc = &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			// Keep-alive matters far more over a network than it does over a
+			// socket: without it every call pays a handshake, which on a VPN
+			// is most of the latency.
+			MaxIdleConns:        set.Int("http.remoteIdleConns"),
+			MaxIdleConnsPerHost: set.Int("http.remoteIdleConns"),
+			IdleConnTimeout:     idle,
+			ForceAttemptHTTP2:   true,
 		},
 	}
+	return c
 }
+
+// Remote reports whether this client talks to a daemon it cannot start.
+// Socket is the unix socket this client is actually using, or "" when the
+// daemon is somewhere else.
+//
+// Asked of the connection rather than recomputed from the configuration.
+// Inline mode listens on a private temporary socket, so deriving the path
+// from the config key gave the wrong answer -- and an empty one, which the
+// generated client turned into "cannot reach the mcpx daemon at ".
+func (c *Client) Socket() string {
+	if c.endpoint != "" {
+		return ""
+	}
+	return c.paths.Socket
+}
+
+func (c *Client) Remote() bool { return c.endpoint != "" }
 
 // ErrNoDaemon means nothing is listening on the socket.
 var ErrNoDaemon = errors.New("mcpx daemon is not running")
@@ -58,12 +188,21 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		}
 		rdr = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://mcpx"+path, rdr)
+	base := c.endpoint
+	if base == "" {
+		// Any host works over a unix socket; the dialler ignores it. "mcpx"
+		// reads better in a log than "localhost" when no host was involved.
+		base = "http://mcpx"
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {
 		return nil, err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.callSettings != "" {
+		req.Header.Set(daemon.CallSettingsHeader, c.callSettings)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -81,13 +220,27 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		var e struct {
 			Error string `json:"error"`
 		}
+		msg := fmt.Sprintf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 		if json.Unmarshal(b, &e) == nil && e.Error != "" {
-			return nil, errors.New(e.Error)
+			msg = e.Error
 		}
-		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, &HTTPError{Status: resp.StatusCode, Body: b, Msg: msg}
 	}
 	return b, nil
 }
+
+// HTTPError is a refusal from the daemon, with the body kept.
+//
+// The body matters for the routes whose failure is itself an answer: a
+// recipe that could not be filled in is telling the caller what it needed,
+// and collapsing that to a string would throw the useful half away.
+type HTTPError struct {
+	Status int
+	Body   []byte
+	Msg    string
+}
+
+func (e *HTTPError) Error() string { return e.Msg }
 
 func isDialErr(err error) bool {
 	var oe *net.OpError
@@ -99,7 +252,7 @@ func isDialErr(err error) bool {
 
 // Ping reports whether a daemon is reachable.
 func (c *Client) Ping(ctx context.Context) bool {
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, c.set.Duration("autostart.pingTimeout"))
 	defer cancel()
 	_, err := c.do(cctx, http.MethodGet, "/v1/health", nil)
 	return err == nil
@@ -109,17 +262,36 @@ func (c *Client) Ping(ctx context.Context) bool {
 // waits for it to become reachable. This is what makes every command work with
 // no setup step.
 func (c *Client) EnsureDaemon(ctx context.Context) error {
+	if c.Remote() {
+		// Starting a local daemon because a remote one is unreachable would
+		// silently answer from the wrong machine, which is worse than
+		// failing.
+		if c.Ping(ctx) {
+			return nil
+		}
+		return fmt.Errorf("no mcpx daemon at %s; it is not started from here", c.endpoint)
+	}
 	if c.Ping(ctx) {
 		return nil
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
+	if !c.set.Bool("daemon.autostart") {
+		return fmt.Errorf("%w and daemon.autostart is off, so mcpx will not start one",
+			ErrNoDaemon)
+	}
+	exe := c.set.String("autostart.bin")
+	if exe == "" {
+		var err error
+		if exe, err = os.Executable(); err != nil {
+			return err
+		}
 	}
 	// An auto-started daemon shuts itself down once a repo stops being used,
 	// so visiting many projects does not accumulate idle processes. A daemon
 	// started deliberately (launchd, `mcpx daemon`) has no idle timer.
-	args := []string{"daemon", "--detached", "--idle-exit", "4h"}
+	args := append([]string{}, c.set.List("autostart.args")...)
+	if idle := c.set.Duration("autostart.idleExit"); idle > 0 {
+		args = append(args, "--idle-exit", idle.String())
+	}
 	if c.cfg != "" {
 		args = append(args, "--config", c.cfg)
 	}
@@ -127,7 +299,7 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 	if err := c.paths.EnsureDirs(); err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, defaults.PrivateMode)
 	if err != nil {
 		return err
 	}
@@ -143,16 +315,16 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 	}
 	_ = cmd.Process.Release()
 
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(c.set.Duration("autostart.connectTimeout"))
 	for time.Now().Before(deadline) {
 		if c.Ping(ctx) {
 			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(c.set.Duration("autostart.pollInterval"))
 	}
 	tail, _ := os.ReadFile(logPath)
-	if len(tail) > 2000 {
-		tail = tail[len(tail)-2000:]
+	if max := c.set.Bytes("autostart.logTail"); int64(len(tail)) > max {
+		tail = tail[int64(len(tail))-max:]
 	}
 	return fmt.Errorf("daemon did not become ready; see %s\n%s", logPath, strings.TrimSpace(string(tail)))
 }
@@ -354,4 +526,171 @@ func urlEscape(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// Prompts lists every prompt the configured servers offer.
+//
+// Prompts are the part of MCP that is not tools: a server saying "here is the
+// wording that works for this" rather than "here is a function". mcpx used to
+// report none, which threw away everything a server published that was not a
+// tool.
+func (c *Client) Prompts(ctx context.Context, ns []string) ([]daemon.PromptInfo, error) {
+	q := ""
+	if len(ns) > 0 {
+		q = "?ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/prompts"+q, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Prompts []daemon.PromptInfo `json:"prompts"`
+	}
+	return out.Prompts, json.Unmarshal(b, &out)
+}
+
+// Resources lists every resource the configured servers offer.
+func (c *Client) Resources(ctx context.Context, ns []string) ([]daemon.ResourceInfo, error) {
+	q := ""
+	if len(ns) > 0 {
+		q = "?ns=" + strings.Join(ns, ",")
+	}
+	b, err := c.do(ctx, http.MethodGet, "/v1/resources"+q, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Resources []daemon.ResourceInfo `json:"resources"`
+	}
+	return out.Resources, json.Unmarshal(b, &out)
+}
+
+// GetPrompt renders one prompt with its arguments filled in.
+func (c *Client) GetPrompt(ctx context.Context, server, name string, args map[string]string, cc config.CallContext) (json.RawMessage, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/prompt", map[string]any{
+		"server": server, "name": name, "arguments": args,
+		"sessionId": cc.SessionID, "callId": cc.CallID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Result json.RawMessage `json:"result"`
+		Error  string          `json:"error"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	if out.Error != "" {
+		return nil, errors.New(out.Error)
+	}
+	return out.Result, nil
+}
+
+// ReadResource reads one resource from a namespace.
+func (c *Client) ReadResource(ctx context.Context, server, uri string, cc config.CallContext) (json.RawMessage, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/resource", map[string]any{
+		"server": server, "uri": uri,
+		"sessionId": cc.SessionID, "callId": cc.CallID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Result json.RawMessage `json:"result"`
+		Error  string          `json:"error"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	if out.Error != "" {
+		return nil, errors.New(out.Error)
+	}
+	return out.Result, nil
+}
+
+// ResourceTemplates lists every templated resource.
+func (c *Client) ResourceTemplates(ctx context.Context) ([]daemon.ResourceInfo, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/resource-templates", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		ResourceTemplates []daemon.ResourceInfo `json:"resourceTemplates"`
+	}
+	return out.ResourceTemplates, json.Unmarshal(b, &out)
+}
+
+// Stream reads the daemon's event stream until the context ends, calling fn
+// for each event.
+//
+// Server-sent events over the same connection everything else uses, so a
+// remote daemon streams exactly as a local one does. Resumes from the last
+// sequence seen when the connection drops, which is what makes a flaky
+// network lossless rather than merely reconnecting.
+func (c *Client) Stream(ctx context.Context, f events.Filter, fn func(events.Event)) error {
+	var last uint64
+	for ctx.Err() == nil {
+		q := url.Values{}
+		if len(f.Kinds) > 0 {
+			q.Set("kinds", strings.Join(f.Kinds, ","))
+		}
+		if f.Session != "" {
+			q.Set("session", f.Session)
+		}
+		if f.Server != "" {
+			q.Set("server", f.Server)
+		}
+		if len(f.URIs) > 0 {
+			q.Set("uri", strings.Join(f.URIs, ","))
+		}
+		if last > 0 {
+			q.Set("since", strconv.FormatUint(last, 10))
+		}
+		base := c.endpoint
+		if base == "" {
+			base = "http://mcpx"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/events?"+q.Encode(), nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		// No timeout on a stream; the context bounds it instead. The
+		// client's ordinary timeout would cut a healthy stream off.
+		streamClient := &http.Client{Transport: c.hc.Transport}
+		resp, err := streamClient.Do(req)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(c.set.Duration("events.reconnect")):
+			}
+			continue
+		}
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 0, c.set.Bytes("http.streamBufferInit")),
+			int(c.set.Bytes("http.streamBufferMax")))
+		var data strings.Builder
+		for sc.Scan() {
+			line := sc.Text()
+			switch {
+			case strings.HasPrefix(line, "data: "):
+				data.WriteString(strings.TrimPrefix(line, "data: "))
+			case line == "":
+				if data.Len() > 0 {
+					var e events.Event
+					if json.Unmarshal([]byte(data.String()), &e) == nil && e.Kind != "" {
+						if e.Seq > last {
+							last = e.Seq
+						}
+						fn(e)
+					}
+					data.Reset()
+				}
+			}
+		}
+		resp.Body.Close()
+	}
+	return ctx.Err()
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -18,22 +19,86 @@ import (
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
+// newFlagSet creates a command's flag set and registers every setting the
+// registry declares for it.
+//
+// Binding here rather than at each call site is what keeps `mcpx config
+// --schema` honest: a setting listed for a command is a flag that command
+// accepts. Hand-written flags are registered first by the caller... except
+// they are not, because the caller declares them after this returns. So the
+// registry flags are bound lazily, at parse time, once the hand-written ones
+// exist and can be skipped.
 func newFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	flagSetCommand[fs] = name
 	return fs
+}
+
+// flagSetCommand remembers which command a flag set belongs to, so that
+// parseFlags can bind the right settings without every call site repeating
+// the name it already gave newFlagSet.
+var flagSetCommand = map[*flag.FlagSet]string{}
+
+// parseFlags parses, then folds what was given into the resolved settings.
+//
+// This replaces a bare fs.Parse so that registry-declared flags are both
+// accepted and applied. Splitting bind from parse is not optional: Go panics
+// on duplicate registration, and the hand-written flags are declared between
+// newFlagSet and here.
+func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
+	cmd := flagSetCommand[fs]
+	apply := func() error { return nil }
+	if a != nil && cmd != "" {
+		apply = a.BindFlags(fs, cmd)
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	delete(flagSetCommand, fs)
+	if err := apply(); err != nil {
+		return err
+	}
+	a.adoptSettings()
+	return nil
+}
+
+// adoptSettings copies the settings that decide how the App itself behaves
+// out of the resolved set, once the flags have been folded in.
+//
+// Two of them were reachable from exactly one place before this. --json was a
+// global flag consumed in main before the subcommand, so `mcpx ls --json` set
+// output.json in the registry and left App.JSON false: the flag parsed, the
+// help described it, and the output stayed a table. The state and cache
+// directories were read from MCPX_STATE_DIR and MCPX_CACHE_DIR by name, so
+// the paths.state key in a config file did nothing.
+//
+// Here rather than in main because this is the first moment all three layers
+// are known. main still resolves a starting Paths, since a command that never
+// parses flags -- bare `mcpx` -- has to have somewhere to look.
+func (a *App) adoptSettings() {
+	if a == nil {
+		return
+	}
+	set := a.Settings()
+	if set.Bool("output.json") {
+		a.JSON = true
+	}
+	if dir := set.String("paths.state"); dir != "" {
+		a.Paths = daemon.PathsAt(dir, set.String("paths.cache"))
+	} else if dir := set.String("paths.cache"); dir != "" {
+		a.Paths = daemon.PathsAt(a.Paths.State, dir)
+	}
 }
 
 // CmdDaemon runs the daemon in the foreground.
 func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	fs := newFlagSet("daemon")
 	cfgPath := fs.String("config", a.ConfigPath, "config file")
-	port := fs.Int("port", 0, "loopback TCP port for script clients (0 = ephemeral)")
 	detached := fs.Bool("detached", false, "internal: started in the background by the CLI")
-	warm := fs.Bool("warm", true, "read every server's schemas in the background at startup")
-	idleExit := fs.Duration("idle-exit", 0, "exit after this long with no requests and no live instances (0 = never)")
 	format := fs.String("format", "", "log rendering: text, json, json-pretty, logfmt, compact, bare")
 	include := fs.String("include", "", "ambient blocks on lifecycle records: host, user, process, network, version, env, all, none")
 	logDir := fs.String("log-dir", "", "durable log directory (default: the state directory)")
@@ -41,7 +106,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	logSource := newOptional("all")
 	fs.Var(logSource, "log-source",
 		"levels that record a call site: bare for all, or a level name, or false")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 
@@ -49,6 +114,10 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The pool knobs reach Config.Pool from a file by themselves; from a
+	// variable or a flag they only reach the resolved set, so they are
+	// folded in here before anything resolves a server.
+	config.ApplyPoolSettings(cfg, a.Settings())
 	pool.Version = a.Version
 
 	// The daemon keys its socket to the config it loaded, matching what the
@@ -59,13 +128,18 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		paths = paths.ForConfig(daemon.FingerprintConfig(cfg.Sources))
 	}
 
+	// Read from the resolved set rather than from a variable by name. The
+	// hand-rolled chain honoured one spelling of the variable and no flag
+	// beyond the one declared here, so `mcpx daemon` and `mcpx run` disagreed
+	// about what MCPX_LOGGING_LEVEL meant.
+	set := a.Settings()
 	logFormat, err := logging.ParseFormat(
-		firstSet(*format, os.Getenv("MCPX_FORMAT"), cfg.Logging.Format))
+		firstSet(*format, set.String("logging.format"), cfg.Logging.Format))
 	if err != nil {
 		return err
 	}
 	minLevel, err := logging.ParseLevel(
-		firstSet(*level, os.Getenv("MCPX_LOG_LEVEL"), cfg.Logging.Level))
+		firstSet(*level, set.String("logging.level"), cfg.Logging.Level))
 	if err != nil {
 		return err
 	}
@@ -75,32 +149,61 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	// The daemon is a thing that starts and ends, so it gets a trace that
 	// every record beneath it carries.
 	daemonTrace := logging.NewTraceID("dmn")
-	dir := firstSet(*logDir, os.Getenv("MCPX_LOG_DIR"), cfg.Logging.Dir,
+	dir := firstSet(*logDir, set.String("logging.dir"), cfg.Logging.Dir,
 		filepath.Join(paths.State, "logs"))
-	sink, serr := logging.NewFileSink(logging.FileOptions{Dir: dir})
-	if serr != nil {
-		// A durable log is a convenience; losing it must not stop the daemon.
-		fmt.Fprintf(os.Stderr, "mcpx: durable log unavailable (%v)\n", serr)
-	} else {
-		writer = writer.WithFile(sink, slog.LevelDebug)
-		defer sink.Close()
+	var sink *logging.FileSink
+	// logging.file off means no durable log at all. The daemon still renders
+	// to stderr; what stops is the JSONL the indexer reads.
+	if set.Bool("logging.file") {
+		var serr error
+		sink, serr = logging.NewFileSink(fileOptions(set, dir))
+		if serr != nil {
+			// A durable log is a convenience; losing it must not stop the daemon.
+			fmt.Fprintf(os.Stderr, "mcpx: durable log unavailable (%v)\n", serr)
+			sink = nil
+		} else {
+			writer = writer.WithFile(sink, slog.LevelDebug)
+			defer sink.Close()
+		}
 	}
 	writer = writer.WithBase(map[string]any{logging.KeyTrace: string(daemonTrace)})
 
 	handler := logging.NewSlogHandler(writer).WithSourceLevel(
-		logging.SourceLevel(firstSet(logSource.Value(), os.Getenv("MCPX_LOG_SOURCE"), cfg.Logging.Source)))
+		logging.SourceLevel(firstSet(logSource.Value(), set.String("logging.source"), cfg.Logging.Source)))
 	logger := slog.NewLogLogger(handler, slog.LevelInfo)
 	srv, err := daemon.NewServer(daemon.Options{
+		Sink:     sink,
 		Config:   cfg,
 		Paths:    paths,
 		Version:  a.Version,
 		Logger:   logger,
-		IdleExit: *idleExit,
+		IdleExit: a.Settings().Duration("daemon.idleExit"),
+		Settings: a.Settings(),
 	})
 	if err != nil {
 		return err
 	}
-	blocks := logging.ParseIncludes(firstSet(*include, os.Getenv("MCPX_INCLUDE"), cfg.Logging.Include))
+	// mcpx's own MCP server, on the listeners the daemon already has. Built
+	// here because the daemon cannot import the CLI that builds it, and
+	// mounted rather than given a listener of its own: two HTTP servers with
+	// overlapping /v1 prefixes was one owner too many.
+	if a.Settings().Bool("proto.serveMCP") {
+		mcp := &lazyMCP{app: a}
+		srv.MCP = mcp
+		srv.MCPPath = a.Settings().String("proto.mcpPath")
+		srv.MCPTool = mcp.InvokeTool
+	}
+	srv.Address = a.Settings().String("daemon.address")
+	if h := srv.Address; h != "" && h != "127.0.0.1" && h != "localhost" {
+		// Said once, loudly. The API is unauthenticated, so whoever can
+		// route to this port can run tools as this user, and that should be
+		// a sentence somebody read rather than a surprise.
+		fmt.Fprintf(os.Stderr,
+			"mcpx: listening on %s; the API is unauthenticated, so anything that "+
+				"can reach this port can run tools as you\n", h)
+	}
+	blocks := logging.ParseIncludes(firstSet(*include,
+		strings.Join(set.List("logging.include"), ","), cfg.Logging.Include))
 	// The opening record carries everything about the environment, so later
 	// records can carry only a trace id and still be resolvable.
 	start := logging.Ambient(a.Version, blocks)
@@ -113,14 +216,22 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	logStructured(writer, slog.LevelInfo, "daemon starting", start)
 
 	// Server lifecycle is reported by the pools; give each event the daemon as
-	// its parent so the tree closes.
+	// its parent so the tree closes. An event that already named its own
+	// parent keeps it: a tool call belongs to the instance that served it, and
+	// re-pointing it at the daemon would flatten the chain to two levels.
 	pool.Lifecycle = func(event string, attrs map[string]any) {
 		attrs[logging.KeyEvent] = event
-		attrs[logging.KeyParent] = string(daemonTrace)
+		if p, _ := attrs[logging.KeyParent].(string); p == "" {
+			attrs[logging.KeyParent] = string(daemonTrace)
+		}
 		logStructured(writer, slog.LevelDebug, event, attrs)
+		// The same events reach live subscribers. The log is for what
+		// happened; the stream is for what is happening, and a hook that
+		// has to poll the log to find out has already missed the moment.
+		srv.PublishLifecycle(event, attrs)
 	}
 
-	if err := srv.Listen(*port); err != nil {
+	if err := srv.Listen(a.Settings().Int("daemon.port")); err != nil {
 		return err
 	}
 	defer func() {
@@ -130,10 +241,55 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	if *detached {
 		logger.Printf("started detached")
 	}
-	if *warm {
+	if a.Settings().Bool("daemon.warm") {
 		srv.WarmAsync()
 	}
 	return srv.Serve(ctx)
+}
+
+// CmdMan prints the manual page.
+//
+// Generated rather than written, from the same command table and setting
+// registry the program itself uses. A hand-written man page is wrong within
+// two releases; this one is wrong only if the code is.
+func (a *App) CmdMan(ctx context.Context, args []string) error {
+	fs := newFlagSet("man")
+	install := fs.String("install", "", "write the page into this directory as man1/mcpx.1")
+	if err := parseFlags(a, fs, args); err != nil {
+		return err
+	}
+	page := ManPage(a.Version)
+	if *install == "" {
+		fmt.Print(page)
+		return nil
+	}
+	dir := filepath.Join(*install, "man1")
+	if err := os.MkdirAll(dir, defaults.PublicDirMode); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "mcpx.1")
+	if err := os.WriteFile(path, []byte(page), defaults.PublicMode); err != nil {
+		return err
+	}
+	fmt.Println(path)
+	return nil
+}
+
+// CmdCompletion prints a shell completion script.
+func (a *App) CmdCompletion(_ context.Context, args []string) error {
+	shell := ""
+	if len(args) > 0 {
+		shell = args[0]
+	}
+	if shell == "" {
+		return errors.New("usage: mcpx completion <bash|zsh|fish>")
+	}
+	text, err := Completion(shell)
+	if err != nil {
+		return err
+	}
+	fmt.Print(text)
+	return nil
 }
 
 // CmdConfig prints the resolved configuration.
@@ -142,7 +298,9 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 	showPath := fs.Bool("path", false, "print only the nearest config file path")
 	showSources := fs.Bool("sources", false, "show every file that contributed, and which defined each server")
 	showDefaults := fs.Bool("defaults", false, "print the built-in default layer that underlies every config")
-	if err := fs.Parse(args); err != nil {
+	showSchema := fs.Bool("schema", false, "print every setting, with its flag and variable")
+	withPlumbing := fs.Bool("plumbing", false, "include internal settings in --schema")
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	// The base layer is data, so it can be shown. A default nobody can print
@@ -151,10 +309,27 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 		fmt.Println(strings.TrimRight(string(defaults.BuiltinJSON()), "\n"))
 		return nil
 	}
+	if *showSchema {
+		sch, serr := settings.New(settings.Registry())
+		if serr != nil {
+			return serr
+		}
+		if a.JSON {
+			fmt.Println(sch.JSON(*withPlumbing))
+			return nil
+		}
+		fmt.Print(sch.Describe(*withPlumbing))
+		if !*withPlumbing {
+			fmt.Println("\n(--plumbing also lists internal settings)")
+		}
+		return nil
+	}
 	cfg, err := config.Load(a.ConfigPath)
 	if err != nil {
 		return err
 	}
+	// So that `mcpx config` shows what a daemon would actually use.
+	config.ApplyPoolSettings(cfg, a.Settings())
 	if *showPath {
 		if cfg.Path == "" {
 			return fmt.Errorf("no config file found; searched:\n  %s",
@@ -284,9 +459,91 @@ func joinLines(ss []string) string {
 }
 
 // CmdHelp prints usage.
-func (a *App) CmdHelp(context.Context, []string) error {
-	fmt.Print(usage)
+func (a *App) CmdHelp(_ context.Context, args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Print(usage)
+		return nil
+	}
+	return a.helpFor(args[0])
+}
+
+// helpFor prints one command in detail, plus every setting that applies to
+// it. Both come from the same declarations the program runs on, so help
+// cannot describe a flag that does not exist or omit one that does.
+func (a *App) helpFor(name string) error {
+	var found *Command
+	for _, c := range Commands() {
+		if c.Name == name {
+			found = &c
+			break
+		}
+		for _, alias := range c.Aliases {
+			if alias == name {
+				found = &c
+				break
+			}
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("no command %q; run `mcpx help` for the list", name)
+	}
+	usageLine := found.Usage
+	if usageLine != "" {
+		usageLine = " " + usageLine
+	}
+	fmt.Printf("mcpx %s%s\n\n  %s\n", found.Name, usageLine, found.Summary)
+	if len(found.Aliases) > 0 {
+		fmt.Printf("  also: %s\n", strings.Join(found.Aliases, ", "))
+	}
+	if found.Detail != "" {
+		fmt.Printf("\n%s\n", wrapAt(found.Detail, 76, "  "))
+	}
+	if len(found.Examples) > 0 {
+		fmt.Println("\nEXAMPLES")
+		for _, ex := range found.Examples {
+			fmt.Printf("  %s\n", ex)
+		}
+	}
+	sch, err := settings.New(settings.Registry())
+	if err != nil {
+		return err
+	}
+	applicable := sch.ForCommand(found.Name)
+	var lines []string
+	for _, set := range applicable {
+		if set.Plumbing {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  --%-26s %s", set.FlagName(), set.Short))
+	}
+	if len(lines) > 0 {
+		fmt.Println("\nSETTINGS (also readable from config and the environment)")
+		fmt.Println(strings.Join(lines, "\n"))
+		fmt.Println("\n  mcpx config --schema   shows every setting with its variable")
+	}
 	return nil
+}
+
+// wrapAt is a plain greedy wrap. Help that runs off the side of a terminal is
+// help nobody finishes reading.
+func wrapAt(text string, width int, indent string) string {
+	words := strings.Fields(text)
+	var lines []string
+	line := indent
+	for _, w := range words {
+		if len(line)+len(w)+1 > width && strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+			line = indent
+		}
+		if strings.TrimSpace(line) != "" {
+			line += " "
+		}
+		line += w
+	}
+	if strings.TrimSpace(line) != "" {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 const usage = `mcpx - run TypeScript against your MCP servers from the command line
@@ -307,6 +564,8 @@ RUNNING
   mcpx scripts                   list named scripts mcpx can run
   mcpx call <ns>.<tool> '<json>' one-shot call, no JavaScript runtime involved
   mcpx client -o <path>          write the typed client for a checked-in script
+  mcpx recipes [run <name> k=v]  saved scripts that declare their own parameters
+  mcpx prompt "<what you want>"  match a recipe, or generate a script to review
 
 MANAGEMENT
   mcpx status [-v]               daemon, pools and live instances
@@ -316,7 +575,16 @@ MANAGEMENT
   mcpx daemons                   list every running daemon
   mcpx daemon [--port N]         run the daemon in the foreground
   mcpx config [--path|--sources] show the resolved configuration and where it came from
+  mcpx settings [get|set] ...    every setting, its value, and where that value came from
+  mcpx servers add <n> -- <cmd>  add or remove an MCP server, live
   mcpx init [--global]           write a starter config
+
+DIAGNOSTICS
+  mcpx diagnose <script|source>  explain what a script calls wrongly, and why
+  mcpx log [--since 1h] [-f]     query the durable log
+  mcpx log --chain <trace>       a call and everything that led to it, as a tree
+  mcpx log sql '<select ...>'    raw read-only SQL over the log index
+  mcpx stats [calls|servers|errors|sessions|volume|slowest|instances]
 
 GLOBAL FLAGS
   --config <path>                config file (default: search up from $PWD)

@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
 	"sort"
 	"sync"
@@ -105,6 +106,9 @@ func (l *Lease) Release() {
 
 // Pool owns every instance of a single configured server.
 type Pool struct {
+	// Hooks receive what this pool's servers volunteer.
+	Hooks *Hooks
+
 	cfg *config.Resolved
 
 	mu        sync.Mutex
@@ -118,6 +122,7 @@ type Pool struct {
 	schemaMu     sync.RWMutex
 	tools        []mcpclient.Tool
 	resources    []mcpclient.Resource
+	prompts      []mcpclient.Prompt
 	instructions string
 	schemaAt     time.Time
 	schemaErr    error
@@ -197,9 +202,9 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 			if err != nil {
 				p.failCount++
 				p.lastErr = err
-				backoff := time.Duration(p.failCount) * 2 * time.Second
+				backoff := time.Duration(p.failCount) * defaults.RestartBackoffStep
 				if backoff > 30*time.Second {
-					backoff = 30 * time.Second
+					backoff = defaults.RestartBackoffMax
 				}
 				p.cooldownUntil = time.Now().Add(backoff)
 				p.cond.Broadcast()
@@ -354,6 +359,7 @@ func (p *Pool) reapDeadLocked() {
 func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	sctx, cancel := context.WithTimeout(ctx, p.cfg.StartTimeout)
 	defer cancel()
+	launched := time.Now()
 
 	var (
 		tr  mcpclient.Transport
@@ -377,10 +383,37 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
 	}
 
-	cl, err := mcpclient.New(sctx, tr, "mcpx", Version)
+	// The server-request handler and roots go in before the handshake, not
+	// after it: the handshake is where capabilities are declared, and a
+	// legacy server never asks again. Installed afterwards, sampling could
+	// never be declared and the first roots/list could arrive before any
+	// roots were set.
+	opts := mcpclient.Options{ClientName: "mcpx", ClientVersion: Version, Preference: p.preference()}
+	ref := &instanceRef{p: p}
+	if h := p.Hooks; h != nil {
+		if h.Elicit != nil {
+			opts.OnServerRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+				return h.Elicit(ctx, p.cfg.Name, ref.key(), method, params)
+			}
+		}
+		opts.Roots = h.Roots
+	}
+	cl, err := mcpclient.NewWithOptions(sctx, tr, opts)
 	if err != nil {
 		_ = tr.Close()
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
+	}
+	// Everything the server volunteers flows to whoever installed hooks: log
+	// lines, progress, list changes, resource updates. Installed before the
+	// instance is handed out, so nothing a server says in its first moments
+	// is lost.
+	if h := p.Hooks; h != nil {
+		cl.Subscribe(h.notifications(p.cfg.Name))
+		// Servers send nothing until asked, so a client that never sets a
+		// level concludes a server emits no logs at all.
+		if h.LogLevel != "" {
+			_ = cl.SetLogLevel(sctx, h.LogLevel)
+		}
 	}
 
 	p.mu.Lock()
@@ -392,14 +425,18 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		ID:        id,
 		Client:    cl,
 		transport: tr,
-		trace:     string(newTraceID()),
+		trace:     newTraceID("srv"),
 		startedAt: time.Now(),
 		lastUsed:  time.Now(),
 	}
+	ref.set(in)
 	lifecycle("server.start", map[string]any{
 		"server": p.cfg.Name, "instance": in.ID, "pid": in.PID(),
 		"trace": in.trace, "sharing": string(p.cfg.Sharing), "scope": string(p.cfg.Scope),
 		"transport": transportName(p.cfg),
+		// Time to ready, not time to spawn: the event fires after initialize
+		// has answered, so this is when the server could first take a call.
+		"readyMs": float64(time.Since(launched).Microseconds()) / 1000,
 	})
 	return in, nil
 }
@@ -451,11 +488,22 @@ func (p *Pool) RefreshSchemas(ctx context.Context) ([]mcpclient.Tool, []mcpclien
 	if cl.Supports("resources") {
 		resources, _ = cl.ListResources(ctx)
 	}
+	// Prompts are the part of MCP that is not tools: a server saying "here
+	// is the wording that works for this". A server publishing a good one
+	// has encoded expertise that would otherwise be rediscovered by whoever
+	// writes the request, and returning an empty list -- which is what mcpx
+	// did -- throws that away.
+	var prompts []mcpclient.Prompt
+	if cl.Supports("prompts") {
+		prompts, _ = cl.ListPrompts(ctx)
+	}
 
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Name < resources[j].Name })
+	sort.Slice(prompts, func(i, j int) bool { return prompts[i].Name < prompts[j].Name })
 
 	p.schemaMu.Lock()
+	p.prompts = prompts
 	p.tools, p.resources, p.schemaErr, p.schemaAt = tools, resources, nil, time.Now()
 	p.instructions = cl.Instructions
 	p.schemaMu.Unlock()
@@ -496,6 +544,107 @@ func (p *Pool) CachedSchemas() ([]mcpclient.Tool, []mcpclient.Resource, time.Tim
 	return p.tools, p.resources, p.schemaAt
 }
 
+// Invalidate forgets the cached schema, so the next read fetches it afresh.
+//
+// Called when a server announces its list changed. Keeping the old schema
+// would have mcpx describe tools that no longer exist, or omit ones that
+// now do, until somebody thought to run refresh.
+func (p *Pool) Invalidate() {
+	p.schemaMu.Lock()
+	p.schemaAt = time.Time{}
+	p.schemaMu.Unlock()
+}
+
+// CachedTemplates returns the resource templates last seen.
+//
+// Templates arrive mixed with static resources from ListResources, which
+// appends them; they are separated here by the field only a template has.
+func (p *Pool) CachedTemplates() []mcpclient.Resource {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+	var out []mcpclient.Resource
+	for _, r := range p.resources {
+		if r.URITemplate != "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// CachedPrompts returns the prompts last seen.
+func (p *Pool) CachedPrompts() []mcpclient.Prompt {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+	return p.prompts
+}
+
+// GetPrompt renders one prompt on a leased instance.
+func (p *Pool) GetPrompt(ctx context.Context, sessionKey, name string, args map[string]string) (json.RawMessage, error) {
+	lease, err := p.Acquire(ctx, sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	defer lease.Release()
+	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
+	defer cancel()
+	return lease.Client().GetPrompt(cctx, name, args)
+}
+
+// Hooks receive what servers volunteer.
+//
+// Installed on every instance a pool starts. The daemon supplies one set and
+// fans the results onto its event bus; a pool built for a test supplies none.
+type Hooks struct {
+	OnMessage         func(server string, m mcpclient.ServerMessage)
+	OnProgress        func(server string, p mcpclient.Progress)
+	OnListChanged     func(server, kind string)
+	OnResourceUpdated func(server, uri string)
+	// OnElicitationComplete fires when a url-mode flow finishes.
+	OnElicitationComplete func(server, id string)
+	// Elicit answers server-initiated requests: elicitation and sampling.
+	// key is the scope key of the instance the question arrived on, which is
+	// how a question is attributed to the call that provoked it: one
+	// connection serves one key, so whoever is calling on that key is who
+	// the server is asking.
+	Elicit func(ctx context.Context, server, key, method string, params json.RawMessage) (any, error)
+	Roots  []mcpclient.Root
+	// LogLevel is requested from every server that supports logging.
+	LogLevel string
+}
+
+func (h *Hooks) notifications(server string) mcpclient.Notifications {
+	var n mcpclient.Notifications
+	if h.OnMessage != nil {
+		n.OnMessage = func(m mcpclient.ServerMessage) { h.OnMessage(server, m) }
+	}
+	if h.OnProgress != nil {
+		n.OnProgress = func(p mcpclient.Progress) { h.OnProgress(server, p) }
+	}
+	if h.OnListChanged != nil {
+		n.OnListChanged = func(kind string) { h.OnListChanged(server, kind) }
+	}
+	if h.OnResourceUpdated != nil {
+		n.OnResourceUpdated = func(uri string) { h.OnResourceUpdated(server, uri) }
+	}
+	if h.OnElicitationComplete != nil {
+		n.OnElicitationComplete = func(id string) { h.OnElicitationComplete(server, id) }
+	}
+	return n
+}
+
+// preference is which protocol era to probe first for this server.
+func (p *Pool) preference() mcpclient.Preference {
+	switch p.cfg.Protocol {
+	case "modern":
+		return mcpclient.PreferModern
+	case "force-legacy":
+		return mcpclient.ForceLegacy
+	case "force-modern":
+		return mcpclient.ForceModern
+	}
+	return mcpclient.PreferLegacy
+}
+
 // Call runs a tool on a leased instance.
 func (p *Pool) Call(ctx context.Context, sessionKey, tool string, args any) (json.RawMessage, error) {
 	lease, err := p.Acquire(ctx, sessionKey)
@@ -510,7 +659,24 @@ func (p *Pool) Call(ctx context.Context, sessionKey, tool string, args any) (jso
 
 	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
 	defer cancel()
-	return lease.Client().CallTool(cctx, tool, args)
+	started := time.Now()
+	res, err := lease.Client().CallTool(cctx, tool, args)
+	// Reported from here rather than from the daemon's HTTP handler because
+	// this is the only place that knows which instance served the call. The
+	// handler sees a namespace; the log wants the process, so that a slow call
+	// can be traced back to the server that was started for it.
+	attrs := map[string]any{
+		"server": p.cfg.Name, "tool": tool, "instance": lease.inst.ID,
+		"pid": lease.inst.PID(), "session": sessionKey,
+		"durationMs": float64(time.Since(started).Microseconds()) / 1000,
+		"ok":         err == nil,
+		"trace":      newTraceID("cal"), "trace.parent": lease.inst.trace,
+	}
+	if err != nil {
+		attrs["error"] = err.Error()
+	}
+	lifecycle("mcp.call", attrs)
+	return res, err
 }
 
 // ReadResource reads a resource URI on a leased instance.
@@ -665,14 +831,14 @@ func (p *Pool) Close() {
 	}
 }
 
-// newTraceID mints an instance identifier. Kept here rather than imported so
-// the pool does not depend on the logging package.
-func newTraceID() string {
+// newTraceID mints an identifier. Kept here rather than imported so the pool
+// does not depend on the logging package.
+func newTraceID(prefix string) string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "srv-0000000000000000"
+		return prefix + "-0000000000000000"
 	}
-	return "srv-" + hex.EncodeToString(b[:])
+	return prefix + "-" + hex.EncodeToString(b[:])
 }
 
 func transportName(c *config.Resolved) string {

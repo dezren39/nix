@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"os"
 	"os/exec"
@@ -45,7 +46,7 @@ type StdioOptions struct {
 
 // maxLine bounds a single JSON-RPC frame. MCP servers such as
 // chrome-devtools-mcp emit multi-megabyte DOM snapshots, so this is generous.
-const maxLine = 64 << 20
+var maxLine = int(defaults.StdioMaxLine)
 
 // NewStdio spawns the child process.
 func NewStdio(opts StdioOptions) (*StdioTransport, error) {
@@ -202,7 +203,7 @@ func (t *StdioTransport) Close() error {
 
 	select {
 	case <-t.exited:
-	case <-time.After(3 * time.Second):
+	case <-time.After(defaults.StdioDrainGrace):
 		_ = syscall.Kill(pgid, syscall.SIGKILL)
 		<-waitOrTimeout(t.exited, 2*time.Second)
 	}

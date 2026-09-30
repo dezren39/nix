@@ -12,8 +12,13 @@ import (
 
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/diagnose"
+	"github.com/dezren39/mcpx/internal/elicit"
+	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // Registry holds one pool per configured server plus the schema cache.
@@ -22,6 +27,12 @@ import (
 // it never blocks on a child process and never pays a tools/list round trip.
 // Child processes start on first actual tool call.
 type Registry struct {
+	// Events receives what the registry notices. Nil is permitted, so a
+	// registry built for a test does not need a bus.
+	Events *events.Bus
+	// broker holds questions servers ask back.
+	broker *elicit.Broker
+
 	cfg   *config.Config
 	paths Paths
 	hash  string
@@ -37,8 +48,31 @@ type Registry struct {
 	sessMu sync.Mutex
 	leases map[string]*leaseState
 
+	// asks correlates a question a server asked back to the call that
+	// provoked it. Built up front rather than on first use: a question can
+	// arrive from any pool at any time, and a table created lazily would be
+	// read by that goroutine while another wrote it.
+	asks *askTable
+
 	logf     func(string, ...any)
 	degraded sync.Map
+
+	// consumer is the policy for questions mcpx raises about its own
+	// behaviour, and history is what it knows about schemas that changed.
+	// Both are set by the daemon once settings have been resolved; the zero
+	// values mean "ask nothing, remember nothing", which is what a registry
+	// built for a test should do.
+	consumer ConsumerPolicy
+	history  *diagnose.History
+	// set is the daemon's resolved configuration, so the registry reads a
+	// knob at the moment it needs it rather than from a copy taken at
+	// startup. That is what makes daemon.leaseTTL changeable at runtime.
+	set *settings.Set
+
+	// hooks is what InstallHooks attached, kept so that a pool created by a
+	// later reload gets the same wiring. Without it, a server added at
+	// runtime would be the one server whose events nobody hears.
+	hooks *pool.Hooks
 }
 
 // leaseState remembers which pool keys a caller created, so releasing a
@@ -65,7 +99,11 @@ type cachedEntry struct {
 	FetchedAt    time.Time            `json:"fetchedAt"`
 }
 
-const cacheVersion = 3
+// cacheVersion is bumped whenever a cached entry gains a field. Adding one
+// parses cleanly against an old file and leaves it empty, which presented as
+// the destructive-call policy silently never firing: the annotations were
+// there upstream and absent from the cache nobody had reason to invalidate.
+const cacheVersion = 4
 
 // NewRegistry builds pools from config and seeds them from the disk cache.
 func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*Registry, error) {
@@ -85,6 +123,7 @@ func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*R
 		pools:  make(map[string]*pool.Pool, len(servers)),
 		views:  make(map[string]*config.Resolved, len(servers)),
 		leases: map[string]*leaseState{},
+		asks:   newAskTable(),
 		logf:   logf,
 	}
 	seen := map[string]string{}
@@ -210,7 +249,7 @@ func (r *Registry) SaveCache() error {
 	}
 	path := r.paths.SchemaCachePath(r.hash)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := os.WriteFile(tmp, b, defaults.PrivateMode); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -253,6 +292,10 @@ func (r *Registry) Warm(ctx context.Context, force bool) map[string]error {
 	if err := r.SaveCache(); err != nil {
 		r.logf("save cache: %v", err)
 	}
+	// Schemas have just been read, which is the only moment mcpx can tell
+	// that one of them changed. Recording it here is what lets a diagnostic
+	// say when.
+	r.ObserveCatalog()
 	return errs
 }
 
@@ -545,6 +588,12 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 		return nil, fmt.Errorf("unknown server or namespace %q", server)
 	}
 	key := r.keyFor(p, cc)
+	// Two policies sit between resolving the instance and using it, and both
+	// are off unless somebody turned them on. See internal/daemon/consumer.go.
+	key = r.disambiguate(ctx, p, cc, key)
+	if err := r.confirmDestructive(ctx, p, tool, cc); err != nil {
+		return nil, err
+	}
 	return p.Call(ctx, key, tool, args)
 }
 
@@ -556,6 +605,125 @@ func (r *Registry) ReadResource(ctx context.Context, server, uri string, cc conf
 	}
 	key := r.keyFor(p, cc)
 	return p.ReadResource(ctx, key, uri)
+}
+
+// PromptInfo is one prompt, with the namespace it came from.
+type PromptInfo struct {
+	Namespace   string                     `json:"namespace"`
+	Server      string                     `json:"server"`
+	Name        string                     `json:"name"`
+	Title       string                     `json:"title,omitempty"`
+	Description string                     `json:"description,omitempty"`
+	Arguments   []mcpclient.PromptArgument `json:"arguments,omitempty"`
+}
+
+// ResourceInfo is one resource, with the namespace it came from.
+type ResourceInfo struct {
+	Namespace   string `json:"namespace"`
+	Server      string `json:"server"`
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// Prompts aggregates every prompt across the configured servers.
+func (r *Registry) Prompts(namespaces []string) []PromptInfo {
+	want := map[string]bool{}
+	for _, n := range namespaces {
+		want[n] = true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []PromptInfo
+	for _, name := range r.order {
+		p := r.pools[name]
+		view := r.views[name]
+		if len(want) > 0 && !want[view.Namespace] && !want[name] {
+			continue
+		}
+		for _, pr := range p.CachedPrompts() {
+			out = append(out, PromptInfo{
+				Namespace: view.Namespace, Server: name, Name: pr.Name,
+				Title: pr.Title, Description: pr.Description, Arguments: pr.Arguments,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Namespace != out[j].Namespace {
+			return out[i].Namespace < out[j].Namespace
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// Resources aggregates every resource across the configured servers.
+func (r *Registry) Resources(namespaces []string) []ResourceInfo {
+	want := map[string]bool{}
+	for _, n := range namespaces {
+		want[n] = true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []ResourceInfo
+	for _, name := range r.order {
+		p := r.pools[name]
+		view := r.views[name]
+		if len(want) > 0 && !want[view.Namespace] && !want[name] {
+			continue
+		}
+		_, resources, _ := p.CachedSchemas()
+		for _, res := range resources {
+			out = append(out, ResourceInfo{
+				Namespace: view.Namespace, Server: name, URI: res.URI,
+				Name: res.Name, Description: res.Description, MimeType: res.MimeType,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Namespace != out[j].Namespace {
+			return out[i].Namespace < out[j].Namespace
+		}
+		return out[i].URI < out[j].URI
+	})
+	return out
+}
+
+// ResourceTemplates aggregates templated resources across servers.
+func (r *Registry) ResourceTemplates(namespaces []string) []ResourceInfo {
+	want := map[string]bool{}
+	for _, n := range namespaces {
+		want[n] = true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []ResourceInfo
+	for _, name := range r.order {
+		p := r.pools[name]
+		view := r.views[name]
+		if len(want) > 0 && !want[view.Namespace] && !want[name] {
+			continue
+		}
+		for _, t := range p.CachedTemplates() {
+			out = append(out, ResourceInfo{
+				Namespace: view.Namespace, Server: name, URI: t.URITemplate,
+				Name: t.Name, Description: t.Description, MimeType: t.MimeType,
+			})
+		}
+	}
+	return out
+}
+
+// GetPrompt renders one prompt.
+func (r *Registry) GetPrompt(ctx context.Context, server, name string, args map[string]string, cc config.CallContext) (json.RawMessage, error) {
+	p, ok := r.Pool(server)
+	if !ok {
+		return nil, fmt.Errorf("unknown server or namespace %q", server)
+	}
+	return p.GetPrompt(ctx, r.keyFor(p, cc), name, args)
 }
 
 // keyFor resolves a server's scope and records the association so the caller
@@ -626,7 +794,7 @@ func (r *Registry) Reap() {
 	var stale []string
 	r.sessMu.Lock()
 	for k, s := range r.leases {
-		if now.Sub(s.lastSeen) > 30*time.Minute {
+		if now.Sub(s.lastSeen) > r.leaseTTL() {
 			stale = append(stale, k)
 		}
 	}
@@ -693,6 +861,19 @@ func (r *Registry) Restart(name string) (int, error) {
 		return 0, fmt.Errorf("unknown server or namespace %q", name)
 	}
 	return p.Restart(), nil
+}
+
+// UseSettings gives the registry the daemon's resolved configuration.
+//
+// Separate from NewRegistry for the same reason InstallHooks is: a registry
+// built for a test should work without one.
+func (r *Registry) UseSettings(set *settings.Set) { r.set = set }
+
+func (r *Registry) leaseTTL() time.Duration {
+	if r.set == nil {
+		return defaults.LeaseTTL
+	}
+	return r.set.Duration("daemon.leaseTTL")
 }
 
 // Close shuts every pool down. The caller is responsible for persisting the

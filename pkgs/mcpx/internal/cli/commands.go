@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/settings"
 	"io"
 	"log/slog"
 	"os"
@@ -15,10 +17,14 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/artifacts"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/preflight"
 	"github.com/dezren39/mcpx/internal/runner"
+	"github.com/dezren39/mcpx/internal/source"
 )
 
 // App carries state shared by every subcommand.
@@ -29,6 +35,20 @@ type App struct {
 	Profile    Profile
 	Paths      daemon.Paths
 	client     *Client
+	// machineOutput suppresses progress notices when the caller has asked
+	// for a shape something else will parse.
+	machineOutput bool
+	// inlineStop shuts down an in-process daemon when the command ends.
+	inlineStop func()
+	// connected records that the ladder has been walked for this command.
+	connected bool
+	// ladder is how the connection was made, for doctor and --json output.
+	ladder *Ladder
+	// stdoutOverride collects a script's output instead of printing it.
+	// Used by the MCP server, which must return what a script produced
+	// rather than write it to a stream the host is parsing as protocol.
+	stdoutOverride interface{ Write([]byte) (int, error) }
+	settingsState
 }
 
 // Client returns the lazily-built daemon client, keyed to the config this
@@ -40,16 +60,33 @@ func (a *App) Client() *Client {
 		if cfgPath == "" && cfg != nil {
 			cfgPath = cfg.Path
 		}
-		a.client = NewClient(paths, cfgPath)
+		// A configured endpoint points at a daemon this process did not
+		// start and must not try to. That is the whole point: one daemon on
+		// a network, many machines using it.
+		a.client = NewClientAt(paths, cfgPath, a.Settings().String("daemon.endpoint"))
 	}
 	return a.client
 }
 
+// ensure returns a client connected to a daemon, walking the connection
+// ladder: an existing socket, a named endpoint, a spawned daemon, and --
+// only when explicitly allowed -- an in-process one.
+//
+// The result is cached for the life of the command, so a command that makes
+// ten requests walks the ladder once.
 func (a *App) ensure(ctx context.Context) (*Client, error) {
-	c := a.Client()
-	if err := c.EnsureDaemon(ctx); err != nil {
+	if a.client != nil && a.connected {
+		return a.client, nil
+	}
+	c, ladder, err := a.Connect(ctx, ConnectOptions{
+		Endpoint:    a.Settings().String("daemon.endpoint"),
+		AllowSpawn:  a.Settings().Bool("daemon.autostart"),
+		AllowInline: a.Settings().Bool("daemon.inline"),
+	})
+	if err != nil {
 		return nil, err
 	}
+	a.client, a.connected, a.ladder = c, true, ladder
 	return c, nil
 }
 
@@ -69,7 +106,7 @@ func (a *App) out(v any) error {
 func (a *App) CmdLs(ctx context.Context, args []string) error {
 	fs := newFlagSet("ls")
 	verbose := fs.Bool("v", false, "include per-instance detail")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -129,7 +166,7 @@ func (a *App) CmdTypes(ctx context.Context, args []string) error {
 	fs := newFlagSet("types")
 	noInstr := fs.Bool("no-instructions", false,
 		"omit the server's own guidance, which can be long")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -144,7 +181,11 @@ func (a *App) CmdTypes(ctx context.Context, args []string) error {
 	if err := a.ensureSchemas(ctx, c, ns); err != nil {
 		return err
 	}
-	text, err := c.Types(ctx, ns, !*noInstr, a.Profile)
+	// --no-instructions is the short spelling of the same choice; the
+	// setting carries it from a config file, MCPX_CATALOG_INSTRUCTIONS or
+	// --catalog-instructions, none of which reached this call before.
+	wantInstr := a.Settings().Bool("catalog.instructions") && !*noInstr
+	text, err := c.Types(ctx, ns, wantInstr, a.Profile)
 	if err != nil {
 		return err
 	}
@@ -194,14 +235,52 @@ func (a *App) ensureSchemas(ctx context.Context, c *Client, selectors []string) 
 	return err
 }
 
+// resolveLauncher turns the flag's value into launcher source.
+//
+// The value is whatever the user gave: a path, inline source, or the bare
+// word that means no launcher at all. Resolution goes through the same
+// probe every other source-shaped setting uses, so a launcher kept in a file
+// needs no special syntax.
+func (a *App) resolveLauncher(v string) (text, name string, err error) {
+	if strings.TrimSpace(v) == runner.LauncherNone {
+		return runner.LauncherNone, "none", nil
+	}
+	dir := mustGetwd()
+	r, rerr := source.Resolve(v, plumbingSourceOptions(dir, nil))
+	if rerr != nil {
+		return "", "", rerr
+	}
+	switch r.Kind {
+	case source.KindNone:
+		return "", "", nil
+	case source.KindFile:
+		return r.Text, r.Files[0], nil
+	default:
+		return r.Text, "--launcher", nil
+	}
+}
+
 // notice reports progress on stderr, unless the caller asked for JSON. A
 // machine-readable run should produce one document and nothing else, even on
 // the stream a human would have read.
+// notice reports progress on stderr.
+//
+// Silent whenever the caller has chosen a machine-readable shape. --json, and
+// every log format other than the default text one, mean somebody is parsing
+// this; a friendly line about warming a cache is noise at best and a parse
+// error at worst. It was both, in a test that read bare output and got a
+// sentence.
 func (a *App) notice(msg string) {
-	if a.JSON {
+	if a.JSON || a.machineOutput {
 		return
 	}
 	fmt.Fprintln(os.Stderr, "mcpx: "+msg)
+}
+
+// setOutputFormat records the rendering the caller asked for, so that
+// progress notices can stay out of the way of anything parsing the output.
+func (a *App) setOutputFormat(f logging.Format) {
+	a.machineOutput = f != logging.FormatText
 }
 
 // ---- search ----
@@ -209,9 +288,16 @@ func (a *App) notice(msg string) {
 // CmdSearch ranks tools across every namespace.
 func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	fs := newFlagSet("search")
-	limit := fs.Int("n", 20, "max results")
-	if err := fs.Parse(args); err != nil {
+	// -n, --limit and --search-limit are one setting, declared once. The
+	// value is sent only when somebody actually chose it: a client's
+	// inherited default must not override what the daemon is configured
+	// with, or every command would quietly impose its own.
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	limit := 0
+	if v, ok := a.Settings().Value("search.limit"); ok && v.Origin.Layer != settings.LayerDefault {
+		limit = a.Settings().Int("search.limit")
 	}
 	if fs.NArg() == 0 {
 		return errors.New("usage: mcpx search <query>")
@@ -220,7 +306,15 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), *limit)
+	// Search reads the schema cache, so it has to make sure there is one.
+	// Every other discovery command did this; search did not, and on a cold
+	// cache it answered "no matching tools" -- which is indistinguishable
+	// from the tool genuinely not existing, and sends the reader looking in
+	// the wrong place.
+	if err := a.ensureAnySchemas(ctx, c); err != nil {
+		return err
+	}
+	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit)
 	if err != nil {
 		return err
 	}
@@ -249,7 +343,7 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	fs := newFlagSet("call")
 	session := fs.String("session", "", "session key for stateful servers")
 	raw := fs.Bool("raw", false, "print the full MCP envelope")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -359,13 +453,36 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	fs.Var(onSuccess, "on-success", "line to run when the entry point returns; repeatable")
 	onError := newRepeatable()
 	fs.Var(onError, "on-error", "line to run when it throws; repeatable")
+	// --launcher always takes a value. An optional-value flag would be
+	// tidier to type, but Go's parser only makes that work by treating the
+	// flag as boolean, and then `--launcher mine.ts` silently reads mine.ts
+	// as the script and runs the wrong file with no launcher at all. A
+	// separate --no-launcher costs one flag and removes the trap.
+	launcherFlag := fs.String("launcher", "",
+		"replace the generated launcher with this source or file")
+	noLauncher := fs.Bool("no-launcher", false,
+		"run the script with no launcher: no globals, no capture, no wrapper")
+	typecheck := fs.String("typecheck", "",
+		"check the program before running it: off, on, strict")
+
+	allowRepeat := newRepeatable()
+	fs.Var(allowRepeat, "allow-repeat",
+		"launcher placeholder permitted to resolve more than once; repeatable")
 	envVars := newRepeatable()
 	fs.Var(envVars, "env", "set an environment variable for the script, KEY=VALUE; repeatable")
 	noConsole := fs.Bool("no-capture-console", false,
 		"leave console.* alone instead of mirroring it into the record stream")
 	perms := fs.String("permissions", "",
 		"deno sandbox: all (default), net, read, read-net, strict, or explicit flags")
-	if err := fs.Parse(args); err != nil {
+	// --remote and --local are the readable spellings of exec.where. The
+	// setting is an enum because there is a third value -- auto -- and an
+	// enum with three values is not two booleans.
+	remote := fs.Bool("remote", false, "run the script on the daemon rather than here")
+	local := fs.Bool("local", false, "run the script in this process (the default when the daemon is local)")
+	// parseFlags binds everything the registry declares for this command that
+	// the hand-written flags above have not already claimed, then folds what
+	// was given into the resolved settings.
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() == 0 {
@@ -373,6 +490,17 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			return errors.New("usage: mcpx exec '<typescript>'")
 		}
 		return errors.New("usage: mcpx run <script.ts> [args...]")
+	}
+
+	// Resolved before anything can print. A progress notice is suppressed
+	// for a machine-readable format, and the first thing that emits one is
+	// the schema fetch below -- so deciding the format afterwards meant the
+	// suppression never applied on a cold cache. The failure appeared only
+	// when the cache happened to be cold, which is the worst kind of
+	// ordering bug: correct on every run that had already been run.
+	if f, ferr := logging.ParseFormat(firstNonEmpty(*format,
+		a.Settings().String("logging.format"))); ferr == nil {
+		a.setOutputFormat(f)
 	}
 
 	c, err := a.ensure(ctx)
@@ -389,6 +517,23 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return err
 	}
 
+	eo := a.resolveExecOptions()
+	if *remote && *local {
+		return errors.New("--remote and --local contradict each other")
+	}
+	if *remote {
+		eo.Where = "remote"
+	} else if *local {
+		eo.Where = "local"
+	}
+	elsewhere, werr := a.runsRemotely(c, eo.Where)
+	if werr != nil {
+		return werr
+	}
+	// One identifier for this execution, used by the artifact index to group
+	// what the script produced and by a stream consumer to name the run.
+	runID := execsvc.NewRunID()
+
 	sessionKey := *session
 	hostSession := os.Getenv("MCPX_SESSION_ID")
 	// Ephemeral unless the caller named a session or the host assigned one.
@@ -402,10 +547,17 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// Free any pinned instances (browsers) as soon as the script ends, rather
 	// than leaving them parked until the idle timer fires.
 	defer func() {
-		rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		rctx, cancel := context.WithTimeout(context.Background(),
+			a.Settings().Duration("session.releaseTimeout"))
 		defer cancel()
 		_ = c.ReleaseCaller(rctx, sessionKey)
 	}()
+
+	if elsewhere {
+		return a.execOnDaemon(ctx, c, fs, inline, ns, sessionKey, eo,
+			execRemoteFlags{timeout: *timeout, runtime: *rt, permissions: *perms,
+				export: *export, session: sessionKey})
+	}
 
 	// The session is deliberately not baked into the generated module: several
 	// concurrent runs share one client file, and each must keep its own
@@ -434,22 +586,30 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		runtimePref = cfg.Runtime
 	}
 
-	// Flag, then environment, then config: the config states the habit and the
-	// flag states the exception.
+	// Read from the resolved settings, which already folded the flag, the
+	// environment and every config file in the right order. The chain that
+	// used to be spelled out here did the same thing for three of the values
+	// and a slightly different thing for the fourth, which is the drift the
+	// registry exists to remove.
+	//
+	// The short flag spellings still win where they were given, because
+	// parseFlags folded them into the same set.
 	var cfgLog config.LoggingConfig
 	if cfg != nil {
 		cfgLog = cfg.Logging
 	}
-	logFormat, ferr := logging.ParseFormat(firstNonEmpty(*format, os.Getenv("MCPX_FORMAT"), cfgLog.Format))
+	set := a.Settings()
+	logFormat, ferr := logging.ParseFormat(firstNonEmpty(*format, set.String("logging.format"), cfgLog.Format))
 	if ferr != nil {
 		return ferr
 	}
-	minLevel, lerr := logging.ParseLevel(firstNonEmpty(*level, os.Getenv("MCPX_LOG_LEVEL"), cfgLog.Level))
+	a.setOutputFormat(logFormat)
+	minLevel, lerr := logging.ParseLevel(firstNonEmpty(*level, set.String("logging.level"), cfgLog.Level))
 	if lerr != nil {
 		return lerr
 	}
 	sourceLevel := logging.SourceLevel(
-		firstNonEmpty(logSource.Value(), os.Getenv("MCPX_LOG_SOURCE"), cfgLog.Source))
+		firstNonEmpty(logSource.Value(), set.String("logging.source"), cfgLog.Source))
 	// With --json the envelope carries the records, so nothing is rendered to
 	// stderr; a reader wants one parseable document, not two streams.
 	logSink := io.Writer(os.Stderr)
@@ -462,9 +622,9 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	writer := logging.NewWriter(logSink, logFormat, minLevel)
 	// Script records go to the same durable log the daemon writes, so a run's
 	// output is recoverable afterwards even when the terminal showed little.
-	if dir := firstNonEmpty(cfgLog.Dir, os.Getenv("MCPX_LOG_DIR"),
-		filepath.Join(a.Paths.State, "logs")); dir != "" {
-		if sink, serr := logging.NewFileSink(logging.FileOptions{Dir: dir}); serr == nil {
+	if dir := firstNonEmpty(set.String("logging.dir"), cfgLog.Dir,
+		filepath.Join(a.Paths.State, "logs")); dir != "" && set.Bool("logging.file") {
+		if sink, serr := logging.NewFileSink(fileOptions(set, dir)); serr == nil {
 			writer = writer.WithFile(sink, slog.LevelDebug)
 			defer sink.Close()
 		}
@@ -475,7 +635,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// preserving order.
 	var streamed []logging.Streamed
 	onResult := func(v logging.Streamed) { streamed = append(streamed, v) }
-	if !a.JSON {
+	// Only the text shape writes streamed values straight to stdout. The
+	// other two carry them as fields -- in the document, or in an emit frame
+	// -- and printing them here as well would put a bare JSON line in the
+	// middle of a document a caller is parsing.
+	if !a.JSON && eo.Output == execsvc.OutputText {
 		stdout := io.Writer(os.Stdout)
 		onResult = func(v logging.Streamed) {
 			fmt.Fprintln(stdout, string(v.Value))
@@ -483,6 +647,9 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	}
 
 	opts := runner.Options{
+		// Set when something other than a terminal is collecting the output:
+		// the MCP server, which has to return it rather than print it.
+		Stdout:         a.stdoutOverride,
 		ClientSource:   clientSrc,
 		GlobalsSource:  globalsSrc,
 		CaptureConsole: !*noConsole,
@@ -494,13 +661,25 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		Log:            writer,
 		CollectLogs:    collect,
 		OnResult:       onResult,
-		Enrich: map[string]any{
+		// Harness-supplied identifiers ride along on every record, so a log
+		// can be filtered by session or worktree without the script having
+		// been told any of it.
+		Enrich: enrichWith(map[string]any{
 			"session": sessionKey,
 			"cwd":     mustGetwd(),
-		},
+		}, logging.HarnessIDs()),
 		Env: map[string]string{
-			"MCPX_SESSION":    sessionKey,
-			"MCPX_ENDPOINT":   endpoint,
+			"MCPX_SESSION": sessionKey,
+			"MCPX_RUN":     runID,
+			// Whether artifact({path}) may hand the daemon a path instead of
+			// bytes. A socket is the evidence that the daemon shares this
+			// filesystem; a remote endpoint has none.
+			"MCPX_ARTIFACTS_LOCAL": boolFlag(c.Socket() != ""),
+			"MCPX_ENDPOINT":        endpoint,
+			// The socket as well as the port, so a script can use whichever
+			// is faster. Empty when the daemon is remote: a socket on another
+			// machine is not reachable from here.
+			"MCPX_SOCKET":     c.Socket(),
 			"MCPX_LOG_SOURCE": logging.SourceSpec(sourceLevel),
 			"MCPX_LOG_LEVEL":  logging.LevelName(minLevel),
 			// Path facts travel through the environment so that a module three
@@ -517,9 +696,93 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			"MCPX_CONFIG_PATH":       configPathOf(cfg),
 		},
 	}
-	prefixLines := cfgScriptLines(cfg, prefix.Values(), true)
-	suffixLines := cfgScriptLines(cfg, suffix.Values(), false)
+	// Everything knowable is checked before any server starts. A bad --env
+	// pair or an unreadable hook is cheap to find now and expensive to find
+	// as a syntax error in generated code.
+	var envPairs []string
+	for _, e := range envVars.Values() {
+		if str, ok := e.(string); ok {
+			envPairs = append(envPairs, str)
+		}
+	}
+	// script.env is the same list from a config file, MCPX_SCRIPT_ENV or
+	// --script-env. --env is a hand-written alias that Bind skips, so before
+	// this the other three spellings were accepted and had no effect.
+	envPairs = append(envPairs, a.Settings().List("script.env")...)
+	pre := preflight.Merge(preflight.CheckEnvPairs(envPairs, "--env"))
+	// plumbing.validatePaths is the switch this block exists behind. It read
+	// MCPX_LOGGING_DIR by name, so the same directory given in a config file
+	// or as --log-dir went unchecked; the resolved value is the one that will
+	// actually be written to.
+	if a.Settings().Bool("plumbing.validatePaths") {
+		if logDir := a.Settings().String("logging.dir"); logDir != "" {
+			pre = preflight.Merge(pre, preflight.CheckPaths([]preflight.PathCheck{
+				{Path: logDir, Where: "logging.dir", WantDir: true, Writable: true},
+			}))
+		}
+	}
+	if err := pre.Err(); err != nil {
+		return err
+	}
+	for _, w := range pre.Warnings() {
+		fmt.Fprintln(os.Stderr, "mcpx:", w.String())
+	}
 
+	// Each phase takes its command-line values and then whatever the
+	// registry resolved from a variable or the generated --script-<phase>
+	// flag. Only those two layers: the configuration file reaches these
+	// through cfg.ScriptPhase below, and counting it twice would run the
+	// line twice. Before this, --script-prefix and MCPX_SCRIPT_PREFIX were
+	// accepted, recorded and dropped.
+	prefixLines := cfgScriptLines(cfg, a.phaseValues("script.prefix", prefix), true)
+	suffixLines := cfgScriptLines(cfg, a.phaseValues("script.suffix", suffix), false)
+
+	// Both paths, not only the file one. This lived in the `else` branch, so
+	// `mcpx exec --typecheck=on` accepted the flag and ignored it -- on the
+	// command an agent reaches for most.
+	//
+	// Read from the resolved set, so the value is whichever layer won: the
+	// short --typecheck spelling, the generated --script-typecheck, a
+	// variable, or the config file. Reading the flag variable directly would
+	// silently ignore the other three.
+	opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
+	// Both paths. These were set only for a file, so `mcpx exec --launcher`,
+	// --no-launcher, --export and --allow-repeat were accepted and dropped:
+	// the flags existed, the help described them, and nothing read them.
+	//
+	// Phases stay where they are, because there the difference is real: a
+	// snippet splices them into its own scope so they can declare bindings
+	// it uses, while a file gets them wrapped around its import.
+	if *noLauncher && *launcherFlag != "" {
+		return errors.New("--launcher and --no-launcher contradict each other; " +
+			"--no-launcher means there is nothing to replace")
+	}
+	// --launcher is the short spelling; script.launcher carries the same
+	// choice from a config file, MCPX_SCRIPT_LAUNCHER or --script-launcher,
+	// all three of which were previously parsed and ignored. The bare form of
+	// the generated flag resolves to "none", which resolveLauncher
+	// understands, so --no-launcher and --script-launcher mean the same thing.
+	launcherWanted := firstNonEmpty(*launcherFlag, a.Settings().String("script.launcher"))
+	if *noLauncher {
+		opts.Launcher, opts.LauncherName = runner.LauncherNone, "none"
+	} else if launcherWanted != "" {
+		text, name, lerr := a.resolveLauncher(launcherWanted)
+		if lerr != nil {
+			return lerr
+		}
+		opts.Launcher, opts.LauncherName = text, name
+	}
+	opts.PlaceholderFiles = PlaceholderFiles()
+	for _, r := range allowRepeat.Values() {
+		if str, ok := r.(string); ok {
+			opts.AllowRepeat = append(opts.AllowRepeat, str)
+		}
+	}
+	// The plumbing setting is the durable form of --allow-repeat: a launcher
+	// template kept in a config file wants its repeats declared beside it,
+	// not retyped on every command line.
+	opts.AllowRepeat = append(opts.AllowRepeat,
+		a.Settings().List("plumbing.launcherPlaceholderRepeat")...)
 	if inline {
 		// A snippet is generated wholesale, so prefix lines share its scope
 		// and can declare bindings the snippet uses.
@@ -540,10 +803,10 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// They can act -- set globals, log, time, clean up -- but cannot
 		// declare bindings the script will see.
 		opts.Phases = runner.Phases{
-			Before:    cfg.ScriptPhase("before", before.Values()),
+			Before:    cfg.ScriptPhase("before", a.phaseValues("script.before", before)),
 			Prefix:    prefixLines,
-			OnSuccess: cfg.ScriptPhase("onSuccess", onSuccess.Values()),
-			OnError:   cfg.ScriptPhase("onError", onError.Values()),
+			OnSuccess: cfg.ScriptPhase("onSuccess", a.phaseValues("script.onSuccess", onSuccess)),
+			OnError:   cfg.ScriptPhase("onError", a.phaseValues("script.onError", onError)),
 			Suffix:    suffixLines,
 		}
 		file, rerr := resolveScript(fs.Arg(0))
@@ -553,11 +816,23 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		opts.File = file
 		opts.Args = fs.Args()[1:]
 	}
-	for _, raw := range envVars.Values() {
-		kv, ok := raw.(string)
-		if !ok {
-			continue
-		}
+
+	// Deterministic diagnostics, before anything starts. What this catches is
+	// a tool whose schema moved under a script that used to work; left to the
+	// runtime it surfaces as an error from the server, halfway through, after
+	// the side effects of every call before it.
+	diagSource := opts.Source
+	if diagSource == "" {
+		diagSource = sourceOfScript(opts.File)
+	}
+	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
+		return derr
+	}
+	// envPairs is the same list the preflight above checked: --env, plus
+	// whatever script.env resolved to from a file, MCPX_SCRIPT_ENV or
+	// --script-env. Iterating envVars here instead was how the three other
+	// spellings were validated and then dropped.
+	for _, kv := range envPairs {
 		k, v, found := strings.Cut(kv, "=")
 		if !found {
 			return fmt.Errorf("--env expects KEY=VALUE, got %q", kv)
@@ -572,6 +847,35 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		}
 		opts.WorkDir = dir
 		fmt.Fprintf(os.Stderr, "mcpx: workdir %s\n", dir)
+	} else {
+		// One directory per distinct catalogue, named for the hash of the
+		// generated client. A single shared directory -- which is what this
+		// was, and what the daemon used -- let two projects overwrite each
+		// other's client: 7 of 12 concurrent cross-project runs failed,
+		// each type-checked against the other's catalogue.
+		opts.WorkRoot = filepath.Join(a.Paths.Cache, "exec")
+	}
+
+	// The artifact store is the daemon's, opened from this side. When the
+	// daemon is on this machine that is the same SQLite index and the same
+	// blobs, so a file the script registered can be hardlinked into an
+	// output directory rather than fetched back over a socket.
+	var store *artifacts.Store
+	if st, serr := a.localStore(); serr == nil {
+		store = st
+		defer store.Close()
+	} else if eo.ArtifactsDir != "" {
+		// Only worth failing for when the caller actually asked for files.
+		return serr
+	}
+	svc := a.localService(store, c.Socket())
+	wire := execsvc.Options{
+		Session:   sessionKey,
+		Output:    eo.Output,
+		Artifacts: eo.artifactOptions(mustGetwd()),
+	}
+	if wire.Artifacts != nil {
+		wire.Capabilities = []string{execsvc.CapabilityArtifacts}
 	}
 
 	if a.JSON {
@@ -581,13 +885,16 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		var out, errOut strings.Builder
 		opts.Stdout = &out
 		opts.Stderr = &errOut
-		res, err := runner.Run(ctx, opts)
+		res, err := svc.RunWith(ctx, opts, wire, nil)
 		if err != nil {
 			return err
 		}
 		env := runEnvelope(res, out.String(), collected, streamed)
 		if s := errOut.String(); s != "" {
 			env["stderr"] = s
+		}
+		if len(res.Artifacts) > 0 {
+			env["artifacts"] = res.Artifacts
 		}
 		if err := a.out(env); err != nil {
 			return err
@@ -598,9 +905,39 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return nil
 	}
 
-	res, err := runner.Run(ctx, opts)
+	// A caller asking for frames wants them on stdout as they happen, and
+	// nothing else on stdout: the script's own output is carried inside a
+	// stdout frame rather than written beside them.
+	var sink execsvc.Sink
+	switch eo.Output {
+	case execsvc.OutputStream:
+		var raw strings.Builder
+		opts.Stdout = &raw
+		enc := json.NewEncoder(os.Stdout)
+		sink = func(f execsvc.Frame) error { return enc.Encode(f) }
+	case execsvc.OutputStructured:
+		var raw strings.Builder
+		opts.Stdout = &raw
+	default:
+		// Text: the script's stdout is the answer and goes straight to the
+		// terminal as it is produced. The service still collects a copy, but
+		// it must not become the only destination -- a long run that printed
+		// as it went would print nothing until it ended.
+		if opts.Stdout == nil {
+			opts.Stdout = os.Stdout
+		}
+	}
+
+	res, err := svc.RunWith(ctx, opts, wire, sink)
 	if err != nil {
 		return err
+	}
+	if eo.Output == execsvc.OutputStructured {
+		if err := a.out(res); err != nil {
+			return err
+		}
+	} else if eo.Output != execsvc.OutputStream {
+		a.reportArtifacts(res)
 	}
 	if res.ExitCode != 0 {
 		os.Exit(res.ExitCode)
@@ -611,11 +948,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 // runEnvelope is the machine-readable form of a script run: one document
 // carrying everything a caller would otherwise have to scrape from two
 // streams and an exit status.
-func runEnvelope(res *runner.Result, stdout string, logs []logging.Record, streamed []logging.Streamed) map[string]any {
+func runEnvelope(res *execsvc.Result, stdout string, logs []logging.Record, streamed []logging.Streamed) map[string]any {
 	env := map[string]any{
 		"ok":         res.ExitCode == 0 && !res.TimedOut,
 		"exitCode":   res.ExitCode,
-		"durationMs": res.Duration.Milliseconds(),
+		"durationMs": res.DurationMs,
 		"runtime":    res.Runtime,
 		"stdout":     stdout,
 	}
@@ -658,6 +995,19 @@ func runEnvelope(res *runner.Result, stdout string, logs []logging.Record, strea
 		env["logs"] = items
 	}
 	return env
+}
+
+// enrichWith folds harness identifiers in without letting them overwrite what
+// mcpx itself established. A caller can add context; it cannot rewrite which
+// session a call was actually leased for.
+func enrichWith(base, extra map[string]any) map[string]any {
+	for k, v := range extra {
+		if _, taken := base[k]; taken {
+			continue
+		}
+		base[k] = v
+	}
+	return base
 }
 
 func firstNonEmpty(v ...string) string {
@@ -708,26 +1058,10 @@ func (a *App) buildPrelude(ctx context.Context, c *Client, ns []string, captureC
 		names = append(names, n.Namespace)
 	}
 	sort.Strings(names)
-
-	var b strings.Builder
-	b.WriteString("// --- mcpx prelude (generated) ---\n")
-	fmt.Fprintf(&b, "import tools, { call, readResource, log, emit, ToolError, installGlobals, captureConsole } from %q;\n",
-		"./"+runner.ClientFileName)
-	// A snippet gets the same surface a file script does, so behaviour does
-	// not depend on which way the code was supplied.
-	b.WriteString("installGlobals();\n")
-	if captureConsole {
-		b.WriteString("captureConsole();\n")
-	}
-	if len(names) > 0 {
-		fmt.Fprintf(&b, "const { %s } = tools;\n", strings.Join(names, ", "))
-	}
-	b.WriteString("void [tools, call, readResource, log, emit, ToolError")
-	for _, n := range names {
-		b.WriteString(", " + n)
-	}
-	b.WriteString("];\n// --- end prelude ---\n\n")
-	return b.String(), nil
+	// Built by the shared service, not here. Two preludes would mean a
+	// snippet that compiles when a person runs it and not when the daemon
+	// does, which is the exact class of difference this whole change removes.
+	return execsvc.Prelude(names, captureConsole), nil
 }
 
 // ---- client (write the module for hand-written scripts) ----
@@ -738,7 +1072,7 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 	fs := newFlagSet("client")
 	outPath := fs.String("o", "", "write to this path (default: stdout)")
 	nsFlag := fs.String("ns", "", "restrict to these namespaces")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -757,10 +1091,10 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 		fmt.Print(src)
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(*outPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*outPath), defaults.PublicDirMode); err != nil {
 		return err
 	}
-	if err := os.WriteFile(*outPath, []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(*outPath, []byte(src), defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s\n", *outPath)
@@ -772,7 +1106,7 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 // CmdStatus prints daemon and pool state.
 func (a *App) CmdStatus(ctx context.Context, args []string) error {
 	fs := newFlagSet("status")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c := a.Client()
@@ -788,6 +1122,10 @@ func (a *App) CmdStatus(ctx context.Context, args []string) error {
 		return err
 	}
 	if a.JSON {
+		// Present both ways. It used to appear only as false, so a reader
+		// testing `running` concluded a live daemon was down -- the opencode
+		// plugin did exactly that.
+		st["running"] = true
 		return a.out(st)
 	}
 	fmt.Printf("daemon:   running (pid %v, up %v)\n", st["pid"], st["uptime"])
@@ -879,7 +1217,7 @@ func (a *App) CmdRefresh(ctx context.Context, args []string) error {
 // CmdRestart stops running instances so the next call starts fresh ones.
 func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	fs := newFlagSet("restart")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -906,7 +1244,7 @@ func (a *App) CmdRestart(ctx context.Context, args []string) error {
 func (a *App) CmdStop(ctx context.Context, args []string) error {
 	fs := newFlagSet("stop")
 	all := fs.Bool("all", false, "stop every mcpx daemon, not just this config's")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	if *all {
@@ -969,7 +1307,7 @@ func waitUntilStopped(ctx context.Context, c *Client) error {
 		if !c.Ping(ctx) {
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(defaults.DaemonRestartSettle)
 	}
 	return errors.New("daemon did not stop")
 }
@@ -1016,7 +1354,7 @@ func (a *App) CmdInit(ctx context.Context, args []string) error {
 	fs := newFlagSet("init")
 	force := fs.Bool("force", false, "overwrite an existing config")
 	global := fs.Bool("global", false, "write to the user config instead of ./.mcpx.json")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	path := ".mcpx.json"
@@ -1027,10 +1365,10 @@ func (a *App) CmdInit(ctx context.Context, args []string) error {
 	if _, err := os.Stat(path); err == nil && !*force {
 		return fmt.Errorf("%s already exists (use --force)", path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
+	if err := os.MkdirAll(filepath.Dir(path), defaults.PublicDirMode); err != nil && filepath.Dir(path) != "." {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(starterConfig), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(starterConfig), defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Printf("wrote %s\n", path)
@@ -1104,7 +1442,7 @@ func oneLine(s string) string {
 // CmdScripts lists the named scripts mcpx can run.
 func (a *App) CmdScripts(ctx context.Context, args []string) error {
 	fs := newFlagSet("scripts")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	entries, err := discoverScripts()
@@ -1184,10 +1522,10 @@ func boolFlag(b bool) string {
 // CmdCatalog prints every namespace with as many signatures as fit a budget.
 func (a *App) CmdCatalog(ctx context.Context, args []string) error {
 	fs := newFlagSet("catalog")
-	budget := fs.Int("budget", 0, "approximate token ceiling (default 2000)")
+	budget := fs.Int("budget", 0, fmt.Sprintf("approximate token ceiling (default %d)", defaults.CatalogBudget))
 	bias := fs.String("bias", "", "promote tools matching these words")
 	nsFlag := fs.String("ns", "", "restrict to these namespaces")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
 	c, err := a.ensure(ctx)
@@ -1200,6 +1538,15 @@ func (a *App) CmdCatalog(ctx context.Context, args []string) error {
 	ns := splitAll(strings.Split(*nsFlag, ","))
 	if *bias == "" && fs.NArg() > 0 {
 		*bias = strings.Join(fs.Args(), " ")
+	}
+	// Fall back to the resolved settings, so catalog.budget and catalog.bias
+	// work from a config file and the environment and not only from the two
+	// short flags.
+	if *budget == 0 {
+		*budget = a.Settings().Int("catalog.budget")
+	}
+	if *bias == "" {
+		*bias = strings.Join(a.Settings().List("catalog.bias"), " ")
 	}
 	text, err := c.Catalog(ctx, ns, *budget, *bias, a.Profile)
 	if err != nil {
@@ -1216,6 +1563,22 @@ func cfgPerms(c *config.Config) string {
 	return c.Permissions
 }
 
+// phaseValues is a phase's command-line values plus whatever the registry
+// resolved for it above the configuration file.
+//
+// The split is deliberate and narrow: cfg.ScriptPhase folds the file layers
+// itself, with an inheritance marker the registry does not model, so the
+// file's lines would run twice if they were taken from both. What the file
+// reader cannot see -- MCPX_SCRIPT_PREFIX, --script-prefix, a runtime
+// override -- is what this adds.
+func (a *App) phaseValues(path string, flagged *repeatable) []any {
+	out := flagged.Values()
+	for _, line := range a.Settings().ListAboveFile(path) {
+		out = append(out, line)
+	}
+	return out
+}
+
 // cfgScriptLines resolves a layered prefix or suffix, with command-line values
 // as the nearest layer.
 func cfgScriptLines(cfg *config.Config, flags []any, isPrefix bool) []string {
@@ -1223,7 +1586,34 @@ func cfgScriptLines(cfg *config.Config, flags []any, isPrefix bool) []string {
 		cfg = &config.Config{}
 	}
 	if isPrefix {
-		return cfg.ScriptPrefix(flags)
+		return resolvePhase(cfg.ScriptPrefix(flags))
 	}
-	return cfg.ScriptSuffix(flags)
+	return resolvePhase(cfg.ScriptSuffix(flags))
+}
+
+// resolvePhase turns each configured line into source.
+//
+// A phase line that names a file is read; anything else is used as written.
+// The alternative -- a separate --prefix-file flag beside every --prefix --
+// doubles the surface to say the same thing, and forces a choice at the point
+// where the snippet is one line long and the answer is not yet obvious.
+func resolvePhase(lines []string) []string {
+	if len(lines) == 0 {
+		return lines
+	}
+	dir := mustGetwd()
+	opt := plumbingSourceOptions(dir, []string{".ts", ".js", ".mts", ".mjs"})
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		r, err := source.Resolve(line, opt)
+		if err != nil || r.Kind == source.KindText || r.Kind == source.KindNone {
+			// A phase that looks like a path but is not readable stays a
+			// line. It is more likely to be code than a typo'd filename, and
+			// the runtime's own error will be clearer than a guess here.
+			out = append(out, line)
+			continue
+		}
+		out = append(out, strings.Split(strings.TrimRight(r.Text, "\n"), "\n")...)
+	}
+	return out
 }

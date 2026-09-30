@@ -16,10 +16,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"sort"
 
+	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/launcher"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/preflight"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -110,6 +115,18 @@ type Options struct {
 	ClientSource string
 	// WorkDir holds the generated client; defaults to a per-session temp dir.
 	WorkDir string
+	// WorkRoot is where the runner keeps one directory per distinct client,
+	// named for the hash of its contents.
+	//
+	// Sharing a single directory between every run was wrong twice: two
+	// projects overwrote each other's generated client, so a script was
+	// type-checked and run against another project's catalogue, and the
+	// runtime's check cache was invalidated every time the catalogue
+	// changed. Content addressing fixes both -- same catalogue, same
+	// directory, and two different ones never meet.
+	//
+	// Ignored when WorkDir is set.
+	WorkRoot string
 	// Runtime preference ("auto", "deno", "bun", "node").
 	Runtime string
 	// Timeout bounds execution; 0 means no limit.
@@ -132,6 +149,8 @@ type Options struct {
 	CollectLogs func(logging.Record)
 	// OnResult receives values a script streamed with emit().
 	OnResult func(logging.Streamed)
+	// OnArtifact receives files a script registered with artifact().
+	OnArtifact func(logging.Artifacted)
 	// Export names the function to call instead of the default export.
 	Export string
 	// Permissions is the sandbox setting; empty means wide open.
@@ -143,8 +162,29 @@ type Options struct {
 	// Phases are lines injected at named points in the generated launcher.
 	// Every point a user might want is named, because a launcher that is
 	// half-configurable invites forking it.
-	Phases         Phases
-	Stdout, Stderr interface{ Write([]byte) (int, error) }
+	Phases Phases
+	// Launcher replaces the generated shim. Empty means the built-in
+	// template; LauncherNone means run the script with no shim at all.
+	Launcher string
+	// LauncherName is where Launcher came from, for error messages.
+	LauncherName string
+	// AllowRepeat names placeholders permitted to resolve more than once.
+	AllowRepeat []string
+	// PlaceholderFiles declare additional @names a launcher may use.
+	PlaceholderFiles []string
+	// TypeCheck resolves and checks the generated program before running it.
+	TypeCheck string
+	// TypeCheckTimeout bounds that check.
+	TypeCheckTimeout time.Duration
+	Stdout, Stderr   interface{ Write([]byte) (int, error) }
+	// Stdin is what the script reads. Nil inherits the caller's, which is
+	// right for a terminal and wrong for a daemon: a script run on somebody
+	// else's behalf must not be able to read the daemon's standard input.
+	Stdin io.Reader
+	// Placeholders are values a caller supplied for @names a launcher
+	// template refers to. They lose to the built-in fills, which name the
+	// machinery the launcher cannot work without.
+	Placeholders map[string]string
 }
 
 // Phases are the injection points in a file script's launcher, in the order
@@ -197,17 +237,31 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	workDir := opts.WorkDir
 	cleanup := func() {}
-	if workDir == "" {
+	switch {
+	case workDir != "":
+		if err := os.MkdirAll(workDir, 0o700); err != nil {
+			return nil, err
+		}
+	case opts.WorkRoot != "":
+		sum := sha256.Sum256([]byte(opts.ClientSource))
+		workDir = filepath.Join(opts.WorkRoot, hex.EncodeToString(sum[:])[:16])
+		if err := os.MkdirAll(workDir, 0o700); err != nil {
+			return nil, err
+		}
+		pruneWorkDirs(opts.WorkRoot, workDir)
+	default:
 		d, err := os.MkdirTemp("", "mcpx-run-")
 		if err != nil {
 			return nil, err
 		}
 		workDir = d
 		cleanup = func() { _ = os.RemoveAll(d) }
-	} else if err := os.MkdirAll(workDir, 0o700); err != nil {
-		return nil, err
 	}
-	defer cleanup()
+	// Called through the variable, not captured by value: the script block
+	// below extends cleanup, and `defer cleanup()` would have deferred the
+	// function as it stood here -- which is why every generated program was
+	// left behind in a shared working directory.
+	defer func() { cleanup() }()
 
 	clientPath := filepath.Join(workDir, clientFileName)
 	if err := writeIfChanged(clientPath, opts.ClientSource); err != nil {
@@ -220,11 +274,21 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	scriptPath := opts.File
 	if scriptPath == "" {
-		scriptPath = filepath.Join(workDir, "script.ts")
+		// Named for its own contents, which does three things at once: two
+		// concurrent runs never write the same path unless they are running
+		// the same program, the same program run twice reuses the path and
+		// so hits the runtime's type-check cache, and a different program
+		// cannot be mistaken for it.
 		src := opts.Prelude + opts.Source
-		if err := os.WriteFile(scriptPath, []byte(src), 0o600); err != nil {
+		sum := sha256.Sum256([]byte(src))
+		scriptPath = filepath.Join(workDir, "script-"+hex.EncodeToString(sum[:])[:16]+".ts")
+		// Written only when absent or different, so a concurrent run of the
+		// same program does not rewrite the file underneath it.
+		if err := writeIfChanged(scriptPath, src); err != nil {
 			return nil, err
 		}
+		// Kept, not deleted: it is the cache entry. Bounded instead.
+		prunePrograms(workDir, scriptPath)
 	} else {
 		abs, err := filepath.Abs(scriptPath)
 		if err != nil {
@@ -247,14 +311,31 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// A module with a default export is a program with an entry point; one
 	// without is a program that ran on import. Supporting both is what lets a
 	// single file be imported as a library and still invoked directly.
-	if opts.File != "" {
+	{
 		launcher, lerr := writeLauncher(workDir, scriptPath, opts.Export,
-			opts.Phases, opts.CaptureConsole)
+			opts.Phases, opts.CaptureConsole, opts)
 		if lerr != nil {
 			return nil, lerr
 		}
 		if launcher != "" {
 			scriptPath = launcher
+		}
+	}
+
+	// Checked after the launcher is written, because the launcher is what
+	// actually gets run and therefore what has to be valid. Doing it here
+	// also means a broken import is found before a single server starts.
+	if mode := opts.TypeCheck; mode != "" && mode != string(preflight.TypeCheckOff) {
+		timeout := opts.TypeCheckTimeout
+		if timeout == 0 {
+			timeout = defaults.TypecheckTimeout
+		}
+		rep := preflight.TypeCheck(ctx, rt.Bin, scriptPath, preflight.TypeCheckMode(mode), timeout)
+		if err := rep.Err(); err != nil {
+			return nil, err
+		}
+		for _, w := range rep.Warnings() {
+			fmt.Fprintln(os.Stderr, "mcpx:", w.String())
 		}
 	}
 
@@ -279,6 +360,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// Resolved here rather than by the caller: only the runner knows the final
 	// location of the entry script and the client it wrote beside it.
 	cmd.Env = append(cmd.Env, "MCPX_ENTRY="+scriptPath, "MCPX_CLIENT="+clientPath)
+	if allowsRead(perms) {
+		cmd.Env = append(cmd.Env, "MCPX_ALLOW_READ=1")
+	}
 	for k, v := range opts.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -309,6 +393,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 				Passthrough: passthrough,
 				Collect:     opts.CollectLogs,
 				Result:      opts.OnResult,
+				Artifact:    opts.OnArtifact,
 			})
 		}()
 		defer func() {
@@ -320,7 +405,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	} else {
 		cmd.Stderr = os.Stderr
 	}
-	cmd.Stdin = os.Stdin
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	} else {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	start := time.Now()
@@ -339,7 +428,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 			select {
 			case <-waitCh:
-			case <-time.After(2 * time.Second):
+			case <-time.After(defaults.ShutdownGrace):
 				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 				<-waitCh
 			}
@@ -369,8 +458,17 @@ func writeIfChanged(path, content string) error {
 			return nil
 		}
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -392,11 +490,19 @@ const GlobalsFileName = "mcpx-globals.d.ts"
 //
 // The shim is written beside the script so its relative import resolves, and
 // so the generated client next to the script is the one both files see.
-func writeLauncher(workDir, scriptPath, export string, ph Phases, captureConsole bool) (string, error) {
+// LauncherNone, given as the launcher, means no shim at all: the script is
+// handed to the runtime untouched. Nothing is installed, nothing is captured,
+// nothing wraps the error. It is the escape hatch for a script that wants the
+// runtime and none of the harness.
+const LauncherNone = "none"
+
+func writeLauncher(workDir, scriptPath, export string, ph Phases, captureConsole bool, opts Options) (string, error) {
+	if strings.TrimSpace(opts.Launcher) == LauncherNone {
+		return "", nil
+	}
 	dir := filepath.Dir(scriptPath)
 	base := filepath.Base(scriptPath)
-	name := "." + strings.TrimSuffix(base, filepath.Ext(base)) + ".mcpx-entry.ts"
-	launcher := filepath.Join(dir, name)
+	stem := "." + strings.TrimSuffix(base, filepath.Ext(base))
 
 	argsJSON, _ := json.Marshal([]string{})
 	_ = argsJSON
@@ -407,6 +513,12 @@ func writeLauncher(workDir, scriptPath, export string, ph Phases, captureConsole
 	}
 
 	body := fmt.Sprintf(`// Generated by mcpx. Runs %s.
+//
+// The reference is what makes the ambient declarations load. Without it the
+// globals file sits beside this one and is never read, so a type check
+// reported "Cannot find name 'emit'" for every script that used one -- and
+// so could not report the mistakes it exists to find.
+/// <reference path="./`+GlobalsFileName+`" />
 //
 // The module is imported dynamically rather than with a static import, so that
 // lines injected before it genuinely run first. A static import is hoisted and
@@ -488,10 +600,143 @@ try {
 		indentLines(ph.OnSuccess, "  "), indentLines(ph.OnError, "  "),
 		indentLines(ph.Suffix, "  "))
 
+	if custom := strings.TrimSpace(opts.Launcher); custom != "" {
+		var err error
+		body, err = expandCustom(custom, opts, scriptPath, base, export, ph, captureConsole)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Named for what it contains, not for the script it runs.
+	//
+	// One name per script meant every concurrent run of that script wrote
+	// the same file: six runs of one script with six different launchers all
+	// executed the fourth. Placeholders make the same mistake quieter --
+	// two runs of one script with different @values are two different
+	// programs sharing a path.
+	//
+	// The hash also keeps the runtime's type-check cache: the same launcher
+	// again is the same file, so it is not re-checked.
+	sum := sha256.Sum256([]byte(body))
+	launcher := filepath.Join(dir, stem+"."+hex.EncodeToString(sum[:])[:12]+".mcpx-entry.ts")
 	if err := writeIfChanged(launcher, body); err != nil {
 		return "", err
 	}
+	pruneEntries(dir, stem, launcher)
 	return launcher, nil
+}
+
+// expandCustom fills a user-supplied launcher template.
+//
+// The fills are the same fragments the built-in template uses, so a custom
+// launcher can be a rearrangement rather than a rewrite -- @globals and @entry
+// carry their full meaning, and a template that only wants to add a guard
+// around the call does not have to reproduce the import machinery.
+func expandCustom(text string, opts Options, scriptPath, base, export string,
+	ph Phases, captureConsole bool) (string, error) {
+
+	name := opts.LauncherName
+	if name == "" {
+		name = "custom launcher"
+	}
+	consoleCall := "// console left alone"
+	if captureConsole {
+		consoleCall = "captureConsole();"
+	}
+	importLine := fmt.Sprintf("const mod = await import(%q);", "./"+base)
+	// Braced, so that a template naming @entry twice produces two runs rather
+	// than a redeclaration error. Allowing a repeat and then emitting code
+	// that cannot compile would be a worse answer than refusing it outright.
+	entryBlock := fmt.Sprintf(`{
+  %s
+  const entry = %s ? (mod as any)[%s] : (mod as any).default;
+  if (typeof entry === "function") {
+    const __v = %s ? await entry(...argv) : await entry(argv);
+    result.value = __v;
+    if (__v !== undefined) {
+      console.log(typeof __v === "string" ? __v : JSON.stringify(__v, null, 2));
+    }
+  }
+}`, importLine, jsonString(export), jsonString(export), jsonString(export))
+
+	fill := launcher.Fill{
+		launcher.Header:    launcherHeader(scriptPath, base, export),
+		launcher.Globals:   "installGlobals();",
+		launcher.Console:   consoleCall,
+		launcher.Import:    importLine,
+		launcher.Entry:     entryBlock,
+		launcher.Before:    indentLines(ph.Before, ""),
+		launcher.Prefix:    indentLines(ph.Prefix, ""),
+		launcher.OnSuccess: indentLines(ph.OnSuccess, ""),
+		launcher.OnError:   indentLines(ph.OnError, ""),
+		launcher.Suffix:    indentLines(ph.Suffix, ""),
+	}
+	defs, derr := launcher.LoadDefinitions(opts.PlaceholderFiles)
+	if derr != nil {
+		return "", derr
+	}
+	var berr error
+	fill, berr = launcher.Bind(fill, defs)
+	if berr != nil {
+		return "", berr
+	}
+	// Caller-supplied values lose to the built-in fills. @entry naming
+	// something other than the entry point would be a launcher that silently
+	// runs the wrong thing, and no option is worth that.
+	for k, v := range opts.Placeholders {
+		p := launcher.Placeholder(strings.TrimPrefix(k, "@"))
+		if _, taken := fill[p]; taken {
+			continue
+		}
+		fill[p] = v
+	}
+
+	var allow []launcher.Placeholder
+	for _, a := range opts.AllowRepeat {
+		allow = append(allow, launcher.Placeholder(strings.TrimPrefix(a, "@")))
+	}
+	tpl := launcher.Template{Text: text, Name: name}
+
+	// A launcher that never reaches the script is legal -- someone may be
+	// testing a prefix in isolation -- but it is almost never meant, so it is
+	// worth saying once rather than leaving them to wonder why nothing ran.
+	if !referencesEntry(tpl) {
+		fmt.Fprintf(os.Stderr,
+			"mcpx: %s refers to neither @entry nor @import, so the script will not run\n", name)
+	}
+	return launcher.Expand(tpl, fill, launcher.Options{AllowRepeat: allow, Defs: defs})
+}
+
+func referencesEntry(t launcher.Template) bool {
+	for _, p := range launcher.Used(t) {
+		if p == launcher.Entry || p == launcher.Import {
+			return true
+		}
+	}
+	return false
+}
+
+func jsonString(v string) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// launcherHeader is the preamble every launcher needs: the client import and
+// the script and result objects each phase can read.
+func launcherHeader(scriptPath, base, export string) string {
+	return fmt.Sprintf(`import {
+  log, emit, installGlobals, captureConsole, releaseConsole,
+} from %q;
+
+const argv = (globalThis as any).Deno?.args ?? (globalThis as any).process?.argv?.slice(2) ?? [];
+const wanted = %s;
+
+const script = { path: %q, name: %q, args: argv as string[], export: wanted || "default" };
+const result: { value?: unknown; error?: unknown; ok: boolean; ms: number } = { ok: true, ms: 0 };
+void [log, emit, script, result, releaseConsole, installGlobals, captureConsole];`,
+		"./"+ClientFileName, jsonString(export), scriptPath,
+		strings.TrimSuffix(base, filepath.Ext(base)))
 }
 
 // indentLines joins lines with an indent, or yields a comment when empty so
@@ -505,4 +750,130 @@ func indentLines(lines []string, indent string) string {
 		out[i] = indent + l
 	}
 	return strings.Join(out, "\n")
+}
+
+func allowsRead(perms []string) bool {
+	for _, perm := range perms {
+		if perm == "--allow-all" || strings.HasPrefix(perm, "--allow-read") {
+			return true
+		}
+	}
+	return false
+}
+
+// prunePrograms bounds how many generated programs a client directory keeps.
+//
+// Each is a cache entry for the type checker, worth keeping while it is
+// still being run and worth nothing afterwards. The newest survive.
+func prunePrograms(dir, keep string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type aged struct {
+		path string
+		at   time.Time
+	}
+	var progs []aged
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "script-") || !strings.HasSuffix(name, ".ts") {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if p == keep {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		progs = append(progs, aged{p, info.ModTime()})
+	}
+	if len(progs) < defaults.ExecPrograms {
+		return
+	}
+	sort.Slice(progs, func(i, j int) bool { return progs[i].at.After(progs[j].at) })
+	for _, p := range progs[defaults.ExecPrograms-1:] {
+		_ = os.Remove(p.path)
+	}
+}
+
+// pruneWorkDirs bounds how many client directories are kept.
+//
+// One per distinct catalogue, and a catalogue changes whenever a server is
+// added or updates its schema, so without a bound this grows for as long as
+// mcpx is used. The newest are kept, because they are the ones whose cache
+// is worth having.
+func pruneWorkDirs(root, keep string) {
+	ents, err := os.ReadDir(root)
+	if err != nil || len(ents) <= defaults.ExecWorkDirs {
+		return
+	}
+	type aged struct {
+		path string
+		at   time.Time
+	}
+	var dirs []aged
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(root, e.Name())
+		if p == keep {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		dirs = append(dirs, aged{p, info.ModTime()})
+	}
+	if len(dirs) < defaults.ExecWorkDirs {
+		return
+	}
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].at.After(dirs[j].at) })
+	for _, d := range dirs[defaults.ExecWorkDirs-1:] {
+		_ = os.RemoveAll(d.path)
+	}
+}
+
+// pruneEntries bounds how many generated entry points one script leaves
+// beside itself.
+//
+// They live next to the user's file so that a relative import of the client
+// resolves, which means they are visible and must not accumulate. The newest
+// survive, because those are the ones still being run.
+func pruneEntries(dir, stem, keep string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type aged struct {
+		path string
+		at   time.Time
+	}
+	var found []aged
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, stem+".") || !strings.HasSuffix(name, ".mcpx-entry.ts") {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if p == keep {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		found = append(found, aged{p, info.ModTime()})
+	}
+	if len(found) < defaults.ExecEntries {
+		return
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].at.After(found[j].at) })
+	for _, f := range found[defaults.ExecEntries-1:] {
+		_ = os.Remove(f.path)
+	}
 }

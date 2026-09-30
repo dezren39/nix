@@ -428,7 +428,7 @@ mcpx --profile web --skip-default ls    exactly the web servers
 mcpx --all-profiles ls                  everything, ignoring profiles
 ```
 
-A server is default-on unless it says otherwise; `"defaults": { "default":
+A server is default-on unless it says otherwise; `"pool": { "default":
 false }` flips the baseline so servers opt in instead. The selection applies
 to everything derived from the server list — `ls`, `types`, `catalog`,
 `search`, and the generated client — so a script written under one profile
@@ -877,6 +877,67 @@ listeners, so a stop followed immediately by a directory removal cannot race.
 
 2026-09-27T05:05:00-05:00
 
+## Reading the log
+
+```
+created:      2026-09-27T21:00:00-05:00
+last-updated: 2026-09-27T21:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:diagnostics
+description:  mcpx log and mcpx stats, over a SQLite index of the JSONL files.
+```
+
+Every record the daemon and every script produce is already written as JSON
+lines under the state directory. That file is the record of truth and nothing
+else writes to it. Beside it sits `index.db`, a SQLite index built from it, and
+the only reason it exists is that questions like "which tool is slow" are
+queries, not greps.
+
+The index is rebuilt by reading, not by a background thread. `mcpx log` and
+`mcpx stats` ingest before they answer, and ingest is incremental: a file whose
+size and mtime have not moved is not opened at all. A background indexer would
+be faster in the rare case and quietly wrong in the bad one, and an index
+nobody trusts is worse than no index. Deleting `index.db` costs a rescan and no
+data.
+
+```
+mcpx log --since 1h --level warn          recent trouble
+mcpx log --event server.* --server fff    one server's lifecycle
+mcpx log --grep 'timed out' --limit 50    regular expression over msg and attrs
+mcpx log -f                               tail as records arrive
+mcpx log --chain cal-9f3c...              a call and everything that led to it
+```
+
+`--chain` is the one worth knowing. A record carries the id of the thing it
+happened inside, and only the record that *creates* something carries its
+parent, so walking backwards from a tool call reaches the server instance that
+served it and then the daemon that started that. It prints as an indented tree,
+oldest first.
+
+`mcpx stats` aggregates the same index. `calls` groups by server and tool with
+exact p50/p95/p99 — exact, not sketched, because these are thousands of rows
+and an approximation would trade the one property that matters, that the number
+printed is a call which really took that long. `slowest` prints individual
+calls with their trace ids, which is where `--chain` comes from. `servers` and
+`instances` cover process lifecycle, aggregate and one row per process
+respectively; `errors` groups on the message *template* rather than the
+interpolated text, so one recurring failure is one row; `sessions` says what
+each script run did; `volume` is records per level per hour plus what the logs
+cost on disk.
+
+`mcpx log sql '<select ...>'` is the escape hatch, with `--schema` for the DDL
+and `--path` for the file. Anything that is not a read is refused. That is a
+guard rail rather than a security boundary: the index can be deleted and
+rebuilt at will, so it is protecting someone who typed DELETE meaning SELECT,
+not defending against anyone.
+
+The driver is `modernc.org/sqlite`, a pure-Go translation of SQLite. A cgo
+driver would be faster and would also make the Nix build need a C toolchain and
+stop cross-compiling, which is a poor trade for an index.
+
+2026-09-27T21:00:00-05:00
+
 ## Configuration
 
 ```
@@ -895,10 +956,1432 @@ Searched upward from the working directory: `.mcpx.json`, `.mcpx/config.json`,
 JSONC comments are stripped, string-literal aware.
 
 Per server: `mode`, `max`, `min`, `idleTimeout`, `callTimeout`, `startTimeout`,
-`namespace`, `description`, `tools`, `excludeTools`, `disabled`. A top-level
-`defaults` block applies any of them to every server.
+`namespace`, `description`, `tools`, `excludeTools`, `disabled`. A top-level `pool`
+block applies any of them to every server.
 
 2026-09-27T05:05:00-05:00
+
+## One declaration per setting
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  a setting is described once and is then readable from a file, a
+              variable and a flag.
+```
+
+`internal/settings/registry.go` holds every knob mcpx has. Each entry states a
+type, a default, a name, a sentence and a paragraph. From that one description
+the setting becomes readable from a configuration file at its dotted path,
+from a generated `MCPX_` variable, and from a generated flag. There is no
+wiring, so there is nothing to forget to wire.
+
+What this replaces had a flag in one file, a default in another, an
+environment lookup in a third and a struct field in a fourth. That has one
+failure mode and it happened every time: the four drifted, and "what is this
+set to" became "read all four and guess". It also meant settings that were
+documented but unreachable -- the plumbing switches could be set from the
+environment and nowhere else, so a configuration file could describe a value
+it could not apply.
+
+Defaults are written as strings in the syntax a user would type and go through
+the same validator as an override, so a default cannot be invalid.
+
+Precedence runs defaults, then configuration files with the nearest last, then
+the environment, then flags. Every value remembers what it overrode, because
+"why is this not what my config says" is the most common configuration
+question and the answer is now in the value itself.
+
+Two spellings of one setting at the same level is an error. On a command line
+the same spelling twice is not -- that is a person editing their own command,
+and the last one is what they meant. In the environment two variables
+disagreeing genuinely cannot be ordered, so it is refused rather than guessed.
+
+`mcpx config --schema` prints the lot. `--plumbing` adds the internals.
+
+2026-09-28T02:30:00-05:00
+
+## Plumbing
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  internal switches for decisions that could reasonably go either
+              way.
+```
+
+Settings under `plumbing.` control internals. They work, they are documented,
+and there is no ordinary reason to change one.
+
+They exist because the code has guards that could defensibly go the other way.
+Whether a directory may stand in for a source string. Whether a bare argument
+naming a file is read as one. Whether `foo.ts` beside `foo.js` is an error.
+Rather than decide permanently and leave the other half of the world stuck,
+each guard reads a switch.
+
+The cost is a longer list. The benefit is that nobody has to patch the binary
+to get past a decision that was never meant to be final.
+
+They are hidden from ordinary help and left out of shell completion, because
+offering an internal in a tab list is how somebody sets one by accident.
+
+2026-09-28T02:30:00-05:00
+
+## Source that can be a file
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  every string-shaped input also accepts a path, or a directory.
+```
+
+`--prefix`, `--before`, `--on-error`, `--launcher` and the rest accept inline
+source, a path to a file, or a directory whose files are concatenated.
+
+The reason is that a snippet does not stay one line. The moment it grows,
+keeping it in a command is unpleasant and keeping it in JSON is unreadable.
+Making each setting accept either form costs one resolver; forcing the choice
+up front costs a rewrite at exactly the point the answer becomes obvious.
+
+Detection is by probe: a value naming something on disk is read as it. `@text:`
+and `@file:` force the interpretation for the case where a snippet genuinely
+collides with a filename, and `plumbing.sourceProbePaths` turns the probe off.
+
+A directory is concatenated in natural order, so `9` comes before `10`. Byte
+order gets that backwards, which is wrong for precisely the case the feature
+serves -- fragments numbered to control their order. Each file is named in a
+comment above its contents, because a stack trace into a concatenation is
+otherwise unattributable.
+
+2026-09-28T02:30:00-05:00
+
+## The launcher is replaceable
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  a template with named holes, replaceable wholesale or removable
+              entirely.
+```
+
+A script runs inside a generated launcher. That launcher is a template with
+named holes:
+
+```
+@header @globals @console @before @prefix @import @entry @onSuccess @onError @suffix
+```
+
+`--launcher` replaces it with source or a file. `--no-launcher` removes it
+entirely: the script is handed to the runtime with nothing installed, nothing
+captured and nothing wrapping the error.
+
+Fills may reference each other, which is what makes rearrangement possible
+rather than just substitution -- a suffix ending in `@prefix` runs the prefix
+again on the way out. That also makes cycles possible, so the reference graph
+is checked before anything is substituted and a loop is reported by naming the
+path that closed it. Left unchecked it would be a hang, found by waiting.
+
+A placeholder resolving twice is an error unless named in
+`plumbing.launcherPlaceholderRepeat`, because the usual cause is a mistake that
+silently doubles an effect. The entry block is braced so a permitted repeat
+genuinely runs twice -- allowing a repeat and then emitting code that cannot
+parse would be worse than refusing it.
+
+A misspelled placeholder is caught by near-miss comparison, including
+transpositions, because `@entyr` for `@entry` is a swap and plain edit distance
+scores that as two changes. Left in place it becomes a syntax error from the
+runtime pointing at a line the user did not write.
+
+`--launcher` takes a required value and `--no-launcher` is separate. An
+optional-value flag reads better, but Go implements that only by treating the
+flag as boolean, and then `--launcher mine.ts` silently runs `mine.ts` as the
+script with no launcher at all. That was found by testing rather than reading.
+
+2026-09-28T02:30:00-05:00
+
+## Search paths
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  lists with a splice point, accepting files as well as
+              directories.
+```
+
+`paths.scripts` and `paths.config` are lists. A null entry stands for the
+built-in locations, so `["./mine", null]` searches yours first and then the
+usual places without restating them. A list without a null replaces outright,
+which is what most people mean most of the time.
+
+An entry may name a file rather than a directory. Somebody with one script in
+an odd place should be able to point at it without inventing a directory to
+hold it.
+
+A name matching both `foo.ts` and `foo.js` is refused. Which one runs was a
+coin flip, and preferring one quietly means an edit to the other does nothing
+with no indication why. `plumbing.allowTsJsOverlap` permits it, and then `.ts`
+wins, because a project holding both is almost always compiling one into the
+other.
+
+When a script is not found, the error prints the path that was actually
+searched, marking what was missing and what was a file. That is the question
+being asked.
+
+2026-09-28T02:30:00-05:00
+
+## Checking before running
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  everything knowable is checked before a server starts.
+```
+
+A malformed `--env` pair, an unreadable hook, a log directory that is a file --
+all knowable before any work begins, all previously found later and more
+expensively. A bad `--env` pair was silently ignored, so the script ran without
+the variable and behaved as though it had never been asked for.
+
+Everything is checked in one pass, so a run with three bad paths reports three
+problems rather than the first and then two more runs. A missing writable
+directory is created rather than refused, because the intent is unambiguous. A
+missing optional path is a warning, because refusing to start over an empty
+script directory would make every fresh checkout noisy.
+
+`--typecheck` resolves and checks the generated program without running it,
+which answers "will every import resolve" before the servers are up. Off by
+default because it costs a second or two on a cold module cache; worth turning
+on for anything scheduled, where the cost is irrelevant and a broken import at
+three in the morning is not. Under Node and Bun it reports that it cannot run
+rather than pretending it did, because those strip types instead of checking
+them.
+
+2026-09-28T02:30:00-05:00
+
+## What the console does and does not capture
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:logging
+description:  console is redirected, faithfully; raw byte writes are not.
+```
+
+All twenty-five console members are handled. Those carrying a level become
+that level. `console.log` still reaches stdout, because stdout is the script's
+result. `trace` carries structured frames, `clear` resets indentation without
+erasing a durable log, and the devtools markers become file-only records rather
+than vanishing.
+
+The test that matters compares a script's output under capture against the same
+script run with `--no-launcher`, line for line. Not "does it log" but "is it
+the same". That formulation is the only one that cannot drift, and it caught
+format specifiers: `console.info("%s scored %d", name, n)` was rendering as the
+template beside its arguments instead of substituting them.
+
+Names are preserved, so `console.info.name` is still `"info"`. Messages use the
+runtime's own inspect, so `console.info({a:1})` reads `{ a: 1 }` exactly as it
+would unwrapped -- the structured value is already in `args`, so the message is
+free to be the human form.
+
+`console.createTask()` throws when called bare. So does Deno's. The test
+compares against the unwrapped console rather than asserting nothing throws,
+because matching the original includes matching its failures.
+
+**Raw writes are not captured.** `Deno.stdout.write` and `Deno.stderr.write`
+go straight out. A script reaching for bytes has asked for bytes, and wrapping
+them in records would be the wrong answer. Use `console` or `log` for anything
+meant to be recorded.
+
+2026-09-28T02:30:00-05:00
+
+## Structured stack traces
+
+```
+created:      2026-09-28T02:30:00-05:00
+last-updated: 2026-09-28T02:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:logging
+description:  frames as data, from V8, in all three runtimes.
+```
+
+`Error.prepareStackTrace` is V8-specific and in no standard, and works in Deno,
+Node and Bun alike. It hands back call sites instead of a formatted string, so
+frames arrive as data: function, file, line, column, and the async and native
+flags. Parsing the string form loses those flags and breaks on any path
+containing the characters the format uses as delimiters.
+
+One trap is worth recording. **V8 memoises whatever `prepareStackTrace`
+returned the first time `.stack` is read.** Asking for frames destroys the
+string; asking for the string destroys the frames. Both are wanted, so frames
+are captured and the string is rendered from them. Two attempts at this each
+lost one form before a test asserted both survive.
+
+`captureFrames(skip, limit)` and `errorFrames(err)` are available to scripts.
+
+2026-09-28T02:30:00-05:00
+
+## Cancellation reaches the transport
+
+```
+created:      2026-09-28T03:40:00-05:00
+last-updated: 2026-09-28T03:40:00-05:00
+increment:    1
+status:       standard
+tags:         area:transport
+description:  a call timeout can interrupt a hung HTTP server.
+```
+
+The Streamable HTTP transport detached its POST from the caller's context.
+The intent was presumably that a request in flight should finish rather than
+be abandoned half-processed, which sounds reasonable and was wrong.
+
+`Send` is synchronous. A server that accepts the connection and never answers
+blocks inside it, *before* the caller reaches the select that watches for a
+timeout. Detaching the request did not make cancellation best-effort, it
+removed it: `pool.callTimeout` could not interrupt a hung server at all, and
+the only bound left was the transport's own ten-minute ceiling.
+
+The request now carries the caller's context. Protocol-level cancellation is
+unaffected, because `notifications/cancelled` is deliberately sent on its own
+background context so that it outlives the request it cancels.
+
+The test blocks a server and asserts `Send` returns. It fails on the previous
+code after five seconds and passes in under one.
+
+2026-09-28T03:40:00-05:00
+
+## Where a setting is read
+
+```
+created:      2026-09-28T04:30:00-05:00
+last-updated: 2026-09-28T04:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  what the registry governs, and what still has its own path.
+```
+
+Declaring a setting and validating it is not the same as applying it. A value
+that is accepted, reported as fine, and then ignored is documentation that
+lies more quietly than a missing flag does.
+
+These come from the resolved set, and therefore work identically from a file,
+a variable or a flag:
+
+- `logging.format`, `logging.level`, `logging.source`, `logging.dir`
+- `catalog.budget`, `catalog.bias`
+- `script.typecheck`
+- `paths.scripts`
+- `plumbing.allowTsJsOverlap`
+
+Pool settings are read by the configuration loader rather than the registry,
+because they are per-server and the server's own block has to win. `pool` and
+`pool` are two spellings of one block: `pool` reads naturally beside
+`mcpServers`, `pool` is what `mcpx config --schema` calls it. Both exist
+because having one of them silently do nothing would be worse than having two.
+Where both appear, `pool` wins -- it is the older spelling, and adding a
+synonym should not change what an existing file means.
+
+Still on their own paths, and honestly so: `output.json` (the global `--json`
+flag is read before any command), `paths.state` and `paths.cache` (needed
+before settings can be resolved, since they say where to look), and most of
+`daemon.*`.
+
+2026-09-28T04:30:00-05:00
+
+## Placeholders that take arguments
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  @name(a, b), and @names a user declared.
+```
+
+A placeholder may take arguments:
+
+```
+@console(header, prefix)
+```
+
+An argument naming a placeholder expands to it; anything else is literal.
+They bind inside the body only, so two uses of one placeholder cannot
+contaminate each other. Inside, they are addressable by the names the
+declaration gave them, and always as `@1`, `@2` and `@args`.
+
+This is the difference between a template that can be rearranged and one that
+can only be filled in.
+
+A file may declare the `@name` it provides:
+
+```ts
+// @mcpx:placeholder timed(body, label)
+{
+  const __t = performance.now();
+  @body
+  log.info("timing", { label: @label, ms: Math.round(performance.now() - __t) });
+}
+```
+
+Three spellings, because the right one depends on the file. A comment works in
+any language and cannot affect runtime. An exported `MCPX_PLACEHOLDER`
+constant is visible to tooling. The filename is the least ceremony for a
+directory of one-line fragments.
+
+Shadowing a built-in is refused: a template that reads correctly and means
+something else is the worst kind of surprise. Two files claiming one name is
+refused for the reason two config keys are -- there is no order between them.
+
+`paths.placeholders` is empty by default, because scanning every script
+directory for declarations would make an ordinary script's filename quietly
+meaningful.
+
+The single-resolution rule composes with this. If `@timed` uses `@entry` and
+the template also uses `@entry` directly, that is a repeat and is refused
+unless named in `plumbing.launcherPlaceholderRepeat`.
+
+2026-09-28T07:30:00-05:00
+
+## The harness knows what the agent does not
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  session identity arrives through the environment, not the model.
+```
+
+mcpx leases servers per session. That only works if it can tell sessions
+apart, and nothing in a shell command carries that: the agent does not know
+its own session id, and asking it to pass one would spend tokens on plumbing
+and be forgotten half the time.
+
+So the harness supplies it. `plugin/opencode/mcpx-session.ts` puts a handful
+of variables into every shell command; mcpx reads them and the agent never
+learns any of it happened.
+
+`MCPX_TRACE_IDS` is a list of pairs rather than a flat id, because a flat one
+cannot say "this session, whose parent is that one, in this worktree". An
+entry longer than a pair names several ids for one key. Unknown keys are kept,
+since the list exists to grow, and they land on every record as `id.<key>`.
+
+They cannot overwrite what mcpx established. A caller may add context; it may
+not rewrite which session a call was actually leased for, or leasing becomes
+advisory.
+
+Everything past the session id is opt-in. Environment variables are not
+context -- the model never sees them -- so anything cheap goes in on the
+reasoning that an unread variable is cheaper than a missing one. Transcript
+lengths and token counts stay out: each would be a database query on every
+shell command, for a number almost nobody reads. Those come from
+`mcpx stats --opencode`, which asks once.
+
+2026-09-28T07:30:00-05:00
+
+## Statistics from opencode
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:inspection
+description:  read-only reporting over opencode's own database.
+```
+
+`mcpx stats --opencode` reports overview, agents, models, projects, busiest
+sessions and activity. What a run cost, which model answered, how much was a
+subagent's -- those live in opencode's database and are pruned over time, so
+folding them in beside mcpx's own log means one place to ask.
+
+The database is opened read-only and belongs to a program that may be running.
+`mode=ro` rather than `immutable=1`, deliberately: immutable would permit
+reading a torn page from a live writer. Every statistic checks for the columns
+it needs, because that schema is not mcpx's to depend on -- one that has moved
+should cost a number, not the command.
+
+The model column holds JSON rather than a name, and it is decoded in Go rather
+than with `json_extract`, which is present in most SQLite builds and absent in
+enough of them to be worth avoiding.
+
+2026-09-28T07:30:00-05:00
+
+## The explorer
+
+```
+created:      2026-09-28T07:30:00-05:00
+last-updated: 2026-09-28T07:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:ux
+description:  a prompt loop over the discovery commands, for a human.
+```
+
+Everything `mcpx explore` shows is available elsewhere. It exists because
+discovery is a loop -- list namespaces, look at one, read a signature, try it,
+see what the log said -- and running four commands with different flags to go
+round it once is enough friction that people stop and guess instead.
+
+Deliberately not full-screen. A pane interface needs a terminal library, raw
+mode, resize handling and a redraw loop, and loses the two things a plain
+prompt gives for free: output stays in scrollback where it can be copied, and
+every screen corresponds to a command that can be scripted. The footer prints
+that command, so the tool teaches its own non-interactive form rather than
+being a place where knowledge stops.
+
+A bare word naming a namespace shows its signatures, because that is what
+somebody means nine times in ten. `chain` with no argument lists recent
+traces, because needing another command to find this one's argument is exactly
+the friction being removed.
+
+The terminal check asks the kernel for terminal attributes rather than testing
+`ModeCharDevice`. That test is wrong in the direction that matters:
+`/dev/null` is a character device, so redirecting stdin from it read as
+interactive and blocked on a prompt nobody was there to answer.
+
+2026-09-28T07:30:00-05:00
+
+## The browser
+
+```
+created:      2026-09-28T09:00:00-05:00
+last-updated: 2026-09-28T09:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:ux
+description:  three panes, so comparing two tools is a keystroke.
+```
+
+`mcpx tui`, `mcpx --tui`, or just `mcpx` when there is a terminal to draw on.
+
+Three panes -- namespaces, the selected namespace's tools, one signature --
+so the question "which of these two tools do I want" is a cursor move rather
+than two commands and a scrollback hunt. Moving the cursor loads the next
+pane; nothing needs pressing.
+
+`L` switches to the log. `r` refreshes. `/` filters either list.
+
+### Why both this and the prompt
+
+`mcpx explore` and `mcpx tui` answer differently shaped questions. The prompt
+is better when you know what you want and will paste the result somewhere: its
+output stays in scrollback and every screen names the command that produced
+it. The browser is better when you do not know yet, because three panes hold
+more context than a scrolling transcript.
+
+The prompt also works where the browser cannot run -- over a pipe, in CI,
+inside another program -- so neither is a worse version of the other.
+
+### Six views
+
+`]` and `[` move between them; the header names them all with the current one
+marked, because a view nobody knows exists is a view nobody uses.
+
+- **tools** -- namespaces, their tools, one signature
+- **log** -- every record, newest last
+- **stats** -- calls, servers, errors, sessions, slowest, volume; `d` cycles
+- **servers** -- individual processes, with pid, uptime and why each stopped
+- **sessions** -- what mcpx saw merged with what opencode recorded
+- **storage** -- what all of it costs on disk
+
+Five of the six are grids, rendered through one table type. A new view is
+therefore a query rather than a widget, and every view gets selection,
+truncation and drill-down without restating any of it.
+
+**sessions** is the one that needed both halves. mcpx knows which servers a
+session used; opencode knows what it cost. Neither alone is the row anybody
+wants, and a machine without opencode still gets mcpx's half rather than an
+error.
+
+**storage** exists because it answers a question that arrives suddenly --
+something is large and it is not obvious what -- and answering it otherwise
+means knowing where four different things live.
+
+### Opening a row
+
+Enter, or a click. A log line is truncated to fit a terminal, and the part cut
+off is usually the part being looked for: a stack, a full path, a nested
+result. Expanding it is the difference between the log being browsable and
+being a place to notice that something exists before going to another command
+to read it.
+
+Multi-line strings are indented rather than escaped, since escaping them is
+what made them unreadable in the row.
+
+### The dependency
+
+bubbletea, bubbles and lipgloss. They cost 1.2 MB in the stripped binary,
+taking it from 11.2 to 12.4 MB, and replace what would otherwise be hand
+written escape sequences, resize handling and a redraw loop. That is code
+which is never finished and never correct on every terminal.
+
+Mouse support is on, in cell-motion mode: clicks and the wheel, without an
+event per pixel of movement.
+
+Capturing the mouse does take over text selection. Every terminal worth using
+restores it on shift-drag, which is the convention, and being unable to click
+a log line open is a worse trade than learning one modifier.
+
+### Testing a full-screen program
+
+The view reads from an interface, not from the daemon client, so a fake drives
+it in tests. A terminal program that cannot be tested is one that breaks
+quietly, and the failures worth catching are not visual: that moving the
+cursor loads the right namespace, that a late reply for a namespace the cursor
+has already left is dropped rather than shown, and that keys go to the filter
+while it is open -- without that last one, typing a namespace containing "q"
+quits.
+
+2026-09-28T09:00:00-05:00
+
+## mcpx speaks MCP
+
+```
+created:      2026-09-28T11:00:00-05:00
+last-updated: 2026-09-28T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  the inversion: mcpx as a server, not only a client.
+```
+
+mcpx exists so tool schemas never reach a model's context. A host that speaks
+only MCP -- a different editor, a hosted agent, anything that is not opencode
+-- could not use any of that.
+
+So `mcpx serve` offers mcpx itself as an MCP server: ten tools reaching every
+server it knows about, with the schemas still on this side of the wire.
+
+The surface is small on purpose. Exposing three hundred tools over MCP would
+rebuild the problem mcpx was built to solve, with extra steps. `mcpx_exec` is
+the one that matters: it runs TypeScript next to the servers and only what it
+prints comes back.
+
+stdio and Streamable HTTP, plus a plain POST per tool at `/v1/tools/<name>`.
+Offering only JSON-RPC would make mcpx reachable from MCP hosts and from
+nothing else, which is the opposite of the point -- a shell script with curl
+should ask the same questions an agent does.
+
+2026-09-28T11:00:00-05:00
+
+## Command-line programs as servers
+
+```
+created:      2026-09-28T11:00:00-05:00
+last-updated: 2026-09-28T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  a declaration, not a wrapper process.
+```
+
+An enormous amount of capability already exists as command-line programs.
+Writing an MCP server to wrap one is a day's work producing a process whose
+only job is to shell out, and there are hundreds of such programs.
+
+`paths.adapters` points at declarations instead:
+
+```jsonc
+{ "adapters": [{
+  "name": "gitx", "command": "git",
+  "tools": [
+    { "name": "log", "args": ["log", "--oneline"],
+      "params": [{ "name": "limit", "flag": "-n", "type": "integer", "default": "10" }] }
+  ] }] }
+```
+
+That is git as an MCP server. It appears in `tools/list`, it is callable from
+a script, and `mcpx adapter check` says whether the binary is even installed.
+
+**Not a shell escape.** A tool is a named subcommand with declared parameters,
+so a model cannot invent a command line and what is reachable is exactly what
+somebody wrote down.
+
+Two details that are wrong in the obvious implementation. A boolean parameter
+becomes the flag's presence, because `--verbose true` is wrong for almost
+every program ever written. And a non-zero exit is a result rather than an
+error: the program ran and said something, and deciding that is a failure
+belongs to whoever asked.
+
+2026-09-28T11:00:00-05:00
+
+## Finding servers that are not configured yet
+
+```
+created:      2026-09-28T11:00:00-05:00
+last-updated: 2026-09-28T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  the official registry, and why not HAPI.
+```
+
+`mcpx registry search weather` asks a registry what exists. `mcpx registry add
+<name> --write` puts it in the configuration file.
+
+### Which registry
+
+The official MCP Registry, at `registry.modelcontextprotocol.io`. It is
+unauthenticated, returns real data, and -- the part that matters -- publishes
+an OpenAPI specification that other registries implement. Writing against the
+specification rather than against one host means the same code reaches the
+official registry, a vendor's subregistry, and whatever an organisation runs
+internally to control what its agents may install. `registry.url` points it
+anywhere.
+
+HAPI was the other candidate and is not usable: the framework is not open
+source and its public API returns 404.
+
+### Translating an entry
+
+A registry entry says what a server is, not how this machine should run it.
+
+Remotes are preferred when offered, because nothing is installed and nothing
+runs locally. Otherwise the package becomes an ephemeral runner -- `npx -y`,
+`uvx`, `docker run --rm` -- since a server pinned in a config file should not
+also require the machine to have been prepared. A publisher's own runtime hint
+wins over that table, because they know something about their package that a
+table does not.
+
+npm versions are pinned. A configuration that silently upgrades is one that
+breaks on a morning nobody changed anything.
+
+**Secrets are never invented.** The registry says which variables a server
+requires; those are reported so the caller can set them, because a server that
+exits immediately for a missing key looks broken rather than unconfigured.
+
+The reverse-DNS name is stripped to its last component, so
+`io.github.microsoft/playwright-mcp` becomes `playwright_mcp` rather than
+making every call read `io_github_microsoft_playwright_mcp_navigate`.
+
+2026-09-28T11:00:00-05:00
+
+## Specifications as tools
+
+```
+created:      2026-09-28T13:00:00-05:00
+last-updated: 2026-09-28T13:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  OpenAPI documents become callable tools.
+```
+
+```sh
+mcpx api tools --spec https://petstore3.swagger.io/api/v3/openapi.json
+mcpx api call petstore_findpetsbystatus '{"status":"available"}' --spec ...
+```
+
+An enormous amount of capability is already described by a specification
+somebody else maintains. A specification is a better source than a
+hand-written wrapper for the same reason a generated client is better than a
+hand-written one: it is already correct, already complete, and it changes when
+the service does.
+
+`paths.apis` declares them permanently, and the operations appear over MCP
+beside everything else.
+
+### Two things easy to get wrong
+
+**Relative server URLs.** The Swagger petstore declares `/api/v3`, which must
+resolve against wherever the document was fetched. Unresolved it produces a
+request with no scheme, and the failure reads as a network problem rather than
+an unresolved reference.
+
+**Only reads, by default.** A specification describes what a service *can* do,
+not what you meant to allow. `--methods all` exposes the rest; the difference
+between listing orders and cancelling them should be a deliberate keystroke.
+
+Deprecated operations are skipped unless asked for, and labelled when included.
+Path parameters are escaped, because a slash in one silently changes which
+endpoint is called.
+
+2026-09-28T13:00:00-05:00
+
+## Finding a tool without leaving the script
+
+```
+created:      2026-09-28T13:00:00-05:00
+last-updated: 2026-09-28T13:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:scripts
+description:  search() and describe(), inside the program.
+```
+
+```ts
+for (const hit of search("grep")) {
+  console.log(hit.namespace + "." + hit.tool, hit.required);
+}
+console.log(describe("fff_nix.grep"));
+```
+
+Without these, discovering a tool means ending the script, running
+`mcpx search`, reading the result and writing a new script. That round trip is
+the expensive part: for a model it is a whole turn, and the intermediate
+result passes through its context on the way.
+
+Synchronous, because everything they search is already in the generated
+client. A promise would only be a promise of work already done.
+
+A word matching a tool's name scores higher than one matching its prose, so a
+tool called `grep` beats one whose description merely mentions grepping.
+
+2026-09-28T13:00:00-05:00
+
+## The half of MCP that is not tools
+
+```
+created:      2026-09-28T15:00:00-05:00
+last-updated: 2026-09-28T15:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  prompts and resources, which mcpx reported as empty.
+```
+
+A server publishes three things: tools, resources and prompts. mcpx handled
+tools, read resources only when asked by URI, and reported **no prompts at
+all** -- while its MCP server declared the capability and returned an empty
+list.
+
+That last part is the worst kind of wrong, because a client cannot detect it.
+It asks once, receives nothing, and never asks again.
+
+```sh
+mcpx prompts                              # what servers publish
+mcpx prompts demo.summarise text="..."    # render one
+mcpx resources                            # what exists
+mcpx resources demo/demo://greeting       # read one
+```
+
+Prompts are a server saying "here is the wording that works for this" rather
+than "here is a function". A server publishing a good one has encoded
+expertise that would otherwise be rediscovered by whoever writes the request.
+
+Both pass through the MCP server, namespaced -- two servers may publish the
+same URI, and a caller otherwise has no way to say which it meant.
+
+A server that does not support prompts answers method-not-found. That is an
+absence, not a failure, so it is treated as an empty list; the alternative
+makes every listing fail on the majority of servers.
+
+Binary resources are described rather than inlined. A megabyte of base64 in a
+model's context is the failure this whole tool exists to prevent.
+
+2026-09-28T15:00:00-05:00
+
+## mcpx doctor
+
+```
+created:      2026-09-28T15:00:00-05:00
+last-updated: 2026-09-28T15:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:ux
+description:  one command for "it does not work".
+```
+
+mcpx has a daemon, a runtime, a configuration chain, a log index, adapters,
+registries, API specifications and a plugin. "It does not work" stopped being
+a question with one answer some time ago.
+
+`mcpx doctor` checks each in the order somebody would have to know to check
+them by hand: the runtime, git, whether the settings contradict each other,
+whether the configuration parses, **whether every server's command is actually
+installed**, the directories, the daemon, the log index, and the optional
+integrations.
+
+That server-command check is the important one. It is the most common cause of
+"mcpx does not work" and it is invisible until something tries to call the
+server, at which point the error arrives from three layers down.
+
+Every check says what to do about it. One that only reports a problem leaves
+the reader exactly where they started.
+
+### It found a bug immediately
+
+The unknown-key warning was reporting `mcpServers`, `logging`, `paths` and
+every server name as unrecognised. They are not: a section is the path to a
+setting, and `mcpServers` is the document's own content. The warning listed
+everything, which made a real typo invisible among the noise -- so it had been
+useless since the day it was written, and nothing displayed it until now.
+
+2026-09-28T15:00:00-05:00
+
+## Types, in whichever form a consumer reads
+
+```
+created:      2026-09-28T16:30:00-05:00
+last-updated: 2026-09-28T16:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  four renderings of one fact.
+```
+
+```sh
+mcpx schema --format typescript    # what a script imports
+mcpx schema --format json-schema   # what a validator reads
+mcpx schema --format openapi       # what a client generator reads
+mcpx schema --format mcp           # what an MCP host reads
+```
+
+The same information every time. A caller should not have to reshape one into
+another, and each of those four consumers is real.
+
+JSON Schema goes under `$defs`, which is where a reader looks for named
+subschemas, so the result is itself a valid schema document rather than a bag
+of them.
+
+### The specification described the wrong thing
+
+`mcpx openapi` described mcpx's own ten tools and nothing else. The three
+hundred it actually fronts were reachable from MCP, and from a script, and
+from nowhere a generated client could see.
+
+A specification that describes the wrapper but not what it wraps is a
+specification of the wrong thing. Every upstream tool now has a path:
+
+```
+POST /v1/call/<namespace>/<tool>
+```
+
+Served as well as described -- `curl -X POST .../v1/call/fff/grep -d '{"query":"x"}'`
+reaches the same server a script does. The document is generated per request
+rather than at startup, so a server that appears later is described without a
+restart.
+
+2026-09-28T16:30:00-05:00
+
+## Two protocol eras
+
+```
+created:      2026-09-28T20:00:00-05:00
+last-updated: 2026-09-28T20:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  legacy and modern, both directions.
+```
+
+The specification splits implementations in two. Legacy revisions
+(`2025-11-25` and earlier) negotiate once through an `initialize` handshake.
+`2026-07-28`, the current one, carries the version in `_meta` on every
+request, has no handshake at all, and requires `server/discover`.
+
+The matrix is unforgiving: modern against legacy fails, legacy against modern
+fails, only a dual-era implementation bridges. mcpx is dual-era on both sides.
+
+**As a client** it probes and falls back. Legacy first by default, because
+nearly every server in existence is legacy and probing modern first costs a
+wasted round trip on all of them. That is correct today and will stop being
+correct, which is why `PreferModern`, `ForceLegacy` and `ForceModern` exist.
+A recognised `UnsupportedProtocolVersionError` stops the fallback: it
+identifies a modern server, so the version is wrong rather than the era, and
+falling back would report the wrong problem.
+
+**As a server** it answers both, and no longer lies. `negotiate()` used to
+echo whatever version was asked for, so a client requesting `2026-07-28` was
+told yes and then found no `server/discover`. It now answers
+`UnsupportedProtocolVersionError` (`-32022`) with the list that would work,
+and refuses a modern version over `initialize` at all -- a client sending
+`initialize` is legacy by definition, so agreeing would promise a protocol
+neither side is speaking.
+
+2026-09-28T20:00:00-05:00
+
+## When a server asks a question
+
+```
+created:      2026-09-28T20:00:00-05:00
+last-updated: 2026-09-28T20:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  elicitation, stored rather than blocked on.
+```
+
+Every other MCP method runs client to server. Elicitation runs the other way:
+a server stops mid-call and asks something -- which repository, are you sure,
+log in here.
+
+### The bug that came first
+
+`recvLoop` matched inbound frames on their id alone. A server-initiated
+request has an id *and* a method, so it looked like a reply to nothing and was
+discarded. The server waited, the call hit its timeout, and mcpx reported a
+timeout: true, useless, and pointing at the wrong thing.
+
+Frames are now routed by shape, and a question is **always** answered -- with
+`cancel` when nobody was asked, because silence is indistinguishable from a
+hung server while cancel is honest about nobody having chosen.
+
+### A question is state, not a blocked call
+
+That is the whole design. A question gets an identity, a deadline and a row
+in the database beside the log index. The call stops and says "I need input,
+here is the ticket".
+
+So **whoever answers need not be whoever asked.** CI raises a question a
+person answers from a laptop twenty minutes later; the reattach works because
+nothing was ever held in memory. A call that is waiting exits `75`
+(`EX_TEMPFAIL`), which is what it is: not a failure, a "try again when you
+have an answer".
+
+Expiry answers `cancel`, never `decline`. Expiry means dismissed without
+choosing; telling a server the user declined would say something different and
+untrue. Overdue questions expire when something reads them rather than on a
+timer, so there is no sweeper to go wrong and nothing is reported as pending
+when it is not.
+
+### Who answers
+
+The specification leaves this to the client, deliberately: *"If the client is
+an agent, it might decide how to handle the elicitation."*
+
+The default is **the agent**, and that is usually right -- it asked for the
+thing, the question is part of that request, and it has the context. A human
+is pulled in only for what an agent cannot know or should not hold: a
+credential, a browser flow, or a bare confirmation, since consent is not the
+agent's to give.
+
+Every routing decision records its reason. Routing nobody can inspect is
+routing nobody can correct.
+
+### Answering
+
+```sh
+mcpx elicit list
+mcpx elicit answer elc-9f2c1a84 repo=me/thing    # key=value, or JSON
+mcpx elicit decline elc-9f2c1a84
+```
+
+`key=value` is accepted because most answers are one short string, and making
+somebody quote JSON for that is ceremony. `mcpx elicit show` prints the
+command that answers a question, because the alternative is assembling it from
+three fields and getting it wrong once.
+
+2026-09-28T20:00:00-05:00
+
+## Credentials
+
+```
+created:      2026-09-28T20:00:00-05:00
+last-updated: 2026-09-28T20:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:config
+description:  what the specification actually requires, which is little.
+```
+
+The specification's position is short and the opposite of what people assume:
+
+- Authorization is **optional**.
+- stdio transports **SHOULD NOT** use OAuth. They take credentials from the
+  environment -- a child process is trusted because you started it.
+- HTTP transports **SHOULD** use OAuth 2.1 when the server is protected.
+
+So most servers need nothing.
+
+```jsonc
+{ "mcpServers": { "api": {
+    "url": "https://example.com/mcp",
+    "auth": { "type": "bearer", "token": "${API_TOKEN}" } } } }
+```
+
+`bearer`, `basic`, `header`, `query` and `env`, all with `${VAR}` expansion so
+the secret is never in the file. An unset variable is **named up front**
+rather than surfacing as a 401 three layers away.
+
+`Describe()` prints a reference but never a literal, because its output is
+what people paste into issues.
+
+`oauth` is declared but not performed. A server requiring it says so before
+the first request rather than failing with a 401 nobody can interpret.
+
+2026-09-28T20:00:00-05:00
+
+## The rest of the protocol
+
+```
+created:      2026-09-28T22:00:00-05:00
+last-updated: 2026-09-28T22:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  the features that are not tools, and which of them mcpx has.
+```
+
+Tools, resources and prompts are the famous three. The specification defines
+several more, and mcpx was silently dropping most of them.
+
+### Now implemented
+
+**Roots.** A client tells a server which directories it may work within.
+Without it a filesystem server has to be told through its own configuration,
+separately, in a second place that drifts from the first.
+
+**Server log messages.** `notifications/message` carries a server explaining
+itself -- "retrying against the replica" tells you exactly why a call was
+slow. Every one was discarded. Note that servers send none until asked, via
+`logging/setLevel`, so a client that never asks concludes servers do not
+emit any.
+
+**Progress.** `notifications/progress` on a long call, previously dropped.
+
+**List-changed notifications.** A server saying its tools have changed means
+the cached schema is stale. mcpx already computes catalog diffs; it just was
+not listening for the event that should trigger one.
+
+**Pagination when serving.** mcpx fronts every tool of every configured
+server, and a client with a frame limit had no way to read that list. The
+cursor is opaque -- base64 of an offset -- because the specification says so
+and a client that parses one is relying on something it was told not to. An
+*invalid* cursor starts from the beginning rather than failing: a client
+cannot validate an opaque value before sending it, so refusing would strand
+one that has nothing better to send.
+
+**Completion.** `completion/complete` answers from what mcpx already holds.
+A client that offers autocomplete and receives method-not-found shows
+nothing, and the user concludes the feature is broken rather than absent.
+
+**Cancellation, inbound.** Recorded rather than dropped. mcpx cannot yet
+interrupt an in-flight upstream call -- that needs the request id plumbed
+through the pool -- but a cancellation silently discarded leaves a client
+unable to tell whether the message arrived.
+
+### Still not implemented, and declared as such
+
+**Sampling.** A server asking the client for a model completion. mcpx has no
+model. The honest answer is a pass-through to whatever is driving it, the
+same shape elicitation uses, and that is worth building once something asks.
+
+Capabilities are declared only where mcpx can actually deliver. Claiming one
+it cannot serve invites a server to use it and get silence, which is worse
+than not offering it at all.
+
+2026-09-28T22:00:00-05:00
+
+## One daemon, many clients
+
+```
+created:      2026-09-28T23:30:00-05:00
+last-updated: 2026-09-28T23:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  a socket, a port, or a machine somewhere else.
+```
+
+The daemon has always served its whole API over HTTP. Two things stopped that
+being useful beyond one machine: the client hardcoded a unix-socket dialler,
+and the listener hardcoded loopback. Both were one line.
+
+```sh
+MCPX_DAEMON_ENDPOINT=http://mcpx.internal:8899    # a daemon on a VPN
+MCPX_DAEMON_ENDPOINT=unix:///run/mcpx/other.sock  # a different local socket
+mcpx daemon --address 0.0.0.0 --port 8899         # serve a network
+```
+
+Works for the CLI, the plugin, and generated scripts -- which could already
+do it, since they were given `MCPX_ENDPOINT` from the start.
+
+A configured endpoint also means mcpx **will not try to start** that daemon.
+Falling back to a local one when a remote is unreachable would silently
+answer from the wrong machine, which is worse than failing.
+
+Binding beyond loopback prints a warning, once, because the API is
+unauthenticated: whatever can route to the port can run tools as you. That
+should be a sentence somebody read rather than a default they inherited.
+
+### What each transport costs
+
+Same request, mean of thirty:
+
+| | |
+| --- | --- |
+| spawn `mcpx status` | 23.12 ms |
+| unix socket, new connection | 0.27 ms |
+| unix socket, keep-alive | **0.17 ms** |
+| tcp loopback, new connection | 1.59 ms |
+| tcp loopback, keep-alive | 0.65 ms |
+
+Spawning is **135× slower** than a warm socket, and almost all of it is
+process startup rather than transport. Irrelevant for something run once;
+decisive for anything on the path of every tool call.
+
+`plugin/opencode/mcpx/daemon.ts` therefore talks to the socket directly rather
+than shelling out. It returns `undefined` when no daemon is reachable rather
+than throwing, because a plugin that fails to load has broken the editor for
+a tool the user may not even be using.
+
+It sat unused for a day: written, documented, benchmarked, and imported by
+nothing. The plugin still spawned `mcpx log record` after every tool call.
+Wiring it in found three more things, each invisible until something real
+used the path:
+
+- **The socket was guessed.** The client took the newest `.sock` in the state
+  directory. Sockets are keyed by configuration, so that is the wrong daemon
+  whenever two exist, and none at all when a long state path moved the socket
+  elsewhere. It now asks `mcpx --json status`, once.
+- **`status` said `running` only when false.** Testing it read a live daemon
+  as down.
+- **One file, two daemons.** The key hashed the configuration's path as
+  spelled. `/tmp` is a symlink to `/private/tmp` on macOS, so a process whose
+  `$PWD` held the short form computed a different key, saw no daemon, and
+  started a second. Paths are now resolved through symlinks first.
+
+With those fixed, a timing record costs 0.09 ms over the socket instead of a
+23 ms spawn.
+
+2026-09-28T23:30:00-05:00
+
+## Hearing what the daemon is doing
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  one event bus, two views of it.
+```
+
+MCP's own subscription mechanism, `subscriptions/listen`, carries four kinds of
+notification: tools, prompts and resources changing, and a subscribed resource
+updating. That is the right set for a server telling a client its catalogue
+moved, and nowhere near enough for what a client of mcpx wants to hear -- a
+question waiting for an answer, a server that crashed, a call that finished.
+
+So there is one bus and two views of it:
+
+| | carries | for |
+| --- | --- | --- |
+| `subscriptions/listen` | the four the specification defines | any MCP client |
+| `GET /v1/events` | everything mcpx notices | the plugin, the TUI, a script, curl |
+
+Both read the same stream, so they cannot disagree about what happened. The
+MCP view is deliberately narrow: the specification says a server MUST NOT send
+a notification type the client did not request, so nothing mcpx-specific leaks
+into it.
+
+### Server-sent events, not WebSockets
+
+SSE is plain HTTP. It goes through every proxy HTTP does, a browser's
+`EventSource` reconnects it without any code knowing, and consuming it takes a
+GET. WebSockets would buy bidirectionality nothing here needs -- answers go
+back as ordinary POSTs -- at the cost of an upgrade that half of all
+middleboxes mishandle.
+
+### Lossless reconnection
+
+Every event carries a sequence number. Reconnect with `Last-Event-ID` (which
+`EventSource` sends for you) or `?since=N` and everything after N is replayed.
+
+`?since=0` replays everything retained; *no* position means live only. Those
+are different requests, and conflating them -- which an early version did --
+made "replay from the start" silently return nothing, indistinguishable from
+nothing having happened.
+
+A reconnect older than the retained history gets an in-band `gap` event, so
+the subscriber can resynchronise rather than trust a stream with a hole in it.
+
+Publishing never blocks. One slow reader cannot stall the daemon; it misses
+events and has a counter to say so.
+
+2026-09-29T11:00:00-05:00
+
+## Sampling
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  a server asking for a model's help, passed to whoever has one.
+```
+
+Sampling is part of the MCP specification, in every revision -- not an
+opencode feature. It lets a **server ask its client for a model completion**:
+"summarise this", "classify that", "draft a reply". The server gets an
+intelligence it does not have to host or pay for.
+
+It is the mirror of elicitation:
+
+| | asks | for |
+| --- | --- | --- |
+| elicitation | a person or agent | a value -- which repository, are you sure |
+| sampling | a model | text -- a completion the server will use |
+
+mcpx has no model, so it cannot answer either itself. What it can do is carry
+the request to something that can. A sampling request becomes a stored
+question -- same table, same deadline, same routing as elicitation -- and
+whatever drives mcpx answers it. The opencode plugin is the natural answerer:
+it holds a session with a real model already.
+
+Declining a sampling request becomes an error, because the specification has
+no decline result for it. A result missing `role` or `model` has them filled,
+since strict servers reject one without them for a reason unrelated to its
+content.
+
+2026-09-29T11:00:00-05:00
+
+### It did not work, and nothing said so
+
+The passthrough above shipped unreachable. A server only sends a sampling
+request to a client that declared `sampling`, and mcpx never did: capabilities
+are declared in the handshake, and the handler that made sampling possible was
+installed on the connection *after* it. Every test of the passthrough called
+it directly, so every test passed.
+
+The same ordering broke roots. Once the daemon's handler was installed -- which
+is always -- it received every server request, `roots/list` included, and knew
+only elicitation and sampling. Roots were configured, and every server that
+asked for them was told "not implemented".
+
+Both are fixed by giving the connection its handler and roots at construction,
+and by answering roots before consulting the handler at all.
+
+2026-09-29T15:00:00-05:00
+
+## What 2026-07-28 actually asks of a client
+
+```
+created:      2026-09-29T15:00:00-05:00
+last-updated: 2026-09-29T15:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  three MUSTs the first modern implementation missed.
+```
+
+The first modern-era client probed with `server/discover`, chose a version,
+and then spoke exactly as a legacy client would. Reading the schema rather than
+the prose found three requirements it did not meet:
+
+| requirement | was | now |
+| --- | --- | --- |
+| `_meta` carries `protocolVersion` and `clientCapabilities` on **every** request -- a server MUST NOT infer capabilities from an earlier one | sent on none, not even `server/discover` | stamped on every modern request, with `clientInfo` |
+| the HTTP `MCP-Protocol-Version` header MUST match that `_meta` version, or 400 | a constant: the legacy version | read from the frame being sent |
+| every result MUST carry `resultType` | mcpx's server sent none | `"complete"` on every reply to a modern request |
+
+And one mechanism it did not know existed. A modern server cannot send the
+client a request of its own -- there is no connection to send it on -- so it
+elicits, samples and asks for roots by *answering*: `resultType:
+"input_required"`, a map of `inputRequests`, an opaque `requestState`. The
+client answers each, and sends the original request again with
+`inputResponses` and the state, exactly as received. mcpx returned the "not
+yet" as though it were the result, so against a modern server, elicitation,
+sampling and roots silently did nothing.
+
+Both eras now answer through one function, so a question is answered the same
+way whether it arrived on the wire or inside a result. The retry loop is
+bounded (`elicit.inputRounds`, 8): a server that never stops asking is broken
+or adversarial, and without a bound the client would answer it forever.
+
+Still missing, and honest about it: mcpx's *server* does not yet turn an
+upstream question into `input_required` for a modern client of its own. It
+answers through the broker instead, which works, but a modern client cannot
+answer inline.
+
+2026-09-29T15:00:00-05:00
+
+## Running without a daemon
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:integration
+description:  the last rung, and what it costs.
+```
+
+Every command walks the same ladder, cheapest first:
+
+```
+1. socket    an existing local daemon          0.17 ms
+2. url       a named remote one                0.65 ms
+3. spawn     start a daemon, then use it       ~23 ms, once
+4. inline    run the servers in this process   every time
+```
+
+A named endpoint stops the ladder at step 2: falling back to a local daemon
+would answer from the wrong machine.
+
+**Inline** hosts the daemon's own API inside the command, on a private socket,
+for as long as the command runs. It is the identical handler, so it cannot
+drift from daemon mode.
+
+What changes is lifetime, and it changes completely:
+
+| | with a daemon | inline |
+| --- | --- | --- |
+| a server starts | once, reused | every command |
+| between commands | kept warm | gone |
+| a browser session | survives across commands | dies with the command |
+| schema cache | shared | read from disk each time |
+
+That is why inline is the last rung and off by default. It is for a sandbox
+with no fork, a read-only filesystem, or a container whose init will not reap
+-- places where the alternative is not working at all. A pool that silently
+stops pooling is a performance bug nobody can see, so it has to be asked for.
+
+2026-09-29T11:00:00-05:00
+
+## Tasks
+
+```
+created:      2026-09-29T11:00:00-05:00
+last-updated: 2026-09-29T11:00:00-05:00
+increment:    1
+status:       standard
+tags:         area:protocol
+description:  a slow tool call as a handle rather than a held request.
+```
+
+Add `task` to a `tools/call` and the reply is a handle, immediately. Poll it
+with `tasks/get`, wait on it with `tasks/result`, stop it with `tasks/cancel`.
+
+For a genuinely slow tool -- a build, a crawl, a browser session -- holding a
+request open for minutes invites every proxy, load balancer and client timeout
+in between to cut it off. A handle does not.
+
+Core in `2025-11-25`, an extension in `2026-07-28`, so mcpx declares it both
+ways and a client of either era finds it where it looks.
+
+Every task has a TTL. The specification allows an unbounded one; mcpx never
+offers it, because a result nobody collects is memory nobody frees.
+
+2026-09-29T11:00:00-05:00
 
 ## Nix packaging
 
@@ -912,13 +2395,22 @@ description:  buildGoModule with vendorHash = null; unit tests run in the
               sandbox; deno, bun and node are pinned on the wrapper's PATH.
 ```
 
-mcpx has no third-party Go dependencies, so `vendorHash = null` and there is
-nothing to audit. The wrapper suffixes `deno`, `bun-bin` and `nodejs` onto
-`PATH` so script execution does not depend on the calling shell.
+mcpx has one third-party Go dependency: `modernc.org/sqlite`, which backs the
+log index. It is a pure-Go translation rather than the usual cgo driver,
+because a cgo driver would make this derivation need a C toolchain and would
+break cross-compilation, for a database that is only ever an index over files
+that remain the source of truth.
 
-`nix build .#mcpx` runs the config, codegen, daemon and pool suites in the
-sandbox. The end-to-end suite spawns JavaScript runtimes and binds unix sockets,
-so it runs outside with `go test ./...`.
+The wrapper suffixes `deno`, `bun-bin` and `nodejs` onto `PATH` so script
+execution does not depend on the calling shell.
+
+The man page and the shell completions are generated by the binary the build
+just produced, so they describe the commands and settings this build actually
+has. A man page maintained separately is wrong within two releases.
+
+`nix build .#mcpx` runs the unit suites in the sandbox. The end-to-end suite
+spawns JavaScript runtimes and binds unix sockets, so it runs outside with
+`go test ./...`.
 
 2026-09-27T05:05:00-05:00
 
@@ -986,21 +2478,6 @@ tags:         area:pools, area:ops
 `mcpx restart <ns>` stops every instance in a namespace. Wanted:
 `mcpx restart --session <key>`, so one wedged browser can be recycled without
 disturbing the other three.
-
-2026-09-27T05:05:00-05:00
-
-### Log querying and run statistics
-
-```
-created:      2026-09-27T05:05:00-05:00
-status:       proposed
-tags:         area:diagnostics
-```
-
-The daemon writes to `$XDG_STATE_HOME/mcpx/daemon.log` and `MCPX_TRACE=1` adds
-a line per call. Wanted: structured records, and `mcpx log --since 1h
---server chrome-devtools` plus `mcpx stats` for call counts, latency
-percentiles and failure rates.
 
 2026-09-27T05:05:00-05:00
 
@@ -1125,6 +2602,9 @@ else in this document is detail underneath those four verbs.
   has a shape, with answers recorded inline.
 - [`docs/dependencies.md`](./dependencies.md) — every library and external
   program, and why each is needed.
+- [`docs/opencode-plugin.md`](./opencode-plugin.md) — what the plugin does and
+  why, opencode v1 against v2, and which parts are opencode's rather than
+  general enough to port to another harness.
 - [`scripts/stress.sh`](../scripts/stress.sh) — concurrency and leak checks
   against real servers. [`scripts/bench.sh`](../scripts/bench.sh) — latency
   comparison.

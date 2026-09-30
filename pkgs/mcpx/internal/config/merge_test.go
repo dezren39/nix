@@ -96,8 +96,8 @@ func TestInheritedServerCanBeDisabledLocally(t *testing.T) {
 func TestDefaultsMergeFieldByField(t *testing.T) {
 	root := tree(t, map[string]string{
 		// scope:session so max is not clamped the way a single-key scope is.
-		".config/mcpx/config.json":      `{"defaults":{"idleTimeout":"9m","max":7,"scope":"session"},"mcpServers":{"a":{"command":"x"}}}`,
-		"proj/.config/mcpx/config.json": `{"defaults":{"max":2},"mcpServers":{"b":{"command":"y"}}}`,
+		".config/mcpx/config.json":      `{"pool":{"idleTimeout":"9m","max":7,"scope":"session"},"mcpServers":{"a":{"command":"x"}}}`,
+		"proj/.config/mcpx/config.json": `{"pool":{"max":2},"mcpServers":{"b":{"command":"y"}}}`,
 	})
 	chdirTo(t, filepath.Join(root, "proj"))
 

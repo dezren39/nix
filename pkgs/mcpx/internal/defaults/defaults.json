@@ -12,9 +12,16 @@
     "format": "text",
     "level": "info",
     "source": "warn",
-    "fileMaxBytes": 16777216,
-    "fileKeep": 8,
-    "include": ["host", "user", "process", "version"]
+    "maxBytes": 16777216,
+    "maxLines": 200000,
+    "maxAge": "24h",
+    "keep": 8,
+    "include": [
+      "host",
+      "user",
+      "process",
+      "version"
+    ]
   },
   "daemon": {
     "reapInterval": "30s",
@@ -25,6 +32,147 @@
   },
   "script": {
     "permissions": "all",
-    "captureConsole": true
+    "captureConsole": true,
+    "typecheckTimeout": "60s"
+  },
+  "plumbing": {
+    "shutdownGrace": "2s",
+    "stdioDrainGrace": "3s",
+    "stdioMaxLine": "64MiB",
+    "daemonConnectTimeout": "20s",
+    "daemonPollInterval": "50ms",
+    "daemonRestartSettle": "100ms",
+    "httpIdleTimeout": "30s",
+    "httpRequestTimeout": "10m",
+    "followPollInterval": "500ms",
+    "logQueryLimit": 100,
+    "restartBackoffStep": "2s",
+    "restartBackoffMax": "30s",
+    "registryTimeout": "30s",
+    "eventHistory": 1024,
+    "streamReconnect": "2s",
+    "taskTTL": "10m",
+    "taskResultWait": "2m",
+    "statsTop": 20,
+    "registryLimit": 20
+  },
+  "resolve": {
+    "dialTimeout": "200ms"
+  },
+  "elicit": {
+    "ttl": "120s",
+    "pollInterval": "250ms",
+    "handlerTimeout": "5m",
+    "inputRounds": 8
+  },
+  "proto": {
+    "native": true,
+    "askTimeout": "10m",
+    "askPoll": "500ms",
+    "askRounds": 8,
+    "stateTTL": "30m",
+    "sessionIdle": "30m",
+    "askTTL": "15m",
+    "abandonGrace": "5s",
+    "mcpPath": "/mcp"
+  },
+  "consumer": {
+    "disambiguate": "never",
+    "disambiguateDefault": "new",
+    "confirmDestructive": false,
+    "askTimeout": "45s",
+    "diagnosePreflight": true,
+    "historyPerTool": 8,
+    "recipeMinScore": 30,
+    "recipeMatchMargin": 150,
+    "recipeLimit": 5,
+    "promptMode": "script",
+    "promptSample": "never",
+    "promptCatalogBudget": 1200,
+    "promptSampleTimeout": "90s",
+    "promptMaxTokens": 1500,
+    "runTimeout": "5m"
+  },
+  "exec": {
+    "timeout": "120s",
+    "workDirs": 8,
+    "programs": 64,
+    "entries": 8,
+    "stderrLimit": 65536,
+    "output": "text",
+    "remoteOutput": "structured",
+    "delivery": "reference"
+  },
+  "artifacts": {
+    "ttl": "24h",
+    "maxBytes": "64MiB",
+    "quota": "1GiB",
+    "inlineMaxBytes": "1MiB",
+    "chunkBytes": "256KiB",
+    "gcInterval": "10m",
+    "interceptImages": true,
+    "nameMaxLength": 200,
+    "nameCollisionLimit": 1000,
+    "idBytes": 16,
+    "listLimit": 200
+  },
+  "http": {
+    "bodyLimit": "1MiB",
+    "callBodyLimit": "64MiB",
+    "controlBodyLimit": "64KiB",
+    "readHeaderTimeout": "10s",
+    "shutdownGrace": "5s",
+    "ssePing": "15s",
+    "sseRetry": "2s",
+    "streamBufferInit": "64KiB",
+    "streamBufferMax": "8MiB",
+    "idleConns": 8,
+    "remoteIdleConns": 16
+  },
+  "autostart": {
+    "bin": "",
+    "args": [
+      "daemon",
+      "--detached"
+    ],
+    "idleExit": "4h",
+    "connectTimeout": "20s",
+    "pollInterval": "50ms",
+    "pingTimeout": "2s",
+    "logTail": "2KB"
+  },
+  "limits": {
+    "searchLimit": 20,
+    "completionValues": 100,
+    "elicitPending": 100,
+    "registryPageSize": 30,
+    "leaseTTL": "30m",
+    "socketProbeTimeout": "500ms",
+    "warmTimeout": "3m",
+    "refreshTimeout": "3m",
+    "inlineStartTimeout": "5s",
+    "inlineStartPoll": "20ms",
+    "inlineProbeTimeout": "200ms",
+    "doctorTimeout": "20s",
+    "releaseTimeout": "10s",
+    "followBacklog": 1000
+  },
+  "files": {
+    "dirMode": "0700",
+    "privateMode": "0600",
+    "publicMode": "0644",
+    "publicDirMode": "0755"
+  },
+  "plugin": {
+    "bin": "mcpx",
+    "binArgs": [],
+    "backend": "auto",
+    "discoveryRetry": "60s",
+    "toolTiming": false,
+    "env": "full",
+    "instructions": false,
+    "tools": false,
+    "remember": "session",
+    "annotate": true
   }
 }

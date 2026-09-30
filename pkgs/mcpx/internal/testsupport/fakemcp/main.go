@@ -111,7 +111,11 @@ func handle(r req) map[string]any {
 		return ok(r.ID, map[string]any{
 			"protocolVersion": "2025-06-18",
 			"serverInfo":      map[string]any{"name": "fakemcp", "version": "1.0.0"},
-			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"capabilities": map[string]any{
+				"tools":     map[string]any{},
+				"resources": map[string]any{},
+				"prompts":   map[string]any{},
+			},
 		})
 	case "notifications/initialized", "notifications/cancelled":
 		return nil
@@ -120,7 +124,56 @@ func handle(r req) map[string]any {
 	case "tools/list":
 		return ok(r.ID, map[string]any{"tools": toolDefs()})
 	case "resources/list":
-		return ok(r.ID, map[string]any{"resources": []any{}})
+		return ok(r.ID, map[string]any{"resources": []any{
+			map[string]any{
+				"uri": "demo://greeting", "name": "greeting",
+				"description": "a fixed greeting", "mimeType": "text/plain",
+			},
+		}})
+	case "resources/read":
+		var p struct {
+			URI string `json:"uri"`
+		}
+		_ = json.Unmarshal(r.Params, &p)
+		if p.URI != "demo://greeting" {
+			return fail(r.ID, -32602, "no such resource: "+p.URI)
+		}
+		return ok(r.ID, map[string]any{"contents": []any{
+			map[string]any{"uri": p.URI, "mimeType": "text/plain", "text": "hello from a resource"},
+		}})
+	case "prompts/list":
+		return ok(r.ID, map[string]any{"prompts": []any{
+			map[string]any{
+				"name": "summarise", "description": "summarise some text",
+				"arguments": []any{
+					map[string]any{"name": "text", "description": "what to summarise", "required": true},
+					map[string]any{"name": "style", "description": "how"},
+				},
+			},
+		}})
+	case "prompts/get":
+		var p struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments"`
+		}
+		_ = json.Unmarshal(r.Params, &p)
+		if p.Name != "summarise" {
+			return fail(r.ID, -32602, "no such prompt: "+p.Name)
+		}
+		style := p.Arguments["style"]
+		if style == "" {
+			style = "briefly"
+		}
+		return ok(r.ID, map[string]any{
+			"description": "a summarisation prompt",
+			"messages": []any{map[string]any{
+				"role": "user",
+				"content": map[string]any{
+					"type": "text",
+					"text": "Summarise " + style + ": " + p.Arguments["text"],
+				},
+			}},
+		})
 	case "resources/templates/list":
 		return ok(r.ID, map[string]any{"resourceTemplates": []any{}})
 	case "tools/call":
@@ -178,6 +231,16 @@ func toolDefs() []map[string]any {
 			},
 		},
 		{
+			// Annotated destructive so the confirmation policy has something
+			// to fire on. Nothing here actually destroys anything.
+			"name":        "wipe",
+			"description": "Forget everything this process recorded.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+			"annotations": map[string]any{
+				"title": "Wipe state", "destructiveHint": true, "readOnlyHint": false,
+			},
+		},
+		{
 			"name":        "fancy-name",
 			"description": "Tool whose name is not a TypeScript identifier.",
 			"inputSchema": map[string]any{
@@ -225,6 +288,11 @@ func callTool(r req) map[string]any {
 		mu.Unlock()
 		b, _ := json.Marshal(map[string]any{"pid": pid, "seen": s})
 		return ok(r.ID, textResult(string(b)))
+	case "wipe":
+		mu.Lock()
+		state = nil
+		mu.Unlock()
+		return ok(r.ID, textResult("wiped"))
 	case "slow":
 		ms := 0
 		switch v := p.Arguments["ms"].(type) {

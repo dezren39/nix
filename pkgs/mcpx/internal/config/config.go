@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/mcpauth"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -134,7 +135,16 @@ type Server struct {
 	URL       string            `json:"url,omitempty"`
 	Transport string            `json:"transport,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
-	Cwd       string            `json:"cwd,omitempty"`
+	// Auth declares credentials. The specification says stdio servers take
+	// theirs from the environment and HTTP servers use OAuth when protected;
+	// most need nothing at all.
+	Auth *mcpauth.Auth `json:"auth,omitempty"`
+	// Protocol chooses which era to probe first: legacy (the default, since
+	// nearly every server is), modern, force-legacy or force-modern. The
+	// force forms skip the fallback, for a server known to be one or the
+	// other, or to find out which it is.
+	Protocol string `json:"protocol,omitempty"`
+	Cwd      string `json:"cwd,omitempty"`
 	// AliasOf names another server whose process definition this entry reuses.
 	// An alias is a second *view* -- its own namespace, tool subset, prelude
 	// and description -- over the same command. Whether it also shares a
@@ -150,8 +160,11 @@ type Server struct {
 type Config struct {
 	MCPServers map[string]*Server `json:"mcpServers"`
 
-	// Defaults applied to every server that does not override them.
-	Defaults Extras `json:"defaults,omitempty"`
+	// Pool holds the knobs applied to every server that does not override
+	// them. The name matches the dotted path the settings registry uses, so
+	// `mcpx config --schema` and a configuration file agree on what these are
+	// called.
+	Pool Extras `json:"pool,omitempty"`
 
 	// Logging sets defaults for rendering and verbosity. Flags and environment
 	// variables still win, so a config states the habit and a flag states the
@@ -430,7 +443,7 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 	if ex == nil {
 		ex = &Extras{}
 	}
-	d := c.Defaults
+	d := c.Pool
 
 	sharing := Sharing(pick(string(ex.Sharing), string(d.Sharing), string(SharingShared)))
 	switch sharing {
@@ -513,6 +526,20 @@ func (c *Config) ResolveAll() ([]*Resolved, error) {
 
 // SearchPath returns the ordered list of config locations mcpx will try.
 func SearchPath() []string {
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = ""
+	}
+	return SearchPathFrom(wd)
+}
+
+// SearchPathFrom is SearchPath for a directory other than this process's.
+//
+// The daemon needs it to answer "which daemon serves /some/other/project?"
+// without chdir, which in a server would be a race against every other
+// request. An empty directory means "no project part", leaving only the
+// user-level and system files.
+func SearchPathFrom(wd string) []string {
 	var out []string
 	add := func(p string) {
 		if p != "" {
@@ -522,7 +549,7 @@ func SearchPath() []string {
 	if p := os.Getenv("MCPX_CONFIG"); p != "" {
 		return []string{p}
 	}
-	if wd, err := os.Getwd(); err == nil {
+	if wd != "" {
 		// Walk up from the working directory so a repo-local config wins.
 		// `.config/mcpx` comes first at every level: it is the more explicit
 		// spelling and nests with other tools' configuration.
@@ -562,6 +589,16 @@ func SearchPath() []string {
 // it inherited. Top-level scalars and defaults follow the same rule. An
 // explicit --config is used alone, because naming a file means meaning it.
 func Load(explicit string) (*Config, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = ""
+	}
+	return LoadFrom(explicit, wd)
+}
+
+// LoadFrom is Load for a directory other than this process's, so one daemon
+// can resolve configuration on behalf of a caller sitting somewhere else.
+func LoadFrom(explicit, wd string) (*Config, error) {
 	if explicit != "" {
 		b, err := os.ReadFile(explicit)
 		if err != nil {
@@ -578,7 +615,7 @@ func Load(explicit string) (*Config, error) {
 	}
 
 	merged := &Config{MCPServers: map[string]*Server{}, Origin: map[string]string{}}
-	for _, p := range SearchPath() {
+	for _, p := range SearchPathFrom(wd) {
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue
@@ -621,7 +658,7 @@ func mergeInto(near, far *Config, farPath string) {
 	near.Logging.Source = pick(near.Logging.Source, far.Logging.Source)
 	near.Logging.Dir = pick(near.Logging.Dir, far.Logging.Dir)
 	near.Logging.Include = pick(near.Logging.Include, far.Logging.Include)
-	near.Defaults = mergeExtras(near.Defaults, far.Defaults)
+	near.Pool = mergeExtras(near.Pool, far.Pool)
 }
 
 // mergeExtras takes each unset field from the farther defaults.
@@ -675,6 +712,11 @@ func parse(b []byte) (*Config, error) {
 
 // stripComments removes // and /* */ comments so JSONC configs load. It is
 // string-literal aware.
+// StripJSONC removes JSONC comments, string-literal aware. Exported so that
+// anything else reading the same files parses them the same way; a file that
+// loads here and fails elsewhere is the worst kind of inconsistency.
+func StripJSONC(b []byte) []byte { return stripComments(b) }
+
 func stripComments(b []byte) []byte {
 	var out strings.Builder
 	out.Grow(len(b))

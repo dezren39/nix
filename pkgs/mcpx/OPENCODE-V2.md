@@ -1,5 +1,14 @@
 # opencode v2 Code Mode vs mcpx
 
+> **Corrections, 2026-09-29.** Checked against the pinned sources. Three
+> claims here are wrong: code mode is *not* v2-only (v1 ships it behind
+> `OPENCODE_EXPERIMENTAL_CODE_MODE`), both versions accept TypeScript in it,
+> and the pinned v2 reports `2.0.3` rather than `2.0.18`. The conclusion
+> about one MCP connection per server per location, and what that does to
+> Chrome sharing, still holds. See
+> [`docs/opencode-plugin.md`](./docs/opencode-plugin.md).
+
+
 Reviewed against `anomalyco/opencode` branch `v2` at `37049a5` (2026-09-26), and
 the build pinned in `~/.config/nix` (`d0a9028`, v2.0.18).
 
@@ -120,12 +129,12 @@ TypeScript is rejected rather than stripped — programs are JavaScript.
 | Runtime | purpose-built JS interpreter | real deno / bun / node |
 | Language | JS subset, no classes or constructors | full TypeScript |
 | Confinement | strong: only implemented features exist | none (you said you didn't want it) |
-| Discovery | budgeted catalog in instructions + in-program `search()` | `mcpx ls` / `search` / `types`, outside context entirely |
+| Discovery | budgeted catalog in instructions + in-program `search()` | budgeted catalog, in-program `search()`/`describe()`, plus CLI outside context entirely |
 | Always-on context cost | one `execute` tool + ~2 KB catalog | zero |
 | MCP processes | one per server per workspace, shared by all sessions | `shared` / `pooled` / `session` pools |
 | Stateful server isolation | `_meta` sessionID hint; server must opt in | real, one process per run; verified |
 | Remote MCP | Streamable HTTP + OAuth + elicitation | Streamable HTTP, no OAuth |
-| OpenAPI specs as tools | yes (`OpenAPI.fromSpec`) | no |
+| OpenAPI specs as tools | yes (`OpenAPI.fromSpec`) | yes (`mcpx api`, `paths.apis`) |
 | Portable to other agents | no | yes |
 | Implementation | ~10.8 k LOC interpreter + ~2.7 k glue, TypeScript/Effect | ~4.2 k LOC, Go, no dependencies |
 | Tests | 34 files / 20 k lines, incl. test262 | 84 tests |
@@ -147,6 +156,49 @@ outside a model turn can reach its interpreter.
 The overlap is narrower than it first appears, and it shrinks further once you
 notice that the specific thing that pushed you off lootbox — concurrent Chrome —
 is unsolved in v2 as well.
+
+## Parity, revisited (2026-09-28)
+
+Three of the gaps in the table above are closed.
+
+**OpenAPI specifications as tools.** `mcpx api --spec <path-or-url>` builds
+tools from an OpenAPI 3.x or Swagger 2.0 document, and `paths.apis` declares
+them permanently. They appear over MCP alongside everything else.
+
+Two things this had to get right that are easy to get wrong. A relative server
+URL -- the Swagger petstore declares `/api/v3` -- resolves against wherever
+the document was fetched; unresolved it produces a request with no scheme,
+which fails looking like a network problem. And only read methods are exposed
+by default: a specification describes what a service *can* do, not what you
+meant to allow, and the difference between listing orders and cancelling them
+should be a deliberate keystroke.
+
+**In-program `search()`.** Available inside every script, synchronous, because
+everything it searches is already in the generated client. Without it,
+discovering a tool means ending the script, running `mcpx search`, and writing
+a new one -- for a model that is a whole turn, and the intermediate result
+passes through its context on the way. `describe("ns.tool")` is the companion:
+found something, now what does it take.
+
+**Catalog diffs.** `Fingerprint` and `Diff` express a catalog as what changed,
+and `ShorterOf` sends whichever of the full catalog and the diff is smaller --
+because when almost everything has changed a diff costs more, and the reader
+would have to reconstruct the whole from a list of changes.
+
+### Still theirs
+
+- **The interpreter.** They run a purpose-built JavaScript evaluator; mcpx
+  runs real Deno. Theirs confines by only implementing what it implements,
+  which is a genuinely stronger posture than permissions. mcpx runs full
+  TypeScript instead, which was the deliberate trade.
+- **Elicitation and OAuth** for remote servers.
+
+### Still mcpx's
+
+Everything outside a model turn, and real process isolation for stateful
+servers. Both unchanged.
+
+2026-09-28T13:00:00-05:00
 
 ## Recommendation
 
