@@ -184,7 +184,12 @@ func TestEraCacheAcrossStarts(t *testing.T) {
 	t.Run("2026-07-28/era-cache/corrupt-file-is-ignored-and-rewritten", func(t *testing.T) {
 		s := newEraServer(t, "legacy-32601", nil)
 		file := filepath.Join(t.TempDir(), "eras.json")
-		for _, junk := range []string{`{"version":1,"servers":{"x":`, `not json`, `{"version":999,"servers":{}}`} {
+		// The wrong-version case names this very server as legacy: accepted,
+		// it would skip the probe, so the assertion below tells them apart.
+		other, _ := json.Marshal(map[string]any{"version": 999, "servers": map[string]any{
+			pool.Identity(s.cfg): map[string]any{"era": "legacy", "source": "probe"},
+		}})
+		for _, junk := range []string{`{"version":1,"servers":{"x":`, `not json`, string(other)} {
 			if err := os.WriteFile(file, []byte(junk), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -274,6 +279,39 @@ func TestPoolProbe(t *testing.T) {
 		startOnce(t, p)
 		if got := s.frames(t); len(got) == 0 || got[0] != "server/discover" {
 			t.Errorf("frames = %v", got)
+		}
+	})
+}
+
+func TestEraIdentity(t *testing.T) {
+	mk := func(max int, headers map[string]string) *config.Resolved {
+		cfg := &config.Config{MCPServers: map[string]*config.Server{
+			"s": {Name: "s", Command: "x", URL: "", Headers: headers, Env: map[string]string{"B": "2", "A": "1"},
+				Mcpx: &config.Extras{Max: max}},
+		}}
+		r, err := cfg.Resolve("s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	h := map[string]string{"a": "1", "b": "2", "c": "3", "d": "4", "e": "5", "f": "6"}
+	t.Run("upstream/era-identity-ignores-leasing-knobs", func(t *testing.T) {
+		if pool.Identity(mk(1, h)) != pool.Identity(mk(9, h)) {
+			t.Error("max does not change what a server speaks")
+		}
+	})
+	t.Run("upstream/era-identity-is-deterministic", func(t *testing.T) {
+		want := pool.Identity(mk(1, h))
+		for i := 0; i < 50; i++ {
+			if pool.Identity(mk(1, h)) != want {
+				t.Fatal("identity differs between computations of the same config")
+			}
+		}
+	})
+	t.Run("upstream/era-identity-follows-the-process-definition", func(t *testing.T) {
+		if pool.Identity(mk(1, h)) == pool.Identity(mk(1, map[string]string{"a": "other"})) {
+			t.Error("different headers are a different server")
 		}
 	})
 }

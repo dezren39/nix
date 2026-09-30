@@ -569,6 +569,27 @@ func TestHTTPEraProbe(t *testing.T) {
 			}
 		})
 	}
+	// A 4xx whose body answers the request is that request's reply, not a
+	// transport failure.
+	t.Run("2026-07-28/http-compat/4xx-json-rpc-reply-is-delivered-as-the-reply", func(t *testing.T) {
+		srv, _ := httpServer(t, func(m string, id json.RawMessage, _ *http.Request) (int, string) {
+			if m == "server/discover" {
+				b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": discoverResult("2026-07-28")})
+				return 200, string(b)
+			}
+			b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "error": rpcErr(-32602, "Unknown tool: nope", nil)})
+			return 400, string(b)
+		})
+		c, err := dialHTTP(t, srv.URL, mcpclient.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = c.CallTool(context.Background(), "nope", nil)
+		var he *mcpclient.HTTPStatusError
+		if err == nil || errors.As(err, &he) || !strings.Contains(err.Error(), "mcp error -32602") {
+			t.Errorf("err = %v", err)
+		}
+	})
 	t.Run("2026-07-28/http-compat/legacy-refused-too-is-typed-for-http-sse", func(t *testing.T) {
 		srv, _ := httpServer(t, func(string, json.RawMessage, *http.Request) (int, string) { return 405, "" })
 		_, err := dialHTTP(t, srv.URL, mcpclient.Options{})
