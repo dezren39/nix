@@ -48,15 +48,17 @@ a tokeniser, a SQLite driver — and the trade should be stated here.
 
 | Program | Needed for | If missing |
 | --- | --- | --- |
-| `git` | `repo` and `worktree` scopes | those scopes degrade to `cwd`, with a log line saying git is absent |
+| `git` | `repo` and `worktree` scopes, for repository layouts native discovery does not read | only those layouts degrade to `cwd`, with a log line and a `doctor` warning saying why |
 | `deno`, `bun` or `node` | `mcpx run` and `mcpx exec` | those commands fail; `mcpx call`, `ls`, `types`, `catalog`, `search` still work |
 | the configured MCP servers | their own namespaces | that namespace reports `error` with the server's stderr |
 
-**git** is invoked as `git rev-parse [--path-format=absolute] --git-common-dir`
-and `--show-toplevel`, with results cached per directory for the daemon's
-lifetime. `--path-format=absolute` needs git 2.31 (March 2021); there is a
-fallback that absolutises the relative answer by hand, so older git still
-works. Nothing else about git is used — no fetching, no writing, no config.
+**git** is optional. mcpx finds a repository by reading `.git` itself --
+a port of git's discovery rules, `docs/git-discovery.md` -- and runs `git
+rev-parse --path-format=absolute --git-common-dir --show-toplevel` only for a
+layout that port does not vouch for, such as a repository format newer than
+it knows. That needs git 2.31 (March 2021); an older git's answer is refused
+rather than misread. Nothing else about git is used — no fetching, no
+writing, no config.
 
 **A JavaScript runtime** is chosen at first use: deno, then bun, then node.
 Override with `--runtime` or the `runtime` config key. Deno runs with

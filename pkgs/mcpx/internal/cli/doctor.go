@@ -60,13 +60,12 @@ func (a *App) CmdDoctor(ctx context.Context, args []string) error {
 		add(check{"runtime", "ok", strings.Join(found, ", "), ""})
 	}
 
-	// git backs the repo and worktree scopes; without it they degrade
-	// silently to per-directory keys, which is the worst kind of wrong.
-	if p, err := exec.LookPath("git"); err != nil {
-		add(check{"git", "warn", "not on PATH",
-			"the repo and worktree scopes fall back to per-directory keys without it"})
-	} else {
-		add(check{"git", "ok", p, ""})
+	// The repo and worktree scopes, resolved from here. Native discovery
+	// does not need git, so its absence is only reported when a repository
+	// here needs it.
+	if wd, err := os.Getwd(); err == nil {
+		st, detail, fix := config.DiagnoseGit(wd)
+		add(check{"git", st, detail, fix})
 	}
 
 	// Settings. A contradiction here stops everything, so it is worth

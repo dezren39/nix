@@ -246,3 +246,29 @@ func TestWorktreeKeysAreSymlinkCanonical(t *testing.T) {
 		t.Fatalf("worktree key must be symlink-stable: %q vs %q", a, b)
 	}
 }
+
+func TestOnlyKeysTheCallerMintedAreCallerOwned(t *testing.T) {
+	eph := config.CallContext{SessionID: "mine", PID: 77, CallID: "c", Ephemeral: true}
+	for _, key := range []string{"call:c", "session:mine", "pid:77"} {
+		if !eph.CallerOwned(key) {
+			t.Errorf("%q is built from this caller's own identity and should be released with it", key)
+		}
+	}
+	// Keys another caller resolves to as well. Releasing these stopped
+	// shared servers at the end of every sessionless exec.
+	for _, key := range []string{"global", "repo:/r/.git", "worktree:/r", "cwd:/r",
+		"session:other", "psession:mine", "pid:78"} {
+		if eph.CallerOwned(key) {
+			t.Errorf("%q can be shared, so an ephemeral caller must not own it", key)
+		}
+	}
+	// A host-assigned session is shared with sibling runs.
+	hosted := eph
+	hosted.Ephemeral = false
+	if hosted.CallerOwned("session:mine") || hosted.CallerOwned("pid:77") {
+		t.Error("a host-assigned session is not the caller's to release")
+	}
+	if !hosted.CallerOwned("call:c") {
+		t.Error("a per-call key is always the caller's")
+	}
+}
