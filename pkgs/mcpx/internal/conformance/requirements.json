@@ -9632,7 +9632,7 @@
     "url": "https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#notifications",
     "quote": "\"Servers can push status updates via `notifications/tasks`. Clients opt into these through the `subscriptions/listen` mechanism.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:a MAY mcpx does not take: it declares no tasks extension upstream",
       "server": "applies"
     },
     "notes": {
@@ -9879,7 +9879,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-scope-field",
     "quote": "\"`\"public\"` … Any client, shared gateway, or caching proxy **MAY** store and serve the cached response to any user.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:informational -- permits sharing a public result across users; imposes nothing",
       "server": "n/a:catalogue marks it n/a"
     },
     "notes": {
@@ -10108,7 +10108,7 @@
     "quote": "\"Servers for which a given `requestState` must be consumed at most once … **MUST** enforce that invariant server-side.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:binds only a server whose requestState must be consumed once; mcpx's is re-minted every round and replaying it re-enters the same running call"
     },
     "notes": {
       "client": "n/a",
@@ -10417,7 +10417,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment",
     "quote": "\"The client **SHOULD** check the acknowledged filter against what it requested and handle any unsupported types gracefully.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx never opens subscriptions/listen upstream (#208), so there is no acknowledgement to check",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -10455,7 +10455,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#receiving-notifications",
     "quote": "\"On stdio, where all messages share a single channel, clients **MUST** use this field to correlate notifications with their originating subscription.\" (stdio.mdx repeats)",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx never opens subscriptions/listen upstream (#208)",
       "server": "n/a:addresses the other side"
     },
     "notes": {

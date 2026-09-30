@@ -10,7 +10,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 |---|---|---|---|---|---|---|---|
 | 2024-11-05 | server | MUST | 32 | 21 | 1 | 10 | 22 |
 | 2024-11-05 | server | MUST NOT | 6 | 6 | 0 | 0 | 4 |
-| 2024-11-05 | server | SHOULD | 36 | 18 | 3 | 15 | 45 |
+| 2024-11-05 | server | SHOULD | 36 | 20 | 3 | 13 | 45 |
 | 2024-11-05 | server | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
 | 2024-11-05 | server | MAY | 10 | 6 | 1 | 3 | 14 |
 | 2024-11-05 | server | other | 11 | 7 | 0 | 4 | 1 |
@@ -22,7 +22,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | 2024-11-05 | client | other | 7 | 6 | 0 | 1 | 5 |
 | 2025-03-26 | server | MUST | 51 | 32 | 8 | 11 | 30 |
 | 2025-03-26 | server | MUST NOT | 7 | 7 | 0 | 0 | 8 |
-| 2025-03-26 | server | SHOULD | 50 | 26 | 9 | 15 | 53 |
+| 2025-03-26 | server | SHOULD | 50 | 28 | 9 | 13 | 53 |
 | 2025-03-26 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
 | 2025-03-26 | server | MAY | 19 | 13 | 3 | 3 | 18 |
 | 2025-03-26 | server | other | 11 | 7 | 0 | 4 | 1 |
@@ -34,7 +34,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | 2025-03-26 | client | other | 7 | 6 | 0 | 1 | 5 |
 | 2025-06-18 | server | MUST | 65 | 37 | 14 | 14 | 36 |
 | 2025-06-18 | server | MUST NOT | 10 | 8 | 1 | 1 | 8 |
-| 2025-06-18 | server | SHOULD | 52 | 26 | 8 | 18 | 63 |
+| 2025-06-18 | server | SHOULD | 52 | 28 | 8 | 16 | 63 |
 | 2025-06-18 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
 | 2025-06-18 | server | MAY | 17 | 11 | 2 | 4 | 18 |
 | 2025-06-18 | server | other | 15 | 7 | 0 | 8 | 3 |
@@ -44,29 +44,29 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | 2025-06-18 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
 | 2025-06-18 | client | MAY | 19 | 10 | 2 | 7 | 16 |
 | 2025-06-18 | client | other | 10 | 6 | 0 | 4 | 8 |
-| 2025-11-25 | server | MUST | 115 | 45 | 16 | 54 | 65 |
-| 2025-11-25 | server | MUST NOT | 22 | 8 | 1 | 13 | 13 |
-| 2025-11-25 | server | SHOULD | 78 | 29 | 10 | 39 | 81 |
-| 2025-11-25 | server | SHOULD NOT | 11 | 2 | 1 | 8 | 3 |
-| 2025-11-25 | server | MAY | 27 | 13 | 2 | 12 | 28 |
+| 2025-11-25 | server | MUST | 115 | 60 | 21 | 34 | 65 |
+| 2025-11-25 | server | MUST NOT | 22 | 9 | 2 | 11 | 13 |
+| 2025-11-25 | server | SHOULD | 78 | 37 | 15 | 26 | 81 |
+| 2025-11-25 | server | SHOULD NOT | 11 | 7 | 1 | 3 | 3 |
+| 2025-11-25 | server | MAY | 27 | 18 | 2 | 7 | 28 |
 | 2025-11-25 | server | other | 19 | 10 | 0 | 9 | 2 |
 | 2025-11-25 | client | MUST | 82 | 35 | 17 | 30 | 98 |
-| 2025-11-25 | client | MUST NOT | 16 | 9 | 4 | 3 | 19 |
-| 2025-11-25 | client | SHOULD | 74 | 18 | 21 | 35 | 85 |
-| 2025-11-25 | client | SHOULD NOT | 5 | 2 | 1 | 2 | 9 |
-| 2025-11-25 | client | MAY | 24 | 11 | 3 | 10 | 31 |
+| 2025-11-25 | client | MUST NOT | 16 | 10 | 4 | 2 | 19 |
+| 2025-11-25 | client | SHOULD | 74 | 19 | 21 | 34 | 85 |
+| 2025-11-25 | client | SHOULD NOT | 5 | 3 | 1 | 1 | 9 |
+| 2025-11-25 | client | MAY | 24 | 12 | 3 | 9 | 31 |
 | 2025-11-25 | client | other | 13 | 8 | 0 | 5 | 8 |
-| 2026-07-28 | server | MUST | 134 | 55 | 19 | 60 | 90 |
-| 2026-07-28 | server | MUST NOT | 46 | 25 | 1 | 20 | 18 |
-| 2026-07-28 | server | SHOULD | 74 | 30 | 13 | 31 | 86 |
+| 2026-07-28 | server | MUST | 133 | 73 | 21 | 39 | 91 |
+| 2026-07-28 | server | MUST NOT | 46 | 28 | 1 | 17 | 18 |
+| 2026-07-28 | server | SHOULD | 74 | 35 | 13 | 26 | 86 |
 | 2026-07-28 | server | SHOULD NOT | 12 | 4 | 2 | 6 | 8 |
-| 2026-07-28 | server | MAY | 31 | 15 | 2 | 14 | 30 |
-| 2026-07-28 | server | other | 23 | 10 | 1 | 12 | 4 |
-| 2026-07-28 | client | MUST | 97 | 33 | 31 | 33 | 127 |
-| 2026-07-28 | client | MUST NOT | 26 | 14 | 4 | 8 | 38 |
-| 2026-07-28 | client | SHOULD | 83 | 21 | 19 | 43 | 77 |
-| 2026-07-28 | client | SHOULD NOT | 13 | 6 | 1 | 6 | 7 |
-| 2026-07-28 | client | MAY | 23 | 8 | 3 | 12 | 38 |
+| 2026-07-28 | server | MAY | 31 | 17 | 2 | 12 | 30 |
+| 2026-07-28 | server | other | 23 | 14 | 1 | 8 | 4 |
+| 2026-07-28 | client | MUST | 96 | 36 | 31 | 29 | 128 |
+| 2026-07-28 | client | MUST NOT | 26 | 17 | 6 | 3 | 38 |
+| 2026-07-28 | client | SHOULD | 82 | 21 | 26 | 35 | 78 |
+| 2026-07-28 | client | SHOULD NOT | 13 | 7 | 1 | 5 | 7 |
+| 2026-07-28 | client | MAY | 21 | 8 | 4 | 9 | 40 |
 | 2026-07-28 | client | other | 13 | 7 | 0 | 6 | 14 |
 
 ## 2024-11-05
@@ -321,8 +321,8 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | **MISSING** | n/a: addresses the other side |
+| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestStatefulServer/2024-11-05/subscriptions/subscriptions-list-changed-should-notify` | n/a: addresses the other side |
+| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | tested: `conformance.TestStatefulServer/2024-11-05/subscriptions/subscriptions-resources-updated-only-if-subscribed` | n/a: addresses the other side |
 
 ### tools
 
@@ -670,8 +670,8 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | **MISSING** | n/a: addresses the other side |
+| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestStatefulServer/2025-03-26/subscriptions/subscriptions-list-changed-should-notify` | n/a: addresses the other side |
+| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | tested: `conformance.TestStatefulServer/2025-03-26/subscriptions/subscriptions-resources-updated-only-if-subscribed` | n/a: addresses the other side |
 
 ### tools
 
@@ -1091,8 +1091,8 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | **MISSING** | n/a: addresses the other side |
+| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestStatefulServer/2025-06-18/subscriptions/subscriptions-list-changed-should-notify` | n/a: addresses the other side |
+| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | tested: `conformance.TestStatefulServer/2025-06-18/subscriptions/subscriptions-resources-updated-only-if-subscribed` | n/a: addresses the other side |
 
 ### tools
 
@@ -1628,69 +1628,69 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | **MISSING** | n/a: addresses the other side |
+| [subscriptions-list-changed-should-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestStatefulServer/2025-11-25/subscriptions/subscriptions-list-changed-should-notify` | n/a: addresses the other side |
+| [subscriptions-resources-updated-only-if-subscribed](https://modelcontextprotocol.io/specification/2025-11-25/schema#resourceupdatednotification) | should (schema) | server | tested: `conformance.TestStatefulServer/2025-11-25/subscriptions/subscriptions-resources-updated-only-if-subscribed` | n/a: addresses the other side |
 
 ### tasks
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [tasks-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#capabilities) | MUST | both (receiver) | **MISSING** | n/a: optional feature mcpx does not implement |
-| [tasks-augment-only-if-declared](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#capability-negotiation) | SHOULD | both (requestor) | **MISSING** | **MISSING** |
-| [tasks-no-capability-no-tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#capability-negotiation) | SHOULD NOT | both (requestor) | **MISSING** | **MISSING** |
-| [tasks-tool-no-cap-no-augment](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [tasks-tool-forbidden-default](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation) | MUST NOT / SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#capabilities) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-declare-capability` | n/a: optional feature mcpx does not implement |
+| [tasks-augment-only-if-declared](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#capability-negotiation) | SHOULD | both (requestor) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-augment-only-if-declared` | tested: `conformance.TestStatefulClient/2025-11-25/tasks/tasks-augment-only-if-declared` |
+| [tasks-no-capability-no-tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#capability-negotiation) | SHOULD NOT | both (requestor) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-no-capability-no-tasks` | tested: `conformance.TestStatefulClient/2025-11-25/tasks/tasks-no-capability-no-tasks` |
+| [tasks-tool-no-cap-no-augment](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2025-11-25/tasks/tasks-tool-no-cap-no-augment` |
+| [tasks-tool-forbidden-default](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation) | MUST NOT / SHOULD | both | **gap** #209: no mcpx tool declares execution.taskSupport, yet every task-augmented tools/call is accepted | n/a: catalogue marks it n/a |
 | [tasks-tool-optional](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation) | MAY | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
 | [tasks-tool-required](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation) | MUST | both | n/a: never required | n/a: mcpx ignores upstream `execution.taskSupport`; a `required` upstream tool would be called plainly and fail |
-| [tasks-requestor-may-ttl](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#creating-tasks) | MAY | both (requestor) | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-requestor-may-ttl](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#creating-tasks) | MAY | both (requestor) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-requestor-may-ttl` | n/a: catalogue marks it n/a |
 | [tasks-poll-respect-interval](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#getting-tasks) | SHOULD | both (requestor) | n/a: catalogue marks it n/a | n/a: no upstream tasks |
 | [tasks-poll-until-terminal](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#getting-tasks) | SHOULD | both (requestor) | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [tasks-sse-client-may-disconnect](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#getting-tasks) | MAY / MUST | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
-| [tasks-status-notification-optional](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-notifications) | MAY / MUST NOT | both | n/a: optional feature mcpx does not implement | **MISSING** |
-| [tasks-status-notification-no-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-notifications) | SHOULD NOT | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-receiver-without-cap-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-support-and-handling) | MUST | both (receiver) | **MISSING** | n/a: mcpx declares no client task caps; unverified whether it strips `task` from an upstream `sampling/createMessage` |
+| [tasks-status-notification-optional](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-notifications) | MAY / MUST NOT | both | n/a: optional feature mcpx does not implement | tested: `conformance.TestStatefulClient/2025-11-25/tasks/tasks-status-notification-optional` |
+| [tasks-status-notification-no-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-notifications) | SHOULD NOT | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-status-notification-no-related-task` | n/a: catalogue marks it n/a |
+| [tasks-receiver-without-cap-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-support-and-handling) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-receiver-without-cap-ignore` | n/a: mcpx declares no client task caps; unverified whether it strips `task` from an upstream `sampling/createMessage` |
 | [tasks-receiver-may-require](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-support-and-handling) | MAY | both (receiver) | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [tasks-id-string-receiver-unique](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-id-requirements) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-begin-working](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-valid-transitions](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-terminal-immutable](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST NOT | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-input-required-move](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-input-request-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-id-string-receiver-unique](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-id-requirements) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-id-string-receiver-unique` | n/a: catalogue marks it n/a |
+| [tasks-begin-working](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-begin-working` | n/a: catalogue marks it n/a |
+| [tasks-valid-transitions](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-valid-transitions` | n/a: catalogue marks it n/a |
+| [tasks-terminal-immutable](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST NOT | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-terminal-immutable` | n/a: catalogue marks it n/a |
+| [tasks-input-required-move](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-input-required-move` | n/a: catalogue marks it n/a |
+| [tasks-input-request-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | MUST | both (receiver) | **gap** #209: io.modelcontextprotocol/related-task is never written | n/a: catalogue marks it n/a |
 | [tasks-requestor-input-required-call-result](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (requestor) | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [tasks-leave-input-required](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-leave-input-required](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-leave-input-required` | n/a: catalogue marks it n/a |
 | [tasks-sse-any-stream](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
-| [tasks-sse-no-upgrade-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [tasks-timestamps](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-ttl-override-report](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MAY / MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-delete-after-ttl](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MAY | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-poll-interval](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MAY / SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-return-createtaskresult](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST / SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-result-terminal-final](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-result-blocks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-result-exact](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-related-task-all-messages](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-taskid-param-authoritative](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST / SHOULD NOT | both | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-no-related-task-in-get-list-cancel-results](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | SHOULD NOT | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-result-response-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#related-task-metadata) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-list-paginate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | SHOULD / MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-sse-no-upgrade-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD NOT | server | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-sse-no-upgrade-get` | n/a: addresses the other side |
+| [tasks-timestamps](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-timestamps` | n/a: catalogue marks it n/a |
+| [tasks-ttl-override-report](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MAY / MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-ttl-override-report` | n/a: catalogue marks it n/a |
+| [tasks-delete-after-ttl](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MAY | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-delete-after-ttl` | n/a: catalogue marks it n/a |
+| [tasks-poll-interval](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management) | MAY / SHOULD | both | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-poll-interval` | n/a: catalogue marks it n/a |
+| [tasks-return-createtaskresult](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST / SHOULD | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-return-createtaskresult` | n/a: catalogue marks it n/a |
+| [tasks-result-terminal-final](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-result-terminal-final` | n/a: catalogue marks it n/a |
+| [tasks-result-blocks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-result-blocks` | n/a: catalogue marks it n/a |
+| [tasks-result-exact](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-result-exact` | n/a: catalogue marks it n/a |
+| [tasks-related-task-all-messages](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST | both | **gap** #209: io.modelcontextprotocol/related-task is never written | n/a: catalogue marks it n/a |
+| [tasks-taskid-param-authoritative](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST / SHOULD NOT | both | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-taskid-param-authoritative` | n/a: catalogue marks it n/a |
+| [tasks-no-related-task-in-get-list-cancel-results](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | SHOULD NOT | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-no-related-task-in-get-list-cancel-results` | n/a: catalogue marks it n/a |
+| [tasks-result-response-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#related-task-metadata) | MUST | both (receiver) | **gap** #209: io.modelcontextprotocol/related-task is never written | n/a: catalogue marks it n/a |
+| [tasks-list-paginate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | SHOULD / MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-list-paginate` | n/a: catalogue marks it n/a |
 | [tasks-list-cursor-opaque](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | MUST | both (requestor) | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [tasks-get-implies-list](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-cancel-terminal-reject](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-cancel-transition-before-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | SHOULD / MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-cancelled-sticky](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-cancelled-may-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | MAY / SHOULD NOT | both | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-protocol-errors](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#protocol-errors) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-informative-errors](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#protocol-errors) | SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-failed-status-message](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-execution-errors) | SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-result-same-error](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-execution-errors) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-get-implies-list](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | MUST | both (receiver) | **gap** #209: a task started on a connection without an identity can be read by tasks/get and is never listed | n/a: catalogue marks it n/a |
+| [tasks-cancel-terminal-reject](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-cancel-terminal-reject` | n/a: catalogue marks it n/a |
+| [tasks-cancel-transition-before-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | SHOULD / MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-cancel-transition-before-response` | n/a: catalogue marks it n/a |
+| [tasks-cancelled-sticky](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-cancelled-sticky` | n/a: catalogue marks it n/a |
+| [tasks-cancelled-may-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation) | MAY / SHOULD NOT | both | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-cancelled-may-delete` | n/a: catalogue marks it n/a |
+| [tasks-protocol-errors](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#protocol-errors) | MUST | both (receiver) | **gap** #209: an invalid tasks/list cursor restarts at the first page instead of -32602 | n/a: catalogue marks it n/a |
+| [tasks-informative-errors](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#protocol-errors) | SHOULD | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-informative-errors` | n/a: catalogue marks it n/a |
+| [tasks-failed-status-message](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-execution-errors) | SHOULD | both (receiver) | **gap** #209: a task failed by an isError tool result carries no statusMessage | n/a: catalogue marks it n/a |
+| [tasks-result-same-error](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-execution-errors) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-result-same-error` | n/a: catalogue marks it n/a |
 | [tasks-bind-auth-context](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | MUST | both (receiver) | n/a: optional feature mcpx does not implement | n/a: catalogue marks it n/a |
-| [tasks-document-unbound](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-unbound-secure-ids](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-unidentified-no-list](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | SHOULD NOT | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-document-unbound](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | SHOULD | both (receiver) | **gap** #209: nothing user-facing documents that an unowned task is reachable by anyone holding its id | n/a: catalogue marks it n/a |
+| [tasks-unbound-secure-ids](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-unbound-secure-ids` | n/a: catalogue marks it n/a |
+| [tasks-unidentified-no-list](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | SHOULD NOT | both (receiver) | tested: `mcpserver.TestTasksPerEra/2025-11-25/tasks/another-connection-cannot-list-or-read-it` | n/a: catalogue marks it n/a |
 | [tasks-bound-reject-foreign](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | MUST | both (receiver) | n/a: no context | n/a: catalogue marks it n/a |
-| [tasks-rate-limit](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-resource-limits](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#resource-management) | SHOULD | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [tasks-audit](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#audit-and-logging) | SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [tasks-rate-limit](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control) | SHOULD | both (receiver) | **gap** #209: tasks/* has no rate limit | n/a: catalogue marks it n/a |
+| [tasks-resource-limits](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#resource-management) | SHOULD | both (receiver) | **gap** #209: no maximum ttl and no cap on concurrent tasks per requestor | n/a: catalogue marks it n/a |
+| [tasks-audit](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#audit-and-logging) | SHOULD | both | **gap** #209: task creation, completion and retrieval are not logged | n/a: catalogue marks it n/a |
 
 ### tools
 
@@ -1890,25 +1890,25 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [caching-server-must-hint](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cacheable-results) | MUST* | server | **MISSING** | n/a: addresses the other side |
-| [caching-input-required-no-hints](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cacheable-results) | descr. | server | **MISSING** | n/a: addresses the other side |
-| [caching-key-method-params](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-key) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [caching-no-cache-mrtr-retries](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-key) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [caching-ttl-zero-stale](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [caching-ttl-positive-fresh](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [caching-ttl-absent-zero](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [caching-ttl-negative-zero](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [caching-ttl-non-negative](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [caching-stale-refetch](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#freshness-calculation) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [caching-ttl-not-poll](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#freshness-calculation) | SHOULD NOT / MUST | client | n/a: addresses the other side | **MISSING** |
-| [caching-may-refetch-early-serve-stale](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#freshness-calculation) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [caching-public-shareable](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-scope-field) | MAY | both | n/a: catalogue marks it n/a | **MISSING** |
-| [caching-private-no-cross-auth](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-scope-field) | MUST NOT | both (any cache) | n/a: catalogue marks it n/a | **MISSING** |
-| [caching-notification-invalidates](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#interaction-with-notifications) | descr. (lowercase should) | client | n/a: addresses the other side | **MISSING** |
-| [caching-page-refetch](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#interaction-with-pagination) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [caching-page-same-scope](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#interaction-with-pagination) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [caching-server-must-hint](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cacheable-results) | MUST* | server | tested: `mcpserver.TestModernEnvelope/2026-07-28/caching/resources-read-has-ttlMs-and-cacheScope`<br>`mcpserver.TestModernEnvelope/2026-07-28/caching/server-discover-has-ttlMs-and-cacheScope`<br>`mcpserver.TestModernEnvelope/2026-07-28/caching/tools-list-has-ttlMs-and-cacheScope` | n/a: addresses the other side |
+| [caching-input-required-no-hints](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cacheable-results) | descr. | server | tested: `mcpserver.TestMRTRServerRules/2026-07-28/mrtr/requestState-is-bound-to-the-originating-request` | n/a: addresses the other side |
+| [caching-key-method-params](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-key) | MUST NOT | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-no-cache-mrtr-retries](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-key) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2026-07-28/caching/caching-no-cache-mrtr-retries` |
+| [caching-ttl-zero-stale](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-ttl-positive-fresh](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-ttl-absent-zero](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-ttl-negative-zero](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | SHOULD | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-ttl-non-negative](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field) | MUST | server | tested: `conformance.TestStatefulServer/2026-07-28/caching/caching-ttl-non-negative` | n/a: addresses the other side |
+| [caching-stale-refetch](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#freshness-calculation) | SHOULD | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-ttl-not-poll](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#freshness-calculation) | SHOULD NOT / MUST | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2026-07-28/caching/caching-ttl-not-poll` |
+| [caching-may-refetch-early-serve-stale](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#freshness-calculation) | MAY | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-public-shareable](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-scope-field) | MAY | both | n/a: catalogue marks it n/a | n/a: informational -- permits sharing a public result across users; imposes nothing |
+| [caching-private-no-cross-auth](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-scope-field) | MUST NOT | both (any cache) | n/a: catalogue marks it n/a | **gap** #200: cacheScope is ignored, so a private upstream list is served to every downstream caller |
+| [caching-notification-invalidates](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#interaction-with-notifications) | descr. (lowercase should) | client | n/a: addresses the other side | **gap** #208: a modern upstream is never subscribed to (no subscriptions/listen), so its list_changed never arrives to invalidate anything |
+| [caching-page-refetch](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#interaction-with-pagination) | SHOULD | client | n/a: addresses the other side | **gap** #200: the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart |
+| [caching-page-same-scope](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#interaction-with-pagination) | MUST | server | tested: `mcpserver.TestModernEnvelope/2026-07-28/caching/every-page-has-the-same-cacheScope` | n/a: addresses the other side |
 | [caching-server-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#security-considerations) | MUST* / MUST NOT* | server | n/a: until hints are emitted; mcpx has no per-primitive access control (see authorization area | n/a: addresses the other side |
-| [cache-ttl-scope-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#discoverresult) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
+| [cache-ttl-scope-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#discoverresult) | REQUIRED (schema) | server | tested: `mcpserver.TestModernEnvelope/2026-07-28/caching/prompts-list-has-ttlMs-and-cacheScope`<br>`mcpserver.TestModernEnvelope/2026-07-28/caching/tools-list-has-ttlMs-and-cacheScope` | n/a: addresses the other side |
 
 ### cancellation
 
@@ -2158,23 +2158,23 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [mrtr-server-requests-via-mrtr](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-requeststate-opaque-client](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#inputrequiredresult) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [mrtr-supported-requests-only](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#supported-requests) | MAY / MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-inputrequests-keys-values](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-requeststate-attacker-controlled](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-requeststate-replay-fields](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-single-use-enforced](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-at-least-one-field](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-only-declared-capabilities](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-no-assume-retry](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST NOT / MAY | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-client-fulfil-before-retry](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST / MAY | client | n/a: addresses the other side | **MISSING** |
-| [mrtr-client-echo-state](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST / MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [mrtr-new-id-on-retry](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [mrtr-no-cross-request-use](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [mrtr-server-validate-responses](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-input-request-type-restricted](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [mrtr-server-reask-missing-rather-than-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [mrtr-server-requests-via-mrtr](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr) | MUST | server | tested: `mcpserver.TestElicitationPerEra/2026-07-28/elicitation/inputRequests-carry-no-elicitationId` | n/a: addresses the other side |
+| [mrtr-requeststate-opaque-client](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#inputrequiredresult) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2026-07-28/mrtr/mrtr-requeststate-opaque-client` |
+| [mrtr-supported-requests-only](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#supported-requests) | MAY / MUST NOT | server | tested: `conformance.TestStatefulServer/2026-07-28/mrtr/mrtr-supported-requests-only` | n/a: addresses the other side |
+| [mrtr-inputrequests-keys-values](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | tested: `conformance.TestStatefulServer/2026-07-28/mrtr/mrtr-inputrequests-keys-values` | n/a: addresses the other side |
+| [mrtr-requeststate-attacker-controlled](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | tested: `mcpserver.TestMRTRServerRules/2026-07-28/mrtr/tampered-requestState-is-rejected` | n/a: addresses the other side |
+| [mrtr-requeststate-replay-fields](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | SHOULD | server | tested: `mcpserver.TestMRTRServerRules/2026-07-28/mrtr/requestState-is-bound-to-the-originating-request` | n/a: addresses the other side |
+| [mrtr-single-use-enforced](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | n/a: binds only a server whose requestState must be consumed once; mcpx's is re-minted every round and replaying it re-enters the same running call | n/a: addresses the other side |
+| [mrtr-at-least-one-field](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | tested: `conformance.TestStatefulServer/2026-07-28/mrtr/mrtr-at-least-one-field` | n/a: addresses the other side |
+| [mrtr-only-declared-capabilities](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST NOT | server | tested: `conformance.TestStatefulServer/2026-07-28/mrtr/mrtr-only-declared-capabilities` | n/a: addresses the other side |
+| [mrtr-no-assume-retry](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST NOT / MAY | server | tested: `mcpserver.TestMRTRServerRules/2026-07-28/mrtr/missing-input-response-asks-again` | n/a: addresses the other side |
+| [mrtr-client-fulfil-before-retry](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST / MAY | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2026-07-28/mrtr/mrtr-client-fulfil-before-retry` |
+| [mrtr-client-echo-state](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST / MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2026-07-28/mrtr/mrtr-client-echo-state` |
+| [mrtr-new-id-on-retry](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2026-07-28/mrtr/mrtr-new-id-on-retry` |
+| [mrtr-no-cross-request-use](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#client-requirements-basic-workflow) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestStatefulClient/2026-07-28/mrtr/mrtr-no-cross-request-use` |
+| [mrtr-server-validate-responses](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#error-handling) | SHOULD | server | tested: `conformance.TestStatefulServer/2026-07-28/mrtr/mrtr-server-validate-responses` | n/a: addresses the other side |
+| [mrtr-input-request-type-restricted](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow) | MUST | server | tested: `conformance.TestStatefulServer/2026-07-28/mrtr/mrtr-input-request-type-restricted` | n/a: addresses the other side |
+| [mrtr-server-reask-missing-rather-than-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#error-handling) | SHOULD | server | tested: `mcpserver.TestMRTRServerRules/2026-07-28/mrtr/missing-input-response-asks-again` | n/a: addresses the other side |
 
 ### pagination
 
@@ -2357,39 +2357,39 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [subscriptions-list-changed-via-listen](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-only-requested-types](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#opening-a-stream) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-ack-first-with-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment) | MUST / MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [subscriptions-list-changed-via-listen](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#list-changed-notification) | SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-sse-notifications-must-relate`<br>`mcpserver.TestHTTPListenIsAStream/2026-07-28/subscriptions/http-listen-response-is-an-open-sse-stream` | n/a: addresses the other side |
+| [subscriptions-only-requested-types](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#opening-a-stream) | MUST NOT | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/concurrent-listens-are-kept-apart`<br>`mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/unrequested-type-is-never-sent` | n/a: addresses the other side |
+| [subscriptions-ack-first-with-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment) | MUST / MUST NOT | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/acknowledged-first-with-subscriptionId-in-meta` | n/a: addresses the other side |
 | [subscriptions-stdio-ack-order-per-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment) | MAY | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [subscriptions-ack-reports-agreed-subset](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment) | descr. (schema-required field) | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-client-check-ack](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [subscriptions-tag-every-notification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-stdio-client-correlate](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#receiving-notifications) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [subscriptions-ack-reports-agreed-subset](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment) | descr. (schema-required field) | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/acknowledged-first-with-subscriptionId-in-meta` | n/a: addresses the other side |
+| [subscriptions-client-check-ack](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment) | SHOULD | client | n/a: addresses the other side | n/a: mcpx never opens subscriptions/listen upstream (#208), so there is no acknowledgement to check |
+| [subscriptions-tag-every-notification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/concurrent-listens-are-kept-apart`<br>`mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/every-notification-carries-the-subscriptionId` | n/a: addresses the other side |
+| [subscriptions-stdio-client-correlate](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#receiving-notifications) | MUST | client | n/a: addresses the other side | n/a: mcpx never opens subscriptions/listen upstream (#208) |
 | [subscriptions-multiple-concurrent](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#multiple-concurrent-subscriptions) | MAY | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
-| [subscriptions-server-teardown-respond](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#graceful-closure) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [subscriptions-listen-result-meta](https://modelcontextprotocol.io/specification/2026-07-28/schema#subscriptionslistenresult) | schema-required | server | **MISSING** | n/a: addresses the other side |
+| [subscriptions-server-teardown-respond](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#graceful-closure) | SHOULD | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/server-teardown-sends-cancelled-then-result` | n/a: addresses the other side |
+| [subscriptions-listen-result-meta](https://modelcontextprotocol.io/specification/2026-07-28/schema#subscriptionslistenresult) | schema-required | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/server-teardown-sends-cancelled-then-result` | n/a: addresses the other side |
 | [subscriptions-client-reconnect-on-drop](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#graceful-closure) | MAY | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
 | [subscriptions-stdio-resubscribe](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#graceful-closure) | MUST | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
-| [subscriptions-request-scoped-not-on-listen](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | descr. (bold "not") | server | **MISSING** | n/a: addresses the other side |
+| [subscriptions-request-scoped-not-on-listen](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | descr. (bold "not") | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/unrequested-type-is-never-sent` | n/a: addresses the other side |
 
 ### tasks
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
 | [ext-tasks-client-declare-per-request](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#how-tasks-work) | must (informal) | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [ext-tasks-server-advertise-discover](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-never-unsolicited](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-server-decides](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#why-not-just-block) | descr. | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-durable-before-response](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-createtaskresult-shape](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-get-carries-result](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-get-input-requests](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#how-tasks-work) | descr. | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-update](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **MISSING** | n/a: addresses the other side |
-| [ext-tasks-cancel-cooperative](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **MISSING** | n/a: addresses the other side |
+| [ext-tasks-server-advertise-discover](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | tested: `mcpserver.TestCapabilitiesPerRevision/2026-07-28/capabilities/tasks-only-as-extension` | n/a: addresses the other side |
+| [ext-tasks-never-unsolicited](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | tested: `mcpserver.TestTasksPerEra/2026-07-28/tasks/no-task-without-the-extension-task-param-ignored` | n/a: addresses the other side |
+| [ext-tasks-server-decides](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#why-not-just-block) | descr. | server | tested: `mcpserver.TestTasksPerEra/2026-07-28/tasks/fast-call-is-answered-directly`<br>`mcpserver.TestTasksPerEra/2026-07-28/tasks/server-directed-CreateTaskResult-is-flat` | n/a: addresses the other side |
+| [ext-tasks-durable-before-response](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **gap** #209: the task store is an in-memory map; a task does not survive the daemon | n/a: addresses the other side |
+| [ext-tasks-createtaskresult-shape](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | tested: `mcpserver.TestTasksPerEra/2026-07-28/tasks/server-directed-CreateTaskResult-is-flat` | n/a: addresses the other side |
+| [ext-tasks-get-carries-result](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | tested: `mcpserver.TestTasksPerEra/2026-07-28/tasks/server-directed-CreateTaskResult-is-flat`<br>`mcpserver.TestTasksPerEra/2026-07-28/tasks/tool-isError-is-completed-not-failed` | n/a: addresses the other side |
+| [ext-tasks-get-input-requests](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#how-tasks-work) | descr. | server | tested: `conformance.TestStatefulServer/2026-07-28/tasks/ext-tasks-get-input-requests` | n/a: addresses the other side |
+| [ext-tasks-update](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | tested: `mcpserver.TestTasksPerEra/2026-07-28/tasks/update-and-cancel-ack-empty-unknown-is-32602` | n/a: addresses the other side |
+| [ext-tasks-cancel-cooperative](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-servers) | must (informal) | server | **gap** #209: tasks/cancel forces the cancelled status rather than letting the work reach its own terminal status | n/a: addresses the other side |
 | [ext-tasks-client-polymorphic](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-clients) | must (informal) | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [ext-tasks-client-poll](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-clients) | must (informal) | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [ext-tasks-client-persist-ids](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#for-mcp-clients) | must (informal) | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [ext-tasks-notifications-via-listen](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#notifications) | descr. (MAY) | both | **MISSING** | **MISSING** |
+| [ext-tasks-notifications-via-listen](https://modelcontextprotocol.io/specification/docs/extensions/tasks/overview.mdx#notifications) | descr. (MAY) | both | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/taskIds-without-the-extension-is-32021` | n/a: a MAY mcpx does not take: it declares no tasks extension upstream |
 
 ### tools
 

@@ -278,15 +278,38 @@ type notifier struct{ ch chan [2]any }
 
 func newNotifier() *notifier { return &notifier{ch: make(chan [2]any, 16)} }
 
-func (n *notifier) Listen(ctx context.Context, _ mcpserver.ListenFilter, send func(string, any)) {
+// Listen filters the way the daemon's event bus does: only the kinds and
+// resource URIs the server asked for.
+func (n *notifier) Listen(ctx context.Context, f mcpserver.ListenFilter, send func(string, any)) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case m := <-n.ch:
-			send(m[0].(string), m[1])
+			if n.allows(f, m[0].(string), m[1]) {
+				send(m[0].(string), m[1])
+			}
 		}
 	}
+}
+
+func (n *notifier) allows(f mcpserver.ListenFilter, method string, params any) bool {
+	switch method {
+	case "notifications/tools/list_changed":
+		return f.ToolsListChanged
+	case "notifications/prompts/list_changed":
+		return f.PromptsListChanged
+	case "notifications/resources/list_changed":
+		return f.ResourcesListChanged
+	case "notifications/resources/updated":
+		uri, _ := asMap(params)["uri"].(string)
+		for _, u := range f.ResourceSubscriptions {
+			if u == uri {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // blocking makes every backend call wait for the context to end, and
