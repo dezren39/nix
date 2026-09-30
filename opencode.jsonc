@@ -511,6 +511,14 @@
     // block advertises that path as "pre-approved", which is about permissions,
     // not durability; agents were taking it as a worktree location.
     "~/.config/opencode/instructions/worktrees.md",
+    // Append-only session recordings. The moments an agent stops to explain to
+    // the user — a fix that made things worse, a test that could never fail, a
+    // number it got wrong, a brief it followed too literally — are exactly the
+    // ones lost when the session ends. This asks for a JSON line alongside the
+    // explanation. Deliberately schema-free (`sentiment` is `any`): the cost of
+    // a malformed line is a later normalisation pass, the cost of a rejected
+    // line is the observation itself. See dezren39/nix for the tooling issue.
+    "~/.config/opencode/instructions/recordings.md",
     // subagents.md archived to instructions/archive/ — it named agents
     // (explore/general/plan) that the trimmed agent set no longer defines, so it
     // was describing a topology that does not exist. Re-add only if rewritten
