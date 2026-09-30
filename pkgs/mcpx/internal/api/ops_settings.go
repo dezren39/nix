@@ -44,8 +44,9 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "settings_set", Method: "PUT", Path: "/v1/settings/{path}",
-			Command: "settings set",
-			Summary: "Change a setting",
+			Idempotent: true,
+			Command:    "settings set",
+			Summary:    "Change a setting",
 			Description: "persist=runtime changes the running daemon and nothing on " +
 				"disk, which is what you want for an experiment. project and user " +
 				"write the corresponding configuration file, and also apply at " +
@@ -64,8 +65,9 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "settings_unset", Method: "DELETE", Path: "/v1/settings/{path}",
-			Command: "settings unset",
-			Summary: "Drop a runtime override",
+			Idempotent: true,
+			Command:    "settings unset",
+			Summary:    "Drop a runtime override",
 			Description: "The value falls back to whatever the flags, the environment " +
 				"and the configuration files say. It does not remove anything from " +
 				"a file; use settings_set for that.",
@@ -115,8 +117,9 @@ func settingsOps() []Op {
 		},
 		{
 			Name: "servers_remove", Method: "DELETE", Path: "/v1/servers/{name}",
-			Command: "servers remove",
-			Summary: "Remove a server, live",
+			Idempotent: true,
+			Command:    "servers remove",
+			Summary:    "Remove a server, live",
 			Description: "Deletes the entry from whichever file defines it and reloads. " +
 				"Instances of that server stop; a caller mid-call against it fails.",
 			Admin: true, Mutating: true, Destructive: true,

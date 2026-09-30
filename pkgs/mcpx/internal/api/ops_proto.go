@@ -69,7 +69,8 @@ func protoOps() []Op {
 		},
 		{
 			Name: "ask_abandon", Method: "POST", Path: "/v1/ask/{id}/abandon",
-			Summary: "Give up on a call nobody is going to answer",
+			Idempotent: true,
+			Summary:    "Give up on a call nobody is going to answer",
 			Description: "Cancels the task. The questions it raised stay in the broker " +
 				"until their own deadlines, where they expire as cancellations -- " +
 				"which is what they are, and not the same thing as a refusal.",
