@@ -139,10 +139,10 @@ type Server struct {
 	// theirs from the environment and HTTP servers use OAuth when protected;
 	// most need nothing at all.
 	Auth *mcpauth.Auth `json:"auth,omitempty"`
-	// Protocol chooses which era to probe first: legacy (the default, since
-	// nearly every server is), modern, force-legacy or force-modern. The
-	// force forms skip the fallback, for a server known to be one or the
-	// other, or to find out which it is.
+	// Protocol chooses which era to probe first: modern, legacy,
+	// force-modern or force-legacy. Empty means upstream.protocol, which
+	// defaults to modern. The force forms skip the fallback, for a server
+	// known to be one or the other, or to find out which it is.
 	Protocol string `json:"protocol,omitempty"`
 	Cwd      string `json:"cwd,omitempty"`
 	// AliasOf names another server whose process definition this entry reuses.

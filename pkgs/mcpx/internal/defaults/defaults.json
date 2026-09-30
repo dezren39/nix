@@ -184,5 +184,13 @@
     "tools": false,
     "remember": "session",
     "annotate": true
+  },
+  "upstream": {
+    "protocol": "modern",
+    "probeTimeout": "2s",
+    "eraCache": true,
+    "eraFile": "upstream-eras.json",
+    "eraFileVersion": 1,
+    "errorBodyLimit": "4KB"
   }
 }

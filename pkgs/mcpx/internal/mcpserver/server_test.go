@@ -406,11 +406,36 @@ func TestServerDiscoverAnswersForModernClients(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "server/discover", nil))
 	b, _ := json.Marshal(resp)
-	for _, want := range []string{"protocolVersions", "2026-07-28", "capabilities"} {
-		if !strings.Contains(string(b), want) {
-			t.Errorf("%q missing: %s", want, b)
+	// https://modelcontextprotocol.io/specification/2026-07-28/schema#discoverresult
+	t.Run("2026-07-28/discover/result-has-supportedVersions-and-serverInfo-in-meta", func(t *testing.T) {
+		var doc struct {
+			Result map[string]json.RawMessage `json:"result"`
 		}
-	}
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatal(err)
+		}
+		var versions []string
+		if err := json.Unmarshal(doc.Result["supportedVersions"], &versions); err != nil || len(versions) == 0 {
+			t.Errorf("supportedVersions must be a non-empty array: %s", b)
+		}
+		var meta struct {
+			ServerInfo struct {
+				Name string `json:"name"`
+			} `json:"io.modelcontextprotocol/serverInfo"`
+		}
+		_ = json.Unmarshal(doc.Result["_meta"], &meta)
+		if meta.ServerInfo.Name != "mcpx" {
+			t.Errorf("serverInfo belongs in _meta: %s", b)
+		}
+		for _, stale := range []string{"protocolVersions", "serverInfo"} {
+			if _, ok := doc.Result[stale]; ok {
+				t.Errorf("%q is not a DiscoverResult field: %s", stale, b)
+			}
+		}
+		if _, ok := doc.Result["capabilities"]; !ok {
+			t.Errorf("capabilities missing: %s", b)
+		}
+	})
 }
 
 func TestAPerRequestVersionIsHonouredAndChecked(t *testing.T) {

@@ -25,6 +25,7 @@ func Registry() []Setting {
 	s = append(s, consumerSettings()...)
 	s = append(s, wireSettings()...)
 	s = append(s, pluginSettings()...)
+	s = append(s, upstreamSettings()...)
 	return s
 }
 
