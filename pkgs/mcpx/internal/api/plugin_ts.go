@@ -10,11 +10,12 @@ import (
 // /v1 operation, for the opencode plugin's DaemonClient.
 //
 // Generated for the reason the MCP tools and the CLI commands are: the
-// plugin's hand-written methods covered nineteen of sixty operations, and
-// one of the nineteen -- call() -- sent its arguments under a key the route
-// does not read, so every tool it called received none. A method built from
-// the declaration cannot name a parameter the route does not take, and the
-// type checker holds every caller to the same names.
+// plugin's hand-written methods covered twenty of the operations in this
+// table -- docs/parity.md is generated from it and names which -- and one of
+// the twenty, call(), sent its arguments under a key the route does not
+// read, so every tool it called received none. A method built from the
+// declaration cannot name a parameter the route does not take, and the type
+// checker holds every caller to the same names.
 func PluginTS() string {
 	ops := Ops()
 	sort.Slice(ops, func(i, j int) bool { return ops[i].Name < ops[j].Name })
