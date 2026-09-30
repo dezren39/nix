@@ -224,6 +224,17 @@ type Defaults struct {
 		PrivateMode   string `json:"privateMode"`
 		PublicMode    string `json:"publicMode"`
 	} `json:"files"`
+	// Git is how the repo and worktree scopes find a repository. Discovery
+	// reads .git itself (internal/config/gitdiscover.go); Bin is only run for
+	// the layouts that port does not vouch for, and GitfileMaxBytes is git's
+	// own ceiling on a .git file, kept so an absurd one is refused by both
+	// rather than read into the daemon's memory. Neither is a setting: PATH
+	// already chooses the git, and changing the ceiling would only make mcpx
+	// disagree with git about which files are valid.
+	Git struct {
+		Bin             string `json:"bin"`
+		GitfileMaxBytes string `json:"gitfileMaxBytes"`
+	} `json:"git"`
 	// Plugin is read by the opencode plugin rather than by this binary. It
 	// is declared here so that `mcpx settings` can answer what the plugin
 	// will do, which is otherwise only discoverable by reading TypeScript.
@@ -555,6 +566,9 @@ var (
 	PublicDirMode = mustMode(builtin.Files.PublicDirMode, "files.publicDirMode")
 	PrivateMode   = mustMode(builtin.Files.PrivateMode, "files.privateMode")
 	PublicMode    = mustMode(builtin.Files.PublicMode, "files.publicMode")
+
+	GitBin          = builtin.Git.Bin
+	GitfileMaxBytes = mustBytes(builtin.Git.GitfileMaxBytes, "git.gitfileMaxBytes")
 
 	PluginBin            = builtin.Plugin.Bin
 	PluginBinArgs        = builtin.Plugin.BinArgs
