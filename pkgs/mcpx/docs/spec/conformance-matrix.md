@@ -8,66 +8,66 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | revision | side | level | applies | tested | gap | missing | n/a |
 |---|---|---|---|---|---|---|---|
-| 2024-11-05 | server | MUST | 32 | 21 | 1 | 10 | 22 |
+| 2024-11-05 | server | MUST | 32 | 29 | 2 | 1 | 22 |
 | 2024-11-05 | server | MUST NOT | 6 | 6 | 0 | 0 | 4 |
-| 2024-11-05 | server | SHOULD | 36 | 20 | 3 | 13 | 45 |
+| 2024-11-05 | server | SHOULD | 36 | 32 | 3 | 1 | 45 |
 | 2024-11-05 | server | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | server | MAY | 10 | 6 | 1 | 3 | 14 |
-| 2024-11-05 | server | other | 11 | 7 | 0 | 4 | 1 |
-| 2024-11-05 | client | MUST | 32 | 20 | 1 | 11 | 22 |
+| 2024-11-05 | server | MAY | 10 | 9 | 1 | 0 | 14 |
+| 2024-11-05 | server | other | 11 | 10 | 1 | 0 | 1 |
+| 2024-11-05 | client | MUST | 32 | 20 | 2 | 10 | 22 |
 | 2024-11-05 | client | MUST NOT | 9 | 7 | 2 | 0 | 1 |
-| 2024-11-05 | client | SHOULD | 38 | 12 | 7 | 19 | 43 |
+| 2024-11-05 | client | SHOULD | 38 | 15 | 7 | 16 | 43 |
 | 2024-11-05 | client | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | client | MAY | 15 | 7 | 1 | 7 | 9 |
-| 2024-11-05 | client | other | 7 | 6 | 0 | 1 | 5 |
-| 2025-03-26 | server | MUST | 51 | 32 | 8 | 11 | 30 |
+| 2024-11-05 | client | MAY | 15 | 8 | 1 | 6 | 9 |
+| 2024-11-05 | client | other | 7 | 7 | 0 | 0 | 5 |
+| 2025-03-26 | server | MUST | 51 | 41 | 9 | 1 | 30 |
 | 2025-03-26 | server | MUST NOT | 7 | 7 | 0 | 0 | 8 |
-| 2025-03-26 | server | SHOULD | 50 | 28 | 9 | 13 | 53 |
+| 2025-03-26 | server | SHOULD | 50 | 40 | 9 | 1 | 53 |
 | 2025-03-26 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
-| 2025-03-26 | server | MAY | 19 | 13 | 3 | 3 | 18 |
-| 2025-03-26 | server | other | 11 | 7 | 0 | 4 | 1 |
-| 2025-03-26 | client | MUST | 47 | 26 | 9 | 12 | 34 |
+| 2025-03-26 | server | MAY | 19 | 16 | 3 | 0 | 18 |
+| 2025-03-26 | server | other | 11 | 10 | 1 | 0 | 1 |
+| 2025-03-26 | client | MUST | 47 | 26 | 11 | 10 | 34 |
 | 2025-03-26 | client | MUST NOT | 12 | 9 | 3 | 0 | 3 |
-| 2025-03-26 | client | SHOULD | 51 | 16 | 15 | 20 | 52 |
+| 2025-03-26 | client | SHOULD | 51 | 19 | 16 | 16 | 52 |
 | 2025-03-26 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-03-26 | client | MAY | 21 | 10 | 4 | 7 | 16 |
-| 2025-03-26 | client | other | 7 | 6 | 0 | 1 | 5 |
-| 2025-06-18 | server | MUST | 65 | 37 | 14 | 14 | 36 |
+| 2025-03-26 | client | MAY | 21 | 11 | 4 | 6 | 16 |
+| 2025-03-26 | client | other | 7 | 7 | 0 | 0 | 5 |
+| 2025-06-18 | server | MUST | 65 | 47 | 16 | 2 | 36 |
 | 2025-06-18 | server | MUST NOT | 10 | 8 | 1 | 1 | 8 |
-| 2025-06-18 | server | SHOULD | 52 | 28 | 8 | 16 | 63 |
+| 2025-06-18 | server | SHOULD | 52 | 42 | 8 | 2 | 63 |
 | 2025-06-18 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
-| 2025-06-18 | server | MAY | 17 | 11 | 2 | 4 | 18 |
-| 2025-06-18 | server | other | 15 | 7 | 0 | 8 | 3 |
-| 2025-06-18 | client | MUST | 58 | 30 | 15 | 13 | 43 |
+| 2025-06-18 | server | MAY | 17 | 15 | 2 | 0 | 18 |
+| 2025-06-18 | server | other | 15 | 14 | 1 | 0 | 3 |
+| 2025-06-18 | client | MUST | 58 | 30 | 17 | 11 | 43 |
 | 2025-06-18 | client | MUST NOT | 13 | 9 | 4 | 0 | 5 |
-| 2025-06-18 | client | SHOULD | 59 | 16 | 15 | 28 | 56 |
+| 2025-06-18 | client | SHOULD | 59 | 19 | 16 | 24 | 56 |
 | 2025-06-18 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-06-18 | client | MAY | 19 | 10 | 2 | 7 | 16 |
-| 2025-06-18 | client | other | 10 | 6 | 0 | 4 | 8 |
-| 2025-11-25 | server | MUST | 115 | 60 | 21 | 34 | 65 |
+| 2025-06-18 | client | MAY | 19 | 11 | 2 | 6 | 16 |
+| 2025-06-18 | client | other | 10 | 8 | 2 | 0 | 8 |
+| 2025-11-25 | server | MUST | 115 | 71 | 23 | 21 | 65 |
 | 2025-11-25 | server | MUST NOT | 22 | 9 | 2 | 11 | 13 |
-| 2025-11-25 | server | SHOULD | 78 | 37 | 15 | 26 | 81 |
-| 2025-11-25 | server | SHOULD NOT | 11 | 7 | 1 | 3 | 3 |
-| 2025-11-25 | server | MAY | 27 | 18 | 2 | 7 | 28 |
-| 2025-11-25 | server | other | 19 | 10 | 0 | 9 | 2 |
-| 2025-11-25 | client | MUST | 82 | 35 | 17 | 30 | 98 |
+| 2025-11-25 | server | SHOULD | 78 | 56 | 15 | 7 | 81 |
+| 2025-11-25 | server | SHOULD NOT | 11 | 8 | 1 | 2 | 3 |
+| 2025-11-25 | server | MAY | 27 | 22 | 2 | 3 | 28 |
+| 2025-11-25 | server | other | 19 | 17 | 1 | 1 | 2 |
+| 2025-11-25 | client | MUST | 82 | 35 | 19 | 28 | 98 |
 | 2025-11-25 | client | MUST NOT | 16 | 10 | 4 | 2 | 19 |
-| 2025-11-25 | client | SHOULD | 74 | 19 | 21 | 34 | 85 |
+| 2025-11-25 | client | SHOULD | 74 | 24 | 22 | 28 | 85 |
 | 2025-11-25 | client | SHOULD NOT | 5 | 3 | 1 | 1 | 9 |
-| 2025-11-25 | client | MAY | 24 | 12 | 3 | 9 | 31 |
-| 2025-11-25 | client | other | 13 | 8 | 0 | 5 | 8 |
-| 2026-07-28 | server | MUST | 133 | 73 | 21 | 39 | 91 |
-| 2026-07-28 | server | MUST NOT | 46 | 28 | 1 | 17 | 18 |
-| 2026-07-28 | server | SHOULD | 74 | 35 | 13 | 26 | 86 |
-| 2026-07-28 | server | SHOULD NOT | 12 | 4 | 2 | 6 | 8 |
-| 2026-07-28 | server | MAY | 31 | 17 | 2 | 12 | 30 |
-| 2026-07-28 | server | other | 23 | 14 | 1 | 8 | 4 |
-| 2026-07-28 | client | MUST | 96 | 36 | 31 | 29 | 128 |
+| 2025-11-25 | client | MAY | 24 | 14 | 3 | 7 | 31 |
+| 2025-11-25 | client | other | 13 | 10 | 2 | 1 | 8 |
+| 2026-07-28 | server | MUST | 127 | 88 | 23 | 16 | 97 |
+| 2026-07-28 | server | MUST NOT | 44 | 33 | 1 | 10 | 20 |
+| 2026-07-28 | server | SHOULD | 74 | 54 | 13 | 7 | 86 |
+| 2026-07-28 | server | SHOULD NOT | 11 | 5 | 2 | 4 | 9 |
+| 2026-07-28 | server | MAY | 31 | 27 | 2 | 2 | 30 |
+| 2026-07-28 | server | other | 23 | 20 | 2 | 1 | 4 |
+| 2026-07-28 | client | MUST | 96 | 36 | 34 | 26 | 128 |
 | 2026-07-28 | client | MUST NOT | 26 | 17 | 6 | 3 | 38 |
-| 2026-07-28 | client | SHOULD | 82 | 21 | 26 | 35 | 78 |
-| 2026-07-28 | client | SHOULD NOT | 13 | 7 | 1 | 5 | 7 |
-| 2026-07-28 | client | MAY | 21 | 8 | 4 | 9 | 40 |
-| 2026-07-28 | client | other | 13 | 7 | 0 | 6 | 14 |
+| 2026-07-28 | client | SHOULD | 81 | 27 | 28 | 26 | 79 |
+| 2026-07-28 | client | SHOULD NOT | 13 | 8 | 1 | 4 | 7 |
+| 2026-07-28 | client | MAY | 21 | 10 | 4 | 7 | 40 |
+| 2026-07-28 | client | other | 13 | 9 | 3 | 1 | 14 |
 
 ## 2024-11-05
 
@@ -218,56 +218,56 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
-| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | **MISSING** | **MISSING** |
+| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-declare-capability` | n/a: addresses the other side |
+| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-list-changed-notify` | n/a: addresses the other side |
+| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-image-base64-mime` | n/a: addresses the other side |
+| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-embedded-must-include` | n/a: addresses the other side |
+| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-validate-args` | n/a: addresses the other side |
+| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-respect-capability-negotiation` | tested: `conformance.TestFeaturesClient/2024-11-05/prompts/prompts-respect-capability-negotiation` |
+| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-validate-io` | **gap** pending:prompt-validation: an upstream prompts/get result is passed on unvalidated |
 
 ### prompts / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/prompts/prompts-errors-32602-32603` | n/a: addresses the other side |
 
 ### prompts / pagination
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2024-11-05/prompts/prompts-client-paginate` |
 
 ### resources
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | **MISSING** |
-| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-declare-capability` | n/a: addresses the other side |
+| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **gap** #208: subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver | n/a: addresses the other side |
+| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-cap-features-independent` | n/a: addresses the other side |
+| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-list-changed-notify` | n/a: addresses the other side |
+| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2024-11-05/resources/resources-updated-may-be-subresource` |
+| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-https-only-if-client-fetchable` | n/a: addresses the other side |
+| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-https-else-other-scheme` | n/a: addresses the other side |
+| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-file-xdg-mime-may` | n/a: addresses the other side |
+| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 
 ### resources / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-not-found-32002` | n/a: addresses the other side |
+| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-internal-32603` | n/a: addresses the other side |
 
 ### resources / subscriptions
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | **MISSING** |
-| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
+| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2024-11-05/resources/resources-subscribe-rpc` |
+| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2024-11-05/resources/resources-unsubscribe-follows-subscribe` |
 
 ### roots
 
@@ -330,14 +330,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 |---|---|---|---|---|
 | [tools-human-in-loop-deny](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [tools-ui-expose-indicate-confirm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-invalid-args-protocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | **MISSING** | n/a: addresses the other side |
+| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-declare-capability` | n/a: addresses the other side |
+| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-list-changed-means-emit` | n/a: addresses the other side |
+| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-list-changed-notify` | n/a: addresses the other side |
+| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-result-iserror-for-tool-errors` | n/a: addresses the other side |
+| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-result-lookup-errors-protocol` | n/a: addresses the other side |
+| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-error-unknown-tool-protocol` | n/a: addresses the other side |
+| [tools-error-invalid-args-protocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-error-invalid-args-protocol` | n/a: addresses the other side |
+| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-embedded-resource-may` | n/a: addresses the other side |
 | [tools-server-sec-validate-inputs](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [tools-client-sec](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#security-considerations) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 
@@ -345,7 +345,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
+| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | tested: `conformance.TestFeaturesServer/2024-11-05/tools/tools-inputschema-type-object-root` | n/a: addresses the other side |
 
 ### transport-http-sse
 
@@ -566,57 +566,57 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | **MISSING** | n/a: addresses the other side |
-| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
-| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | **MISSING** | **MISSING** |
+| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-declare-capability` | n/a: addresses the other side |
+| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-list-changed-notify` | n/a: addresses the other side |
+| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-image-base64-mime` | n/a: addresses the other side |
+| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-audio-base64-mime` | n/a: addresses the other side |
+| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-embedded-must-include` | n/a: addresses the other side |
+| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-validate-args` | n/a: addresses the other side |
+| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-respect-capability-negotiation` | tested: `conformance.TestFeaturesClient/2025-03-26/prompts/prompts-respect-capability-negotiation` |
+| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-validate-io` | **gap** pending:prompt-validation: an upstream prompts/get result is passed on unvalidated |
 
 ### prompts / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/prompts/prompts-errors-32602-32603` | n/a: addresses the other side |
 
 ### prompts / pagination
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-03-26/prompts/prompts-client-paginate` |
 
 ### resources
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | **MISSING** |
-| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-declare-capability` | n/a: addresses the other side |
+| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **gap** #208: subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver | n/a: addresses the other side |
+| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-cap-features-independent` | n/a: addresses the other side |
+| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-list-changed-notify` | n/a: addresses the other side |
+| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-03-26/resources/resources-updated-may-be-subresource` |
+| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-https-only-if-client-fetchable` | n/a: addresses the other side |
+| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-https-else-other-scheme` | n/a: addresses the other side |
+| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-file-xdg-mime-may` | n/a: addresses the other side |
+| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 
 ### resources / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-not-found-32002` | n/a: addresses the other side |
+| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-internal-32603` | n/a: addresses the other side |
 
 ### resources / subscriptions
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | **MISSING** |
-| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
+| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-03-26/resources/resources-subscribe-rpc` |
+| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-03-26/resources/resources-unsubscribe-follows-subscribe` |
 
 ### roots
 
@@ -679,16 +679,16 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 |---|---|---|---|---|
 | [tools-human-in-loop-deny](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [tools-ui-expose-indicate-confirm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
-| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-invalid-args-protocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | **MISSING** | n/a: addresses the other side |
+| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-declare-capability` | n/a: addresses the other side |
+| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-list-changed-means-emit` | n/a: addresses the other side |
+| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-list-changed-notify` | n/a: addresses the other side |
+| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **gap** pending:annotation-trust: destructiveHint from any upstream decides whether a call is confirmed; an absent or false hint is trusted |
+| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **gap** pending:annotation-trust: the consumer confirmDestructive gate is decided by an untrusted upstream annotation |
+| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-result-iserror-for-tool-errors` | n/a: addresses the other side |
+| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-result-lookup-errors-protocol` | n/a: addresses the other side |
+| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-error-unknown-tool-protocol` | n/a: addresses the other side |
+| [tools-error-invalid-args-protocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-error-invalid-args-protocol` | n/a: addresses the other side |
+| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-embedded-resource-may` | n/a: addresses the other side |
 | [tools-server-sec-validate-inputs](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [tools-client-sec](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#security-considerations) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 
@@ -696,7 +696,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
+| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | tested: `conformance.TestFeaturesServer/2025-03-26/tools/tools-inputschema-type-object-root` | n/a: addresses the other side |
 
 ### transport-http-sse
 
@@ -985,59 +985,59 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | **MISSING** | n/a: addresses the other side |
-| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
-| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | **MISSING** | **MISSING** |
+| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-declare-capability` | n/a: addresses the other side |
+| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-list-changed-notify` | n/a: addresses the other side |
+| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-image-base64-mime` | n/a: addresses the other side |
+| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-audio-base64-mime` | n/a: addresses the other side |
+| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-embedded-must-include` | n/a: addresses the other side |
+| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-validate-args` | n/a: addresses the other side |
+| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-respect-capability-negotiation` | tested: `conformance.TestFeaturesClient/2025-06-18/prompts/prompts-respect-capability-negotiation` |
+| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-validate-io` | **gap** pending:prompt-validation: an upstream prompts/get result is passed on unvalidated |
 
 ### prompts / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/prompts/prompts-errors-32602-32603` | n/a: addresses the other side |
 
 ### prompts / pagination
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-06-18/prompts/prompts-client-paginate` |
 
 ### resources
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | **MISSING** |
-| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-declare-capability` | n/a: addresses the other side |
+| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **gap** #208: subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver | n/a: addresses the other side |
+| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-cap-features-independent` | n/a: addresses the other side |
+| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-list-changed-notify` | n/a: addresses the other side |
+| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-06-18/resources/resources-updated-may-be-subresource` |
+| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-https-only-if-client-fetchable` | n/a: addresses the other side |
+| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-https-else-other-scheme` | n/a: addresses the other side |
+| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-file-xdg-mime-may` | n/a: addresses the other side |
+| [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **gap** pending:resource-uri-encoding: the daemon mints mcpx://<ns>/<upstream uri> by concatenation, without percent-encoding the upstream URI | n/a: addresses the other side |
+| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | **MISSING** | **MISSING** |
+| [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-annotations-defs` | **gap** #207: mcpclient.Resource has no annotations field; they are dropped on parse |
 
 ### resources / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-not-found-32002` | n/a: addresses the other side |
+| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-internal-32603` | n/a: addresses the other side |
 
 ### resources / subscriptions
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | **MISSING** |
-| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
+| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-06-18/resources/resources-subscribe-rpc` |
+| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-06-18/resources/resources-unsubscribe-follows-subscribe` |
 
 ### roots
 
@@ -1100,25 +1100,25 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 |---|---|---|---|---|
 | [tools-human-in-loop-deny](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [tools-ui-expose-indicate-confirm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
-| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-invalid-args-protocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-embedded-implies-resources-cap](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-resource-link-may-not-listed](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | (note) | both | **MISSING** | **MISSING** |
-| [tools-structured-also-text](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-structured-object-only](https://modelcontextprotocol.io/specification/2025-11-25/schema#calltoolresult) | (type, schema) | server | **MISSING** | n/a: addresses the other side |
-| [tools-output-schema-conform](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-declare-capability` | n/a: addresses the other side |
+| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-list-changed-means-emit` | n/a: addresses the other side |
+| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-list-changed-notify` | n/a: addresses the other side |
+| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **gap** pending:annotation-trust: destructiveHint from any upstream decides whether a call is confirmed; an absent or false hint is trusted |
+| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **gap** pending:annotation-trust: the consumer confirmDestructive gate is decided by an untrusted upstream annotation |
+| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-result-iserror-for-tool-errors` | n/a: addresses the other side |
+| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-result-lookup-errors-protocol` | n/a: addresses the other side |
+| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-error-unknown-tool-protocol` | n/a: addresses the other side |
+| [tools-error-invalid-args-protocol](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-error-invalid-args-protocol` | n/a: addresses the other side |
+| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-embedded-resource-may` | n/a: addresses the other side |
+| [tools-embedded-implies-resources-cap](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-embedded-implies-resources-cap` | n/a: addresses the other side |
+| [tools-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | MAY | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-resource-link-may` | n/a: addresses the other side |
+| [tools-resource-link-may-not-listed](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | (note) | both | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-resource-link-may-not-listed` | tested: `conformance.TestFeaturesClient/2025-06-18/tools/tools-resource-link-may-not-listed` |
+| [tools-structured-also-text](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-structured-also-text` | n/a: addresses the other side |
+| [tools-structured-object-only](https://modelcontextprotocol.io/specification/2025-11-25/schema#calltoolresult) | (type, schema) | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-structured-object-only` | n/a: addresses the other side |
+| [tools-output-schema-conform](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-output-schema-conform` | n/a: addresses the other side |
 | [tools-output-schema-client-validate](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-output-schema-object-root](https://modelcontextprotocol.io/specification/2025-11-25/schema#tool) | (type, schema) | server | **MISSING** | n/a: addresses the other side |
-| [tools-display-name-precedence](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | (rule) | client | n/a: addresses the other side | **MISSING** |
+| [tools-output-schema-object-root](https://modelcontextprotocol.io/specification/2025-11-25/schema#tool) | (type, schema) | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-output-schema-object-root` | n/a: addresses the other side |
+| [tools-display-name-precedence](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | (rule) | client | n/a: addresses the other side | **gap** #207: tool title and annotations.title are carried but nothing that displays a tool uses them |
 | [tools-server-sec-validate-inputs](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [tools-client-sec](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#security-considerations) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 
@@ -1126,7 +1126,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
+| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | tested: `conformance.TestFeaturesServer/2025-06-18/tools/tools-inputschema-type-object-root` | n/a: addresses the other side |
 
 ### transport-http-sse
 
@@ -1507,59 +1507,59 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | **MISSING** | n/a: addresses the other side |
-| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
-| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | **MISSING** | **MISSING** |
+| [prompts-declare-capability](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-declare-capability` | n/a: addresses the other side |
+| [prompts-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-list-changed-notify` | n/a: addresses the other side |
+| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-image-base64-mime` | n/a: addresses the other side |
+| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-audio-base64-mime` | n/a: addresses the other side |
+| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-embedded-must-include` | n/a: addresses the other side |
+| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-validate-args` | n/a: addresses the other side |
+| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-respect-capability-negotiation` | tested: `conformance.TestFeaturesClient/2025-11-25/prompts/prompts-respect-capability-negotiation` |
+| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-validate-io` | **gap** pending:prompt-validation: an upstream prompts/get result is passed on unvalidated |
 
 ### prompts / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/prompts/prompts-errors-32602-32603` | n/a: addresses the other side |
 
 ### prompts / pagination
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-11-25/prompts/prompts-client-paginate` |
 
 ### resources
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | **MISSING** |
-| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-declare-capability` | n/a: addresses the other side |
+| [resources-subscribe-cap-meaning-legacy](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities) | (definition) | server | **gap** #208: subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver | n/a: addresses the other side |
+| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-cap-features-independent` | n/a: addresses the other side |
+| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-list-changed-notify` | n/a: addresses the other side |
+| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-11-25/resources/resources-updated-may-be-subresource` |
+| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-https-only-if-client-fetchable` | n/a: addresses the other side |
+| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-https-else-other-scheme` | n/a: addresses the other side |
+| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-file-xdg-mime-may` | n/a: addresses the other side |
+| [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **gap** pending:resource-uri-encoding: the daemon mints mcpx://<ns>/<upstream uri> by concatenation, without percent-encoding the upstream URI | n/a: addresses the other side |
+| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | **MISSING** | **MISSING** |
+| [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-annotations-defs` | **gap** #207: mcpclient.Resource has no annotations field; they are dropped on parse |
 
 ### resources / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [resources-not-found-32002](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-not-found-32002` | n/a: addresses the other side |
+| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-internal-32603` | n/a: addresses the other side |
 
 ### resources / subscriptions
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | **MISSING** |
-| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
+| [resources-subscribe-rpc](https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions) | (optional) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-11-25/resources/resources-subscribe-rpc` |
+| [resources-unsubscribe-follows-subscribe](https://modelcontextprotocol.io/specification/2025-11-25/schema#unsubscriberequest) | should (lowercase, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-11-25/resources/resources-unsubscribe-follows-subscribe` |
 
 ### roots
 
@@ -1698,33 +1698,33 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 |---|---|---|---|---|
 | [tools-human-in-loop-deny](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [tools-ui-expose-indicate-confirm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
-| [tools-inputschema-no-params-recommended](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | RECOMMENDED | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-length](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-case-sensitive](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | both | **MISSING** | **MISSING** |
-| [tools-name-charset](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-no-special](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-unique-in-server](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-input-validation-execution](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-client-exec-errors-to-llm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [tools-client-protocol-errors-to-llm-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-embedded-implies-resources-cap](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-resource-link-may-not-listed](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | (note) | both | **MISSING** | **MISSING** |
-| [tools-structured-also-text](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-structured-object-only](https://modelcontextprotocol.io/specification/2025-11-25/schema#calltoolresult) | (type, schema) | server | **MISSING** | n/a: addresses the other side |
-| [tools-output-schema-conform](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-declare-capability` | n/a: addresses the other side |
+| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-list-changed-means-emit` | n/a: addresses the other side |
+| [tools-list-changed-notify](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-list-changed-notify` | n/a: addresses the other side |
+| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **gap** pending:annotation-trust: destructiveHint from any upstream decides whether a call is confirmed; an absent or false hint is trusted |
+| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **gap** pending:annotation-trust: the consumer confirmDestructive gate is decided by an untrusted upstream annotation |
+| [tools-inputschema-no-params-recommended](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | RECOMMENDED | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-inputschema-no-params-recommended` | n/a: addresses the other side |
+| [tools-name-length](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-name-length` | n/a: addresses the other side |
+| [tools-name-case-sensitive](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | both | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-name-case-sensitive` | tested: `conformance.TestFeaturesClient/2025-11-25/tools/tools-name-case-sensitive` |
+| [tools-name-charset](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-name-charset` | n/a: addresses the other side |
+| [tools-name-no-special](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD NOT | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-name-no-special` | n/a: addresses the other side |
+| [tools-name-unique-in-server](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-name-unique-in-server` | n/a: addresses the other side |
+| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-result-iserror-for-tool-errors` | n/a: addresses the other side |
+| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-result-lookup-errors-protocol` | n/a: addresses the other side |
+| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-error-unknown-tool-protocol` | n/a: addresses the other side |
+| [tools-error-input-validation-execution](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-error-input-validation-execution` | n/a: addresses the other side |
+| [tools-client-exec-errors-to-llm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-11-25/tools/tools-client-exec-errors-to-llm` |
+| [tools-client-protocol-errors-to-llm-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | MAY | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2025-11-25/tools/tools-client-protocol-errors-to-llm-may` |
+| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-embedded-resource-may` | n/a: addresses the other side |
+| [tools-embedded-implies-resources-cap](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-embedded-implies-resources-cap` | n/a: addresses the other side |
+| [tools-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | MAY | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-resource-link-may` | n/a: addresses the other side |
+| [tools-resource-link-may-not-listed](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | (note) | both | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-resource-link-may-not-listed` | tested: `conformance.TestFeaturesClient/2025-11-25/tools/tools-resource-link-may-not-listed` |
+| [tools-structured-also-text](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | SHOULD | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-structured-also-text` | n/a: addresses the other side |
+| [tools-structured-object-only](https://modelcontextprotocol.io/specification/2025-11-25/schema#calltoolresult) | (type, schema) | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-structured-object-only` | n/a: addresses the other side |
+| [tools-output-schema-conform](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-output-schema-conform` | n/a: addresses the other side |
 | [tools-output-schema-client-validate](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-output-schema-object-root](https://modelcontextprotocol.io/specification/2025-11-25/schema#tool) | (type, schema) | server | **MISSING** | n/a: addresses the other side |
-| [tools-display-name-precedence](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | (rule) | client | n/a: addresses the other side | **MISSING** |
+| [tools-output-schema-object-root](https://modelcontextprotocol.io/specification/2025-11-25/schema#tool) | (type, schema) | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-output-schema-object-root` | n/a: addresses the other side |
+| [tools-display-name-precedence](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | (rule) | client | n/a: addresses the other side | **gap** #207: tool title and annotations.title are carried but nothing that displays a tool uses them |
 | [tools-server-sec-validate-inputs](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [tools-client-sec](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#security-considerations) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 
@@ -1732,8 +1732,8 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [tools-inputschema-valid-not-null](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
+| [tools-inputschema-valid-not-null](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-inputschema-valid-not-null` | n/a: addresses the other side |
+| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | tested: `conformance.TestFeaturesServer/2025-11-25/tools/tools-inputschema-type-object-root` | n/a: addresses the other side |
 
 ### transport-http-sse
 
@@ -2209,82 +2209,82 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-declare-capability-discover](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-list-must-respond-when-declared](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-list-not-per-connection](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#capabilities) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [prompts-declare-capability-discover](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-declare-capability-discover` | n/a: addresses the other side |
+| [prompts-list-must-respond-when-declared](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-list-must-respond-when-declared` | n/a: addresses the other side |
+| [prompts-list-not-per-connection](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#capabilities) | MUST NOT | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-list-not-per-connection` | n/a: addresses the other side |
 | [prompts-list-may-vary-by-auth](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#capabilities) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [prompts-list-changed-notify-to-listeners](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | **MISSING** | n/a: addresses the other side |
-| [prompts-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#resource-links) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
-| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | **MISSING** | **MISSING** |
+| [prompts-list-changed-notify-to-listeners](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-list-changed-notify-to-listeners` | n/a: addresses the other side |
+| [prompts-image-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#image-content) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-image-base64-mime` | n/a: addresses the other side |
+| [prompts-audio-base64-mime](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#audio-content) | MUST (not bolded) | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-audio-base64-mime` | n/a: addresses the other side |
+| [prompts-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#resource-links) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-resource-link-may` | n/a: addresses the other side |
+| [prompts-embedded-must-include](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#embedded-resources) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-embedded-must-include` | n/a: addresses the other side |
+| [prompts-validate-args](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-validate-args` | n/a: addresses the other side |
+| [prompts-respect-capability-negotiation](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | both | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-respect-capability-negotiation` | tested: `conformance.TestFeaturesClient/2026-07-28/prompts/prompts-respect-capability-negotiation` |
+| [prompts-validate-io](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#security) | MUST | both | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-validate-io` | **gap** pending:prompt-validation: an upstream prompts/get result is passed on unvalidated |
 
 ### prompts / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [prompts-errors-32602-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-errors-32602-32603` | n/a: addresses the other side |
 
 ### prompts / mrtr
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-get-input-required-may](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#getting-a-prompt) | MAY | server | **MISSING** | n/a: addresses the other side |
+| [prompts-get-input-required-may](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#getting-a-prompt) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/prompts/prompts-get-input-required-may` | n/a: addresses the other side |
 
 ### prompts / pagination
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [prompts-client-paginate](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2026-07-28/prompts/prompts-client-paginate` |
 
 ### resources
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-subscribe-cap-meaning-2026](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-list-must-respond-when-declared](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-list-not-per-connection](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [resources-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-declare-capability` | n/a: addresses the other side |
+| [resources-subscribe-cap-meaning-2026](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | (definition) | server | **gap** #208: subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver | n/a: addresses the other side |
+| [resources-cap-features-independent](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-cap-features-independent` | n/a: addresses the other side |
+| [resources-list-must-respond-when-declared](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-list-must-respond-when-declared` | n/a: addresses the other side |
+| [resources-list-not-per-connection](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MUST NOT | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-list-not-per-connection` | n/a: addresses the other side |
 | [resources-list-may-vary-by-auth](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#capabilities) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-read-multiple-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#reading-resources) | MAY | server | **MISSING** | n/a: addresses the other side |
+| [resources-list-changed-notify](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-list-changed-notify` | n/a: addresses the other side |
+| [resources-read-multiple-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#reading-resources) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-read-multiple-may` | n/a: addresses the other side |
 | [resources-read-https-direct-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#reading-resources) | may (lowercase) | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | **MISSING** |
-| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-no-empty-contents-for-missing](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-updated-may-be-subresource](https://modelcontextprotocol.io/specification/2026-07-28/schema#resourceupdatednotification) | (note, schema) | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2026-07-28/resources/resources-updated-may-be-subresource` |
+| [resources-https-only-if-client-fetchable](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-https-only-if-client-fetchable` | n/a: addresses the other side |
+| [resources-https-else-other-scheme](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#https) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-https-else-other-scheme` | n/a: addresses the other side |
+| [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-file-xdg-mime-may` | n/a: addresses the other side |
+| [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **gap** pending:resource-uri-encoding: the daemon mints mcpx://<ns>/<upstream uri> by concatenation, without percent-encoding the upstream URI | n/a: addresses the other side |
+| [resources-no-empty-contents-for-missing](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | MUST NOT | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-no-empty-contents-for-missing` | n/a: addresses the other side |
+| [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-file-traversal](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | **MISSING** | **MISSING** |
+| [resources-sec-file-traversal](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | n/a: mcpx serves no file:// resources of its own; artifacts are addressed by opaque ids | n/a: addresses the other side |
+| [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-annotations-defs` | **gap** #207: mcpclient.Resource has no annotations field; they are dropped on parse |
 
 ### resources / errors
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [resources-not-found-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [resources-client-accept-32002](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [resources-internal-32603](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-internal-32603` | n/a: addresses the other side |
+| [resources-not-found-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-not-found-32602` | n/a: addresses the other side |
+| [resources-client-accept-32002](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2026-07-28/resources/resources-client-accept-32002` |
 
 ### resources / mrtr
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-read-input-required-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#reading-resources) | MAY | server | **MISSING** | n/a: addresses the other side |
+| [resources-read-input-required-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#reading-resources) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-read-input-required-may` | n/a: addresses the other side |
 
 ### resources / subscriptions
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [resources-subscribe-via-listen](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#subscriptions) | (mechanism) | client | n/a: addresses the other side | **MISSING** |
+| [resources-subscribe-via-listen](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#subscriptions) | (mechanism) | client | n/a: addresses the other side | **gap** #208: mcpx never opens subscriptions/listen upstream |
 
 ### roots
 
@@ -2397,67 +2397,67 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 |---|---|---|---|---|
 | [tools-human-in-loop-deny](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [tools-ui-expose-indicate-confirm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#user-interaction-model) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-changed-notify-to-listeners](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#list-changed-notification) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-must-respond-when-declared](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-not-per-connection](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [tools-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-declare-capability` | n/a: addresses the other side |
+| [tools-list-changed-means-emit](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | (definition) | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-list-changed-means-emit` | n/a: addresses the other side |
+| [tools-list-changed-notify-to-listeners](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#list-changed-notification) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-list-changed-notify-to-listeners` | n/a: addresses the other side |
+| [tools-list-must-respond-when-declared](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-list-must-respond-when-declared` | n/a: addresses the other side |
+| [tools-list-not-per-connection](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MUST NOT | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-list-not-per-connection` | n/a: addresses the other side |
 | [tools-list-may-vary-by-auth](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [tools-list-may-be-empty-change](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-list-deterministic-order](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **MISSING** |
-| [tools-inputschema-no-params-recommended](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | RECOMMENDED | server | **MISSING** | n/a: addresses the other side |
+| [tools-list-may-be-empty-change](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-list-may-be-empty-change` | n/a: addresses the other side |
+| [tools-list-deterministic-order](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#capabilities) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-list-deterministic-order` | n/a: addresses the other side |
+| [tools-annotations-untrusted](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | client | n/a: addresses the other side | **gap** pending:annotation-trust: destructiveHint from any upstream decides whether a call is confirmed; an absent or false hint is trusted |
+| [tools-annotations-hints-no-decisions](https://modelcontextprotocol.io/specification/2026-07-28/schema#toolannotations) | should (lowercase, schema) | client | n/a: addresses the other side | **gap** pending:annotation-trust: the consumer confirmDestructive gate is decided by an untrusted upstream annotation |
+| [tools-inputschema-no-params-recommended](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | RECOMMENDED | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-inputschema-no-params-recommended` | n/a: addresses the other side |
 | [tools-x-mcp-header-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [tools-x-mcp-header-not-empty](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [tools-x-mcp-header-tchar](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-x-mcp-header-no-ctl](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [tools-x-mcp-header-unique-ci](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-x-mcp-header-primitive-only](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-x-mcp-header-int-safe-range](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-x-mcp-header-statically-reachable](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-x-mcp-header-reject-excludes](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [tools-x-mcp-header-reject-log](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [tools-x-mcp-header-stdio-may-ignore](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [tools-x-mcp-header-no-secrets](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-length](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-case-sensitive](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | both | **MISSING** | **MISSING** |
-| [tools-name-charset](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-no-special](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [tools-name-unique-in-server](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-aggregator-disambiguate](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [tools-aggregator-not-by-servername](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-error-input-validation-execution](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | **MISSING** | n/a: addresses the other side |
-| [tools-client-exec-errors-to-llm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [tools-client-protocol-errors-to-llm-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-embedded-implies-resources-cap](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-resource-link-may-not-listed](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | (note) | both | **MISSING** | **MISSING** |
-| [tools-structured-also-text](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [tools-structured-any-json](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | (type) | server | **MISSING** | n/a: addresses the other side |
-| [tools-output-schema-conform](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [tools-x-mcp-header-not-empty](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST NOT | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-x-mcp-header-tchar](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-x-mcp-header-no-ctl](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST NOT | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-x-mcp-header-unique-ci](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-x-mcp-header-primitive-only](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-x-mcp-header-int-safe-range](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-x-mcp-header-statically-reachable](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-x-mcp-header-reject-excludes](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MUST | client | n/a: addresses the other side | **gap** #200: x-mcp-header is not read, so a tool with an invalid one is not excluded |
+| [tools-x-mcp-header-reject-log](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | SHOULD | client | n/a: addresses the other side | **gap** #200: x-mcp-header is not read, so nothing is rejected or logged |
+| [tools-x-mcp-header-stdio-may-ignore](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | MAY | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2026-07-28/tools/tools-x-mcp-header-stdio-may-ignore` |
+| [tools-x-mcp-header-no-secrets](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#x-mcp-header) | SHOULD NOT | server | n/a: no tool mcpx serves declares an x-mcp-header parameter | n/a: addresses the other side |
+| [tools-name-length](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-name-length` | n/a: addresses the other side |
+| [tools-name-case-sensitive](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | both | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-name-case-sensitive` | tested: `conformance.TestFeaturesClient/2026-07-28/tools/tools-name-case-sensitive` |
+| [tools-name-charset](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-name-charset` | n/a: addresses the other side |
+| [tools-name-no-special](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD NOT | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-name-no-special` | n/a: addresses the other side |
+| [tools-name-unique-in-server](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-name-unique-in-server` | n/a: addresses the other side |
+| [tools-aggregator-disambiguate](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD | client | n/a: addresses the other side | tested: `e2e.TestAliasExposesASubsetOfTheSameServer@2026-07-28`<br>`e2e.TestDuplicateNamespaceIsRejected@2026-07-28` |
+| [tools-aggregator-not-by-servername](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool-names) | SHOULD NOT | client | n/a: addresses the other side | tested: `e2e.TestDuplicateNamespaceIsRejected@2026-07-28` |
+| [tools-result-iserror-for-tool-errors](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-result-iserror-for-tool-errors` | n/a: addresses the other side |
+| [tools-result-lookup-errors-protocol](https://modelcontextprotocol.io/specification/2026-07-28/schema#calltoolresult) | should (lowercase) | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-result-lookup-errors-protocol` | n/a: addresses the other side |
+| [tools-error-unknown-tool-protocol](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-error-unknown-tool-protocol` | n/a: addresses the other side |
+| [tools-error-input-validation-execution](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | (classification) | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-error-input-validation-execution` | n/a: addresses the other side |
+| [tools-client-exec-errors-to-llm](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2026-07-28/tools/tools-client-exec-errors-to-llm` |
+| [tools-client-protocol-errors-to-llm-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling) | MAY | client | n/a: addresses the other side | tested: `conformance.TestFeaturesClient/2026-07-28/tools/tools-client-protocol-errors-to-llm-may` |
+| [tools-embedded-resource-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-embedded-resource-may` | n/a: addresses the other side |
+| [tools-embedded-implies-resources-cap](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#embedded-resources) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-embedded-implies-resources-cap` | n/a: addresses the other side |
+| [tools-resource-link-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-resource-link-may` | n/a: addresses the other side |
+| [tools-resource-link-may-not-listed](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#resource-links) | (note) | both | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-resource-link-may-not-listed` | tested: `conformance.TestFeaturesClient/2026-07-28/tools/tools-resource-link-may-not-listed` |
+| [tools-structured-also-text](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | SHOULD | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-structured-also-text` | n/a: addresses the other side |
+| [tools-structured-any-json](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#structured-content) | (type) | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-structured-any-json` | n/a: addresses the other side |
+| [tools-output-schema-conform](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-output-schema-conform` | n/a: addresses the other side |
 | [tools-output-schema-client-validate](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#output-schema) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [tools-display-name-precedence](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | (rule) | client | n/a: addresses the other side | **MISSING** |
+| [tools-display-name-precedence](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | (rule) | client | n/a: addresses the other side | **gap** #207: tool title and annotations.title are carried but nothing that displays a tool uses them |
 | [tools-server-sec-validate-inputs](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 
 ### tools / json-schema
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [tools-inputschema-valid-not-null](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
-| [tools-client-sec-ref-resolution](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [tools-inputschema-valid-not-null](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-inputschema-valid-not-null` | n/a: addresses the other side |
+| [tools-inputschema-type-object-root](https://modelcontextprotocol.io/specification/2026-07-28/schema#tool) | REQUIRED (schema) | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-inputschema-type-object-root` | n/a: addresses the other side |
+| [tools-client-sec-ref-resolution](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations) | SHOULD | client | n/a: addresses the other side | n/a: mcpx never validates arguments against an upstream inputSchema, so it resolves no $ref for validation |
 
 ### tools / mrtr
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [tools-call-input-required-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#input-required-tool-results) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [tools-call-inputrequests-declared-only](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [tools-call-input-required-may](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#input-required-tool-results) | MAY | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-call-input-required-may` | n/a: addresses the other side |
+| [tools-call-inputrequests-declared-only](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr) | MUST NOT | server | tested: `conformance.TestFeaturesServer/2026-07-28/tools/tools-call-inputrequests-declared-only` | n/a: addresses the other side |
 
 ### transport-http-sse
 

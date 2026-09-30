@@ -122,10 +122,11 @@ func TestStatefulServer(t *testing.T) {
 				t.Errorf("%v", r)
 			}
 			// A task whose request fails reports the same error.
-			tr := resultOf(t, ss.request(t, rev, "tools/call", map[string]any{"name": "no-such-tool",
+			// (mcpx_call without its arguments fails as a tool.)
+			tr := resultOf(t, ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_call",
 				"arguments": map[string]any{}, "task": map[string]any{}}))
 			res := ss.request(t, rev, "tasks/result", map[string]any{"taskId": asMap(tr["task"])["taskId"]})
-			direct := ss.request(t, rev, "tools/call", map[string]any{"name": "no-such-tool", "arguments": map[string]any{}})
+			direct := ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_call", "arguments": map[string]any{}})
 			a, _ := json.Marshal(res["result"])
 			d, _ := json.Marshal(direct["result"])
 			if errorCode(res) != errorCode(direct) || string(a) != string(d) {

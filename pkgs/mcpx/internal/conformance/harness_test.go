@@ -266,6 +266,9 @@ func (b *backend) ReadResource(_ context.Context, uri string) (string, string, e
 	return "hello", "text/plain", nil
 }
 func (b *backend) GetPrompt(_ context.Context, name string, args map[string]string) (string, error) {
+	if name != "greet" {
+		return "", fmt.Errorf("no prompt named %q", name)
+	}
 	return "hi " + args["who"], nil
 }
 func (b *backend) ResourceTemplates(context.Context) ([]mcpserver.ResourceRef, error) {

@@ -564,6 +564,16 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel", "tasks/update":
 		return s.handleTask(ctx, c, req, peer)
 	case "tools/call":
+		// Finding the tool is the protocol's business, running it the
+		// tool's: an unknown name is -32602, in every revision, before a
+		// task or a question is started for a call that cannot happen.
+		var call struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" && !s.hasTool(call.Name) {
+			return &response{JSONRPC: "2.0", ID: req.ID,
+				Error: &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("no tool named %q", call.Name)}}
+		}
 		if resp := s.maybeTask(ctx, c, req, peer); resp != nil {
 			return resp
 		}
@@ -806,11 +816,6 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(out)
 
 	case "prompts/get":
-		if s.canAsk(ctx, c, peer) {
-			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
-				return resp
-			}
-		}
 		var p struct {
 			Name      string            `json:"name"`
 			Arguments map[string]string `json:"arguments"`
@@ -818,9 +823,31 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
+		if s.backend == nil {
+			return fail(codeInternal, "no prompts are available")
+		}
+		// Arguments are checked here, before anything runs or asks: a
+		// missing required one is the client's error (-32602), and once
+		// the request is known to be well-formed, a failure is mcpx's or
+		// the upstream's (-32603).
+		known, missing := s.promptArgs(ctx, p.Name, p.Arguments)
+		if missing != "" {
+			return fail(codeInvalidParams, fmt.Sprintf("prompt %q needs argument %q", p.Name, missing))
+		}
+		if s.canAsk(ctx, c, peer) {
+			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
+				return resp
+			}
+		}
 		text, err := s.backend.GetPrompt(ctx, p.Name, p.Arguments)
 		if err != nil {
-			return fail(codeInvalidParams, err.Error())
+			// A name the list does not hold is most likely simply unknown;
+			// the backend is still asked, because it also accepts a name
+			// without its namespace.
+			if !known {
+				return fail(codeInvalidParams, err.Error())
+			}
+			return fail(codeInternal, err.Error())
 		}
 		return reply(map[string]any{
 			"messages": []any{map[string]any{
@@ -2046,3 +2073,35 @@ func (l lockedEncoder) Encode(v any) error {
 // specMaxCompletions is CompleteResult.values' maxItems in every revision: a
 // fact of the protocol, not a default.
 const specMaxCompletions = 100
+
+// hasTool reports whether tools/call can reach name.
+func (s *Server) hasTool(name string) bool {
+	for _, t := range s.Tools() {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// promptArgs finds a prompt by its exact name and reports the first
+// required argument not supplied. A listing that fails says nothing either
+// way.
+func (s *Server) promptArgs(ctx context.Context, name string, args map[string]string) (known bool, missing string) {
+	refs, err := s.backend.Prompts(ctx)
+	if err != nil {
+		return false, ""
+	}
+	for _, r := range refs {
+		if r.Name != name {
+			continue
+		}
+		for _, a := range r.Arguments {
+			if _, ok := args[a.Name]; a.Required && !ok {
+				return true, a.Name
+			}
+		}
+		return true, ""
+	}
+	return false, ""
+}

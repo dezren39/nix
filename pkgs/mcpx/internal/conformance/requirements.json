@@ -10963,7 +10963,7 @@
     "quote": "\"**MUST NOT** be empty\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "yes (validation side, see reject row)",
@@ -10982,7 +10982,7 @@
     "quote": "\"**MUST** match HTTP field-name token syntax (`1*tchar`…)\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "same",
@@ -11001,7 +11001,7 @@
     "quote": "\"**MUST NOT** contain control characters, including carriage return… or line feed\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "same",
@@ -11020,7 +11020,7 @@
     "quote": "\"**MUST** be case-insensitively unique among all `x-mcp-header` values in the `inputSchema`\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "same",
@@ -11039,7 +11039,7 @@
     "quote": "\"**MUST** only be applied to parameters with primitive types (integer, string, boolean). Parameters with type `number` are not permitted.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "same",
@@ -11058,7 +11058,7 @@
     "quote": "\"Integer values **MUST** be within the safe range for integers represented using IEEE754 double-precision\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "same",
@@ -11077,7 +11077,7 @@
     "quote": "\"**MUST** only be applied to properties that are _statically reachable_ from the schema root\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "same",
@@ -11153,7 +11153,7 @@
     "quote": "\"Server developers **SHOULD NOT** mark sensitive parameters (passwords, API keys, tokens, PII) with `x-mcp-header`\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
     },
     "notes": {
       "client": "no",
@@ -11771,7 +11771,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/server/tools#security-considerations",
     "quote": "\"Follow the `$ref` resolution requirements when validating tool inputs and outputs\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx never validates arguments against an upstream inputSchema, so it resolves no $ref for validation",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -12385,7 +12385,7 @@
     "quote": "\"Servers **MUST** sanitize file paths to prevent directory traversal attacks when serving `file://` resources\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:mcpx serves no file:// resources of its own; artifacts are addressed by opaque ids"
     },
     "notes": {
       "client": "no",
