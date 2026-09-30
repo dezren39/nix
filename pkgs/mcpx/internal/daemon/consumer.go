@@ -370,7 +370,20 @@ func (r *Registry) confirmDestructive(ctx context.Context, p *pool.Pool, tool st
 	if !r.consumer.ConfirmDestructive || r.broker == nil {
 		return nil
 	}
-	all, _, _ := p.CachedSchemas()
+	all, _, at := p.CachedSchemas()
+	if at.IsZero() {
+		// Never read, or invalidated by a list_changed. Deciding from an
+		// empty or stale list would let the call through unasked -- which
+		// is what happened on every call that arrived while a new daemon
+		// was still reading schemas -- so read them now, and refuse if
+		// they cannot be read: failing open is the one wrong answer here.
+		fresh, _, err := p.RefreshSchemas(ctx)
+		if err != nil {
+			return ErrNotConfirmed{Tool: p.Namespace() + "." + tool,
+				Reason: "its annotations could not be read: " + err.Error()}
+		}
+		all = fresh
+	}
 	var found *mcpclient.Tool
 	for i := range all {
 		if all[i].Name == tool {
@@ -515,6 +528,7 @@ type ExecResult struct {
 // here, through the same runner the CLI uses, against this daemon's own
 // endpoint.
 func (s *Server) execScript(ctx context.Context, source, session string) (*ExecResult, error) {
+	s.warmIfCold(ctx)
 	nss, err := s.reg.CodegenNamespaces(nil, config.Profile{All: true})
 	if err != nil {
 		return nil, err
@@ -708,4 +722,30 @@ func (s *Server) policyFor(ctx context.Context) ConsumerPolicy {
 		return p
 	}
 	return s.consumer.policy
+}
+
+// warmIfCold reads the schemas when no server has any yet.
+//
+// A daemon that has just started reads them in the background. A recipe run,
+// a generated script or a diagnosis that arrived first used the empty
+// catalog: the client was generated with no namespaces, so the script died
+// on "demo.echo is not a function", and a diagnosis compared the source with
+// nothing and found nothing wrong. The CLI's own commands wait for the
+// schemas; these routes are also reached by the plugin and by MCP, which do
+// not. "No server has any" rather than "some server has none", as the CLI's
+// ensureAnySchemas does it, so one server that cannot start does not put its
+// start timeout on every request.
+func (s *Server) warmIfCold(ctx context.Context) {
+	s.reg.mu.RLock()
+	cold := len(s.reg.pools) > 0
+	for _, p := range s.reg.pools {
+		if _, _, at := p.CachedSchemas(); !at.IsZero() {
+			cold = false
+			break
+		}
+	}
+	s.reg.mu.RUnlock()
+	if cold {
+		s.reg.Warm(ctx, false)
+	}
 }

@@ -47,6 +47,7 @@ func (s *Server) handleDiagnose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("source is required"))
 		return
 	}
+	s.warmIfCold(r.Context())
 	ds := diagnose.Script(req.Source, s.reg.DiagnoseCatalog())
 	// The session was decoded and discarded, so the parameter's own
 	// description -- "for the record" -- described a record nothing wrote.
@@ -279,6 +280,7 @@ func (s *Server) handleRecipeRun(w http.ResponseWriter, r *http.Request) {
 // runs it.
 func (s *Server) resolveRecipe(r *http.Request, rec recipes.Recipe,
 	values map[string]any, level, session string) (resolution, int) {
+	s.warmIfCold(r.Context())
 
 	out := resolution{Autonomy: level, Recipe: rec.Name, Model: "recipe"}
 	if values == nil {

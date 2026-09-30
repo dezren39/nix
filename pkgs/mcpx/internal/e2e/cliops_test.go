@@ -332,7 +332,11 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 // against a server slow to start compared the script with an empty catalog
 // and reported nothing wrong. The delay makes the race deterministic.
 func TestDiagnoseOnAColdDaemonWaitsForTheSchemas(t *testing.T) {
-	e := newEnv(t, `{"mcpServers":{"demo":{"command":"FAKE","env":{"FAKEMCP_START_DELAY":"1500ms"}}}}`)
+	e := newEnv(t, oneServer)
+	// In the environment the server inherits, not in the config: newEnv
+	// replaces FAKE in the config body with the binary's path, which renamed
+	// FAKEMCP_START_DELAY and left the server starting at full speed.
+	e.setenv("FAKEMCP_START_DELAY=1500ms")
 	out, err := e.try("diagnose", "await demo.echo()")
 	if err == nil || !strings.Contains(out, "message is required") {
 		t.Fatalf("diagnose on a cold daemon should still find the missing argument:\n%s", out)
