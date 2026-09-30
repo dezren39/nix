@@ -175,21 +175,28 @@ func toolMeta(nss []Namespace) string {
 
 // schemaFields pulls parameter names out of a JSON Schema.
 func schemaFields(raw json.RawMessage) (params, required []string) {
+	// Never nil. A nil slice marshals to JSON null, and the emitted type
+	// says string[] -- so one tool with no parameters made the generated
+	// client fail to type check, and with it every script, whatever the
+	// script said. "No parameters" is an empty list, not an absent one.
+	params, required = []string{}, []string{}
 	if len(raw) == 0 {
-		return nil, nil
+		return params, required
 	}
 	var doc struct {
 		Properties map[string]any `json:"properties"`
 		Required   []string       `json:"required"`
 	}
 	if json.Unmarshal(raw, &doc) != nil {
-		return nil, nil
+		return params, required
 	}
 	for k := range doc.Properties {
 		params = append(params, k)
 	}
 	sort.Strings(params)
-	required = doc.Required
+	if doc.Required != nil {
+		required = doc.Required
+	}
 	sort.Strings(required)
 	return params, required
 }
