@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +50,11 @@ func newEnv(t *testing.T, cfgBody string) *env {
 		mcpx: mcpx,
 		fake: fake,
 		envVars: append(os.Environ(),
+			// Never the real registry. A test that reaches the internet
+			// fails wherever the internet is slow, which is every CI runner
+			// -- `/v1/registry/search` timed out there while passing on a
+			// laptop, and took a merge with it.
+			"MCPX_REGISTRY_URL="+stubRegistry(t),
 			"MCPX_STATE_DIR="+filepath.Join(dir, "state"),
 			"MCPX_CACHE_DIR="+filepath.Join(dir, "cache"),
 			"MCPX_CONFIG="+filepath.Join(dir, ".mcpx.json"),
@@ -2635,4 +2641,17 @@ func TestResolveTellsAPluginWhichDaemonServesADirectory(t *testing.T) {
 	if bad.StatusCode != http.StatusBadRequest {
 		t.Errorf("relative dir: status %d, want 400", bad.StatusCode)
 	}
+}
+
+// stubRegistry serves the shape registry.Client.Search parses, and nothing
+// else. It exists so no test depends on a network it cannot control.
+func stubRegistry(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"servers":[{"server":{"name":"io.example/demo",` +
+			`"description":"a stub entry","version":"1.0.0"}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
