@@ -99,6 +99,14 @@ type Defaults struct {
 		AbandonGrace string `json:"abandonGrace"`
 		MCPPath      string `json:"mcpPath"`
 	} `json:"proto"`
+	// Transport governs how mcpx's own MCP server behaves on the wire, as
+	// opposed to what it says: keep-alives, shutdown, who may connect.
+	Transport struct {
+		SSEKeepAlive   string   `json:"sseKeepAlive"`
+		StdioDrain     string   `json:"stdioDrain"`
+		LoopbackHosts  []string `json:"loopbackHosts"`
+		AllowedOrigins []string `json:"allowedOrigins"`
+	} `json:"transport"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -393,6 +401,20 @@ var (
 	ProtoAbandonGrace = mustDur(builtin.Proto.AbandonGrace, "proto.abandonGrace")
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
+
+	// TransportSSEKeepAlive is how often an otherwise quiet event stream
+	// carries a comment line, so an intermediary or a client idle timeout
+	// does not close a stream that is merely waiting.
+	TransportSSEKeepAlive = mustDur(builtin.Transport.SSEKeepAlive, "transport.sseKeepAlive")
+	// TransportStdioDrain bounds how long `mcpx serve` keeps answering
+	// requests already in flight after its input closes, before it cancels
+	// them and exits.
+	TransportStdioDrain = mustDur(builtin.Transport.StdioDrain, "transport.stdioDrain")
+	// TransportLoopbackHosts are the Origin hosts a browser page on this
+	// machine presents; any port, http or https.
+	TransportLoopbackHosts = builtin.Transport.LoopbackHosts
+	// TransportAllowedOrigins are further Origins allowed to reach /mcp.
+	TransportAllowedOrigins = builtin.Transport.AllowedOrigins
 
 	CatalogBudget = builtin.Catalog.Budget
 
