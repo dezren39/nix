@@ -195,13 +195,14 @@ not ported, because mcpx does not build there (`internal/runner` uses
 
 ## 4. How it was tested
 
-**Parity.** 30 subtests build repositories with the real git in a fenced
-temporary root -- `GIT_CEILING_DIRECTORIES` at its parent, a private global
-config, no system config, none of the local variables -- and compare native
-discovery with `git rev-parse` for both questions. Every "this should fail"
-case first asserts git fails, so a fixture that accidentally built a valid
-repository cannot pass as a refusal. They skip only when git is absent (the
-Nix sandbox) or older than a feature they need.
+**Parity.** 54 subtests in six `TestGitParity*` functions build
+repositories with the real git in a fenced temporary root --
+`GIT_CEILING_DIRECTORIES` at its parent, a private global config, no system
+config, none of the local variables -- and compare native discovery with `git
+rev-parse` for both questions. A case that expects git to refuse first checks
+that it does, so a fixture that accidentally built a valid repository cannot
+pass as a refusal. They skip only when git is absent (the Nix sandbox) or
+older than a feature they need; with git 2.55 none skip.
 
 **Without git.** `TestScopesResolveWithoutGit` and three siblings clear `PATH`
 and build repositories by hand -- `HEAD`, `objects/`, `refs/`, and the two
@@ -217,12 +218,20 @@ without it:
   reasons they name (keys are `cwd:` without git; every caller keyed to
   `other/.git` under an absolute `GIT_DIR`; the shared instance gone after an
   exec).
-- The unit tests, by mutation: 54 single-line changes to the port, each run
-  against the suite. All are killed except two that cannot change behaviour
-  (resolving relative ceiling entries that `realpathMissingLast` returns
-  relative anyway; reading the fallback's second line only on success, when
-  git prints no second line on failure). Mutations that failed to compile
-  were rewritten, since a compile error proves nothing about a test.
+- The unit tests, by mutation: 44 single-line changes to the port -- the
+  walk order, the ceiling arithmetic, each gitfile refusal, each HEAD rule,
+  `has_common`, the config parser's quoting, trimming and subsections, the
+  format checks, the environment scrub -- each run against the suite on the
+  final code. 41 are killed, each by a named test. The three that survive
+  cannot change behaviour: two treat relative `GIT_CEILING_DIRECTORIES`
+  entries differently, but a relative entry can never be a prefix of the
+  absolute path discovery walks; the third reads the fallback's second line
+  even when git fails, and git prints no second line when it fails. Five
+  mutations first written so that they did not compile were rewritten, since
+  a compile error proves nothing about a test. The first runs found five
+  gaps, now covered: the order of the `.git` and bare checks at one level, a
+  section whose *subsection* is `core`, `HEAD` values that are almost valid,
+  a `.git` that cannot be stat'd, and a `.git` file over the size ceiling.
 
 **In the image.** §4 of `docs/container.md`.
 
