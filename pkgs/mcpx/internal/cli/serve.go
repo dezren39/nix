@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -316,7 +317,20 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 		AskRounds:   a.Settings().Int("proto.askRounds"),
 		StateTTL:    a.Settings().Duration("proto.stateTTL"),
 		SessionIdle: a.Settings().Duration("proto.sessionIdle"),
+
+		SSEKeepAlive: a.Settings().Duration("transport.sseKeepAlive"),
+		StdioDrain:   a.Settings().Duration("transport.stdioDrain"),
 	}
+	// Browser origins the HTTP transport serves: loopback at any port, the
+	// daemon's own address when it listens somewhere else, and whatever
+	// was configured. The daemon's address is named explicitly rather than
+	// taken from the request's Host, which DNS rebinding controls.
+	hosts := append([]string(nil), defaults.TransportLoopbackHosts...)
+	if addr := a.Settings().String("daemon.address"); addr != "" && !unspecifiedHost(addr) {
+		hosts = append(hosts, addr)
+	}
+	srv.Origins = mcpserver.OriginPolicy{Hosts: hosts,
+		Origins: a.Settings().List("transport.allowedOrigins")}
 	if a.Settings().Bool("proto.native") {
 		// Native elicitation and sampling: a question an upstream server
 		// asks is put to mcpx's own client, if that client said it could
@@ -380,6 +394,13 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	// server over stdio fails.
 	a.machineOutput = true
 	return srv.ServeStdio(ctx, os.Stdin, os.Stdout)
+}
+
+// unspecifiedHost reports whether an address means every interface, which
+// names no origin a browser could present.
+func unspecifiedHost(h string) bool {
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsUnspecified()
 }
 
 func writeJSONResponse(w http.ResponseWriter, v any) {

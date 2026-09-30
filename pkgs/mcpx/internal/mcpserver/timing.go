@@ -31,6 +31,11 @@ type Timing struct {
 	StateTTL time.Duration
 	// SessionIdle is how long an unused Streamable HTTP session is kept.
 	SessionIdle time.Duration
+	// SSEKeepAlive is how often a quiet GET event stream carries a comment.
+	SSEKeepAlive time.Duration
+	// StdioDrain is how long in-flight stdio requests may finish after the
+	// input closes, before they are cancelled.
+	StdioDrain time.Duration
 }
 
 func (t Timing) resolved() Timing {
@@ -48,6 +53,12 @@ func (t Timing) resolved() Timing {
 	}
 	if t.SessionIdle <= 0 {
 		t.SessionIdle = defaults.ProtoSessionIdle
+	}
+	if t.SSEKeepAlive <= 0 {
+		t.SSEKeepAlive = defaults.TransportSSEKeepAlive
+	}
+	if t.StdioDrain <= 0 {
+		t.StdioDrain = defaults.TransportStdioDrain
 	}
 	return t
 }
