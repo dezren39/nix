@@ -26,7 +26,7 @@
     "npm:react-router-dom@^6.22.3": "6.30.1_react@18.3.1_react-dom@18.3.1",
     "npm:react-syntax-highlighter@^15.5.0": "15.6.6_react@18.3.1",
     "npm:react@^18.3.1": "18.3.1",
-    "npm:sonner@^1.4.3": "1.7.4_react@18.3.1_react-dom@18.3.1",
+    "npm:sonner@2": "2.0.8_@types+react@18.3.24_react@18.3.1_react-dom@18.3.1",
     "npm:tailwind-merge@^2.2.1": "2.6.0",
     "npm:tailwindcss@4": "4.3.3",
     "npm:typescript@^5.7.2": "5.9.2",
@@ -1157,11 +1157,15 @@
         "loose-envify"
       ]
     },
-    "sonner@1.7.4_react@18.3.1_react-dom@18.3.1": {
-      "integrity": "sha512-DIS8z4PfJRbIyfVFDVnK9rO3eYDtse4Omcm6bt0oEr5/jtLgysmjuBl1frJ9E/EQZrFmKx2A8m/s5s9CRXIzhw==",
+    "sonner@2.0.8_@types+react@18.3.24_react@18.3.1_react-dom@18.3.1": {
+      "integrity": "sha512-UM/ByIoFra8yzV75n1o0Puu0bw5U/9UNnDacrJNspekBewIfsQ3D6ez1nvlWpt7aTsO6rujQtifBpycwIivqlg==",
       "dependencies": [
+        "@types/react",
         "react",
         "react-dom"
+      ],
+      "optionalPeers": [
+        "@types/react"
       ]
     },
     "source-map-js@1.2.1": {
@@ -1289,7 +1293,7 @@
         "npm:react-router-dom@^6.22.3",
         "npm:react-syntax-highlighter@^15.5.0",
         "npm:react@^18.3.1",
-        "npm:sonner@^1.4.3",
+        "npm:sonner@2",
         "npm:tailwind-merge@^2.2.1",
         "npm:tailwindcss@4",
         "npm:typescript@^5.7.2",
