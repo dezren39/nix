@@ -74,6 +74,11 @@ type Instance struct {
 	// eraSource is how this instance's era was settled: probe, cache or
 	// forced.
 	eraSource string
+	// subscribed are the resource URIs this instance has been asked to
+	// report updates for. See watch.go.
+	subMu      sync.Mutex
+	subscribed map[string]bool
+	monitored  bool
 }
 
 // Trace is this instance's identifier, carried by every record about it.
@@ -134,6 +139,12 @@ type Pool struct {
 	instructions string
 	schemaAt     time.Time
 	schemaErr    error
+
+	// watched counts, per upstream resource URI, the subscribers that want
+	// its updates; watchKey is the scope key they were resolved under.
+	watchMu  sync.Mutex
+	watched  map[string]int
+	watchKey string
 
 	lastErr   error
 	failCount int
@@ -500,6 +511,9 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		eraSource: source,
 	}
 	ref.set(in)
+	// A replacement instance -- after a restart, a crash, an eviction --
+	// knows nothing of what its predecessor was subscribed to.
+	p.resubscribe(sctx, in)
 	lifecycle("server.start", map[string]any{
 		"server": p.cfg.Name, "instance": in.ID, "pid": in.PID(),
 		"trace": in.trace, "sharing": string(p.cfg.Sharing), "scope": string(p.cfg.Scope),
@@ -818,8 +832,10 @@ func (p *Pool) ReapIdle(now time.Time) int {
 	var stop []*Instance
 	kept := p.instances[:0]
 	for _, in := range p.instances {
+		// An instance carrying resource subscriptions is not idle: it is
+		// the only thing that will ever report those resources changing.
 		expired := in.holders == 0 && now.Sub(in.lastUsed) > p.cfg.IdleTimeout &&
-			len(p.instances) > p.cfg.Min
+			len(p.instances) > p.cfg.Min && !in.hasSubscriptions()
 		// A pid-scoped instance belongs to a process. When that process is
 		// gone the instance has no possible future caller, so it goes
 		// immediately rather than waiting out the idle timer.
