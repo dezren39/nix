@@ -23,10 +23,17 @@ func tree(t *testing.T, files map[string]string) string {
 		}
 	}
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-empty"))
-	// Isolate the user config too: without this, a real
-	// ~/.config/mcpx/config.json on the dev machine leaks into the
-	// search path and breaks source-count assertions (e.g.
-	// TestSourcesAreRecordedNearestFirst).
+	// Isolate the user config too. SearchPathFrom adds $HOME/.config/mcpx
+	// and $HOME/.mcpx.json unconditionally, so the XDG_CONFIG_HOME above
+	// does not cover them: a real ~/.config/mcpx/config.json on the dev
+	// machine leaks into the search path and breaks the source-count
+	// assertion in TestSourcesAreRecordedNearestFirst.
+	//
+	// This closes the $HOME fallback, not the upward walk. When TMPDIR
+	// lives under $HOME, root's ancestors include the real home and the
+	// walk finds that config whatever $HOME is set to -- the walk keys on
+	// the path, not the variable. Isolating that would mean bounding the
+	// walk, which no environment variable does.
 	t.Setenv("HOME", filepath.Join(root, "home-empty"))
 	t.Setenv("MCPX_CONFIG", "")
 	return root

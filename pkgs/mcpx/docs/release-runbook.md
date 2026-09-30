@@ -162,8 +162,8 @@ gofmt -l .
 go vet ./...
 go test ./... -count=1
 MCPX=./bin/mcpx scripts/stress.sh      # concurrency, leaks, orphans
-MCPX=./bin/mcpx scripts/bench.sh       # latency
-nix build .#mcpx                       # unit suites in the sandbox
+MCPX=./bin/mcpx scripts/bench.sh       # latency, against lootbox
+(cd ../.. && nix build .#mcpx)         # unit suites in the sandbox
 ```
 
 `README.md` must stay a symlink to `docs/story.md`:

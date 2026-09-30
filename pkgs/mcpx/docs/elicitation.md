@@ -4,14 +4,34 @@
 created:      2026-09-28T18:00:00-05:00
 last-updated: 2026-09-28T18:00:00-05:00
 increment:    1
-status:       proposed
+status:       partial -- largely shipped, and differently in places
 tags:         area:protocol, area:integration
 description:  how a server asks a question, and how the answer gets back
               through a CLI, a REST call, a script, an MCP host or a plugin.
 ```
 
-Not implemented. This is the shape it would take, what it costs, and what it
-unlocks.
+**This was written before the feature existed, and the feature has since
+shipped -- not always in the shape proposed here.** It is kept as the design
+record, because the reasoning is still the reasoning. What actually ships is in
+`docs/parity.md` (the `elicit_*` rows) and `docs/consumer.md`; the authority is
+`internal/elicit/`, `internal/cli/elicit.go` and the three `/v1/elicit` routes
+in `internal/daemon/server.go:424-426`.
+
+Where this document and the code disagree, the code is right. The disagreements
+worth knowing before you read on:
+
+| this document says | what shipped |
+| --- | --- |
+| §2's three "live bugs" | all three fixed: `dispatch` routes server-initiated requests (`internal/mcpclient/client.go:404-421`), `negotiate` no longer echoes a version it does not serve (`internal/mcpserver/server.go:1092-1095`), and the client declares `elicitation` (`internal/mcpclient/modern.go:71-84`) |
+| `mcpx call --elicit=<mode>` | not built. There is no `--elicit` flag on any command |
+| a waiting call exits `75` | not built. `cli.ExitInputRequired` is declared and read by nothing |
+| `POST /v1/elicit/<id>/answer` | `POST /v1/elicit/{id}/{action}` -- the action is in the path, the body is content only |
+| `GET /v1/elicit/subscribe` | not built. `mcpx elicit watch` polls; the SSE stream is `GET /v1/events` |
+| `mcpx_elicit_pending` | the tool is `mcpx_elicit_list` |
+| `plumbing.elicitTTL`, `elicit.mode`, `elicit.rules` | none exist. The TTL is `elicit.ttl` in `defaults.json` and is not a setting; the shipped policy is `elicit.Route` (`internal/elicit/elicit.go:491`), which is not rule-based |
+| `MCPX_PLUGIN_ELICIT` | does not exist |
+| `onElicit()` / `ask()` script globals, the TUI view, the `mcpx-elicitation` skill | none built |
+| a `202` with `Location` and `Retry-After`, an `Elicitation` OpenAPI component | not built. The retry shape that shipped is MCP-side `input_required` |
 
 ---
 
@@ -61,8 +81,11 @@ The compatibility matrix is unforgiving. A modern client against a legacy
 server **fails**. A legacy client against a modern server **fails**. Only a
 *dual-era* implementation bridges them, and it must implement both.
 
-mcpx is legacy on both sides: its client sends `initialize` with
-`ProtocolVersion = "2025-06-18"`, and its server answers `initialize`.
+mcpx was legacy on both sides when this was written: its client sent
+`initialize` with `ProtocolVersion = "2025-06-18"`, and its server answered
+`initialize`. It is dual-era now -- the client offers `2025-11-25`
+(`internal/mcpclient/client.go:22`) and probes modern with `server/discover`
+first, and the server serves both eras.
 
 **And its server lies.** `negotiate()` echoes whatever version the client
 asked for:
@@ -78,8 +101,11 @@ $ ... server/discover
 A modern client is told "yes, I speak 2026-07-28", and then finds no
 `server/discover` and no `_meta` handling. The spec says an unsupported
 version **MUST** get an `UnsupportedProtocolVersionError` (`-32022`) listing
-what is actually supported. This is a second live bug, independent of
-elicitation, and cheaper to fix than to explain.
+what is actually supported. This was a second live bug, independent of
+elicitation. It is fixed: `negotiate` echoes a version only when it is both
+supported and non-modern, and otherwise answers `Latest`
+(`internal/mcpserver/server.go:1092-1095`); `server/discover` is implemented
+(`server.go:535`) and `-32022` exists (`server.go:327`).
 
 ### Elicitation in each era
 
@@ -121,16 +147,19 @@ cleanly, finds no pending entry, and is dropped. The server then waits
 forever, the call hits `pool.callTimeout`, and the error says "timed out" —
 which is true and useless.
 
-**This is a live bug, not only a missing feature.** Any server that elicits
-today fails opaquely against mcpx. That is worth fixing even if none of the
-rest is built.
+**This was a live bug, not only a missing feature**, and it has been fixed:
+`recvLoop` delegates to `dispatch`, which looks for a `method` as well as an
+`id` and routes the frame to `handleServerRequest`
+(`internal/mcpclient/client.go:404-421`).
 
 ### `initialize` does not declare the capability
 
-mcpx advertises `tools`, `resources`, `prompts`. A well-behaved server checks
-for `elicitation` and will not send one without it — so most servers are
-currently protected from the bug above by our own silence. That is luck, not
-design, and it ends the moment we advertise anything.
+It did not, when this was written. mcpx advertised `tools`, `resources`,
+`prompts`, and a well-behaved server checking for `elicitation` would not send
+one -- protection by silence, which is luck rather than design. The client now
+declares `elicitation` (with `form`, and `url` when a handler is set), `roots`
+and `sampling` (`internal/mcpclient/modern.go:71-84`, wired in at
+`client.go:315`).
 
 ### Nothing owns "a question awaiting an answer"
 
@@ -177,12 +206,21 @@ about.
 
 The broker is one object with four operations:
 
+Proposed as four operations; what shipped is seven, in
+`internal/elicit/elicit.go`:
+
 ```go
-Open(ctx, Request) (string, error)     // register, return the id
-Await(ctx, id, timeout) (*Answer, error)  // block until answered or expired
-Answer(id string, a Answer) error      // from any surface
-Pending(filter) ([]Request, error)     // what is outstanding
+OpenRequest(r Request) (Request, error)        // register; fills id, mode, TTL
+Await(ctx, id) (Answer, error)                 // block until answered or expired
+Respond(a Answer) error                        // from any surface
+Get(id) (Request, bool, error)                 // the question
+Lookup(id) (Answer, bool, error)               // its answer, once it has one
+Pending(f Filter) ([]Request, error)           // what is outstanding
+Close() error
 ```
+
+`Await` takes no timeout: the deadline rides on the `Request`, so one
+question cannot be awaited with two different lifetimes.
 
 `Await` blocks on a channel when the answerer is in-process, and polls the
 table when it is not. Polling is acceptable here because the interval that
@@ -191,8 +229,11 @@ seconds is not a cost anyone can measure.
 
 ### Time to live
 
-Every request carries one. Default `plumbing.elicitTTL = 120s`, per-server
-overridable.
+Every request carries one. The default is `elicit.ttl`, 120 s, in
+`internal/defaults/defaults.json` (`defaults.ElicitTTL`). It is **not** a
+registry setting and **not** per-server overridable: `OpenRequest`
+(`internal/elicit/elicit.go:206`) and the daemon's hooks use the constant
+unconditionally. Making it a setting is unfinished work, not a decision.
 
 On expiry the broker answers `cancel` on the requester's behalf, because that
 is what expiry *means*: dismissed without an explicit choice. Answering
@@ -209,6 +250,13 @@ questions nobody will ever see, and the table becomes a graveyard.
 A CLI invocation frequently has no human attached. Guessing is unacceptable;
 failing every time is unusable. So the broker consults a policy first, and
 only asks a human if the policy abstains.
+
+**Not built.** None of `elicit.mode`, `elicit.ttl` as a setting, or
+`elicit.rules` is in the registry, and `MCPX_ASSUME_YES` does not exist. The
+policy that shipped is `elicit.Route` (`internal/elicit/elicit.go:491`), which
+chooses an audience rather than matching rules, together with the settings
+`elicit.disambiguate`, `elicit.disambiguateDefault`, `elicit.confirmDestructive`
+and `elicit.askTimeout`. The block below is the design, kept for the reasoning.
 
 ```jsonc
 {
@@ -274,7 +322,7 @@ $ mcpx call github.create_issue '{"title":"x"}'
   }
 }
 $ echo $?
-75
+75          # NOT BUILT: cli.ExitInputRequired is declared and read by nothing
 ```
 
 `respondWith` is there because the alternative is the caller assembling it
@@ -293,10 +341,12 @@ the result lands in the log; `mcpx elicit result <id>` fetches it. Under the
 bidirectional model the original invocation is still blocked and simply
 proceeds.
 
-A flag for the common case, where the caller is a person who will wait:
+A flag for the common case, where the caller is a person who will wait.
+**Not built** -- `mcpx call` takes only `-session` and `-raw`, and
+`--elicit=prompt` is rejected as an undefined flag:
 
 ```console
-$ mcpx call --elicit=prompt github.create_issue '{...}'
+$ mcpx call --elicit=prompt github.create_issue '{...}'   # NOT BUILT
 Which repository should this issue go in?
   repo (owner/name): me/thing
 ```
@@ -315,17 +365,19 @@ const issue = await tools.github.create_issue({ title: "x" });
 ```
 
 By default the runtime answers from policy or cancels, and the call returns
-whatever the server does with that. To participate:
+whatever the server does with that. To participate -- **not built**: no
+`onElicit` and no `ask` are emitted into the script's globals
+(`internal/codegen/emit.go`):
 
 ```ts
-onElicit(async (q) => {
+onElicit(async (q) => {      // NOT BUILT
   if (q.mode === "url") return { action: "decline" };
   if (q.schema.properties.repo) return { action: "accept", content: { repo: "me/thing" } };
   return { action: "cancel" };
 });
 ```
 
-And for a script run on a terminal, `ask(q)` prompts. The handler is
+And for a script run on a terminal, `ask(q)` would prompt. The handler is
 registered rather than passed per call, because the question arrives from
 inside a call the script did not know would ask.
 
@@ -335,7 +387,7 @@ HTTP has a status code for exactly this, and it is not 400.
 
 ```
 POST /v1/call/github/create_issue
-→ 202 Accepted
+→ 202 Accepted          # NOT BUILT: /v1/call answers 200 or an error status
   Location: /v1/elicit/elc-9f2c1a84bb0e7d31
   Retry-After: 120
 
@@ -343,7 +395,7 @@ POST /v1/call/github/create_issue
 ```
 
 ```
-POST /v1/elicit/elc-9f2c.../answer   {"action":"accept","content":{...}}
+POST /v1/elicit/elc-9f2c.../accept   {"content":{...}}   # also /decline, /cancel
 GET  /v1/elicit                       list
 GET  /v1/elicit/elc-9f2c...           one, with time remaining
 ```
@@ -353,6 +405,9 @@ pending. A `400` would say the caller made a mistake, which they did not.
 
 The OpenAPI document gains a `202` response on every tool path and an
 `Elicitation` schema component. Both are generated, so they cannot drift.
+**Neither is built**: no operation declares a `202`, and there is no
+`Elicitation` component in `internal/api/openapi.go`. What shipped instead is
+the MCP-side `input_required` result (`internal/mcpserver/ask.go`).
 
 ### 5.4 mcpx as an MCP server — the pass-through
 
@@ -386,7 +441,7 @@ all**, which matters because most MCP hosts do not implement elicitation yet.
 
 Two new tools on the MCP surface:
 
-- `mcpx_elicit_pending` — what is waiting, with schemas and deadlines
+- `mcpx_elicit_list` — what is waiting, with schemas and deadlines
 - `mcpx_elicit_answer` — answer one
 
 ### 5.4a Who is the question for: the agent or the person?
@@ -436,7 +491,9 @@ user and a real UI.
 }
 ```
 
-Three levels, opt-in as everything else in that plugin is:
+Three levels, opt-in as everything else in that plugin is. **Not built**:
+`MCPX_PLUGIN_ELICIT` is not a variable the registry derives or the plugin
+reads, and there is no `--plugin-elicit`.
 
 1. **`MCPX_PLUGIN_ELICIT=notify`** — a pending question is appended to the
    tool result, so the agent sees it and can answer via a tool. No UI needed.
@@ -453,6 +510,8 @@ between an elicitation and a user identity.
 
 ### 5.6 TUI
 
+**Not built** -- nothing in `internal/tui/` mentions elicitation.
+
 A seventh view, and a badge in the header when something is pending —
 because the one thing worse than a question nobody answers is a question
 nobody knows was asked.
@@ -464,7 +523,9 @@ The header badge is deliberately loud: `● 1 question` in the accent colour.
 
 ### 5.7 Skills
 
-`mcpx-elicitation`, loaded on demand, covering: what `input-required` means,
+**Not built** -- there is no `mcpx-elicitation` skill in `plugin/opencode/skills/`.
+
+`mcpx-elicitation`, loaded on demand, would cover: what `input-required` means,
 that `decline` and `cancel` are different, how to answer from a tool, and the
 one thing an agent gets wrong — **inventing a value rather than declining**.
 A model asked "which repository?" with no way to know will happily guess.
@@ -546,14 +607,16 @@ There are four ways an answer can reach the broker, and each is best somewhere.
 | **stdin/stdout prompt** | immediate | no | a person at a terminal |
 | **re-exec** (`mcpx elicit answer`) | seconds to hours | yes | scripts, CI, anything that returned |
 | **daemon socket subscription** | immediate | while connected | the TUI, the plugin, any long-lived client |
-| **HTTP** (`POST /v1/elicit/<id>/answer`) | immediate | yes | remote callers, webhooks, another machine |
+| **HTTP** (`POST /v1/elicit/<id>/<action>`) | immediate | yes | remote callers, webhooks, another machine |
 
 The daemon already owns a unix socket and a loopback port. A long-lived
 client -- the TUI, the plugin, a `mcpx elicit watch` left running -- should
 **subscribe** rather than poll:
 
 ```
-GET /v1/elicit/subscribe          → server-sent events
+GET /v1/events                    → server-sent events, carrying elicit.* kinds
+                                    (GET /v1/elicit/subscribe was proposed and not built;
+                                     mcpx elicit watch polls, internal/cli/elicit.go:164)
 ```
 
 That removes the polling in §3 for every case that matters, and polling
@@ -616,8 +679,9 @@ strongest argument for preferring it.
 **Questions nobody sees.** A CLI invocation that returns `input-required` into
 a script that ignores exit codes produces a question that expires unanswered,
 and the user sees only a mysterious cancellation. The TUI badge and
-`mcpx elicit list` are the mitigation; so is `--elicit=error`, which makes not
-expecting a question a loud failure rather than a quiet one.
+`mcpx elicit list` are the mitigation; so would be a `--elicit=error`, which
+would make not expecting a question a loud failure rather than a quiet one.
+Neither the badge nor the flag is built.
 
 **Rule-based auto-answers drifting into dishonesty.** A rule that answers
 "yes" to everything is a policy that lies to a server about a user's consent.
@@ -677,8 +741,8 @@ Credentials-on-first-use is elicitation. Disambiguation is elicitation. Each
 of those is presently either missing or solved by refusing to do the risky
 thing, and they all become available from one piece of machinery.
 
-The catch worth knowing up front: **there is a real bug here today.** mcpx's
-receive loop treats every inbound frame as a reply to something it sent. A
+The catch worth knowing when this was written -- **since fixed**: mcpx's
+receive loop treated every inbound frame as a reply to something it sent. A
 server that asks a question gets silence, waits, and eventually times out —
 and the error mcpx reports is "the call timed out", which is true, useless,
 and points at entirely the wrong thing. That is worth fixing whether or not

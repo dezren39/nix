@@ -22,8 +22,10 @@ Legend: `[ ]` todo, `[x]` done, `[~]` partial, `[?]` guessed — needs a look.
 ## B. The launcher
 
 - [x] **B1.** Whole-launcher override. `--launcher <string|file>` replaces the
-  template. `--launcher` with no value means *no launcher at all*: the script
-  is handed to the runtime directly.
+  template. `--no-launcher` means *no launcher at all*: the script is handed to
+  the runtime directly. The brief asked for one bare-valued flag; it became two,
+  for the reason in "Guesses worth reviewing" below
+  (`internal/cli/commands.go:490-493`).
 - [x] **B2.** Placeholders in a custom launcher: `@entry`, `@globals`,
   `@prefix`, `@before`, `@onSuccess`, `@onError`, `@suffix`, `@import`.
 - [x] **B3.** Reference graph must be a DAG; a cycle is a generation-time

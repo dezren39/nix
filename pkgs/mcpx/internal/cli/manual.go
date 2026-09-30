@@ -311,9 +311,9 @@ func handCommands() []Command {
 				"are you sure, log in here. mcpx stores the question with a " +
 				"deadline rather than blocking on it, so whoever answers need not " +
 				"be whoever asked: a call from CI can be answered from a laptop " +
-				"twenty minutes later. A call that is waiting exits 75, which is " +
-				"EX_TEMPFAIL, and prints the question and the command that answers " +
-				"it.",
+				"twenty minutes later. A waiting call prints the question and the " +
+				"command that answers it; poll `mcpx elicit list` to find one, " +
+				"because the exit code does not yet distinguish it (#286).",
 			Examples: []string{
 				"mcpx elicit list",
 				"mcpx elicit answer elc-9f2c1a84 repo=me/thing",
