@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,6 +28,14 @@ var (
 	mu    sync.Mutex
 	state []string
 	pid   = os.Getpid()
+
+	// slowInFlight and slowPeak count `slow` calls executing at once, and
+	// the most that ever were. A test asking "did the pool multiplex these
+	// onto one process, or serialise them?" can read the answer instead of
+	// inferring it from elapsed time -- which on a loaded machine reports
+	// serialisation that did not happen (#280).
+	slowInFlight atomic.Int64
+	slowPeak     atomic.Int64
 
 	// notify writes an unsolicited frame; set by main.
 	notify func(map[string]any)
@@ -445,8 +454,20 @@ func callTool(r req) map[string]any {
 		case string:
 			ms, _ = strconv.Atoi(v)
 		}
+		// The peak is recorded and reported, so a caller can tell "these ran
+		// together" from "these ran one after another" without timing them.
+		n := slowInFlight.Add(1)
+		for {
+			peak := slowPeak.Load()
+			if n <= peak || slowPeak.CompareAndSwap(peak, n) {
+				break
+			}
+		}
 		time.Sleep(time.Duration(ms) * time.Millisecond)
-		return ok(r.ID, textResult(fmt.Sprintf("slept %dms on pid %d", ms, pid)))
+		slowInFlight.Add(-1)
+		return ok(r.ID, textResult(fmt.Sprintf("slept %dms on pid %d (peak %d)",
+			ms, pid, slowPeak.Load())))
+
 	case "boom":
 		return ok(r.ID, map[string]any{
 			"isError": true,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -87,15 +88,24 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 
 	// Ten 200ms calls on one process must overlap, proving requests are
 	// multiplexed rather than serialised.
+	//
+	// The proof is the peak concurrency the server itself observed, not the
+	// elapsed time. Elapsed time cannot tell "the pool serialised these"
+	// from "the scheduler serialised these": under a nix build on a loaded
+	// host these ten took 2.9s and the old deadline called that a product
+	// bug (#280). The peak is a fact about what the server did.
 	const n = 10
 	start := time.Now()
 	var wg sync.WaitGroup
 	errs := make([]error, n)
+	peaks := make([]int, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = p.Call(context.Background(), "global", "slow", map[string]any{"ms": 200})
+			var res any
+			res, errs[i] = p.Call(context.Background(), "global", "slow", map[string]any{"ms": 200})
+			peaks[i] = slowPeak(res)
 		}(i)
 	}
 	wg.Wait()
@@ -104,9 +114,45 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 			t.Fatalf("call %d: %v", i, err)
 		}
 	}
-	if elapsed := time.Since(start); elapsed > 1500*time.Millisecond {
-		t.Fatalf("10 concurrent 200ms calls took %s; they appear serialised", elapsed)
+	best := 0
+	for _, p := range peaks {
+		if p > best {
+			best = p
+		}
 	}
+	if best < 2 {
+		t.Fatalf("%d concurrent calls never overlapped on the server: peak %d, %s elapsed",
+			n, best, time.Since(start))
+	}
+}
+
+// slowPeak reads the "(peak N)" the fakemcp slow tool reports: how many slow
+// calls that process had running at once, at its busiest. 0 if absent.
+func slowPeak(res any) int {
+	var text string
+	switch v := res.(type) {
+	case string:
+		text = v
+	default:
+		b, err := json.Marshal(res)
+		if err != nil {
+			return 0
+		}
+		text = string(b)
+	}
+	_, after, ok := strings.Cut(text, "(peak ")
+	if !ok {
+		return 0
+	}
+	num, _, ok := strings.Cut(after, ")")
+	if !ok {
+		return 0
+	}
+	n, err := strconv.Atoi(num)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func TestSessionModeIsolatesState(t *testing.T) {
@@ -434,16 +480,20 @@ func TestSharedSharingAdmitsConcurrentHoldersOnOneKey(t *testing.T) {
 	defer p.Close()
 
 	// One key, four concurrent callers. Shared sharing must let them overlap
-	// on a single process rather than serialising or forking more.
+	// on a single process rather than serialising or forking more. As above,
+	// the overlap is read from the server rather than timed (#280).
 	const n = 4
 	start := time.Now()
 	var wg sync.WaitGroup
 	errs := make([]error, n)
+	peaks := make([]int, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = p.Call(context.Background(), "session:one", "slow", map[string]any{"ms": 200})
+			var res any
+			res, errs[i] = p.Call(context.Background(), "session:one", "slow", map[string]any{"ms": 200})
+			peaks[i] = slowPeak(res)
 		}(i)
 	}
 	wg.Wait()
@@ -452,8 +502,15 @@ func TestSharedSharingAdmitsConcurrentHoldersOnOneKey(t *testing.T) {
 			t.Fatalf("call %d: %v", i, err)
 		}
 	}
-	if d := time.Since(start); d > 1200*time.Millisecond {
-		t.Fatalf("shared sharing serialised: %s for %d overlapping 200ms calls", d, n)
+	best := 0
+	for _, p := range peaks {
+		if p > best {
+			best = p
+		}
+	}
+	if best < 2 {
+		t.Fatalf("shared sharing serialised %d overlapping calls: peak %d, %s elapsed",
+			n, best, time.Since(start))
 	}
 	if st := p.Status(); st.Live != 1 {
 		t.Fatalf("one key must mean one process, got %d", st.Live)
