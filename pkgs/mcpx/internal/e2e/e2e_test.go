@@ -58,14 +58,38 @@ func newEnv(t *testing.T, cfgBody string) *env {
 			"MCPX_STATE_DIR="+filepath.Join(dir, "state"),
 			"MCPX_CACHE_DIR="+filepath.Join(dir, "cache"),
 			"MCPX_CONFIG="+filepath.Join(dir, ".mcpx.json"),
+			// Backstop for anything that escapes cleanup entirely -- an
+			// interrupted run, a panic before t.Cleanup, a daemon started by
+			// a child the harness never learned about. The default for an
+			// auto-started daemon is hours; at that length a few suite runs
+			// leave dozens of live daemons, each holding a fakemcp child.
+			// This is the setting `mcpx` gives the daemon it starts on
+			// demand, so it is the one the tests start.
+			"MCPX_AUTOSTART_IDLE_EXIT="+testIdleExit,
 		),
 	}
 	t.Cleanup(func() {
-		out, _ := e.try("stop")
-		_ = out
+		// `stop --all` rather than `stop`: plain `stop` dials the socket
+		// path recomputed from the environment, and a long state path moves
+		// the real socket to a private runtime directory keyed to the
+		// *caller's* TMPDIR, so the computed path misses and the daemon
+		// survives. `--all` reads the daemon-<key>.json info files instead,
+		// which record the path the daemon actually bound. Each env has its
+		// own MCPX_STATE_DIR, so `--all` is scoped to this test.
+		if out, err := e.try("stop", "--all"); err != nil {
+			// Logged, not fatal: a test that has already passed should not
+			// be failed by its own teardown, but a teardown that silently
+			// fails is how the leak went unnoticed for so long.
+			t.Logf("cleanup: mcpx stop --all failed: %v\n%s", err, out)
+		}
 	})
 	return e
 }
+
+// testIdleExit is how long a daemon a test started survives with nothing to
+// do. Short enough that a leak clears itself before the next run, long enough
+// that it cannot expire in the middle of a slow test.
+const testIdleExit = "60s"
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -2584,6 +2608,116 @@ func TestStatusReportsRunningEitherWay(t *testing.T) {
 		t.Errorf("with a daemon up: running = %v, socket = %v", st["running"], st["socket"])
 	}
 }
+
+// TestEnvCleanupStopsTheDaemonItStarted is a test of the harness rather than
+// of mcpx. The e2e suite was leaking daemons -- dozens of them, each holding
+// a fakemcp child and living for hours -- and nothing noticed, because the
+// error from the cleanup was discarded.
+//
+// The mechanism reproduced here is the daemon key. A daemon is keyed to the
+// set of config files it read, so a second config file means a second daemon,
+// and plain `mcpx stop` only ever targets the key the current invocation
+// resolves to -- leaving the other one running. The other half of the bug is
+// the socket path: a state directory too long for sun_path relocates the
+// socket into a private runtime directory derived from the *caller's* TMPDIR,
+// so a recomputed path can miss even when the key is right. Both are fixed
+// the same way, and this test exercises both at once, because t.TempDir()
+// here is long enough to trigger the relocation.
+//
+// Checked two ways, because the two failures look different. A socket that
+// still accepts a connection means the daemon is serving. A live pid with a
+// dead socket means it dropped the listener and kept running.
+func TestEnvCleanupStopsTheDaemonItStarted(t *testing.T) {
+	type daemon struct {
+		socket string
+		pid    int
+	}
+	var started []daemon
+
+	t.Run("lifecycle", func(t *testing.T) {
+		e := newEnv(t, oneServer)
+
+		// cfgArgs selects which config, and therefore which daemon, the
+		// invocation is about.
+		record := func(cfgArgs ...string) {
+			var st struct {
+				Socket  string `json:"socket"`
+				PID     int    `json:"pid"`
+				Running bool   `json:"running"`
+			}
+			args := append(append([]string{"--json"}, cfgArgs...), "status")
+			if err := json.Unmarshal([]byte(jsonOf(t, e.run(args...))), &st); err != nil {
+				t.Fatal(err)
+			}
+			if !st.Running || st.Socket == "" || st.PID == 0 {
+				t.Fatalf("no daemon to clean up: %+v", st)
+			}
+			started = append(started, daemon{st.Socket, st.PID})
+		}
+
+		e.run("ls") // anything that needs a daemon starts one
+		record()
+
+		// A second config file is a second daemon: the key is the set of
+		// config paths, so this is a daemon plain `mcpx stop` -- which only
+		// ever asks about the config the current invocation resolves to --
+		// cannot see.
+		other := filepath.Join(e.dir, "other.mcpx.json")
+		if err := os.WriteFile(other, []byte(strings.ReplaceAll(oneServer, "FAKE", e.fake)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		e.run("--config", other, "ls")
+		record("--config", other)
+
+		if started[0].pid == started[1].pid {
+			t.Fatalf("the second config reused daemon %d; this test needs two", started[0].pid)
+		}
+
+		// The info files are what cleanup reads, so a test that cleanup
+		// works is worthless if they are not there to be found.
+		type daemonRow struct {
+			PID     int  `json:"pid"`
+			Running bool `json:"running"`
+		}
+		var rows []daemonRow
+		if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "daemons"))), &rows); err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range started {
+			if !slices.ContainsFunc(rows, func(r daemonRow) bool { return r.PID == d.pid && r.Running }) {
+				t.Fatalf("daemon %d absent from the info files: %+v", d.pid, rows)
+			}
+		}
+	})
+
+	// Shutdown goes on past the point `stop` waits for, so give each process
+	// a moment to actually leave rather than racing it.
+	for _, d := range started {
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) && daemonAlive(d.socket, d.pid) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if conn, err := net.Dial("unix", d.socket); err == nil {
+			conn.Close()
+			t.Errorf("daemon %d still listening on %s after cleanup", d.pid, d.socket)
+		}
+		if syscall.Kill(d.pid, 0) == nil {
+			t.Errorf("daemon pid %d still alive after cleanup", d.pid)
+		}
+	}
+}
+
+// daemonAlive reports whether either half of a daemon survives: the listener
+// or the process.
+func daemonAlive(socket string, pid int) bool {
+	if conn, err := net.Dial("unix", socket); err == nil {
+		conn.Close()
+		return true
+	}
+	return syscall.Kill(pid, 0) == nil
+}
+
+// TestResolveTellsAPluginWhichDaemonServesADirectory is the no-binary case
 
 // TestResolveTellsAPluginWhichDaemonServesADirectory is the no-binary case
 // from the plugin's side: everything the opencode plugin needs to pick a
