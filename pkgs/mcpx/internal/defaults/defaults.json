@@ -146,6 +146,7 @@
     "completionValues": 100,
     "elicitPending": 100,
     "registryPageSize": 30,
+    "registryMaxPages": 10,
     "leaseTTL": "30m",
     "socketProbeTimeout": "500ms",
     "warmTimeout": "3m",

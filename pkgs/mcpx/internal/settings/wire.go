@@ -197,11 +197,25 @@ func limitSettings() []Setting {
 			Path: "registry.pageSize", Kind: KindInt, Default: defaults.Num(defaults.RegistryPageSize),
 			Scope: ScopeClient, Plumbing: true,
 			Name: "Registry page size", Short: "how many entries are fetched per registry request",
+			Long: "The size of one request, not of the answer. registry.limit is how " +
+				"many results a search returns; the search asks for pages of this " +
+				"size, following the registry's cursor, until it has them.",
+		},
+		{
+			Path: "registry.maxPages", Kind: KindInt, Default: defaults.Num(defaults.RegistryMaxPages),
+			Scope: ScopeClient, Plumbing: true,
+			Name: "Registry pages", Short: "how many requests one registry search may make",
+			Long: "A bound, not a page size. A registry that always answers with " +
+				"another cursor would otherwise be followed until registry.timeout; " +
+				"a search that stops here says there was more.",
 		},
 		{
 			Path: "registry.timeout", Kind: KindDuration, Default: defaults.Str(defaults.RegistryTimeout),
 			Scope: ScopeClient,
 			Name:  "Registry timeout", Short: "how long a registry request may take",
+			Long: "A search is one request however many pages it takes, so this " +
+				"bounds the whole walk rather than each page -- otherwise a slow " +
+				"registry could hold a command for registry.maxPages times this.",
 		},
 		{
 			Path: "logstore.queryLimit", Kind: KindInt, Default: defaults.Num(defaults.LogQueryLimit),

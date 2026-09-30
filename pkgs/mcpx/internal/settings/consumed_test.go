@@ -45,6 +45,13 @@ import (
 // TestNoHandRolledSettingEnv below closes the other half: reading a variable
 // the registry owns with os.Getenv is how a setting becomes env-only, which
 // is the same bug facing the other way.
+//
+// What a scan cannot see is a value read, passed along, and then ignored.
+// registry.pageSize passed this test while the only code that looked at it
+// sat behind `if limit <= 0` (#179). Reaching a use rather than a parameter
+// is a data-flow question, so it is asserted where behaviour can be observed
+// instead: the request count in registry/paging_test.go and
+// e2e/registry_test.go changes with the page size.
 
 // accessorRead matches a read through a resolved Set: set.Bool("x.y"),
 // a.Settings().Duration("x.y"), cs.Int("x.y"), s.set.String("x.y").
