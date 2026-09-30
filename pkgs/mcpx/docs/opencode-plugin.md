@@ -403,8 +403,9 @@ Only (1) and (2) are required. Everything else degrades.
 ## 6. Per-part reference
 
 ### `shell.env` → session id injection
-- **What.** Sets `MCPX_SESSION`, `MCPX_CALL` and friends in the environment
-  of every shell command opencode runs.
+- **What.** Sets `MCPX_SESSION_ID`, `MCPX_CALL_ID` and friends in the
+  environment of every shell command opencode runs; the full list, with who
+  reads each, is generated in [environment.md](environment.md).
 - **Why.** mcpx needs a session id to attribute calls, lease stateful servers
   and route elicitations. Passing it through the model's context would spend
   tokens on something the model neither chooses nor should see.

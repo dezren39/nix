@@ -44,6 +44,7 @@ type Defaults struct {
 		MaxAge   string   `json:"maxAge"`
 		Keep     int      `json:"keep"`
 		Include  []string `json:"include"`
+		Trace    bool     `json:"trace"`
 	} `json:"logging"`
 	Daemon struct {
 		ReapInterval string `json:"reapInterval"`
@@ -249,6 +250,12 @@ type Defaults struct {
 		Remember       string   `json:"remember"`
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
+		// Headless and DaemonTools are "auto" rather than a boolean: the
+		// plugin decides them at boot from where it is running and what it
+		// found, and a fixed true or false here would be right in only one
+		// of those cases.
+		Headless    string `json:"headless"`
+		DaemonTools string `json:"daemonTools"`
 	} `json:"plugin"`
 	// ProtoMessages governs the per-message fields mcpx's own MCP server
 	// attaches: cache hints on results and keep-alives on listen streams.
@@ -373,6 +380,7 @@ var (
 	LogMaxAge   = mustDur(builtin.Logging.MaxAge, "logging.maxAge")
 	LogKeep     = builtin.Logging.Keep
 	LogIncludes = builtin.Logging.Include
+	LogTrace    = builtin.Logging.Trace
 
 	ReapInterval = mustDur(builtin.Daemon.ReapInterval, "daemon.reapInterval")
 	SaveInterval = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
@@ -580,6 +588,8 @@ var (
 	PluginTools          = builtin.Plugin.Tools
 	PluginRemember       = builtin.Plugin.Remember
 	PluginAnnotate       = builtin.Plugin.Annotate
+	PluginHeadless       = builtin.Plugin.Headless
+	PluginDaemonTools    = builtin.Plugin.DaemonTools
 )
 
 // mustMode reads an octal permission string. Written as "0700" rather than as

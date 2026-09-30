@@ -132,6 +132,8 @@ whole promise, because the `Set` is the only reader that has all three layers.
 **`TestNoHandRolledSettingEnv`** closes the other direction: `os.Getenv` of a
 variable the registry owns is how a setting becomes env-only. Three entries on
 its allowlist, each because the read genuinely happens before a `Set` exists.
+(Since replaced by `TestNoUndeclaredEnvRead`, which walks the syntax tree and
+also refuses a variable *nothing* declares -- see `docs/environment.md`.)
 
 **`TestThePluginReadsNoUndeclaredSetting`** closes the third: a variable the
 plugin honours that no setting declares.
@@ -237,9 +239,12 @@ error:
 
 ## One thing the audit found that it did not fix
 
-`Setting.EnvName()` derives `MCPX_PROTO_ASK_T_T_L` from `proto.askTTL`, and
-`--proto-ask-t-t-l` with it. The camel-case splitter does not know that `TTL`
-is one word. `proto.stateTTL` and `proto.askTTL` are both affected. Fixing the
-derivation changes a flag spelling and a variable name for every setting whose
-path ends in an acronym, which is a decision about naming rather than about
-this bug.
+`Setting.EnvName()` derived `MCPX_PROTO_ASK_T_T_L` from `proto.askTTL`, and
+`--proto-ask-t-t-l` with it. The camel-case splitter did not know that `TTL`
+is one word. `proto.stateTTL`, `proto.askTTL`, `daemon.leaseTTL` and
+`proto.serveMCP` were affected.
+
+Fixed since: a run of capitals is now one word (`MCPX_PROTO_ASK_TTL`,
+`--proto-serve-mcp`), and `TestNoDeclaredNameHasASingleLetterWord` fails if a
+derived flag or variable contains a one-letter word, which is what the next
+acronym split into letters would look like.
