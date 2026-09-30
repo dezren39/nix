@@ -193,7 +193,10 @@ next start goes straight there without the two refused POSTs.
 | `--requirements 2025-11-25` | 5 passed, 64 failed | 20 passed, 56 failed |
 | `--requirements 2026-07-28` | 23 passed, 101 failed, 1 warning | 63 passed, 68 failed, 0 warnings |
 
-Every remaining failure is `auth/*`: mcpx has no OAuth client. The
+Every remaining failure is `auth/*`: mcpx has no OAuth client. One non-auth
+scenario, `json-schema-ref-no-deref`, is flaky because of the adapter, not
+mcpx; [official-suite.md](official-suite.md#client-both-sets) has the cause
+and the current numbers. The
 json-schema-2020-12-preservation pass needed the adapter
 (`internal/conformance/officialclient`) to echo the schema back as mcpx holds
 it; it used to call every tool with `{}`.
@@ -204,9 +207,3 @@ it; it used to call every tool with `{}`.
   applied: nothing calls `mcpauth.Resolve`, so no auth type, `query` included,
   reaches a request. The spec forbids tokens in a query string; today that
   cannot happen only because no auth is sent at all.
-- **The daemon never calls `SubscribeResource`.** mcpx's own clients subscribe
-  to `mcpx://` URIs, and the daemon filters its event stream by URI, but it
-  never subscribes upstream — so a legacy server (which sends updates only for
-  subscribed URIs) and a modern one (whose listen filter carries no
-  `resourceSubscriptions`) both send nothing. The client side is ready; the
-  wiring belongs to the daemon.
