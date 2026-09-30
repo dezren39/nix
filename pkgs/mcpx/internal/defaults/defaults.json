@@ -208,6 +208,11 @@
   "protoTasks": {
     "pollInterval": "1s"
   },
+  "stdioShutdown": {
+    "stdinGrace": "2s",
+    "termGrace": "3s",
+    "killWait": "2s"
+  },
   "upstream": {
     "protocol": "modern",
     "probeTimeout": "2s",
