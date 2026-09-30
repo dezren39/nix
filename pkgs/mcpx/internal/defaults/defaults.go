@@ -227,8 +227,9 @@ type Defaults struct {
 		ToolTiming     bool     `json:"toolTiming"`
 		Env            string   `json:"env"`
 		Instructions   bool     `json:"instructions"`
+		Remember       string   `json:"remember"`
+		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
-		Skills         []string `json:"skills"`
 	} `json:"plugin"`
 }
 
@@ -493,7 +494,8 @@ var (
 	PluginEnv            = builtin.Plugin.Env
 	PluginInstructions   = builtin.Plugin.Instructions
 	PluginTools          = builtin.Plugin.Tools
-	PluginSkills         = builtin.Plugin.Skills
+	PluginRemember       = builtin.Plugin.Remember
+	PluginAnnotate       = builtin.Plugin.Annotate
 )
 
 // mustMode reads an octal permission string. Written as "0700" rather than as

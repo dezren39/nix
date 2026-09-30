@@ -29,7 +29,7 @@ func (a *App) logDir(override string) string {
 	if cfg != nil {
 		cfgDir = cfg.Logging.Dir
 	}
-	return firstSet(override, os.Getenv("MCPX_LOG_DIR"), cfgDir,
+	return firstSet(override, a.Settings().String("logging.dir"), cfgDir,
 		filepath.Join(paths.State, "logs"))
 }
 
@@ -48,9 +48,14 @@ func (a *App) openStore(override string) (*logstore.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := st.Ingest(); err != nil {
-		st.Close()
-		return nil, err
+	// plumbing.indexOnQuery is the switch this paragraph describes. Off, the
+	// index answers from whatever it already holds, which is what somebody
+	// querying a very large log repeatedly wants.
+	if a.Settings().Bool("plumbing.indexOnQuery") {
+		if _, err := st.Ingest(); err != nil {
+			st.Close()
+			return nil, err
+		}
 	}
 	return st, nil
 }
@@ -182,6 +187,9 @@ func (a *App) followLog(ctx context.Context, st *logstore.Store, q logstore.Quer
 			return nil
 		case <-tick.C:
 		}
+		// Follow always ingests: the whole point of it is to see what has
+		// just been written, and indexOnQuery is about the cost of a query
+		// rather than about a tail that has nothing to show.
 		if _, err := st.Ingest(); err != nil {
 			return err
 		}

@@ -291,6 +291,46 @@ func (s *Set) Bytes(path string) int64 {
 
 func (s *Set) List(path string) []string { return splitList(s.raw(path)) }
 
+// Given reports whether anybody actually said this, as opposed to the
+// built-in default standing in. It is the question to ask before copying a
+// resolved value into a structure that has its own fallback, where writing
+// the default in would turn "unset" into "set to the same thing" -- a
+// difference that matters when a narrower scope is allowed to override.
+func (s *Set) Given(path string) bool {
+	v, ok := s.Value(path)
+	return ok && v.Origin.Layer != LayerDefault
+}
+
+// AboveFile returns the raw value only when it came from the environment, a
+// flag or a runtime override.
+//
+// It exists for the few settings whose configuration-file layer is consumed
+// somewhere other than the Set. The script phases are the case: they reach
+// the runner through config.ScriptPhase, which folds every contributing file
+// with its own inheritance marker, and taking the resolved value as well
+// would run a line from the file twice. What is genuinely missing there is
+// the two layers a file reader cannot see, so that is what this hands back.
+//
+// Anything whose file layer is not already read elsewhere should use the
+// ordinary accessors instead. This is a narrowing, and a narrowing applied
+// where it is not needed is how a setting becomes half-read.
+func (s *Set) AboveFile(path string) (string, bool) {
+	v, ok := s.Value(path)
+	if !ok || v.Origin.Layer < LayerEnv {
+		return "", false
+	}
+	return v.Raw, true
+}
+
+// ListAboveFile is AboveFile for a repeatable setting.
+func (s *Set) ListAboveFile(path string) []string {
+	raw, ok := s.AboveFile(path)
+	if !ok {
+		return nil
+	}
+	return splitList(raw)
+}
+
 func splitList(v string) []string {
 	v = strings.TrimSpace(v)
 	if v == "" {

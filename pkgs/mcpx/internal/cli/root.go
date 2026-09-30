@@ -59,7 +59,39 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 		return err
 	}
 	delete(flagSetCommand, fs)
-	return apply()
+	if err := apply(); err != nil {
+		return err
+	}
+	a.adoptSettings()
+	return nil
+}
+
+// adoptSettings copies the settings that decide how the App itself behaves
+// out of the resolved set, once the flags have been folded in.
+//
+// Two of them were reachable from exactly one place before this. --json was a
+// global flag consumed in main before the subcommand, so `mcpx ls --json` set
+// output.json in the registry and left App.JSON false: the flag parsed, the
+// help described it, and the output stayed a table. The state and cache
+// directories were read from MCPX_STATE_DIR and MCPX_CACHE_DIR by name, so
+// the paths.state key in a config file did nothing.
+//
+// Here rather than in main because this is the first moment all three layers
+// are known. main still resolves a starting Paths, since a command that never
+// parses flags -- bare `mcpx` -- has to have somewhere to look.
+func (a *App) adoptSettings() {
+	if a == nil {
+		return
+	}
+	set := a.Settings()
+	if set.Bool("output.json") {
+		a.JSON = true
+	}
+	if dir := set.String("paths.state"); dir != "" {
+		a.Paths = daemon.PathsAt(dir, set.String("paths.cache"))
+	} else if dir := set.String("paths.cache"); dir != "" {
+		a.Paths = daemon.PathsAt(a.Paths.State, dir)
+	}
 }
 
 // CmdDaemon runs the daemon in the foreground.
@@ -82,6 +114,10 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The pool knobs reach Config.Pool from a file by themselves; from a
+	// variable or a flag they only reach the resolved set, so they are
+	// folded in here before anything resolves a server.
+	config.ApplyPoolSettings(cfg, a.Settings())
 	pool.Version = a.Version
 
 	// The daemon keys its socket to the config it loaded, matching what the
@@ -92,13 +128,18 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		paths = paths.ForConfig(daemon.FingerprintConfig(cfg.Sources))
 	}
 
+	// Read from the resolved set rather than from a variable by name. The
+	// hand-rolled chain honoured one spelling of the variable and no flag
+	// beyond the one declared here, so `mcpx daemon` and `mcpx run` disagreed
+	// about what MCPX_LOGGING_LEVEL meant.
+	set := a.Settings()
 	logFormat, err := logging.ParseFormat(
-		firstSet(*format, os.Getenv("MCPX_FORMAT"), cfg.Logging.Format))
+		firstSet(*format, set.String("logging.format"), cfg.Logging.Format))
 	if err != nil {
 		return err
 	}
 	minLevel, err := logging.ParseLevel(
-		firstSet(*level, os.Getenv("MCPX_LOG_LEVEL"), cfg.Logging.Level))
+		firstSet(*level, set.String("logging.level"), cfg.Logging.Level))
 	if err != nil {
 		return err
 	}
@@ -108,20 +149,27 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 	// The daemon is a thing that starts and ends, so it gets a trace that
 	// every record beneath it carries.
 	daemonTrace := logging.NewTraceID("dmn")
-	dir := firstSet(*logDir, os.Getenv("MCPX_LOG_DIR"), cfg.Logging.Dir,
+	dir := firstSet(*logDir, set.String("logging.dir"), cfg.Logging.Dir,
 		filepath.Join(paths.State, "logs"))
-	sink, serr := logging.NewFileSink(logging.FileOptions{Dir: dir})
-	if serr != nil {
-		// A durable log is a convenience; losing it must not stop the daemon.
-		fmt.Fprintf(os.Stderr, "mcpx: durable log unavailable (%v)\n", serr)
-	} else {
-		writer = writer.WithFile(sink, slog.LevelDebug)
-		defer sink.Close()
+	var sink *logging.FileSink
+	// logging.file off means no durable log at all. The daemon still renders
+	// to stderr; what stops is the JSONL the indexer reads.
+	if set.Bool("logging.file") {
+		var serr error
+		sink, serr = logging.NewFileSink(fileOptions(set, dir))
+		if serr != nil {
+			// A durable log is a convenience; losing it must not stop the daemon.
+			fmt.Fprintf(os.Stderr, "mcpx: durable log unavailable (%v)\n", serr)
+			sink = nil
+		} else {
+			writer = writer.WithFile(sink, slog.LevelDebug)
+			defer sink.Close()
+		}
 	}
 	writer = writer.WithBase(map[string]any{logging.KeyTrace: string(daemonTrace)})
 
 	handler := logging.NewSlogHandler(writer).WithSourceLevel(
-		logging.SourceLevel(firstSet(logSource.Value(), os.Getenv("MCPX_LOG_SOURCE"), cfg.Logging.Source)))
+		logging.SourceLevel(firstSet(logSource.Value(), set.String("logging.source"), cfg.Logging.Source)))
 	logger := slog.NewLogLogger(handler, slog.LevelInfo)
 	srv, err := daemon.NewServer(daemon.Options{
 		Sink:     sink,
@@ -154,7 +202,8 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 			"mcpx: listening on %s; the API is unauthenticated, so anything that "+
 				"can reach this port can run tools as you\n", h)
 	}
-	blocks := logging.ParseIncludes(firstSet(*include, os.Getenv("MCPX_INCLUDE"), cfg.Logging.Include))
+	blocks := logging.ParseIncludes(firstSet(*include,
+		strings.Join(set.List("logging.include"), ","), cfg.Logging.Include))
 	// The opening record carries everything about the environment, so later
 	// records can carry only a trace id and still be resolvable.
 	start := logging.Ambient(a.Version, blocks)
@@ -279,6 +328,8 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// So that `mcpx config` shows what a daemon would actually use.
+	config.ApplyPoolSettings(cfg, a.Settings())
 	if *showPath {
 		if cfg.Path == "" {
 			return fmt.Errorf("no config file found; searched:\n  %s",

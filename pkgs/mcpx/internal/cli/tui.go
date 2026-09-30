@@ -111,6 +111,28 @@ func (a *App) dumpViews(ctx context.Context) error {
 }
 
 // CmdTUI runs the full-screen browser.
+// applyColour makes output.color mean something.
+//
+// It sets the two variables the rendering stack already reads rather than
+// reaching into lipgloss for a colour profile. termenv, underneath lipgloss,
+// honours NO_COLOR and CLICOLOR_FORCE by convention and so does nearly
+// everything else a terminal runs; going through them costs no new dependency
+// and, because the variables are inherited, means a script mcpx launches from
+// the browser draws the same way. Setting the profile directly would have
+// done neither.
+//
+// Auto sets nothing: the absence of both variables is what auto means.
+func applyColour(mode string) {
+	switch mode {
+	case "never":
+		os.Setenv("NO_COLOR", "1")
+		os.Unsetenv("CLICOLOR_FORCE")
+	case "always":
+		os.Setenv("CLICOLOR_FORCE", "1")
+		os.Unsetenv("NO_COLOR")
+	}
+}
+
 func (a *App) CmdTUI(ctx context.Context, args []string) error {
 	fs := newFlagSet("tui")
 	dump := fs.Bool("dump", false,
@@ -128,5 +150,6 @@ func (a *App) CmdTUI(ctx context.Context, args []string) error {
 		return errors.New("the tui needs a terminal; " +
 			"use `mcpx explore` for a prompt, or ls/types/catalog/log for scripting")
 	}
+	applyColour(a.Settings().String("output.color"))
 	return tui.Run(ctx, tuiSource{app: a}, a.Version)
 }

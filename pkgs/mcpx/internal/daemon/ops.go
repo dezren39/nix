@@ -70,9 +70,11 @@ func (s *Server) openStore() (*logstore.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := st.Ingest(); err != nil {
-		st.Close()
-		return nil, err
+	if s.set.Bool("plumbing.indexOnQuery") {
+		if _, err := st.Ingest(); err != nil {
+			st.Close()
+			return nil, err
+		}
 	}
 	return st, nil
 }
@@ -249,7 +251,10 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 	// It used to be environment-only here and config-only in the CLI, which
 	// meant `mcpx registry search` and GET /v1/registry/search could quietly
 	// query two different registries.
-	client := registry.New(cs.String("registry.url"))
+	client := registry.New(cs.String("registry.url"), registry.Options{
+		Timeout:  cs.Duration("registry.timeout"),
+		PageSize: cs.Int("registry.pageSize"),
+	})
 	servers, err := client.Search(r.Context(), r.URL.Query().Get("q"), limit)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)

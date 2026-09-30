@@ -30,8 +30,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/dezren39/mcpx/internal/defaults"
 )
 
 // Backend is what the server exposes. Defined here rather than taken from the
@@ -122,6 +120,11 @@ type Server struct {
 
 	// PageSize caps how many items a list reply carries.
 	PageSize int
+
+	// Timing is the ask loop's policy. A zero field means the built-in
+	// default; the whole struct zero is what a test that does not care
+	// should be able to leave alone.
+	Timing Timing
 	// OnCancel is called when a client cancels a request.
 	OnCancel func(id, reason string)
 
@@ -175,7 +178,7 @@ func New(b Backend, name, version string) *Server {
 func (s *Server) WithExtras(extras []Extra) *Server {
 	return &Server{
 		backend: s.backend, name: s.name, version: s.version,
-		PageSize: s.PageSize, OnCancel: s.OnCancel,
+		PageSize: s.PageSize, Timing: s.Timing, OnCancel: s.OnCancel,
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
@@ -1250,7 +1253,7 @@ func (s *Server) dropSession(id string) {
 // without this the map is a leak that grows with every host that connects
 // once.
 func (s *Server) reapSessionsLocked() {
-	cutoff := time.Now().Add(-defaults.ProtoSessionIdle)
+	cutoff := time.Now().Add(-s.Timing.resolved().SessionIdle)
 	for id, c := range s.sessions {
 		c.mu.Lock()
 		idle := c.lastUsed.Before(cutoff)

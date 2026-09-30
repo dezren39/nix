@@ -322,7 +322,7 @@ that `--help` denies exists is worse than a long list.
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `output.color` | enum | `auto` | client | no | `--output-color` | `MCPX_OUTPUT_COLOR` | whether to colourise terminal output |
+| `output.color` | enum | `auto` | client | no | `--output-color` | `MCPX_OUTPUT_COLOR` | whether to colourise the browser |
 | `output.json` | bool | `false` | client | no | `--output-json`, `--json` | `MCPX_OUTPUT_JSON` | emit one machine-readable document |
 
 
@@ -349,9 +349,10 @@ that `--help` denies exists is worse than a long list.
 | `plugin.discoveryRetry` | duration | `1m0s` | plugin | no | `--plugin-discovery-retry` | `MCPX_PLUGIN_DISCOVERY_RETRY` | how long the plugin waits before looking for mcpx again |
 | `plugin.env` | enum | `full` | plugin | no | `--plugin-env` | `MCPX_PLUGIN_ENV` | how much session context is put into each command's environment |
 | `plugin.instructions` | bool | `false` | plugin | no | `--plugin-instructions` | `MCPX_PLUGIN_INSTRUCTIONS` | add mcpx usage guidance to the system prompt |
-| `plugin.skills` | list | *(empty)* | plugin | no | `--plugin-skills` | `MCPX_PLUGIN_SKILLS` | which bundled skills the plugin registers |
 | `plugin.toolTiming` | bool | `false` | plugin | no | `--plugin-tool-timing` | `MCPX_PLUGIN_TOOL_TIMING` | write every tool outcome into mcpx's log |
 | `plugin.tools` | bool | `false` | plugin | no | `--plugin-tools` | `MCPX_PLUGIN_TOOLS` | expose mcpx itself as tools the model can call |
+| `plugin.remember` | enum | `session` | plugin | no | `--plugin-remember` | `MCPX_PLUGIN_REMEMBER` | how long a chosen daemon stays chosen |
+| `plugin.annotate` | bool | `true` | plugin | no | `--plugin-annotate` | `MCPX_PLUGIN_ANNOTATE` | add mcpx's own notes to a tool result |
 
 
 ### plumbing
@@ -359,7 +360,6 @@ that `--help` denies exists is worse than a long list.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `plumbing.allowTsJsOverlap` | bool | `false` | client | no | `--plumbing-allow-ts-js-overlap` | `MCPX_PLUMBING_ALLOW_TS_JS_OVERLAP` | *(plumbing)* permit a script directory holding both foo.ts and foo.js |
-| `plumbing.consoleReleaseOnExit` | bool | `true` | client | no | `--plumbing-console-release-on-exit` | `MCPX_PLUMBING_CONSOLE_RELEASE_ON_EXIT` | *(plumbing)* hand the original console back before the process ends |
 | `plumbing.indexOnQuery` | bool | `true` | daemon | no | `--plumbing-index-on-query` | `MCPX_PLUMBING_INDEX_ON_QUERY` | *(plumbing)* bring the log index up to date before answering a query |
 | `plumbing.launcherPlaceholderRepeat` | list | *(empty)* | client | no | `--plumbing-launcher-placeholder-repeat` | `MCPX_PLUMBING_LAUNCHER_PLACEHOLDER_REPEAT` | *(plumbing)* launcher placeholders permitted to resolve more than once |
 | `plumbing.sourceDirAllowed` | bool | `true` | client | no | `--plumbing-source-dir-allowed` | `MCPX_PLUMBING_SOURCE_DIR_ALLOWED` | *(plumbing)* whether a directory may stand in for a source string at all |

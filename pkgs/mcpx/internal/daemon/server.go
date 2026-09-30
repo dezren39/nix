@@ -882,9 +882,14 @@ func (s *Server) handleElicitList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
+	// The ceiling was a constant inside the broker, so elicit.pendingLimit
+	// was a number `mcpx settings` reported and nothing enforced. It is
+	// passed in rather than read there because the broker is a store and a
+	// store should not be reading policy.
 	pending, err := s.reg.broker.Pending(elicit.Filter{
 		Session:  r.URL.Query().Get("session"),
 		Audience: elicit.Audience(r.URL.Query().Get("audience")),
+		Limit:    s.callSettings(r).Int("elicit.pendingLimit"),
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})

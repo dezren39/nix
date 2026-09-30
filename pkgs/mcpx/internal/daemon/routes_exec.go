@@ -225,7 +225,13 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	// invites every intermediary between here and the caller to time it out.
 	if req.Options.Task != nil {
 		store := s.taskStore()
-		t := store.Start(req.Options.Task.TTL, func(ctx context.Context) (any, *tasks.Fault) {
+		// A caller that named no retention gets the configured one rather
+		// than the built-in constant, which is what tasks.ttl was for.
+		ttl := req.Options.Task.TTL
+		if ttl <= 0 {
+			ttl = s.set.Duration("tasks.ttl").Milliseconds()
+		}
+		t := store.Start(ttl, func(ctx context.Context) (any, *tasks.Fault) {
 			res, err := svc.Run(ctx, execsvc.Request{Source: req.Source, File: req.File, Opts: req.Options}, nil)
 			if err != nil && res == nil {
 				return nil, &tasks.Fault{Code: -32603, Message: err.Error()}

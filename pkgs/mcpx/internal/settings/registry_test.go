@@ -327,7 +327,8 @@ func TestPluginEnvironmentNamesAreTheContractWithTheTypeScript(t *testing.T) {
 		"plugin.env":            "MCPX_PLUGIN_ENV",
 		"plugin.instructions":   "MCPX_PLUGIN_INSTRUCTIONS",
 		"plugin.tools":          "MCPX_PLUGIN_TOOLS",
-		"plugin.skills":         "MCPX_PLUGIN_SKILLS",
+		"plugin.remember":       "MCPX_PLUGIN_REMEMBER",
+		"plugin.annotate":       "MCPX_PLUGIN_ANNOTATE",
 	} {
 		set, ok := s.Lookup(path)
 		if !ok {

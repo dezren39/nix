@@ -83,9 +83,19 @@ func pluginSettings() []Setting {
 			Name:  "Offer tools", Short: "expose mcpx itself as tools the model can call",
 		},
 		{
-			Path: "plugin.skills", Kind: KindList, Default: defaults.CSV(defaults.PluginSkills),
-			Scope: ScopePlugin, Repeatable: true,
-			Name: "Skills", Short: "which bundled skills the plugin registers",
+			Path: "plugin.remember", Kind: KindEnum, Default: defaults.PluginRemember,
+			Enum:  []string{"session", "until-gone", "indefinite"},
+			Scope: ScopePlugin,
+			Name:  "Remember the daemon", Short: "how long a chosen daemon stays chosen",
+			Long: "The plugin walks a ladder to find a daemon and writes down what " +
+				"it found. Session forgets at the end of the session, until-gone " +
+				"keeps the choice while the socket exists, indefinite keeps it " +
+				"until somebody changes it.",
+		},
+		{
+			Path: "plugin.annotate", Kind: KindBool, Default: defaults.Flag(defaults.PluginAnnotate),
+			Scope: ScopePlugin,
+			Name:  "Annotate tool output", Short: "add mcpx's own notes to a tool result",
 		},
 	}
 }

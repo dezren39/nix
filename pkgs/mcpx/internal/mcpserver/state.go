@@ -26,7 +26,12 @@ import (
 //
 // The key is per process and never persisted. A requestState does not need
 // to survive a restart, because the call it names does not either.
-type stateSigner struct{ key []byte }
+type stateSigner struct {
+	key []byte
+	// ttl bounds how long a minted requestState stays resumable. Zero
+	// means defaults.ProtoStateTTL.
+	ttl time.Duration
+}
 
 func newStateSigner() *stateSigner {
 	key := make([]byte, 32)
@@ -49,6 +54,10 @@ type statePayload struct {
 var ErrNoStateKey = errors.New("mcpx cannot sign a requestState")
 
 func (s *stateSigner) mint(callID, binding string) (string, error) {
+	ttl := s.ttl
+	if ttl <= 0 {
+		ttl = defaults.ProtoStateTTL
+	}
 	if len(s.key) == 0 {
 		return "", ErrNoStateKey
 	}
@@ -56,7 +65,7 @@ func (s *stateSigner) mint(callID, binding string) (string, error) {
 		return "", errors.New("this connection has no stable identity to bind a requestState to")
 	}
 	b, err := json.Marshal(statePayload{Call: callID, Binding: binding,
-		Expires: time.Now().Add(defaults.ProtoStateTTL).Unix()})
+		Expires: time.Now().Add(ttl).Unix()})
 	if err != nil {
 		return "", err
 	}

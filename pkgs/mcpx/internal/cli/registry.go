@@ -30,7 +30,7 @@ func (a *App) CmdRegistry(ctx context.Context, args []string) error {
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
-	client := registry.New(a.Settings().String("registry.url"))
+	client := registry.New(a.Settings().String("registry.url"), a.registryOptions())
 
 	switch sub {
 	case "search", "":
@@ -218,7 +218,7 @@ func (a *App) addServerToConfig(explicit, name string, entry map[string]any) (st
 
 // registryServers is what the TUI and scripts read.
 func (a *App) registrySearch(ctx context.Context, query string, limit int) ([]registry.Server, error) {
-	return registry.New(a.Settings().String("registry.url")).Search(ctx, query, limit)
+	return registry.New(a.Settings().String("registry.url"), a.registryOptions()).Search(ctx, query, limit)
 }
 
 // hoistFlags moves flags ahead of positional arguments.
@@ -254,4 +254,14 @@ func hoistFlags(args []string, valued map[string]bool) []string {
 		}
 	}
 	return append(flags, rest...)
+}
+
+// registryOptions carries the two knobs the registry client used to take from
+// built-in constants, so registry.timeout and registry.pageSize mean
+// something wherever they are set.
+func (a *App) registryOptions() registry.Options {
+	return registry.Options{
+		Timeout:  a.Settings().Duration("registry.timeout"),
+		PageSize: a.Settings().Int("registry.pageSize"),
+	}
 }

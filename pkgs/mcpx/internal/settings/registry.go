@@ -206,26 +206,25 @@ func scriptSettings() []Setting {
 				"@globals, @before, @prefix, @onSuccess, @onError and @suffix " +
 				"substituted. Given bare, there is no launcher at all and the " +
 				"script is handed to the runtime untouched. " + srcLong,
-			Bare:     "none",
-			AllowDir: false,
+			Bare: "none",
 		},
 		{
 			Path: "script.before", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Scope: ScopeClient,
 			Name:  "Before phase", Short: "runs first, ahead of the globals being installed",
-			Long: srcLong, AllowDir: false,
+			Long: srcLong,
 		},
 		{
 			Path: "script.prefix", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Scope: ScopeClient,
 			Name:  "Prefix phase", Short: "runs after globals are installed, before the script",
-			Long: srcLong, AllowDir: false,
+			Long: srcLong,
 		},
 		{
 			Path: "script.onSuccess", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Scope: ScopeClient,
 			Name:  "On success", Short: "runs when the script returns without throwing",
-			Long: srcLong, AllowDir: false,
+			Long: srcLong,
 		},
 		{
 			Path: "script.onError", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
@@ -234,13 +233,12 @@ func scriptSettings() []Setting {
 			Short: "runs when the script throws; the error still propagates",
 			Long: "A hook, not a handler. The error is rethrown afterwards, so the exit " +
 				"status still reflects what happened. " + srcLong,
-			AllowDir: false,
 		},
 		{
 			Path: "script.suffix", Commands: runCommands, Kind: KindSource, Default: "", Repeatable: true,
 			Scope: ScopeClient,
 			Name:  "Suffix phase", Short: "runs last on both paths, like a finally",
-			Long: srcLong, AllowDir: false,
+			Long: srcLong,
 		},
 		{
 			Path: "script.typecheck", Commands: runCommands, Kind: KindEnum, Default: "off",
@@ -433,9 +431,13 @@ func outputSettings() []Setting {
 		},
 		{
 			Path: "output.color", Kind: KindEnum, Default: "auto",
-			Scope: ScopeClient,
-			Enum:  []string{"auto", "always", "never"},
-			Name:  "Colour", Short: "whether to colourise terminal output",
+			Scope:    ScopeClient,
+			Commands: []string{"tui"},
+			Enum:     []string{"auto", "always", "never"},
+			Name:     "Colour", Short: "whether to colourise the browser",
+			Long: "Only the browser draws in colour; everything else is plain " +
+				"text on purpose, because the other commands are read by " +
+				"programs as often as by people. Auto asks the terminal.",
 		},
 		{
 			Path: "catalog.budget", Kind: KindInt, Default: "2000",
@@ -533,13 +535,6 @@ func plumbingSettings() []Setting {
 			Plumbing: true,
 			Name:     "Index on demand",
 			Short:    "bring the log index up to date before answering a query",
-		},
-		{
-			Path: "plumbing.consoleReleaseOnExit", Kind: KindBool, Default: "true",
-			Scope:    ScopeClient,
-			Plumbing: true,
-			Name:     "Restore console at exit",
-			Short:    "hand the original console back before the process ends",
 		},
 	}
 }

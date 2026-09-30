@@ -79,6 +79,31 @@ export const TUNING = {
   rememberRecheckMs: 5_000,
 } as const
 
+/**
+ * Parse a Go duration string ("60s", "1m30s", "500ms") into milliseconds.
+ *
+ * The settings registry hands every duration out in the syntax a person types
+ * into MCPX_*, and that syntax is Go's. The plugin cannot call into Go to
+ * resolve one, so it parses the same spelling here; anything it does not
+ * understand is treated as absent, because a cooldown of NaN would retry
+ * forever.
+ */
+export const goDurationMs = (v: string | undefined): number | undefined => {
+  if (!v) return undefined
+  const unit: Record<string, number> = { ns: 1e-6, us: 1e-3, µs: 1e-3, ms: 1, s: 1000, m: 60_000, h: 3_600_000 }
+  const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g
+  let total = 0
+  let matched = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(v.trim())) !== null) {
+    total += Number(m[1]) * unit[m[2]]
+    matched += m[0].length
+  }
+  const body = v.trim().replace(/^[+-]/, "")
+  if (matched !== body.length || matched === 0) return undefined
+  return v.trim().startsWith("-") ? undefined : total
+}
+
 /** Where a daemon is. */
 export type Target =
   | { kind: "socket"; path: string }

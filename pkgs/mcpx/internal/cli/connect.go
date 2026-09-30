@@ -213,6 +213,7 @@ func (a *App) inlineDaemon(ctx context.Context) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inline mode needs a configuration: %w", err)
 	}
+	config.ApplyPoolSettings(cfg, a.Settings())
 	// A private socket in a private directory, so two inline runs in the
 	// same shell cannot find each other's servers.
 	dir, err := os.MkdirTemp("", "mcpx-inline-")

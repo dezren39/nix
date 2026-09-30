@@ -51,6 +51,27 @@ func ResolvePaths() Paths {
 	}
 }
 
+// PathsAt is ResolvePaths with the two directories supplied.
+//
+// ResolvePaths runs before any configuration file has been found, so it can
+// only read the environment; that is why MCPX_STATE_DIR is read by name
+// there. Once the settings are resolved the caller may know better -- a
+// paths.state in a config file, or --paths-state -- and this is how it says
+// so without a second copy of the socket-naming rule. An empty argument keeps
+// what ResolvePaths worked out.
+func PathsAt(state, cache string) Paths {
+	p := ResolvePaths()
+	if state != "" {
+		p.State = state
+		p.Socket = socketPath(state, "")
+		p.Info = filepath.Join(state, "daemon.json")
+	}
+	if cache != "" {
+		p.Cache = cache
+	}
+	return p
+}
+
 // ForConfig keys the daemon to a particular configuration.
 //
 // Two things fall out of this, both of which matter once more than one repo is
