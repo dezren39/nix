@@ -69,6 +69,8 @@ type Instance struct {
 	startedAt time.Time
 	trace     string
 	calls     atomic.Int64
+	// questions pending on this instance pause its calls' budgets.
+	questions questions
 	// eraSource is how this instance's era was settled: probe, cache or
 	// forced.
 	eraSource string
@@ -120,6 +122,9 @@ type Pool struct {
 	starting  int
 	seq       int
 	closed    bool
+
+	flightMu sync.Mutex
+	inflight map[string]int
 
 	// schema cache
 	schemaMu     sync.RWMutex
@@ -383,6 +388,11 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	if h := p.Hooks; h != nil {
 		if h.Elicit != nil {
 			opts.OnServerRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+				// While a person or agent answers, the call that provoked the
+				// question is not using its budget. See budget.go.
+				if in := ref.ptr.Load(); in != nil {
+					defer in.questions.asking()()
+				}
 				return h.Elicit(ctx, p.cfg.Name, ref.key(), method, params)
 			}
 		}
@@ -633,9 +643,9 @@ func (p *Pool) GetPrompt(ctx context.Context, sessionKey, name string, args map[
 		return nil, err
 	}
 	defer lease.Release()
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
-	return lease.Client().GetPrompt(cctx, name, args)
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
+	res, err := lease.Client().GetPrompt(cctx, name, args)
+	return res, finish(err)
 }
 
 // Hooks receive what servers volunteer.
@@ -713,10 +723,10 @@ func (p *Pool) Call(ctx context.Context, sessionKey, tool string, args any) (jso
 		Trace("call %s.%s session=%q instance=%s pid=%d", p.cfg.Name, tool, sessionKey, lease.inst.ID, lease.inst.PID())
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
 	started := time.Now()
 	res, err := lease.Client().CallTool(cctx, tool, args)
+	err = finish(err)
 	// Reported from here rather than from the daemon's HTTP handler because
 	// this is the only place that knows which instance served the call. The
 	// handler sees a namespace; the log wants the process, so that a slow call
@@ -743,9 +753,9 @@ func (p *Pool) ReadResource(ctx context.Context, sessionKey, uri string) (json.R
 	}
 	defer lease.Release()
 
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
-	return lease.Client().ReadResource(cctx, uri)
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
+	res, err := lease.Client().ReadResource(cctx, uri)
+	return res, finish(err)
 }
 
 // ReapIdle stops instances that nobody holds and that have gone quiet, plus

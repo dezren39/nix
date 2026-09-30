@@ -130,3 +130,43 @@ func TestOneConfigReachedThroughASymlinkIsOneDaemon(t *testing.T) {
 		t.Error("identical contents in different places must not share a daemon")
 	}
 }
+
+// ForConfig's key is the config file set, and both halves of that are
+// load-bearing (#183). Stable across an edit is why a daemon that reloads stays
+// reachable by the client that edited it (#56); unstable across the set is why
+// two projects get two daemons.
+func TestTheDaemonKeyIsTheFileSetNotTheContents(t *testing.T) {
+	t.Setenv("MCPX_SOCKET", "")
+	base := daemon.Paths{State: "/tmp/s"}
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, ".mcpx.json")
+	write := func(p, body string) {
+		t.Helper()
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keyed := func(files ...string) daemon.Paths {
+		return base.ForConfig(daemon.FingerprintConfig(files))
+	}
+
+	write(cfg, `{"mcpServers":{}}`)
+	before := keyed(cfg)
+	write(cfg, `{"mcpServers":{"added":{"command":"x"}}}`)
+	after := keyed(cfg)
+	if before != after {
+		t.Errorf("editing a config moved the daemon's key, so the daemon that "+
+			"reloads it becomes unreachable:\n  before %+v\n  after  %+v", before, after)
+	}
+
+	parent := filepath.Join(t.TempDir(), "mcpx.json")
+	write(parent, `{"mcpServers":{}}`)
+	if chained := keyed(cfg, parent); chained == after {
+		t.Errorf("adding a file to the chain kept the key; two file sets would share a daemon: %+v", chained)
+	}
+	other := filepath.Join(t.TempDir(), ".mcpx.json")
+	write(other, `{"mcpServers":{"added":{"command":"x"}}}`)
+	if elsewhere := keyed(other); elsewhere == after {
+		t.Errorf("a different path with the same contents kept the key: %+v", elsewhere)
+	}
+}

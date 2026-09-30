@@ -587,11 +587,8 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 	if !ok {
 		return nil, fmt.Errorf("unknown server or namespace %q", server)
 	}
-	key := r.keyFor(p, cc)
-	// Two policies sit between resolving the instance and using it, and both
-	// are off unless somebody turned them on. See internal/daemon/consumer.go.
-	key = r.disambiguate(ctx, p, cc, key)
-	if err := r.confirmDestructive(ctx, p, tool, cc); err != nil {
+	key, err := r.resolveAndGuard(ctx, p, tool, cc)
+	if err != nil {
 		return nil, err
 	}
 	res, err := p.Call(ctx, key, tool, args)
@@ -599,6 +596,21 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 		return nil, r.explainCall(server, tool, args, err)
 	}
 	return res, nil
+}
+
+// resolveAndGuard picks the instance key for a tool call and applies the
+// consumer policies. Every path that calls a tool goes through it: the ask
+// path once skipped both, so a destructive-tool guard was off for exactly the
+// clients that declared they could answer it.
+func (r *Registry) resolveAndGuard(ctx context.Context, p *pool.Pool, tool string, cc config.CallContext) (string, error) {
+	key := r.keyFor(p, cc)
+	// Two policies sit between resolving the instance and using it, and both
+	// are off unless somebody turned them on. See internal/daemon/consumer.go.
+	key = r.disambiguate(ctx, p, cc, key)
+	if err := r.confirmDestructive(ctx, p, tool, cc); err != nil {
+		return "", err
+	}
+	return key, nil
 }
 
 // ReadResource dispatches a resource read.

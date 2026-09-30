@@ -77,9 +77,13 @@ func PathsAt(state, cache string) Paths {
 // Two things fall out of this, both of which matter once more than one repo is
 // in play. Different configs get different daemons automatically, so a project
 // with its own .mcpx.json does not have to agree with the user-level one. And
-// editing a config produces a new key, so the next command starts a daemon
-// that has actually read the change instead of silently talking to a stale
-// one.
+// the key is the config *file set* (FingerprintConfig), not its contents, so
+// editing a config keeps the same key and the same daemon: the edit is picked
+// up by that daemon, which compares ContentFingerprint on every request and
+// reap tick (Server.watchConfig in routes_settings.go) and reloads through
+// Server.reloadConfig and Registry.Reload (reload.go). Keying on contents
+// was removed on purpose (#56): a reloading daemon moved its own key and
+// became unreachable.
 func (p Paths) ForConfig(hash string) Paths {
 	if hash == "" {
 		return p
@@ -168,8 +172,8 @@ func privateRuntimeDir() (string, error) {
 // All of them matter, not just the nearest: two projects whose own config is
 // byte-identical can still inherit different servers from different parents,
 // and sharing a daemon between them would give one project the other's
-// servers. Paths contribute as well as contents, so two identical files in
-// different places stay separate.
+// servers. Paths are what is hashed, so two identical files in different
+// places stay separate.
 //
 // "Different places" means different files, not different spellings of one.
 // Each path is resolved through symlinks first: /tmp is a symlink to

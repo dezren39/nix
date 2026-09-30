@@ -224,6 +224,17 @@ type Defaults struct {
 		PrivateMode   string `json:"privateMode"`
 		PublicMode    string `json:"publicMode"`
 	} `json:"files"`
+	// Git is how the repo and worktree scopes find a repository. Discovery
+	// reads .git itself (internal/config/gitdiscover.go); Bin is only run for
+	// the layouts that port does not vouch for, and GitfileMaxBytes is git's
+	// own ceiling on a .git file, kept so an absurd one is refused by both
+	// rather than read into the daemon's memory. Neither is a setting: PATH
+	// already chooses the git, and changing the ceiling would only make mcpx
+	// disagree with git about which files are valid.
+	Git struct {
+		Bin             string `json:"bin"`
+		GitfileMaxBytes string `json:"gitfileMaxBytes"`
+	} `json:"git"`
 	// Plugin is read by the opencode plugin rather than by this binary. It
 	// is declared here so that `mcpx settings` can answer what the plugin
 	// will do, which is otherwise only discoverable by reading TypeScript.
@@ -239,6 +250,13 @@ type Defaults struct {
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
 	} `json:"plugin"`
+	// ProtoMessages governs the per-message fields mcpx's own MCP server
+	// attaches: cache hints on results and keep-alives on listen streams.
+	ProtoMessages struct {
+		ListMaxAge string `json:"listMaxAge"`
+		ReadMaxAge string `json:"readMaxAge"`
+		TaskAfter  string `json:"taskAfter"`
+	} `json:"protoMessages"`
 	// Upstream governs how mcpx connects to the servers it fronts: which
 	// protocol era it tries first, how long it waits to find out, and where
 	// it remembers the answer.
@@ -421,6 +439,17 @@ var (
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
 
+	// ProtoListMaxAge is the ttlMs a 2026-07-28 client is given on
+	// server/discover and every list result. Short, because the lists follow
+	// configuration and a list_changed only reaches a client that listens.
+	ProtoListMaxAge = mustDur(builtin.ProtoMessages.ListMaxAge, "protoMessages.listMaxAge")
+	// ProtoReadMaxAge is the ttlMs on resources/read. Zero: a resource is
+	// whatever an upstream server says it is now.
+	ProtoReadMaxAge = mustDur(builtin.ProtoMessages.ReadMaxAge, "protoMessages.readMaxAge")
+	// ProtoTaskAfter is how long a tools/call from a client that declared
+	// the tasks extension runs in line before mcpx hands back a task
+	// instead of the result.
+	ProtoTaskAfter = mustDur(builtin.ProtoMessages.TaskAfter, "protoMessages.taskAfter")
 	// TransportSSEKeepAlive is how often an otherwise quiet event stream
 	// carries a comment line, so an intermediary or a client idle timeout
 	// does not close a stream that is merely waiting.
@@ -537,6 +566,9 @@ var (
 	PublicDirMode = mustMode(builtin.Files.PublicDirMode, "files.publicDirMode")
 	PrivateMode   = mustMode(builtin.Files.PrivateMode, "files.privateMode")
 	PublicMode    = mustMode(builtin.Files.PublicMode, "files.publicMode")
+
+	GitBin          = builtin.Git.Bin
+	GitfileMaxBytes = mustBytes(builtin.Git.GitfileMaxBytes, "git.gitfileMaxBytes")
 
 	PluginBin            = builtin.Plugin.Bin
 	PluginBinArgs        = builtin.Plugin.BinArgs

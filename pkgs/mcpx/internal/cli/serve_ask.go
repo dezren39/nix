@@ -179,28 +179,29 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		out.Text, out.IsError = reply.Error, true
 		return out, nil
 	}
-	out.Text, out.MimeType = renderAsk(reply.Result)
+	out.Text, out.MimeType, out.IsError = renderAsk(reply.Result)
 	return out, nil
 }
 
 // renderAsk turns the daemon's task result into the text every other mcpx
 // tool result is, using the same renderers the direct path uses. Two ways to
 // render one result is two ways for them to disagree.
-func renderAsk(result map[string]json.RawMessage) (string, string) {
+func renderAsk(result map[string]json.RawMessage) (text, mime string, failed bool) {
 	var kind string
 	_ = json.Unmarshal(result["kind"], &kind)
 	inner := result["result"]
 	switch kind {
 	case "prompts/get":
-		return renderPrompt(inner), ""
+		return renderPrompt(inner), "", false
 	case "resources/read":
 		text, mime, err := renderResource(inner)
 		if err != nil {
-			return string(inner), ""
+			return string(inner), "", false
 		}
-		return text, mime
+		return text, mime, false
 	default:
-		return renderResult(inner), ""
+		text, failed := renderResult(inner)
+		return text, "", failed
 	}
 }
 
