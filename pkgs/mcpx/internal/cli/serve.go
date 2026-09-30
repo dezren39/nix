@@ -565,26 +565,58 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 }
 
 // ReadResource resolves a namespaced URI back to its server.
+//
+// A resource that does not exist is reported as mcpserver.ErrResourceNotFound
+// so the protocol layer can answer with the code the client's revision
+// defines for it; everything else is a failure to read, which is a
+// different code. The four ways a URI names nothing: it is not an mcpx URI
+// at all, it names no namespace, the namespace is not configured, or the
+// upstream server itself said not-found.
 func (b mcpBackend) ReadResource(ctx context.Context, uri string) (string, string, error) {
 	// Artifacts are answered before the namespace split, because "artifacts"
 	// is not a server and would otherwise be looked up as one.
 	if id, ok := artifacts.IDFromURI(uri); ok {
-		return b.readArtifact(ctx, id)
+		text, mime, err := b.readArtifact(ctx, id)
+		// The daemon's 404 arrives as its message; artifacts.ErrNotFound
+		// is the only thing that says "no artifact <id>".
+		if err != nil && strings.Contains(err.Error(), "no artifact "+id) {
+			return "", "", fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, err)
+		}
+		return text, mime, err
 	}
-	ns, rest, ok := strings.Cut(strings.TrimPrefix(uri, "mcpx://"), "/")
-	if !ok {
-		return "", "", fmt.Errorf("a resource URI looks like mcpx://<namespace>/<uri>, got %q", uri)
+	rest, isOurs := strings.CutPrefix(uri, "mcpx://")
+	ns, inner, ok := strings.Cut(rest, "/")
+	if !isOurs || !ok || ns == "" {
+		return "", "", fmt.Errorf("%w: a resource URI looks like mcpx://<namespace>/<uri>, got %q",
+			mcpserver.ErrResourceNotFound, uri)
 	}
 	c, err := b.app.ensure(ctx)
 	if err != nil {
 		return "", "", err
 	}
 	session := b.app.mcpSession()
-	raw, err := c.ReadResource(ctx, ns, rest, b.app.callContext(session, session))
+	raw, err := c.ReadResource(ctx, ns, inner, b.app.callContext(session, session))
 	if err != nil {
+		if upstreamNotFound(err) {
+			return "", "", fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, err)
+		}
 		return "", "", err
 	}
 	return renderResource(raw)
+}
+
+// upstreamNotFound reads a not-found out of the daemon's answer.
+//
+// The daemon returns an upstream failure as text -- "unknown server or
+// namespace", or the upstream JSON-RPC error rendered as "mcp error <code>:"
+// -- so this is string matching across a process boundary. The codes it
+// looks for are the only two any revision uses for a missing resource:
+// -32002 up to 2025-11-25, -32602 since.
+func upstreamNotFound(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "unknown server or namespace") ||
+		strings.Contains(msg, "mcp error -32002:") ||
+		strings.Contains(msg, "mcp error -32602:")
 }
 
 // GetPrompt resolves a namespaced prompt back to its server.
