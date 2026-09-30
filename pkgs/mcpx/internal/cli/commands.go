@@ -646,6 +646,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		}
 	}
 
+	// script.permissions, from a file, MCPX_SCRIPT_PERMISSIONS, MCPX_PERMISSIONS
+	// or --script-permissions. Only this path read MCPX_PERMISSIONS, by name,
+	// so the other three were accepted here and ignored. Only when given: the
+	// default "all" would otherwise hide the config file's top-level
+	// "permissions" key.
+	setPerms := ""
+	if a.Settings().Given("script.permissions") {
+		setPerms = a.Settings().String("script.permissions")
+	}
 	opts := runner.Options{
 		// Set when something other than a terminal is collecting the output:
 		// the MCP server, which has to return it rather than print it.
@@ -657,7 +666,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		Timeout:        *timeout,
 		Prelude:        prelude,
 		Export:         *export,
-		Permissions:    firstNonEmpty(*perms, os.Getenv("MCPX_PERMISSIONS"), cfgPerms(cfg)),
+		Permissions:    firstNonEmpty(*perms, setPerms, cfgPerms(cfg)),
 		Log:            writer,
 		CollectLogs:    collect,
 		OnResult:       onResult,

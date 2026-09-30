@@ -132,6 +132,8 @@ whole promise, because the `Set` is the only reader that has all three layers.
 **`TestNoHandRolledSettingEnv`** closes the other direction: `os.Getenv` of a
 variable the registry owns is how a setting becomes env-only. Three entries on
 its allowlist, each because the read genuinely happens before a `Set` exists.
+(Since replaced by `TestNoUndeclaredEnvRead`, which walks the syntax tree and
+also refuses a variable *nothing* declares -- see `docs/environment.md`.)
 
 **`TestThePluginReadsNoUndeclaredSetting`** closes the third: a variable the
 plugin honours that no setting declares.

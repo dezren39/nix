@@ -546,6 +546,8 @@ func SearchPathFrom(wd string) []string {
 			out = append(out, p)
 		}
 	}
+	// paths.configFile. Read by name because it decides which files the
+	// settings are resolved from, so no resolved setting can exist yet.
 	if p := os.Getenv("MCPX_CONFIG"); p != "" {
 		return []string{p}
 	}

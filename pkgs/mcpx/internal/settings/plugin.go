@@ -97,5 +97,28 @@ func pluginSettings() []Setting {
 			Scope: ScopePlugin,
 			Name:  "Annotate tool output", Short: "add mcpx's own notes to a tool result",
 		},
+		// The two below default to "auto" because the plugin works the answer
+		// out at boot. The other spellings are the ones the plugin's truthy()
+		// accepts; listing fewer would let a value the plugin honours make
+		// every mcpx command refuse to start.
+		{
+			Path: "plugin.headless", Kind: KindEnum, Default: defaults.PluginHeadless,
+			Enum:  pluginTriState,
+			Scope: ScopePlugin,
+			Name:  "Headless", Short: "suppress toasts, because nobody is looking at a screen",
+			Long: "Auto decides from the process shape: `opencode tui` runs the " +
+				"plugin in a worker and the interface on the main thread, while " +
+				"run, serve and CI run it on the main thread with nothing attached.",
+		},
+		{
+			Path: "plugin.daemonTools", Kind: KindEnum, Default: defaults.PluginDaemonTools,
+			Enum:  pluginTriState,
+			Scope: ScopePlugin,
+			Name:  "Daemon tools", Short: "offer the tools that list and choose between daemons",
+			Long: "Auto offers them when plugin.tools is on or when discovery found " +
+				"more than one daemon and somebody may want to choose.",
+		},
 	}
 }
+
+var pluginTriState = []string{"auto", "true", "false", "1", "0", "yes", "no", "on", "off"}

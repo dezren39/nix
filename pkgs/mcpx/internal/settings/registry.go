@@ -24,6 +24,7 @@ func Registry() []Setting {
 	s = append(s, consumerSettings()...)
 	s = append(s, wireSettings()...)
 	s = append(s, pluginSettings()...)
+	s = append(s, envSettings()...)
 	return s
 }
 
@@ -183,6 +184,7 @@ func scriptSettings() []Setting {
 			Path: "script.permissions", Commands: runCommands, Kind: KindString, Default: "all",
 			Scope:       ScopeClient,
 			FlagAliases: []string{"permissions"},
+			EnvAliases:  []string{"MCPX_PERMISSIONS"},
 			Name:        "Permissions", Short: "the sandbox profile, or raw runtime flags",
 			Long: "One of all, net, read, read-net, strict, or flags passed through " +
 				"verbatim. The default is wide open because the scripts are yours.",
