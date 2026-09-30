@@ -80,7 +80,9 @@ func TestModernEnvelope(t *testing.T) {
 
 	// spec + "2026-07-28/basic/index#meta" (per-response fields)
 	t.Run("2026-07-28/basic/serverInfo-in-meta-on-every-result", func(t *testing.T) {
-		for _, method := range []string{"server/discover", "ping", "tools/list", "resources/read"} {
+		// tools/list rather than ping: 2026-07-28 removed ping, so a modern
+		// peer gets -32601 for it and there is no result to carry _meta.
+		for _, method := range []string{"server/discover", "tools/list", "prompts/list", "resources/read"} {
 			params := modernParams(map[string]any{"uri": "demo://a"})
 			r := resultOf(t, handle(t, s, method, params))
 			meta, _ := r["_meta"].(map[string]any)
@@ -157,12 +159,18 @@ func TestModernEnvelope(t *testing.T) {
 		}
 	})
 
-	// spec + "2026-07-28/basic/versioning" -- ping and logging/setLevel are
-	// gone from 2026-07-28 and answered anyway.
-	t.Run("2026-07-28/basic/removed-ping-and-setLevel-still-answer", func(t *testing.T) {
+	// spec + "2026-07-28/basic/transports/streamable-http#sending-messages-to-the-server"
+	// -- "If the server does not implement the requested RPC method, it MUST
+	// respond with 404 Not Found and a JSON-RPC error with code -32601".
+	// ping and logging/setLevel are gone from 2026-07-28, so a modern peer
+	// gets method-not-found rather than an answer. This asserted the
+	// opposite, under the "accept liberally" rule -- which is right for a
+	// method a revision never had and wrong for one it removed, because the
+	// removal is the specification naming a replacement.
+	t.Run("2026-07-28/basic/removed-methods-are-method-not-found", func(t *testing.T) {
 		for _, m := range []string{"ping", "logging/setLevel"} {
-			if r := handle(t, s, m, modernParams(map[string]any{"level": "info"})); errCode(r) != 0 {
-				t.Errorf("%s refused: %v", m, r)
+			if got := errCode(handle(t, s, m, modernParams(map[string]any{"level": "info"}))); got != -32601 {
+				t.Errorf("%s: code %d, want -32601", m, got)
 			}
 		}
 	})

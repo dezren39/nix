@@ -95,6 +95,28 @@ func TestModernStreamableHTTPHeaders(t *testing.T) {
 			t.Errorf("the request id is readable and should be echoed, got %s", id)
 		}
 	}
+	// A body that carries no _meta at all is a different fault from a header
+	// that contradicts one, and the specification gives it a different code:
+	// basic/index, "A request missing any required field is malformed; the
+	// server MUST reject it with JSON-RPC error code -32602 (Invalid params).
+	// On HTTP, the response status MUST be 400 Bad Request." The official
+	// conformance suite scores it the same way -- its server-stateless
+	// scenario asserts -32602 for both sep-2575-request-meta-invalid-missing-meta
+	// and -missing-protocol-version. This subtest previously asserted -32020,
+	// which made the bug look correct.
+	invalidParams := func(t *testing.T, w *httptest.ResponseRecorder) {
+		t.Helper()
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status %d, want 400:\n%s", w.Code, w.Body)
+		}
+		code, id := rpcErr(t, w.Body.Bytes())
+		if code != -32602 {
+			t.Fatalf("code %d, want -32602 InvalidParams:\n%s", code, w.Body)
+		}
+		if string(id) != "7" {
+			t.Errorf("the request id is readable and should be echoed, got %s", id)
+		}
+	}
 	t.Run("2026-07-28/streamable-http/protocol-version-header-required", func(t *testing.T) {
 		h := modernHeaders("tools/call", "mcpx_status")
 		delete(h, "MCP-Protocol-Version")
@@ -105,8 +127,8 @@ func TestModernStreamableHTTPHeaders(t *testing.T) {
 		h["MCP-Protocol-Version"] = "2025-11-25"
 		mismatch(t, post(s, call, h))
 	})
-	t.Run("2026-07-28/streamable-http/modern-header-with-legacy-body-is-mismatch", func(t *testing.T) {
-		mismatch(t, post(s, frame(7, "tools/list", nil), modernHeaders("tools/list", "")))
+	t.Run("2026-07-28/streamable-http/body-without-meta-is-invalid-params", func(t *testing.T) {
+		invalidParams(t, post(s, frame(7, "tools/list", nil), modernHeaders("tools/list", "")))
 	})
 	t.Run("2026-07-28/streamable-http/mcp-method-header-required", func(t *testing.T) {
 		h := modernHeaders("tools/call", "mcpx_status")
@@ -768,9 +790,11 @@ func TestOriginValidation(t *testing.T) {
 	for _, rev := range []string{"2025-03-26", "2025-11-25", "2026-07-28"} {
 		// https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#security-warning
 		// https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security-%26-endpoint
-		body, headers := frame(1, "ping", nil), map[string]string{}
+		// tools/list: ping is gone from 2026-07-28, and this is a test about
+		// Origin, not about which methods survive.
+		body, headers := frame(1, "tools/list", nil), map[string]string{}
 		if rev == modern {
-			body, headers = frame(1, "ping", modernParams(nil)), modernHeaders("ping", "")
+			body, headers = frame(1, "tools/list", modernParams(nil)), modernHeaders("tools/list", "")
 		}
 		with := func(origin string) *httptest.ResponseRecorder {
 			h := map[string]string{"Origin": origin}
