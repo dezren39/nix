@@ -187,10 +187,13 @@ next start goes straight there without the two refused POSTs.
 
 | set | before | after |
 | --- | --- | --- |
-| `--requirements 2025-11-25` | 5 passed, 64 failed | 13 passed, 57 failed |
-| `--requirements 2026-07-28` | 23 passed, 101 failed | 64 passed, 68 failed |
+| `--requirements 2025-11-25` | 5 passed, 64 failed | 20 passed, 56 failed |
+| `--requirements 2026-07-28` | 23 passed, 101 failed, 1 warning | 63 passed, 68 failed, 0 warnings |
 
-Every remaining failure is `auth/*`: mcpx has no OAuth client.
+Every remaining failure is `auth/*`: mcpx has no OAuth client. The
+json-schema-2020-12-preservation pass needed the adapter
+(`internal/conformance/officialclient`) to echo the schema back as mcpx holds
+it; it used to call every tool with `{}`.
 
 ## Not done
 
@@ -198,6 +201,11 @@ Every remaining failure is `auth/*`: mcpx has no OAuth client.
   applied: nothing calls `mcpauth.Resolve`, so no auth type, `query` included,
   reaches a request. The spec forbids tokens in a query string; today that
   cannot happen only because no auth is sent at all.
+- **Legacy HTTP cancellation before headers.** A legacy request whose POST was
+  still waiting for response headers when it timed out was never cancelled
+  (Send is synchronous until headers arrive, so the timeout surfaced as a send
+  error, before the code that sends `notifications/cancelled`). Fixed: it is
+  now cancelled on either path.
 - **The daemon never calls `SubscribeResource`.** mcpx's own clients subscribe
   to `mcpx://` URIs, and the daemon filters its event stream by URI, but it
   never subscribes upstream — so a legacy server (which sends updates only for
