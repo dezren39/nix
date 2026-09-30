@@ -2,9 +2,12 @@ package conformance
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+var issueRe = regexp.MustCompile(`^#[0-9]+$`)
 
 // Status of one requirement, in one revision, for one side.
 type Status struct {
@@ -63,8 +66,8 @@ func Evaluate(reqs []Requirement, cs []Cover, gs []Gap) (map[Cell]Status, error)
 		if !ok {
 			return nil, fmt.Errorf("gap names unknown requirement %q", g.ID)
 		}
-		if g.Issue == "" {
-			return nil, fmt.Errorf("gap %s has no issue", g.ID)
+		if !issueRe.MatchString(g.Issue) {
+			return nil, fmt.Errorf("gap %s names %q, not a filed issue (#123)", g.ID, g.Issue)
 		}
 		revs := g.Revs
 		if revs == nil {

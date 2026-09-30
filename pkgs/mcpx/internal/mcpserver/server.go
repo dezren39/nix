@@ -214,6 +214,9 @@ type Server struct {
 	// what it did before any client could answer one inline.
 	Ask Asker
 
+	// stdioBusy is set while a ServeStdio loop holds the default connection.
+	stdioBusy bool
+
 	// def is the connection the in-process entry points use. A transport
 	// that serves many clients makes one Conn apiece instead.
 	def     *Conn
@@ -703,7 +706,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// server and a client with a frame limit has no other way to read
 		// the list. Ignoring the cursor meant a large installation was
 		// simply unreadable by such a client.
-		tools, next := page(s.Tools(), req.Params, s.pageSize())
+		tools, next, perr := page(s.Tools(), req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"tools": tools}
 		if next != "" {
 			out["nextCursor"] = next
@@ -748,7 +754,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err != nil {
 			return fail(codeInternal, err.Error())
 		}
-		items, next := page(asTemplates(ts), req.Params, s.pageSize())
+		items, next, perr := page(asTemplates(ts), req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"resourceTemplates": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -853,7 +862,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if rs == nil {
 			rs = []ResourceRef{}
 		}
-		items, next := page(rs, req.Params, s.pageSize())
+		items, next, perr := page(rs, req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"resources": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -899,7 +911,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if ps == nil {
 			ps = []PromptRef{}
 		}
-		items, next := page(ps, req.Params, s.pageSize())
+		items, next, perr := page(ps, req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"prompts": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -1271,7 +1286,20 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 	var wmu sync.Mutex
 	rawEnc := json.NewEncoder(out)
 	enc := lockedEncoder{mu: &wmu, enc: rawEnc}
+	// The first loop is the process's own client and takes the default
+	// connection, which SetPush and Cancelled address. A second loop on the
+	// same Server gets a connection of its own: sharing one sent each
+	// loop's questions to whichever had installed its writer last.
 	c := s.conn()
+	s.mu.Lock()
+	if s.stdioBusy {
+		c = s.newConn(newSessionID(), nil)
+		c.process = true
+	} else {
+		s.stdioBusy = true
+		defer func() { s.mu.Lock(); s.stdioBusy = false; s.mu.Unlock() }()
+	}
+	s.mu.Unlock()
 	c.mu.Lock()
 	c.send = func(frame any) error { return enc.Encode(frame) }
 	c.pushFn = func(method string, params any) {
@@ -2012,26 +2040,34 @@ func (s *Server) pageSize() int {
 // The cursor is the offset, encoded, because the specification says it is
 // opaque and a client that parses one is relying on something it was told not
 // to. Encoding it costs nothing and removes the temptation.
-func page[T any](all []T, params json.RawMessage, size int) ([]T, string) {
+//
+// A cursor mcpx did not issue is an error (-32602), as every revision's
+// pagination page says, rather than a quiet restart at the first page: a
+// client that loops on nextCursor would otherwise read page one forever.
+// A cursor past the end of a list that has since shrunk is still one mcpx
+// issued, and gets an empty last page.
+func page[T any](all []T, params json.RawMessage, size int) ([]T, string, error) {
 	start := 0
 	if len(params) > 0 {
 		var p struct {
-			Cursor string `json:"cursor"`
+			Cursor *string `json:"cursor"`
 		}
-		if json.Unmarshal(params, &p) == nil && p.Cursor != "" {
-			if n, err := decodeCursor(p.Cursor); err == nil {
-				start = n
+		if json.Unmarshal(params, &p) == nil && p.Cursor != nil {
+			n, err := decodeCursor(*p.Cursor)
+			if err != nil {
+				return nil, "", fmt.Errorf("invalid cursor %q", *p.Cursor)
 			}
+			start = n
 		}
 	}
 	if start >= len(all) {
-		return []T{}, ""
+		return []T{}, "", nil
 	}
 	end := start + size
 	if end >= len(all) {
-		return all[start:], ""
+		return all[start:], "", nil
 	}
-	return all[start:end], encodeCursor(end)
+	return all[start:end], encodeCursor(end), nil
 }
 
 func encodeCursor(offset int) string {
@@ -2047,7 +2083,11 @@ func decodeCursor(c string) (int, error) {
 	if !strings.HasPrefix(s, "o:") {
 		return 0, fmt.Errorf("bad cursor")
 	}
-	return strconv.Atoi(s[2:])
+	n, err := strconv.Atoi(s[2:])
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("bad cursor")
+	}
+	return n, nil
 }
 
 // cancel records a client's cancellation and cancels the request it names,

@@ -515,17 +515,19 @@ func TestListsArePaginatedSoALargeInstallationIsReadable(t *testing.T) {
 	}
 }
 
-func TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing(t *testing.T) {
-	// A cursor is opaque, so a client cannot validate one before sending it.
-	// Refusing would strand a client that has nothing better to send.
+func TestAnInvalidCursorIsInvalidParams(t *testing.T) {
+	// Every revision's pagination page: an invalid cursor is -32602. The
+	// old answer -- page one again -- turned a client that follows
+	// nextCursor into one that re-reads the first page forever.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "tools/list",
 		map[string]any{"cursor": "not-a-cursor"}))
-	// Parsed rather than substring-matched: a tool description legitimately
-	// contains the word "errors", and matching on it made this pass or fail
-	// for reasons unrelated to cursors.
-	if errOf(t, resp) != "" {
-		t.Errorf("an opaque cursor cannot be validated by the client: %s", errOf(t, resp))
+	if errOf(t, resp) == "" {
+		t.Fatal("an invalid cursor was answered with a page")
+	}
+	b, _ := json.Marshal(resp)
+	if !strings.Contains(string(b), `"code":-32602`) {
+		t.Errorf("%s", b)
 	}
 }
 

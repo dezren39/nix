@@ -6,6 +6,13 @@ func init() {
 	// the same whatever revision an upstream speaks, so these tests hold it
 	// for 2026-07-28 as for every other.
 	register(
+		// Delivery end to end is the daemon's (#247), the same for every legacy revision.
+		S("resources-subscribe-cap-meaning-legacy",
+			"e2e.TestResourceSubscriptionsReachUpstream/2025-11-25/resources/stdio-subscribe-delivers-upstream-updates-under-the-mcpx-uri@2024-11-05,2025-03-26,2025-06-18,2025-11-25",
+			"e2e.TestResourceSubscriptionsReachUpstream/2025-11-25/resources/http-subscribe-delivers-upstream-updates-on-the-get-stream@2025-03-26,2025-06-18,2025-11-25"),
+		S("resources-subscribe-cap-meaning-2026",
+			"e2e.TestResourceSubscriptionsReachUpstream/2026-07-28/subscriptions/listen-delivers-upstream-updates-and-acks-only-what-it-can"),
+		S("resources-custom-scheme-rfc3986", PerRev("cli.TestMCPXResourceURIs", "resources/resources-custom-scheme-rfc3986", "2025-06-18", "2025-11-25", "2026-07-28")...),
 		C("resources-subscribe-via-listen", "mcpclient.TestModernListenStream/2026-07-28/subscriptions/resource-subscription-reopens-listen"),
 		C("tools-x-mcp-header-reject-excludes", "mcpclient.TestModernHTTPHeaders/2026-07-28/transport/client-excludes-tool-with-invalid-x-mcp-header"),
 		C("tools-x-mcp-header-reject-log", "mcpclient.TestModernHTTPHeaders/2026-07-28/transport/client-excludes-tool-with-invalid-x-mcp-header"),
@@ -93,13 +100,10 @@ func init() {
 		),
 	)
 	registerGaps(
-		Gap{ID: "resources-custom-scheme-rfc3986", Side: Server, Issue: "pending:resource-uri-encoding", Why: "the daemon mints mcpx://<ns>/<upstream uri> by concatenation, without percent-encoding the upstream URI"},
-		Gap{ID: "resources-subscribe-cap-meaning-legacy", Side: Server, Issue: "#208", Why: "subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver"},
-		Gap{ID: "resources-subscribe-cap-meaning-2026", Side: Server, Issue: "#208", Why: "subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver"},
 		Gap{ID: "resources-annotations-defs", Side: Client, Issue: "#207", Why: "mcpclient.Resource has no annotations field; they are dropped on parse"},
 		Gap{ID: "tools-display-name-precedence", Side: Client, Issue: "#207", Why: "tool title and annotations.title are carried but nothing that displays a tool uses them"},
-		Gap{ID: "tools-annotations-untrusted", Side: Client, Issue: "pending:annotation-trust", Why: "destructiveHint from any upstream decides whether a call is confirmed; an absent or false hint is trusted"},
-		Gap{ID: "tools-annotations-hints-no-decisions", Side: Client, Issue: "pending:annotation-trust", Why: "the consumer confirmDestructive gate is decided by an untrusted upstream annotation"},
-		Gap{ID: "prompts-validate-io", Side: Client, Issue: "pending:prompt-validation", Why: "an upstream prompts/get result is passed on unvalidated"},
+		Gap{ID: "tools-annotations-untrusted", Side: Client, Issue: "#257", Why: "destructiveHint from any upstream decides whether a call is confirmed; an absent or false hint is trusted"},
+		Gap{ID: "tools-annotations-hints-no-decisions", Side: Client, Issue: "#257", Why: "the consumer confirmDestructive gate is decided by an untrusted upstream annotation"},
+		Gap{ID: "prompts-validate-io", Side: Client, Issue: "#257", Why: "an upstream prompts/get result is passed on unvalidated"},
 	)
 }

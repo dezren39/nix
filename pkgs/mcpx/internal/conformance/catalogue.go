@@ -40,7 +40,7 @@ const (
 	Applies        = "applies"
 	NAPrefix       = "n/a:"
 	NotImplPrefix  = "not-implemented:"
-	oauthIssue     = "pending:oauth"
+	oauthIssue     = "#253"
 	notChosenLabel = "optional feature mcpx does not implement"
 )
 

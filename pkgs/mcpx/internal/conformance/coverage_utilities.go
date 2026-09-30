@@ -97,7 +97,6 @@ func init() {
 		),
 	)
 	registerGaps(
-		Gap{ID: "pagination-invalid-cursor-32602", Side: Server, Issue: "pending:invalid-cursor", Why: "an undecodable cursor restarts at the first page by design (mcpserver.TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing)", Test: "conformance.TestUtilitiesServer"},
 		Gap{ID: "cancellation-receiver-should-stop-free-no-response", Side: Client, Issue: "#77", Why: "the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "cancellation-processing-should-cease", Side: Client, Revs: []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}, Issue: "#77", Why: "the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "progress-track-tokens", Side: Client, Issue: "#212", Why: "every inbound progress notification is passed on, whether or not any request asked for its token", Test: "conformance.TestUtilitiesClient"},

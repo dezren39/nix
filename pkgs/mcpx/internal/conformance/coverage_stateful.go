@@ -33,6 +33,7 @@ func init() {
 		S("subscriptions-list-changed-via-listen", "mcpserver.TestHTTPListenIsAStream/2026-07-28/subscriptions/http-listen-response-is-an-open-sse-stream"),
 		S("subscriptions-list-changed-via-listen", "conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-sse-notifications-must-relate"),
 		SReq("conformance.TestStatefulServer",
+			"tasks-protocol-errors",
 			"tasks-input-request-related-task",
 			"tasks-result-response-related-task",
 			"tasks-related-task-all-messages",
@@ -99,7 +100,6 @@ func init() {
 		Gap{ID: "tasks-related-task-all-messages", Side: Server, Issue: "#209", Why: "tasks/result carries no related-task _meta (the questions a task raises now do, #245)", Test: "conformance.TestStatefulServer"},
 		Gap{ID: "tasks-result-response-related-task", Side: Server, Issue: "#209", Why: "tasks/result carries no related-task _meta (the questions a task raises now do, #245)", Test: "conformance.TestStatefulServer"},
 		Gap{ID: "tasks-get-implies-list", Side: Server, Issue: "#209", Why: "a task started on a connection without an identity can be read by tasks/get and is never listed"},
-		Gap{ID: "tasks-protocol-errors", Side: Server, Issue: "#209", Why: "an invalid tasks/list cursor restarts at the first page instead of -32602"},
 		Gap{ID: "tasks-failed-status-message", Side: Server, Issue: "#209", Why: "a task failed by an isError tool result carries no statusMessage"},
 		Gap{ID: "tasks-document-unbound", Side: Server, Issue: "#209", Why: "nothing user-facing documents that an unowned task is reachable by anyone holding its id"},
 		Gap{ID: "tasks-rate-limit", Side: Server, Issue: "#209", Why: "tasks/* has no rate limit"},
@@ -116,6 +116,6 @@ func init() {
 		Gap{ID: "caching-page-refetch", Side: Client, Issue: "#200", Why: "the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart"},
 		Gap{ID: "caching-key-method-params", Side: Client, Issue: "#200", Why: "the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart"},
 		Gap{ID: "caching-private-no-cross-auth", Side: Client, Issue: "#200", Why: "cacheScope is ignored, so a private upstream list is served to every downstream caller"},
-		Gap{ID: "caching-notification-invalidates", Side: Client, Issue: "pending:modern-invalidation", Why: "unverified since subscriptions/listen landed upstream (#239): nothing tests that a modern list_changed empties the pool list cache"},
+		Gap{ID: "caching-notification-invalidates", Side: Client, Issue: "#257", Why: "unverified since subscriptions/listen landed upstream (#239): nothing tests that a modern list_changed empties the pool list cache"},
 	)
 }

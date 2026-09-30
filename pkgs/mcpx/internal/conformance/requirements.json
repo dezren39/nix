@@ -2866,8 +2866,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/index#auth",
     "quote": "\"Implementations using an HTTP-based transport **SHOULD** conform to this specification, whereas implementations using STDIO transport **SHOULD NOT** follow this specification\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice (no OAuth to upstreams)",
@@ -2889,8 +2889,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/index#auth",
     "quote": "\"clients and servers **MAY** negotiate their own custom authentication and authorization strategies.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -5035,7 +5035,7 @@
     "url": "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#server-metadata-discovery-headers",
     "quote": "\"MCP clients _SHOULD_ include the header `MCP-Protocol-Version: \u003cprotocol-version\u003e` during Server Metadata Discovery\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5570,8 +5570,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#protocol-requirements",
     "quote": "\"Authorization is **OPTIONAL** for MCP implementations.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -5592,8 +5592,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#protocol-requirements",
     "quote": "\"Implementations using an HTTP-based transport **SHOULD** conform to this specification.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice — static headers",
@@ -5614,8 +5614,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#protocol-requirements",
     "quote": "\"Implementations using an STDIO transport **SHOULD NOT** follow this specification, and instead retrieve credentials from the environment.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "yes — `env` auth type for stdio children",
@@ -5636,8 +5636,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#protocol-requirements",
     "quote": "\"Implementations using alternative transports **MUST** follow established security best practices for their protocol.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -5655,8 +5655,8 @@
     "url": "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#overview",
     "quote": "\"MCP auth implementations **MUST** implement OAuth 2.1 with appropriate security measures for both confidential and public clients.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -5696,8 +5696,8 @@
     "url": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#dynamic-client-registration",
     "quote": "\"MCP clients and servers **SHOULD** support the OAuth 2.0 Dynamic Client Registration Protocol\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -5716,7 +5716,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#dynamic-client-registration",
     "quote": "\"MCP clients and authorization servers **MAY** support the OAuth 2.0 Dynamic Client Registration Protocol\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5735,8 +5735,8 @@
     "url": "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#overview",
     "quote": "\"MCP servers **SHOULD** and MCP clients **MUST** implement OAuth 2.0 Authorization Server Metadata (RFC8414). Servers that do not support Authorization Server Metadata **MUST** follow the default URI schema.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -5755,7 +5755,7 @@
     "quote": "\"MCP servers **SHOULD** support the OAuth grant types that best align with the intended audience.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -5774,7 +5774,7 @@
     "quote": "\"When authorization is required and not yet proven by the client, servers **MUST** respond with _HTTP 401 Unauthorized_.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "must react to 401 — reports error",
@@ -5792,7 +5792,7 @@
     "url": "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#authorization-base-url",
     "quote": "\"The authorization base URL **MUST** be determined from the MCP server URL by discarding any existing `path` component.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5811,7 +5811,7 @@
     "url": "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#fallbacks-for-servers-without-metadata-discovery",
     "quote": "\"clients **MUST** use the following default endpoint paths ... Clients **MUST** first attempt to discover endpoints via the metadata document before falling back\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5833,7 +5833,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#token-requirements",
     "quote": "\"MCP client **MUST** use the Authorization request header field ... `Authorization: Bearer \u003caccess-token\u003e`\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5855,7 +5855,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#token-requirements",
     "quote": "\"authorization **MUST** be included in every HTTP request from client to server\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5877,7 +5877,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#token-requirements",
     "quote": "\"Access tokens **MUST NOT** be included in the URI query string\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5900,7 +5900,7 @@
     "quote": "\"MCP servers, acting in their role as an OAuth 2.1 resource server, **MUST** validate access tokens ... Invalid or expired tokens **MUST** receive a HTTP 401 response.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -5921,7 +5921,7 @@
     "quote": "\"MCP servers **MUST** validate that access tokens were issued specifically for them as the intended audience\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -5941,7 +5941,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#token-handling",
     "quote": "\"MCP clients **MUST NOT** send tokens to the MCP server other than ones issued by the MCP server's authorization server.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -5963,7 +5963,7 @@
     "quote": "\"MCP servers **MUST** only accept tokens that are valid for use with their own resources. MCP servers **MUST NOT** accept or transit any other tokens.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -5984,7 +5984,7 @@
     "quote": "\"The MCP server **MUST NOT** pass through the token it received from the MCP client.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6006,7 +6006,7 @@
     "quote": "\"Servers **MUST** return appropriate HTTP status codes for authorization errors: 401 ... 403 ... 400\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6024,8 +6024,8 @@
     "url": "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#security-considerations",
     "quote": "\"1. Clients **MUST** securely store tokens ... 2. Servers **SHOULD** enforce token expiration and rotation 3. All authorization endpoints **MUST** be served over HTTPS 4. Servers **MUST** validate redirect URIs ... 5. Redirect URIs **MUST** be either localhost URLs or HTTPS URLs\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6043,8 +6043,8 @@
     "url": "https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#implementation-requirements",
     "quote": "\"1. Implementations **MUST** follow OAuth 2.1 security best practices 2. PKCE is **REQUIRED** for all clients 3. Token rotation **SHOULD** be implemented 4. Token lifetimes **SHOULD** be limited\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6063,7 +6063,7 @@
     "quote": "\"MCP servers **MAY** support delegated authorization through third-party authorization servers ... MCP servers implementing third-party authorization **MUST**: 1. Maintain secure mapping ... 2. Validate third-party token status ... 3. ... lifecycle management 4. Handle third-party token expiration and renewal\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6083,8 +6083,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#overview",
     "quote": "\"MCP servers **MUST** implement OAuth 2.0 Protected Resource Metadata (RFC9728). MCP clients **MUST** use OAuth 2.0 Protected Resource Metadata for authorization server discovery.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6105,7 +6105,7 @@
     "quote": "\"The Protected Resource Metadata document returned by the MCP server **MUST** include the `authorization_servers` field containing at least one authorization server.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6123,8 +6123,8 @@
     "url": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#overview",
     "quote": "\"Authorization servers **MUST** provide OAuth 2.0 Authorization Server Metadata (RFC8414). MCP clients **MUST** use the OAuth 2.0 Authorization Server Metadata.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6143,8 +6143,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#overview",
     "quote": "\"MCP authorization servers **MUST** provide at least one of the following discovery mechanisms: RFC8414 ... OpenID Connect Discovery 1.0. MCP clients **MUST** support both discovery mechanisms\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6163,7 +6163,7 @@
     "quote": "\"MCP servers **MUST** use the HTTP header `WWW-Authenticate` when returning a _401 Unauthorized_ to indicate the location of the resource server metadata URL\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6182,8 +6182,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery#protected-resource-metadata-discovery-requirements",
     "quote": "\"MCP servers **MUST** implement one of the following discovery mechanisms ... MCP clients **MUST** support both discovery mechanisms and use the resource metadata URL from the parsed `WWW-Authenticate` headers when present; otherwise, they **MUST** fall back to constructing and requesting the well-known URIs in the order listed above.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6203,7 +6203,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery#protected-resource-metadata-discovery-requirements",
     "quote": "\"MCP clients **MUST** be able to parse `WWW-Authenticate` headers and respond appropriately to `HTTP 401 Unauthorized` responses\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6222,7 +6222,7 @@
     "url": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#server-metadata-discovery",
     "quote": "\"MCP clients **MUST** follow the OAuth 2.0 Authorization Server Metadata RFC8414 specification to obtain the information required to interact with the authorization server.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6242,7 +6242,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery#authorization-server-metadata-discovery",
     "quote": "\"MCP clients **MUST** attempt multiple well-known endpoints ... For issuer URLs with path components ... clients **MUST** try endpoints in the following priority order\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6261,7 +6261,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery#authorization-server-metadata-discovery",
     "quote": "\"the `issuer` value in the document **MUST** be identical to the issuer identifier used to construct the well-known URL. If they differ, the client **MUST NOT** use the metadata.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6280,7 +6280,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery#authorization-server-location",
     "quote": "\"Clients **MUST** maintain separate registration state (client credentials, tokens) per authorization server and **MUST NOT** assume that credentials valid for one authorization server will be accepted by another.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6301,7 +6301,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#resource-parameter-implementation",
     "quote": "\"MCP clients **MUST** implement Resource Indicators for OAuth 2.0 as defined in RFC 8707 ... The `resource` parameter: 1. **MUST** be included in both authorization requests and token requests. 2. **MUST** identify the MCP server ... 3. **MUST** use the canonical URI\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6322,8 +6322,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#canonical-server-uri",
     "quote": "\"MCP clients **SHOULD** provide the most specific URI ... implementations **SHOULD** accept uppercase scheme and host components ... **SHOULD** consistently use the form without the trailing slash\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6343,8 +6343,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#token-theft",
     "quote": "\"Clients and servers **MUST** implement secure token storage and follow OAuth best practices\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "applies to configured secrets — mcpauth redacts in traces; storage is the config file (operator's)",
@@ -6385,8 +6385,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#communication-security",
     "quote": "\"1. All authorization server endpoints **MUST** be served over HTTPS. 1. All redirect URIs **MUST** be either `localhost` or use HTTPS.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6404,7 +6404,7 @@
     "url": "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#authorization-code-protection",
     "quote": "\"MCP clients **MUST** implement PKCE according to OAuth 2.1 Section 7.5.2.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6424,7 +6424,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#authorization-code-protection",
     "quote": "\"**MUST** verify PKCE support before proceeding ... **MUST** use the `S256` code challenge method when technically capable ... If `code_challenge_methods_supported` is absent ... MCP clients **MUST** refuse to proceed.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6445,7 +6445,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#open-redirection",
     "quote": "\"MCP clients **MUST** have redirect URIs registered ... Authorization servers **MUST** validate exact redirect URIs ... MCP clients **SHOULD** use and verify state parameters ... Authorization servers **MUST** take precautions\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6467,7 +6467,7 @@
     "quote": "\"MCP proxy servers using static client IDs **MUST** obtain user consent for each dynamically registered client before forwarding to third-party authorization servers\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6485,7 +6485,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#client-registration",
     "quote": "\"Before initiating the authorization flow, MCP clients **MUST** obtain a client ID through one of three registration mechanisms\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6505,7 +6505,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration",
     "quote": "\"Clients supporting all options **SHOULD** follow the following priority order: 1. ... pre-registered ... 2. ... Client ID Metadata Documents ... 3. ... Dynamic Client Registration ... 4. Prompt the user\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6525,7 +6525,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#implementation-requirements",
     "quote": "\"MCP clients and authorization servers **SHOULD** support OAuth Client ID Metadata Documents ... Clients **MUST** host their metadata document at an HTTPS URL ... The `client_id` URL **MUST** use the \\\"https\\\" scheme and contain a path component ... **MUST** include at least ... `client_id`, `client_name`, `redirect_uris` ... **MUST** ensure the `client_id` value ... matches\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6545,7 +6545,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#pre-registration",
     "quote": "\"MCP clients **SHOULD** support an option for static client credentials such as those supplied by a pre-registration flow.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6564,7 +6564,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#application-type-and-redirect-uri-constraints",
     "quote": "\"MCP clients **MUST** specify an appropriate `application_type` during Dynamic Client Registration ... Native applications ... **SHOULD** use `application_type: \\\"native\\\"` ... MCP clients **MUST** be prepared to handle registration failures\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6583,7 +6583,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#authorization-server-binding",
     "quote": "\"**MUST** associate those credentials with the specific authorization server that issued them, keyed by the authorization server's `issuer` identifier ... clients **MUST NOT** reuse client credentials from a different authorization server and **MUST** re-register\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6603,8 +6603,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#scope-selection-strategy",
     "quote": "\"MCP servers **SHOULD** include a `scope` parameter in the `WWW-Authenticate` header ... Clients **MUST NOT** assume any particular set relationship between the challenged scope set and `scopes_supported`. Clients **MUST** treat the scopes provided in the challenge as authoritative\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6623,7 +6623,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#scope-selection-strategy",
     "quote": "\"MCP clients **SHOULD** follow this priority order for scope selection: 1. Use `scope` parameter ... 2. ... use all scopes defined in `scopes_supported`\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6644,7 +6644,7 @@
     "quote": "\"the server **SHOULD** respond with: `HTTP 403 Forbidden` ... `WWW-Authenticate` header with ... `error=\\\"insufficient_scope\\\"` ... `scope=` ... `resource_metadata`\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6663,7 +6663,7 @@
     "quote": "\"servers **SHOULD** include all scopes required for the current operation in a single challenge.\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6682,7 +6682,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#step-up-authorization-flow",
     "quote": "\"Clients **SHOULD** respond to these errors by requesting a new access token with an increased set of scopes ... Clients **SHOULD** implement retry limits\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6702,7 +6702,7 @@
     "quote": "\"Servers **MUST** account for scope hierarchies, where a broader scope implies narrower ones\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "not-implemented:pending:oauth"
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "n/a",
@@ -6740,7 +6740,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#authorization-response-validation",
     "quote": "\"the client **MUST** record the `issuer` value ... authorization servers **SHOULD** include the `iss` parameter ... **MUST** advertise ... `authorization_response_iss_parameter_supported` ... clients **MUST** apply the validation in RFC9207 Section 2.4 before transmitting the authorization code ... **MUST NOT** apply scheme or host case folding ... on mismatch the client **MUST NOT** act on or display `error`\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
+      "client": "not-implemented:#253",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -6759,8 +6759,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#refresh-tokens",
     "quote": "\"**MUST** keep refresh tokens confidential ... **SHOULD** include `refresh_token` in their `grant_types` ... **MAY** add `offline_access` ... **MUST NOT** assume refresh tokens will be issued ... MCP Servers ... **SHOULD NOT** include `offline_access`\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",
@@ -6780,8 +6780,8 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations",
     "quote": "\"Implementations **MUST** follow OAuth 2.1 security best practices as laid out in OAuth 2.1 Section 7.\"",
     "applicability": {
-      "client": "not-implemented:pending:oauth",
-      "server": "not-implemented:pending:oauth"
+      "client": "not-implemented:#253",
+      "server": "not-implemented:#253"
     },
     "notes": {
       "client": "not-implemented-by-choice",

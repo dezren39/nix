@@ -236,7 +236,10 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 		if mine == nil {
 			mine = []Task{}
 		}
-		items, next := page(mine, req.Params, s.pageSize())
+		items, next, perr := page(mine, req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"tasks": items}
 		if next != "" {
 			out["nextCursor"] = next

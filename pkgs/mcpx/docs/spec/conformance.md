@@ -12,7 +12,7 @@ how it is put together, and what building it found.
   the side column read as server/client applicability. Anything the catalogue does not plainly mark n/a is taken to
   apply -- a row wrongly marked as applying shows up as a missing test and gets looked at; one wrongly marked n/a is
   never looked at again. Re-judgements live in `overrides/*.json`, each with its reason. Authorization rows are
-  `not-implemented:pending:oauth`: mcpx implements no OAuth.
+  `not-implemented:#253`: mcpx implements no OAuth.
 - **Coverage.** `coverage_*.go`, one file per area. A cover names a test as `<pkg>.<TestName>/<subtest>`; the subtest's
   leading revision is the revision it covers, or an explicit `@rev,...` for a test not named per revision. `SReq`/`CReq`
   cover the requirement-named subtests `forReq` produces.
@@ -53,6 +53,10 @@ Each fix has a test in this package that fails without it.
   still accepted though mcpx sends no log messages.
 - `completion.maxValues` could raise a completion past the 100 values every revision allows.
 - The batch refusal was two sentences; error messages are one.
+- An invalid list cursor restarted at the first page; it is `-32602` now, in every list including `tasks/list`.
+- (`internal/cli/serve.go`) `mcpx://<ns>/<uri>` concatenated the upstream URI unencoded, so a space, `#` or `?` in it
+  made something that is not a URI, or not the one meant. Characters a path may not hold are percent-encoded, `%`
+  included, and decoded again on read, completion and subscribe.
 - `tasks/cancel` of a finished task succeeded; 2025-11-25 makes it `-32602`.
 - An unknown tool name was an `isError` result; it is `-32602`, before any task or question starts.
 - `prompts/get` did not check required arguments; a missing one is now `-32602` before anything runs or asks. (The
@@ -65,5 +69,5 @@ Each fix has a test in this package that fails without it.
   `null` when the request could not be read. No frame satisfies both; mcpx omits the id (C4 in
   `revision-conflicts.md`).
 - 2026-07-28 removed `ping`. mcpx still answers one (accept liberally) and its client no longer sends one.
-- Two `ServeStdio` loops on one `Server` share its default connection, so a question can reach the wrong one. No
-  process does this -- one stdio server per process -- but a test that tried it did.
+- Two `ServeStdio` loops on one `Server` shared its default connection, so a question could reach the wrong one. No
+  process does this -- one stdio server per process -- but a test that tried it did; a second loop now gets its own.

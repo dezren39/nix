@@ -417,6 +417,24 @@ func TestLifecycleServer(t *testing.T) {
 	}
 
 	// https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness
+	srvSide("lifecycle-stateless-no-connection-reuse-required", func(t *testing.T, rev string) {
+		// A question handed out on one HTTP request is answered on another:
+		// each POST is its own connection, and the requestState is enough.
+		srv, _ := newServer(t)
+		srv.Ask = newAsker("done", elicitQ("e"))
+		hs := httpServer(t, srv)
+		_, first := hs.request(t, rev, "", "tools/call", paramsWith(rev, `{"elicitation":{}}`, callThatAsks()))
+		r := resultOf(t, first)
+		p := callThatAsks()
+		p["requestState"] = r["requestState"]
+		p["inputResponses"] = map[string]any{"e": map[string]any{"action": "accept", "content": map[string]any{"repo": "x"}}}
+		_, second := hs.request(t, rev, "", "tools/call", paramsWith(rev, `{"elicitation":{}}`, p))
+		if resultOf(t, second)["resultType"] != "complete" {
+			t.Errorf("resumed on another connection: %v", second)
+		}
+	})
+
+	// https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness
 	srvSide("lifecycle-stateless-explicit-handles", func(t *testing.T, rev string) {
 		// State that spans requests is an explicit handle; the modern HTTP
 		// path issues no session.

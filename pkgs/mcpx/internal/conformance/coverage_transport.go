@@ -114,6 +114,6 @@ func init() {
 		Gap{ID: "stdio-client-shutdown-sequence", Side: Client, Issue: "#203", Why: "StdioTransport.Close sends SIGTERM as it closes stdin instead of waiting for the child to exit"},
 		Gap{ID: "streamable-http-client-reissue-broken-request", Side: Client, Issue: "#203", Why: "a broken 2026-07-28 response stream is reported lost to the caller (http.go); nothing re-issues the request with a new id"},
 		Gap{ID: "streamable-http-client-reinit-on-404", Side: Client, Issue: "#203", Why: "a 404 for the session is returned as an error; no new initialize"},
-		Gap{ID: "stdio-client-restart-crashed-server", Side: Client, Issue: "pending:stdio-restart", Why: "unverified: the in-flight call fails and the pool respawns only on the next acquire, subject to its start-failure cooldown"},
+		Gap{ID: "stdio-client-restart-crashed-server", Side: Client, Issue: "#257", Why: "unverified: the in-flight call fails and the pool respawns only on the next acquire, subject to its start-failure cooldown"},
 	)
 }

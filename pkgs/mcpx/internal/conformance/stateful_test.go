@@ -158,6 +158,20 @@ func TestStatefulServer(t *testing.T) {
 			t.Errorf("listed %d of 5", seen)
 		}
 	})
+	srvSide("tasks-protocol-errors", func(t *testing.T, rev string) {
+		srv, _ := newServer(t)
+		ss := stdioServer(t, srv)
+		ss.initialize(t, rev)
+		for _, c := range []struct {
+			method string
+			p      map[string]any
+		}{{"tasks/get", map[string]any{"taskId": "tsk-nope"}}, {"tasks/result", map[string]any{"taskId": "tsk-nope"}},
+			{"tasks/cancel", map[string]any{"taskId": "tsk-nope"}}, {"tasks/list", map[string]any{"cursor": "not-a-cursor"}}} {
+			if r := ss.request(t, rev, c.method, c.p); errorCode(r) != -32602 {
+				t.Errorf("%s: %v", c.method, r)
+			}
+		}
+	})
 	srvSide("tasks-declare-capability", func(t *testing.T, rev string) {
 		srv, _ := newServer(t)
 		ss := stdioServer(t, srv)

@@ -25,7 +25,7 @@ type Gap struct {
 	ID    string
 	Side  string
 	Revs  []string // nil: every revision the requirement has
-	Issue string   // "#123", or "pending:<slug>" until the architect files it
+	Issue string   // "#123": a filed GitHub issue
 	Why   string
 	Test  string
 }
