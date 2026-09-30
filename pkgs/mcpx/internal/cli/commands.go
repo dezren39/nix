@@ -1376,6 +1376,9 @@ func (a *App) CmdInit(ctx context.Context, args []string) error {
 	return nil
 }
 
+// starterConfig is what `mcpx init` writes. Every key in it must be one the
+// loader reads: TestStarterConfigMeansWhatItSays loads it strictly and checks
+// each server resolves to what its comment promises.
 const starterConfig = `{
   // mcpx reads the same "mcpServers" object other MCP hosts use, so an
   // existing config can be pasted in unchanged. The optional "mcpx" block on
@@ -1385,9 +1388,11 @@ const starterConfig = `{
       "command": "some-mcp-server",
       "args": [],
       "mcpx": {
-        // One process, unlimited concurrent callers. Right for search, docs
-        // and database servers, which hold no per-caller state.
-        "mode": "shared",
+        // One process for everything, any number of callers at once. Right
+        // for search, docs and database servers, which hold no per-caller
+        // state. These two are the defaults, written out to show the knobs.
+        "sharing": "shared",
+        "scope": "global",
         "description": "what this server is for, shown by mcpx ls"
       }
     },
@@ -1395,9 +1400,12 @@ const starterConfig = `{
       "command": "chrome-devtools-mcp",
       "args": ["--headless", "--isolated"],
       "mcpx": {
-        // One browser per script run, up to 4 at once. Concurrent agents get
-        // separate browsers instead of fighting over one.
-        "mode": "session",
+        // One browser per session, one caller at a time, up to 4 at once.
+        // A session is the host's MCPX_SESSION_ID, or a single script run
+        // when there is none. Concurrent agents get separate browsers
+        // instead of fighting over one.
+        "sharing": "exclusive",
+        "scope": "session",
         "max": 4,
         "idleTimeout": "5m",
         "description": "drive a headless Chrome"
