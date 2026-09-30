@@ -882,7 +882,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// missing required one is the client's error (-32602), and once
 		// the request is known to be well-formed, a failure is mcpx's or
 		// the upstream's (-32603).
-		known, missing := s.promptArgs(ctx, p.Name, p.Arguments)
+		missing := s.promptArgs(ctx, p.Name, p.Arguments)
 		if missing != "" {
 			return fail(codeInvalidParams, fmt.Sprintf("prompt %q needs argument %q", p.Name, missing))
 		}
@@ -894,11 +894,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		text, err := s.backend.GetPrompt(ctx, p.Name, p.Arguments)
 		if err != nil {
 			// Classified, as resources/read is (conflict #12): the backend
-			// says when the request was at fault. A name the list does not
-			// hold is most likely simply unknown too; the backend is still
-			// asked, because it also accepts a name without its namespace.
+			// says, with ErrInvalidParams, when the request was at fault.
 			// https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling
-			if !known || errors.Is(err, ErrInvalidParams) {
+			if errors.Is(err, ErrInvalidParams) {
 				return fail(codeInvalidParams, err.Error())
 			}
 			return fail(codeInternal, err.Error())
@@ -2144,12 +2142,13 @@ func (s *Server) hasTool(name string) bool {
 }
 
 // promptArgs finds a prompt by its exact name and reports the first
-// required argument not supplied. A listing that fails says nothing either
-// way.
-func (s *Server) promptArgs(ctx context.Context, name string, args map[string]string) (known bool, missing string) {
+// required argument not supplied. A prompt it cannot find, or a listing that
+// fails, is left to the backend, which also accepts a name without its
+// namespace.
+func (s *Server) promptArgs(ctx context.Context, name string, args map[string]string) (missing string) {
 	refs, err := s.backend.Prompts(ctx)
 	if err != nil {
-		return false, ""
+		return ""
 	}
 	for _, r := range refs {
 		if r.Name != name {
@@ -2157,10 +2156,10 @@ func (s *Server) promptArgs(ctx context.Context, name string, args map[string]st
 		}
 		for _, a := range r.Arguments {
 			if _, ok := args[a.Name]; a.Required && !ok {
-				return true, a.Name
+				return a.Name
 			}
 		}
-		return true, ""
+		return ""
 	}
-	return false, ""
+	return ""
 }

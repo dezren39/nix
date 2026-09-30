@@ -295,7 +295,7 @@ func (b *backend) Complete(_ context.Context, params json.RawMessage) ([]string,
 }
 func (b *backend) GetPrompt(_ context.Context, name string, args map[string]string) (string, error) {
 	if name != "greet" {
-		return "", fmt.Errorf("no prompt named %q", name)
+		return "", fmt.Errorf("%w: no prompt named %q", mcpserver.ErrInvalidParams, name)
 	}
 	return "hi " + args["who"], nil
 }
