@@ -256,7 +256,8 @@ func (c *Client) probe(ctx context.Context, allowLegacy bool) error {
 		}
 		dID, dCh := c.begin(ctx, "server/discover", params)
 		var legacyErr error
-		for dCh != nil || initCh != nil {
+		retry := false
+		for !retry && (dCh != nil || initCh != nil) {
 			select {
 			case <-ctx.Done():
 				c.forget(dID)
@@ -284,7 +285,7 @@ func (c *Client) probe(ctx context.Context, allowLegacy bool) error {
 					return err
 				case retryVersion:
 					stopInit()
-					version = next
+					version, retry = next, true
 				case isLegacy:
 					if !allowLegacy {
 						return fmt.Errorf("server/discover: %w", err)
@@ -321,11 +322,14 @@ func (c *Client) probe(ctx context.Context, allowLegacy bool) error {
 				// Still waiting on discover: a modern server rejecting
 				// initialize is exactly what this looks like.
 				if dCh == nil {
-					if legacyErr != nil {
-						return fmt.Errorf("server/discover: %v; initialize: %w", legacyErr, initErr)
-					}
+					return fmt.Errorf("server/discover: %v; initialize: %w", legacyErr, initErr)
 				}
 			}
+		}
+		if !retry {
+			// Unreachable while every verdict above returns; a silent
+			// re-send of discover here would hide the bug that got here.
+			return errors.New("server/discover: the probe ended without settling the era")
 		}
 	}
 }

@@ -284,10 +284,14 @@ func TestPoolProbe(t *testing.T) {
 }
 
 func TestEraIdentity(t *testing.T) {
-	mk := func(max int, headers map[string]string) *config.Resolved {
+	// exclusive picks the leasing knobs; they must not change the identity.
+	mk := func(exclusive int, headers map[string]string) *config.Resolved {
+		ex := &config.Extras{}
+		if exclusive > 1 {
+			ex = &config.Extras{Sharing: config.SharingExclusive, Scope: "session", Max: exclusive}
+		}
 		cfg := &config.Config{MCPServers: map[string]*config.Server{
-			"s": {Name: "s", Command: "x", URL: "", Headers: headers, Env: map[string]string{"B": "2", "A": "1"},
-				Mcpx: &config.Extras{Max: max}},
+			"s": {Name: "s", Command: "x", Headers: headers, Env: map[string]string{"B": "2", "A": "1"}, Mcpx: ex},
 		}}
 		r, err := cfg.Resolve("s")
 		if err != nil {
@@ -297,8 +301,12 @@ func TestEraIdentity(t *testing.T) {
 	}
 	h := map[string]string{"a": "1", "b": "2", "c": "3", "d": "4", "e": "5", "f": "6"}
 	t.Run("upstream/era-identity-ignores-leasing-knobs", func(t *testing.T) {
-		if pool.Identity(mk(1, h)) != pool.Identity(mk(9, h)) {
-			t.Error("max does not change what a server speaks")
+		a, b := mk(1, h), mk(9, h)
+		if a.Sharing == b.Sharing || a.Max == b.Max {
+			t.Fatalf("the two configs should differ in leasing: %v/%d vs %v/%d", a.Sharing, a.Max, b.Sharing, b.Max)
+		}
+		if pool.Identity(a) != pool.Identity(b) {
+			t.Error("sharing, scope and max do not change what a server speaks")
 		}
 	})
 	t.Run("upstream/era-identity-is-deterministic", func(t *testing.T) {

@@ -357,6 +357,9 @@ func TestStdioEraProbe(t *testing.T) {
 		if !sent(s, "initialize") {
 			t.Errorf("the timeout should have sent initialize too: %v", s.methods())
 		}
+		if n := len(s.discovers()); n != 1 {
+			t.Errorf("the first discover should have been kept, not re-sent: %d sent", n)
+		}
 	})
 
 	t.Run("2026-07-28/stdio-compat/closed-before-discover-is-a-typed-error", func(t *testing.T) {
