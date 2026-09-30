@@ -97,6 +97,7 @@
     "timeout": "120s",
     "workDirs": 8,
     "programs": 64,
+    "entries": 8,
     "stderrLimit": 65536,
     "output": "text",
     "remoteOutput": "structured",

@@ -2800,3 +2800,44 @@ func TestEveryExecFlagChangesSomething(t *testing.T) {
 		})
 	}
 }
+
+func TestConcurrentRunsOfOneScriptKeepTheirOwnLauncher(t *testing.T) {
+	// The generated entry point was named for the script, so every
+	// concurrent run of that script wrote the same file: six runs with six
+	// different launchers all executed the fourth one's. Placeholders make
+	// the same mistake quieter -- two runs of one script with different
+	// @values are two different programs sharing a path.
+	e := newEnv(t, oneServer)
+	script := filepath.Join(e.dir, "s.ts")
+	// No default export: a module that runs on import, so a launcher that
+	// only prints does not have to reproduce the entry-point scaffolding.
+	if err := os.WriteFile(script, []byte("void 0;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 6
+	type res struct {
+		want string
+		out  string
+		err  error
+	}
+	out := make(chan res, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			mark := fmt.Sprintf("LAUNCHER-%d", i)
+			o, err := e.try("run", "--launcher",
+				fmt.Sprintf("console.log(%q); @entry", mark), script)
+			out <- res{mark, o, err}
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		r := <-out
+		if r.err != nil {
+			t.Errorf("%s: %v\n%s", r.want, r.err, r.out)
+			continue
+		}
+		if !strings.Contains(r.out, r.want) {
+			t.Errorf("a run executed another run's launcher: wanted %s, got:\n%s", r.want, r.out)
+		}
+	}
+}

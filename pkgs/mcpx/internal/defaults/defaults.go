@@ -136,6 +136,7 @@ type Defaults struct {
 		Timeout      string `json:"timeout"`
 		WorkDirs     int    `json:"workDirs"`
 		Programs     int    `json:"programs"`
+		Entries      int    `json:"entries"`
 		StderrLimit  int    `json:"stderrLimit"`
 		Output       string `json:"output"`
 		RemoteOutput string `json:"remoteOutput"`
@@ -413,7 +414,10 @@ var (
 	ExecWorkDirs = builtin.Exec.WorkDirs
 	// ExecPrograms bounds how many generated programs one client directory
 	// keeps as type-check cache entries.
-	ExecPrograms     = builtin.Exec.Programs
+	ExecPrograms = builtin.Exec.Programs
+	// ExecEntries bounds how many generated entry points one script leaves
+	// beside itself. They are visible in the user's directory.
+	ExecEntries      = builtin.Exec.Entries
 	ExecRemoteOutput = builtin.Exec.RemoteOutput
 	ExecDelivery     = builtin.Exec.Delivery
 
