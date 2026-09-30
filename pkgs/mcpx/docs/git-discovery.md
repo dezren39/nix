@@ -74,10 +74,12 @@ one, and the worktree from where `.git` was found -- unless the repository's
 `config` says otherwise through `core.bare` or `core.worktree`.
 
 Native discovery reads `HEAD`, `commondir`, a `.git` file, and from `config`
-three keys — `core.repositoryformatversion`, `core.bare`, `core.worktree` —
+three keys -- `core.repositoryformatversion`, `core.bare`, `core.worktree` --
 plus whatever `extensions.*` holds, since an unknown extension is what makes a
 repository unreadable. When `extensions.worktreeConfig` is on it reads the
-worktree's `config.worktree` as well. Nothing else, and it executes nothing.
+worktree's `config.worktree` as well. It tests `objects/` and `refs/` for
+existence without reading them, which is the rest of what `is_git_directory`
+decides on. Nothing else, and it executes nothing.
 
 Every outcome is one of four:
 
