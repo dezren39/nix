@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -602,7 +603,7 @@ func (b mcpBackend) Resources(ctx context.Context) ([]mcpserver.ResourceRef, err
 		// Namespaced, because two servers may publish the same URI and a
 		// caller has no way to say which one it meant otherwise.
 		out = append(out, mcpserver.ResourceRef{
-			URI:         "mcpx://" + r.Namespace + "/" + strings.TrimPrefix(r.URI, "/"),
+			URI:         mcpxURI(r.Namespace, r.URI),
 			Name:        r.Name,
 			Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
 			MimeType:    r.MimeType,
@@ -714,9 +715,8 @@ func (b mcpBackend) ReadResource(ctx context.Context, uri string) ([]mcpserver.R
 		}
 		return []mcpserver.ResourceContents{entry}, nil
 	}
-	rest, isOurs := strings.CutPrefix(uri, "mcpx://")
-	ns, inner, ok := strings.Cut(rest, "/")
-	if !isOurs || !ok || ns == "" {
+	ns, inner, ok := splitMCPXURI(uri)
+	if !ok {
 		return nil, fmt.Errorf("%w: a resource URI looks like mcpx://<namespace>/<uri>, got %q",
 			mcpserver.ErrResourceNotFound, uri)
 	}
@@ -738,13 +738,13 @@ func (b mcpBackend) ReadResource(ctx context.Context, uri string) ([]mcpserver.R
 		}
 		return nil, err
 	}
-	return resourceContents(raw, "mcpx://"+ns+"/"), nil
+	return resourceContents(raw, ns), nil
 }
 
 // resourceContents reads a resources/read reply into entries, keeping each
 // blob a blob. Entry URIs are namespaced the way the listing namespaces
 // them, so a client can read any of them back.
-func resourceContents(raw json.RawMessage, prefix string) []mcpserver.ResourceContents {
+func resourceContents(raw json.RawMessage, ns string) []mcpserver.ResourceContents {
 	var doc struct {
 		Contents []struct {
 			URI      string `json:"uri"`
@@ -760,7 +760,7 @@ func resourceContents(raw json.RawMessage, prefix string) []mcpserver.ResourceCo
 	for _, c := range doc.Contents {
 		uri := ""
 		if c.URI != "" {
-			uri = prefix + strings.TrimPrefix(c.URI, "/")
+			uri = mcpxURI(ns, c.URI)
 		}
 		out = append(out, mcpserver.ResourceContents{URI: uri, MimeType: c.MimeType,
 			Text: c.Text, Blob: c.Blob})
@@ -874,12 +874,12 @@ func (b mcpBackend) Complete(ctx context.Context, params json.RawMessage) ([]str
 			// there is nothing to offer.
 			return nil, nil
 		}
-		ns, inner, ok := strings.Cut(strings.TrimPrefix(p.Ref.URI, "mcpx://"), "/")
+		ns, inner, ok := splitMCPXURI(p.Ref.URI)
 		visible, err := b.app.visibleNamespaces(ctx, c)
 		if err != nil {
 			return nil, err
 		}
-		if !strings.HasPrefix(p.Ref.URI, "mcpx://") || !ok || !visible(ns) {
+		if !ok || !visible(ns) {
 			return nil, fmt.Errorf("%w: no resource template %q", mcpserver.ErrInvalidParams, p.Ref.URI)
 		}
 		server, ref["uri"] = ns, inner
@@ -1017,7 +1017,7 @@ func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.Resource
 			continue
 		}
 		out = append(out, mcpserver.ResourceRef{
-			URI:         "mcpx://" + r.Namespace + "/" + strings.TrimPrefix(r.URI, "/"),
+			URI:         mcpxURI(r.Namespace, r.URI),
 			Name:        r.Name,
 			Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
 			MimeType:    r.MimeType,
@@ -1088,15 +1088,29 @@ func (n daemonNotifier) ListenResources(ctx context.Context, f mcpserver.ListenF
 	// URI and go out under the one the client subscribed with: a client
 	// matches notifications to its subscriptions by URI, and one naming the
 	// upstream form matches nothing it asked for.
+	//
+	// The client's URIs are the encoded ones the listing gave it; the daemon
+	// is given each with its upstream URI decoded, and what it reports as
+	// watched is translated back.
 	asked := map[string][]string{}
+	decoded := make([]string, 0, len(f.ResourceSubscriptions))
+	original := map[string]string{}
 	for _, u := range f.ResourceSubscriptions {
-		if rest, ok := strings.CutPrefix(u, "mcpx://"); ok {
-			if _, uri, ok := strings.Cut(rest, "/"); ok {
-				asked[uri] = append(asked[uri], u)
-			}
+		d := u
+		if ns, uri, ok := splitMCPXURI(u); ok {
+			asked[strings.TrimPrefix(uri, "/")] = append(asked[strings.TrimPrefix(uri, "/")], u)
+			d = "mcpx://" + ns + "/" + uri
 		}
+		decoded = append(decoded, d)
+		original[d] = u
 	}
-	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: f.ResourceSubscriptions}, func(e events.Event) {
+	back := func(u string) string {
+		if o, ok := original[u]; ok {
+			return o
+		}
+		return u
+	}
+	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: decoded}, func(e events.Event) {
 		if e.Kind == events.ResourceWatching {
 			if ready != nil {
 				var w struct {
@@ -1104,7 +1118,15 @@ func (n daemonNotifier) ListenResources(ctx context.Context, f mcpserver.ListenF
 					Refused  map[string]string `json:"refused"`
 				}
 				_ = json.Unmarshal(e.Data, &w)
-				ready(w.Watching, w.Refused)
+				watching := make([]string, 0, len(w.Watching))
+				for _, u := range w.Watching {
+					watching = append(watching, back(u))
+				}
+				refused := make(map[string]string, len(w.Refused))
+				for u, why := range w.Refused {
+					refused[back(u)] = why
+				}
+				ready(watching, refused)
 			}
 			return
 		}
@@ -1138,4 +1160,44 @@ func subscribedURIs(e events.Event, params any, asked map[string][]string) []any
 		out = append(out, map[string]any{"uri": o})
 	}
 	return out
+}
+
+// mcpxURI is the URI mcpx lists an upstream resource under:
+// mcpx://<namespace>/<upstream URI>, the upstream URI's leading "/" dropped
+// and every character a URI path may not hold percent-encoded. "%" itself is
+// among them, so an upstream URI that is already encoded comes back exactly
+// from splitMCPXURI. Characters a path may hold -- "/" and ":" included --
+// are kept, so an ordinary URI reads the same inside as outside.
+func mcpxURI(ns, uri string) string {
+	return "mcpx://" + ns + "/" + escapeURIPath(strings.TrimPrefix(uri, "/"))
+}
+
+// splitMCPXURI undoes mcpxURI.
+func splitMCPXURI(u string) (ns, uri string, ok bool) {
+	rest, isOurs := strings.CutPrefix(u, "mcpx://")
+	ns, enc, cut := strings.Cut(rest, "/")
+	if !isOurs || !cut || ns == "" {
+		return "", "", false
+	}
+	uri, err := url.PathUnescape(enc)
+	if err != nil {
+		return "", "", false
+	}
+	return ns, uri, true
+}
+
+// escapeURIPath percent-encodes every byte RFC 3986 does not allow in a
+// path: pchar and "/".
+func escapeURIPath(s string) string {
+	const allowed = "-._~!$&'()*+,;=:@/"
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte(allowed, c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
 }
