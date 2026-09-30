@@ -128,7 +128,6 @@ func init() {
 		Gap{ID: "elicitation-both-validate-against-schema", Side: Server, Issue: "pending:elicit-validation", Why: "an answer is checked only for non-empty content, not against requestedSchema"},
 		Gap{ID: "elicitation-server-validate-received-data", Side: Server, Issue: "pending:elicit-validation", Why: "a client answer is relayed upstream without a schema check"},
 		Gap{ID: "elicitation-server-must-return-32042", Side: Server, Issue: "#214", Why: "a url question for a client that cannot take it stays with the broker; -32042 is never returned"},
-		Gap{ID: "elicitation-task-related-id-shared", Side: Server, Issue: "#209", Why: "related-task is never written on a question raised inside a task"},
 		Gap{ID: "elicitation-server-state-bound-to-user", Side: Server, Issue: "pending:user-identity", Why: "mcpx has no authenticated user: state is bound to the request, the session id is whatever the caller sends"},
 		Gap{ID: "elicitation-server-stored-state-bound-to-user", Side: Server, Issue: "pending:user-identity", Why: "mcpx has no authenticated user: state is bound to the request, the session id is whatever the caller sends"},
 		Gap{ID: "elicitation-server-no-trust-client-user-id", Side: Server, Issue: "pending:user-identity", Why: "mcpx has no authenticated user: state is bound to the request, the session id is whatever the caller sends"},

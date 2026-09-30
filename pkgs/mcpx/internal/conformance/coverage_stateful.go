@@ -33,6 +33,10 @@ func init() {
 		S("subscriptions-list-changed-via-listen", "mcpserver.TestHTTPListenIsAStream/2026-07-28/subscriptions/http-listen-response-is-an-open-sse-stream"),
 		S("subscriptions-list-changed-via-listen", "conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-sse-notifications-must-relate"),
 		SReq("conformance.TestStatefulServer",
+			"tasks-input-request-related-task",
+			"tasks-result-response-related-task",
+			"tasks-related-task-all-messages",
+			"elicitation-task-related-id-shared",
 			"tasks-delete-after-ttl",
 			"subscriptions-list-changed-should-notify",
 			"subscriptions-resources-updated-only-if-subscribed",
@@ -92,9 +96,8 @@ func init() {
 	)
 	registerGaps(
 		Gap{ID: "tasks-tool-forbidden-default", Side: Server, Issue: "#209", Why: "no mcpx tool declares execution.taskSupport, yet every task-augmented tools/call is accepted", Test: "conformance.TestStatefulServer"},
-		Gap{ID: "tasks-input-request-related-task", Side: Server, Issue: "#209", Why: "io.modelcontextprotocol/related-task is never written"},
-		Gap{ID: "tasks-related-task-all-messages", Side: Server, Issue: "#209", Why: "io.modelcontextprotocol/related-task is never written"},
-		Gap{ID: "tasks-result-response-related-task", Side: Server, Issue: "#209", Why: "io.modelcontextprotocol/related-task is never written"},
+		Gap{ID: "tasks-related-task-all-messages", Side: Server, Issue: "#209", Why: "tasks/result carries no related-task _meta (the questions a task raises now do, #245)", Test: "conformance.TestStatefulServer"},
+		Gap{ID: "tasks-result-response-related-task", Side: Server, Issue: "#209", Why: "tasks/result carries no related-task _meta (the questions a task raises now do, #245)", Test: "conformance.TestStatefulServer"},
 		Gap{ID: "tasks-get-implies-list", Side: Server, Issue: "#209", Why: "a task started on a connection without an identity can be read by tasks/get and is never listed"},
 		Gap{ID: "tasks-protocol-errors", Side: Server, Issue: "#209", Why: "an invalid tasks/list cursor restarts at the first page instead of -32602"},
 		Gap{ID: "tasks-failed-status-message", Side: Server, Issue: "#209", Why: "a task failed by an isError tool result carries no statusMessage"},

@@ -54,8 +54,9 @@ Each fix has a test in this package that fails without it.
 - `completion.maxValues` could raise a completion past the 100 values every revision allows.
 - `tasks/cancel` of a finished task succeeded; 2025-11-25 makes it `-32602`.
 - An unknown tool name was an `isError` result; it is `-32602`, before any task or question starts.
-- `prompts/get` did not check required arguments, and answered every failure `-32602`; missing arguments are `-32602`,
-  a failure after that `-32603`. The missing `backend == nil` guard is added.
+- `prompts/get` did not check required arguments; a missing one is now `-32602` before anything runs or asks. (The
+  `-32602`/`-32603` classification of backend failures landed at the same time in #245; the two are merged.) The
+  missing `backend == nil` guard is added.
 
 ## Surprises
 

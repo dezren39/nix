@@ -8,7 +8,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | revision | side | level | applies | tested | gap | missing | n/a |
 |---|---|---|---|---|---|---|---|
-| 2024-11-05 | server | MUST | 32 | 29 | 3 | 0 | 22 |
+| 2024-11-05 | server | MUST | 32 | 30 | 2 | 0 | 22 |
 | 2024-11-05 | server | MUST NOT | 6 | 6 | 0 | 0 | 4 |
 | 2024-11-05 | server | SHOULD | 36 | 32 | 4 | 0 | 45 |
 | 2024-11-05 | server | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
@@ -20,9 +20,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | 2024-11-05 | client | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
 | 2024-11-05 | client | MAY | 10 | 9 | 1 | 0 | 14 |
 | 2024-11-05 | client | other | 7 | 7 | 0 | 0 | 5 |
-| 2025-03-26 | server | MUST | 51 | 41 | 10 | 0 | 30 |
+| 2025-03-26 | server | MUST | 51 | 42 | 9 | 0 | 30 |
 | 2025-03-26 | server | MUST NOT | 7 | 7 | 0 | 0 | 8 |
-| 2025-03-26 | server | SHOULD | 50 | 40 | 10 | 0 | 53 |
+| 2025-03-26 | server | SHOULD | 50 | 41 | 9 | 0 | 53 |
 | 2025-03-26 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
 | 2025-03-26 | server | MAY | 19 | 16 | 3 | 0 | 18 |
 | 2025-03-26 | server | other | 11 | 10 | 1 | 0 | 1 |
@@ -32,9 +32,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | 2025-03-26 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
 | 2025-03-26 | client | MAY | 17 | 15 | 2 | 0 | 20 |
 | 2025-03-26 | client | other | 7 | 7 | 0 | 0 | 5 |
-| 2025-06-18 | server | MUST | 65 | 48 | 17 | 0 | 36 |
+| 2025-06-18 | server | MUST | 65 | 49 | 16 | 0 | 36 |
 | 2025-06-18 | server | MUST NOT | 10 | 9 | 1 | 0 | 8 |
-| 2025-06-18 | server | SHOULD | 52 | 42 | 10 | 0 | 63 |
+| 2025-06-18 | server | SHOULD | 52 | 43 | 9 | 0 | 63 |
 | 2025-06-18 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
 | 2025-06-18 | server | MAY | 17 | 15 | 2 | 0 | 18 |
 | 2025-06-18 | server | other | 15 | 14 | 1 | 0 | 3 |
@@ -44,9 +44,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | 2025-06-18 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
 | 2025-06-18 | client | MAY | 15 | 13 | 2 | 0 | 20 |
 | 2025-06-18 | client | other | 10 | 8 | 2 | 0 | 8 |
-| 2025-11-25 | server | MUST | 115 | 87 | 28 | 0 | 65 |
+| 2025-11-25 | server | MUST | 115 | 90 | 25 | 0 | 65 |
 | 2025-11-25 | server | MUST NOT | 22 | 17 | 5 | 0 | 13 |
-| 2025-11-25 | server | SHOULD | 78 | 59 | 19 | 0 | 81 |
+| 2025-11-25 | server | SHOULD | 78 | 60 | 18 | 0 | 81 |
 | 2025-11-25 | server | SHOULD NOT | 11 | 9 | 2 | 0 | 3 |
 | 2025-11-25 | server | MAY | 27 | 25 | 2 | 0 | 28 |
 | 2025-11-25 | server | other | 19 | 18 | 1 | 0 | 2 |
@@ -56,9 +56,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | 2025-11-25 | client | SHOULD NOT | 5 | 4 | 1 | 0 | 9 |
 | 2025-11-25 | client | MAY | 20 | 17 | 3 | 0 | 35 |
 | 2025-11-25 | client | other | 13 | 11 | 2 | 0 | 8 |
-| 2026-07-28 | server | MUST | 127 | 101 | 26 | 0 | 97 |
+| 2026-07-28 | server | MUST | 127 | 102 | 25 | 0 | 97 |
 | 2026-07-28 | server | MUST NOT | 44 | 41 | 3 | 0 | 20 |
-| 2026-07-28 | server | SHOULD | 74 | 56 | 18 | 0 | 86 |
+| 2026-07-28 | server | SHOULD | 74 | 57 | 17 | 0 | 86 |
 | 2026-07-28 | server | SHOULD NOT | 11 | 8 | 3 | 0 | 9 |
 | 2026-07-28 | server | MAY | 31 | 29 | 2 | 0 | 30 |
 | 2026-07-28 | server | other | 23 | 21 | 2 | 0 | 4 |
@@ -252,7 +252,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-file-xdg-mime-may` | n/a: addresses the other side |
 | [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2024-11-05/resources/resources-sec-binary-encoded` | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 
 ### resources / errors
@@ -443,7 +443,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
 | [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/completion/completion-client-should` |
 | [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-03-26/completion/completion-errors` | n/a: addresses the other side |
 
 ### errors
 
@@ -601,7 +601,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [resources-file-xdg-mime-may](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#file) | MAY | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-file-xdg-mime-may` | n/a: addresses the other side |
 | [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-03-26/resources/resources-sec-binary-encoded` | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 
 ### resources / errors
@@ -843,7 +843,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
 | [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/completion/completion-client-should` |
 | [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-06-18/completion/completion-errors` | n/a: addresses the other side |
 | [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/completion/completion-context-arguments` |
 
 ### elicitation
@@ -1021,7 +1021,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **gap** pending:resource-uri-encoding: the daemon mints mcpx://<ns>/<upstream uri> by concatenation, without percent-encoding the upstream URI | n/a: addresses the other side |
 | [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-sec-binary-encoded` | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | tested: `conformance.TestFeaturesServer/2025-06-18/resources/resources-annotations-defs` | **gap** #207: mcpclient.Resource has no annotations field; they are dropped on parse |
 
@@ -1287,7 +1287,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
 | [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/completion/completion-client-should` |
 | [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-11-25/completion/completion-errors` | n/a: addresses the other side |
 | [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/completion/completion-context-arguments` |
 
 ### elicitation
@@ -1358,7 +1358,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [elicitation-url-verify-opening-user](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation#phishing) | MUST | server | n/a: mcpx issues no URL; the upstream that does sees mcpx's identity, not the end user's | n/a: addresses the other side |
 | [elicitation-url-same-user-start-and-complete](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation#phishing) | MUST | server | n/a: see Implied: shared pooled upstream | n/a: addresses the other side |
 | [elicitation-url-identity-resilient-to-url-tampering](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation#phishing) | MUST | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [elicitation-task-related-id-shared](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST | server | **gap** #209: related-task is never written on a question raised inside a task | n/a: addresses the other side |
+| [elicitation-task-related-id-shared](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST | server | tested: `conformance.TestStatefulServer/2025-11-25/elicitation/elicitation-task-related-id-shared` | n/a: addresses the other side |
 
 ### errors
 
@@ -1543,7 +1543,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [resources-custom-scheme-rfc3986](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#custom-uri-schemes) | MUST | server | **gap** pending:resource-uri-encoding: the daemon mints mcpx://<ns>/<upstream uri> by concatenation, without percent-encoding the upstream URI | n/a: addresses the other side |
 | [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-sec-binary-encoded` | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | tested: `conformance.TestFeaturesServer/2025-11-25/resources/resources-annotations-defs` | **gap** #207: mcpclient.Resource has no annotations field; they are dropped on parse |
 
@@ -1655,7 +1655,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [tasks-valid-transitions](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-valid-transitions` | n/a: catalogue marks it n/a |
 | [tasks-terminal-immutable](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle) | MUST NOT | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-terminal-immutable` | n/a: catalogue marks it n/a |
 | [tasks-input-required-move](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-input-required-move` | n/a: catalogue marks it n/a |
-| [tasks-input-request-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | MUST | both (receiver) | **gap** #209: io.modelcontextprotocol/related-task is never written | n/a: catalogue marks it n/a |
+| [tasks-input-request-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-input-request-related-task` | n/a: catalogue marks it n/a |
 | [tasks-requestor-input-required-call-result](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (requestor) | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [tasks-leave-input-required](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-leave-input-required` | n/a: catalogue marks it n/a |
 | [tasks-sse-any-stream](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status) | SHOULD | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
@@ -1668,10 +1668,10 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [tasks-result-terminal-final](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-result-terminal-final` | n/a: catalogue marks it n/a |
 | [tasks-result-blocks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-result-blocks` | n/a: catalogue marks it n/a |
 | [tasks-result-exact](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval) | MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-result-exact` | n/a: catalogue marks it n/a |
-| [tasks-related-task-all-messages](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST | both | **gap** #209: io.modelcontextprotocol/related-task is never written | n/a: catalogue marks it n/a |
+| [tasks-related-task-all-messages](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST | both | **gap** #209: tasks/result carries no related-task _meta (the questions a task raises now do, #245) | n/a: catalogue marks it n/a |
 | [tasks-taskid-param-authoritative](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | MUST / SHOULD NOT | both | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-taskid-param-authoritative` | n/a: catalogue marks it n/a |
 | [tasks-no-related-task-in-get-list-cancel-results](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#associating-task-related-messages) | SHOULD NOT | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-no-related-task-in-get-list-cancel-results` | n/a: catalogue marks it n/a |
-| [tasks-result-response-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#related-task-metadata) | MUST | both (receiver) | **gap** #209: io.modelcontextprotocol/related-task is never written | n/a: catalogue marks it n/a |
+| [tasks-result-response-related-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#related-task-metadata) | MUST | both (receiver) | **gap** #209: tasks/result carries no related-task _meta (the questions a task raises now do, #245) | n/a: catalogue marks it n/a |
 | [tasks-list-paginate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | SHOULD / MUST | both (receiver) | tested: `conformance.TestStatefulServer/2025-11-25/tasks/tasks-list-paginate` | n/a: catalogue marks it n/a |
 | [tasks-list-cursor-opaque](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | MUST | both (requestor) | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [tasks-get-implies-list](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-listing) | MUST | both (receiver) | **gap** #209: a task started on a connection without an identity can be read by tasks/get and is never listed | n/a: catalogue marks it n/a |
@@ -1943,7 +1943,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
 | [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/completion/completion-client-should` |
 | [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2026-07-28/completion/completion-errors` | n/a: addresses the other side |
 | [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/completion/completion-context-arguments` |
 
 ### discover
@@ -2261,7 +2261,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [resources-no-empty-contents-for-missing](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling) | MUST NOT | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-no-empty-contents-for-missing` | n/a: addresses the other side |
 | [resources-sec-validate-uris](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-sec-validate-uris` | n/a: addresses the other side |
 | [resources-sec-access-control](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | **gap** #207: resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob | n/a: addresses the other side |
+| [resources-sec-binary-encoded](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-sec-binary-encoded` | n/a: addresses the other side |
 | [resources-sec-permissions](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [resources-sec-file-traversal](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#security-considerations) | MUST | server | n/a: mcpx serves no file:// resources of its own; artifacts are addressed by opaque ids | n/a: addresses the other side |
 | [resources-annotations-defs](https://modelcontextprotocol.io/specification/2026-07-28/server/resources#annotations) | (definition) | both | tested: `conformance.TestFeaturesServer/2026-07-28/resources/resources-annotations-defs` | **gap** #207: mcpclient.Resource has no annotations field; they are dropped on parse |

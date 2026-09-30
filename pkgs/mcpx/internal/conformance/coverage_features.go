@@ -13,6 +13,7 @@ func init() {
 			"e2e.TestAliasExposesASubsetOfTheSameServer@2026-07-28"),
 		C("tools-aggregator-not-by-servername", "e2e.TestDuplicateNamespaceIsRejected@2026-07-28"),
 		SReq("conformance.TestFeaturesServer",
+			"resources-sec-binary-encoded",
 			"tools-declare-capability",
 			"resources-declare-capability",
 			"prompts-declare-capability",
@@ -93,7 +94,6 @@ func init() {
 	)
 	registerGaps(
 		Gap{ID: "resources-custom-scheme-rfc3986", Side: Server, Issue: "pending:resource-uri-encoding", Why: "the daemon mints mcpx://<ns>/<upstream uri> by concatenation, without percent-encoding the upstream URI"},
-		Gap{ID: "resources-sec-binary-encoded", Side: Server, Issue: "#207", Why: "resources/read only ever answers text: a binary upstream body is described or base64 in the text field, never a blob"},
 		Gap{ID: "resources-subscribe-cap-meaning-legacy", Side: Server, Issue: "#208", Why: "subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver"},
 		Gap{ID: "resources-subscribe-cap-meaning-2026", Side: Server, Issue: "#208", Why: "subscribe is declared, but the daemon never subscribes upstream, so no update ever arrives to deliver"},
 		Gap{ID: "resources-annotations-defs", Side: Client, Issue: "#207", Why: "mcpclient.Resource has no annotations field; they are dropped on parse"},
