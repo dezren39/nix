@@ -35,7 +35,8 @@ func isolate(t *testing.T) string {
 	// everything that reports a config path back has already resolved it --
 	// FingerprintConfig does it deliberately, for the reason recorded there.
 	// Without this the fake home is /tmp/... while every path the resolver
-	// answers with is /private/tmp/..., and the two never compare equal.
+	// answers with is /private/tmp/..., and the two never compare equal, so
+	// the test fails on every developer machine and passes on Linux CI.
 	if real, rerr := filepath.EvalSymlinks(home); rerr == nil {
 		home = real
 	}
