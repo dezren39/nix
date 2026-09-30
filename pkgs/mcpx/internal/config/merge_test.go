@@ -23,6 +23,11 @@ func tree(t *testing.T, files map[string]string) string {
 		}
 	}
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-empty"))
+	// Isolate the user config too: without this, a real
+	// ~/.config/mcpx/config.json on the dev machine leaks into the
+	// search path and breaks source-count assertions (e.g.
+	// TestSourcesAreRecordedNearestFirst).
+	t.Setenv("HOME", filepath.Join(root, "home-empty"))
 	t.Setenv("MCPX_CONFIG", "")
 	return root
 }
