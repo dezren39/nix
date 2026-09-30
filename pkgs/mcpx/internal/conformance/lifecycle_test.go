@@ -859,20 +859,18 @@ func TestLifecycleClient(t *testing.T) {
 
 	// https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation
 	cli("versioning-client-retry-with-supported", func(t *testing.T, rev string) {
-		// The server rejects the first version offered and names rev; the
-		// client retries with rev.
+		// No mutual version in data.supported: the error reaches the
+		// caller, once, rather than a retry loop.
 		p := newPeer(t, rev)
-		first := true
 		p.on("tools/list", func(pm map[string]any) (any, *rpcError) {
-			if first {
-				first = false
-				return nil, &rpcError{Code: -32022, Message: "unsupported", Data: map[string]any{"supported": []string{rev}}}
-			}
-			return map[string]any{"tools": []any{}, "resultType": "complete"}, nil
+			return nil, &rpcError{Code: -32022, Message: "unsupported", Data: map[string]any{"supported": []string{"2099-01-01"}}}
 		})
 		c := dialClient(t, p, clientOpts())
-		if _, err := c.ListTools(ctxT(t)); err != nil {
-			t.Errorf("no retry after -32022: %v", err)
+		if _, err := c.ListTools(ctxT(t)); err == nil || !strings.Contains(err.Error(), "32022") {
+			t.Errorf("%v", err)
+		}
+		if n := len(p.sentMethod("tools/list")); n > 2 {
+			t.Errorf("%d attempts", n)
 		}
 	})
 

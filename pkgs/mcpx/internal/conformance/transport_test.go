@@ -774,7 +774,9 @@ func TestTransportClient(t *testing.T) {
 			hp, c := httpSession(t, rev, false)
 			c.Close()
 			for _, r := range hp.requests() {
-				if r.Method == http.MethodDelete {
+				// DELETE ends the session; GET opens the listening stream
+				// the transport allows. Every message goes by POST.
+				if r.Method == http.MethodDelete || r.Method == http.MethodGet {
 					continue
 				}
 				if r.Method != http.MethodPost {
@@ -834,6 +836,17 @@ func TestTransportClient(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		if len(p.sentMethod("notifications/cancelled")) != 1 {
 			t.Errorf("no cancellation POSTed: %v", p.sent())
+		}
+	})
+	// https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server
+	cli("streamable-http-get-close-any-time", func(t *testing.T, rev string) {
+		_, c := httpSession(t, rev, false)
+		done := make(chan struct{})
+		go func() { c.Close(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(wait):
+			t.Error("closing the client hung on its streams")
 		}
 	})
 	cli("streamable-http-multiple-streams", func(t *testing.T, rev string) {

@@ -3328,7 +3328,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#receiving-messages",
     "quote": "\"Clients **MUST** correlate these using the `io.modelcontextprotocol/subscriptionId` field in `_meta`\"",
     "applicability": {
-      "client": "n/a:mcpx never opens subscriptions/listen upstream (#208), so there is no subscription id to correlate",
+      "client": "applies",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -4586,7 +4586,7 @@
     "url": "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server",
     "quote": "\"The server **MAY** close the SSE stream at any time. The client **MAY** close the SSE stream at any time.\"",
     "applicability": {
-      "client": "n/a:mcpx's client opens no GET stream to close",
+      "client": "applies",
       "server": "applies"
     },
     "notes": {
@@ -10417,7 +10417,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#acknowledgment",
     "quote": "\"The client **SHOULD** check the acknowledged filter against what it requested and handle any unsupported types gracefully.\"",
     "applicability": {
-      "client": "n/a:mcpx never opens subscriptions/listen upstream (#208), so there is no acknowledgement to check",
+      "client": "applies",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -10455,7 +10455,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions#receiving-notifications",
     "quote": "\"On stdio, where all messages share a single channel, clients **MUST** use this field to correlate notifications with their originating subscription.\" (stdio.mdx repeats)",
     "applicability": {
-      "client": "n/a:mcpx never opens subscriptions/listen upstream (#208)",
+      "client": "applies",
       "server": "n/a:addresses the other side"
     },
     "notes": {

@@ -1,7 +1,11 @@
 {
-  "subscriptions-client-check-ack": {"client": "n/a:mcpx never opens subscriptions/listen upstream (#208), so there is no acknowledgement to check"},
-  "subscriptions-stdio-client-correlate": {"client": "n/a:mcpx never opens subscriptions/listen upstream (#208)"},
-  "ext-tasks-notifications-via-listen": {"client": "n/a:a MAY mcpx does not take: it declares no tasks extension upstream"},
-  "caching-public-shareable": {"client": "n/a:informational -- permits sharing a public result across users; imposes nothing"},
-  "mrtr-single-use-enforced": {"server": "n/a:binds only a server whose requestState must be consumed once; mcpx's is re-minted every round and replaying it re-enters the same running call"}
+  "ext-tasks-notifications-via-listen": {
+    "client": "n/a:a MAY mcpx does not take: it declares no tasks extension upstream"
+  },
+  "caching-public-shareable": {
+    "client": "n/a:informational -- permits sharing a public result across users; imposes nothing"
+  },
+  "mrtr-single-use-enforced": {
+    "server": "n/a:binds only a server whose requestState must be consumed once; mcpx's is re-minted every round and replaying it re-enters the same running call"
+  }
 }

@@ -104,10 +104,6 @@ func init() {
 		),
 	)
 	registerGaps(
-		Gap{ID: "messages-resulttype-unknown-invalid", Side: Client, Issue: "#200",
-			Why: "any resultType other than input_required is read as complete", Test: "conformance.TestMessagesClient"},
-		Gap{ID: "messages-batch-may-send-must-receive", Side: Client, Issue: "#203",
-			Why: "the stdio receive loop drops a line holding a JSON array", Test: "conformance.TestMessagesClient"},
 		Gap{ID: "errors-local-errors-not-mistaken-for-peer", Side: Server, Issue: "#206",
 			Why: "an upstream server's failure reaches the client as mcpx's own isError text or -32603, indistinguishable from mcpx failing"},
 		Gap{ID: "errors-method-not-found-for-unadvertised-capability", Side: Server, Issue: "pending:accept-unadvertised",

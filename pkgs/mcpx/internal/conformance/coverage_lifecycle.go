@@ -3,6 +3,7 @@ package conformance
 // Lifecycle, versioning, discover, ping.
 func init() {
 	register(
+		C("versioning-client-retry-with-supported", "mcpclient.TestVersionRetry/2026-07-28/versioning/client-retries-with-supported-version"),
 		SReq("conformance.TestLifecycleServer",
 			"lifecycle-timeouts-all-requests-2024",
 			"lifecycle-timeouts-establish",
@@ -93,20 +94,8 @@ func init() {
 			"deprecated-should-not-adopt"),
 	)
 	registerGaps(
-		Gap{ID: "lifecycle-client-disconnects-on-unsupported-version", Side: Client, Issue: "#203",
-			Why:  "initializeLegacy records whatever protocolVersion the server answers; an unsupported one is accepted",
-			Test: "conformance.TestLifecycleClient"},
-		Gap{ID: "lifecycle-http-protocol-version-header", Side: Client, Revs: []string{"2025-06-18"}, Issue: "#203",
-			Why:  "the HTTP transport sends MCP-Protocol-Version 2025-11-25 after negotiating 2025-06-18",
-			Test: "conformance.TestLifecycleClient"},
 		Gap{ID: "lifecycle-stdio-client-shutdown-sequence", Side: Client, Issue: "#203",
 			Why:  "StdioTransport.Close sends SIGTERM at the same moment it closes stdin instead of waiting for the child to exit",
-			Test: "conformance.TestLifecycleClient"},
-		Gap{ID: "lifecycle-cancel-not-initialize", Side: Client, Issue: "#203",
-			Why:  "a timed-out initialize is followed by notifications/cancelled for it",
-			Test: "conformance.TestLifecycleClient"},
-		Gap{ID: "versioning-client-retry-with-supported", Side: Client, Issue: "#200",
-			Why:  "a -32022 answer is returned as an error; the client does not retry with a version from data.supported",
 			Test: "conformance.TestLifecycleClient"},
 		Gap{ID: "lifecycle-stateless-no-connection-reuse-required", Side: Server, Issue: "#201",
 			Why: "requestState is HMAC-bound to the connection that minted it"},

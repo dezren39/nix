@@ -6,6 +6,9 @@ func init() {
 	// the same whatever revision an upstream speaks, so these tests hold it
 	// for 2026-07-28 as for every other.
 	register(
+		C("resources-subscribe-via-listen", "mcpclient.TestModernListenStream/2026-07-28/subscriptions/resource-subscription-reopens-listen"),
+		C("tools-x-mcp-header-reject-excludes", "mcpclient.TestModernHTTPHeaders/2026-07-28/transport/client-excludes-tool-with-invalid-x-mcp-header"),
+		C("tools-x-mcp-header-reject-log", "mcpclient.TestModernHTTPHeaders/2026-07-28/transport/client-excludes-tool-with-invalid-x-mcp-header"),
 		C("tools-aggregator-disambiguate", "e2e.TestDuplicateNamespaceIsRejected@2026-07-28",
 			"e2e.TestAliasExposesASubsetOfTheSameServer@2026-07-28"),
 		C("tools-aggregator-not-by-servername", "e2e.TestDuplicateNamespaceIsRejected@2026-07-28"),
@@ -97,9 +100,6 @@ func init() {
 		Gap{ID: "tools-display-name-precedence", Side: Client, Issue: "#207", Why: "tool title and annotations.title are carried but nothing that displays a tool uses them"},
 		Gap{ID: "tools-annotations-untrusted", Side: Client, Issue: "pending:annotation-trust", Why: "destructiveHint from any upstream decides whether a call is confirmed; an absent or false hint is trusted"},
 		Gap{ID: "tools-annotations-hints-no-decisions", Side: Client, Issue: "pending:annotation-trust", Why: "the consumer confirmDestructive gate is decided by an untrusted upstream annotation"},
-		Gap{ID: "tools-x-mcp-header-reject-excludes", Side: Client, Issue: "#200", Why: "x-mcp-header is not read, so a tool with an invalid one is not excluded"},
-		Gap{ID: "tools-x-mcp-header-reject-log", Side: Client, Issue: "#200", Why: "x-mcp-header is not read, so nothing is rejected or logged"},
-		Gap{ID: "resources-subscribe-via-listen", Side: Client, Issue: "#208", Why: "mcpx never opens subscriptions/listen upstream"},
 		Gap{ID: "prompts-validate-io", Side: Client, Issue: "pending:prompt-validation", Why: "an upstream prompts/get result is passed on unvalidated"},
 	)
 }

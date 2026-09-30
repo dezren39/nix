@@ -3,6 +3,9 @@ package conformance
 // Tasks, caching, subscriptions, MRTR.
 func init() {
 	register(
+		C("subscriptions-list-changed-via-listen", "mcpclient.TestModernListenStream/2026-07-28/subscriptions/client-opens-listen-for-declared-capabilities"),
+		C("subscriptions-client-check-ack", "mcpclient.TestModernListenStream/2026-07-28/subscriptions/client-checks-acknowledged-subset"),
+		C("subscriptions-stdio-client-correlate", "mcpclient.TestModernListenStream/2026-07-28/transport-stdio/client-correlates-subscription-id"),
 		S("ext-tasks-server-advertise-discover", "mcpserver.TestCapabilitiesPerRevision/2026-07-28/capabilities/tasks-only-as-extension"),
 		S("ext-tasks-never-unsolicited", "mcpserver.TestTasksPerEra/2026-07-28/tasks/no-task-without-the-extension-task-param-ignored"),
 		S("ext-tasks-server-decides", "mcpserver.TestTasksPerEra/2026-07-28/tasks/server-directed-CreateTaskResult-is-flat", "mcpserver.TestTasksPerEra/2026-07-28/tasks/fast-call-is-answered-directly"),
@@ -110,7 +113,6 @@ func init() {
 		Gap{ID: "caching-page-refetch", Side: Client, Issue: "#200", Why: "the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart"},
 		Gap{ID: "caching-key-method-params", Side: Client, Issue: "#200", Why: "the client ignores ttlMs and cacheScope; the pool keeps upstream lists until list_changed or restart"},
 		Gap{ID: "caching-private-no-cross-auth", Side: Client, Issue: "#200", Why: "cacheScope is ignored, so a private upstream list is served to every downstream caller"},
-		Gap{ID: "caching-notification-invalidates", Side: Client, Issue: "#208", Why: "a modern upstream is never subscribed to (no subscriptions/listen), so its list_changed never arrives to invalidate anything"},
-		Gap{ID: "subscriptions-list-changed-via-listen", Side: Client, Issue: "#208", Why: "mcpx never opens subscriptions/listen upstream"},
+		Gap{ID: "caching-notification-invalidates", Side: Client, Issue: "pending:modern-invalidation", Why: "unverified since subscriptions/listen landed upstream (#239): nothing tests that a modern list_changed empties the pool list cache"},
 	)
 }

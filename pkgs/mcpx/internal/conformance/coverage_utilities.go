@@ -99,12 +99,10 @@ func init() {
 	registerGaps(
 		Gap{ID: "pagination-invalid-cursor-32602", Side: Server, Issue: "pending:invalid-cursor", Why: "an undecodable cursor restarts at the first page by design (mcpserver.TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing)", Test: "conformance.TestUtilitiesServer"},
 		Gap{ID: "completion-errors", Side: Server, Issue: "#213", Why: "completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602", Test: "conformance.TestUtilitiesServer"},
-		Gap{ID: "cancellation-client-must-not-cancel-initialize", Side: Client, Issue: "#203", Why: "a timed-out initialize is followed by notifications/cancelled for it", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "cancellation-receiver-should-stop-free-no-response", Side: Client, Issue: "#77", Why: "the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "cancellation-processing-should-cease", Side: Client, Revs: []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}, Issue: "#77", Why: "the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "progress-track-tokens", Side: Client, Issue: "#212", Why: "every inbound progress notification is passed on, whether or not any request asked for its token", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "progress-rate-limit", Side: Client, Issue: "#212", Why: "inbound progress is neither tracked nor throttled", Test: "conformance.TestUtilitiesClient"},
-		Gap{ID: "pagination-empty-cursor-not-end", Side: Client, Issue: "#200", Why: "NextCursor is a string, so an empty cursor reads as the end of the list", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "cancellation-log-reasons", Side: Server, Issue: "#77", Why: "a cancellation reason reaches Server.OnCancel, which nothing outside tests sets; it is never logged"},
 		Gap{ID: "cancellation-log-reasons", Side: Client, Issue: "#77", Why: "the client does not handle inbound cancellations, so has no reason to log"},
 		Gap{ID: "completion-security", Side: Server, Issue: "#213", Why: "completion/complete has no rate limit and no per-caller access control"},

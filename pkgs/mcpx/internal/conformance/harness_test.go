@@ -32,6 +32,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1050,7 +1051,9 @@ func forReq(t *testing.T, side, id string, fn func(t *testing.T, rev string)) {
 	r := requirement(t, id)
 	for _, rev := range r.Revs {
 		t.Run(rev+"/"+conformance.AreaGroup(r.Area)+"/"+id, func(t *testing.T) {
-			if g := conformance.GapAt(id, side, rev); g != nil {
+			// MCPX_CONFORMANCE_RUN_GAPS=1 runs the gapped cells too, to see
+			// which gaps a change has closed.
+			if g := conformance.GapAt(id, side, rev); g != nil && os.Getenv("MCPX_CONFORMANCE_RUN_GAPS") != "1" {
 				t.Skip("gap: " + g.Issue + " " + g.Why)
 			}
 			fn(t, rev)
