@@ -16,6 +16,7 @@ import (
 	"github.com/dezren39/mcpx/internal/api"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpclient"
@@ -465,7 +466,13 @@ func (s *Server) handleTaskResult(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusRequestTimeout, map[string]any{
 			"error": "the task has not finished yet", "taskId": r.PathValue("id")})
 	case fault != nil:
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": fault.Message, "code": fault.Code})
+		body := map[string]any{"error": fault.Message, "code": fault.Code}
+		// Set by startCallTask, so a call collected later is explained the
+		// same as one answered at once.
+		if ds, ok := fault.Data.([]diagnose.Diagnostic); ok {
+			body["diagnostics"] = ds
+		}
+		writeJSON(w, http.StatusBadGateway, body)
 	default:
 		writeJSON(w, http.StatusOK, map[string]any{"result": result})
 	}
@@ -486,7 +493,11 @@ func (s *Server) startCallTask(ttl int64, server, tool string, cc config.CallCon
 		start := time.Now()
 		res, err := s.reg.Call(ctx, server, tool, cc, args)
 		if err != nil {
-			return nil, &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			f := &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			if ds := callDiagnostics(err); len(ds) > 0 {
+				f.Data = ds
+			}
+			return nil, f
 		}
 		return map[string]any{"result": res,
 			"durationMs": time.Since(start).Milliseconds()}, nil

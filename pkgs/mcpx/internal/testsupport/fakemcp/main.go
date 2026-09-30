@@ -183,6 +183,57 @@ func handle(r req) map[string]any {
 }
 
 func toolDefs() []map[string]any {
+	return append(baseTools(), schemaTools()...)
+}
+
+// schemaVersion is the contents of FAKEMCP_SCHEMA_FILE, read on every request
+// so a test can change a schema under a running server, which is what a
+// server upgrade looks like from the client's side. Empty when the variable
+// is unset, and then the tools that depend on it do not exist, so no other
+// test sees them.
+func schemaVersion() string {
+	path := os.Getenv("FAKEMCP_SCHEMA_FILE")
+	if path == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// schemaTools are the tools whose schema moves: create_issue takes a title
+// in v1, and in v2 also requires a repo. outage always fails with a protocol
+// error that has nothing to do with its arguments.
+func schemaTools() []map[string]any {
+	v := schemaVersion()
+	if v == "" {
+		return nil
+	}
+	props := map[string]any{"title": map[string]any{"type": "string"}}
+	required := []string{"title"}
+	if v == "v2" {
+		props["repo"] = map[string]any{"type": "string"}
+		required = append(required, "repo")
+	}
+	return []map[string]any{
+		{
+			"name":        "create_issue",
+			"description": "File an issue.",
+			"inputSchema": map[string]any{
+				"type": "object", "properties": props, "required": required,
+			},
+		},
+		{
+			"name":        "outage",
+			"description": "Always fails upstream, for a reason unrelated to its arguments.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+	}
+}
+
+func baseTools() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "echo",
@@ -316,6 +367,23 @@ func callTool(r req) map[string]any {
 	case "fancy-name":
 		b, _ := json.Marshal(p.Arguments)
 		return ok(r.ID, textResult(string(b)))
+	}
+	if v := schemaVersion(); v != "" {
+		switch p.Name {
+		case "create_issue":
+			// Rejected the way an SDK's input validation rejects it: -32602
+			// and a message that names nothing, which is the failure the
+			// daemon's diagnostic exists to explain.
+			if _, has := p.Arguments["title"]; !has {
+				return fail(r.ID, -32602, "Invalid params")
+			}
+			if _, has := p.Arguments["repo"]; v == "v2" && !has {
+				return fail(r.ID, -32602, "Invalid params")
+			}
+			return ok(r.ID, textResult("filed"))
+		case "outage":
+			return fail(r.ID, -32603, "internal error: the backend is unavailable")
+		}
 	}
 	return fail(r.ID, -32602, "unknown tool "+p.Name)
 }
