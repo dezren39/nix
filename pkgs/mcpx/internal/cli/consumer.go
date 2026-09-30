@@ -82,7 +82,7 @@ func (c *Client) SaveRecipe(ctx context.Context, name, source string, overwrite 
 
 // Resolution is the answer shape recipe_run and intent share.
 type Resolution struct {
-	Mode         string                `json:"mode"`
+	Autonomy     string                `json:"autonomy"`
 	Recipe       string                `json:"recipe,omitempty"`
 	Source       string                `json:"source,omitempty"`
 	Placeholders map[string]any        `json:"placeholders,omitempty"`
@@ -104,14 +104,14 @@ type Resolution struct {
 	} `json:"save,omitempty"`
 }
 
-func (c *Client) RunRecipe(ctx context.Context, name string, values map[string]any, mode, session string) (*Resolution, error) {
+func (c *Client) RunRecipe(ctx context.Context, name string, values map[string]any, autonomy, session string) (*Resolution, error) {
 	return c.resolution(ctx, "/v1/recipes/"+url.PathEscape(name)+"/run",
-		map[string]any{"placeholders": values, "mode": mode, "session": session})
+		map[string]any{"placeholders": values, "autonomy": autonomy, "session": session})
 }
 
-func (c *Client) Intent(ctx context.Context, prompt, mode string, values map[string]any, session string) (*Resolution, error) {
+func (c *Client) Intent(ctx context.Context, prompt, autonomy string, values map[string]any, session string) (*Resolution, error) {
 	return c.resolution(ctx, "/v1/intent",
-		map[string]any{"prompt": prompt, "mode": mode, "placeholders": values, "session": session})
+		map[string]any{"prompt": prompt, "autonomy": autonomy, "placeholders": values, "session": session})
 }
 
 // resolution posts and reads the answer, refusal included.
@@ -136,7 +136,7 @@ func (c *Client) resolution(ctx context.Context, path string, body any) (*Resolu
 		}
 		return nil, jerr
 	}
-	if out.Mode == "" && out.Message == "" {
+	if out.Autonomy == "" && out.Message == "" {
 		return nil, err
 	}
 	return &out, nil
@@ -220,10 +220,10 @@ func (a *App) CmdRecipes(ctx context.Context, args []string) error {
 	}
 	// Flags after the subcommand and its positional arguments are normal to
 	// type and would otherwise be read as key=value pairs.
-	args = hoistFlags(args, map[string]bool{"mode": true, "session": true})
+	args = hoistFlags(args, map[string]bool{"autonomy": true, "session": true})
 	fs := newFlagSet("recipes")
-	mode := fs.String("mode", "", "run or script (script renders without running)")
-	script := fs.Bool("script", false, "render without running")
+	autonomy := fs.String("autonomy", "", "with run: propose renders without running; run executes (the default)")
+	script := fs.Bool("script", false, "with run: render without running, the same as --autonomy propose")
 	overwrite := fs.Bool("overwrite", false, "replace an existing recipe")
 	session := fs.String("session", "", "session key")
 	if err := parseFlags(a, fs, args); err != nil {
@@ -343,12 +343,9 @@ func (a *App) CmdRecipes(ctx context.Context, args []string) error {
 		if verr != nil {
 			return verr
 		}
-		m := *mode
+		m := *autonomy
 		if *script {
-			m = "script"
-		}
-		if m == "" {
-			m = "run"
+			m = "propose"
 		}
 		res, rerr := c.RunRecipe(ctx, fs.Arg(0), values, m, *session)
 		if rerr != nil {
@@ -395,10 +392,10 @@ func parseAssignments(args []string) (map[string]any, error) {
 
 // CmdPrompt turns a request in words into a script, or runs it.
 func (a *App) CmdPrompt(ctx context.Context, args []string) error {
-	args = hoistFlags(args, map[string]bool{"mode": true, "session": true, "set": true})
+	args = hoistFlags(args, map[string]bool{"autonomy": true, "session": true, "set": true})
 	fs := newFlagSet("prompt")
-	run := fs.Bool("run", false, "run the script instead of returning it")
-	mode := fs.String("mode", "", "script or run")
+	run := fs.Bool("run", false, "run the script instead of returning it, the same as --autonomy run")
+	autonomy := fs.String("autonomy", "", "propose returns the script; run executes it (default: prompt.autonomy)")
 	session := fs.String("session", "", "session key")
 	set := newRepeatable()
 	fs.Var(set, "set", "placeholder value for a matched recipe, key=value; repeatable")
@@ -418,7 +415,7 @@ func (a *App) CmdPrompt(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	m := *mode
+	m := *autonomy
 	if *run {
 		m = "run"
 	}

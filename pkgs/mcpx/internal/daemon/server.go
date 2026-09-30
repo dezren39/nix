@@ -24,6 +24,7 @@ import (
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/settings"
 	"github.com/dezren39/mcpx/internal/tasks"
@@ -58,6 +59,10 @@ type Server struct {
 
 	// Events carries everything the daemon notices, to every subscriber.
 	Events *events.Bus
+
+	// Origins decides which browser origins may use the daemon at all; see
+	// refuseBrowserPages. The zero value allows loopback origins only.
+	Origins mcpserver.OriginPolicy
 
 	httpSrv  *http.Server
 	tcpLn    net.Listener
@@ -271,7 +276,7 @@ func (s *Server) ServeInline(ctx context.Context, socket string) error {
 	s.unixLn = ln
 	mux := http.NewServeMux()
 	s.routes(mux)
-	s.httpSrv = &http.Server{Handler: mux,
+	s.httpSrv = &http.Server{Handler: s.refuseBrowserPages(mux),
 		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout")}
 	go func() {
 		<-ctx.Done()
@@ -290,7 +295,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	mux := http.NewServeMux()
 	s.routes(mux)
 	s.httpSrv = &http.Server{
-		Handler:           s.trackActivity(mux),
+		Handler:           s.refuseBrowserPages(s.trackActivity(mux)),
 		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout"),
 	}
 
