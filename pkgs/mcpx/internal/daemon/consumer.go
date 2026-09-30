@@ -41,7 +41,7 @@ type ConsumerPolicy struct {
 	RecipeMinScore      int
 	RecipeMatchMargin   int
 	RecipeLimit         int
-	PromptMode          string
+	PromptAutonomy      string
 	PromptSample        string
 	PromptCatalogBudget int
 	PromptSampleTimeout time.Duration
@@ -105,7 +105,7 @@ func defaultConsumerPolicy() ConsumerPolicy {
 		RecipeMinScore:      defaults.RecipeMinScore,
 		RecipeMatchMargin:   defaults.RecipeMatchMargin,
 		RecipeLimit:         defaults.RecipeLimit,
-		PromptMode:          defaults.PromptMode,
+		PromptAutonomy:      defaults.PromptAutonomy,
 		PromptSample:        defaults.PromptSample,
 		PromptCatalogBudget: defaults.PromptCatalogBudget,
 		PromptSampleTimeout: defaults.PromptSampleTimeout,
@@ -125,7 +125,7 @@ func consumerPolicyFrom(set *settings.Set) ConsumerPolicy {
 	p.RecipeMinScore = set.Int("recipes.minScore")
 	p.RecipeMatchMargin = set.Int("recipes.matchMargin")
 	p.RecipeLimit = set.Int("recipes.limit")
-	p.PromptMode = set.String("prompt.mode")
+	p.PromptAutonomy = set.String("prompt.autonomy")
 	p.PromptSample = set.String("prompt.sample")
 	p.PromptCatalogBudget = set.Int("prompt.catalogBudget")
 	p.PromptSampleTimeout = set.Duration("prompt.sampleTimeout")
@@ -370,7 +370,20 @@ func (r *Registry) confirmDestructive(ctx context.Context, p *pool.Pool, tool st
 	if !r.consumer.ConfirmDestructive || r.broker == nil {
 		return nil
 	}
-	all, _, _ := p.CachedSchemas()
+	all, _, at := p.CachedSchemas()
+	if at.IsZero() {
+		// Never read, or invalidated by a list_changed. Deciding from an
+		// empty or stale list would let the call through unasked -- which
+		// is what happened on every call that arrived while a new daemon
+		// was still reading schemas -- so read them now, and refuse if
+		// they cannot be read: failing open is the one wrong answer here.
+		fresh, _, err := p.RefreshSchemas(ctx)
+		if err != nil {
+			return ErrNotConfirmed{Tool: p.Namespace() + "." + tool,
+				Reason: "its annotations could not be read: " + err.Error()}
+		}
+		all = fresh
+	}
 	var found *mcpclient.Tool
 	for i := range all {
 		if all[i].Name == tool {
@@ -515,12 +528,13 @@ type ExecResult struct {
 // here, through the same runner the CLI uses, against this daemon's own
 // endpoint.
 func (s *Server) execScript(ctx context.Context, source, session string) (*ExecResult, error) {
+	s.warmIfCold(ctx)
 	nss, err := s.reg.CodegenNamespaces(nil, config.Profile{All: true})
 	if err != nil {
 		return nil, err
 	}
 	var out, errOut strings.Builder
-	timeout := s.consumer.policy.RunTimeout
+	timeout := s.policyFor(ctx).RunTimeout
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -589,7 +603,7 @@ func (s *Server) generate(ctx context.Context, prompt, session string) (string, 
 		return "", "", err
 	}
 	slice := codegen.Catalog(nss, codegen.CatalogOptions{
-		Budget: s.consumer.policy.PromptCatalogBudget,
+		Budget: s.policyFor(ctx).PromptCatalogBudget,
 		Bias:   recipes.Terms(prompt),
 	})
 	system := "You write short TypeScript programs for mcpx. " +
@@ -604,13 +618,13 @@ func (s *Server) generate(ctx context.Context, prompt, session string) (string, 
 			"content": map[string]any{"type": "text", "text": prompt},
 		}},
 		"systemPrompt": system,
-		"maxTokens":    s.consumer.policy.PromptMaxTokens,
+		"maxTokens":    s.policyFor(ctx).PromptMaxTokens,
 	})
 
 	req := elicit.SampleAsk(elicit.Ask{
 		Session: session,
 		Message: "mcpx is asking for a script: " + prompt,
-		TTL:     s.consumer.policy.PromptSampleTimeout,
+		TTL:     s.policyFor(ctx).PromptSampleTimeout,
 	}, params)
 
 	opened, oerr := s.reg.broker.OpenRequest(req)
@@ -619,7 +633,7 @@ func (s *Server) generate(ctx context.Context, prompt, session string) (string, 
 	}
 	s.reg.publish(events.Event{Kind: events.SampleOpened, Data: mustJSON(opened)})
 
-	actx, cancel := context.WithTimeout(ctx, s.consumer.policy.PromptSampleTimeout)
+	actx, cancel := context.WithTimeout(ctx, s.policyFor(ctx).PromptSampleTimeout)
 	defer cancel()
 	ans, aerr := s.reg.broker.Await(actx, opened.ID)
 	if aerr != nil || ans.Action != elicit.Accept {
@@ -686,4 +700,52 @@ func stripFences(s string) string {
 		t = t[:j]
 	}
 	return strings.TrimSpace(t)
+}
+
+type policyKey struct{}
+
+// withPolicy carries a request's own consumer policy -- its call-scoped
+// settings, resolved from the daemon's and the caller's layers -- down to
+// the functions that run and generate for it.
+//
+// The daemon used to read these once, from its config files, at start: a
+// caller's recipes.limit, prompt.runTimeout or prompt.autonomy from the
+// environment, a flag or PUT /v1/settings never reached them, while the PUT
+// answered "applied".
+func withPolicy(ctx context.Context, p ConsumerPolicy) context.Context {
+	return context.WithValue(ctx, policyKey{}, p)
+}
+
+// policyFor is the policy of the request ctx belongs to, or the daemon's.
+func (s *Server) policyFor(ctx context.Context) ConsumerPolicy {
+	if p, ok := ctx.Value(policyKey{}).(ConsumerPolicy); ok {
+		return p
+	}
+	return s.consumer.policy
+}
+
+// warmIfCold reads the schemas when no server has any yet.
+//
+// A daemon that has just started reads them in the background. A recipe run,
+// a generated script or a diagnosis that arrived first used the empty
+// catalog: the client was generated with no namespaces, so the script died
+// on "demo.echo is not a function", and a diagnosis compared the source with
+// nothing and found nothing wrong. The CLI's own commands wait for the
+// schemas; these routes are also reached by the plugin and by MCP, which do
+// not. "No server has any" rather than "some server has none", as the CLI's
+// ensureAnySchemas does it, so one server that cannot start does not put its
+// start timeout on every request.
+func (s *Server) warmIfCold(ctx context.Context) {
+	s.reg.mu.RLock()
+	cold := len(s.reg.pools) > 0
+	for _, p := range s.reg.pools {
+		if _, _, at := p.CachedSchemas(); !at.IsZero() {
+			cold = false
+			break
+		}
+	}
+	s.reg.mu.RUnlock()
+	if cold {
+		s.reg.Warm(ctx, false)
+	}
 }

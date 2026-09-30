@@ -18,6 +18,7 @@ import (
 	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/settings"
 )
@@ -194,6 +195,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		srv.MCPTool = mcp.InvokeTool
 	}
 	srv.Address = a.Settings().String("daemon.address")
+	srv.Origins = a.originPolicy()
 	if h := srv.Address; h != "" && h != "127.0.0.1" && h != "localhost" {
 		// Said once, loudly. The API is unauthenticated, so whoever can
 		// route to this port can run tools as this user, and that should be
@@ -608,3 +610,16 @@ func Usage() string {
 // usageColumn is where summaries start in the listing. A rendering width like
 // cli.cellWidth beside it, so both are declared in the same place.
 var usageColumn = defaults.UsageColumn
+
+// originPolicy is the set of browser origins the daemon serves: loopback at
+// any port, the daemon's own address when it listens somewhere else, and
+// transport.allowedOrigins. The same rule MCPServer gives /mcp;
+// TestV1AndMCPAgreeOnOrigins holds the two together, since both answer on
+// the same listener and a page refused by one must be refused by the other.
+func (a *App) originPolicy() mcpserver.OriginPolicy {
+	hosts := append([]string(nil), defaults.TransportLoopbackHosts...)
+	if addr := a.Settings().String("daemon.address"); addr != "" && !unspecifiedHost(addr) {
+		hosts = append(hosts, addr)
+	}
+	return mcpserver.OriginPolicy{Hosts: hosts, Origins: a.Settings().List("transport.allowedOrigins")}
+}

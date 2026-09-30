@@ -255,7 +255,7 @@ export const OPS: Record<string, OpSpec> = {
     path: "/v1/intent",
     params: {
       prompt: { in: "body", required: true },
-      mode: { in: "body" },
+      autonomy: { in: "body" },
       placeholders: { in: "body" },
       session: { in: "body" },
     },
@@ -346,7 +346,7 @@ export const OPS: Record<string, OpSpec> = {
     params: {
       name: { in: "path", required: true },
       placeholders: { in: "body" },
-      mode: { in: "body" },
+      autonomy: { in: "body" },
       session: { in: "body" },
     },
     response: "json",
@@ -857,7 +857,7 @@ export class DaemonOps {
   /**
    * A request in words, a script back. `POST /v1/intent`.
    */
-  intent(args: { prompt: string; mode?: "script" | "run"; placeholders?: Record<string, unknown>; session?: string }, opts: CallOptions = {}): Promise<unknown> {
+  intent(args: { prompt: string; autonomy?: "propose" | "run"; placeholders?: Record<string, unknown>; session?: string }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("intent", args, opts) as Promise<unknown>
   }
 
@@ -921,7 +921,7 @@ export class DaemonOps {
   /**
    * Run a recipe with its placeholders filled in. `POST /v1/recipes/{name}/run`.
    */
-  recipeRun(args: { name: string; placeholders?: Record<string, unknown>; mode?: "script" | "run"; session?: string }, opts: CallOptions = {}): Promise<unknown> {
+  recipeRun(args: { name: string; placeholders?: Record<string, unknown>; autonomy?: "propose" | "run"; session?: string }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("recipe_run", args, opts) as Promise<unknown>
   }
 
