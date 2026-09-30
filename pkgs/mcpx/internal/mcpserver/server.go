@@ -53,8 +53,14 @@ type Backend interface {
 	// server published that is not a tool.
 	Resources(ctx context.Context) ([]ResourceRef, error)
 	Prompts(ctx context.Context) ([]PromptRef, error)
-	ReadResource(ctx context.Context, uri string) (string, string, error)
+	// ReadResource returns a resource's contents as the upstream server
+	// gave them: text stays text and a blob stays a blob.
+	ReadResource(ctx context.Context, uri string) ([]ResourceContents, error)
 	GetPrompt(ctx context.Context, name string, args map[string]string) (string, error)
+	// Complete answers completion/complete for a ref/prompt or ref/resource
+	// by asking the upstream server that owns it. params is the request as
+	// the client sent it. An unknown ref wraps ErrInvalidParams.
+	Complete(ctx context.Context, params json.RawMessage) ([]string, error)
 	ResourceTemplates(ctx context.Context) ([]ResourceRef, error)
 }
 
@@ -86,6 +92,43 @@ type ResourceRef struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// ResourceContents is one entry of a resources/read result.
+//
+// Blob, when set, is base64 and wins over Text: that is the schema's
+// BlobResourceContents, and a binary body flattened into text -- which is
+// what mcpx sent -- is a string a client cannot tell from a document.
+type ResourceContents struct {
+	// URI is the entry's own URI; empty means the one that was read.
+	URI      string
+	MimeType string
+	Text     string
+	Blob     string
+}
+
+// readResult renders contents in the schema's shape for a read of uri.
+func readResult(uri string, contents []ResourceContents) map[string]any {
+	out := make([]any, 0, len(contents))
+	for _, c := range contents {
+		entry := map[string]any{"uri": c.URI}
+		if c.URI == "" {
+			entry["uri"] = uri
+		}
+		if c.MimeType != "" {
+			entry["mimeType"] = c.MimeType
+		}
+		if c.Blob != "" {
+			entry["blob"] = c.Blob
+		} else {
+			if c.MimeType == "" {
+				entry["mimeType"] = "text/plain"
+			}
+			entry["text"] = c.Text
+		}
+		out = append(out, entry)
+	}
+	return map[string]any{"contents": out}
 }
 
 // PromptRef is one prompt a server offers.
@@ -128,9 +171,10 @@ type Server struct {
 	// value here -- "immediately stale" -- so it is not a sentinel.
 	Cache Cache
 
-	// MaxCompletions caps a completion/complete reply. Zero uses the
-	// built-in default.
-	MaxCompletions int
+	// MaxCompletions caps a completion/complete reply, read on every
+	// request because the setting behind it is hot. Nil, or a value <= 0,
+	// uses the built-in default.
+	MaxCompletions func() int
 
 	// Timing is the ask loop's policy. A zero field means the built-in
 	// default; the whole struct zero is what a test that does not care
@@ -179,7 +223,10 @@ func (s *Server) conn() *Conn {
 	// Given an identity even though no transport issued one: the default
 	// connection outlives every request on it, so a requestState bound to
 	// it is safe, and stdio has no session header to take one from.
-	s.defOnce.Do(func() { s.def = s.newConn(newSessionID(), nil) })
+	s.defOnce.Do(func() {
+		s.def = s.newConn(newSessionID(), nil)
+		s.def.process = true
+	})
 	return s.def
 }
 
@@ -274,6 +321,12 @@ const (
 // error code the client acts on: not-found is the caller's mistake,
 // anything else is mcpx's.
 var ErrResourceNotFound = errors.New("resource not found")
+
+// ErrInvalidParams is what a Backend wraps when the request named something
+// that does not exist or was malformed -- an unknown prompt, a missing
+// required argument -- as opposed to failing to carry out a good one. The
+// former is -32602, the client's to fix; the latter -32603.
+var ErrInvalidParams = errors.New("invalid params")
 
 // unsupportedVersion is the answer to a modern request carrying a version
 // mcpx does not implement.
@@ -468,6 +521,9 @@ func (s *Server) HandleOn(ctx context.Context, c *Conn, req request) *response {
 		// is still a client asking which era mcpx is.
 		peer = Peer{Version: ModernLatest, Modern: true, Caps: requestCapabilities(req.Params)}
 	}
+	// Resolved here, once, so every backend call made for this request --
+	// including one run later as a task -- knows which client it serves.
+	ctx = withIdentity(ctx, c.identityFor(req.Params))
 	resp := s.handle(ctx, c, req)
 	if resp == nil || resp.Error != nil {
 		return resp
@@ -630,11 +686,12 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(out)
 
 	case "completion/complete":
-		// Argument autocomplete. Answered from what mcpx already knows --
-		// namespace names, tool names -- because a client offering
-		// completion and receiving method-not-found simply shows nothing,
-		// and the user concludes the feature is broken.
-		return reply(map[string]any{"completion": s.complete(ctx, req.Params)})
+		// Argument autocomplete, forwarded to the server that owns the ref.
+		completion, rerr := s.complete(ctx, req.Params)
+		if rerr != nil {
+			return &response{JSONRPC: "2.0", ID: req.ID, Error: rerr}
+		}
+		return reply(map[string]any{"completion": completion})
 
 	case "logging/setLevel":
 		// Accepted, but no longer declared. The capability means "this server
@@ -779,7 +836,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if s.backend == nil {
 			return notFound(req.ID, p.URI, peer, ErrResourceNotFound)
 		}
-		text, mime, err := s.backend.ReadResource(ctx, p.URI)
+		contents, err := s.backend.ReadResource(ctx, p.URI)
 		if err != nil {
 			if errors.Is(err, ErrResourceNotFound) {
 				return notFound(req.ID, p.URI, peer, err)
@@ -790,12 +847,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 			// URI was the problem when an upstream server had timed out.
 			return fail(codeInternal, err.Error())
 		}
-		if mime == "" {
-			mime = "text/plain"
-		}
-		return reply(map[string]any{"contents": []any{
-			map[string]any{"uri": p.URI, "mimeType": mime, "text": text},
-		}})
+		return reply(readResult(p.URI, contents))
 
 	case "prompts/list":
 		if s.backend == nil {
@@ -841,10 +893,12 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		}
 		text, err := s.backend.GetPrompt(ctx, p.Name, p.Arguments)
 		if err != nil {
-			// A name the list does not hold is most likely simply unknown;
-			// the backend is still asked, because it also accepts a name
-			// without its namespace.
-			if !known {
+			// Classified, as resources/read is (conflict #12): the backend
+			// says when the request was at fault. A name the list does not
+			// hold is most likely simply unknown too; the backend is still
+			// asked, because it also accepts a name without its namespace.
+			// https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling
+			if !known || errors.Is(err, ErrInvalidParams) {
 				return fail(codeInvalidParams, err.Error())
 			}
 			return fail(codeInternal, err.Error())
@@ -1868,7 +1922,11 @@ func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[
 		push = s.Notify != nil && ((c != nil && c.canPush()) || senderFrom(ctx) != nil)
 	}
 	caps := map[string]any{
-		"tools":     map[string]any{"listChanged": push},
+		// Never listChanged: mcpx's own tool list is fixed when the server
+		// is built. It used to be declared and fed by upstream tool changes,
+		// which are not changes to *this* list -- a client re-listed on
+		// every one and got the same ten tools back.
+		"tools":     map[string]any{"listChanged": false},
 		"resources": map[string]any{"subscribe": push, "listChanged": push},
 		"prompts":   map[string]any{"listChanged": push},
 	}
@@ -1996,42 +2054,50 @@ func (s *Server) Cancelled(id string) (string, bool) {
 	return reason, ok
 }
 
-// complete answers an autocomplete request.
+// complete answers completion/complete by asking the server that owns the
+// prompt or template.
 //
-// Only from what mcpx already holds: namespaces and tool names. A client that
-// offers completion and gets method-not-found shows nothing, and the user
-// concludes the feature is broken rather than unimplemented.
-func (s *Server) complete(ctx context.Context, params json.RawMessage) map[string]any {
+// It answered from mcpx's own tool names and ignored ref, so a client
+// completing an argument of a pass-through prompt was offered tool names,
+// while /v1/complete asked the upstream server the same question and got
+// real values (conflict #9). The ref names a prompt or template mcpx only
+// passes through, so the only server that knows its argument values is the
+// one behind it.
+//
+// https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/completion#error-handling
+// -- an unknown prompt or a malformed ref is -32602; a failure to reach the
+// server that would answer is -32603.
+func (s *Server) complete(ctx context.Context, params json.RawMessage) (map[string]any, *rpcError) {
 	var p struct {
-		Argument struct {
-			Name  string `json:"name"`
-			Value string `json:"value"`
-		} `json:"argument"`
+		Ref struct {
+			Type string `json:"type"`
+		} `json:"ref"`
 	}
 	_ = json.Unmarshal(params, &p)
-
-	prefix := strings.ToLower(p.Argument.Value)
-	var values []string
-	seen := map[string]bool{}
-	for _, t := range s.Tools() {
-		for _, candidate := range []string{t.Name, namespaceOf(t.Name)} {
-			if candidate == "" || seen[candidate] {
-				continue
-			}
-			if prefix == "" || strings.Contains(strings.ToLower(candidate), prefix) {
-				seen[candidate] = true
-				values = append(values, candidate)
-			}
-		}
+	if p.Ref.Type != "ref/prompt" && p.Ref.Type != "ref/resource" {
+		return nil, &rpcError{Code: codeInvalidParams,
+			Message: `ref.type is "ref/prompt" or "ref/resource", got "` + p.Ref.Type + `"`}
 	}
-	sort.Strings(values)
-	// The ceiling the specification sets, and the one /v1/complete already
-	// read from completion.maxValues. It was written here as the literal 100,
-	// so configuring the setting moved one of the two surfaces and not the
-	// other.
-	max := s.MaxCompletions
-	if max <= 0 {
-		max = defaults.CompletionValues
+	var values []string
+	if s.backend != nil {
+		got, err := s.backend.Complete(ctx, params)
+		if err != nil {
+			code := codeInternal
+			if errors.Is(err, ErrInvalidParams) {
+				code = codeInvalidParams
+			}
+			return nil, &rpcError{Code: code, Message: err.Error()}
+		}
+		values = got
+	}
+	// The ceiling the specification sets. Read per request, because
+	// completion.maxValues is a hot setting: a value read once when the
+	// server was built made /v1/complete follow a change and this not.
+	max := defaults.CompletionValues
+	if s.MaxCompletions != nil {
+		if n := s.MaxCompletions(); n > 0 {
+			max = n
+		}
 	}
 	// The setting may lower the count, not raise it past what every
 	// revision's CompleteResult allows.
@@ -2049,14 +2115,7 @@ func (s *Server) complete(ctx context.Context, params json.RawMessage) map[strin
 		"values":  values,
 		"total":   total,
 		"hasMore": total > len(values),
-	}
-}
-
-func namespaceOf(tool string) string {
-	if i := strings.Index(tool, "_"); i > 0 {
-		return tool[:i]
-	}
-	return ""
+	}, nil
 }
 
 type lockedEncoder struct {

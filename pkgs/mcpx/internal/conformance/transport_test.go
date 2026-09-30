@@ -550,7 +550,7 @@ func TestTransportServer(t *testing.T) {
 		srv.Timing = mcpserver.Timing{SSEKeepAlive: 50 * time.Millisecond}
 		hs := httpServer(t, srv)
 		st := openStream(t, hs.ts.Client(), hs.postReq(t, frame(5, "subscriptions/listen",
-			params(rev, map[string]any{"notifications": map[string]any{"toolsListChanged": true}})),
+			params(rev, map[string]any{"notifications": map[string]any{"promptsListChanged": true}})),
 			headersFor(rev, "", "subscriptions/listen", "")))
 		st.until(t, func(l string) bool { return strings.HasPrefix(l, "data:") }) // the acknowledgement
 		time.Sleep(50 * time.Millisecond)
@@ -570,7 +570,7 @@ func TestTransportServer(t *testing.T) {
 	for _, id := range []string{"streamable-http-sse-notifications-must-relate", "streamable-http-no-resumability"} {
 		srvSide(id, func(t *testing.T, rev string) {
 			st, n := listenStream(t, rev)
-			n.ch <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+			n.ch <- [2]any{"notifications/prompts/list_changed", map[string]any{}}
 			lines := st.until(t, func(l string) bool { return strings.Contains(l, "list_changed") })
 			for _, l := range lines {
 				if strings.HasPrefix(l, "id:") {

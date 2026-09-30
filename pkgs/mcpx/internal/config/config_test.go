@@ -122,22 +122,94 @@ func TestNonGlobalScopeKeepsMax(t *testing.T) {
 	}
 }
 
-func TestUnknownKeysAreIgnored(t *testing.T) {
-	// Go's json decoder ignores unknown fields. There are no users of the
-	// retired `mode` key, so it needs no special handling -- but a config
-	// carrying one must still load rather than fail.
+func TestAnUnknownKeyInTheMcpxBlockIsRefused(t *testing.T) {
+	// The "mcpx" block is mcpx's alone, so a key it does not read is a typo
+	// or a name that no longer exists. encoding/json dropped it silently,
+	// which is how `mcpx init` shipped "mode": "session" -- split into
+	// sharing and scope long before -- and every browser it configured ran
+	// as one shared process.
 	dir := t.TempDir()
-	p := write(t, dir, "c.json", `{"mcpServers":{"a":{"command":"x","mcpx":{"scope":"session"}}}}`)
+	p := write(t, dir, "c.json", `{"mcpServers":{"browser":{"command":"x","mcpx":{"mode":"session","max":4}}}}`)
+	_, err := config.Load(p)
+	if err == nil {
+		t.Fatal("a config whose mcpx block says \"mode\" loaded; the key would have been dropped")
+	}
+	for _, want := range []string{p, `"browser"`, `"mode"`, "sharing", "scope"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should name %s:\n%v", want, err)
+		}
+	}
+
+	// Nested too: a typo inside the block's logging object is the same
+	// mistake one level down.
+	p = write(t, dir, "d.json", `{"mcpServers":{"a":{"command":"x","mcpx":{"logging":{"levle":"debug"}}}}}`)
+	if _, err := config.Load(p); err == nil || !strings.Contains(err.Error(), "levle") {
+		t.Errorf("a typo inside mcpx.logging should be refused by name, got %v", err)
+	}
+
+	// And every key the block does read still loads.
+	p = write(t, dir, "e.json", `{"mcpServers":{"a":{"command":"x","mcpx":{"sharing":"exclusive","scope":"session","max":2,"min":0,
+		"idleTimeout":"1m","callTimeout":"1m","startTimeout":"1m","namespace":"aa","disabled":false,
+		"logging":{"level":"debug"},"prelude":"p","profiles":["w"],"default":true,"description":"d",
+		"tools":["t"],"excludeTools":["u"]}}}}`)
 	c, err := config.Load(p)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("a block using only known keys was refused: %v", err)
 	}
 	r, err := c.Resolve("a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Scope != config.ScopeSession {
-		t.Fatalf("got %q", r.Scope)
+	if r.Scope != config.ScopeSession || r.Sharing != config.SharingExclusive {
+		t.Fatalf("got sharing=%q scope=%q", r.Sharing, r.Scope)
+	}
+}
+
+func TestServerKeysAnotherHostWritesAreRecordedNotRefused(t *testing.T) {
+	// A server entry is shared with every other MCP host. Claude Code
+	// writes "type" and Cline writes "alwaysAllow"; refusing them would
+	// make a config that works everywhere else fail here.
+	dir := t.TempDir()
+	p := write(t, dir, "c.json", `{"mcpServers":{"a":{"type":"stdio","command":"x","alwaysAllow":["t"]}}}`)
+	c, err := config.Load(p)
+	if err != nil {
+		t.Fatalf("another host's keys should load: %v", err)
+	}
+	var got []string
+	for _, k := range c.Ignored {
+		if k.File != p {
+			t.Errorf("ignored key %s.%s names file %q, want %q", k.Server, k.Key, k.File, p)
+		}
+		got = append(got, k.Server+"."+k.Key)
+	}
+	if strings.Join(got, ",") != "a.alwaysAllow,a.type" {
+		t.Errorf("ignored = %v, want a.alwaysAllow and a.type", got)
+	}
+
+	// The same through the search path, which merges several files.
+	//
+	// SearchPathFrom walks up to / and then consults $XDG_CONFIG_HOME, $HOME
+	// and /etc, so without this the test reads whatever the developer running
+	// it happens to have configured. That was harmless while unknown keys were
+	// ignored; now that an unknown key in an "mcpx" block is an error, one
+	// stale key in a real ~/.mcpx.json would fail this test on that machine
+	// and nowhere else.
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	sub := filepath.Join(dir, "proj")
+	write(t, sub, ".mcpx.json", `{"mcpServers":{"b":{"command":"y","trust":true}}}`)
+	merged, err := config.LoadFrom("", sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, k := range merged.Ignored {
+		if k.Server == "b" && k.Key == "trust" && strings.HasSuffix(k.File, filepath.Join("proj", ".mcpx.json")) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a merged load lost the ignored key: %+v", merged.Ignored)
 	}
 }
 
@@ -370,5 +442,28 @@ func TestSearchPathDedupesUserConfig(t *testing.T) {
 	projCfg := write(t, proj, filepath.Join(".config", "mcpx", "config.json"), `{}`)
 	if paths := config.SearchPathFrom(proj); len(paths) == 0 || paths[0] != projCfg {
 		t.Fatalf("project config should come first, got %v", paths)
+	}
+}
+
+// A key encoding/json reads is never reported as one mcpx ignored.
+//
+// json prefers an exact field match and otherwise accepts a case-insensitive
+// one, so {"Command": "echo"} populates Server.Command. Checking document keys
+// against the tag spellings alone put those in Config.Ignored anyway: doctor
+// warned about a config that works, and plumbing.strictUnknownKeys refused it.
+func TestAKeyJSONReadsIsNotReportedIgnored(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	p := write(t, dir, "c.json", `{"mcpServers":{"s":{"Command":"echo","Args":["hi"]}}}`)
+	c, err := config.Load(p)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := c.MCPServers["s"].Command; got != "echo" {
+		t.Fatalf(`"Command" did not decode (got %q); the premise of this test is gone`, got)
+	}
+	if len(c.Ignored) != 0 {
+		t.Errorf("keys json decoded were reported ignored: %+v", c.Ignored)
 	}
 }

@@ -3,7 +3,9 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strings"
@@ -580,12 +582,30 @@ func (r *Registry) CodegenNamespaces(names []string, prof config.Profile) ([]cod
 	return out, nil
 }
 
+// UnknownServer is a request naming a server or namespace that is not
+// configured: the caller's mistake, which every /v1 route answers with 400.
+// It was 400 from some routes and 502 from others (conflict #12), because
+// each route decided by itself and most decided "upstream failed".
+type UnknownServer struct{ Name string }
+
+func (e UnknownServer) Error() string { return fmt.Sprintf("unknown server or namespace %q", e.Name) }
+
+// failureStatus is the HTTP status of a failed upstream request: 400 when
+// the request named nothing, 502 when the server behind it failed.
+func failureStatus(err error) int {
+	var unknown UnknownServer
+	if errors.As(err, &unknown) {
+		return http.StatusBadRequest
+	}
+	return http.StatusBadGateway
+}
+
 // Call dispatches a tool call, resolving the server's scope against the
 // caller's context to pick the instance.
 func (r *Registry) Call(ctx context.Context, server, tool string, cc config.CallContext, args any) (json.RawMessage, error) {
 	p, ok := r.Pool(server)
 	if !ok {
-		return nil, fmt.Errorf("unknown server or namespace %q", server)
+		return nil, UnknownServer{Name: server}
 	}
 	key, err := r.resolveAndGuard(ctx, p, tool, cc)
 	if err != nil {
@@ -618,7 +638,7 @@ func (r *Registry) resolveAndGuard(ctx context.Context, p *pool.Pool, tool strin
 func (r *Registry) ReadResource(ctx context.Context, server, uri string, cc config.CallContext) (json.RawMessage, error) {
 	p, ok := r.Pool(server)
 	if !ok {
-		return nil, fmt.Errorf("unknown server or namespace %q", server)
+		return nil, UnknownServer{Name: server}
 	}
 	key := r.keyFor(p, cc)
 	return p.ReadResource(ctx, key, uri)
@@ -738,7 +758,7 @@ func (r *Registry) ResourceTemplates(namespaces []string) []ResourceInfo {
 func (r *Registry) GetPrompt(ctx context.Context, server, name string, args map[string]string, cc config.CallContext) (json.RawMessage, error) {
 	p, ok := r.Pool(server)
 	if !ok {
-		return nil, fmt.Errorf("unknown server or namespace %q", server)
+		return nil, UnknownServer{Name: server}
 	}
 	return p.GetPrompt(ctx, r.keyFor(p, cc), name, args)
 }

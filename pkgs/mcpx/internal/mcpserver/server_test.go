@@ -3,6 +3,8 @@ package mcpserver_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -79,13 +81,41 @@ func (f *fakeBackend) Prompts(context.Context) ([]mcpserver.PromptRef, error) {
 	f.hit("prompts")
 	return []mcpserver.PromptRef{{Name: "summarise", Description: "d"}}, nil
 }
-func (f *fakeBackend) ReadResource(_ context.Context, uri string) (string, string, error) {
+func (f *fakeBackend) ReadResource(_ context.Context, uri string) ([]mcpserver.ResourceContents, error) {
 	f.hit("readResource")
-	return "contents of " + uri, "text/plain", nil
+	if uri == "demo://logo" {
+		return []mcpserver.ResourceContents{{MimeType: "image/png", Blob: "iVBORw0KGgo="}}, nil
+	}
+	return []mcpserver.ResourceContents{{MimeType: "text/plain", Text: "contents of " + uri}}, nil
 }
 func (f *fakeBackend) GetPrompt(_ context.Context, name string, _ map[string]string) (string, error) {
 	f.hit("getPrompt")
+	switch name {
+	case "nosuch":
+		return "", fmt.Errorf("%w: no prompt named %q", mcpserver.ErrInvalidParams, name)
+	case "broken":
+		return "", errors.New("upstream timed out")
+	}
 	return "rendered " + name, nil
+}
+
+// Complete stands in for the upstream server that owns a ref: values only it
+// could know, so a test can tell who answered.
+func (f *fakeBackend) Complete(_ context.Context, params json.RawMessage) ([]string, error) {
+	f.hit("complete")
+	var p struct {
+		Ref struct {
+			Name string `json:"name"`
+		} `json:"ref"`
+	}
+	_ = json.Unmarshal(params, &p)
+	switch p.Ref.Name {
+	case "nosuch":
+		return nil, fmt.Errorf("%w: no prompt named %q", mcpserver.ErrInvalidParams, p.Ref.Name)
+	case "broken":
+		return nil, errors.New("upstream timed out")
+	}
+	return []string{"from-upstream-1", "from-upstream-2", "from-upstream-3"}, nil
 }
 
 func (f *fakeBackend) ResourceTemplates(context.Context) ([]mcpserver.ResourceRef, error) {
@@ -514,21 +544,6 @@ func errOf(t *testing.T, resp any) string {
 	return doc.Error.Message
 }
 
-func TestCompletionAnswersFromWhatMcpxKnows(t *testing.T) {
-	// A client offering completion and receiving method-not-found shows
-	// nothing, and the user concludes the feature is broken.
-	s := mcpserver.New(newBackend(), "mcpx", "test")
-	resp := s.Handle(context.Background(), mcpserver.Request(1, "completion/complete",
-		map[string]any{"argument": map[string]any{"name": "tool", "value": "exec"}}))
-	b, _ := json.Marshal(resp)
-	if !strings.Contains(string(b), "mcpx_exec") {
-		t.Errorf("expected a match: %s", b)
-	}
-	if !strings.Contains(string(b), `"hasMore"`) {
-		t.Errorf("the reply shape is values/total/hasMore: %s", b)
-	}
-}
-
 func TestCancellationIsRecordedRatherThanDropped(t *testing.T) {
 	// A client that cancels and sees work continue cannot tell whether the
 	// message arrived.
@@ -624,27 +639,27 @@ func TestSubscriptionsListenStreamsOnlyWhatWasRequested(t *testing.T) {
 	})
 
 	resp := s.Handle(context.Background(), mcpserver.Request(7, "subscriptions/listen",
-		map[string]any{"notifications": map[string]any{"toolsListChanged": true}}))
+		map[string]any{"notifications": map[string]any{"resourcesListChanged": true}}))
 	if resp != nil {
 		t.Errorf("a listen stream is long-lived; its result is withheld: %+v", resp)
 	}
 
 	select {
 	case lf := <-n.got:
-		if !lf.ToolsListChanged || lf.PromptsListChanged {
+		if !lf.ResourcesListChanged || lf.PromptsListChanged {
 			t.Errorf("the filter should be exactly what was asked: %+v", lf)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("the notifier was never started")
 	}
 
-	n.fire <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+	n.fire <- [2]any{"notifications/resources/list_changed", map[string]any{}}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		got := out.String()
 		mu.Unlock()
-		if strings.Contains(got, "notifications/tools/list_changed") {
+		if strings.Contains(got, "notifications/resources/list_changed") {
 			if !strings.Contains(got, "notifications/subscriptions/acknowledged") {
 				t.Errorf("the stream should be acknowledged first: %s", got)
 			}
@@ -692,7 +707,7 @@ func TestPushCapabilitiesAreDeclaredOnlyWhenSomethingCanPush(t *testing.T) {
 	b, _ = json.Marshal(loud.Handle(context.Background(),
 		mcpserver.Request(2, "initialize", map[string]any{"protocolVersion": "2025-06-18"})))
 	// 2025-06-18 has no subscriptions/listen, but it does define
-	// notifications/tools/list_changed, which arrives unsolicited. A
+	// notifications/resources/list_changed, which arrives unsolicited. A
 	// pushable connection can deliver it, so it must be declared.
 	if !strings.Contains(string(b), `"listChanged":true`) {
 		t.Errorf("legacy revisions define list_changed and mcpx sends it: %s", b)

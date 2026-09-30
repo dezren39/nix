@@ -93,18 +93,31 @@ func TestFeaturesServer(t *testing.T) {
 		n := newNotifier()
 		srv.Notify = n
 		ss := stdioServer(t, srv)
+		declared := true
 		if isModern(rev) {
 			ss.send(t, frame(5, "subscriptions/listen", params(rev, map[string]any{
 				"notifications": map[string]any{kind + "ListChanged": true}})))
-			ss.next(t)
+			ack := decode(t, ss.next(t))
+			_, declared = asMap(asMap(ack["params"])["notifications"])[kind+"ListChanged"]
 		} else {
-			caps := capsFor(t, ss, rev)
-			if asMap(caps[kind])["listChanged"] != true {
-				t.Fatalf("listChanged not declared though mcpx can push: %v", caps)
-			}
+			declared = asMap(capsFor(t, ss, rev)[kind])["listChanged"] == true
 		}
 		time.Sleep(50 * time.Millisecond)
 		n.ch <- [2]any{"notifications/" + kind + "/list_changed", map[string]any{}}
+		if kind == "tools" {
+			// mcpx's tools are a fixed set: an upstream's change does not
+			// change them, so mcpx neither promises nor sends this.
+			if declared {
+				t.Errorf("tools listChanged promised")
+			}
+			if f, quiet := ss.quiet(200 * time.Millisecond); !quiet {
+				t.Errorf("sent %s", f)
+			}
+			return
+		}
+		if !declared {
+			t.Fatalf("%s listChanged not declared though mcpx can push", kind)
+		}
 		b := ss.next(t)
 		checkServerFrame(t, rev, b, "")
 		if decode(t, b)["method"] != "notifications/"+kind+"/list_changed" {
@@ -116,7 +129,10 @@ func TestFeaturesServer(t *testing.T) {
 		"resources-list-changed-notify": "resources"} {
 		srvSide(id, func(t *testing.T, rev string) { listChanged(t, rev, kind) })
 	}
-	srvSide("tools-list-changed-means-emit", func(t *testing.T, rev string) { listChanged(t, rev, "tools") })
+	srvSide("tools-list-changed-means-emit", func(t *testing.T, rev string) {
+		listChanged(t, rev, "tools")
+		listChanged(t, rev, "prompts")
+	})
 
 	// ---- tool definitions ----
 
@@ -316,6 +332,15 @@ func TestFeaturesServer(t *testing.T) {
 			}
 		})
 	}
+	srvSide("resources-sec-binary-encoded", func(t *testing.T, rev string) {
+		srv, _ := newServer(t)
+		ss := stdioServer(t, srv)
+		ss.initialize(t, rev)
+		c := resultOf(t, ss.request(t, rev, "resources/read", map[string]any{"uri": "mem://alpha/bin"}))["contents"].([]any)
+		if len(c) != 1 || asMap(c[0])["blob"] != "iVBORw0KGgo=" || asMap(c[0])["text"] != nil {
+			t.Errorf("binary contents not a base64 blob: %v", c)
+		}
+	})
 	srvSide("resources-sec-validate-uris", func(t *testing.T, rev string) {
 		srv, _ := newServer(t)
 		ss := stdioServer(t, srv)
@@ -389,8 +414,8 @@ func TestFeaturesServer(t *testing.T) {
 // "not found".
 type failingReads struct{ *backend }
 
-func (failingReads) ReadResource(context.Context, string) (string, string, error) {
-	return "", "", errors.New("disk on fire")
+func (failingReads) ReadResource(context.Context, string) ([]mcpserver.ResourceContents, error) {
+	return nil, errors.New("disk on fire")
 }
 func (failingReads) GetPrompt(context.Context, string, map[string]string) (string, error) {
 	return "", errors.New("disk on fire")

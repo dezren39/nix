@@ -202,6 +202,8 @@ type backend struct {
 	// ended receives once per blocked call whose context ended: the
 	// backend saw the cancellation.
 	ended chan struct{}
+	// completions is how many values Complete offers (0: three).
+	completions int
 }
 
 func newBackend() *backend {
@@ -260,11 +262,36 @@ func (b *backend) Prompts(context.Context) ([]mcpserver.PromptRef, error) {
 	return []mcpserver.PromptRef{{Name: "greet", Description: "say hi",
 		Arguments: []mcpserver.PromptArg{{Name: "who", Required: true}}}}, nil
 }
-func (b *backend) ReadResource(_ context.Context, uri string) (string, string, error) {
-	if uri != "mem://alpha/one" {
-		return "", "", fmt.Errorf("resource %s: %w", uri, mcpserver.ErrResourceNotFound)
+func (b *backend) ReadResource(_ context.Context, uri string) ([]mcpserver.ResourceContents, error) {
+	switch uri {
+	case "mem://alpha/one":
+		return []mcpserver.ResourceContents{{MimeType: "text/plain", Text: "hello"}}, nil
+	case "mem://alpha/bin":
+		return []mcpserver.ResourceContents{{MimeType: "image/png", Blob: "iVBORw0KGgo="}}, nil
 	}
-	return "hello", "text/plain", nil
+	return nil, fmt.Errorf("resource %s: %w", uri, mcpserver.ErrResourceNotFound)
+}
+
+// Complete offers completions values for the one prompt there is.
+func (b *backend) Complete(_ context.Context, params json.RawMessage) ([]string, error) {
+	var p struct {
+		Ref struct {
+			Name string `json:"name"`
+		} `json:"ref"`
+	}
+	_ = json.Unmarshal(params, &p)
+	if p.Ref.Name != "greet" {
+		return nil, fmt.Errorf("%w: no prompt named %q", mcpserver.ErrInvalidParams, p.Ref.Name)
+	}
+	n := b.completions
+	if n == 0 {
+		n = 3
+	}
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("v%03d", i)
+	}
+	return out, nil
 }
 func (b *backend) GetPrompt(_ context.Context, name string, args map[string]string) (string, error) {
 	if name != "greet" {

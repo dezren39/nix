@@ -71,6 +71,18 @@ func (f *Fault) Error() string { return f.Message }
 type Store struct {
 	mu    sync.Mutex
 	tasks map[string]*Task
+	// PollInterval is the pollInterval each new task carries. Zero means
+	// the built-in default. Set before the store is shared.
+	PollInterval time.Duration
+}
+
+type idKey struct{}
+
+// IDFrom is the id of the task whose body ctx belongs to, or "". It is how a
+// call running as a task finds the task it should report its status into.
+func IDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(idKey{}).(string)
+	return id
 }
 
 // New builds an empty store.
@@ -107,12 +119,17 @@ func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Tas
 	}
 	now := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
+	poll := s.PollInterval
+	if poll <= 0 {
+		poll = defaults.TaskPollInterval
+	}
 	t := &Task{
 		TaskID: NewID(), Status: Working,
 		CreatedAt: now, LastUpdatedAt: now,
-		TTL: ttl, PollInterval: 1000,
+		TTL: ttl, PollInterval: poll.Milliseconds(),
 		cancel: cancel, done: make(chan struct{}),
 	}
+	ctx = context.WithValue(ctx, idKey{}, t.TaskID)
 	s.mu.Lock()
 	s.ensure()
 	s.tasks[t.TaskID] = t

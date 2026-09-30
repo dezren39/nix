@@ -193,20 +193,20 @@ func TestMessagesServer(t *testing.T) {
 		ss := stdioServer(t, srv)
 		if isModern(rev) {
 			ss.send(t, frame(5, "subscriptions/listen", params(rev, map[string]any{
-				"notifications": map[string]any{"toolsListChanged": true}})))
+				"notifications": map[string]any{"promptsListChanged": true}})))
 			checkServerFrame(t, rev, ss.next(t), "") // the acknowledgement
 		} else {
 			ss.initialize(t, rev)
 		}
 		time.Sleep(50 * time.Millisecond) // the listener is registered asynchronously
-		n.ch <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+		n.ch <- [2]any{"notifications/prompts/list_changed", map[string]any{}}
 		b := ss.next(t)
 		checkServerFrame(t, rev, b, "")
 		return decode(t, b)
 	}
 	srvSide("messages-notification-no-id", func(t *testing.T, rev string) {
 		m := pushed(t, rev)
-		if m["method"] != "notifications/tools/list_changed" {
+		if m["method"] != "notifications/prompts/list_changed" {
 			t.Fatalf("%v", m)
 		}
 		if _, ok := m["id"]; ok {

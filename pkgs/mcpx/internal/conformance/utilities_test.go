@@ -302,20 +302,16 @@ func TestUtilitiesServer(t *testing.T) {
 		}
 	})
 	srvSide("completion-max-100", func(t *testing.T, rev string) {
-		srv, _ := newServer(t)
-		var extras []mcpserver.Extra
-		for i := 0; i < 150; i++ {
-			extras = append(extras, mcpserver.Extra{Tool: mcpserver.Tool{Name: fmt.Sprintf("n%03d_t", i), Description: "x",
-				InputSchema: json.RawMessage(`{"type":"object"}`)}})
-		}
-		srv = srv.WithExtras(extras)
-		srv.MaxCompletions = 500
+		srv, b := newServer(t)
+		b.completions = 150
+		srv.MaxCompletions = func() int { return 500 }
 		ss := stdioServer(t, srv)
 		ss.initialize(t, rev)
 		r := resultOf(t, ss.request(t, rev, "completion/complete", map[string]any{"ref": map[string]any{"type": "ref/prompt", "name": "greet"},
 			"argument": map[string]any{"name": "who", "value": ""}}))
-		if n := len(asMap(r["completion"])["values"].([]any)); n > 100 {
-			t.Errorf("%d values", n)
+		c := asMap(r["completion"])
+		if n := len(c["values"].([]any)); n != 100 || c["hasMore"] != true {
+			t.Errorf("%d values, hasMore %v", n, c["hasMore"])
 		}
 	})
 	srvSide("completion-errors", func(t *testing.T, rev string) {

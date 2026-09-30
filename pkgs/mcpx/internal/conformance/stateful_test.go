@@ -69,7 +69,7 @@ func TestStatefulServer(t *testing.T) {
 	}
 	for _, id := range []string{"tasks-result-terminal-final", "tasks-result-blocks", "tasks-result-exact",
 		"tasks-sse-no-upgrade-get", "tasks-no-related-task-in-get-list-cancel-results", "tasks-taskid-param-authoritative",
-		"tasks-terminal-immutable", "tasks-valid-transitions", "tasks-leave-input-required", "tasks-input-required-move"} {
+		"tasks-terminal-immutable", "tasks-valid-transitions"} {
 		srvSide(id, func(t *testing.T, rev string) {
 			ss, b, tk := taskSession(t, rev, true, nil)
 			get := resultOf(t, ss.request(t, rev, "tasks/get", map[string]any{"taskId": tk["taskId"],
@@ -231,11 +231,12 @@ func TestStatefulServer(t *testing.T) {
 		srv.Notify = n
 		ss := stdioServer(t, srv)
 		caps := asMap(resultOf(t, ss.initialize(t, rev))["capabilities"])
-		if asMap(caps["tools"])["listChanged"] != true {
+		if asMap(caps["prompts"])["listChanged"] != true {
 			t.Fatalf("%v", caps)
 		}
 		time.Sleep(50 * time.Millisecond)
-		for _, m := range []string{"tools", "prompts", "resources"} {
+		// (mcpx's own tool list is fixed, so it has no tools list_changed.)
+		for _, m := range []string{"prompts", "resources"} {
 			n.ch <- [2]any{"notifications/" + m + "/list_changed", map[string]any{}}
 			if f := decode(t, ss.next(t)); f["method"] != "notifications/"+m+"/list_changed" {
 				t.Errorf("%v", f)
@@ -264,6 +265,59 @@ func TestStatefulServer(t *testing.T) {
 		}
 		if g, quiet := ss.quiet(150 * time.Millisecond); !quiet {
 			t.Errorf("unsubscribed update sent: %s", g)
+		}
+	})
+
+	// https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status
+	taskAsks := func(t *testing.T, rev string) (question, status map[string]any, task string, ss *stdioSrv) {
+		srv, _ := newServer(t)
+		srv.Ask = newAsker("done", elicitQ("q"))
+		srv.Timing = mcpserver.Timing{AskTimeout: 2 * time.Second, AskPoll: 20 * time.Millisecond}
+		ss = stdioServer(t, srv)
+		ss.request(t, rev, "initialize", initParams(rev, map[string]any{"elicitation": map[string]any{}}))
+		ss.send(t, frame(nil, "notifications/initialized", nil))
+		r := resultOf(t, ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_call",
+			"arguments": map[string]any{"namespace": "up", "tool": "t"}, "task": map[string]any{}}))
+		task = fmt.Sprint(asMap(r["task"])["taskId"])
+		for question == nil {
+			m := decode(t, ss.next(t))
+			if m["method"] == "elicitation/create" {
+				question = m
+			}
+		}
+		status = resultOf(t, ss.request(t, rev, "tasks/get", map[string]any{"taskId": task}))
+		return question, status, task, ss
+	}
+	for _, id := range []string{"tasks-input-request-related-task", "tasks-input-required-move", "elicitation-task-related-id-shared"} {
+		srvSide(id, func(t *testing.T, rev string) {
+			q, st, task, _ := taskAsks(t, rev)
+			rt := asMap(asMap(asMap(q["params"])["_meta"])["io.modelcontextprotocol/related-task"])
+			if fmt.Sprint(rt["taskId"]) != task {
+				t.Errorf("the question does not name its task: %v", q)
+			}
+			if st["status"] != "input_required" {
+				t.Errorf("status while asking: %v", st["status"])
+			}
+		})
+	}
+	for _, id := range []string{"tasks-result-response-related-task", "tasks-related-task-all-messages"} {
+		srvSide(id, func(t *testing.T, rev string) {
+			q, _, task, ss := taskAsks(t, rev)
+			b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": q["id"], "result": map[string]any{"action": "accept", "content": map[string]any{"repo": "x"}}})
+			ss.send(t, b)
+			r := resultOf(t, ss.request(t, rev, "tasks/result", map[string]any{"taskId": task}))
+			if fmt.Sprint(asMap(asMap(r["_meta"])["io.modelcontextprotocol/related-task"])["taskId"]) != task {
+				t.Errorf("tasks/result does not name its task: %v", r)
+			}
+		})
+	}
+	srvSide("tasks-leave-input-required", func(t *testing.T, rev string) {
+		q, _, task, ss := taskAsks(t, rev)
+		b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": q["id"], "result": map[string]any{"action": "accept", "content": map[string]any{"repo": "x"}}})
+		ss.send(t, b)
+		time.Sleep(200 * time.Millisecond)
+		if st := resultOf(t, ss.request(t, rev, "tasks/get", map[string]any{"taskId": task})); st["status"] == "input_required" {
+			t.Errorf("still input_required after the answer")
 		}
 	})
 
