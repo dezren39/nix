@@ -84,7 +84,7 @@ func consumerOps() []Op {
 			Summary: "Run a recipe with its placeholders filled in",
 			Description: "Placeholders that are not supplied and have no default are " +
 				"asked for as one form through the question broker, with a " +
-				"deadline. With mode=script the rendered source comes back " +
+				"deadline. With autonomy=propose the rendered source comes back " +
 				"without running, which is the safer thing to do first.",
 			Mutating: true,
 			Params: []Param{
@@ -92,8 +92,8 @@ func consumerOps() []Op {
 				{Name: "placeholders", In: InBody, Type: "object",
 					Desc:   "values by placeholder name",
 					Schema: `{"type":"object","additionalProperties":true}`},
-				{Name: "mode", In: InBody, Type: "string", Enum: []string{"script", "run"},
-					Desc: "script renders and returns; run executes (the default here)"},
+				{Name: "autonomy", In: InBody, Type: "string", Enum: []string{"propose", "run"},
+					Desc: "propose renders and returns the script; run executes it (the default here)"},
 				{Name: "session", In: InBody, Type: "string", Desc: "the session to run it in, so it reaches that session's servers"},
 			},
 		},
@@ -107,7 +107,7 @@ func consumerOps() []Op {
 				"sampling, through the broker, carrying only the slice of the " +
 				"catalog the search ranked for this request. With no answerer, it " +
 				"returns the ranked recipes and says plainly that no model is " +
-				"available. Default mode returns the script rather than running " +
+				"available. By default it proposes -- returns the script rather than running " +
 				"it, because generated code runs with your credentials. " +
 				"`mcpx prompt` is this operation; the name differs because " +
 				"POST /v1/prompt already renders an upstream server's prompt.",
@@ -115,8 +115,8 @@ func consumerOps() []Op {
 			Params: []Param{
 				{Name: "prompt", In: InBody, Type: "string", Required: true,
 					Desc: "what you want done, in words"},
-				{Name: "mode", In: InBody, Type: "string", Enum: []string{"script", "run"},
-					Desc: "script returns the program (the default); run executes it"},
+				{Name: "autonomy", In: InBody, Type: "string", Enum: []string{"propose", "run"},
+					Desc: "propose returns the program; run executes it; absent means the caller's prompt.autonomy"},
 				{Name: "placeholders", In: InBody, Type: "object",
 					Desc:   "values for a matched recipe's placeholders",
 					Schema: `{"type":"object","additionalProperties":true}`},
