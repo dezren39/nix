@@ -84,6 +84,27 @@ func (p *Pool) Era() (mcpclient.Era, string) {
 	return "", ""
 }
 
+// EraSource says how a live instance's era was settled -- probe, cache or
+// forced -- or "" when nothing is running.
+func (p *Pool) EraSource() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, in := range p.instances {
+		if in.Client.Alive() {
+			return in.eraSource
+		}
+	}
+	return ""
+}
+
+// CachedEra returns what the era cache remembers for this configuration.
+func (p *Pool) CachedEra() (EraRecord, bool) {
+	if p.Hooks == nil || p.Hooks.Eras == nil {
+		return EraRecord{}, false
+	}
+	return p.Hooks.Eras.Get(Identity(p.cfg))
+}
+
 // Capabilities returns what a live instance declared, or nil when none is up.
 func (p *Pool) Capabilities() map[string]json.RawMessage {
 	p.mu.Lock()

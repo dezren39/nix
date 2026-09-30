@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"sync"
@@ -48,13 +47,11 @@ func (l *listenStream) end() { l.once.Do(func() { l.cancel(); close(l.done) }) }
 // is never empty, so it cannot collide with a modern listen.
 const legacyListen = ""
 
-func listenKey(id json.RawMessage) string {
-	var buf bytes.Buffer
-	if json.Compact(&buf, id) != nil {
-		return string(id)
-	}
-	return buf.String()
-}
+// listenKey is the same key the transport's in-flight table uses (idKey),
+// so a notifications/cancelled that names a listen by 7.0 finds the listen
+// opened as 7, exactly as it would find an ordinary request. Two different
+// normalisations would let the cancellation cancel one and miss the other.
+func listenKey(id json.RawMessage) string { return idKey(id) }
 
 // allowedMethods is the notification each filter field admits.
 //
@@ -235,7 +232,7 @@ func (s *Server) listen(ctx context.Context, c *Conn, req request, peer Peer) *r
 		return nil
 	}
 	keepAlive := keepAliveFrom(ctx)
-	tick := time.NewTicker(s.Timing.resolved().ListenKeepAlive)
+	tick := time.NewTicker(s.Timing.resolved().SSEKeepAlive)
 	defer tick.Stop()
 	for {
 		select {

@@ -650,6 +650,22 @@ func TestSubscriptionsListen(t *testing.T) {
 		}
 	})
 
+	// The listen and the in-flight table key ids the same way, so a
+	// cancellation naming the listen as 4.0 ends the listen opened as 4.
+	t.Run("2026-07-28/subscriptions/cancel-matches-the-id-however-it-is-spelled", func(t *testing.T) {
+		s, n, _, c := setup()
+		s.HandleOn(context.Background(), c, mcpserver.Request(4, "subscriptions/listen",
+			modernParams(map[string]any{"notifications": map[string]any{"toolsListChanged": true}})))
+		n.stream(t, 0)
+		s.HandleOn(context.Background(), c, mcpserver.Request(0, "notifications/cancelled",
+			map[string]any{"requestId": json.RawMessage("4.0")}))
+		select {
+		case <-n.ended:
+		case <-time.After(2 * time.Second):
+			t.Fatal("4.0 did not cancel the listen opened as 4")
+		}
+	})
+
 	// spec + "2026-07-28/basic/patterns/cancellation" (server MUST send
 	// notifications/cancelled) and "#graceful-closure" (SHOULD send result).
 	t.Run("2026-07-28/subscriptions/server-teardown-sends-cancelled-then-result", func(t *testing.T) {
@@ -716,7 +732,7 @@ func TestHTTPListenIsAStream(t *testing.T) {
 		n := &multiNotifier{ended: make(chan struct{}, 1)}
 		s := mcpserver.New(newBackend(), "mcpx", "test")
 		s.Notify = n
-		s.Timing.ListenKeepAlive = 20 * time.Millisecond
+		s.Timing.SSEKeepAlive = 20 * time.Millisecond
 		srv := httptest.NewServer(s)
 		defer srv.Close()
 
@@ -726,6 +742,9 @@ func TestHTTPListenIsAStream(t *testing.T) {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
+		// Required on every modern POST by the Streamable HTTP transport.
+		req.Header.Set("MCP-Protocol-Version", "2026-07-28")
+		req.Header.Set("Mcp-Method", "subscriptions/listen")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)

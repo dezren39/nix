@@ -76,6 +76,12 @@
     "abandonGrace": "5s",
     "mcpPath": "/mcp"
   },
+  "transport": {
+    "sseKeepAlive": "15s",
+    "stdioDrain": "30s",
+    "loopbackHosts": ["localhost", "127.0.0.1", "::1"],
+    "allowedOrigins": []
+  },
   "consumer": {
     "disambiguate": "never",
     "disambiguateDefault": "new",
@@ -178,7 +184,14 @@
   "protoMessages": {
     "listMaxAge": "1m",
     "readMaxAge": "0s",
-    "listenKeepAlive": "15s",
     "taskAfter": "2s"
+  },
+  "upstream": {
+    "protocol": "modern",
+    "probeTimeout": "2s",
+    "eraCache": true,
+    "eraFile": "upstream-eras.json",
+    "eraFileVersion": 1,
+    "errorBodyLimit": "4KB"
   }
 }

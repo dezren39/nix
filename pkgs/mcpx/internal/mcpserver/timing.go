@@ -31,12 +31,14 @@ type Timing struct {
 	StateTTL time.Duration
 	// SessionIdle is how long an unused Streamable HTTP session is kept.
 	SessionIdle time.Duration
-	// ListenKeepAlive is how often an idle HTTP listen stream carries a
-	// comment.
-	ListenKeepAlive time.Duration
 	// TaskAfter is how long a tools/call from a tasks-extension client runs
 	// in line before it is handed a task instead.
 	TaskAfter time.Duration
+	// SSEKeepAlive is how often a quiet GET event stream carries a comment.
+	SSEKeepAlive time.Duration
+	// StdioDrain is how long in-flight stdio requests may finish after the
+	// input closes, before they are cancelled.
+	StdioDrain time.Duration
 }
 
 func (t Timing) resolved() Timing {
@@ -55,11 +57,14 @@ func (t Timing) resolved() Timing {
 	if t.SessionIdle <= 0 {
 		t.SessionIdle = defaults.ProtoSessionIdle
 	}
-	if t.ListenKeepAlive <= 0 {
-		t.ListenKeepAlive = defaults.ProtoListenKeepAlive
-	}
 	if t.TaskAfter <= 0 {
 		t.TaskAfter = defaults.ProtoTaskAfter
+	}
+	if t.SSEKeepAlive <= 0 {
+		t.SSEKeepAlive = defaults.TransportSSEKeepAlive
+	}
+	if t.StdioDrain <= 0 {
+		t.StdioDrain = defaults.TransportStdioDrain
 	}
 	return t
 }

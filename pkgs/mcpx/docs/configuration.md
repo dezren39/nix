@@ -413,7 +413,6 @@ that `--help` denies exists is worse than a long list.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `protoMessages.listMaxAge` | duration | `1m0s` | daemon | no | `--proto-messages-list-max-age` | `MCPX_PROTO_MESSAGES_LIST_MAX_AGE` | ttlMs on server/discover and every list result sent to a 2026-07-28 client |
-| `protoMessages.listenKeepAlive` | duration | `15s` | daemon | no | `--proto-messages-listen-keep-alive` | `MCPX_PROTO_MESSAGES_LISTEN_KEEP_ALIVE` | how often an idle subscriptions/listen HTTP stream carries a comment |
 | `protoMessages.taskAfter` | duration | `2s` | daemon | no | `--proto-messages-task-after` | `MCPX_PROTO_MESSAGES_TASK_AFTER` | how long a tools/call runs in line before a tasks-extension client is handed a task |
 | `protoMessages.readMaxAge` | duration | `0s` | daemon | no | `--proto-messages-read-max-age` | `MCPX_PROTO_MESSAGES_READ_MAX_AGE` | ttlMs on resources/read results sent to a 2026-07-28 client |
 
@@ -481,3 +480,19 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `tasks.resultWait` | duration | `2m0s` | call | yes | `--tasks-result-wait` | `MCPX_TASKS_RESULT_WAIT` | how long collecting a task result blocks before giving up |
 | `tasks.ttl` | duration | `10m0s` | daemon | yes | `--tasks-ttl` | `MCPX_TASKS_TTL` | how long a finished task's result is kept |
+
+### transport
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `transport.allowedOrigins` | list | *(empty)* | daemon | no | `--transport-allowed-origins` | `MCPX_TRANSPORT_ALLOWED_ORIGINS` | browser Origins, beyond loopback, that may reach /mcp |
+| `transport.sseKeepAlive` | duration | `15s` | daemon | no | `--transport-sse-keep-alive` | `MCPX_TRANSPORT_SSE_KEEP_ALIVE` | how often a quiet MCP event stream carries a comment line |
+| `transport.stdioDrain` | duration | `30s` | client | no | `--transport-stdio-drain` | `MCPX_TRANSPORT_STDIO_DRAIN` | how long `mcpx serve` finishes in-flight requests after its input closes |
+
+### upstream
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `upstream.eraCache` | bool | `true` | daemon | no | `--upstream-era-cache` | `MCPX_UPSTREAM_ERA_CACHE` | remember which era each server configuration speaks, across restarts |
+| `upstream.probeTimeout` | duration | `2s` | daemon | no | `--upstream-probe-timeout` | `MCPX_UPSTREAM_PROBE_TIMEOUT` | how long a stdio server/discover may go unanswered before initialize is also sent |
+| `upstream.protocol` | enum | `modern` | daemon | no | `--upstream-protocol` | `MCPX_UPSTREAM_PROTOCOL` | which protocol era to try first against a server that names none |

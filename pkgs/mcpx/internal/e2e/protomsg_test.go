@@ -90,6 +90,9 @@ func TestTheDaemonServesModernMessageShapes(t *testing.T) {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ep+"/mcp", strings.NewReader(string(body)))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
+		// Required on every modern POST by the Streamable HTTP transport.
+		req.Header.Set("MCP-Protocol-Version", "2026-07-28")
+		req.Header.Set("Mcp-Method", "subscriptions/listen")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)

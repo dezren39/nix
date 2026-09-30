@@ -31,16 +31,6 @@ func protoMessagesSettings() []Setting {
 				"is now, and mcpx has no way to know how long that stays true.",
 		},
 		{
-			Path: "protoMessages.listenKeepAlive", Scope: ScopeDaemon, Kind: KindDuration,
-			Default:  defaults.Str(defaults.ProtoListenKeepAlive),
-			Commands: []string{"serve", "daemon"},
-			Name:     "Listen keep-alive",
-			Short:    "how often an idle subscriptions/listen HTTP stream carries a comment",
-			Long: "A listen stream can be silent for hours, and proxies close a " +
-				"response that has sent nothing for a while. A comment line keeps it " +
-				"open without being a message the client has to parse.",
-		},
-		{
 			Path: "protoMessages.taskAfter", Scope: ScopeDaemon, Kind: KindDuration,
 			Default:  defaults.Str(defaults.ProtoTaskAfter),
 			Commands: []string{"serve", "daemon"},

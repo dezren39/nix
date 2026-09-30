@@ -13,6 +13,24 @@ import (
 // cannot parse.
 const Oldest = "2024-11-05"
 
+// Headerless is the revision a legacy message is taken to speak when nothing
+// said otherwise on the transport: a Streamable HTTP request with no
+// MCP-Protocol-Version header and no session, and a stdio batch before
+// initialize.
+//
+// Not Oldest, and the difference is deliberate. Oldest governs how results
+// are *spelled* for a client that declared nothing -- guessing downward is
+// the safe direction for shapes. But 2024-11-05 has no Streamable HTTP at
+// all (its HTTP transport is HTTP+SSE, which mcpx does not host), so nothing
+// arriving on /mcp can be a 2024-11-05 request that omitted the header; the
+// 2025-06-18 and 2025-11-25 transport pages say a server SHOULD assume
+// 2025-03-26 there, and 2026-07-28's says it MAY. And 2024-11-05's schema
+// has no JSON-RPC batch type, so a line that opens with '[' comes from a
+// client that believes batches exist -- 2025-03-26, which says a server
+// MUST accept them. Judging that batch against 2024-11-05 would refuse the
+// only revision that could have sent it.
+const Headerless = "2025-03-26"
+
 // AtLeast compares revisions.
 //
 // Lexical comparison is correct because every revision is a date in
@@ -98,6 +116,9 @@ const (
 	FeatDiscover Feature = "discover"
 	// FeatInitialize is the handshake, which only the legacy era has.
 	FeatInitialize Feature = "initialize"
+	// FeatBatch is JSON-RPC batching: a server MUST accept batches in
+	// 2025-03-26, and 2025-06-18 removed them.
+	FeatBatch Feature = "batch"
 )
 
 // floors is the revision each feature arrived in. A feature with no floor is
@@ -121,6 +142,7 @@ var floors = map[Feature]string{
 	FeatInputRequired:       "2026-07-28",
 	FeatSubscriptionsListen: "2026-07-28",
 	FeatDiscover:            "2026-07-28",
+	FeatBatch:               "2025-03-26",
 }
 
 // ceilings is the first revision that no longer defines a feature.
@@ -130,6 +152,7 @@ var ceilings = map[Feature]string{
 	FeatResourceSubscribe:   "2026-07-28",
 	FeatLoggingSetLevel:     "2026-07-28",
 	FeatInitialize:          "2026-07-28",
+	FeatBatch:               "2025-06-18",
 }
 
 // Defines reports whether a revision defines a feature.
@@ -375,7 +398,7 @@ var Features = []Feature{
 	FeatElicitation, FeatElicitationURL, FeatElicitationComplete,
 	FeatTasks, FeatTasksExtension, FeatExtensions, FeatCacheable,
 	FeatResourceSubscribe, FeatSubscriptionsListen,
-	FeatLoggingSetLevel,
+	FeatLoggingSetLevel, FeatBatch,
 }
 
 // FeatureMatrix is which revision defines which feature.

@@ -62,11 +62,40 @@ func mcpPost(t *testing.T, endpoint, session string, frame any) *http.Response {
 	if session != "" {
 		req.Header.Set("Mcp-Session-Id", session)
 	}
+	mirrorModernHeaders(req, b)
 	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return resp
+}
+
+// mirrorModernHeaders sets the headers a 2026-07-28 POST MUST carry, from
+// its body, as a conforming client would. A legacy frame gets none.
+func mirrorModernHeaders(req *http.Request, body []byte) {
+	var f struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string         `json:"name"`
+			URI  string         `json:"uri"`
+			Meta map[string]any `json:"_meta"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(body, &f) != nil {
+		return
+	}
+	v, _ := f.Params.Meta["io.modelcontextprotocol/protocolVersion"].(string)
+	if v == "" {
+		return
+	}
+	req.Header.Set("MCP-Protocol-Version", v)
+	req.Header.Set("Mcp-Method", f.Method)
+	switch f.Method {
+	case "tools/call", "prompts/get":
+		req.Header.Set("Mcp-Name", f.Params.Name)
+	case "resources/read":
+		req.Header.Set("Mcp-Name", f.Params.URI)
+	}
 }
 
 func dumpJSON(t *testing.T, v any) string {

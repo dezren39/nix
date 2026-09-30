@@ -55,6 +55,18 @@ each template as `{uri: ...}`; every revision's `ResourceTemplate` spells it
 transport is not: 2025-03-26 replaced it and 2026-07-28 says new
 implementations SHOULD NOT adopt it.
 
+Serving 2024-11-05 does not make it the default for a message that names no
+revision on the transport. A Streamable HTTP request with no
+`MCP-Protocol-Version` header and no session, and a stdio batch before
+`initialize`, are taken as 2025-03-26 (`Headerless`): 2024-11-05 has no
+Streamable HTTP, so nothing on `/mcp` can be a 2024-11-05 request, the
+2025-06-18/2025-11-25 transport pages say a server SHOULD assume 2025-03-26
+there (2026-07-28: MAY), and a batch can only come from a client that believes
+batches exist -- 2024-11-05's schema has no batch type, 2025-03-26 says a
+server MUST accept them. `Oldest` still governs how a result is spelled for a
+stdio client that declared nothing, where guessing downward is the safe
+direction.
+
 ## initialize
 
 Every legacy lifecycle page: if the server does not support the requested
@@ -73,7 +85,7 @@ replaced it on each listen. A notification kind no filter field names is
 dropped on the way out, whatever the notifier produced.
 
 Over Streamable HTTP the listen POST's response is the stream: an SSE response
-held open, with a comment every `protoMessages.listenKeepAlive`, until the
+held open, with a comment every `transport.sseKeepAlive` (one keep-alive for every stream mcpx serves), until the
 client closes it (the transport's cancellation). mcpx used to return at once,
 ending the response with only the acknowledgement on it. On stdio the client
 ends a stream with `notifications/cancelled` naming the listen id.

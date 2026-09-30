@@ -99,6 +99,14 @@ type Defaults struct {
 		AbandonGrace string `json:"abandonGrace"`
 		MCPPath      string `json:"mcpPath"`
 	} `json:"proto"`
+	// Transport governs how mcpx's own MCP server behaves on the wire, as
+	// opposed to what it says: keep-alives, shutdown, who may connect.
+	Transport struct {
+		SSEKeepAlive   string   `json:"sseKeepAlive"`
+		StdioDrain     string   `json:"stdioDrain"`
+		LoopbackHosts  []string `json:"loopbackHosts"`
+		AllowedOrigins []string `json:"allowedOrigins"`
+	} `json:"transport"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -234,12 +242,41 @@ type Defaults struct {
 	// ProtoMessages governs the per-message fields mcpx's own MCP server
 	// attaches: cache hints on results and keep-alives on listen streams.
 	ProtoMessages struct {
-		ListMaxAge      string `json:"listMaxAge"`
-		ReadMaxAge      string `json:"readMaxAge"`
-		ListenKeepAlive string `json:"listenKeepAlive"`
-		TaskAfter       string `json:"taskAfter"`
+		ListMaxAge string `json:"listMaxAge"`
+		ReadMaxAge string `json:"readMaxAge"`
+		TaskAfter  string `json:"taskAfter"`
 	} `json:"protoMessages"`
+	// Upstream governs how mcpx connects to the servers it fronts: which
+	// protocol era it tries first, how long it waits to find out, and where
+	// it remembers the answer.
+	Upstream struct {
+		Protocol       string `json:"protocol"`
+		ProbeTimeout   string `json:"probeTimeout"`
+		EraCache       bool   `json:"eraCache"`
+		EraFile        string `json:"eraFile"`
+		EraFileVersion int    `json:"eraFileVersion"`
+		ErrorBodyLimit string `json:"errorBodyLimit"`
+	} `json:"upstream"`
 }
+
+// Upstream connection defaults.
+var (
+	// UpstreamProtocol is the era preference for a server that names none.
+	UpstreamProtocol = builtin.Upstream.Protocol
+	// UpstreamProbeTimeout is how long a stdio server/discover may go
+	// unanswered before initialize is sent alongside it.
+	UpstreamProbeTimeout = mustDur(builtin.Upstream.ProbeTimeout, "upstream.probeTimeout")
+	// UpstreamEraCache remembers each server configuration's era.
+	UpstreamEraCache = builtin.Upstream.EraCache
+	// UpstreamEraFile is the era cache's name inside the state directory.
+	UpstreamEraFile = builtin.Upstream.EraFile
+	// UpstreamEraFileVersion is bumped when the file's shape changes; a file
+	// of any other version is ignored and rewritten.
+	UpstreamEraFileVersion = builtin.Upstream.EraFileVersion
+	// HTTPErrorBodyLimit bounds how much of a non-2xx body is read: enough
+	// for a JSON-RPC error, not enough for an HTML error page to matter.
+	HTTPErrorBodyLimit = mustBytes(builtin.Upstream.ErrorBodyLimit, "upstream.errorBodyLimit")
+)
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
 // package variables before it runs init(), so the exported values below would
@@ -398,13 +435,23 @@ var (
 	// ProtoReadMaxAge is the ttlMs on resources/read. Zero: a resource is
 	// whatever an upstream server says it is now.
 	ProtoReadMaxAge = mustDur(builtin.ProtoMessages.ReadMaxAge, "protoMessages.readMaxAge")
-	// ProtoListenKeepAlive is how often an idle HTTP listen stream carries a
-	// comment, so an intermediary does not time it out.
-	ProtoListenKeepAlive = mustDur(builtin.ProtoMessages.ListenKeepAlive, "protoMessages.listenKeepAlive")
 	// ProtoTaskAfter is how long a tools/call from a client that declared
 	// the tasks extension runs in line before mcpx hands back a task
 	// instead of the result.
 	ProtoTaskAfter = mustDur(builtin.ProtoMessages.TaskAfter, "protoMessages.taskAfter")
+	// TransportSSEKeepAlive is how often an otherwise quiet event stream
+	// carries a comment line, so an intermediary or a client idle timeout
+	// does not close a stream that is merely waiting.
+	TransportSSEKeepAlive = mustDur(builtin.Transport.SSEKeepAlive, "transport.sseKeepAlive")
+	// TransportStdioDrain bounds how long `mcpx serve` keeps answering
+	// requests already in flight after its input closes, before it cancels
+	// them and exits.
+	TransportStdioDrain = mustDur(builtin.Transport.StdioDrain, "transport.stdioDrain")
+	// TransportLoopbackHosts are the Origin hosts a browser page on this
+	// machine presents; any port, http or https.
+	TransportLoopbackHosts = builtin.Transport.LoopbackHosts
+	// TransportAllowedOrigins are further Origins allowed to reach /mcp.
+	TransportAllowedOrigins = builtin.Transport.AllowedOrigins
 
 	CatalogBudget = builtin.Catalog.Budget
 
