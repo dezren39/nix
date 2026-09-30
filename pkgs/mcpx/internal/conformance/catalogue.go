@@ -13,7 +13,6 @@
 package conformance
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -188,17 +187,13 @@ func reason(note, prefix string) string {
 
 // Parse reads docs/spec/requirements.md.
 func Parse(path string) ([]Requirement, error) {
-	f, err := os.Open(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	var out []Requirement
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 1<<16), 1<<22)
 	inDupes := false
-	for sc.Scan() {
-		line := sc.Text()
+	for _, line := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(line, "## ") {
 			inDupes = strings.Contains(line, "Folded duplicates")
 			continue
@@ -228,7 +223,7 @@ func Parse(path string) ([]Requirement, error) {
 			Notes: map[string]string{Server: c[7], Client: c[8]},
 		})
 	}
-	return out, sc.Err()
+	return out, nil
 }
 
 // LoadOverrides reads every overrides/*.json.
