@@ -28,6 +28,10 @@
     "reapInterval": "30s",
     "saveInterval": "5m"
   },
+  "cli": {
+    "cellWidth": 60,
+    "usageColumn": 30
+  },
   "catalog": {
     "budget": 2000
   },
