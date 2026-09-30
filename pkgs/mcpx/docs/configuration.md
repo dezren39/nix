@@ -472,3 +472,11 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `tasks.resultWait` | duration | `2m0s` | call | yes | `--tasks-result-wait` | `MCPX_TASKS_RESULT_WAIT` | how long collecting a task result blocks before giving up |
 | `tasks.ttl` | duration | `10m0s` | daemon | yes | `--tasks-ttl` | `MCPX_TASKS_TTL` | how long a finished task's result is kept |
+
+### upstream
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `upstream.eraCache` | bool | `true` | daemon | no | `--upstream-era-cache` | `MCPX_UPSTREAM_ERA_CACHE` | remember which era each server configuration speaks, across restarts |
+| `upstream.probeTimeout` | duration | `2s` | daemon | no | `--upstream-probe-timeout` | `MCPX_UPSTREAM_PROBE_TIMEOUT` | how long a stdio server/discover may go unanswered before initialize is also sent |
+| `upstream.protocol` | enum | `modern` | daemon | no | `--upstream-protocol` | `MCPX_UPSTREAM_PROTOCOL` | which protocol era to try first against a server that names none |

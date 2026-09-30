@@ -530,11 +530,17 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// Mandatory in the modern revisions, and the probe a dual-era client
 		// uses to decide which era it is talking to. Answering it is what
 		// makes mcpx reachable from a modern client at all.
+		// DiscoverResult (schema/2026-07-28): the list is supportedVersions
+		// and server identity travels in _meta. The earlier shape here was
+		// understood only by mcpx's own client, which read the same wrong
+		// names.
 		return reply(map[string]any{
-			"protocolVersions": Supported,
-			"serverInfo":       map[string]any{"name": s.name, "version": s.version},
-			"capabilities":     s.capabilities(ModernLatest, c),
-			"instructions":     Instructions,
+			"supportedVersions": Supported,
+			"_meta": map[string]any{
+				"io.modelcontextprotocol/serverInfo": map[string]any{"name": s.name, "version": s.version},
+			},
+			"capabilities": s.capabilities(ModernLatest, c),
+			"instructions": Instructions,
 		})
 
 	case "notifications/initialized", "initialized":
