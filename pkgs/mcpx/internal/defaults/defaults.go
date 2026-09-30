@@ -68,6 +68,7 @@ type Defaults struct {
 		RestartBackoffMax    string `json:"restartBackoffMax"`
 		RegistryTimeout      string `json:"registryTimeout"`
 		EventHistory         int    `json:"eventHistory"`
+		EventSubscriberBuf   int    `json:"eventSubscriberBuffer"`
 		StreamReconnect      string `json:"streamReconnect"`
 		TaskTTL              string `json:"taskTTL"`
 		TaskResultWait       string `json:"taskResultWait"`
@@ -456,11 +457,14 @@ var (
 	RestartBackoffMax    = mustDur(builtin.Plumbing.RestartBackoffMax, "plumbing.restartBackoffMax")
 	RegistryTimeout      = mustDur(builtin.Plumbing.RegistryTimeout, "plumbing.registryTimeout")
 	EventHistory         = builtin.Plumbing.EventHistory
-	StreamReconnect      = mustDur(builtin.Plumbing.StreamReconnect, "plumbing.streamReconnect")
-	TaskTTL              = mustDur(builtin.Plumbing.TaskTTL, "plumbing.taskTTL")
-	TaskResultWait       = mustDur(builtin.Plumbing.TaskResultWait, "plumbing.taskResultWait")
-	StatsTop             = builtin.Plumbing.StatsTop
-	RegistryLimit        = builtin.Plumbing.RegistryLimit
+	// EventSubscriberBuf is how many events one subscriber may fall behind
+	// before it is dropped as slow.
+	EventSubscriberBuf = builtin.Plumbing.EventSubscriberBuf
+	StreamReconnect    = mustDur(builtin.Plumbing.StreamReconnect, "plumbing.streamReconnect")
+	TaskTTL            = mustDur(builtin.Plumbing.TaskTTL, "plumbing.taskTTL")
+	TaskResultWait     = mustDur(builtin.Plumbing.TaskResultWait, "plumbing.taskResultWait")
+	StatsTop           = builtin.Plumbing.StatsTop
+	RegistryLimit      = builtin.Plumbing.RegistryLimit
 
 	// ResolveDialTimeout bounds the liveness check /v1/resolve makes against
 	// the socket it is about to name. It is a local connect on a unix
