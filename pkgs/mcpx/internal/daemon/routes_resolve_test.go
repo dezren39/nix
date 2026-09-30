@@ -25,6 +25,14 @@ import (
 // GOTMPDIR (not TMPDIR) is what testing.TempDir consults, and it is read
 // once per test: every t.TempDir in the test then nests under the fake home,
 // keeping the whole test tree outside the real $HOME.
+//
+// The path is resolved through its symlinks before anything derives from it.
+// On macOS /tmp *is* a symlink, to /private/tmp, and config discovery
+// canonicalises the paths it reports -- so an unresolved fake home makes the
+// test compare /tmp/... against the /private/tmp/... the code correctly
+// returned, and it fails on every developer machine while passing on Linux
+// CI, where /tmp is a real directory. Resolving here rather than at each
+// comparison keeps the asymmetry in one place.
 func isolate(t *testing.T) string {
 	t.Helper()
 	home, err := os.MkdirTemp("/tmp", "mcpx-test-home-")
@@ -32,6 +40,9 @@ func isolate(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	if resolved, rerr := filepath.EvalSymlinks(home); rerr == nil {
+		home = resolved
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 	t.Setenv("MCPX_CONFIG", "")
