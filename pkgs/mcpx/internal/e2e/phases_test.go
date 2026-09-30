@@ -58,3 +58,20 @@ func TestAFileThatThrowsAtTopLevelRunsOnErrorAndSuffix(t *testing.T) {
 		}
 	}
 }
+
+// TestARemoteExecPrintsItsOutput: `mcpx exec --remote` asked the daemon for
+// its text answer, the script's bare stdout, and then decoded it as a JSON
+// Result -- so plain output failed with "invalid character" and output that
+// happened to be JSON printed nothing and exited 0.
+func TestARemoteExecPrintsItsOutput(t *testing.T) {
+	e := newEnv(t, oneServer)
+	if out := e.run("exec", "--remote", `console.log("remote-plain")`); !strings.Contains(out, "remote-plain") {
+		t.Errorf("plain stdout was lost:\n%s", out)
+	}
+	if out := e.run("exec", "--remote", `console.log(JSON.stringify({remote: "json"}))`); !strings.Contains(out, `{"remote":"json"}`) {
+		t.Errorf("JSON-looking stdout was swallowed:\n%s", out)
+	}
+	if _, err := e.try("exec", "--remote", `throw new Error("remote-boom")`); err == nil {
+		t.Errorf("a failing remote script should fail the command")
+	}
+}
