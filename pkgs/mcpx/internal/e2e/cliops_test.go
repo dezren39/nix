@@ -326,3 +326,14 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 		}
 	}
 }
+
+// TestDiagnoseOnAColdDaemonWaitsForTheSchemas: diagnose as the first command
+// against a server slow to start compared the script with an empty catalog
+// and reported nothing wrong. The delay makes the race deterministic.
+func TestDiagnoseOnAColdDaemonWaitsForTheSchemas(t *testing.T) {
+	e := newEnv(t, `{"mcpServers":{"demo":{"command":"FAKE","env":{"FAKEMCP_START_DELAY":"1500ms"}}}}`)
+	out, err := e.try("diagnose", "await demo.echo()")
+	if err == nil || !strings.Contains(out, "message is required") {
+		t.Fatalf("diagnose on a cold daemon should still find the missing argument:\n%s", out)
+	}
+}

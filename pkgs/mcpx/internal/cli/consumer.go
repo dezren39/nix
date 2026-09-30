@@ -162,6 +162,13 @@ func (a *App) CmdDiagnose(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// A daemon that has just started reads its schemas in the background.
+	// Diagnosing against the catalog before that finishes compared the
+	// script with nothing and reported "nothing to report" -- a false all
+	// clear, and a flaky test, found by running the suite three times.
+	if err := a.ensureAnySchemas(ctx, c); err != nil {
+		return err
+	}
 	res, err := c.Diagnose(ctx, source, *session)
 	if err != nil {
 		return err
