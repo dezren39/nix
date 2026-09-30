@@ -302,11 +302,20 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 		close(lines)
 	}()
 	// Keep producing server events until one arrives: the subscription may
-	// not be established by the time the first one fires. `refresh` before
-	// `restart` for the reason spelled out in
-	// TestAStreamingCommandWritesToTheFileItWasGiven: the pool is lazy, so
-	// `restart` on its own stops what is running and starts nothing, and a
-	// loop of bare restarts has exactly one event in it.
+	// not be established by the time the first one fires.
+	//
+	// `refresh` before `restart`, and not `restart` alone. The pool is lazy,
+	// so `restart` drains the instances that are running and starts nothing
+	// -- the next call is what starts one. `ls` above leaves at most a single
+	// instance behind, so a loop of bare restarts had exactly one server
+	// event in it: the first pass consumed it, and if the subscription was
+	// not established yet, nobody heard it and every later pass answered
+	// "stopped 0 instance(s) for demo" and published nothing. That is the
+	// race that took TestAStreamingCommandWritesToTheFileItWasGiven down on
+	// four CI runs; this test has been winning it rather than avoiding it.
+	// Unlike that one, this test needs a *server*-kind event specifically, so
+	// a bare call will not do: it emits none once the server is already up.
+	// refresh starts it, restart stops it, and one of the two always fires.
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -355,7 +364,11 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "-o", out)
+	// No --kinds filter. Waiting for a *server* event meant provoking one with
+	// `restart demo`, and under a loaded runner that restart is itself what
+	// fails -- twice in CI, with the stream idle and nothing on stderr. Any
+	// event proves the same thing about -o, and a call emits several.
+	cmd := exec.CommandContext(ctx, e.mcpx, "events", "-o", out)
 	cmd.Dir, cmd.Env = e.dir, e.envVars
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -366,44 +379,27 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 
 	// Keep producing server events until the file has one, for the same
 	// reason TestEventsStreamAsNDJSON retries: the subscription may not be
-	// established when the first event fires.
-	//
-	// `refresh` before `restart`, and not `restart` alone. The pool is lazy:
-	// `restart` drains the instances that are running and starts nothing,
-	// because the next call is what starts one. `ls` above leaves at most a
-	// single instance behind -- it answers from the schema cache and a
-	// background read starts the server to fill it -- so a loop of bare
-	// restarts had exactly one event in it. The first pass consumed it, and
-	// if the stream's subscription was not established yet, nobody heard it
-	// and every later pass was a silent no-op ("stopped 0 instance(s)")
-	// against a budget that could no longer be spent on anything. That is
-	// the race every CI runner lost: the `events` child is a cold binary
-	// starting on a loaded machine and `restart` is a warm one. `refresh`
-	// starts the server synchronously, so each pass round the loop really
-	// does publish a server event and the retry means what it says.
+	// established when the first event fires. The budget is generous because
+	// a restart costs a process start, and a slow runner failed a 15s one.
 	deadline := time.Now().Add(60 * time.Second)
-	var got, lastRestart string
-	var lastErr error
+	var got, provokeErr string
 	for time.Now().Before(deadline) {
-		if _, err := e.try("refresh", "demo"); err != nil {
-			lastErr = err
+		if _, err := e.try("call", "demo.echo", `{"message":"x"}`); err != nil {
+			provokeErr = err.Error()
 		}
-		lastRestart, lastErr = e.try("restart", "demo")
-		if b, err := os.ReadFile(out); err == nil && len(b) > 0 {
+		if b, rerr := os.ReadFile(out); rerr == nil && len(b) > 0 {
 			got = string(b)
 			break
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
 	if got == "" {
-		// The last restart's own answer, because "nothing was written" has
-		// two very different causes -- the command ignored -o, or no event
-		// was ever published -- and this is what tells them apart. stderr
-		// catches the third: the command exited immediately and the loop
-		// then waited out its whole budget for a file nobody was writing.
+		// stderr, because the interesting failure is the one where the
+		// command exited immediately and the loop then waited out its whole
+		// budget for a file that was never going to be written.
 		t.Fatalf("-o is in this command's usage but nothing was written to %s\n"+
-			"last restart: %q (err %v)\nstderr: %s\nstdout: %s",
-			out, strings.TrimSpace(lastRestart), lastErr, stderr.String(), stdout.String())
+			"stderr: %s\nstdout: %s\nlast provoke error: %s",
+			out, stderr.String(), stdout.String(), provokeErr)
 	}
 	if !strings.Contains(got, `"kind"`) {
 		t.Errorf("the file should hold the event stream, got:\n%s", got)
