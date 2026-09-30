@@ -510,8 +510,8 @@ func TestLegacyBatches(t *testing.T) {
 	})
 	t.Run("2025-11-25/streamable-http/batch-rejected-by-header", func(t *testing.T) {
 		w := post(s, batch(frame(1, "ping", nil)), map[string]string{"MCP-Protocol-Version": "2025-11-25"})
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("status %d, want 400:\n%s", w.Code, w.Body)
+		if code, _ := rpcErr(t, w.Body.Bytes()); w.Code != http.StatusBadRequest || code != -32600 {
+			t.Fatalf("status %d code %d, want 400 -32600:\n%s", w.Code, code, w.Body)
 		}
 	})
 }
@@ -633,7 +633,7 @@ func TestLegacyGETStream(t *testing.T) {
 		defer cancel()
 		resp, r := openGET(t, ts.URL, id, ctx)
 		defer resp.Body.Close()
-		<-n.got
+		listened(t, n)
 		r.waitFor(t, func(l string) bool { return strings.HasPrefix(l, ":") })
 	})
 	t.Run("2025-11-25/streamable-http/one-get-stream-per-session", func(t *testing.T) {
@@ -643,7 +643,7 @@ func TestLegacyGETStream(t *testing.T) {
 		defer cancel()
 		first, _ := openGET(t, ts.URL, id, ctx)
 		defer first.Body.Close()
-		<-n.got
+		listened(t, n)
 		second, _ := openGET(t, ts.URL, id, ctx)
 		defer second.Body.Close()
 		if second.StatusCode != http.StatusConflict {
@@ -658,7 +658,7 @@ func TestLegacyGETStream(t *testing.T) {
 		defer cancel()
 		resp, r := openGET(t, ts.URL, id, ctx)
 		defer resp.Body.Close()
-		<-n.got
+		listened(t, n)
 		req, _ := http.NewRequest(http.MethodDelete, ts.URL, nil)
 		req.Header.Set("Mcp-Session-Id", id)
 		dr, err := http.DefaultClient.Do(req)
@@ -676,15 +676,27 @@ func TestLegacyGETStream(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("subscribe: %d %s", w.Code, w.Body)
 		}
-		<-n.got // the subscription's own listen
+		listened(t, n) // the subscription's own listen
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		resp, r := openGET(t, ts.URL, id, ctx)
 		defer resp.Body.Close()
-		<-n.got // the list_changed forwarding
+		listened(t, n) // the list_changed forwarding
 		n.fire <- [2]any{"notifications/resources/updated", map[string]any{"uri": "demo://a"}}
 		r.waitFor(t, func(l string) bool { return strings.Contains(l, "notifications/resources/updated") })
 	})
+}
+
+// listened waits for the notifier to be started, and fails rather than hangs.
+func listened(t *testing.T, n *fakeNotifier) mcpserver.ListenFilter {
+	t.Helper()
+	select {
+	case lf := <-n.got:
+		return lf
+	case <-time.After(5 * time.Second):
+		t.Fatal("no notification stream was started")
+	}
+	return mcpserver.ListenFilter{}
 }
 
 func TestLegacyHTTPCancellation(t *testing.T) {
@@ -720,6 +732,39 @@ func TestLegacyHTTPCancellation(t *testing.T) {
 		if w.Code != http.StatusAccepted {
 			t.Fatalf("status %d", w.Code)
 		}
+		b.waitEnded(t)
+	})
+	// https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#earlier-streamable-http-revisions
+	// "An Mcp-Session-Id header on a request: ignore it."
+	t.Run("2026-07-28/streamable-http/modern-request-not-bound-to-a-legacy-session", func(t *testing.T) {
+		b := newBlocking()
+		s := mcpserver.New(b, "mcpx", "test")
+		ts := httptest.NewServer(s)
+		defer ts.Close()
+		id := legacySession(t, s, "2025-11-25")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL,
+			strings.NewReader(string(frame(9, "tools/call", callParams(nil)))))
+		req.Header.Set("Mcp-Session-Id", id)
+		go func() {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				resp.Body.Close()
+			}
+		}()
+		b.waitStarted(t)
+		// A modern notification naming the legacy session reaches nothing
+		// in it: were it bound, this would cancel the legacy call.
+		h := modernHeaders("notifications/cancelled", "")
+		h["Mcp-Session-Id"] = id
+		post(s, frame(nil, "notifications/cancelled", modernParams(map[string]any{"requestId": 9})), h)
+		select {
+		case <-b.ended:
+			t.Fatal("a modern request was bound to a legacy session's connection")
+		case <-time.After(300 * time.Millisecond):
+		}
+		post(s, frame(nil, "notifications/cancelled", map[string]any{"requestId": 9}),
+			map[string]string{"Mcp-Session-Id": id})
 		b.waitEnded(t)
 	})
 }
@@ -830,10 +875,22 @@ func startStdio(t *testing.T, s *mcpserver.Server) *stdioSession {
 	return ss
 }
 
+// send writes one line, and fails rather than hangs when the server has
+// stopped reading -- which is what a server stuck on one request does.
 func (ss *stdioSession) send(t *testing.T, b []byte) {
 	t.Helper()
-	if _, err := ss.in.Write(append(b, '\n')); err != nil {
-		t.Fatal(err)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := ss.in.Write(append(b, '\n'))
+		errc <- err
+	}()
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server stopped reading its input")
 	}
 }
 
