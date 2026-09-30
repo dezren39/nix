@@ -31,6 +31,12 @@ func isolate(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// On macOS /tmp is a symlink to /private/tmp, and the resolver reports
+	// real paths, so every path this test builds has to start from the real
+	// one or no comparison can match.
+	if real, rerr := filepath.EvalSymlinks(home); rerr == nil {
+		home = real
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
