@@ -16,8 +16,12 @@ utility pages, and across the doc comments in `schema.ts`, which carry several
 rules the prose never repeats. A server written from the feature pages alone
 misses most of them. What mcpx does is summarised in a line where it matters
 and documented in [`../protocol.md`](../protocol.md). How other implementations
-behave is in [`../compare/`](../compare/). The client side is
-[`client-obligations.md`](client-obligations.md).
+behave is in [`../compare/`](../compare/README.md), a dated register that
+carries the per-requirement sources, mcpx's status at a commit, and the
+comparison with opencode v1/v2, lootbox and Cloudflare code mode. This
+document links to it rather than restating it. What mcpx sends *as* a client
+is [`client.md`](client.md). The matching document for what the specification
+asks of a *client* is not written yet (#249).
 
 This document is the distilled form. The authority for what mcpx actually
 does is the code — `internal/mcpserver/revisions.go` holds the floors,
@@ -186,7 +190,9 @@ One endpoint answers POST and, in the legacy revisions, GET.
   DNS rebinding, and from 2025-11-25 an invalid origin gets 403. On a
   loopback, unauthenticated server this is the *only* defence the transport
   offers against any web page the user visits. Binding to loopback alone does
-  not stop DNS rebinding. mcpx has no `Origin` check today.
+  not stop DNS rebinding. mcpx validates `Origin` on `/mcp` — loopback plus
+  `transport.allowedOrigins`, 403 otherwise — and does not yet do so on the
+  `/v1` REST surface, which is the rest of #204.
 - **Local binding.** A local server **SHOULD** bind to 127.0.0.1 and **SHOULD**
   authenticate.
 - **POST responses.** A POST carrying only responses or notifications gets
@@ -295,9 +301,16 @@ matters in §4.4 and §5.
   - The `CancelledNotification` doc comment: the server-sent cancel happens
     *on stdio*.
 
-  The reading that satisfies all three: on stdio, send the cancel, preceded by
-  the result for a graceful end; on HTTP, send the result and close the
-  stream. The quotes are in §3 below.
+  Only one of the three is a MUST, and only one ordering satisfies it:
+  a cancellation may name only a request that is still in progress, so the
+  notification has to go **first** and the result after it. That also
+  satisfies the SHOULD, and it costs nothing — a client that acted on the
+  cancellation ignores a late response, exactly as the cancellation page
+  tells it to, and a client that waits for the result still gets it. The
+  schema's "on stdio" then reads as the case it was written for rather than
+  as a restriction, because on HTTP closing the SSE stream is a second,
+  redundant signal, not a substitute for the one the MUST names. mcpx sends
+  both on both transports (`internal/mcpserver/listen.go`, `announceEnd`).
 - **A proxy has to propagate cancellation.** When the downstream cancels, the
   proxy cancels upstream:
   - legacy upstream: `notifications/cancelled`;
@@ -378,8 +391,13 @@ method under a new id with `inputResponses` and the `requestState`.
     `tasks/get`.
   - A task **must be durably created before the response is sent**.
   - A server **must never** return a task to a client that did not declare
-    the extension. The changelog's "unsolicited" contradicts this; see
-    §3 below.
+    the extension. `resultType: "task"` is the only thing that distinguishes a
+    task handle from a real result, and a client that did not negotiate the
+    extension has no schema for it — so returning one unasked hands it a
+    result it cannot parse. Note that this is also why `tasks/list` is absent
+    from the extension: polling a client-hosted task would itself be the
+    server→client request 2026-07-28 forbids
+    ([`../compare/register/capabilities.md`](../compare/register/capabilities.md)).
 - **What the prose implies.** A task handle outlives the request that created
   it, and the connection. Task state cannot live in connection or session
   state, and `tasks/list` visibility cannot be keyed by connection.
@@ -517,12 +535,18 @@ The 2026-07-28 work is on the alpha line (`0.2.0-alpha.11`); `latest` is a
 mcpx as a server, and, through `internal/conformance/officialclient`, mcpx as
 the client under test.
 
-Measured against the daemon's `/mcp` endpoint:
+Measured against the daemon's `/mcp` endpoint, at `408bc2b`:
 
 | requirement set | passed | failed |
 | --- | --- | --- |
-| `2026-07-28` | 115 | 54 |
-| `2025-11-25` | 47 | 19 |
+| `2026-07-28` | 116 | 54 |
+| `2025-11-25` | 45 | 21 |
+
+2025-11-25 was 47 / 19 until #247 taught mcpx to actually arrange an upstream
+resource subscription instead of acknowledging one blindly. The suite
+subscribes to `test://watched-resource`, which no upstream owns, and mcpx now
+says so — a correct refusal scored as a failure, and one more instance of the
+paragraph below rather than an exception to it (#251).
 
 **Most of those failures are not defects.** The suite's scenarios assume a
 server that implements its fixture surface — tools named `slow_compute` and
@@ -530,7 +554,11 @@ server that implements its fixture surface — tools named `slow_compute` and
 `test://`. mcpx is a proxy: it publishes its own small tool set and namespaces
 every upstream resource as `mcpx://<namespace>/<uri>`. A scenario that cannot
 find its fixture reports a failure that says nothing about protocol
-conformance. Read that way, the 54 divide as:
+conformance. **Do not read 54 as a defect count.** Every one of the 21 on
+2025-11-25 is a fixture failure — `no prompt named "test_simple_prompt"`,
+`a resource URI looks like mcpx://<namespace>/<uri>, got "test://static-text"`,
+`Tool 'json_schema_2020_12_tool' not found` — and on 2026-07-28 the 54 divide
+as:
 
 | category | count | meaning |
 | --- | --- | --- |
@@ -541,12 +569,12 @@ The genuine remainder, all of which need a fixture tool to exercise properly
 and are therefore tracked rather than guessed at:
 
 - `-32021 MissingRequiredClientCapability` is not raised when a tool needs a
-  client capability the request did not declare.
+  client capability the request did not declare (#199).
 - The tasks extension does not answer `-32021` to a client that did not
   declare `io.modelcontextprotocol/tasks`, and mcpx creates no task for a
-  server-directed `CreateTaskResult`.
+  server-directed `CreateTaskResult` (#209).
 - `Mcp-Method` on a `tools/call` changes the result content, which it must
-  not.
+  not (#199, row TR-37).
 
 Two obligations this document names were corrected as a direct result of
 running the suite, each with a test that fails without the fix:

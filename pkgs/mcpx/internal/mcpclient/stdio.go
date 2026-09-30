@@ -139,9 +139,31 @@ func (t *StdioTransport) Send(ctx context.Context, msg []byte) error {
 		return errors.New("stdio transport closed")
 	}
 	if _, err := t.stdin.Write(append(msg, '\n')); err != nil {
-		return fmt.Errorf("write to %s: %w (stderr: %s)", t.label, err, t.stderr.Tail(400))
+		return fmt.Errorf("write to %s: %w (stderr: %s)", t.label, err, t.lastWords(400))
 	}
 	return nil
+}
+
+// lastWords is the tail of the child's stderr, waited for rather than
+// sampled.
+//
+// The ring buffer is filled by a goroutine, so at the moment a write or a read
+// fails it may still be empty even though the child has already printed the
+// only explanation there is. Recv waited for the drain; Send sampled -- and
+// Send is the one that fails first when a server refuses to start, because
+// cmd.Wait closes our end of its stdin as soon as the child is reaped, so the
+// `initialize` frame hits "file already closed" before anything is ever read
+// back. The error a person then sees named the pipe and not the reason:
+//
+//	server "fake": initialize: write to .../fakemcp: write |1: file already
+//	closed (stderr: )
+//
+// Both waits are bounded. A grandchild that inherited the pipe can hold it
+// open past its parent's exit, and a diagnostic is not worth hanging for.
+func (t *StdioTransport) lastWords(n int) string {
+	<-waitOrTimeout(t.exited, defaults.StdioExitGrace)
+	<-waitOrTimeout(t.stderrDone, defaults.StdioDrainGrace)
+	return t.stderr.Tail(n)
 }
 
 // Recv reads one frame, skipping any non-JSON noise a server prints to stdout.
@@ -150,12 +172,12 @@ func (t *StdioTransport) Recv() ([]byte, error) {
 		line, err := readLine(t.stdout)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				<-waitOrTimeout(t.exited, 2*time.Second)
 				// The reason a server died is usually its last words on
-				// stderr; wait for them, bounded, since a grandchild that
-				// inherited the pipe can hold it open.
-				<-waitOrTimeout(t.stderrDone, defaults.StdioDrainGrace)
-				return nil, fmt.Errorf("%s exited: %v (stderr: %s)", t.label, t.waitErr, t.stderr.Tail(800))
+				// stderr. Taken before waitErr is read, because that field
+				// is written by the reaping goroutine and only settled once
+				// `exited` has closed, which lastWords waits for.
+				tail := t.lastWords(800)
+				return nil, fmt.Errorf("%s exited: %v (stderr: %s)", t.label, t.waitErr, tail)
 			}
 			return nil, err
 		}

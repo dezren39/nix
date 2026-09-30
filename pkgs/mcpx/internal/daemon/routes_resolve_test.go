@@ -39,6 +39,14 @@ func isolate(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Through the symlink, because /tmp is one to /private/tmp on macOS and
+	// everything that reports a config path back has already resolved it --
+	// FingerprintConfig does it deliberately, for the reason recorded there.
+	// Without this the fake home is /tmp/... while every path the resolver
+	// answers with is /private/tmp/..., and the two never compare equal.
+	if real, rerr := filepath.EvalSymlinks(home); rerr == nil {
+		home = real
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	if resolved, rerr := filepath.EvalSymlinks(home); rerr == nil {
 		home = resolved
