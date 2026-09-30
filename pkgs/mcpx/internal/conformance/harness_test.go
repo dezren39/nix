@@ -917,7 +917,8 @@ type httpPeerSrv struct {
 	session string
 	// sse answers requests as a text/event-stream (with a keep-alive
 	// comment first) instead of application/json.
-	sse bool
+	sse    bool
+	serial sync.Mutex
 }
 
 type recorded struct {
@@ -950,6 +951,10 @@ func (hp *httpPeerSrv) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
+	// One exchange at a time: the peer has a single reply channel, and two
+	// concurrent POSTs must not take each other's answers.
+	hp.serial.Lock()
+	defer hp.serial.Unlock()
 	_ = hp.peer.Send(r.Context(), b)
 	var reply []byte
 	select {
