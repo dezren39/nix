@@ -594,7 +594,11 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 	if err := r.confirmDestructive(ctx, p, tool, cc); err != nil {
 		return nil, err
 	}
-	return p.Call(ctx, key, tool, args)
+	res, err := p.Call(ctx, key, tool, args)
+	if err != nil {
+		return nil, r.explainCall(server, tool, args, err)
+	}
+	return res, nil
 }
 
 // ReadResource dispatches a resource read.

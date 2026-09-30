@@ -457,6 +457,20 @@ export interface RawToolResult {
  */
 export type ToolResult = any;
 
+/**
+ * What mcpx worked out about a call a server refused: the argument at fault,
+ * what changed in the tool's schema and when, and the smallest call that works.
+ */
+export interface Diagnostic {
+  kind: string;
+  tool?: string;
+  field?: string;
+  message: string;
+  changed?: { when: string; kind: string; tool: string; field?: string; what: string };
+  fix?: string;
+  fatal?: boolean;
+}
+
 export class ToolError extends Error {
   // Written as plain fields rather than constructor parameter properties:
   // Node's type-stripping mode erases types without transforming code, and
@@ -464,6 +478,7 @@ export class ToolError extends Error {
   server: string;
   tool: string;
   raw?: unknown;
+  diagnostics?: Diagnostic[];
 
   constructor(message: string, server: string, tool: string, raw?: unknown) {
     super(message);
@@ -543,7 +558,9 @@ async function __call(server: string, tool: string, args: unknown): Promise<Tool
   }
   const body = await resp.json().catch(() => ({ error: ` + "`" + `bad response (http ${resp.status})` + "`" + ` }));
   if (!resp.ok || body.error) {
-    throw new ToolError(body.error ?? ` + "`" + `http ${resp.status}` + "`" + `, server, tool, body);
+    const err = new ToolError(body.error ?? ` + "`" + `http ${resp.status}` + "`" + `, server, tool, body);
+    if (Array.isArray(body.diagnostics)) err.diagnostics = body.diagnostics;
+    throw err;
   }
   return unwrap(server, tool, body.result as RawToolResult);
 }
