@@ -35,9 +35,23 @@ type CallContext struct {
 }
 
 // CallerOwned reports whether a resolved key belongs solely to this caller and
-// may be torn down when the caller finishes.
+// may be torn down when the caller finishes: a per-call key, or one built from
+// an identity the caller minted for itself.
+//
+// Ephemeral says the *session id* is private, not that everything the caller
+// touched is. Treating it as the latter stopped the shared global, repo and
+// worktree instances at the end of every `mcpx exec` run without a session,
+// so the next caller paid a cold start -- and a caller that had just been
+// using one lost it.
 func (c CallContext) CallerOwned(key string) bool {
-	return c.Ephemeral || strings.HasPrefix(key, "call:")
+	if strings.HasPrefix(key, "call:") {
+		return true
+	}
+	if !c.Ephemeral {
+		return false
+	}
+	return (c.SessionID != "" && key == "session:"+c.SessionID) ||
+		(c.PID > 0 && key == "pid:"+strconv.Itoa(c.PID))
 }
 
 // Key resolves the instance key for a scope. The returned key is opaque; only
