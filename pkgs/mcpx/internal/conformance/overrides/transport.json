@@ -1,0 +1,6 @@
+{
+  "stdio-client-correlates-subscription-id": {"client": "n/a:mcpx never opens subscriptions/listen upstream (#208), so there is no subscription id to correlate"},
+  "streamable-http-get-close-any-time": {"client": "n/a:mcpx's client opens no GET stream to close"},
+  "transport-custom-preserve-jsonrpc-and-lifecycle": {"server": "n/a:mcpx serves MCP only over stdio and Streamable HTTP; its /v1 REST surface is not an MCP transport"},
+  "streamable-http-server-validates-param-headers": {"server": "n/a:no tool mcpx serves declares an x-mcp-header parameter, so no Mcp-Param header can be owed"}
+}

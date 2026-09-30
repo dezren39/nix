@@ -198,10 +198,13 @@ type backend struct {
 	// block, when set, makes Call wait until the context ends or it closes.
 	block   chan struct{}
 	started chan struct{}
+	// ended receives once per blocked call whose context ended: the
+	// backend saw the cancellation.
+	ended chan struct{}
 }
 
 func newBackend() *backend {
-	return &backend{calls: map[string]int{}, started: make(chan struct{}, 16)}
+	return &backend{calls: map[string]int{}, started: make(chan struct{}, 16), ended: make(chan struct{}, 16)}
 }
 
 func (b *backend) hit(n string) { b.mu.Lock(); b.calls[n]++; b.mu.Unlock() }
@@ -230,6 +233,7 @@ func (b *backend) Call(ctx context.Context, ns, tool string, _ json.RawMessage) 
 		b.started <- struct{}{}
 		select {
 		case <-ctx.Done():
+			b.ended <- struct{}{}
 			return "", ctx.Err()
 		case <-b.block:
 		}
@@ -283,6 +287,14 @@ func (n *notifier) Listen(ctx context.Context, _ mcpserver.ListenFilter, send fu
 			send(m[0].(string), m[1])
 		}
 	}
+}
+
+// blocking makes every backend call wait for the context to end, and
+// releases them all at cleanup so no server goroutine outlives the test
+// (an httptest server's Close waits for its handlers).
+func (b *backend) blocking(t *testing.T) {
+	b.block = make(chan struct{})
+	t.Cleanup(func() { close(b.block) })
 }
 
 // newServer is mcpx's MCP server over a fake backend.
@@ -849,6 +861,9 @@ type httpPeerSrv struct {
 	reqs []recorded
 	// session, when set, is issued at initialize and required afterwards.
 	session string
+	// sse answers requests as a text/event-stream (with a keep-alive
+	// comment first) instead of application/json.
+	sse bool
 }
 
 type recorded struct {
@@ -891,6 +906,12 @@ func (hp *httpPeerSrv) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if f["method"] == "initialize" && hp.session != "" {
 		w.Header().Set("Mcp-Session-Id", hp.session)
+	}
+	if hp.sse {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, ": keep-alive\n\nevent: message\ndata: %s\n\n", reply)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	status := http.StatusOK
@@ -1078,4 +1099,97 @@ func callThatAsks() map[string]any {
 func sampleQ(id string) mcpserver.Question {
 	return mcpserver.Question{ID: id, Method: "sampling/createMessage", Server: "up",
 		Params: json.RawMessage(`{"messages":[{"role":"user","content":{"type":"text","text":"hi"}}],"maxTokens":10}`)}
+}
+
+// stream is an open HTTP response read line by line as it arrives.
+type stream struct {
+	Status int
+	Header http.Header
+	lines  chan string
+	cancel context.CancelFunc
+}
+
+// openStream sends req and returns as soon as the headers arrive; the body
+// is read in the background. The stream is closed at cleanup.
+func openStream(t *testing.T, client *http.Client, req *http.Request) *stream {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	resp, err := client.Do(req.WithContext(ctx))
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	st := &stream{Status: resp.StatusCode, Header: resp.Header, lines: make(chan string, 256), cancel: cancel}
+	go func() {
+		defer close(st.lines)
+		defer resp.Body.Close()
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 0, 1<<16), 1<<22)
+		for sc.Scan() {
+			st.lines <- sc.Text()
+		}
+	}()
+	t.Cleanup(cancel)
+	return st
+}
+
+// until reads lines until one satisfies ok, failing after wait.
+func (st *stream) until(t *testing.T, ok func(string) bool) (seen []string) {
+	t.Helper()
+	deadline := time.After(wait)
+	for {
+		select {
+		case l, open := <-st.lines:
+			if !open {
+				t.Fatalf("stream ended; saw %q", seen)
+			}
+			seen = append(seen, l)
+			if ok(l) {
+				return seen
+			}
+		case <-deadline:
+			t.Fatalf("not seen; saw %q", seen)
+		}
+	}
+}
+
+// rest drains lines until the stream ends or d passes.
+func (st *stream) rest(d time.Duration) (lines []string, ended bool) {
+	deadline := time.After(d)
+	for {
+		select {
+		case l, open := <-st.lines:
+			if !open {
+				return lines, true
+			}
+			lines = append(lines, l)
+		case <-deadline:
+			return lines, false
+		}
+	}
+}
+
+// dataFrames picks the JSON of each "data:" line.
+func dataFrames(t *testing.T, lines []string) []map[string]any {
+	var out []map[string]any
+	for _, l := range lines {
+		if d, ok := strings.CutPrefix(l, "data:"); ok {
+			out = append(out, decode(t, []byte(strings.TrimSpace(d))))
+		}
+	}
+	return out
+}
+
+// postReq builds a POST to the server with rev's headers.
+func (h *httpSrv) postReq(t *testing.T, body []byte, hdr map[string]string) *http.Request {
+	req, err := http.NewRequest(http.MethodPost, h.ts.URL, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	return req
 }

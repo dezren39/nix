@@ -1270,6 +1270,19 @@ func (s *Server) stdioBatch(ctx context.Context, c *Conn, line []byte) any {
 	if v == "" {
 		v = Headerless // see Headerless: a batch before initialize is 2025-03-26's
 	}
+	// An element that names its own revision speaks for itself: a
+	// 2026-07-28 request in an array is a batch that revision forbids,
+	// whatever this process was (not) initialized as.
+	for _, e := range elems {
+		var el struct {
+			Params json.RawMessage `json:"params"`
+		}
+		if json.Unmarshal(e, &el) == nil {
+			if rv := requestVersion(el.Params); rv != "" && !Defines(rv, FeatBatch) {
+				return batchRefused(rv)
+			}
+		}
+	}
 	if !Defines(v, FeatBatch) {
 		return batchRefused(v)
 	}

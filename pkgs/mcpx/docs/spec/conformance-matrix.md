@@ -8,66 +8,66 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | revision | side | level | applies | tested | gap | missing | n/a |
 |---|---|---|---|---|---|---|---|
-| 2024-11-05 | server | MUST | 33 | 14 | 0 | 19 | 21 |
-| 2024-11-05 | server | MUST NOT | 6 | 3 | 0 | 3 | 4 |
+| 2024-11-05 | server | MUST | 32 | 14 | 0 | 18 | 22 |
+| 2024-11-05 | server | MUST NOT | 6 | 5 | 0 | 1 | 4 |
 | 2024-11-05 | server | SHOULD | 36 | 7 | 0 | 29 | 45 |
 | 2024-11-05 | server | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | server | MAY | 10 | 2 | 1 | 7 | 14 |
+| 2024-11-05 | server | MAY | 10 | 3 | 1 | 6 | 14 |
 | 2024-11-05 | server | other | 11 | 6 | 0 | 5 | 1 |
-| 2024-11-05 | client | MUST | 32 | 14 | 0 | 18 | 22 |
-| 2024-11-05 | client | MUST NOT | 9 | 3 | 1 | 5 | 1 |
-| 2024-11-05 | client | SHOULD | 38 | 5 | 2 | 31 | 43 |
+| 2024-11-05 | client | MUST | 32 | 14 | 1 | 17 | 22 |
+| 2024-11-05 | client | MUST NOT | 9 | 5 | 1 | 3 | 1 |
+| 2024-11-05 | client | SHOULD | 38 | 6 | 2 | 30 | 43 |
 | 2024-11-05 | client | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | client | MAY | 15 | 3 | 1 | 11 | 9 |
+| 2024-11-05 | client | MAY | 15 | 4 | 1 | 10 | 9 |
 | 2024-11-05 | client | other | 7 | 6 | 0 | 1 | 5 |
-| 2025-03-26 | server | MUST | 52 | 15 | 7 | 30 | 29 |
-| 2025-03-26 | server | MUST NOT | 7 | 4 | 0 | 3 | 8 |
-| 2025-03-26 | server | SHOULD | 50 | 10 | 5 | 35 | 53 |
-| 2025-03-26 | server | SHOULD NOT | 4 | 1 | 1 | 2 | 1 |
-| 2025-03-26 | server | MAY | 19 | 4 | 3 | 12 | 18 |
+| 2025-03-26 | server | MUST | 51 | 24 | 7 | 20 | 30 |
+| 2025-03-26 | server | MUST NOT | 7 | 6 | 0 | 1 | 8 |
+| 2025-03-26 | server | SHOULD | 50 | 14 | 5 | 31 | 53 |
+| 2025-03-26 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
+| 2025-03-26 | server | MAY | 19 | 10 | 3 | 6 | 18 |
 | 2025-03-26 | server | other | 11 | 6 | 0 | 5 | 1 |
-| 2025-03-26 | client | MUST | 47 | 15 | 8 | 24 | 34 |
-| 2025-03-26 | client | MUST NOT | 12 | 5 | 2 | 5 | 3 |
-| 2025-03-26 | client | SHOULD | 51 | 8 | 7 | 36 | 52 |
+| 2025-03-26 | client | MUST | 47 | 20 | 9 | 18 | 34 |
+| 2025-03-26 | client | MUST NOT | 12 | 7 | 2 | 3 | 3 |
+| 2025-03-26 | client | SHOULD | 51 | 10 | 10 | 31 | 52 |
 | 2025-03-26 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-03-26 | client | MAY | 22 | 5 | 3 | 14 | 15 |
+| 2025-03-26 | client | MAY | 21 | 7 | 4 | 10 | 16 |
 | 2025-03-26 | client | other | 7 | 6 | 0 | 1 | 5 |
-| 2025-06-18 | server | MUST | 66 | 18 | 13 | 35 | 35 |
-| 2025-06-18 | server | MUST NOT | 10 | 5 | 1 | 4 | 8 |
-| 2025-06-18 | server | SHOULD | 52 | 9 | 4 | 39 | 63 |
-| 2025-06-18 | server | SHOULD NOT | 4 | 1 | 1 | 2 | 1 |
-| 2025-06-18 | server | MAY | 17 | 3 | 2 | 12 | 18 |
+| 2025-06-18 | server | MUST | 65 | 29 | 13 | 23 | 36 |
+| 2025-06-18 | server | MUST NOT | 10 | 7 | 1 | 2 | 8 |
+| 2025-06-18 | server | SHOULD | 52 | 14 | 4 | 34 | 63 |
+| 2025-06-18 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
+| 2025-06-18 | server | MAY | 17 | 8 | 2 | 7 | 18 |
 | 2025-06-18 | server | other | 15 | 6 | 0 | 9 | 3 |
-| 2025-06-18 | client | MUST | 58 | 18 | 14 | 26 | 43 |
-| 2025-06-18 | client | MUST NOT | 13 | 5 | 3 | 5 | 5 |
-| 2025-06-18 | client | SHOULD | 59 | 7 | 6 | 46 | 56 |
+| 2025-06-18 | client | MUST | 58 | 24 | 15 | 19 | 43 |
+| 2025-06-18 | client | MUST NOT | 13 | 7 | 3 | 3 | 5 |
+| 2025-06-18 | client | SHOULD | 59 | 9 | 10 | 40 | 56 |
 | 2025-06-18 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-06-18 | client | MAY | 20 | 5 | 2 | 13 | 15 |
+| 2025-06-18 | client | MAY | 19 | 7 | 2 | 10 | 16 |
 | 2025-06-18 | client | other | 10 | 6 | 0 | 4 | 8 |
-| 2025-11-25 | server | MUST | 116 | 20 | 15 | 81 | 64 |
-| 2025-11-25 | server | MUST NOT | 22 | 5 | 1 | 16 | 13 |
-| 2025-11-25 | server | SHOULD | 78 | 12 | 6 | 60 | 81 |
-| 2025-11-25 | server | SHOULD NOT | 11 | 1 | 1 | 9 | 3 |
-| 2025-11-25 | server | MAY | 27 | 4 | 2 | 21 | 28 |
+| 2025-11-25 | server | MUST | 115 | 32 | 15 | 68 | 65 |
+| 2025-11-25 | server | MUST NOT | 22 | 7 | 1 | 14 | 13 |
+| 2025-11-25 | server | SHOULD | 78 | 17 | 6 | 55 | 81 |
+| 2025-11-25 | server | SHOULD NOT | 11 | 2 | 1 | 8 | 3 |
+| 2025-11-25 | server | MAY | 27 | 10 | 2 | 15 | 28 |
 | 2025-11-25 | server | other | 19 | 9 | 0 | 10 | 2 |
-| 2025-11-25 | client | MUST | 82 | 20 | 15 | 47 | 98 |
-| 2025-11-25 | client | MUST NOT | 16 | 5 | 3 | 8 | 19 |
-| 2025-11-25 | client | SHOULD | 74 | 8 | 12 | 54 | 85 |
-| 2025-11-25 | client | SHOULD NOT | 5 | 1 | 1 | 3 | 9 |
-| 2025-11-25 | client | MAY | 25 | 6 | 3 | 16 | 30 |
+| 2025-11-25 | client | MUST | 82 | 27 | 17 | 38 | 98 |
+| 2025-11-25 | client | MUST NOT | 16 | 7 | 3 | 6 | 19 |
+| 2025-11-25 | client | SHOULD | 74 | 11 | 16 | 47 | 85 |
+| 2025-11-25 | client | SHOULD NOT | 5 | 2 | 1 | 2 | 9 |
+| 2025-11-25 | client | MAY | 24 | 8 | 3 | 13 | 31 |
 | 2025-11-25 | client | other | 13 | 8 | 0 | 5 | 8 |
-| 2026-07-28 | server | MUST | 135 | 28 | 18 | 89 | 89 |
-| 2026-07-28 | server | MUST NOT | 46 | 13 | 1 | 32 | 18 |
-| 2026-07-28 | server | SHOULD | 74 | 9 | 9 | 56 | 86 |
-| 2026-07-28 | server | SHOULD NOT | 12 | 2 | 2 | 8 | 8 |
-| 2026-07-28 | server | MAY | 31 | 10 | 2 | 19 | 30 |
-| 2026-07-28 | server | other | 23 | 8 | 1 | 14 | 4 |
-| 2026-07-28 | client | MUST | 98 | 17 | 23 | 58 | 126 |
-| 2026-07-28 | client | MUST NOT | 26 | 9 | 2 | 15 | 38 |
-| 2026-07-28 | client | SHOULD | 83 | 6 | 12 | 65 | 77 |
-| 2026-07-28 | client | SHOULD NOT | 13 | 4 | 1 | 8 | 7 |
-| 2026-07-28 | client | MAY | 23 | 7 | 3 | 13 | 38 |
-| 2026-07-28 | client | other | 13 | 6 | 0 | 7 | 14 |
+| 2026-07-28 | server | MUST | 134 | 45 | 18 | 71 | 90 |
+| 2026-07-28 | server | MUST NOT | 46 | 20 | 1 | 25 | 18 |
+| 2026-07-28 | server | SHOULD | 74 | 16 | 9 | 49 | 86 |
+| 2026-07-28 | server | SHOULD NOT | 12 | 3 | 2 | 7 | 8 |
+| 2026-07-28 | server | MAY | 31 | 13 | 2 | 16 | 30 |
+| 2026-07-28 | server | other | 23 | 9 | 1 | 13 | 4 |
+| 2026-07-28 | client | MUST | 97 | 27 | 31 | 39 | 127 |
+| 2026-07-28 | client | MUST NOT | 26 | 12 | 3 | 11 | 38 |
+| 2026-07-28 | client | SHOULD | 83 | 8 | 16 | 59 | 77 |
+| 2026-07-28 | client | SHOULD NOT | 13 | 6 | 1 | 6 | 7 |
+| 2026-07-28 | client | MAY | 23 | 8 | 3 | 12 | 38 |
+| 2026-07-28 | client | other | 13 | 7 | 0 | 6 | 14 |
 
 ## 2024-11-05
 
@@ -356,21 +356,21 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [http-sse-server-authenticate](https://modelcontextprotocol.io/specification/2024-11-05/basic/transports#security-warning) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [http-sse-server-two-endpoints](https://modelcontextprotocol.io/specification/2024-11-05/basic/transports#http-with-sse) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [http-sse-server-endpoint-event](https://modelcontextprotocol.io/specification/2024-11-05/basic/transports#http-with-sse) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [http-sse-client-post-to-endpoint](https://modelcontextprotocol.io/specification/2024-11-05/basic/transports#http-with-sse) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [http-sse-client-post-to-endpoint](https://modelcontextprotocol.io/specification/2024-11-05/basic/transports#http-with-sse) | MUST | client | n/a: addresses the other side | **gap** #220: mcpx has no HTTP+SSE client transport |
 | [http-sse-server-messages-as-sse-events](https://modelcontextprotocol.io/specification/2024-11-05/basic/transports#http-with-sse) | MUST (implied) | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 
 ### transport-stdio
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
+| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2024-11-05/transport-stdio/transport-client-should-support-stdio` |
+| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | n/a: mcpx serves MCP only over stdio and Streamable HTTP; its /v1 REST surface is not an MCP transport | n/a: catalogue marks it n/a |
 | [transport-custom-document-patterns](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#custom-transports) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | **MISSING** | **MISSING** |
-| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
+| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | tested: `conformance.TestTransportServer/2024-11-05/transport-stdio/stdio-no-embedded-newlines` | tested: `conformance.TestTransportClient/2024-11-05/transport-stdio/stdio-no-embedded-newlines` |
+| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | tested: `conformance.TestTransportServer/2024-11-05/transport-stdio/stdio-server-may-log-to-stderr` | n/a: addresses the other side |
+| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2024-11-05/transport-stdio/stdio-client-may-capture-stderr` |
+| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | tested: `conformance.TestTransportServer/2024-11-05/transport-stdio/stdio-server-stdout-only-mcp` | n/a: addresses the other side |
+| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2024-11-05/transport-stdio/stdio-client-stdin-only-mcp` |
 
 ### versioning
 
@@ -703,64 +703,64 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
 | [http-sse-server-backcompat-host-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | should (lowercase) | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [http-sse-client-backcompat-probe-any-4xx](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#backwards-compatibility) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
+| [http-sse-client-backcompat-probe-any-4xx](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#backwards-compatibility) | should (lowercase) | client | n/a: addresses the other side | **gap** #220: mcpx has no HTTP+SSE client transport |
 
 ### transport-stdio
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
+| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-stdio/transport-client-should-support-stdio` |
+| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | n/a: mcpx serves MCP only over stdio and Streamable HTTP; its /v1 REST surface is not an MCP transport | n/a: catalogue marks it n/a |
 | [transport-custom-document-patterns](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#custom-transports) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | **MISSING** | **MISSING** |
-| [stdio-message-may-be-batch](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#stdio) | MAY (implied) | both | **MISSING** | **MISSING** |
-| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
+| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | tested: `conformance.TestTransportServer/2025-03-26/transport-stdio/stdio-no-embedded-newlines` | tested: `conformance.TestTransportClient/2025-03-26/transport-stdio/stdio-no-embedded-newlines` |
+| [stdio-message-may-be-batch](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#stdio) | MAY (implied) | both | tested: `conformance.TestTransportServer/2025-03-26/transport-stdio/stdio-message-may-be-batch` | **gap** #203: the stdio receive loop drops a line holding a JSON array |
+| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | tested: `conformance.TestTransportServer/2025-03-26/transport-stdio/stdio-server-may-log-to-stderr` | n/a: addresses the other side |
+| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-stdio/stdio-client-may-capture-stderr` |
+| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | tested: `conformance.TestTransportServer/2025-03-26/transport-stdio/stdio-server-stdout-only-mcp` | n/a: addresses the other side |
+| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-stdio/stdio-client-stdin-only-mcp` |
 
 ### transport-streamable-http
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [streamable-http-server-single-endpoint-post-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-single-endpoint-post-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-single-endpoint-post-get` | n/a: addresses the other side |
+| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-validate-origin` | n/a: addresses the other side |
+| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-bind-localhost` | n/a: addresses the other side |
 | [streamable-http-server-authenticate](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-post-body-may-batch](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-sse-includes-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-post-sse-may-carry-requests](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-sse-not-closed-before-response](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-disconnect-not-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD NOT | both | **MISSING** | n/a: catalogue marks it n/a |
-| [streamable-http-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-streamable-http/streamable-http-client-post-every-message` |
+| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-streamable-http/streamable-http-client-accept-both` |
+| [streamable-http-post-body-may-batch](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-streamable-http/streamable-http-post-body-may-batch` |
+| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-202-for-non-request` | n/a: addresses the other side |
+| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-error-status-if-rejected` | n/a: addresses the other side |
+| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-json-or-sse-for-request` | n/a: addresses the other side |
+| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-streamable-http/streamable-http-client-supports-json-and-sse` |
+| [streamable-http-sse-includes-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-sse-includes-response` | n/a: addresses the other side |
+| [streamable-http-post-sse-may-carry-requests](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-post-sse-may-carry-requests` | n/a: addresses the other side |
+| [streamable-http-sse-not-closed-before-response](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server) | SHOULD NOT | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-sse-not-closed-before-response` | n/a: addresses the other side |
+| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-terminates-sse-after-response` | n/a: addresses the other side |
+| [streamable-http-disconnect-not-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD NOT | both | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-disconnect-not-cancel` | n/a: catalogue marks it n/a |
+| [streamable-http-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **gap** #203: over HTTP a timed-out call aborts its own POST and sends no notifications/cancelled; a legacy server keeps working on it |
 | [streamable-http-server-may-resume](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [streamable-http-client-may-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [streamable-http-get-accept-sse](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | client | n/a: addresses the other side | n/a: no GET |
-| [streamable-http-get-sse-or-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-get-sse-or-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-get-sse-or-405` | n/a: addresses the other side |
 | [streamable-http-get-stream-unrelated](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | SHOULD | server | n/a: 405 | n/a: addresses the other side |
 | [streamable-http-get-no-responses](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST NOT | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-get-close-any-time](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | both | **MISSING** | **MISSING** |
-| [streamable-http-multiple-streams](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-no-broadcast](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MUST / MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-get-close-any-time](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | both | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-get-close-any-time` | n/a: mcpx's client opens no GET stream to close |
+| [streamable-http-multiple-streams](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-streamable-http/streamable-http-multiple-streams` |
+| [streamable-http-no-broadcast](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MUST / MUST NOT | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-no-broadcast` | n/a: addresses the other side |
 | [streamable-http-event-id-unique](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | MUST | server | n/a: no ids | n/a: addresses the other side |
-| [streamable-http-client-resume-with-last-event-id](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-resume-with-last-event-id](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | SHOULD | client | n/a: addresses the other side | **gap** #203: no Last-Event-ID resumption |
 | [streamable-http-server-no-cross-stream-replay](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | MUST NOT | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-server-may-assign-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-session-id-secure](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-session-id-visible-ascii](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-echoes-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-server-may-assign-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-may-assign-session` | n/a: addresses the other side |
+| [streamable-http-session-id-secure](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-session-id-secure` | n/a: addresses the other side |
+| [streamable-http-session-id-visible-ascii](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-session-id-visible-ascii` | n/a: addresses the other side |
+| [streamable-http-client-echoes-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-streamable-http/streamable-http-client-echoes-session` |
 | [streamable-http-server-400-missing-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | n/a: mcpx does not require one (stateless fallback | n/a: addresses the other side |
-| [streamable-http-server-404-terminated-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-reinit-on-404](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-delete-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-may-405-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-404-terminated-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-404-terminated-session` | n/a: addresses the other side |
+| [streamable-http-client-reinit-on-404](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **gap** #203: a 404 for the session is returned as an error; no new initialize |
+| [streamable-http-client-delete-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-03-26/transport-streamable-http/streamable-http-client-delete-session` |
+| [streamable-http-server-may-405-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | tested: `conformance.TestTransportServer/2025-03-26/transport-streamable-http/streamable-http-server-may-405-delete` | n/a: addresses the other side |
 
 ### versioning
 
@@ -1133,67 +1133,67 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
 | [http-sse-server-backcompat-host-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | should (lowercase) | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [http-sse-client-backcompat-probe-any-4xx](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#backwards-compatibility) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
+| [http-sse-client-backcompat-probe-any-4xx](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#backwards-compatibility) | should (lowercase) | client | n/a: addresses the other side | **gap** #220: mcpx has no HTTP+SSE client transport |
 
 ### transport-stdio
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
+| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-stdio/transport-client-should-support-stdio` |
+| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | n/a: mcpx serves MCP only over stdio and Streamable HTTP; its /v1 REST surface is not an MCP transport | n/a: catalogue marks it n/a |
 | [transport-custom-document-patterns](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#custom-transports) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | **MISSING** | **MISSING** |
-| [stdio-message-is-single](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST (implied) | both | **MISSING** | **MISSING** |
-| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
+| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | tested: `conformance.TestTransportServer/2025-06-18/transport-stdio/stdio-no-embedded-newlines` | tested: `conformance.TestTransportClient/2025-06-18/transport-stdio/stdio-no-embedded-newlines` |
+| [stdio-message-is-single](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST (implied) | both | tested: `conformance.TestTransportServer/2025-06-18/transport-stdio/stdio-message-is-single` | tested: `conformance.TestTransportClient/2025-06-18/transport-stdio/stdio-message-is-single` |
+| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | tested: `conformance.TestTransportServer/2025-06-18/transport-stdio/stdio-server-may-log-to-stderr` | n/a: addresses the other side |
+| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-stdio/stdio-client-may-capture-stderr` |
+| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | tested: `conformance.TestTransportServer/2025-06-18/transport-stdio/stdio-server-stdout-only-mcp` | n/a: addresses the other side |
+| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-stdio/stdio-client-stdin-only-mcp` |
 
 ### transport-streamable-http
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [streamable-http-server-single-endpoint-post-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-single-endpoint-post-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-single-endpoint-post-get` | n/a: addresses the other side |
+| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-validate-origin` | n/a: addresses the other side |
+| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-bind-localhost` | n/a: addresses the other side |
 | [streamable-http-server-authenticate](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-post-body-single](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-sse-includes-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-post-sse-may-carry-requests](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-sse-not-closed-before-response](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-disconnect-not-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD NOT | both | **MISSING** | n/a: catalogue marks it n/a |
-| [streamable-http-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-streamable-http/streamable-http-client-post-every-message` |
+| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-streamable-http/streamable-http-client-accept-both` |
+| [streamable-http-post-body-single](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-streamable-http/streamable-http-post-body-single` |
+| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-202-for-non-request` | n/a: addresses the other side |
+| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-error-status-if-rejected` | n/a: addresses the other side |
+| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-json-or-sse-for-request` | n/a: addresses the other side |
+| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-streamable-http/streamable-http-client-supports-json-and-sse` |
+| [streamable-http-sse-includes-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-sse-includes-response` | n/a: addresses the other side |
+| [streamable-http-post-sse-may-carry-requests](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-post-sse-may-carry-requests` | n/a: addresses the other side |
+| [streamable-http-sse-not-closed-before-response](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server) | SHOULD NOT | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-sse-not-closed-before-response` | n/a: addresses the other side |
+| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-terminates-sse-after-response` | n/a: addresses the other side |
+| [streamable-http-disconnect-not-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD NOT | both | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-disconnect-not-cancel` | n/a: catalogue marks it n/a |
+| [streamable-http-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **gap** #203: over HTTP a timed-out call aborts its own POST and sends no notifications/cancelled; a legacy server keeps working on it |
 | [streamable-http-server-may-resume](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [streamable-http-client-may-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [streamable-http-get-accept-sse](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | client | n/a: addresses the other side | n/a: no GET |
-| [streamable-http-get-sse-or-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-get-sse-or-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-get-sse-or-405` | n/a: addresses the other side |
 | [streamable-http-get-stream-unrelated](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | SHOULD | server | n/a: 405 | n/a: addresses the other side |
 | [streamable-http-get-no-responses](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST NOT | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-get-close-any-time](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | both | **MISSING** | **MISSING** |
-| [streamable-http-multiple-streams](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-no-broadcast](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MUST / MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-get-close-any-time](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | both | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-get-close-any-time` | n/a: mcpx's client opens no GET stream to close |
+| [streamable-http-multiple-streams](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-streamable-http/streamable-http-multiple-streams` |
+| [streamable-http-no-broadcast](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MUST / MUST NOT | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-no-broadcast` | n/a: addresses the other side |
 | [streamable-http-event-id-unique](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | MUST | server | n/a: no ids | n/a: addresses the other side |
-| [streamable-http-client-resume-with-last-event-id](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-resume-with-last-event-id](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | SHOULD | client | n/a: addresses the other side | **gap** #203: no Last-Event-ID resumption |
 | [streamable-http-server-no-cross-stream-replay](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | MUST NOT | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-server-may-assign-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-session-id-secure](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-session-id-visible-ascii](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-echoes-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-server-may-assign-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-may-assign-session` | n/a: addresses the other side |
+| [streamable-http-session-id-secure](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-session-id-secure` | n/a: addresses the other side |
+| [streamable-http-session-id-visible-ascii](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-session-id-visible-ascii` | n/a: addresses the other side |
+| [streamable-http-client-echoes-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-streamable-http/streamable-http-client-echoes-session` |
 | [streamable-http-server-400-missing-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | n/a: mcpx does not require one (stateless fallback | n/a: addresses the other side |
-| [streamable-http-server-404-terminated-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-reinit-on-404](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-delete-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-may-405-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-protocol-version-header-is-negotiated](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-assumes-2025-03-26](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-400-unsupported-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-404-terminated-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-404-terminated-session` | n/a: addresses the other side |
+| [streamable-http-client-reinit-on-404](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **gap** #203: a 404 for the session is returned as an error; no new initialize |
+| [streamable-http-client-delete-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-06-18/transport-streamable-http/streamable-http-client-delete-session` |
+| [streamable-http-server-may-405-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-may-405-delete` | n/a: addresses the other side |
+| [streamable-http-protocol-version-header-is-negotiated](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | client | n/a: addresses the other side | **gap** #203: legacy frames carry MCP-Protocol-Version 2025-11-25 whatever was negotiated |
+| [streamable-http-server-assumes-2025-03-26](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-assumes-2025-03-26` | n/a: addresses the other side |
+| [streamable-http-server-400-unsupported-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | MUST | server | tested: `conformance.TestTransportServer/2025-06-18/transport-streamable-http/streamable-http-server-400-unsupported-version-header` | n/a: addresses the other side |
 
 ### versioning
 
@@ -1740,76 +1740,76 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
 | [http-sse-server-backcompat-host-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | should (lowercase) | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [http-sse-client-backcompat-probe-400-404-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
+| [http-sse-client-backcompat-probe-400-404-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility) | should (lowercase) | client | n/a: addresses the other side | **gap** #220: mcpx has no HTTP+SSE client transport |
 
 ### transport-stdio
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
+| [transport-client-should-support-stdio](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-stdio/transport-client-should-support-stdio` |
+| [transport-custom-preserve-jsonrpc-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#custom-transports) | MUST | both | n/a: mcpx serves MCP only over stdio and Streamable HTTP; its /v1 REST surface is not an MCP transport | n/a: catalogue marks it n/a |
 | [transport-custom-document-patterns](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#custom-transports) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | **MISSING** | **MISSING** |
-| [stdio-message-is-single](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST (implied) | both | **MISSING** | **MISSING** |
-| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [stdio-client-stderr-not-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
+| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | tested: `conformance.TestTransportServer/2025-11-25/transport-stdio/stdio-no-embedded-newlines` | tested: `conformance.TestTransportClient/2025-11-25/transport-stdio/stdio-no-embedded-newlines` |
+| [stdio-message-is-single](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST (implied) | both | tested: `conformance.TestTransportServer/2025-11-25/transport-stdio/stdio-message-is-single` | tested: `conformance.TestTransportClient/2025-11-25/transport-stdio/stdio-message-is-single` |
+| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | tested: `conformance.TestTransportServer/2025-11-25/transport-stdio/stdio-server-may-log-to-stderr` | n/a: addresses the other side |
+| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-stdio/stdio-client-may-capture-stderr` |
+| [stdio-client-stderr-not-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-stdio/stdio-client-stderr-not-error` |
+| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | tested: `conformance.TestTransportServer/2025-11-25/transport-stdio/stdio-server-stdout-only-mcp` | n/a: addresses the other side |
+| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-stdio/stdio-client-stdin-only-mcp` |
 
 ### transport-streamable-http
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [streamable-http-server-single-endpoint-post-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-403-invalid-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-single-endpoint-post-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-single-endpoint-post-get` | n/a: addresses the other side |
+| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-validate-origin` | n/a: addresses the other side |
+| [streamable-http-server-403-invalid-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-403-invalid-origin` | n/a: addresses the other side |
+| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-bind-localhost` | n/a: addresses the other side |
 | [streamable-http-server-authenticate](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-post-body-single](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-sse-includes-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-post-sse-may-carry-requests](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-may-terminate-on-session-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-client-post-every-message` |
+| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-client-accept-both` |
+| [streamable-http-post-body-single](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-post-body-single` |
+| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-202-for-non-request` | n/a: addresses the other side |
+| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-error-status-if-rejected` | n/a: addresses the other side |
+| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-json-or-sse-for-request` | n/a: addresses the other side |
+| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-client-supports-json-and-sse` |
+| [streamable-http-sse-includes-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-sse-includes-response` | n/a: addresses the other side |
+| [streamable-http-post-sse-may-carry-requests](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-post-sse-may-carry-requests` | n/a: addresses the other side |
+| [streamable-http-server-may-terminate-on-session-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-may-terminate-on-session-expiry` | n/a: addresses the other side |
+| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-terminates-sse-after-response` | n/a: addresses the other side |
 | [streamable-http-sse-priming-event](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [streamable-http-server-may-close-connection-keep-stream](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-client-polls-after-close](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-polls-after-close](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **gap** #203: a closed SSE response is not reopened; the pending request waits out its deadline |
 | [streamable-http-server-sends-retry-before-close](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | server | n/a: never closes early | n/a: addresses the other side |
-| [streamable-http-client-respects-retry](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-disconnect-not-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD NOT | both | **MISSING** | n/a: catalogue marks it n/a |
-| [streamable-http-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-respects-retry](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MUST | client | n/a: addresses the other side | **gap** #203: the client never reconnects a stream, so retry is never honoured |
+| [streamable-http-disconnect-not-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD NOT | both | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-disconnect-not-cancel` | n/a: catalogue marks it n/a |
+| [streamable-http-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | SHOULD | client | n/a: addresses the other side | **gap** #203: over HTTP a timed-out call aborts its own POST and sends no notifications/cancelled; a legacy server keeps working on it |
 | [streamable-http-server-may-resume](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
 | [streamable-http-client-may-get](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
 | [streamable-http-get-accept-sse](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | client | n/a: addresses the other side | n/a: no GET |
-| [streamable-http-get-sse-or-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-get-sse-or-405](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-get-sse-or-405` | n/a: addresses the other side |
 | [streamable-http-get-stream-unrelated](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | SHOULD | server | n/a: 405 | n/a: addresses the other side |
 | [streamable-http-get-no-responses](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MUST NOT | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-get-close-any-time](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | both | **MISSING** | **MISSING** |
-| [streamable-http-multiple-streams](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-no-broadcast](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MUST / MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-get-close-any-time](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server) | MAY | both | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-get-close-any-time` | n/a: mcpx's client opens no GET stream to close |
+| [streamable-http-multiple-streams](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-multiple-streams` |
+| [streamable-http-no-broadcast](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#multiple-connections) | MUST / MUST NOT | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-no-broadcast` | n/a: addresses the other side |
 | [streamable-http-event-id-unique](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | MUST | server | n/a: no ids | n/a: addresses the other side |
 | [streamable-http-event-id-encodes-stream](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | SHOULD | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-client-resume-with-last-event-id](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-resume-with-last-event-id](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | SHOULD | client | n/a: addresses the other side | **gap** #203: no Last-Event-ID resumption |
 | [streamable-http-server-no-cross-stream-replay](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery) | MUST NOT | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-server-may-assign-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-session-id-secure](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-session-id-visible-ascii](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-handles-session-securely](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-echoes-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-server-may-assign-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-may-assign-session` | n/a: addresses the other side |
+| [streamable-http-session-id-secure](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-session-id-secure` | n/a: addresses the other side |
+| [streamable-http-session-id-visible-ascii](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-session-id-visible-ascii` | n/a: addresses the other side |
+| [streamable-http-client-handles-session-securely](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-client-handles-session-securely` |
+| [streamable-http-client-echoes-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-client-echoes-session` |
 | [streamable-http-server-400-missing-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | server | n/a: mcpx does not require one (stateless fallback | n/a: addresses the other side |
-| [streamable-http-server-404-terminated-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-reinit-on-404](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-delete-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-may-405-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-protocol-version-header-is-negotiated](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-assumes-2025-03-26](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-400-unsupported-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-404-terminated-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-404-terminated-session` | n/a: addresses the other side |
+| [streamable-http-client-reinit-on-404](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MUST | client | n/a: addresses the other side | **gap** #203: a 404 for the session is returned as an error; no new initialize |
+| [streamable-http-client-delete-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-client-delete-session` |
+| [streamable-http-server-may-405-delete](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management) | MAY | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-may-405-delete` | n/a: addresses the other side |
+| [streamable-http-protocol-version-header-is-negotiated](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2025-11-25/transport-streamable-http/streamable-http-protocol-version-header-is-negotiated` |
+| [streamable-http-server-assumes-2025-03-26](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | SHOULD | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-assumes-2025-03-26` | n/a: addresses the other side |
+| [streamable-http-server-400-unsupported-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header) | MUST | server | tested: `conformance.TestTransportServer/2025-11-25/transport-streamable-http/streamable-http-server-400-unsupported-version-header` | n/a: addresses the other side |
 
 ### versioning
 
@@ -2463,9 +2463,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [http-sse-deprecated-no-new-adoption](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | SHOULD NOT | both | **MISSING** | **MISSING** |
+| [http-sse-deprecated-no-new-adoption](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | SHOULD NOT | both | tested: `conformance.TestTransportServer/2026-07-28/transport-http-sse/http-sse-deprecated-no-new-adoption` | tested: `conformance.TestTransportClient/2026-07-28/transport-http-sse/http-sse-deprecated-no-new-adoption` |
 | [http-sse-server-backcompat-host-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | should (lowercase) | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [http-sse-client-backcompat-probe-non-modern-body](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
+| [http-sse-client-backcompat-probe-non-modern-body](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#httpsse-transport-2024-11-05) | should (lowercase) | client | n/a: addresses the other side | **gap** #220: mcpx has no HTTP+SSE client transport |
 
 ### transport-stdio
 
@@ -2474,79 +2474,79 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 | [transport-custom-preserve-patterns-and-metadata](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#custom-transports) | MUST | both | n/a: no custom MCP transport | n/a: catalogue marks it n/a |
 | [transport-custom-document-patterns](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#custom-transports) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [transport-custom-byte-stream-reuses-stdio-framing](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#custom-transports) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | **MISSING** | **MISSING** |
-| [stdio-message-is-single](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST (implied) | both | **MISSING** | **MISSING** |
-| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [stdio-client-stderr-not-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [stdio-client-no-responses](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#sending-messages) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-no-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#receiving-messages) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-correlates-subscription-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#receiving-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [stdio-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#cancellation) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-stop-cancelled-work](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#cancellation) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [stdio-server-silent-after-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#cancellation) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-server-cancelled-only-for-listen](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#shutdown) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [stdio-server-exit-on-eof](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#shutdown) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [stdio-server-may-close-stdout](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#shutdown) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [stdio-client-restart-crashed-server](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#unexpected-termination) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [stdio-no-embedded-newlines](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | both | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-no-embedded-newlines` | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-no-embedded-newlines` |
+| [stdio-message-is-single](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST (implied) | both | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-message-is-single` | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-message-is-single` |
+| [stdio-server-may-log-to-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-may-log-to-stderr` | n/a: addresses the other side |
+| [stdio-client-may-capture-stderr](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MAY | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-client-may-capture-stderr` |
+| [stdio-client-stderr-not-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-client-stderr-not-error` |
+| [stdio-server-stdout-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-stdout-only-mcp` | n/a: addresses the other side |
+| [stdio-client-stdin-only-mcp](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-client-stdin-only-mcp` |
+| [stdio-client-no-responses](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#sending-messages) | MUST NOT | client | n/a: addresses the other side | **gap** #200: a request from a 2026-07-28 server is answered; the client has no era guard on server requests |
+| [stdio-server-no-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#receiving-messages) | MUST NOT | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-no-requests` | n/a: addresses the other side |
+| [stdio-client-correlates-subscription-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#receiving-messages) | MUST | client | n/a: addresses the other side | n/a: mcpx never opens subscriptions/listen upstream (#208), so there is no subscription id to correlate |
+| [stdio-client-cancel-by-notification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#cancellation) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-client-cancel-by-notification` |
+| [stdio-server-stop-cancelled-work](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#cancellation) | SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-stop-cancelled-work` | n/a: addresses the other side |
+| [stdio-server-silent-after-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#cancellation) | MUST NOT | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-silent-after-cancel` | n/a: addresses the other side |
+| [stdio-server-cancelled-only-for-listen](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | MUST NOT | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-cancelled-only-for-listen` | n/a: addresses the other side |
+| [stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#shutdown) | SHOULD | client | n/a: addresses the other side | **gap** #203: StdioTransport.Close sends SIGTERM as it closes stdin instead of waiting for the child to exit |
+| [stdio-server-exit-on-eof](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#shutdown) | SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-exit-on-eof` | n/a: addresses the other side |
+| [stdio-server-may-close-stdout](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#shutdown) | MAY | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-may-close-stdout` | n/a: addresses the other side |
+| [stdio-client-restart-crashed-server](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#unexpected-termination) | SHOULD | client | n/a: addresses the other side | **gap** pending:stdio-restart: unverified: the in-flight call fails and the pool respawns only on the next acquire, subject to its start-failure cooldown |
 | [stdio-dual-era-client-probe-discover](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | SHOULD | client | n/a: addresses the other side | n/a: optional feature mcpx does not implement |
-| [stdio-no-fallback-on-modern-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | MUST NOT (informal "Do **not**") | client | n/a: addresses the other side | **MISSING** |
-| [stdio-modern-only-client-probe](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | RECOMMENDED | client | n/a: addresses the other side | **MISSING** |
+| [stdio-no-fallback-on-modern-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | MUST NOT (informal "Do **not**") | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-no-fallback-on-modern-error` |
+| [stdio-modern-only-client-probe](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | RECOMMENDED | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-stdio/stdio-modern-only-client-probe` |
 
 ### transport-streamable-http
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [streamable-http-server-single-endpoint-post](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-403-invalid-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-single-endpoint-post](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-single-endpoint-post` | n/a: addresses the other side |
+| [streamable-http-server-validate-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-validate-origin` | n/a: addresses the other side |
+| [streamable-http-server-403-invalid-origin](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-403-invalid-origin` | n/a: addresses the other side |
+| [streamable-http-server-bind-localhost](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-bind-localhost` | n/a: addresses the other side |
 | [streamable-http-server-authenticate](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#security--endpoint) | SHOULD | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-post-body-request-or-notification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST / MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-sends-metadata-headers](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-sse-notifications-must-relate](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-sse-no-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-close-is-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-stop-cancelled-work](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-silent-after-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-no-resumability](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | — (statement) | both | **MISSING** | **MISSING** |
-| [streamable-http-client-reissue-broken-request](https://modelcontextprotocol.io/specification/2026-07-28/changelog) | MUST (changelog) | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-protocol-version-header-every-post](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-protocol-version-header-matches-meta](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | both | **MISSING** | **MISSING** |
-| [streamable-http-unsupported-version-400](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-missing-capability-400](https://modelcontextprotocol.io/specification/2026-07-28/schema#missingrequiredclientcapabilityerror) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-unknown-method-404](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-missing-version-header-legacy](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MAY / MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-standard-headers-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#standard-request-headers) | REQUIRED | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-mcp-name-base64](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#standard-request-headers) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-post-every-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-client-post-every-message` |
+| [streamable-http-client-accept-both](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-client-accept-both` |
+| [streamable-http-post-body-request-or-notification](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST / MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-post-body-request-or-notification` |
+| [streamable-http-client-sends-metadata-headers](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | **gap** #200: the HTTP transport sends no Mcp-Method or Mcp-Name header |
+| [streamable-http-server-202-for-non-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-202-for-non-request` | n/a: addresses the other side |
+| [streamable-http-server-error-status-if-rejected](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-error-status-if-rejected` | n/a: addresses the other side |
+| [streamable-http-server-json-or-sse-for-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-json-or-sse-for-request` | n/a: addresses the other side |
+| [streamable-http-client-supports-json-and-sse](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#sending-messages) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-client-supports-json-and-sse` |
+| [streamable-http-sse-notifications-must-relate](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-sse-notifications-must-relate` | n/a: addresses the other side |
+| [streamable-http-sse-no-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | MUST NOT | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-sse-no-requests` | n/a: addresses the other side |
+| [streamable-http-server-terminates-sse-after-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-terminates-sse-after-response` | n/a: addresses the other side |
+| [streamable-http-close-is-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-close-is-cancel` | n/a: addresses the other side |
+| [streamable-http-stop-cancelled-work](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-stop-cancelled-work` | n/a: addresses the other side |
+| [streamable-http-silent-after-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | MUST NOT | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-silent-after-cancel` | n/a: addresses the other side |
+| [streamable-http-no-resumability](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | — (statement) | both | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-no-resumability` | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-no-resumability` |
+| [streamable-http-client-reissue-broken-request](https://modelcontextprotocol.io/specification/2026-07-28/changelog) | MUST (changelog) | client | n/a: addresses the other side | **gap** #203: a broken response stream is not re-issued with a new id |
+| [streamable-http-protocol-version-header-every-post](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | client | n/a: addresses the other side | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-protocol-version-header-every-post` |
+| [streamable-http-protocol-version-header-matches-meta](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | both | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-protocol-version-header-matches-meta` | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-protocol-version-header-matches-meta` |
+| [streamable-http-unsupported-version-400](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-unsupported-version-400` | n/a: addresses the other side |
+| [streamable-http-missing-capability-400](https://modelcontextprotocol.io/specification/2026-07-28/schema#missingrequiredclientcapabilityerror) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-missing-capability-400` | n/a: addresses the other side |
+| [streamable-http-unknown-method-404](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-unknown-method-404` | n/a: addresses the other side |
+| [streamable-http-missing-version-header-legacy](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#protocol-version-header) | MAY / MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-missing-version-header-legacy` | n/a: addresses the other side |
+| [streamable-http-standard-headers-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#standard-request-headers) | REQUIRED | client | n/a: addresses the other side | **gap** #200: the HTTP transport sends no Mcp-Method or Mcp-Name header |
+| [streamable-http-mcp-name-base64](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#standard-request-headers) | MUST | client | n/a: addresses the other side | **gap** #200: the HTTP transport sends no Mcp-Method or Mcp-Name header |
 | [streamable-http-x-mcp-header-server-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#custom-headers-from-tool-parameters) | MAY | server | n/a: but mcpx re-exports upstream tool schemas — an upstream `x-mcp-header` passes through, obliging mcpx's HTTP clients and mcpx's own validation (see Implied | n/a: addresses the other side |
-| [streamable-http-x-mcp-header-client-must-mirror](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#custom-headers-from-tool-parameters) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-x-mcp-header-client-must-mirror](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#custom-headers-from-tool-parameters) | MUST | client | n/a: addresses the other side | **gap** #200: x-mcp-header is not read: no Mcp-Param headers, no validation, no relist on -32020 |
 | [streamable-http-x-mcp-header-constraints](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#schema-extension) | MUST / MUST NOT | server | n/a: unless passing through upstream annotations | n/a: addresses the other side |
-| [streamable-http-client-rejects-invalid-x-mcp-header](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#schema-extension) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-param-value-encoding](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#value-encoding) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-server-decodes-before-compare](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#value-encoding) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-client-header-construction](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#client-behavior) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [streamable-http-client-relist-on-header-mismatch](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#client-behavior) | SHOULD | client | n/a: addresses the other side | **MISSING** |
+| [streamable-http-client-rejects-invalid-x-mcp-header](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#schema-extension) | MUST | client | n/a: addresses the other side | **gap** #200: x-mcp-header is not read: no Mcp-Param headers, no validation, no relist on -32020 |
+| [streamable-http-param-value-encoding](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#value-encoding) | MUST | client | n/a: addresses the other side | **gap** #200: x-mcp-header is not read: no Mcp-Param headers, no validation, no relist on -32020 |
+| [streamable-http-server-decodes-before-compare](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#value-encoding) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-decodes-before-compare` | n/a: addresses the other side |
+| [streamable-http-client-header-construction](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#client-behavior) | MUST | client | n/a: addresses the other side | **gap** #200: the HTTP transport sends no Mcp-Method or Mcp-Name header |
+| [streamable-http-client-relist-on-header-mismatch](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#client-behavior) | SHOULD | client | n/a: addresses the other side | **gap** #200: x-mcp-header is not read: no Mcp-Param headers, no validation, no relist on -32020 |
 | [streamable-http-intermediary-forwards-unknown-param](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-behavior-for-custom-headers) | MUST | intermediary | n/a: mcpx is not an HTTP intermediary; it terminates MCP and re-originates | n/a: catalogue marks it n/a |
-| [streamable-http-server-validates-param-headers](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-behavior-for-custom-headers) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-header-names-case-insensitive](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#case-sensitivity) | MUST | both | **MISSING** | **MISSING** |
-| [streamable-http-server-rejects-header-body-mismatch](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-header-mismatch-400-jsonrpc](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [streamable-http-server-validates-param-headers](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-behavior-for-custom-headers) | MUST | server | n/a: no tool mcpx serves declares an x-mcp-header parameter, so no Mcp-Param header can be owed | n/a: addresses the other side |
+| [streamable-http-header-names-case-insensitive](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#case-sensitivity) | MUST | both | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-header-names-case-insensitive` | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-header-names-case-insensitive` |
+| [streamable-http-server-rejects-header-body-mismatch](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-server-rejects-header-body-mismatch` | n/a: addresses the other side |
+| [streamable-http-header-mismatch-400-jsonrpc](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-header-mismatch-400-jsonrpc` | n/a: addresses the other side |
 | [streamable-http-numeric-compare](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | SHOULD | server | n/a: catalogue marks it n/a | n/a: addresses the other side |
-| [streamable-http-intermediary-http-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | MUST | intermediary | n/a: catalogue marks it n/a | **MISSING** |
+| [streamable-http-intermediary-http-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | MUST | intermediary | n/a: catalogue marks it n/a | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-intermediary-http-error` |
 | [streamable-http-intermediary-reject-unvalidated-version](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-validation) | SHOULD | intermediary | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [streamable-http-x-accel-buffering](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [streamable-http-sse-comment-keepalive](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | should/must (lowercase) | both | **MISSING** | **MISSING** |
+| [streamable-http-x-accel-buffering](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-x-accel-buffering` | n/a: addresses the other side |
+| [streamable-http-sse-comment-keepalive](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | should/must (lowercase) | both | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-sse-comment-keepalive` | tested: `conformance.TestTransportClient/2026-07-28/transport-streamable-http/streamable-http-sse-comment-keepalive` |
 | [streamable-http-modern-only-server-legacy-traffic](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#earlier-streamable-http-revisions) | SHOULD | server | n/a: as written (mcpx is dual-era, not modern-only) — but mcpx mints a session on `server/discover` for modern clients by choice (to bind `requestState` | n/a: addresses the other side |
 
 ### versioning

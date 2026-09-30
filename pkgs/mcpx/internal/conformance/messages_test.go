@@ -427,14 +427,14 @@ func TestMessagesServer(t *testing.T) {
 		// "task" is an extension value: never sent to a client that did
 		// not declare the tasks extension, even for a slow call.
 		srv, b := newServer(t)
-		b.block = make(chan struct{})
+		b.blocking(t)
 		srv.Timing = mcpserver.Timing{TaskAfter: 20 * time.Millisecond}
 		ss := stdioServer(t, srv)
 		ss.send(t, frame(1, "tools/call", params(rev, map[string]any{"name": "mcpx_call",
 			"arguments": map[string]any{"namespace": "a", "tool": "b"}})))
 		<-b.started
 		time.Sleep(100 * time.Millisecond)
-		close(b.block)
+		b.block <- struct{}{} // release the call without ending its context
 		if r := resultOf(t, ss.response(t, rev, 1)); r["resultType"] != "complete" {
 			t.Errorf("resultType %v without the extension", r["resultType"])
 		}

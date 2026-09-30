@@ -2998,7 +2998,7 @@
     "quote": "\"**MUST** ensure they preserve the JSON-RPC message format and lifecycle requirements defined by MCP\"",
     "applicability": {
       "client": "n/a:catalogue marks it n/a",
-      "server": "applies"
+      "server": "n/a:mcpx serves MCP only over stdio and Streamable HTTP; its /v1 REST surface is not an MCP transport"
     },
     "notes": {
       "client": "n/a",
@@ -3328,7 +3328,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#receiving-messages",
     "quote": "\"Clients **MUST** correlate these using the `io.modelcontextprotocol/subscriptionId` field in `_meta`\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx never opens subscriptions/listen upstream (#208), so there is no subscription id to correlate",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -4586,7 +4586,7 @@
     "url": "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server",
     "quote": "\"The server **MAY** close the SSE stream at any time. The client **MAY** close the SSE stream at any time.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx's client opens no GET stream to close",
       "server": "applies"
     },
     "notes": {
@@ -5378,7 +5378,7 @@
     "quote": "\"Any server that processes the message body **MUST** validate that encoded header values ... match ... Servers **MUST** reject requests with a `400 Bad Request` HTTP status and JSON-RPC error code `-32020`\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "applies"
+      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter, so no Mcp-Param header can be owed"
     },
     "notes": {
       "client": "n/a",
