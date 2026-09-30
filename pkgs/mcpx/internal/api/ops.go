@@ -43,6 +43,16 @@ type Param struct {
 	// Schema overrides the generated property schema, for the few inputs
 	// whose shape is more than a scalar.
 	Schema string
+	// Raw marks the parameter that is the request body itself, sent as
+	// bytes rather than as a field of a JSON object. An artifact is a file,
+	// and wrapping a file in JSON to unwrap it again on the other side would
+	// cost a base64 pass in each direction for nothing.
+	Raw bool
+	// DefaultCwd fills an absent directory parameter, on the command line
+	// only, with the caller's working directory. Only the CLI has a working
+	// directory that is the caller's; an MCP host's or a plugin's is
+	// somebody else's, so there the parameter stays required.
+	DefaultCwd bool
 }
 
 // Op is one /v1 operation.
@@ -74,6 +84,42 @@ type Op struct {
 	CoveredBy string
 	// Text marks a response that is text/plain rather than JSON.
 	Text bool
+
+	// Command names the hand-written CLI command that reaches this
+	// operation, as the words after `mcpx` ("ls", "elicit answer"). Empty
+	// means the command line reaches it through a command generated from
+	// this entry instead, so an operation added here is reachable from the
+	// shell the moment it is declared.
+	Command string
+	// CLI overrides the words of the generated command. Empty derives them
+	// from Name, "task_get" becoming `mcpx task get`.
+	CLI string
+}
+
+// CLIWords is how the command line reaches this operation: the hand-written
+// command when there is one, otherwise the generated one.
+func (o Op) CLIWords() []string {
+	switch {
+	case o.Command != "":
+		return strings.Fields(o.Command)
+	case o.CLI != "":
+		return strings.Fields(o.CLI)
+	}
+	return strings.Split(o.Name, "_")
+}
+
+// GeneratedCommand reports whether the CLI reaches this operation through a
+// command built from this entry rather than a hand-written one.
+func (o Op) GeneratedCommand() bool { return o.Command == "" }
+
+// RawParam is the parameter that is the whole request body, if any.
+func (o Op) RawParam() (Param, bool) {
+	for _, p := range o.Params {
+		if p.Raw {
+			return p, true
+		}
+	}
+	return Param{}, false
 }
 
 // ToolName is the MCP tool that reaches this operation.
@@ -146,6 +192,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "status", Method: "GET", Path: "/v1/status",
+			Command: "status",
 			Summary: "The daemon, its pools and live instances",
 			Description: "Everything mcpx knows about itself: version, uptime, socket, " +
 				"config path, and one entry per configured server with its live " +
@@ -162,14 +209,15 @@ func Ops() []Op {
 			Streams: true,
 			Params: []Param{
 				{Name: "kinds", In: InQuery, Type: "string", Desc: "kind prefixes, comma separated; empty means everything"},
-				{Name: "session", In: InQuery, Type: "string"},
-				{Name: "server", In: InQuery, Type: "string"},
+				{Name: "session", In: InQuery, Type: "string", Desc: "only events belonging to this session"},
+				{Name: "server", In: InQuery, Type: "string", Desc: "only events about this server"},
 				{Name: "uri", In: InQuery, Type: "string", Desc: "resource URIs, comma separated"},
 				{Name: "since", In: InQuery, Type: "integer", Desc: "replay everything after this sequence number"},
 			},
 		},
 		{
 			Name: "elicit_list", Method: "GET", Path: "/v1/elicit",
+			Command:     "elicit list",
 			Summary:     "Questions servers are waiting on an answer for",
 			Description: "Elicitations and sampling requests that have not been answered yet.",
 			Params: []Param{
@@ -179,6 +227,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "elicit_get", Method: "GET", Path: "/v1/elicit/{id}",
+			Command:     "elicit show",
 			Summary:     "One question, with its answer once it has one",
 			Description: "Poll this after answering to see what was recorded.",
 			Params: []Param{
@@ -187,6 +236,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "elicit_answer", Method: "POST", Path: "/v1/elicit/{id}/{action}",
+			Command: "elicit answer",
 			Summary: "Answer a question a server asked",
 			Description: "The action is in the path and the body is only ever content, so " +
 				"there is no way to send an accept with the wrong shape or a decline " +
@@ -195,14 +245,15 @@ func Ops() []Op {
 				"person at the keyboard gave it.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
-				{Name: "action", In: InPath, Type: "string", Required: true, Enum: []string{"accept", "decline", "cancel"}},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the id of the question being answered"},
+				{Name: "action", In: InPath, Type: "string", Required: true, Enum: []string{"accept", "decline", "cancel"}, Desc: "accept, decline or cancel"},
 				{Name: "content", In: InBody, Type: "object", Desc: "the accepted content; ignored for decline and cancel",
 					Schema: `{"type":"object","additionalProperties":true}`},
 			},
 		},
 		{
 			Name: "log_record", Method: "POST", Path: "/v1/log",
+			Command: "log record",
 			Summary: "Append one record to the durable log",
 			Description: "`mcpx log record` without the process. Anything not recognised " +
 				"becomes an attribute, so a caller that can produce JSON does not " +
@@ -210,13 +261,14 @@ func Ops() []Op {
 				"why it counts as privileged.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "level", In: InQuery, Type: "string", Enum: []string{"debug", "info", "warn", "error"}},
+				{Name: "level", In: InQuery, Type: "string", Enum: []string{"debug", "info", "warn", "error"}, Desc: "the level to record at: debug, info, warn or error"},
 				{Name: "record", In: InBody, Type: "object", Required: true, Desc: "the record; msg, event, server, tool and duration are recognised, the rest become attributes",
 					Schema: `{"type":"object","additionalProperties":true}`},
 			},
 		},
 		{
 			Name: "log_query", Method: "GET", Path: "/v1/log",
+			Command: "log",
 			Summary: "Query the durable log",
 			Description: "The same filters `mcpx log` accepts, over HTTP. Use it to find " +
 				"out why something did not work without re-running it. With chain " +
@@ -226,6 +278,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "stats_query", Method: "GET", Path: "/v1/stats",
+			Command: "stats",
 			Summary: "Aggregate the log into numbers",
 			Description: "`mcpx stats` as JSON: calls, servers, instances, errors, " +
 				"sessions, volume or slowest. Answers 'what is slow' and 'what keeps " +
@@ -243,6 +296,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "registry_search", Method: "GET", Path: "/v1/registry/search",
+			Command: "registry search",
 			Summary: "Search a public registry of MCP servers",
 			Description: "Servers that are not configured here yet. The registry matches " +
 				"names as a substring, so one word finds more than a phrase. The " +
@@ -281,12 +335,14 @@ func Ops() []Op {
 		},
 		{
 			Name: "resource_templates", Method: "GET", Path: "/v1/resource-templates",
+			Command:     "resources --templates",
 			Summary:     "Every templated resource the configured servers offer",
 			Description: "Parameterised resources, namespaced.",
 			Params:      []Param{nsParam()},
 		},
 		{
 			Name: "prompts", Method: "GET", Path: "/v1/prompts",
+			Command: "prompts",
 			Summary: "Every prompt the configured servers offer",
 			Description: "Prompts are the part of MCP that is not tools: a server saying " +
 				"'here is the wording that works for this'.",
@@ -294,24 +350,27 @@ func Ops() []Op {
 		},
 		{
 			Name: "resources", Method: "GET", Path: "/v1/resources",
+			Command: "resources",
 			Summary: "Every resource the configured servers offer",
 			Params:  []Param{nsParam()},
 		},
 		{
 			Name: "prompt_get", Method: "POST", Path: "/v1/prompt",
+			Command:     "prompts",
 			Summary:     "Render one prompt with its arguments filled in",
 			Description: "The server does the substitution; mcpx passes the arguments through.",
 			Params: []Param{
-				{Name: "server", In: InBody, Type: "string", Required: true},
-				{Name: "name", In: InBody, Type: "string", Required: true},
+				{Name: "server", In: InBody, Type: "string", Required: true, Desc: "the server holding the prompt"},
+				{Name: "name", In: InBody, Type: "string", Required: true, Desc: "the prompt's name, as it appears in the server's prompt list"},
 				{Name: "arguments", In: InBody, Type: "object", Desc: "string values, by argument name",
 					Schema: `{"type":"object","additionalProperties":{"type":"string"}}`},
-				{Name: "sessionId", In: InBody, Type: "string"},
-				{Name: "callId", In: InBody, Type: "string"},
+				{Name: "sessionId", In: InBody, Type: "string", Desc: "the session to attribute the call to"},
+				{Name: "callId", In: InBody, Type: "string", Desc: "an id for this call, used to tie elicitations back to it"},
 			},
 		},
 		{
 			Name: "namespaces", Method: "GET", Path: "/v1/namespaces",
+			Command:     "ls",
 			Summary:     "Every configured server, with tool counts",
 			Description: "Small, and it starts nothing.",
 			CoveredBy:   "mcpx_namespaces",
@@ -325,15 +384,17 @@ func Ops() []Op {
 		},
 		{
 			Name: "search", Method: "GET", Path: "/v1/search",
+			Command:   "search",
 			Summary:   "Rank tools against a query",
 			CoveredBy: "mcpx_search",
 			Params: []Param{
-				{Name: "q", In: InQuery, Type: "string", Required: true},
-				{Name: "limit", In: InQuery, Type: "integer"},
+				{Name: "q", In: InQuery, Type: "string", Required: true, Desc: "what to match against tool names and descriptions"},
+				{Name: "limit", In: InQuery, Type: "integer", Desc: "how many results to return"},
 			},
 		},
 		{
 			Name: "types", Method: "GET", Path: "/v1/types",
+			Command:   "types",
 			Summary:   "TypeScript declarations for the named namespaces",
 			CoveredBy: "mcpx_types", Text: true,
 			Params: append([]Param{
@@ -343,6 +404,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "catalog", Method: "GET", Path: "/v1/catalog",
+			Command:   "catalog",
 			Summary:   "Every namespace with as many signatures as fit a token budget",
 			CoveredBy: "mcpx_catalog", Text: true,
 			Params: append([]Param{
@@ -353,6 +415,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "client_module", Method: "GET", Path: "/v1/client.ts",
+			Command: "client",
 			Summary: "The generated TypeScript client",
 			Description: "A module binding every tool as an async function. This is what " +
 				"a script imports.",
@@ -371,6 +434,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "call", Method: "POST", Path: "/v1/call",
+			Command: "call",
 			Summary: "Call one tool on one server",
 			Description: "With task set, the answer is a handle rather than a result: the " +
 				"call runs in the background and is collected from /v1/tasks. That is " +
@@ -379,7 +443,7 @@ func Ops() []Op {
 			CoveredBy: "mcpx_call", Mutating: true,
 			Params: append([]Param{
 				{Name: "server", In: InBody, Type: "string", Required: true, Desc: "server name or namespace"},
-				{Name: "tool", In: InBody, Type: "string", Required: true},
+				{Name: "tool", In: InBody, Type: "string", Required: true, Desc: "the tool's name, as it appears in this server's tool list"},
 				{Name: "args", In: InBody, Type: "object", Desc: "the tool's arguments",
 					Schema: `{"type":"object","additionalProperties":true}`},
 				{Name: "task", In: InBody, Type: "object", Desc: "run as a task and return a handle at once",
@@ -388,15 +452,17 @@ func Ops() []Op {
 		},
 		{
 			Name: "resource_read", Method: "POST", Path: "/v1/resource",
+			Command:  "resources",
 			Summary:  "Read one resource from one server",
 			Mutating: true,
 			Params: append([]Param{
-				{Name: "server", In: InBody, Type: "string", Required: true},
-				{Name: "uri", In: InBody, Type: "string", Required: true},
+				{Name: "server", In: InBody, Type: "string", Required: true, Desc: "the server holding the resource"},
+				{Name: "uri", In: InBody, Type: "string", Required: true, Desc: "the resource's URI, as it appears in the server's resource list"},
 			}, callContextParams()...),
 		},
 		{
 			Name: "tasks_list", Method: "GET", Path: "/v1/tasks",
+			CLI:         "task list",
 			Summary:     "Background calls and their status",
 			Description: "Tasks expire: a result nobody collects is memory nobody frees.",
 		},
@@ -405,7 +471,7 @@ func Ops() []Op {
 			Summary:     "One task's status",
 			Description: "Check on it. /v1/tasks/{id}/result waits for it.",
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the task's id, as returned when it was started"},
 			},
 		},
 		{
@@ -415,7 +481,7 @@ func Ops() []Op {
 				"answers 408 and the task keeps running. A caller that would rather " +
 				"poll should use /v1/tasks/{id}.",
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the task's id, as returned when it was started"},
 				{Name: "waitMs", In: InQuery, Type: "integer", Desc: "how long to wait before giving up"},
 			},
 		},
@@ -424,7 +490,7 @@ func Ops() []Op {
 			Summary:  "Cancel a running task",
 			Mutating: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the task's id, as returned when it was started"},
 			},
 		},
 		{
@@ -434,11 +500,12 @@ func Ops() []Op {
 				"stops servers they are still using, which is why it is privileged.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "session", In: InBody, Type: "string", Required: true},
+				{Name: "session", In: InBody, Type: "string", Required: true, Desc: "the session whose instances should be released"},
 			},
 		},
 		{
 			Name: "refresh", Method: "POST", Path: "/v1/refresh",
+			Command: "refresh",
 			Summary: "Re-read the configuration and every server's schemas",
 			Description: "Picks up configuration files edited since the daemon started " +
 				"-- a server added by hand, or by `mcpx registry add` -- and then " +
@@ -450,6 +517,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "restart", Method: "POST", Path: "/v1/restart",
+			Command: "restart",
 			Summary: "Stop a server's instances, or every server's",
 			Description: "In-flight calls on those instances fail. Omit the server to " +
 				"restart all of them.",
@@ -460,6 +528,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "shutdown", Method: "POST", Path: "/v1/shutdown",
+			Command: "stop",
 			Summary: "Stop the daemon",
 			Description: "Every pooled server process stops with it, and every other " +
 				"client of this daemon loses its session.",
@@ -467,6 +536,7 @@ func Ops() []Op {
 		},
 		{
 			Name: "openapi", Method: "GET", Path: "/v1/openapi.json",
+			Command:     "openapi",
 			Summary:     "This API, as an OpenAPI 3.1 document",
 			Description: "Generated from the same table the routes and the MCP tools are.",
 		},
@@ -593,6 +663,12 @@ func (o Op) Request(args map[string]any) (path string, body []byte, err error) {
 	}
 	if len(query) > 0 {
 		path += "?" + query.Encode()
+	}
+	if raw, ok := o.RawParam(); ok {
+		if v, given := args[raw.Name]; given {
+			body = []byte(scalar(v))
+		}
+		return path, body, nil
 	}
 	if o.Method != "GET" {
 		// Some routes take their whole body as one named object -- a log
