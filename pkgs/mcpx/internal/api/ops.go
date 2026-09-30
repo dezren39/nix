@@ -673,7 +673,12 @@ func (o Op) ToolDescription() string {
 		parts = append(parts, o.Description)
 	}
 	if o.Admin {
-		parts = append(parts, "Privileged: this changes the daemon rather than reading it.")
+		// "Privileged" is mcpx's word, not the specification's, and on its own
+		// it reads like a permission something checks. Nothing does, so the
+		// label says it is advisory where a model reads it
+		// (docs/decisions/0003).
+		parts = append(parts, "Privileged: this changes the daemon rather than reading it. "+
+			"Advisory: the daemon does not check who calls it.")
 	}
 	if o.Destructive {
 		parts = append(parts, "Destructive: it cannot be undone, and other callers of this daemon are affected.")
