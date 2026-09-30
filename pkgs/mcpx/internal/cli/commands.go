@@ -371,6 +371,9 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	}
 	res, err := c.Call(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
 	if err != nil {
+		if a.JSON {
+			a.outCallFailure(err)
+		}
 		return err
 	}
 	text, failed := renderResult(res.Result)
@@ -387,6 +390,22 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 		return fmt.Errorf("%s.%s reported an error (isError)", ns, tool)
 	}
 	return nil
+}
+
+// outCallFailure writes a refused call to stdout as the daemon's error
+// document, so --json carries the diagnostics as data and not only as the
+// text on stderr. The error is still returned, because the exit status is
+// what a script checks first.
+func (a *App) outCallFailure(err error) {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return
+	}
+	var body daemon.CallErrorBody
+	if json.Unmarshal(he.Body, &body) != nil || body.Error == "" {
+		return
+	}
+	_ = a.out(body)
 }
 
 // renderResult unwraps a CallToolResult the same way the script client does,

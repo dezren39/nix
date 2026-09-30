@@ -143,6 +143,42 @@ func TestAnErrorThatIsNotAboutTheSchemaIsNotExplainedAway(t *testing.T) {
 	}
 }
 
+func TestADroppedConnectionIsNotReadAsASchemaComplaint(t *testing.T) {
+	// mcpx's own client reports a server that died mid-call as -32000
+	// "connection closed: ...". The text match used to read "unexpected" as
+	// "expected" and blame the arguments for a crash.
+	ds := diagnose.CallError(diagnose.CallErrorInput{
+		Namespace: "demo", Tool: "create_issue", Args: json.RawMessage(`{}`),
+		Code: -32000, Message: "connection closed: unexpected EOF",
+	}, catalog())
+	if len(ds) != 0 {
+		t.Fatalf("a dropped connection is not an argument error: %+v", ds)
+	}
+}
+
+func TestAFailureThatIsNotAboutArgumentsNamesNoMissingNamespace(t *testing.T) {
+	// The daemon calls this for a namespace whose schemas may not have been
+	// read yet. "no server is configured" would be false there, and it was
+	// the answer for every failure, whatever the server said.
+	ds := diagnose.CallError(diagnose.CallErrorInput{
+		Namespace: "fresh", Tool: "anything",
+		Code: -32603, Message: "internal error: backend unavailable",
+	}, catalog())
+	if len(ds) != 0 {
+		t.Fatalf("an internal error says nothing about the namespace: %+v", ds)
+	}
+}
+
+func TestAnUnknownToolIsStillNamedWhenTheServerSaysSo(t *testing.T) {
+	ds := diagnose.CallError(diagnose.CallErrorInput{
+		Namespace: "demo", Tool: "create_isue",
+		Code: diagnose.InvalidParams, Message: "unknown tool create_isue",
+	}, catalog())
+	if len(ds) != 1 || ds[0].Kind != diagnose.KindUnknownTool {
+		t.Fatalf("expected an unknown-tool diagnostic, got %+v", ds)
+	}
+}
+
 func TestShapeOfReadsRequiredAndTypes(t *testing.T) {
 	sh := diagnose.ShapeOf(json.RawMessage(
 		`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":["integer","null"]}},"required":["a"]}`))

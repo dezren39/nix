@@ -592,7 +592,11 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 		return nil, err
 	}
 	defer r.joinAsk(ctx, server, key)()
-	return p.Call(ctx, key, tool, args)
+	res, err := p.Call(ctx, key, tool, args)
+	if err != nil {
+		return nil, r.explainCall(server, tool, args, err)
+	}
+	return res, nil
 }
 
 // resolveAndGuard picks the instance key for a tool call and applies the
