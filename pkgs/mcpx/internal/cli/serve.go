@@ -12,6 +12,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/adapter"
 	"github.com/dezren39/mcpx/internal/artifacts"
+	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/execsvc"
@@ -113,7 +114,14 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if err != nil {
 		return "", err
 	}
-	return renderResult(res.Result), nil
+	text, failed := renderResult(res.Result)
+	if failed {
+		// mcpserver turns a backend error into a result with isError, and
+		// /v1/tools into ok:false; ToolFailure lets the latter tell it from
+		// a call mcpx could not make.
+		return "", daemon.ToolFailure{Text: text}
+	}
+	return text, nil
 }
 
 // Exec runs a script through the daemon's /v1/exec.

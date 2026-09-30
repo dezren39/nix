@@ -279,7 +279,7 @@ func (r *Registry) askIDFor(server, key string) string {
 	if r.asks == nil {
 		return ""
 	}
-	if a, ok := r.asks.forKey(server, key); ok {
+	if a, ok := r.askFor(server, key); ok {
 		return a.ID
 	}
 	return ""

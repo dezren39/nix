@@ -159,10 +159,30 @@ func (t *askTable) forKey(server, key string) (*askCall, bool) {
 	return list[0], true
 }
 
+// askFor returns the ask call a question on (server, key) belongs to.
+//
+// The table alone cannot answer that: it holds only calls started through
+// /v1/ask, while /v1/call, exec, the CLI and the plugin reach the same
+// connection without registering. One ask call in the table beside a plain
+// call on the same key looked unambiguous, and handed the plain caller's
+// question to the ask caller. The pool counts every upstream request, so the
+// attribution is made only when that count is one and the one is ours.
+func (r *Registry) askFor(server, key string) (*askCall, bool) {
+	a, ok := r.asks.forKey(server, key)
+	if !ok {
+		return nil, false
+	}
+	p, ok := r.Pool(server)
+	if !ok || p.InFlight(key) != 1 {
+		return nil, false
+	}
+	return a, true
+}
+
 // attach records a question against the call that provoked it, if one can be
 // identified, and returns whether it was.
 func (r *Registry) attach(server, key string, req elicit.Request, method string, params json.RawMessage) (string, bool) {
-	a, ok := r.asks.forKey(server, key)
+	a, ok := r.askFor(server, key)
 	if !ok {
 		return "", false
 	}
@@ -179,7 +199,14 @@ func (r *Registry) CallAsk(ctx context.Context, id, server, tool string, cc conf
 	if !ok {
 		return nil, fmt.Errorf("unknown server or namespace %q", server)
 	}
-	key := r.keyFor(p, cc)
+	// The key is only known after disambiguation, and the call has to be in
+	// the table before the upstream request goes out, so it is registered
+	// between the two. The guard's own questions are mcpx's, not the
+	// server's, and are never attributed through the table.
+	key, err := r.resolveAndGuard(ctx, p, tool, cc)
+	if err != nil {
+		return nil, err
+	}
 	r.beginAsk(id, server, key, cc.SessionID)
 	defer r.endAsk(id)
 	return p.Call(ctx, key, tool, args)
@@ -562,6 +589,13 @@ func (s *Server) handleToolInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text, err := s.MCPTool(r.Context(), r.PathValue("tool"), body)
+	var failed ToolFailure
+	if errors.As(err, &failed) {
+		// The tool ran and said it failed: the same 200-with-a-flag /v1/call
+		// gives, not the 400 reserved for a request mcpx could not carry out.
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "result": failed.Text})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
 		return
@@ -595,8 +629,24 @@ func (s *Server) handleCallPath(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res,
+	writeJSON(w, http.StatusOK, map[string]any{"ok": !resultFailed(res), "result": res,
 		"durationMs": time.Since(start).Milliseconds()})
+}
+
+// ToolFailure is a tool that ran and returned isError. It travels as an error
+// so the MCP server's existing path sets isError, and is typed so /v1/tools
+// can report it as the tool's failure rather than as a bad request.
+type ToolFailure struct{ Text string }
+
+func (f ToolFailure) Error() string { return f.Text }
+
+// resultFailed reports a CallToolResult's isError. /v1/call/{s}/{t} said
+// ok:true beside isError:true, which is two answers to one question.
+func resultFailed(raw json.RawMessage) bool {
+	var r struct {
+		IsError bool `json:"isError"`
+	}
+	return json.Unmarshal(raw, &r) == nil && r.IsError
 }
 
 // readBody reads a request body, defaulting an empty one to an empty object
