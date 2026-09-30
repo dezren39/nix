@@ -721,6 +721,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	prefixLines := cfgScriptLines(cfg, prefix.Values(), true)
 	suffixLines := cfgScriptLines(cfg, suffix.Values(), false)
 
+	// Both paths, not only the file one. This lived in the `else` branch, so
+	// `mcpx exec --typecheck=on` accepted the flag and ignored it -- on the
+	// command an agent reaches for most.
+	//
+	// Read from the resolved set, so the value is whichever layer won: the
+	// short --typecheck spelling, the generated --script-typecheck, a
+	// variable, or the config file. Reading the flag variable directly would
+	// silently ignore the other three.
+	opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
 	if inline {
 		// A snippet is generated wholesale, so prefix lines share its scope
 		// and can declare bindings the snippet uses.
@@ -760,11 +769,6 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			}
 			opts.Launcher, opts.LauncherName = text, name
 		}
-		// Read from the resolved set, so the value is whichever layer won:
-		// the short --typecheck spelling, the generated --script-typecheck,
-		// a variable, or the config file. Reading the flag variable directly
-		// would silently ignore the other three.
-		opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
 		opts.PlaceholderFiles = PlaceholderFiles()
 		for _, r := range allowRepeat.Values() {
 			if str, ok := r.(string); ok {
