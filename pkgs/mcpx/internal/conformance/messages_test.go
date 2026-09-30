@@ -625,7 +625,28 @@ func TestMessagesClient(t *testing.T) {
 		"messages-error-response-same-id-unless-unreadable", "errors-error-has-code-and-message", "errors-codes-integers"} {
 		cli(id, func(t *testing.T, rev string) {
 			if isModern(rev) {
-				t.Skip("a 2026-07-28 server sends no requests; the client answers none")
+				// 2026-07-28: the client answers a server's questions in the
+				// retry, each keyed by the id the server gave it.
+				p := newPeer(t, rev)
+				n := 0
+				var retry map[string]any
+				p.on("tools/call", func(pm map[string]any) (any, *rpcError) {
+					if n++; n == 1 {
+						return map[string]any{"resultType": "input_required", "requestState": "s1",
+							"inputRequests": map[string]any{"r1": map[string]any{"method": "roots/list", "params": map[string]any{}}}}, nil
+					}
+					retry = pm
+					return map[string]any{"resultType": "complete", "content": []any{}}, nil
+				})
+				c := dialClient(t, p, clientOpts())
+				if _, err := c.CallTool(ctxT(t), "echo", map[string]any{}); err != nil {
+					t.Fatal(err)
+				}
+				r1 := asMap(asMap(retry["inputResponses"])["r1"])
+				if _, ok := r1["roots"]; !ok {
+					t.Errorf("the answer is not keyed to the question: %v", retry["inputResponses"])
+				}
+				return
 			}
 			p := newPeer(t, rev)
 			dialClient(t, p, clientOpts())

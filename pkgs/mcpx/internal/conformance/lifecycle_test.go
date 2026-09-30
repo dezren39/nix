@@ -157,7 +157,7 @@ func TestLifecycleServer(t *testing.T) {
 		hs := httpServer(t, srv)
 		sess := hs.initialize(t, rev)
 		if sess == "" {
-			t.Skip("no session issued in " + rev) // 2024-11-05 has no Streamable HTTP sessions
+			t.Fatal("no session issued")
 		}
 		req, _ := http.NewRequest(http.MethodDelete, hs.ts.URL, nil)
 		req.Header.Set("Mcp-Session-Id", sess)

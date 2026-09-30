@@ -633,7 +633,16 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// promise of a stream that does not exist. The method still answers
 		// -- including from a 2026-07-28 client, which no longer has it --
 		// because refusing would make a well-behaved client that asked anyway
-		// treat the whole connection as degraded.
+		// treat the whole connection as degraded. A level that is not one
+		// of the eight is a different matter: that request is malformed,
+		// and every revision's setLevel asks for -32602.
+		var lv struct {
+			Level string `json:"level"`
+		}
+		_ = json.Unmarshal(req.Params, &lv)
+		if lv.Level != "" && !logLevels[lv.Level] {
+			return fail(codeInvalidParams, fmt.Sprintf("%q is not a log level", lv.Level))
+		}
 		return reply(map[string]any{})
 
 	case "resources/templates/list":
@@ -1997,6 +2006,11 @@ func (s *Server) complete(ctx context.Context, params json.RawMessage) map[strin
 	if max <= 0 {
 		max = defaults.CompletionValues
 	}
+	// The setting may lower the count, not raise it past what every
+	// revision's CompleteResult allows.
+	if max > specMaxCompletions {
+		max = specMaxCompletions
+	}
 	total := len(values)
 	if len(values) > max {
 		values = values[:max]
@@ -2028,3 +2042,7 @@ func (l lockedEncoder) Encode(v any) error {
 	defer l.mu.Unlock()
 	return l.enc.Encode(v)
 }
+
+// specMaxCompletions is CompleteResult.values' maxItems in every revision: a
+// fact of the protocol, not a default.
+const specMaxCompletions = 100

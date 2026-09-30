@@ -8,63 +8,63 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | revision | side | level | applies | tested | gap | missing | n/a |
 |---|---|---|---|---|---|---|---|
-| 2024-11-05 | server | MUST | 32 | 14 | 0 | 18 | 22 |
-| 2024-11-05 | server | MUST NOT | 6 | 5 | 0 | 1 | 4 |
-| 2024-11-05 | server | SHOULD | 36 | 7 | 0 | 29 | 45 |
+| 2024-11-05 | server | MUST | 32 | 21 | 1 | 10 | 22 |
+| 2024-11-05 | server | MUST NOT | 6 | 6 | 0 | 0 | 4 |
+| 2024-11-05 | server | SHOULD | 36 | 18 | 3 | 15 | 45 |
 | 2024-11-05 | server | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | server | MAY | 10 | 3 | 1 | 6 | 14 |
-| 2024-11-05 | server | other | 11 | 6 | 0 | 5 | 1 |
-| 2024-11-05 | client | MUST | 32 | 14 | 1 | 17 | 22 |
-| 2024-11-05 | client | MUST NOT | 9 | 5 | 1 | 3 | 1 |
-| 2024-11-05 | client | SHOULD | 38 | 6 | 2 | 30 | 43 |
+| 2024-11-05 | server | MAY | 10 | 6 | 1 | 3 | 14 |
+| 2024-11-05 | server | other | 11 | 7 | 0 | 4 | 1 |
+| 2024-11-05 | client | MUST | 32 | 20 | 1 | 11 | 22 |
+| 2024-11-05 | client | MUST NOT | 9 | 7 | 2 | 0 | 1 |
+| 2024-11-05 | client | SHOULD | 38 | 12 | 7 | 19 | 43 |
 | 2024-11-05 | client | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | client | MAY | 15 | 4 | 1 | 10 | 9 |
+| 2024-11-05 | client | MAY | 15 | 7 | 1 | 7 | 9 |
 | 2024-11-05 | client | other | 7 | 6 | 0 | 1 | 5 |
-| 2025-03-26 | server | MUST | 51 | 24 | 7 | 20 | 30 |
-| 2025-03-26 | server | MUST NOT | 7 | 6 | 0 | 1 | 8 |
-| 2025-03-26 | server | SHOULD | 50 | 14 | 5 | 31 | 53 |
+| 2025-03-26 | server | MUST | 51 | 32 | 8 | 11 | 30 |
+| 2025-03-26 | server | MUST NOT | 7 | 7 | 0 | 0 | 8 |
+| 2025-03-26 | server | SHOULD | 50 | 26 | 9 | 15 | 53 |
 | 2025-03-26 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
-| 2025-03-26 | server | MAY | 19 | 10 | 3 | 6 | 18 |
-| 2025-03-26 | server | other | 11 | 6 | 0 | 5 | 1 |
-| 2025-03-26 | client | MUST | 47 | 20 | 9 | 18 | 34 |
-| 2025-03-26 | client | MUST NOT | 12 | 7 | 2 | 3 | 3 |
-| 2025-03-26 | client | SHOULD | 51 | 10 | 10 | 31 | 52 |
+| 2025-03-26 | server | MAY | 19 | 13 | 3 | 3 | 18 |
+| 2025-03-26 | server | other | 11 | 7 | 0 | 4 | 1 |
+| 2025-03-26 | client | MUST | 47 | 26 | 9 | 12 | 34 |
+| 2025-03-26 | client | MUST NOT | 12 | 9 | 3 | 0 | 3 |
+| 2025-03-26 | client | SHOULD | 51 | 16 | 15 | 20 | 52 |
 | 2025-03-26 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-03-26 | client | MAY | 21 | 7 | 4 | 10 | 16 |
+| 2025-03-26 | client | MAY | 21 | 10 | 4 | 7 | 16 |
 | 2025-03-26 | client | other | 7 | 6 | 0 | 1 | 5 |
-| 2025-06-18 | server | MUST | 65 | 29 | 13 | 23 | 36 |
-| 2025-06-18 | server | MUST NOT | 10 | 7 | 1 | 2 | 8 |
-| 2025-06-18 | server | SHOULD | 52 | 14 | 4 | 34 | 63 |
+| 2025-06-18 | server | MUST | 65 | 37 | 14 | 14 | 36 |
+| 2025-06-18 | server | MUST NOT | 10 | 8 | 1 | 1 | 8 |
+| 2025-06-18 | server | SHOULD | 52 | 26 | 8 | 18 | 63 |
 | 2025-06-18 | server | SHOULD NOT | 4 | 3 | 1 | 0 | 1 |
-| 2025-06-18 | server | MAY | 17 | 8 | 2 | 7 | 18 |
-| 2025-06-18 | server | other | 15 | 6 | 0 | 9 | 3 |
-| 2025-06-18 | client | MUST | 58 | 24 | 15 | 19 | 43 |
-| 2025-06-18 | client | MUST NOT | 13 | 7 | 3 | 3 | 5 |
-| 2025-06-18 | client | SHOULD | 59 | 9 | 10 | 40 | 56 |
+| 2025-06-18 | server | MAY | 17 | 11 | 2 | 4 | 18 |
+| 2025-06-18 | server | other | 15 | 7 | 0 | 8 | 3 |
+| 2025-06-18 | client | MUST | 58 | 30 | 15 | 13 | 43 |
+| 2025-06-18 | client | MUST NOT | 13 | 9 | 4 | 0 | 5 |
+| 2025-06-18 | client | SHOULD | 59 | 16 | 15 | 28 | 56 |
 | 2025-06-18 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-06-18 | client | MAY | 19 | 7 | 2 | 10 | 16 |
+| 2025-06-18 | client | MAY | 19 | 10 | 2 | 7 | 16 |
 | 2025-06-18 | client | other | 10 | 6 | 0 | 4 | 8 |
-| 2025-11-25 | server | MUST | 115 | 32 | 15 | 68 | 65 |
-| 2025-11-25 | server | MUST NOT | 22 | 7 | 1 | 14 | 13 |
-| 2025-11-25 | server | SHOULD | 78 | 17 | 6 | 55 | 81 |
+| 2025-11-25 | server | MUST | 115 | 45 | 16 | 54 | 65 |
+| 2025-11-25 | server | MUST NOT | 22 | 8 | 1 | 13 | 13 |
+| 2025-11-25 | server | SHOULD | 78 | 29 | 10 | 39 | 81 |
 | 2025-11-25 | server | SHOULD NOT | 11 | 2 | 1 | 8 | 3 |
-| 2025-11-25 | server | MAY | 27 | 10 | 2 | 15 | 28 |
-| 2025-11-25 | server | other | 19 | 9 | 0 | 10 | 2 |
-| 2025-11-25 | client | MUST | 82 | 27 | 17 | 38 | 98 |
-| 2025-11-25 | client | MUST NOT | 16 | 7 | 3 | 6 | 19 |
-| 2025-11-25 | client | SHOULD | 74 | 11 | 16 | 47 | 85 |
+| 2025-11-25 | server | MAY | 27 | 13 | 2 | 12 | 28 |
+| 2025-11-25 | server | other | 19 | 10 | 0 | 9 | 2 |
+| 2025-11-25 | client | MUST | 82 | 35 | 17 | 30 | 98 |
+| 2025-11-25 | client | MUST NOT | 16 | 9 | 4 | 3 | 19 |
+| 2025-11-25 | client | SHOULD | 74 | 18 | 21 | 35 | 85 |
 | 2025-11-25 | client | SHOULD NOT | 5 | 2 | 1 | 2 | 9 |
-| 2025-11-25 | client | MAY | 24 | 8 | 3 | 13 | 31 |
+| 2025-11-25 | client | MAY | 24 | 11 | 3 | 10 | 31 |
 | 2025-11-25 | client | other | 13 | 8 | 0 | 5 | 8 |
-| 2026-07-28 | server | MUST | 134 | 45 | 18 | 71 | 90 |
-| 2026-07-28 | server | MUST NOT | 46 | 20 | 1 | 25 | 18 |
-| 2026-07-28 | server | SHOULD | 74 | 16 | 9 | 49 | 86 |
-| 2026-07-28 | server | SHOULD NOT | 12 | 3 | 2 | 7 | 8 |
-| 2026-07-28 | server | MAY | 31 | 13 | 2 | 16 | 30 |
-| 2026-07-28 | server | other | 23 | 9 | 1 | 13 | 4 |
-| 2026-07-28 | client | MUST | 97 | 27 | 31 | 39 | 127 |
-| 2026-07-28 | client | MUST NOT | 26 | 12 | 3 | 11 | 38 |
-| 2026-07-28 | client | SHOULD | 83 | 8 | 16 | 59 | 77 |
+| 2026-07-28 | server | MUST | 134 | 55 | 19 | 60 | 90 |
+| 2026-07-28 | server | MUST NOT | 46 | 25 | 1 | 20 | 18 |
+| 2026-07-28 | server | SHOULD | 74 | 30 | 13 | 31 | 86 |
+| 2026-07-28 | server | SHOULD NOT | 12 | 4 | 2 | 6 | 8 |
+| 2026-07-28 | server | MAY | 31 | 15 | 2 | 14 | 30 |
+| 2026-07-28 | server | other | 23 | 10 | 1 | 12 | 4 |
+| 2026-07-28 | client | MUST | 97 | 33 | 31 | 33 | 127 |
+| 2026-07-28 | client | MUST NOT | 26 | 14 | 4 | 8 | 38 |
+| 2026-07-28 | client | SHOULD | 83 | 21 | 19 | 43 | 77 |
 | 2026-07-28 | client | SHOULD NOT | 13 | 6 | 1 | 6 | 7 |
 | 2026-07-28 | client | MAY | 23 | 8 | 3 | 12 | 38 |
 | 2026-07-28 | client | other | 13 | 7 | 0 | 6 | 14 |
@@ -87,25 +87,25 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
+| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | tested: `conformance.TestUtilitiesServer/2024-11-05/cancellation/cancellation-ref-same-direction-in-progress` | tested: `conformance.TestUtilitiesClient/2024-11-05/cancellation/cancellation-ref-same-direction-in-progress` |
+| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2024-11-05/cancellation/cancellation-receiver-should-stop-free-no-response` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
+| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2024-11-05/cancellation/cancellation-receiver-may-ignore` | tested: `conformance.TestUtilitiesClient/2024-11-05/cancellation/cancellation-receiver-may-ignore` |
+| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2024-11-05/cancellation/cancellation-sender-ignore-late-response` | tested: `conformance.TestUtilitiesClient/2024-11-05/cancellation/cancellation-sender-ignore-late-response` |
+| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | tested: `conformance.TestUtilitiesServer/2024-11-05/cancellation/cancellation-handle-races` | tested: `conformance.TestUtilitiesClient/2024-11-05/cancellation/cancellation-handle-races` |
+| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **gap** #77: a cancellation reason reaches Server.OnCancel, which nothing outside tests sets; it is never logged | **gap** #77: the client does not handle inbound cancellations, so has no reason to log |
 | [cancellation-ui-indicate](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | n/a: no UI | n/a: no UI |
-| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | **MISSING** | **MISSING** |
+| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2024-11-05/cancellation/cancellation-ignore-invalid` | tested: `conformance.TestUtilitiesClient/2024-11-05/cancellation/cancellation-ignore-invalid` |
+| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | tested: `conformance.TestUtilitiesServer/2024-11-05/cancellation/cancellation-processing-should-cease` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
 
 ### completion
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | **MISSING** | n/a: addresses the other side |
-| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
+| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | tested: `conformance.TestUtilitiesServer/2024-11-05/completion/completion-max-100` | n/a: addresses the other side |
+| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
+| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2024-11-05/completion/completion-client-should` |
+| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
 
 ### errors
 
@@ -142,14 +142,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | **MISSING** | n/a: addresses the other side |
-| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | **MISSING** | **MISSING** |
-| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | **MISSING** | **MISSING** |
+| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2024-11-05/logging/logging-declare-capability` | n/a: addresses the other side |
+| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2024-11-05/logging/logging-client-may-setlevel` |
+| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | tested: `conformance.TestUtilitiesServer/2024-11-05/logging/logging-setlevel-at-or-above` | n/a: addresses the other side |
+| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | tested: `conformance.TestUtilitiesServer/2024-11-05/logging/logging-unset-server-chooses` | n/a: addresses the other side |
+| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2024-11-05/logging/logging-errors-setlevel` | n/a: addresses the other side |
+| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2024-11-05/logging/logging-server-hygiene` | n/a: addresses the other side |
+| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | tested: `conformance.TestUtilitiesServer/2024-11-05/logging/logging-no-secrets-pii` | tested: `conformance.TestUtilitiesClient/2024-11-05/logging/logging-no-secrets-pii` |
+| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2024-11-05/logging/logging-impl-validate-control` | tested: `conformance.TestUtilitiesClient/2024-11-05/logging/logging-impl-validate-control` |
 
 ### messages
 
@@ -175,14 +175,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2024-11-05/pagination/pagination-no-fixed-page-size` |
+| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2024-11-05/pagination/pagination-stable-cursors` | n/a: addresses the other side |
+| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2024-11-05/pagination/pagination-invalid-cursor-graceful` | n/a: addresses the other side |
+| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2024-11-05/pagination/pagination-missing-nextcursor-end` |
+| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2024-11-05/pagination/pagination-support-both-flows` |
+| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2024-11-05/pagination/pagination-cursor-opaque` |
+| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2024-11-05/pagination/pagination-no-persist-across-sessions` |
+| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **gap** pending:invalid-cursor: an undecodable cursor restarts at the first page by design (mcpserver.TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing) | n/a: addresses the other side |
 
 ### ping
 
@@ -204,15 +204,15 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | **MISSING** |
-| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | **MISSING** | **MISSING** |
+| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | tested: `conformance.TestUtilitiesClient/2024-11-05/progress/progress-token-string-or-int` |
+| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | tested: `conformance.TestUtilitiesServer/2024-11-05/progress/progress-token-unique-sender` | tested: `conformance.TestUtilitiesClient/2024-11-05/progress/progress-token-unique-sender` |
 | [progress-receiver-may-send](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MAY | both | n/a: optional feature mcpx does not implement | n/a: never receives requests with tokens |
-| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **MISSING** |
-| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
-| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
+| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2024-11-05/progress/progress-must-increase` | n/a: catalogue marks it n/a |
+| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2024-11-05/progress/progress-only-active-tokens` | n/a: catalogue marks it n/a |
+| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2024-11-05/progress/progress-receiver-may-skip` | tested: `conformance.TestUtilitiesClient/2024-11-05/progress/progress-receiver-may-skip` |
+| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **gap** #212: every inbound progress notification is passed on, whether or not any request asked for its token |
+| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2024-11-05/progress/progress-rate-limit` | **gap** #212: inbound progress is neither tracked nor throttled |
+| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2024-11-05/progress/progress-stop-after-completion` | n/a: catalogue marks it n/a |
 
 ### prompts
 
@@ -423,27 +423,27 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
+| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-03-26/cancellation/cancellation-ref-same-direction-in-progress` | tested: `conformance.TestUtilitiesClient/2025-03-26/cancellation/cancellation-ref-same-direction-in-progress` |
+| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-03-26/cancellation/cancellation-receiver-should-stop-free-no-response` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
+| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2025-03-26/cancellation/cancellation-receiver-may-ignore` | tested: `conformance.TestUtilitiesClient/2025-03-26/cancellation/cancellation-receiver-may-ignore` |
+| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-03-26/cancellation/cancellation-sender-ignore-late-response` | tested: `conformance.TestUtilitiesClient/2025-03-26/cancellation/cancellation-sender-ignore-late-response` |
+| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-03-26/cancellation/cancellation-handle-races` | tested: `conformance.TestUtilitiesClient/2025-03-26/cancellation/cancellation-handle-races` |
+| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **gap** #77: a cancellation reason reaches Server.OnCancel, which nothing outside tests sets; it is never logged | **gap** #77: the client does not handle inbound cancellations, so has no reason to log |
 | [cancellation-ui-indicate](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | n/a: no UI | n/a: no UI |
-| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | **MISSING** | **MISSING** |
+| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-03-26/cancellation/cancellation-ignore-invalid` | tested: `conformance.TestUtilitiesClient/2025-03-26/cancellation/cancellation-ignore-invalid` |
+| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | tested: `conformance.TestUtilitiesServer/2025-03-26/cancellation/cancellation-processing-should-cease` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
 
 ### completion
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | **MISSING** | n/a: addresses the other side |
-| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2025-03-26/completion/completion-declare-capability` | n/a: addresses the other side |
+| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | tested: `conformance.TestUtilitiesServer/2025-03-26/completion/completion-max-100` | n/a: addresses the other side |
+| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
+| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/completion/completion-client-should` |
+| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
 
 ### errors
 
@@ -485,14 +485,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | **MISSING** | n/a: addresses the other side |
-| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | **MISSING** | **MISSING** |
-| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | **MISSING** | **MISSING** |
+| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2025-03-26/logging/logging-declare-capability` | n/a: addresses the other side |
+| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/logging/logging-client-may-setlevel` |
+| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | tested: `conformance.TestUtilitiesServer/2025-03-26/logging/logging-setlevel-at-or-above` | n/a: addresses the other side |
+| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | tested: `conformance.TestUtilitiesServer/2025-03-26/logging/logging-unset-server-chooses` | n/a: addresses the other side |
+| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-03-26/logging/logging-errors-setlevel` | n/a: addresses the other side |
+| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-03-26/logging/logging-server-hygiene` | n/a: addresses the other side |
+| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | tested: `conformance.TestUtilitiesServer/2025-03-26/logging/logging-no-secrets-pii` | tested: `conformance.TestUtilitiesClient/2025-03-26/logging/logging-no-secrets-pii` |
+| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-03-26/logging/logging-impl-validate-control` | tested: `conformance.TestUtilitiesClient/2025-03-26/logging/logging-impl-validate-control` |
 
 ### messages
 
@@ -522,14 +522,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/pagination/pagination-no-fixed-page-size` |
+| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-03-26/pagination/pagination-stable-cursors` | n/a: addresses the other side |
+| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-03-26/pagination/pagination-invalid-cursor-graceful` | n/a: addresses the other side |
+| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/pagination/pagination-missing-nextcursor-end` |
+| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/pagination/pagination-support-both-flows` |
+| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/pagination/pagination-cursor-opaque` |
+| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-03-26/pagination/pagination-no-persist-across-sessions` |
+| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **gap** pending:invalid-cursor: an undecodable cursor restarts at the first page by design (mcpserver.TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing) | n/a: addresses the other side |
 
 ### ping
 
@@ -551,16 +551,16 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | **MISSING** |
-| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | **MISSING** | **MISSING** |
+| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | tested: `conformance.TestUtilitiesClient/2025-03-26/progress/progress-token-string-or-int` |
+| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-03-26/progress/progress-token-unique-sender` | tested: `conformance.TestUtilitiesClient/2025-03-26/progress/progress-token-unique-sender` |
 | [progress-receiver-may-send](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MAY | both | n/a: optional feature mcpx does not implement | n/a: never receives requests with tokens |
-| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **MISSING** |
-| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
-| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
+| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-03-26/progress/progress-must-increase` | n/a: catalogue marks it n/a |
+| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-03-26/progress/progress-message-human-readable` | n/a: catalogue marks it n/a |
+| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-03-26/progress/progress-only-active-tokens` | n/a: catalogue marks it n/a |
+| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2025-03-26/progress/progress-receiver-may-skip` | tested: `conformance.TestUtilitiesClient/2025-03-26/progress/progress-receiver-may-skip` |
+| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **gap** #212: every inbound progress notification is passed on, whether or not any request asked for its token |
+| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-03-26/progress/progress-rate-limit` | **gap** #212: inbound progress is neither tracked nor throttled |
+| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-03-26/progress/progress-stop-after-completion` | n/a: catalogue marks it n/a |
 
 ### prompts
 
@@ -823,28 +823,28 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
+| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-06-18/cancellation/cancellation-ref-same-direction-in-progress` | tested: `conformance.TestUtilitiesClient/2025-06-18/cancellation/cancellation-ref-same-direction-in-progress` |
+| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-06-18/cancellation/cancellation-receiver-should-stop-free-no-response` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
+| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2025-06-18/cancellation/cancellation-receiver-may-ignore` | tested: `conformance.TestUtilitiesClient/2025-06-18/cancellation/cancellation-receiver-may-ignore` |
+| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-06-18/cancellation/cancellation-sender-ignore-late-response` | tested: `conformance.TestUtilitiesClient/2025-06-18/cancellation/cancellation-sender-ignore-late-response` |
+| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-06-18/cancellation/cancellation-handle-races` | tested: `conformance.TestUtilitiesClient/2025-06-18/cancellation/cancellation-handle-races` |
+| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **gap** #77: a cancellation reason reaches Server.OnCancel, which nothing outside tests sets; it is never logged | **gap** #77: the client does not handle inbound cancellations, so has no reason to log |
 | [cancellation-ui-indicate](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | n/a: no UI | n/a: no UI |
-| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | **MISSING** | **MISSING** |
+| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-06-18/cancellation/cancellation-ignore-invalid` | tested: `conformance.TestUtilitiesClient/2025-06-18/cancellation/cancellation-ignore-invalid` |
+| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | tested: `conformance.TestUtilitiesServer/2025-06-18/cancellation/cancellation-processing-should-cease` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
 
 ### completion
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | **MISSING** | n/a: addresses the other side |
-| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
+| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2025-06-18/completion/completion-declare-capability` | n/a: addresses the other side |
+| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | tested: `conformance.TestUtilitiesServer/2025-06-18/completion/completion-max-100` | n/a: addresses the other side |
+| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
+| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/completion/completion-client-should` |
+| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
+| [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/completion/completion-context-arguments` |
 
 ### elicitation
 
@@ -901,14 +901,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | **MISSING** | n/a: addresses the other side |
-| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | **MISSING** | **MISSING** |
-| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | **MISSING** | **MISSING** |
+| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2025-06-18/logging/logging-declare-capability` | n/a: addresses the other side |
+| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/logging/logging-client-may-setlevel` |
+| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | tested: `conformance.TestUtilitiesServer/2025-06-18/logging/logging-setlevel-at-or-above` | n/a: addresses the other side |
+| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | tested: `conformance.TestUtilitiesServer/2025-06-18/logging/logging-unset-server-chooses` | n/a: addresses the other side |
+| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-06-18/logging/logging-errors-setlevel` | n/a: addresses the other side |
+| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-06-18/logging/logging-server-hygiene` | n/a: addresses the other side |
+| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | tested: `conformance.TestUtilitiesServer/2025-06-18/logging/logging-no-secrets-pii` | tested: `conformance.TestUtilitiesClient/2025-06-18/logging/logging-no-secrets-pii` |
+| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-06-18/logging/logging-impl-validate-control` | tested: `conformance.TestUtilitiesClient/2025-06-18/logging/logging-impl-validate-control` |
 
 ### messages
 
@@ -941,14 +941,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/pagination/pagination-no-fixed-page-size` |
+| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-06-18/pagination/pagination-stable-cursors` | n/a: addresses the other side |
+| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-06-18/pagination/pagination-invalid-cursor-graceful` | n/a: addresses the other side |
+| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/pagination/pagination-missing-nextcursor-end` |
+| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/pagination/pagination-support-both-flows` |
+| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/pagination/pagination-cursor-opaque` |
+| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-06-18/pagination/pagination-no-persist-across-sessions` |
+| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **gap** pending:invalid-cursor: an undecodable cursor restarts at the first page by design (mcpserver.TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing) | n/a: addresses the other side |
 
 ### ping
 
@@ -970,16 +970,16 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | **MISSING** |
-| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | **MISSING** | **MISSING** |
+| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | tested: `conformance.TestUtilitiesClient/2025-06-18/progress/progress-token-string-or-int` |
+| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-06-18/progress/progress-token-unique-sender` | tested: `conformance.TestUtilitiesClient/2025-06-18/progress/progress-token-unique-sender` |
 | [progress-receiver-may-send](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MAY | both | n/a: optional feature mcpx does not implement | n/a: never receives requests with tokens |
-| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **MISSING** |
-| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
-| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
+| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-06-18/progress/progress-must-increase` | n/a: catalogue marks it n/a |
+| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-06-18/progress/progress-message-human-readable` | n/a: catalogue marks it n/a |
+| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-06-18/progress/progress-only-active-tokens` | n/a: catalogue marks it n/a |
+| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2025-06-18/progress/progress-receiver-may-skip` | tested: `conformance.TestUtilitiesClient/2025-06-18/progress/progress-receiver-may-skip` |
+| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **gap** #212: every inbound progress notification is passed on, whether or not any request asked for its token |
+| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-06-18/progress/progress-rate-limit` | **gap** #212: inbound progress is neither tracked nor throttled |
+| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-06-18/progress/progress-stop-after-completion` | n/a: catalogue marks it n/a |
 
 ### prompts
 
@@ -1265,30 +1265,30 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [cancellation-task-use-tasks-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-requestid-required-non-task-forbidden-task](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotificationparams) | MUST / MUST NOT | both | **MISSING** | **MISSING** |
-| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
+| [cancellation-ref-same-direction-in-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-ref-same-direction-in-progress` | tested: `conformance.TestUtilitiesClient/2025-11-25/cancellation/cancellation-ref-same-direction-in-progress` |
+| [cancellation-client-must-not-cancel-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [cancellation-task-use-tasks-cancel](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-task-use-tasks-cancel` | tested: `conformance.TestUtilitiesClient/2025-11-25/cancellation/cancellation-task-use-tasks-cancel` |
+| [cancellation-requestid-required-non-task-forbidden-task](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotificationparams) | MUST / MUST NOT | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-requestid-required-non-task-forbidden-task` | tested: `conformance.TestUtilitiesClient/2025-11-25/cancellation/cancellation-requestid-required-non-task-forbidden-task` |
+| [cancellation-receiver-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-receiver-should-stop-free-no-response` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
+| [cancellation-receiver-may-ignore](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-receiver-may-ignore` | tested: `conformance.TestUtilitiesClient/2025-11-25/cancellation/cancellation-receiver-may-ignore` |
+| [cancellation-sender-ignore-late-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-sender-ignore-late-response` | tested: `conformance.TestUtilitiesClient/2025-11-25/cancellation/cancellation-sender-ignore-late-response` |
+| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-handle-races` | tested: `conformance.TestUtilitiesClient/2025-11-25/cancellation/cancellation-handle-races` |
+| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **gap** #77: a cancellation reason reaches Server.OnCancel, which nothing outside tests sets; it is never logged | **gap** #77: the client does not handle inbound cancellations, so has no reason to log |
 | [cancellation-ui-indicate](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | n/a: no UI | n/a: no UI |
-| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | **MISSING** | **MISSING** |
+| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-ignore-invalid` | tested: `conformance.TestUtilitiesClient/2025-11-25/cancellation/cancellation-ignore-invalid` |
+| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | tested: `conformance.TestUtilitiesServer/2025-11-25/cancellation/cancellation-processing-should-cease` | **gap** #77: the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered |
 
 ### completion
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | **MISSING** | n/a: addresses the other side |
-| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
+| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2025-11-25/completion/completion-declare-capability` | n/a: addresses the other side |
+| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | tested: `conformance.TestUtilitiesServer/2025-11-25/completion/completion-max-100` | n/a: addresses the other side |
+| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
+| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/completion/completion-client-should` |
+| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
+| [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/completion/completion-context-arguments` |
 
 ### elicitation
 
@@ -1414,14 +1414,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | **MISSING** | n/a: addresses the other side |
-| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | **MISSING** | **MISSING** |
-| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | **MISSING** | **MISSING** |
+| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2025-11-25/logging/logging-declare-capability` | n/a: addresses the other side |
+| [logging-client-may-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#setting-log-level) | MAY | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/logging/logging-client-may-setlevel` |
+| [logging-setlevel-at-or-above](https://modelcontextprotocol.io/specification/2025-11-25/schema#setlevelrequestparams) | should (schema) | server | tested: `conformance.TestUtilitiesServer/2025-11-25/logging/logging-setlevel-at-or-above` | n/a: addresses the other side |
+| [logging-unset-server-chooses](https://modelcontextprotocol.io/specification/2025-11-25/schema#loggingmessagenotification) | MAY | server | tested: `conformance.TestUtilitiesServer/2025-11-25/logging/logging-unset-server-chooses` | n/a: addresses the other side |
+| [logging-errors-setlevel](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-11-25/logging/logging-errors-setlevel` | n/a: addresses the other side |
+| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-11-25/logging/logging-server-hygiene` | n/a: addresses the other side |
+| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | tested: `conformance.TestUtilitiesServer/2025-11-25/logging/logging-no-secrets-pii` | tested: `conformance.TestUtilitiesClient/2025-11-25/logging/logging-no-secrets-pii` |
+| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-11-25/logging/logging-impl-validate-control` | tested: `conformance.TestUtilitiesClient/2025-11-25/logging/logging-impl-validate-control` |
 
 ### messages
 
@@ -1460,14 +1460,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/pagination/pagination-no-fixed-page-size` |
+| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-11-25/pagination/pagination-stable-cursors` | n/a: addresses the other side |
+| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2025-11-25/pagination/pagination-invalid-cursor-graceful` | n/a: addresses the other side |
+| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/pagination/pagination-missing-nextcursor-end` |
+| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/pagination/pagination-support-both-flows` |
+| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/pagination/pagination-cursor-opaque` |
+| [pagination-no-persist-across-sessions](https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2025-11-25/pagination/pagination-no-persist-across-sessions` |
+| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **gap** pending:invalid-cursor: an undecodable cursor restarts at the first page by design (mcpserver.TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing) | n/a: addresses the other side |
 
 ### ping
 
@@ -1489,19 +1489,19 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | **MISSING** |
-| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | **MISSING** | **MISSING** |
+| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | tested: `conformance.TestUtilitiesClient/2025-11-25/progress/progress-token-string-or-int` |
+| [progress-token-unique-sender](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MUST | both | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-token-unique-sender` | tested: `conformance.TestUtilitiesClient/2025-11-25/progress/progress-token-unique-sender` |
 | [progress-receiver-may-send](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow) | MAY | both | n/a: optional feature mcpx does not implement | n/a: never receives requests with tokens |
-| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | **MISSING** | **MISSING** |
-| [progress-task-token-lives-with-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-task-same-token](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-task-stop-at-terminal](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MUST | both (receiver) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **MISSING** |
-| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
-| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
+| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-must-increase` | n/a: catalogue marks it n/a |
+| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-message-human-readable` | n/a: catalogue marks it n/a |
+| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-only-active-tokens` | n/a: catalogue marks it n/a |
+| [progress-receiver-may-skip](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MAY | both | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-receiver-may-skip` | tested: `conformance.TestUtilitiesClient/2025-11-25/progress/progress-receiver-may-skip` |
+| [progress-task-token-lives-with-task](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MUST | both (receiver) | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-task-token-lives-with-task` | n/a: catalogue marks it n/a |
+| [progress-task-same-token](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MUST | both (receiver) | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-task-same-token` | n/a: catalogue marks it n/a |
+| [progress-task-stop-at-terminal](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#behavior-requirements) | MUST | both (receiver) | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-task-stop-at-terminal` | n/a: catalogue marks it n/a |
+| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **gap** #212: every inbound progress notification is passed on, whether or not any request asked for its token |
+| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-rate-limit` | **gap** #212: inbound progress is neither tracked nor throttled |
+| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2025-11-25/progress/progress-stop-after-completion` | n/a: catalogue marks it n/a |
 
 ### prompts
 
@@ -1914,37 +1914,37 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [cancellation-ref-client-issued-in-progress](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-server-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [cancellation-server-may-ignore](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [cancellation-client-ignore-late-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | **MISSING** | **MISSING** |
-| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
+| [cancellation-ref-client-issued-in-progress](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | MUST | both | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/server-teardown-sends-cancelled-then-result` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-ref-client-issued-in-progress` |
+| [cancellation-server-should-stop-free-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-server-should-stop-free-no-response` | n/a: addresses the other side |
+| [cancellation-server-may-ignore](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | MAY | server | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-server-may-ignore` | n/a: addresses the other side |
+| [cancellation-client-ignore-late-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-client-ignore-late-response` |
+| [cancellation-handle-races](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timing-considerations) | MUST | both | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-handle-races` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-handle-races` |
+| [cancellation-log-reasons](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | **gap** #77: a cancellation reason reaches Server.OnCancel, which nothing outside tests sets; it is never logged | **gap** #77: the client does not handle inbound cancellations, so has no reason to log |
 | [cancellation-ui-indicate](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#implementation-notes) | SHOULD | both | n/a: no UI | n/a: no UI |
-| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | **MISSING** | **MISSING** |
-| [cancellation-client-should-send](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [cancellation-server-must-send-cancelled-on-listen-teardown](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [cancellation-server-only-for-listen](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | MUST NOT / MUST | server | **MISSING** | n/a: addresses the other side |
-| [cancellation-http-disconnect-is-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#transport-specific-cancellation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [cancellation-http-no-messages-after-close](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | MUST NOT / SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [cancellation-stdio-client-must-send](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#transport-specific-cancellation) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [cancellation-timeouts-establish](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-timeout-then-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [cancellation-max-timeout-despite-progress](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD (+MAY) | both | **MISSING** | **MISSING** |
+| [cancellation-ignore-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#error-handling) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-ignore-invalid` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-ignore-invalid` |
+| [cancellation-processing-should-cease](https://modelcontextprotocol.io/specification/2026-07-28/schema#cancellednotification) | SHOULD | both (receiver) | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-processing-should-cease` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-processing-should-cease` |
+| [cancellation-client-should-send](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-client-should-send` |
+| [cancellation-server-must-send-cancelled-on-listen-teardown](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation) | MUST | server | tested: `mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/server-teardown-sends-cancelled-then-result` | n/a: addresses the other side |
+| [cancellation-server-only-for-listen](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#behavior-requirements) | MUST NOT / MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-stdio/stdio-server-cancelled-only-for-listen`<br>`mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/server-teardown-sends-cancelled-then-result` | n/a: addresses the other side |
+| [cancellation-http-disconnect-is-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#transport-specific-cancellation) | MUST | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-close-is-cancel` | n/a: addresses the other side |
+| [cancellation-http-no-messages-after-close](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#cancellation) | MUST NOT / SHOULD | server | tested: `conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-close-is-cancel`<br>`conformance.TestTransportServer/2026-07-28/transport-streamable-http/streamable-http-silent-after-cancel` | n/a: addresses the other side |
+| [cancellation-stdio-client-must-send](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#transport-specific-cancellation) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-stdio-client-must-send` |
+| [cancellation-timeouts-establish](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-timeouts-establish` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-timeouts-establish` |
+| [cancellation-timeout-then-cancel](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-timeout-then-cancel` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-timeout-then-cancel` |
+| [cancellation-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-timeouts-per-request-configurable` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-timeouts-per-request-configurable` |
+| [cancellation-max-timeout-despite-progress](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation#timeouts) | SHOULD (+MAY) | both | tested: `conformance.TestUtilitiesServer/2026-07-28/cancellation/cancellation-max-timeout-despite-progress` | tested: `conformance.TestUtilitiesClient/2026-07-28/cancellation/cancellation-max-timeout-despite-progress` |
 
 ### completion
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | **MISSING** | n/a: addresses the other side |
-| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
+| [completion-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2026-07-28/completion/completion-declare-capability` | n/a: addresses the other side |
+| [completion-max-100](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#completion-results) | descr. + schema | server | tested: `conformance.TestUtilitiesServer/2026-07-28/completion/completion-max-100` | n/a: addresses the other side |
+| [completion-server-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | server | **gap** #213: values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit | n/a: addresses the other side |
+| [completion-client-should](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#implementation-considerations) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/completion/completion-client-should` |
+| [completion-security](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#security) | MUST | both | **gap** #213: completion/complete has no rate limit and no per-caller access control | n/a: catalogue marks it n/a |
+| [completion-errors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#error-handling) | SHOULD | server | **gap** #213: completion/complete never reads ref, so an unknown prompt or resource gets values instead of -32602 | n/a: addresses the other side |
+| [completion-context-arguments](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/completion#requesting-completions) | should (lowercase) | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/completion/completion-context-arguments` |
 
 ### discover
 
@@ -2091,15 +2091,15 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [logging-no-message-without-loglevel](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#per-request-log-level) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [logging-request-scoped-only](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#per-request-log-level) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
+| [logging-declare-capability](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#capabilities) | MUST | server | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-declare-capability` | n/a: addresses the other side |
+| [logging-no-message-without-loglevel](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#per-request-log-level) | MUST NOT | server | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-no-message-without-loglevel` | n/a: addresses the other side |
+| [logging-request-scoped-only](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#per-request-log-level) | MUST NOT | server | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-request-scoped-only` | n/a: addresses the other side |
 | [logging-may-send-before-response](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#per-request-log-level) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [logging-invalid-loglevel-reject-request](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | **MISSING** | **MISSING** |
-| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | **MISSING** | **MISSING** |
-| [logging-deprecated](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging) | SHOULD NOT / SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [logging-invalid-loglevel-reject-request](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#error-handling) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-invalid-loglevel-reject-request` | n/a: addresses the other side |
+| [logging-server-hygiene](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#implementation-considerations) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-server-hygiene` | n/a: addresses the other side |
+| [logging-no-secrets-pii](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | MUST NOT | both (emitter) | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-no-secrets-pii` | tested: `conformance.TestUtilitiesClient/2026-07-28/logging/logging-no-secrets-pii` |
+| [logging-impl-validate-control](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging#security) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-impl-validate-control` | tested: `conformance.TestUtilitiesClient/2026-07-28/logging/logging-impl-validate-control` |
+| [logging-deprecated](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/logging) | SHOULD NOT / SHOULD | both | tested: `conformance.TestUtilitiesServer/2026-07-28/logging/logging-deprecated` | n/a: catalogue marks it n/a |
 
 ### messages
 
@@ -2180,30 +2180,30 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [pagination-empty-cursor-not-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [pagination-no-fixed-page-size](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#pagination-model) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/pagination/pagination-no-fixed-page-size` |
+| [pagination-stable-cursors](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2026-07-28/pagination/pagination-stable-cursors` | n/a: addresses the other side |
+| [pagination-invalid-cursor-graceful](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | server | tested: `conformance.TestUtilitiesServer/2026-07-28/pagination/pagination-invalid-cursor-graceful` | n/a: addresses the other side |
+| [pagination-missing-nextcursor-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/pagination/pagination-missing-nextcursor-end` |
+| [pagination-support-both-flows](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/pagination/pagination-support-both-flows` |
+| [pagination-cursor-opaque](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/pagination/pagination-cursor-opaque` |
+| [pagination-empty-cursor-not-end](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines) | MUST NOT | client | n/a: addresses the other side | **gap** #200: NextCursor is a string, so an empty cursor reads as the end of the list |
+| [pagination-invalid-cursor-32602](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#error-handling) | SHOULD | server | **gap** pending:invalid-cursor: an undecodable cursor restarts at the first page by design (mcpserver.TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing) | n/a: addresses the other side |
 
 ### progress
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | **MISSING** |
-| [progress-token-unique-client](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [progress-token-string-or-int](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (requester) | n/a: sends no progressTokens | tested: `conformance.TestUtilitiesClient/2026-07-28/progress/progress-token-string-or-int` |
+| [progress-token-unique-client](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | client | n/a: addresses the other side | tested: `conformance.TestUtilitiesClient/2026-07-28/progress/progress-token-unique-client` |
 | [progress-server-may-send](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress) | MAY | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-server-may-skip](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **MISSING** |
-| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | **MISSING** | **MISSING** |
-| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | **MISSING** | n/a: catalogue marks it n/a |
-| [progress-http-notifications-relate-to-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [progress-must-increase](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2026-07-28/progress/progress-must-increase` | n/a: catalogue marks it n/a |
+| [progress-message-human-readable](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#progress-flow) | SHOULD | both (notifier) | tested: `conformance.TestUtilitiesServer/2026-07-28/progress/progress-message-human-readable` | n/a: catalogue marks it n/a |
+| [progress-only-active-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2026-07-28/progress/progress-only-active-tokens` | n/a: catalogue marks it n/a |
+| [progress-server-may-skip](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#behavior-requirements) | MAY | server | tested: `conformance.TestUtilitiesServer/2026-07-28/progress/progress-server-may-skip` | n/a: addresses the other side |
+| [progress-track-tokens](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | n/a: catalogue marks it n/a | **gap** #212: every inbound progress notification is passed on, whether or not any request asked for its token |
+| [progress-rate-limit](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | SHOULD | both | tested: `conformance.TestUtilitiesServer/2026-07-28/progress/progress-rate-limit` | **gap** #212: inbound progress is neither tracked nor throttled |
+| [progress-stop-after-completion](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/progress#implementation-notes) | MUST | both (notifier) | tested: `conformance.TestUtilitiesServer/2026-07-28/progress/progress-stop-after-completion` | n/a: catalogue marks it n/a |
+| [progress-http-notifications-relate-to-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#receiving-messages) | MUST | server | tested: `conformance.TestUtilitiesServer/2026-07-28/progress/progress-http-notifications-relate-to-request` | n/a: addresses the other side |
 
 ### prompts
 
