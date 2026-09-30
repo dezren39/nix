@@ -54,7 +54,7 @@ func settingsOps() []Op {
 				"the restart, rather than accepting a value that would do nothing.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "path", In: InPath, Type: "string", Required: true},
+				{Name: "path", In: InPath, Type: "string", Required: true, Desc: "the setting's dotted path, such as pool.max"},
 				{Name: "value", In: InBody, Type: "string", Required: true,
 					Desc: "the new value, in the syntax a user would type"},
 				{Name: "persist", In: InBody, Type: "string",
@@ -71,7 +71,7 @@ func settingsOps() []Op {
 				"a file; use settings_set for that.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "path", In: InPath, Type: "string", Required: true},
+				{Name: "path", In: InPath, Type: "string", Required: true, Desc: "the setting's dotted path, such as pool.max"},
 			},
 		},
 		{
@@ -121,7 +121,7 @@ func settingsOps() []Op {
 				"Instances of that server stop; a caller mid-call against it fails.",
 			Admin: true, Mutating: true, Destructive: true,
 			Params: []Param{
-				{Name: "name", In: InPath, Type: "string", Required: true},
+				{Name: "name", In: InPath, Type: "string", Required: true, Desc: "the server to remove, by its name in the configuration"},
 				{Name: "scope", In: InQuery, Type: "string", Enum: []string{"project", "user"},
 					Desc: "which file to edit; by default, the one that defines it"},
 			},

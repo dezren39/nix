@@ -209,8 +209,8 @@ func Ops() []Op {
 			Streams: true,
 			Params: []Param{
 				{Name: "kinds", In: InQuery, Type: "string", Desc: "kind prefixes, comma separated; empty means everything"},
-				{Name: "session", In: InQuery, Type: "string"},
-				{Name: "server", In: InQuery, Type: "string"},
+				{Name: "session", In: InQuery, Type: "string", Desc: "only events belonging to this session"},
+				{Name: "server", In: InQuery, Type: "string", Desc: "only events about this server"},
 				{Name: "uri", In: InQuery, Type: "string", Desc: "resource URIs, comma separated"},
 				{Name: "since", In: InQuery, Type: "integer", Desc: "replay everything after this sequence number"},
 			},
@@ -245,8 +245,8 @@ func Ops() []Op {
 				"person at the keyboard gave it.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
-				{Name: "action", In: InPath, Type: "string", Required: true, Enum: []string{"accept", "decline", "cancel"}},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the id of the question being answered"},
+				{Name: "action", In: InPath, Type: "string", Required: true, Enum: []string{"accept", "decline", "cancel"}, Desc: "accept, decline or cancel"},
 				{Name: "content", In: InBody, Type: "object", Desc: "the accepted content; ignored for decline and cancel",
 					Schema: `{"type":"object","additionalProperties":true}`},
 			},
@@ -261,7 +261,7 @@ func Ops() []Op {
 				"why it counts as privileged.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "level", In: InQuery, Type: "string", Enum: []string{"debug", "info", "warn", "error"}},
+				{Name: "level", In: InQuery, Type: "string", Enum: []string{"debug", "info", "warn", "error"}, Desc: "the level to record at: debug, info, warn or error"},
 				{Name: "record", In: InBody, Type: "object", Required: true, Desc: "the record; msg, event, server, tool and duration are recognised, the rest become attributes",
 					Schema: `{"type":"object","additionalProperties":true}`},
 			},
@@ -359,12 +359,12 @@ func Ops() []Op {
 			Summary:     "Render one prompt with its arguments filled in",
 			Description: "The server does the substitution; mcpx passes the arguments through.",
 			Params: []Param{
-				{Name: "server", In: InBody, Type: "string", Required: true},
-				{Name: "name", In: InBody, Type: "string", Required: true},
+				{Name: "server", In: InBody, Type: "string", Required: true, Desc: "the server holding the prompt"},
+				{Name: "name", In: InBody, Type: "string", Required: true, Desc: "the prompt's name, as it appears in the server's prompt list"},
 				{Name: "arguments", In: InBody, Type: "object", Desc: "string values, by argument name",
 					Schema: `{"type":"object","additionalProperties":{"type":"string"}}`},
-				{Name: "sessionId", In: InBody, Type: "string"},
-				{Name: "callId", In: InBody, Type: "string"},
+				{Name: "sessionId", In: InBody, Type: "string", Desc: "the session to attribute the call to"},
+				{Name: "callId", In: InBody, Type: "string", Desc: "an id for this call, used to tie elicitations back to it"},
 			},
 		},
 		{
@@ -387,8 +387,8 @@ func Ops() []Op {
 			Summary:   "Rank tools against a query",
 			CoveredBy: "mcpx_search",
 			Params: []Param{
-				{Name: "q", In: InQuery, Type: "string", Required: true},
-				{Name: "limit", In: InQuery, Type: "integer"},
+				{Name: "q", In: InQuery, Type: "string", Required: true, Desc: "what to match against tool names and descriptions"},
+				{Name: "limit", In: InQuery, Type: "integer", Desc: "how many results to return"},
 			},
 		},
 		{
@@ -442,7 +442,7 @@ func Ops() []Op {
 			CoveredBy: "mcpx_call", Mutating: true,
 			Params: append([]Param{
 				{Name: "server", In: InBody, Type: "string", Required: true, Desc: "server name or namespace"},
-				{Name: "tool", In: InBody, Type: "string", Required: true},
+				{Name: "tool", In: InBody, Type: "string", Required: true, Desc: "the tool's name, as it appears in this server's tool list"},
 				{Name: "args", In: InBody, Type: "object", Desc: "the tool's arguments",
 					Schema: `{"type":"object","additionalProperties":true}`},
 				{Name: "task", In: InBody, Type: "object", Desc: "run as a task and return a handle at once",
@@ -455,8 +455,8 @@ func Ops() []Op {
 			Summary:  "Read one resource from one server",
 			Mutating: true,
 			Params: append([]Param{
-				{Name: "server", In: InBody, Type: "string", Required: true},
-				{Name: "uri", In: InBody, Type: "string", Required: true},
+				{Name: "server", In: InBody, Type: "string", Required: true, Desc: "the server holding the resource"},
+				{Name: "uri", In: InBody, Type: "string", Required: true, Desc: "the resource's URI, as it appears in the server's resource list"},
 			}, callContextParams()...),
 		},
 		{
@@ -470,7 +470,7 @@ func Ops() []Op {
 			Summary:     "One task's status",
 			Description: "Check on it. /v1/tasks/{id}/result waits for it.",
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the task's id, as returned when it was started"},
 			},
 		},
 		{
@@ -480,7 +480,7 @@ func Ops() []Op {
 				"answers 408 and the task keeps running. A caller that would rather " +
 				"poll should use /v1/tasks/{id}.",
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the task's id, as returned when it was started"},
 				{Name: "waitMs", In: InQuery, Type: "integer", Desc: "how long to wait before giving up"},
 			},
 		},
@@ -489,7 +489,7 @@ func Ops() []Op {
 			Summary:  "Cancel a running task",
 			Mutating: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the task's id, as returned when it was started"},
 			},
 		},
 		{
@@ -499,7 +499,7 @@ func Ops() []Op {
 				"stops servers they are still using, which is why it is privileged.",
 			Admin: true, Mutating: true,
 			Params: []Param{
-				{Name: "session", In: InBody, Type: "string", Required: true},
+				{Name: "session", In: InBody, Type: "string", Required: true, Desc: "the session whose instances should be released"},
 			},
 		},
 		{

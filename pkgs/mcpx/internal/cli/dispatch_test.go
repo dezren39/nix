@@ -83,11 +83,14 @@ func TestEveryOperationIsReachableFromTheCLI(t *testing.T) {
 func TestGeneratedCommandsDoNotShadow(t *testing.T) {
 	hand := (&App{}).handWritten()
 	for _, g := range opGroups() {
-		for _, name := range append([]string{g.Name}, g.Aliases...) {
-			if _, taken := hand[name]; taken {
-				t.Errorf("generated command %q collides with a hand-written one; "+
-					"give the operation a Command (if that command reaches it) or a CLI name", name)
-			}
+		// Only the group name. An alias that collides is already dropped by
+		// opGroups before it gets here, so asserting over g.Aliases as well
+		// would be an arm that cannot fire -- it looked like a second check
+		// and was not one. What the dropping risks instead is an operation
+		// losing its only path, which is the test below.
+		if _, taken := hand[g.Name]; taken {
+			t.Errorf("generated command %q collides with a hand-written one; "+
+				"give the operation a Command (if that command reaches it) or a CLI name", g.Name)
 		}
 		// A noun that is both an operation taking positional arguments and
 		// a family of verbs cannot tell `mcpx x get` from `mcpx x <value
@@ -195,5 +198,43 @@ func TestConvertRefusesTheWrongShape(t *testing.T) {
 	}
 	if m, ok := v.(map[string]any); !ok || m["a"] != float64(1) {
 		t.Errorf("object parameter gave %#v", v)
+	}
+}
+
+// An operation whose natural alias collides with a hand-written command keeps
+// a path of its own.
+//
+// opGroups drops such an alias silently, which is right -- the hand-written
+// command must win -- but the operation still has to be reachable, or the
+// drop has quietly cost it its only CLI surface. catalog_history is the live
+// case: its first segment is "catalog", which is hand-written, so the alias
+// goes and `mcpx history` is what remains.
+func TestAnOperationWhoseAliasCollidesIsStillReachable(t *testing.T) {
+	hand := (&App{}).handWritten()
+	reach := map[string]bool{}
+	for _, g := range opGroups() {
+		if g.Bare != nil {
+			reach[g.Bare.Name] = true
+		}
+		for _, v := range g.Verbs {
+			reach[v.Op.Name] = true
+		}
+	}
+
+	collided := 0
+	for _, op := range api.Ops() {
+		if op.Command != "" || op.CoveredBy != "" || op.Streams {
+			continue
+		}
+		if _, taken := hand[strings.SplitN(op.Name, "_", 2)[0]]; !taken {
+			continue
+		}
+		collided++
+		if !reach[op.Name] {
+			t.Errorf("%s lost its alias to a hand-written command and has no command of its own", op.Name)
+		}
+	}
+	if collided == 0 {
+		t.Skip("no operation's alias currently collides; nothing to check")
 	}
 }

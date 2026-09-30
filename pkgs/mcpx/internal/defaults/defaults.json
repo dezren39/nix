@@ -29,7 +29,8 @@
     "saveInterval": "5m"
   },
   "cli": {
-    "cellWidth": 60
+    "cellWidth": 60,
+    "usageColumn": 30
   },
   "catalog": {
     "budget": 2000
@@ -83,7 +84,11 @@
   "transport": {
     "sseKeepAlive": "15s",
     "stdioDrain": "30s",
-    "loopbackHosts": ["localhost", "127.0.0.1", "::1"],
+    "loopbackHosts": [
+      "localhost",
+      "127.0.0.1",
+      "::1"
+    ],
     "allowedOrigins": []
   },
   "consumer": {

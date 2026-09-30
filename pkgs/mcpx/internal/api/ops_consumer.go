@@ -60,7 +60,7 @@ func consumerOps() []Op {
 			Summary:     "One recipe, with its source",
 			Description: "Everything the listing carries, plus the script itself.",
 			Params: []Param{
-				{Name: "name", In: InPath, Type: "string", Required: true},
+				{Name: "name", In: InPath, Type: "string", Required: true, Desc: "the recipe's name"},
 			},
 		},
 		{
@@ -72,8 +72,8 @@ func consumerOps() []Op {
 				"is how a generated script that worked stops being generated.",
 			Mutating: true,
 			Params: []Param{
-				{Name: "name", In: InPath, Type: "string", Required: true},
-				{Name: "source", In: InBody, Type: "string", Required: true},
+				{Name: "name", In: InPath, Type: "string", Required: true, Desc: "the recipe's name; saving over an existing one replaces it"},
+				{Name: "source", In: InBody, Type: "string", Required: true, Desc: "the recipe's source, as TypeScript"},
 				{Name: "overwrite", In: InBody, Type: "boolean",
 					Desc: "replace an existing recipe of this name"},
 			},
@@ -88,13 +88,13 @@ func consumerOps() []Op {
 				"without running, which is the safer thing to do first.",
 			Mutating: true,
 			Params: []Param{
-				{Name: "name", In: InPath, Type: "string", Required: true},
+				{Name: "name", In: InPath, Type: "string", Required: true, Desc: "the recipe to run"},
 				{Name: "placeholders", In: InBody, Type: "object",
 					Desc:   "values by placeholder name",
 					Schema: `{"type":"object","additionalProperties":true}`},
 				{Name: "mode", In: InBody, Type: "string", Enum: []string{"script", "run"},
 					Desc: "script renders and returns; run executes (the default here)"},
-				{Name: "session", In: InBody, Type: "string"},
+				{Name: "session", In: InBody, Type: "string", Desc: "the session to run it in, so it reaches that session's servers"},
 			},
 		},
 		{
@@ -120,7 +120,7 @@ func consumerOps() []Op {
 				{Name: "placeholders", In: InBody, Type: "object",
 					Desc:   "values for a matched recipe's placeholders",
 					Schema: `{"type":"object","additionalProperties":true}`},
-				{Name: "session", In: InBody, Type: "string"},
+				{Name: "session", In: InBody, Type: "string", Desc: "the session the intent belongs to, so its servers and history are the session's"},
 			},
 		},
 	}

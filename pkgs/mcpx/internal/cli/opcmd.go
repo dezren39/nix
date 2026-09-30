@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -353,7 +354,21 @@ func (a *App) runOp(ctx context.Context, cmd string, op api.Op, args []string) e
 		return err
 	}
 	if op.Streams {
-		return c.streamOp(ctx, path, os.Stdout)
+		// -o is printed in this command's usage like any other, so it has to
+		// work here too: a flag that is advertised and ignored is the bug
+		// this table exists to prevent. The file is opened before the stream
+		// starts, so a path that cannot be written fails immediately rather
+		// than after the first event.
+		w := io.Writer(os.Stdout)
+		if *outFile != "" {
+			f, ferr := os.OpenFile(*outFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, defaults.PublicMode)
+			if ferr != nil {
+				return ferr
+			}
+			defer f.Close()
+			w = f
+		}
+		return c.streamOp(ctx, op.Method, path, body, w)
 	}
 	raw, err := c.DoOp(ctx, op, path, body)
 	if err != nil {
@@ -494,14 +509,24 @@ func (c *Client) DoOp(ctx context.Context, op api.Op, path string, body []byte) 
 // `mcpx events | jq` should work without anybody learning what "data:" is.
 // No timeout: the client's ordinary one would cut a healthy stream off, and
 // the context -- Ctrl-C -- is what ends it.
-func (c *Client) streamOp(ctx context.Context, path string, w io.Writer) error {
+func (c *Client) streamOp(ctx context.Context, method, path string, body []byte, w io.Writer) error {
 	base := c.endpoint
 	if base == "" {
 		base = "http://mcpx"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
+	var rdr io.Reader
+	if len(body) > 0 {
+		rdr = bytes.NewReader(body)
+	}
+	// The operation's own method. Every streaming op is a GET today, so this
+	// is not a live bug -- but the body was already computed above and
+	// discarded, which is the shape a POST stream would silently fail in.
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {
 		return err
+	}
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := (&http.Client{Transport: c.hc.Transport}).Do(req)

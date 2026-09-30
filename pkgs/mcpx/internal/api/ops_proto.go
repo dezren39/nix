@@ -75,7 +75,7 @@ func protoOps() []Op {
 				"which is what they are, and not the same thing as a refusal.",
 			Admin: true, Mutating: true, Destructive: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the id of the call to give up on"},
 			},
 		},
 		{
@@ -106,7 +106,7 @@ func protoOps() []Op {
 			CoveredBy: "mcpx_call", Mutating: true,
 			Params: []Param{
 				{Name: "server", In: InPath, Type: "string", Required: true, Desc: "server name or namespace"},
-				{Name: "tool", In: InPath, Type: "string", Required: true},
+				{Name: "tool", In: InPath, Type: "string", Required: true, Desc: "the tool's name, as it appears in this server's tool list"},
 				{Name: "session", In: InQuery, Type: "string", Desc: "the caller's session id"},
 				{Name: "arguments", In: InBody, Type: "object", Desc: "the tool's arguments, as the whole body",
 					Schema: `{"type":"object","additionalProperties":true}`},

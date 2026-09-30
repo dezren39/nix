@@ -112,7 +112,8 @@ type Defaults struct {
 	// CLI governs how the command line renders what it did not write a
 	// formatter for: the commands generated from the /v1 operation table.
 	CLI struct {
-		CellWidth int `json:"cellWidth"`
+		CellWidth   int `json:"cellWidth"`
+		UsageColumn int `json:"usageColumn"`
 	} `json:"cli"`
 	Catalog struct {
 		Budget int `json:"budget"`
@@ -527,6 +528,7 @@ var (
 	// OpCellWidth caps a table cell in a generated command's output; a
 	// description in full turns a table into a wall.
 	OpCellWidth = builtin.CLI.CellWidth
+	UsageColumn = builtin.CLI.UsageColumn
 
 	Permissions      = builtin.Script.Permissions
 	CaptureConsole   = builtin.Script.CaptureConsole

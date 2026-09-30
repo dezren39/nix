@@ -337,3 +337,48 @@ func TestDiagnoseOnAColdDaemonWaitsForTheSchemas(t *testing.T) {
 		t.Fatalf("diagnose on a cold daemon should still find the missing argument:\n%s", out)
 	}
 }
+
+// Every generated command prints `-o <file>` in its usage, so every generated
+// command has to honour it -- including the streaming one, which returned
+// before the flag was ever read and wrote to stdout instead. A flag that is
+// advertised and ignored is exactly the defect the generated table exists to
+// prevent.
+func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.run("ls")
+	out := filepath.Join(e.dir, "events.ndjson")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "-o", out)
+	cmd.Dir, cmd.Env = e.dir, e.envVars
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+
+	// Keep producing server events until the file has one, for the same
+	// reason TestEventsStreamAsNDJSON retries: the subscription may not be
+	// established when the first event fires.
+	deadline := time.Now().Add(15 * time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		_, _ = e.try("restart", "demo")
+		if b, err := os.ReadFile(out); err == nil && len(b) > 0 {
+			got = string(b)
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if got == "" {
+		t.Fatalf("-o is in this command's usage but nothing was written to %s", out)
+	}
+	if !strings.Contains(got, `"kind"`) {
+		t.Errorf("the file should hold the event stream, got:\n%s", got)
+	}
+	if strings.Contains(stdout.String(), `"kind"`) {
+		t.Errorf("-o means instead of printing, but stdout also got the stream:\n%s", stdout.String())
+	}
+}

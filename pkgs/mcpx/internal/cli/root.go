@@ -605,5 +605,6 @@ func Usage() string {
 	return b.String()
 }
 
-// usageColumn is where summaries start in the listing.
-const usageColumn = 30
+// usageColumn is where summaries start in the listing. A rendering width like
+// cli.cellWidth beside it, so both are declared in the same place.
+var usageColumn = defaults.UsageColumn

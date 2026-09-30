@@ -61,7 +61,7 @@ func execOps() []Op {
 			Params: []Param{
 				{Name: "run", In: InQuery, Type: "string", Desc: "only this run's artifacts"},
 				{Name: "session", In: InQuery, Type: "string", Desc: "only this session's artifacts"},
-				{Name: "limit", In: InQuery, Type: "integer"},
+				{Name: "limit", In: InQuery, Type: "integer", Desc: "how many to return, newest first"},
 			},
 		},
 		{
@@ -72,7 +72,7 @@ func execOps() []Op {
 				"and a Content-Disposition naming the sanitised filename.",
 			Text: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the artifact's id, as returned when it was stored"},
 			},
 		},
 		{
@@ -82,7 +82,7 @@ func execOps() []Op {
 				"registration shares that content.",
 			Admin: true, Mutating: true, Destructive: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the artifact's id, as returned when it was stored"},
 			},
 		},
 	}
