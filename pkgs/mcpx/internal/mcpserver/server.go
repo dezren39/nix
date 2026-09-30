@@ -214,6 +214,9 @@ type Server struct {
 	// what it did before any client could answer one inline.
 	Ask Asker
 
+	// stdioBusy is set while a ServeStdio loop holds the default connection.
+	stdioBusy bool
+
 	// def is the connection the in-process entry points use. A transport
 	// that serves many clients makes one Conn apiece instead.
 	def     *Conn
@@ -645,6 +648,16 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel", "tasks/update":
 		return s.handleTask(ctx, c, req, peer)
 	case "tools/call":
+		// Finding the tool is the protocol's business, running it the
+		// tool's: an unknown name is -32602, in every revision, before a
+		// task or a question is started for a call that cannot happen.
+		var call struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" && !s.hasTool(call.Name) {
+			return &response{JSONRPC: "2.0", ID: req.ID,
+				Error: &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("no tool named %q", call.Name)}}
+		}
 		if resp := s.maybeTask(ctx, c, req, peer); resp != nil {
 			return resp
 		}
@@ -693,7 +706,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// server and a client with a frame limit has no other way to read
 		// the list. Ignoring the cursor meant a large installation was
 		// simply unreadable by such a client.
-		tools, next := page(s.Tools(), req.Params, s.pageSize())
+		tools, next, perr := page(s.Tools(), req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"tools": tools}
 		if next != "" {
 			out["nextCursor"] = next
@@ -715,7 +731,16 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// promise of a stream that does not exist. The method still answers
 		// -- including from a 2026-07-28 client, which no longer has it --
 		// because refusing would make a well-behaved client that asked anyway
-		// treat the whole connection as degraded.
+		// treat the whole connection as degraded. A level that is not one
+		// of the eight is a different matter: that request is malformed,
+		// and every revision's setLevel asks for -32602.
+		var lv struct {
+			Level string `json:"level"`
+		}
+		_ = json.Unmarshal(req.Params, &lv)
+		if lv.Level != "" && !logLevels[lv.Level] {
+			return fail(codeInvalidParams, fmt.Sprintf("%q is not a log level", lv.Level))
+		}
 		return reply(map[string]any{})
 
 	case "resources/templates/list":
@@ -729,7 +754,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err != nil {
 			return fail(codeInternal, err.Error())
 		}
-		items, next := page(asTemplates(ts), req.Params, s.pageSize())
+		items, next, perr := page(asTemplates(ts), req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"resourceTemplates": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -834,7 +862,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if rs == nil {
 			rs = []ResourceRef{}
 		}
-		items, next := page(rs, req.Params, s.pageSize())
+		items, next, perr := page(rs, req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"resources": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -880,7 +911,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if ps == nil {
 			ps = []PromptRef{}
 		}
-		items, next := page(ps, req.Params, s.pageSize())
+		items, next, perr := page(ps, req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"prompts": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -888,11 +922,6 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(out)
 
 	case "prompts/get":
-		if s.canAsk(ctx, c, peer) {
-			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
-				return resp
-			}
-		}
 		var p struct {
 			Name      string            `json:"name"`
 			Arguments map[string]string `json:"arguments"`
@@ -900,11 +929,26 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
+		if s.backend == nil {
+			return fail(codeInternal, "no prompts are available")
+		}
+		// Arguments are checked here, before anything runs or asks: a
+		// missing required one is the client's error (-32602), and once
+		// the request is known to be well-formed, a failure is mcpx's or
+		// the upstream's (-32603).
+		missing := s.promptArgs(ctx, p.Name, p.Arguments)
+		if missing != "" {
+			return fail(codeInvalidParams, fmt.Sprintf("prompt %q needs argument %q", p.Name, missing))
+		}
+		if s.canAsk(ctx, c, peer) {
+			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
+				return resp
+			}
+		}
 		text, err := s.backend.GetPrompt(ctx, p.Name, p.Arguments)
 		if err != nil {
-			// Classified, as resources/read is (conflict #12). Every failure
-			// was -32602, so an upstream timeout told the client its prompt
-			// name was the problem.
+			// Classified, as resources/read is (conflict #12): the backend
+			// says, with ErrInvalidParams, when the request was at fault.
 			// https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling
 			if errors.Is(err, ErrInvalidParams) {
 				return fail(codeInvalidParams, err.Error())
@@ -1242,7 +1286,20 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 	var wmu sync.Mutex
 	rawEnc := json.NewEncoder(out)
 	enc := lockedEncoder{mu: &wmu, enc: rawEnc}
+	// The first loop is the process's own client and takes the default
+	// connection, which SetPush and Cancelled address. A second loop on the
+	// same Server gets a connection of its own: sharing one sent each
+	// loop's questions to whichever had installed its writer last.
 	c := s.conn()
+	s.mu.Lock()
+	if s.stdioBusy {
+		c = s.newConn(newSessionID(), nil)
+		c.process = true
+	} else {
+		s.stdioBusy = true
+		defer func() { s.mu.Lock(); s.stdioBusy = false; s.mu.Unlock() }()
+	}
+	s.mu.Unlock()
 	c.mu.Lock()
 	c.send = func(frame any) error { return enc.Encode(frame) }
 	c.pushFn = func(method string, params any) {
@@ -1367,6 +1424,19 @@ func (s *Server) stdioBatch(ctx context.Context, c *Conn, line []byte) any {
 	v := c.Version()
 	if v == "" {
 		v = Headerless // see Headerless: a batch before initialize is 2025-03-26's
+	}
+	// An element that names its own revision speaks for itself: a
+	// 2026-07-28 request in an array is a batch that revision forbids,
+	// whatever this process was (not) initialized as.
+	for _, e := range elems {
+		var el struct {
+			Params json.RawMessage `json:"params"`
+		}
+		if json.Unmarshal(e, &el) == nil {
+			if rv := requestVersion(el.Params); rv != "" && !Defines(rv, FeatBatch) {
+				return batchRefused(rv)
+			}
+		}
 	}
 	if !Defines(v, FeatBatch) {
 		return batchRefused(v)
@@ -1970,26 +2040,34 @@ func (s *Server) pageSize() int {
 // The cursor is the offset, encoded, because the specification says it is
 // opaque and a client that parses one is relying on something it was told not
 // to. Encoding it costs nothing and removes the temptation.
-func page[T any](all []T, params json.RawMessage, size int) ([]T, string) {
+//
+// A cursor mcpx did not issue is an error (-32602), as every revision's
+// pagination page says, rather than a quiet restart at the first page: a
+// client that loops on nextCursor would otherwise read page one forever.
+// A cursor past the end of a list that has since shrunk is still one mcpx
+// issued, and gets an empty last page.
+func page[T any](all []T, params json.RawMessage, size int) ([]T, string, error) {
 	start := 0
 	if len(params) > 0 {
 		var p struct {
-			Cursor string `json:"cursor"`
+			Cursor *string `json:"cursor"`
 		}
-		if json.Unmarshal(params, &p) == nil && p.Cursor != "" {
-			if n, err := decodeCursor(p.Cursor); err == nil {
-				start = n
+		if json.Unmarshal(params, &p) == nil && p.Cursor != nil {
+			n, err := decodeCursor(*p.Cursor)
+			if err != nil {
+				return nil, "", fmt.Errorf("invalid cursor %q", *p.Cursor)
 			}
+			start = n
 		}
 	}
 	if start >= len(all) {
-		return []T{}, ""
+		return []T{}, "", nil
 	}
 	end := start + size
 	if end >= len(all) {
-		return all[start:], ""
+		return all[start:], "", nil
 	}
-	return all[start:end], encodeCursor(end)
+	return all[start:end], encodeCursor(end), nil
 }
 
 func encodeCursor(offset int) string {
@@ -2005,7 +2083,11 @@ func decodeCursor(c string) (int, error) {
 	if !strings.HasPrefix(s, "o:") {
 		return 0, fmt.Errorf("bad cursor")
 	}
-	return strconv.Atoi(s[2:])
+	n, err := strconv.Atoi(s[2:])
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("bad cursor")
+	}
+	return n, nil
 }
 
 // cancel records a client's cancellation and cancels the request it names,
@@ -2094,6 +2176,11 @@ func (s *Server) complete(ctx context.Context, params json.RawMessage) (map[stri
 			max = n
 		}
 	}
+	// The setting may lower the count, not raise it past what every
+	// revision's CompleteResult allows.
+	if max > specMaxCompletions {
+		max = specMaxCompletions
+	}
 	total := len(values)
 	if len(values) > max {
 		values = values[:max]
@@ -2117,4 +2204,41 @@ func (l lockedEncoder) Encode(v any) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.enc.Encode(v)
+}
+
+// specMaxCompletions is CompleteResult.values' maxItems in every revision: a
+// fact of the protocol, not a default.
+const specMaxCompletions = 100
+
+// hasTool reports whether tools/call can reach name.
+func (s *Server) hasTool(name string) bool {
+	for _, t := range s.Tools() {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// promptArgs finds a prompt by its exact name and reports the first
+// required argument not supplied. A prompt it cannot find, or a listing that
+// fails, is left to the backend, which also accepts a name without its
+// namespace.
+func (s *Server) promptArgs(ctx context.Context, name string, args map[string]string) (missing string) {
+	refs, err := s.backend.Prompts(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, r := range refs {
+		if r.Name != name {
+			continue
+		}
+		for _, a := range r.Arguments {
+			if _, ok := args[a.Name]; a.Required && !ok {
+				return a.Name
+			}
+		}
+		return ""
+	}
+	return ""
 }

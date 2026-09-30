@@ -237,8 +237,12 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 
 		answers := map[string]json.RawMessage{}
+		// The question itself is bounded by the same deadline: a client
+		// that never answers must not hold the call past AskTimeout, and
+		// the expiry is what makes askClient cancel the request it sent.
+		askCtx, cancelAsk := context.WithDeadline(ctx, deadline)
 		for _, q := range sendable {
-			raw, aerr := c.askClient(ctx, peer, q)
+			raw, aerr := c.askClient(askCtx, peer, q)
 			if aerr != nil {
 				if errors.Is(aerr, ErrNoPush) {
 					// This transport cannot carry a request to the client.
@@ -249,6 +253,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			}
 			answers[q.ID] = raw
 		}
+		cancelAsk()
 		if len(answers) > 0 {
 			if err := s.Ask.Reply(ctx, callID, answers); err != nil {
 				return fail(codeInternal, err.Error())

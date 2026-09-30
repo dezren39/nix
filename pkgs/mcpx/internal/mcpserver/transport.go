@@ -109,8 +109,8 @@ func isBatch(body []byte) bool {
 // message. An id cannot be named because there are several.
 func batchRefused(version string) *response {
 	return &response{JSONRPC: "2.0", Error: &rpcError{Code: codeInvalidRequest,
-		Message: "JSON-RPC batching is not part of protocol version " + version +
-			"; it exists only in 2025-03-26. Send one message at a time."}}
+		Message: "JSON-RPC batches exist only in 2025-03-26, not in protocol version " + version +
+			", so send one message at a time"}}
 }
 
 // runBatch answers every element of a 2025-03-26 batch.

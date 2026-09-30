@@ -236,7 +236,10 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 		if mine == nil {
 			mine = []Task{}
 		}
-		items, next := page(mine, req.Params, s.pageSize())
+		items, next, perr := page(mine, req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"tasks": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -266,6 +269,11 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 		return reply(result)
 
 	case "tasks/cancel":
+		// 2025-11-25: cancelling a task already in a terminal status is
+		// an invalid request (-32602), not a success that changes nothing.
+		if cur, ok := st.Get(p.TaskID); ok && tasks.Terminal(cur.Status) {
+			return fail(codeInvalidParams, "task "+p.TaskID+" is already "+cur.Status)
+		}
 		snap, ok := st.Cancel(p.TaskID)
 		if !ok {
 			return missing()
