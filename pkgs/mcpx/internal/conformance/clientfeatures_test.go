@@ -245,22 +245,33 @@ func TestClientFeaturesServer(t *testing.T) {
 			// A decline is taken as an answer and the call goes on; the
 			// requestState only resumes the request it was minted for.
 			if !isModern(rev) {
-				// The question goes to the connection whose call raised
-				// it, and to no other.
+				// The question goes to the session whose call raised it,
+				// and to no other.
 				srv, _ := newServer(t)
+				srv.Notify = newNotifier()
 				srv.Ask = newAsker("done", elicitQ("e"))
 				srv.Timing = mcpserver.Timing{AskTimeout: 300 * time.Millisecond, AskPoll: 20 * time.Millisecond}
-				a, b := stdioServer(t, srv), stdioServer(t, srv)
-				for _, ss := range []*stdioSrv{a, b} {
-					ss.request(t, rev, "initialize", initParams(rev, map[string]any{"elicitation": map[string]any{}}))
-					ss.send(t, frame(nil, "notifications/initialized", nil))
+				hs := httpServer(t, srv)
+				var sess [2]string
+				for i := range sess {
+					r := hs.post(t, frame(0, "initialize", initParams(rev, map[string]any{"elicitation": map[string]any{}})), headersFor(rev20250326, "", "", ""))
+					sess[i] = r.Header.Get("Mcp-Session-Id")
+					hs.post(t, frame(nil, "notifications/initialized", nil), headersFor(rev, sess[i], "", ""))
 				}
-				a.send(t, frame(9, "tools/call", callThatAsks()))
-				if m := decode(t, a.next(t)); m["method"] != "elicitation/create" {
-					t.Fatalf("%v", m)
+				get, _ := http.NewRequest(http.MethodGet, hs.ts.URL, nil)
+				for k, v := range headersFor(rev, sess[1], "", "") {
+					get.Header.Set(k, v)
 				}
-				if f, quiet := b.quiet(200 * time.Millisecond); !quiet {
-					t.Errorf("another connection was asked: %s", f)
+				other := openStream(t, hs.ts.Client(), get)
+				res := hs.post(t, frame(9, "tools/call", callThatAsks()), headersFor(rev, sess[0], "tools/call", "mcpx_call"))
+				if !strings.Contains(string(res.Body), "elicitation/create") {
+					t.Fatalf("the asking session was not asked: %s", res.Body)
+				}
+				lines, _ := other.rest(100 * time.Millisecond)
+				for _, f := range dataFrames(t, lines) {
+					if f["method"] == "elicitation/create" {
+						t.Error("another session was asked")
+					}
 				}
 				return
 			}
