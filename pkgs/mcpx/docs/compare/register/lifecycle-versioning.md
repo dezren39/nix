@@ -24,10 +24,10 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | LV-02 | `InitializeRequest.params`: `protocolVersion`, `capabilities`, `clientInfo` | `2024-11-05 has` `2025-11-25 has` `2026-07-28 removes` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ (+`_meta`) · 26-07 —` | ✓ — all three sent; missing `protocolVersion` accepted | + low | S | low |
 | LV-03 | 2024-11-05 is not served; the floor is 2025-03-26 | `impl deferred` `2024-11-05 has` | `24-11 ✓` hosts exist | ✗ — deliberate floor at 2025-03-26 | + med | M | med |
 | LV-04 | Server echoes a supported requested version | `2024-11-05 has` `2026-07-28 removes` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✓ — 2025-03-26 and 2025-06-18 agreed as asked | + high | S | low |
-| LV-05 | Counter-offer for an older legacy version (2024-11-05) | `mcpx missing` `2024-11-05 has` `specs conflict` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✗ — refused with `-32022` instead of a counter-offer | + high | S | high |
-| LV-06 | Counter-offer for an unknown newer version | `mcpx missing` `2024-11-05 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✗ — `9999-01-01` refused; future dates count as modern | + med | S | med |
-| LV-07 | `initialize` asking for `2026-07-28` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (dual-era rule) | ✗ — refused `-32022`, legacy list only; rule says counter-offer | + low | S | low |
-| LV-08 | Client checks the version the server answered | `specs conflict` `mcpx missing` `opencode v1 has` `opencode v2 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` · opencode v1 ✓ · opencode v2 ✓ | ✗ — stores any version the server returns | + med | S | med |
+| LV-05 | Counter-offer for an older legacy version (2024-11-05) | `mcpx missing` `2024-11-05 has` `specs conflict` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✗ — refused with `-32022` instead of a counter-offer (#202) | + high | S | high |
+| LV-06 | Counter-offer for an unknown newer version | `mcpx missing` `2024-11-05 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✗ — `9999-01-01` refused; future dates count as modern (#202) | + med | S | med |
+| LV-07 | `initialize` asking for `2026-07-28` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (dual-era rule) | ✗ — refused `-32022`, legacy list only; rule says counter-offer (#202) | + low | S | low |
+| LV-08 | Client checks the version the server answered | `specs conflict` `mcpx missing` `opencode v1 has` `opencode v2 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` · opencode v1 ✓ · opencode v2 ✓ | ✗ — stores any version the server returns (#203) | + med | S | med |
 | LV-09 | Version each client offers in `initialize` | `2025-11-25 has` `opencode v1 has` `opencode v2 has` `lootbox has` | mcpx 2025-11-25 · opencode v1/v2 2025-11-25 · lootbox 2025-06-18 | partial — always 2025-11-25; documented override does not exist | + low | S | low |
 | LV-10 | Pre-initialization restrictions (only `ping`, logging) | `2024-11-05 has` `2026-07-28 removes` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | acc. — any method served before `initialize`, as 2025-03-26 | + low | S | low |
 | LV-11 | "Respect negotiated version and capabilities": SHOULD → MUST | `2025-06-18 has` | `24-11 SHOULD · 25-03 SHOULD · 25-06 MUST · 25-11 MUST · 26-07 per request` | partial — results downgraded; some declarations leak | + high | M | med |
@@ -41,14 +41,14 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | LV-19 | Per-request `_meta` `io.modelcontextprotocol/protocolVersion` | `2026-07-28 has` `opencode v2 has` | `26-07 ✓` · opencode v2 (modern era) | ✓ — read and checked per request; client sends it | + high | S | low |
 | LV-20 | Per-request `_meta` `io.modelcontextprotocol/clientCapabilities` | `2026-07-28 has` `opencode v2 has` | `26-07 ✓` · opencode v2 (modern era) | partial — read per request; a missing key means "none" | + high | S | med |
 | LV-21 | Per-request `_meta` `io.modelcontextprotocol/clientInfo` | `2026-07-28 has` `opencode v2 has` | `26-07 ✓` (SHOULD) · opencode v2 (modern era) | ✓ — client sends it; server does not read it | + low | S | low |
-| LV-22 | `io.modelcontextprotocol/serverInfo` in every result's `_meta` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (SHOULD) | ✗ — never emitted; client never reads it | + med | S | low |
-| LV-23 | `DiscoverResult` has no top-level `serverInfo` | `2026-07-28 has` `mcpx missing` | `26-07` (field absent) | ✗ — sends undefined field; client reads it there | + low | S | low |
-| LV-24 | A 2026 request missing required `_meta` is malformed | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | partial — no version ⇒ served as 2025-03-26; no caps ⇒ none | + med | S | med |
+| LV-22 | `io.modelcontextprotocol/serverInfo` in every result's `_meta` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (SHOULD) | ✗ — never emitted; client never reads it (#199) | + med | S | low |
+| LV-23 | `DiscoverResult` has no top-level `serverInfo` | `2026-07-28 has` `mcpx missing` | `26-07` (field absent) | ✗ — sends undefined field; client reads it there (#199) | + low | S | low |
+| LV-24 | A 2026 request missing required `_meta` is malformed | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | partial — no version ⇒ served as 2025-03-26; no caps ⇒ none (#199) | + med | S | med |
 | LV-25 | `server/discover` MUST be implemented | `2026-07-28 has` `opencode v2 has` | `26-07 ✓` · opencode v2 (`protocol` auto/pinned) | partial — answered in any era; field names wrong | + high | S | high |
-| LV-26 | `DiscoverResult.supportedVersions` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | ✗ — `protocolVersions` on both server and client | + high | S | high |
+| LV-26 | `DiscoverResult.supportedVersions` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | ✗ — `protocolVersions` on both server and client (#199) | + high | S | high |
 | LV-27 | stdio probe order: `server/discover` before `initialize` | `2026-07-28 has` `impl deferred` `opencode v2 has` | `26-07` SHOULD · opencode v2 `auto` | partial — legacy first by default; modern first is opt-in | + med | S | med |
-| LV-28 | Which probe errors mean "modern server" | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | ✗ — only a `-32022` substring counts | + med | S | med |
-| LV-29 | Modern-only server refusing `initialize`; mcpx client aborts | `2026-07-28 has` `mcpx missing` | `26-07` SHOULD name versions | ✗ — client aborts on `-32022`; never tries discover | + high | S | high |
+| LV-28 | Which probe errors mean "modern server" | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | ✗ — only a `-32022` substring counts (#200) | + med | S | med |
+| LV-29 | Modern-only server refusing `initialize`; mcpx client aborts | `2026-07-28 has` `mcpx missing` | `26-07` SHOULD name versions | ✗ — client aborts on `-32022`; never tries discover (#200) | + high | S | high |
 | LV-30 | HTTP era detection from the 400 body | `2026-07-28 has` | `26-07` MAY/SHOULD | partial — status ignored; body matched by substring | + med | S | med |
 | LV-31 | Era is a property of the server; cache it | `2026-07-28 has` | `26-07` SHOULD cache, MAY persist | partial — per connection; not persisted across restarts | + low | S | low |
 | LV-32 | Per-server era setting | `opencode v2 has` | mcpx four values · opencode v2 three values | partial — typos silently fall back to `legacy` | + low | S | low |
@@ -58,7 +58,7 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | LV-36 | `resultType` required on every 2026 result | `2026-07-28 has` | `26-07 ✓` | ✓ — stamped for modern peers, stripped for legacy | + high | S | low |
 | LV-37 | Request-id uniqueness: per session → among in-flight | `2026-07-28 has` | `24-11..25-11` session · `26-07` in flight | ✓ — server-initiated ids are negative | + low | S | low |
 | LV-38 | stdio server exits promptly on stdin EOF | `2026-07-28 has` | `26-07` SHOULD | ✓ — `mcpx serve` exits at EOF | + med | S | low |
-| LV-39 | Client stdio shutdown: close stdin, wait, SIGTERM, SIGKILL | `2024-11-05 has` `mcpx missing` `opencode v2 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` · opencode v2 ✓ | partial — SIGTERM immediately after closing stdin | + low | S | low |
+| LV-39 | Client stdio shutdown: close stdin, wait, SIGTERM, SIGKILL | `2024-11-05 has` `mcpx missing` `opencode v2 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` · opencode v2 ✓ | partial — SIGTERM immediately after closing stdin (#203) | + low | S | low |
 | LV-40 | Restart a stdio server that exited unexpectedly | `2026-07-28 has` `lootbox has` | `26-07` SHOULD · lootbox (fork) · opencode v1/v2 — | ✓ — lazy respawn on next call, backoff after failures | + med | S | low |
 
 ## LV-01 `initialize` / `notifications/initialized` handshake, removed in 2026

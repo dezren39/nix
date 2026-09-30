@@ -29,9 +29,9 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | MRTR-05 | No input request of a kind the client did not declare | `2026-07-28 has` | `26-07 only` | ✓ — only sendable questions included | + med | S | low |
 | MRTR-06 | `requestState` opaque; client echoes it exactly, never invents one | `2026-07-28 has` | `26-07 only` | ✓ — echoed verbatim; stale fields removed per retry | + med | S | low |
 | MRTR-07 | Server MUST integrity-protect `requestState` | `2026-07-28 has` | `26-07 only` | ✓ — `base64url(payload).HMAC-SHA256`, per-process key | + high | S | low |
-| MRTR-08 | `requestState` SHOULD bind the authenticated principal | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — bound to `Mcp-Session-Id`, which 2026 removed | + high | M | high |
+| MRTR-08 | `requestState` SHOULD bind the authenticated principal | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — bound to `Mcp-Session-Id`, which 2026 removed (#201) | + high | M | high |
 | MRTR-09 | `requestState` SHOULD carry a short expiry | `2026-07-28 has` | `26-07 only` | ✓ — `e` expiry, `proto.stateTTL` 30 m | + low | S | low |
-| MRTR-10 | `requestState` SHOULD identify method and parameters digest | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — call id only; retry params ignored | + med | S | med |
+| MRTR-10 | `requestState` SHOULD identify method and parameters digest | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — call id only; retry params ignored (#201) | + med | S | med |
 | MRTR-11 | Single use needs server-side enforcement | `2026-07-28 has` | `26-07 only` | n/a — not enforced; replay re-polls the same call | − moot | S | low |
 | MRTR-12 | Retry carries `inputResponses` keyed like `inputRequests` | `2026-07-28 has` | `26-07 only` | ✓ — built per key; relayed per key | + med | S | low |
 | MRTR-13 | Retry uses a new JSON-RPC id; state only for that retry | `2026-07-28 has` | `26-07 only` | ✓ — each round takes a fresh id | + low | S | low |
@@ -40,7 +40,7 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | MRTR-16 | Client-side cap on rounds | `2026-07-28 has` `opencode v2 has` | spec: none; mcpx 8; opencode v2 10 | ✓ — `elicit.inputRounds` 8, then an error | + low | S | low |
 | MRTR-17 | No per-input error channel | `2026-07-28 has` `specs conflict` `has no replacement` | `26-07 only` | partial — one failed input aborts the whole call | + low | M | low |
 | MRTR-18 | Client fulfils `input_required` and retries | `2026-07-28 has` `opencode v2 has` | mcpx ✓; opencode v2 SDK ✓; opencode v1, lootbox ✗ | partial — implemented; unreachable until discovery is fixed | + high | S | med |
-| MRTR-19 | Results returned through MRTR keep their full shape | `mcpx missing` | spec: result is the method's own; mcpx: text | ✗ — flattened to one text block | + med | M | med |
+| MRTR-19 | Results returned through MRTR keep their full shape | `mcpx missing` | spec: result is the method's own; mcpx: text | ✗ — flattened to one text block (#201) | + med | M | med |
 | MRTR-20 | Where the interrupted call's state lives | `2026-07-28 has` | spec: in `requestState`; mcpx: daemon task | partial — call runs as a daemon task; token names it | + med | L | med |
 
 ## MRTR-01 `InputRequiredResult` with `resultType: "input_required"`

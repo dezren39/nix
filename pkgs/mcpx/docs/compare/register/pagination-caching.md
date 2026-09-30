@@ -19,18 +19,18 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | ID | Difference | Labels | Where it exists | mcpx @ 05c78b2 | Value | Effort | Risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | PG-01 | opaque cursors; "don't persist across sessions" dropped in 2026 | `2024-11-05 has` `2026-07-28 has` | `24-11..25-11 ✓ (session-bound) · 26-07 ✓ (no sessions)` | ✓ — stateless encoded offsets | + low | S | low |
-| PG-02 | `""` is a valid cursor and MUST NOT end the list | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only · opencode v1 ✓ (only undefined ends)` | ✗ — client stops paging on `""` | + med | S | med |
-| PG-03 | invalid cursor SHOULD be `-32602` | `2024-11-05 has` `mcpx missing` | `all five ✓ (SHOULD)` | ✗ — undecodable cursor silently restarts at zero | + low | S | low |
+| PG-02 | `""` is a valid cursor and MUST NOT end the list | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only · opencode v1 ✓ (only undefined ends)` | ✗ — client stops paging on `""` (#200) | + med | S | med |
+| PG-03 | invalid cursor SHOULD be `-32602` | `2024-11-05 has` `mcpx missing` | `all five ✓ (SHOULD)` | ✗ — undecodable cursor silently restarts at zero (#202) | + low | S | low |
 | PG-04 | servers SHOULD provide stable cursors | `2024-11-05 has` | `all five ✓ (SHOULD); 26-07 no cross-page guarantee` | partial — offsets shift if the list changes | + low | S | low |
 | PG-05 | page size is the server's choice | `2024-11-05 has` | `all five ✓` | ✓ — `mcp.pageSize`, default 100 | + low | S | low |
 | PG-06 | client page-following caps | `opencode v1 has` `opencode v2 has` | `opencode v1 1000 pages · v2 64 pages · spec silent` | partial — 100 pages, silent truncation, no loop check | + low | S | low |
-| PG-07 | mcpx client swallows list errors and skips template pages | `2024-11-05 has` `mcpx missing` | `mcpx client` | ✗ — `prompts/list` and templates errors hidden | + low | S | med |
-| PG-08 | six results MUST carry cache hints; changelog names five | `2026-07-28 has` `specs conflict` `mcpx missing` | `26-07 ✓ only` | ✗ — none of the six carry them (wire W5, W6, W18, W19) | + med | S | med |
-| PG-09 | `ttlMs`: integer ms ≥ 0; absent means 0 | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only` | ✗ — never emitted | + med | S | med |
-| PG-10 | `cacheScope`: `"public"` or `"private"` | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only` | ✗ — never emitted | + med | S | high |
+| PG-07 | mcpx client swallows list errors and skips template pages | `2024-11-05 has` `mcpx missing` | `mcpx client` | ✗ — `prompts/list` and templates errors hidden (#203) | + low | S | med |
+| PG-08 | six results MUST carry cache hints; changelog names five | `2026-07-28 has` `specs conflict` `mcpx missing` | `26-07 ✓ only` | ✗ — none of the six carry them (wire W5, W6, W18, W19) (#199) | + med | S | med |
+| PG-09 | `ttlMs`: integer ms ≥ 0; absent means 0 | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only` | ✗ — never emitted (#199) | + med | S | med |
+| PG-10 | `cacheScope`: `"public"` or `"private"` | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only` | ✗ — never emitted (#199) | + med | S | high |
 | PG-11 | per-page caching: own TTL clock, same scope on every page | `2026-07-28 has` | `26-07 ✓ only` | n/a — until PG-08 | + low | S | low |
 | PG-12 | MRTR retries and `input_required` results never cached | `2026-07-28 has` | `26-07 ✓ only` | n/a — mcpx caches no MRTR result | + low | S | low |
-| PG-13 | mcpx's upstream schema cache ignores `ttlMs` | `2026-07-28 has` `mcpx missing` | `26-07 (client MAY cache per ttlMs)` | ✗ — cached until list_changed or refresh, persisted to disk | + med | S | med |
+| PG-13 | mcpx's upstream schema cache ignores `ttlMs` | `2026-07-28 has` `mcpx missing` | `26-07 (client MAY cache per ttlMs)` | ✗ — cached until list_changed or refresh, persisted to disk (#200) | + med | S | med |
 | PG-14 | lists MUST NOT vary per connection; MAY vary by authorization | `2026-07-28 has` | `26-07 ✓ only (tools, prompts, resources)` | ✓ — lists are per daemon | + med | S | med |
 
 ## PG-01 opaque cursors and persistence

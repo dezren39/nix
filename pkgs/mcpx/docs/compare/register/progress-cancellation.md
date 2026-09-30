@@ -25,16 +25,16 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | PC-01 | `notifications/progress` fields; `message` added | `2025-03-26 has` | `24-11 token, progress, total · 25-03+ + message` | partial — parsed from upstreams onto the event bus only | + low | S | low |
 | PC-02 | `progressToken` rules: string or integer, unique among active requests | `2024-11-05 has` | all five; chosen by "sender" (24-11) → "client" (26-07) | n/a — never issues or forwards a token | + low | S | low |
 | PC-03 | Progress direction: either side → server only | `2026-07-28 removes` | `24-11..25-11 both ways · 26-07 server → client` | partial — host progress answered with a `-32601` error | + low | S | low |
-| PC-04 | Client requests progress with `_meta.progressToken` | `opencode v1 has` `opencode v2 has` `mcpx missing` `2024-11-05 has` | opencode v1/v2: token = request id; mcpx ✗; lootbox ✗ | ✗ — upstream calls carry no token | + med | S | med |
-| PC-05 | Proxy relays progress between host and upstream | `mcpx missing` | every revision (server → client) | ✗ — host token stripped; nothing emitted to hosts | + high | M | med |
+| PC-04 | Client requests progress with `_meta.progressToken` | `opencode v1 has` `opencode v2 has` `mcpx missing` `2024-11-05 has` | opencode v1/v2: token = request id; mcpx ✗; lootbox ✗ | ✗ — upstream calls carry no token (#212) | + med | S | med |
+| PC-05 | Proxy relays progress between host and upstream | `mcpx missing` | every revision (server → client) | ✗ — host token stripped; nothing emitted to hosts (#212) | + high | M | med |
 | PC-06 | Timeouts, reset on progress, hard maximum | `2025-03-26 has` `opencode v1 has` | `24-11 "appropriate" · 25-03+ SHOULD time out, MAY reset, SHOULD cap` | partial — fixed 120 s call timeout; no progress reset | + med | S | med |
 | PC-07 | `notifications/cancelled` `requestId`: required → optional → required | `2025-11-25 has` `2026-07-28 has` | `24-11..25-06 required · 25-11 optional · 26-07 required` | ✓ — always sends it; tolerates its absence | + low | S | low |
-| PC-08 | Cancellation `reason` | `mcpx missing` | optional string in every revision | ✗ — client always says `"timeout"` | + low | S | low |
-| PC-09 | `initialize` MUST NOT be cancelled | `2024-11-05 has` `2026-07-28 removes` `mcpx missing` | `24-11..25-11 ✓ · 26-07 —` (no `initialize`) | ✗ — a timed-out `initialize` gets a cancel | + low | S | low |
+| PC-08 | Cancellation `reason` | `mcpx missing` | optional string in every revision | ✗ — client always says `"timeout"` (#203) | + low | S | low |
+| PC-09 | `initialize` MUST NOT be cancelled | `2024-11-05 has` `2026-07-28 removes` `mcpx missing` | `24-11..25-11 ✓ · 26-07 —` (no `initialize`) | ✗ — a timed-out `initialize` gets a cancel (#203) | + low | S | low |
 | PC-10 | Who may cancel: either side → client only (+ listen) | `2026-07-28 has` | `24-11..25-11 either side · 26-07 client; server only for listen` | ✓ — cancels only its own relayed legacy requests | + low | S | low |
-| PC-11 | Receiver stops work on `notifications/cancelled` | `impl deferred` `mcpx missing` | every revision (stdio only in 26-07) | partial — recorded; no upstream call is interrupted | + med | M | med |
+| PC-11 | Receiver stops work on `notifications/cancelled` | `impl deferred` `mcpx missing` | every revision (stdio only in 26-07) | partial — recorded; no upstream call is interrupted (#77) | + med | M | med |
 | PC-12 | HTTP: closing the stream is cancellation (2026), not (legacy) | `2026-07-28 has` `specs conflict` `opencode v2 has` | `25-03..25-11 SHOULD NOT · 26-07 MUST` | partial — disconnect cancels for every era; interruptible calls survive | + med | M | med |
-| PC-13 | Client `notifications/cancelled`: stdio only in 2026 | `2026-07-28 has` `specs conflict` `mcpx missing` | `24-11..25-11 any transport · 26-07 stdio MUST, HTTP undefined` | partial — aborts the POST and also sends the notification | + low | S | low |
+| PC-13 | Client `notifications/cancelled`: stdio only in 2026 | `2026-07-28 has` `specs conflict` `mcpx missing` | `24-11..25-11 any transport · 26-07 stdio MUST, HTTP undefined` | partial — aborts the POST and also sends the notification (#203) | + low | S | low |
 | PC-14 | A caller's abort or timeout cancels the upstream call | `opencode v1 has` `opencode v2 has` | opencode ✓; mcpx ✓; lootbox ✗ | ✓ — context end sends `notifications/cancelled` upstream | + med | S | low |
 
 ## PC-01 `notifications/progress` fields; `message` added

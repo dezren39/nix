@@ -22,33 +22,33 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 
 | ID | Difference | Labels | Where it exists | mcpx @ 05c78b2 | Value | Effort | Risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| TASK-01 | Tasks leave the core and become an extension | `2025-11-25 has` `2026-07-28 removes` `has better replacement` `specs conflict` `mcpx missing` | `25-11 core · 26-07 extension only` | ✗ — 2025-11-25 shape for every era; extension advertised, not built | + high | L | high |
+| TASK-01 | Tasks leave the core and become an extension | `2025-11-25 has` `2026-07-28 removes` `has better replacement` `specs conflict` `mcpx missing` | `25-11 core · 26-07 extension only` | ✗ — 2025-11-25 shape for every era; extension advertised, not built (#209) | + high | L | high |
 | TASK-02 | Client-hosted tasks (sampling, elicitation) removed; `tools/call` only | `2025-11-25 has` `2026-07-28 removes` | `25-11 server + client · 26-07 server only`; opencode, lootbox declare none | ✓ — `tools/call` only; no client tasks declared | − moot | S | low |
-| TASK-03 | Opt-in moves from `params.task` to the server's discretion | `2026-07-28 removes` `has better replacement` `mcpx missing` | `25-11 client asks · 26-07 server decides` | partial — honours `task` from any era; never offers one | + med | M | med |
-| TASK-04 | `tasks.list` declared without requestor binding | `2025-11-25 has` `mcpx missing` | `25-11 only` | ✗ — declared; lists every connection's tasks (wire W23) | + med | S | med |
-| TASK-05 | `CreateTaskResult`: `{task}` → flat `Task` with `resultType: "task"` | `2026-07-28 has` `mcpx missing` | `25-11 nested · 26-07 flat` | ✗ — nested shape stamped `resultType: "complete"` (W22) | + high | S | high |
-| TASK-06 | `Task.ttl` → `ttlMs` | `2026-07-28 has` `mcpx missing` | `25-11 ttl · 26-07 ttlMs` | ✗ — `ttl` only | + low | S | low |
-| TASK-07 | `Task.pollInterval` → `pollIntervalMs` | `2026-07-28 has` `mcpx missing` | `25-11 pollInterval · 26-07 pollIntervalMs` | ✗ — `pollInterval` only | + low | S | low |
-| TASK-08 | `tasks/get` returns a `DetailedTask` with inline result or error | `2026-07-28 has` `specs conflict` `mcpx missing` | `25-11 status only · 26-07 detailed` | ✗ — status snapshot only | + med | M | med |
+| TASK-03 | Opt-in moves from `params.task` to the server's discretion | `2026-07-28 removes` `has better replacement` `mcpx missing` | `25-11 client asks · 26-07 server decides` | partial — honours `task` from any era; never offers one (#209) | + med | M | med |
+| TASK-04 | `tasks.list` declared without requestor binding | `2025-11-25 has` `mcpx missing` | `25-11 only` | ✗ — declared; lists every connection's tasks (wire W23) (#209) | + med | S | med |
+| TASK-05 | `CreateTaskResult`: `{task}` → flat `Task` with `resultType: "task"` | `2026-07-28 has` `mcpx missing` | `25-11 nested · 26-07 flat` | ✗ — nested shape stamped `resultType: "complete"` (W22) (#209) | + high | S | high |
+| TASK-06 | `Task.ttl` → `ttlMs` | `2026-07-28 has` `mcpx missing` | `25-11 ttl · 26-07 ttlMs` | ✗ — `ttl` only (#209) | + low | S | low |
+| TASK-07 | `Task.pollInterval` → `pollIntervalMs` | `2026-07-28 has` `mcpx missing` | `25-11 pollInterval · 26-07 pollIntervalMs` | ✗ — `pollInterval` only (#209) | + low | S | low |
+| TASK-08 | `tasks/get` returns a `DetailedTask` with inline result or error | `2026-07-28 has` `specs conflict` `mcpx missing` | `25-11 status only · 26-07 detailed` | ✗ — status snapshot only (#209) | + med | M | med |
 | TASK-09 | Blocking `tasks/result` removed | `2026-07-28 removes` `has better replacement` | `25-11 only`; extension: `-32601` | acc. — served to every era | + low | S | low |
 | TASK-10 | `tasks/list` removed | `2026-07-28 removes` `has no replacement` | `25-11 only` | acc. — served to every era, unscoped | + low | S | med |
-| TASK-11 | `tasks/update` added for mid-task input | `2026-07-28 has` `mcpx missing` | `26-07 extension only` | ✗ — `-32601` | + med | M | med |
-| TASK-12 | `tasks/cancel` result: `Task` → empty acknowledgement | `2026-07-28 has` `mcpx missing` | `25-11 Task, MUST cancel · 26-07 empty ack, cooperative` | partial — 2025-11-25 snapshot to every era | + low | S | low |
-| TASK-13 | `tasks/cancel` on a finished task | `2025-11-25 has` `mcpx missing` | `25-11 MUST -32602 · 26-07 empty ack` | ✗ — returns the task snapshot | + low | S | low |
+| TASK-11 | `tasks/update` added for mid-task input | `2026-07-28 has` `mcpx missing` | `26-07 extension only` | ✗ — `-32601` (#209) | + med | M | med |
+| TASK-12 | `tasks/cancel` result: `Task` → empty acknowledgement | `2026-07-28 has` `mcpx missing` | `25-11 Task, MUST cancel · 26-07 empty ack, cooperative` | partial — 2025-11-25 snapshot to every era (#209) | + low | S | low |
+| TASK-13 | `tasks/cancel` on a finished task | `2025-11-25 has` `mcpx missing` | `25-11 MUST -32602 · 26-07 empty ack` | ✗ — returns the task snapshot (#209) | + low | S | low |
 | TASK-14 | Status push: `notifications/tasks/status` → `notifications/tasks` on listen | `2025-11-25 has` `2026-07-28 has` | `25-11 unsolicited · 26-07 listen filter taskIds` | ✗ — never sent; dropped when received | + low | M | low |
-| TASK-15 | `io.modelcontextprotocol/related-task` `_meta` | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 MUST · 26-07 —` | ✗ — never sent | + low | S | low |
+| TASK-15 | `io.modelcontextprotocol/related-task` `_meta` | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 MUST · 26-07 —` | ✗ — never sent (#209) | + low | S | low |
 | TASK-16 | `io.modelcontextprotocol/model-immediate-response` hint | `2025-11-25 has` `2026-07-28 removes` `has no replacement` | `25-11 only` | n/a — never sent | − moot | S | low |
 | TASK-17 | `failed` versus `isError` semantics inverted | `2026-07-28 has` `specs conflict` | `25-11 isError → failed · 26-07 isError → completed` | n/a — faults map to `failed`; `isError` path untraced | + low | S | low |
-| TASK-18 | Mid-task input: `tasks/result` side channel → `inputRequests` + `tasks/update` | `2026-07-28 has` `mcpx missing` | `25-11 side channel · 26-07 polled` | ✗ — `input_required` status exists, carries nothing | + med | M | med |
+| TASK-18 | Mid-task input: `tasks/result` side channel → `inputRequests` + `tasks/update` | `2026-07-28 has` `mcpx missing` | `25-11 side channel · 26-07 polled` | ✗ — `input_required` status exists, carries nothing (#209) | + med | M | med |
 | TASK-19 | Progress on tasks: supported → not supported | `2025-11-25 has` `2026-07-28 removes` | `25-11 token lives with task · 26-07 none` | n/a — mcpx sends no progress | − moot | S | low |
 | TASK-20 | Durable creation before `CreateTaskResult` | `2026-07-28 has` | `26-07 extension only` | partial — in-process store; lost on restart | + low | L | low |
 | TASK-21 | HTTP routing: `Mcp-Name` = `taskId` on `tasks/*` | `2026-07-28 has` | `26-07 extension only` | n/a — no extension client; header ignored as server | + low | S | low |
-| TASK-22 | Undeclared task support: SHOULD NOT create → `-32021` | `2026-07-28 has` `mcpx missing` | `25-11 SHOULD NOT · 26-07 MUST -32021` | ✗ — tasks served to non-declaring clients | + low | S | low |
+| TASK-22 | Undeclared task support: SHOULD NOT create → `-32021` | `2026-07-28 has` `mcpx missing` | `25-11 SHOULD NOT · 26-07 MUST -32021` | ✗ — tasks served to non-declaring clients (#209) | + low | S | low |
 | TASK-23 | Task IDs unguessable | `2025-11-25 has` `2026-07-28 has` | `25-11 MUST when unbound · 26-07 MUST` | partial — 64 random bits | + low | S | med |
-| TASK-24 | Tasks bound to the requestor; checked on every request | `2025-11-25 has` `mcpx missing` | `25-11 MUST with auth context · 26-07 MUST` | ✗ — one store shared by every connection | + med | S | high |
+| TASK-24 | Tasks bound to the requestor; checked on every request | `2025-11-25 has` `mcpx missing` | `25-11 MUST with auth context · 26-07 MUST` | ✗ — one store shared by every connection (#209) | + med | S | high |
 | TASK-25 | Reserved names `tasks/`, `notifications/tasks/`, `resultType: "task"` | `2026-07-28 has` `specs conflict` | `26-07 extension only` | n/a — nothing reserved clashes | − moot | S | low |
 | TASK-26 | MRTR rounds resolved before a `CreateTaskResult` | `2026-07-28 has` | `26-07 + extension` | n/a — no extension tasks | + low | M | low |
-| TASK-27 | One task store across MCP and `/v1` | `mcpx missing` | mcpx only | ✗ — two stores; each surface sees only its own | + med | S | med |
+| TASK-27 | One task store across MCP and `/v1` | `mcpx missing` | mcpx only | ✗ — two stores; each surface sees only its own (#209) | + med | S | med |
 
 ## TASK-01 Tasks leave the core and become an extension
 

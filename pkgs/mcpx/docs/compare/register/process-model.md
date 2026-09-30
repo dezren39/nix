@@ -29,18 +29,18 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | PM-07 | State that 2026 still permits | `2026-07-28 has` | `26-07 listen, tasks, requestState, handles, legacy sessions` | ✓ — tasks and legacy sessions allowed | + low | S | low |
 | PM-08 | Request with neither modern `_meta` nor a prior `initialize` | `specs conflict` | `26-07 silent for dual-era stdio; HTTP MAY assume 2025-03-26` | acc. — served as 2025-03-26 | + low | S | low |
 | PM-09 | What "supports 2026-07-28" minimally means | `2026-07-28 has` | `24-11..25-11 base + lifecycle · 26-07 base + versioning + patterns` | partial — discover and listen shapes wrong | + high | M | high |
-| PM-10 | Every HTTP MCP host shares one pool session key | `opencode v2 has` `mcpx missing` | mcpx `/mcp` | ✗ — key is the daemon's pid | + high | S | high |
+| PM-10 | Every HTTP MCP host shares one pool session key | `opencode v2 has` `mcpx missing` | mcpx `/mcp` | ✗ — key is the daemon's pid (#211) | + high | S | high |
 | PM-11 | Stateful server isolation per caller | `mcpx has, others don't` `opencode v1 has` `opencode v2 has` | `mcpx per session · opencode v1 per directory · v2 per Location · lootbox shared · CF per execution id` | ✓ — session-scoped process leases | + high | S | med |
-| PM-12 | `/v1/exec` session-scoped instances outlive the run | `mcpx missing` | mcpx only | ✗ — never marked ephemeral; waits for idle reap | + med | S | med |
-| PM-13 | MCP surface built once per daemon, never rebuilt | `mcpx missing` | mcpx only | ✗ — `sync.Once`; new adapters invisible | + med | S | med |
+| PM-12 | `/v1/exec` session-scoped instances outlive the run | `mcpx missing` | mcpx only | ✗ — never marked ephemeral; waits for idle reap (#219) | + med | S | med |
+| PM-13 | MCP surface built once per daemon, never rebuilt | `mcpx missing` | mcpx only | ✗ — `sync.Once`; new adapters invisible (#219) | + med | S | med |
 | PM-14 | Daemon's MCP server calls the daemon over its own socket | `mcpx has, others don't` | mcpx only | ✓ — one path for stdio and HTTP | − latency | M | low |
-| PM-15 | `/v1/protocol` reports `nativeElicit` from the default | `mcpx missing` | mcpx only | ✗ — compiled default, not the setting | + low | S | low |
+| PM-15 | `/v1/protocol` reports `nativeElicit` from the default | `mcpx missing` | mcpx only | ✗ — compiled default, not the setting (#219) | + low | S | low |
 | PM-16 | opencode process topology: one process vs shared daemon | `opencode v1 has` `opencode v2 has` | `opencode v1 TUI + Worker per window · v2 background daemon` | n/a — mcpx is already a daemon | + med | S | med |
 | PM-17 | MCP connection scope: per directory vs per Location | `opencode v1 has` `opencode v2 has` | `opencode v1 per directory per process · v2 per Location per daemon` | n/a — mcpx must tell sessions apart | + med | S | med |
 | PM-18 | When MCP servers start: awaited all vs forked each | `opencode v1 has` `opencode v2 has` | `opencode v1 all at first use · v2 async per server` | n/a — mcpx connect time matters on v1 | + low | S | low |
 | PM-19 | MCP server lifetime: instance vs daemon, never idle | `opencode v1 has` `opencode v2 has` | `opencode v1 until dispose/exit · v2 no idle TTL` | n/a — `mcpx serve` may live for days | + low | S | med |
 | PM-20 | No automatic restart when an MCP server dies | `opencode v1 has` `opencode v2 has` | `opencode v1 failed · v2 failed` | n/a — a dead `mcpx serve` stays dead | + med | S | med |
-| PM-21 | opencode database filename depends on release channel | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode.db: v1 latest/beta/prod · v2 also dev/next` | ✗ — `mcpx stats opencode` reads `opencode.db` only | + low | S | med |
+| PM-21 | opencode database filename depends on release channel | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode.db: v1 latest/beta/prod · v2 also dev/next` | ✗ — `mcpx stats opencode` reads `opencode.db` only (#219) | + low | S | med |
 | PM-22 | lootbox connects every server at startup and pings | `lootbox has` | `lootbox fork (monitor) · deployed upstream (no monitor)` | n/a — lazy pools, min 0 | + low | S | low |
 | PM-23 | lootbox re-fetches every schema on every discovery | `lootbox has` `has better replacement` | lootbox | ✓ — persisted cache invalidated by list_changed | − none | S | low |
 | PM-24 | lootbox multi-instance strategies and port rewriting | `lootbox has` `has better replacement` | lootbox fork only | n/a — isolates callers, not daemons | − misplaced | S | low |

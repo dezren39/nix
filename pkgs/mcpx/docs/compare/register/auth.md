@@ -41,9 +41,9 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | AUTH-19 | `oauth-client-credentials` extension (machine-to-machine) | `2026-07-28 has` | `26-07 extension` | ✗ — not declared or performed | + med | M | low |
 | AUTH-20 | `enterprise-managed-authorization` extension (IdP, ID-JAG) | `2026-07-28 has` `does not match mcpx's goal` | `26-07 extension` | n/a — out of scope for a local tool | − scope | L | low |
 | AUTH-21 | OAuth redirect listener: fixed port vs ephemeral | `opencode v1 has` `opencode v2 has` `impl deferred` | `opencode v1 127.0.0.1:19876 · v2 configured or ephemeral` | ✗ — `redirect` field only | + med | S | low |
-| AUTH-22 | Per-server `auth:` block parsed and never applied | `mcpx missing` | mcpx only | ✗ broken — `Auth.Resolve` has no caller | + high | S | high |
-| AUTH-23 | `/mcp` and `/v1` authenticate nobody | `2024-11-05 has` `mcpx missing` | `24-11 SHOULD · 25-03 SHOULD · 25-06 SHOULD · 25-11 SHOULD · 26-07 SHOULD` | ✗ — loopback plus socket permissions only | + high | M | high |
-| AUTH-24 | Code-execution endpoints accept cross-origin simple requests | `mcpx missing` | `mcpx /v1/exec · lootbox /ws` | ✗ — no Origin or Content-Type check | + high | S | high |
+| AUTH-22 | Per-server `auth:` block parsed and never applied | `mcpx missing` | mcpx only | ✗ broken — `Auth.Resolve` has no caller (#205) | + high | S | high |
+| AUTH-23 | `/mcp` and `/v1` authenticate nobody | `2024-11-05 has` `mcpx missing` | `24-11 SHOULD · 25-03 SHOULD · 25-06 SHOULD · 25-11 SHOULD · 26-07 SHOULD` | ✗ — loopback plus socket permissions only (#204) | + high | M | high |
+| AUTH-24 | Code-execution endpoints accept cross-origin simple requests | `mcpx missing` | `mcpx /v1/exec · lootbox /ws` | ✗ — no Origin or Content-Type check (#204) | + high | S | high |
 | AUTH-25 | Scripts see credentials: bindings vs inherited environment | `does not match mcpx's goal` | `Cloudflare bindings · opencode none · lootbox unreadable · mcpx full env` | n/a — scripts inherit full `os.Environ()` by design | − design | S | med |
 
 ## AUTH-01 No authorization in the core protocol

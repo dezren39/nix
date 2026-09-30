@@ -331,8 +331,8 @@ after a `/v1/exec` run. Found by reading code; not driven.
 
 **C-66 `/v1/protocol` reports the default, not the setting.** `nativeElicit` is
 the compiled default rather than the effective configuration
-(`internal/daemon/routes_proto.go:495-497`), on the one endpoint whose comment
-says it cannot disagree with the code.
+(`internal/daemon/routes_proto.go:530`), on the one endpoint whose comment
+says it cannot disagree with the code (`internal/daemon/routes_proto.go:495-497`).
 
 **C-67 A script name locally, a path remotely.** Already tracked as #106: the
 CLI resolves a script name against a search path, and `/v1/exec` treats `file`

@@ -21,8 +21,8 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 
 | ID | Difference | Labels | Where it exists | mcpx @ 05c78b2 | Value | Effort | Risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| PLG-01 | Plugin package `@opencode-ai/plugin` renamed `@opencode/plugin` | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 @opencode-ai/plugin · v2 @opencode/plugin` | ✗ — both files import the v1 name | + high | S | high |
-| PLG-02 | Module shape: hooks-returning function vs `{id, setup\|effect}` | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 function or {id?, server} · v2 {id, setup\|effect}` | ✗ — v1 shape; v2 rejects the file | + high | M | high |
+| PLG-01 | Plugin package `@opencode-ai/plugin` renamed `@opencode/plugin` | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 @opencode-ai/plugin · v2 @opencode/plugin` | ✗ — both files import the v1 name (#47) | + high | S | high |
+| PLG-02 | Module shape: hooks-returning function vs `{id, setup\|effect}` | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 function or {id?, server} · v2 {id, setup\|effect}` | ✗ — v1 shape; v2 rejects the file (#47) | + high | M | high |
 | PLG-03 | v1 legacy loader calls every export of a plugin file | `opencode v1 has` `has better replacement` | `opencode v1 ✓ · v2 default export only` | ✓ — helpers kept in a subdirectory | + low | S | med |
 | PLG-04 | Plugin discovery: flat file glob vs files or directories | `opencode v1 has` `opencode v2 has` | `opencode v1 {plugin,plugins}/*.{ts,js} · v2 + directories` | partial — `mcpx/` subdirectory becomes a package in v2 | + low | S | med |
 | PLG-05 | Config key `plugin` vs `plugins`; where options arrive | `opencode v1 has` `opencode v2 has` | `opencode v1 plugin · v2 plugins + legacy plugin` | partial — config carries over, module does not | + low | S | low |
@@ -33,10 +33,10 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | PLG-10 | `client` SDK and `serverUrl` in plugin input | `opencode v1 has` `opencode v2 has` | `opencode v1 ✓ · v2 absent (domains instead)` | ✗ — uses `client.session.get`, `client.tui.showToast` | + med | M | high |
 | PLG-11 | `directory`/`worktree`/`project` vs `ctx.location` | `opencode v1 has` `opencode v2 has` | `opencode v1 fields · v2 ctx.location` | partial — destructures v1 fields | + low | S | low |
 | PLG-12 | Bun `$` shell handed to plugins | `opencode v1 has` `has no replacement` | `opencode v1 ✓ · v2 —` | ✓ — uses `execFile` and the socket | + low | S | low |
-| PLG-13 | `shell.env` hook vs `shell.hook("create.before")` without session | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 sessionID, callID · v2 neither` | ✗ — `MCPX_SESSION_ID` lost under v2 | + high | M | high |
+| PLG-13 | `shell.env` hook vs `shell.hook("create.before")` without session | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 sessionID, callID · v2 neither` | ✗ — `MCPX_SESSION_ID` lost under v2 (#47) | + high | M | high |
 | PLG-14 | v1 `shell.env` has no session id on PTY terminals | `opencode v1 has` | `opencode v1 bash tool and ! shell ✓ · PTY —` | partial — terminal-run `mcpx` gets no session | + low | S | low |
 | PLG-15 | v2 per-session environment route replaces the whole env | `opencode v2 has` | `opencode v2 only; TUI-owned; in-memory` | n/a — docs propose it; it would break shells | − harmful | S | high |
-| PLG-16 | `experimental.chat.system.transform` output is `{system: string[]}` | `opencode v1 has` `mcpx missing` | `opencode v1 ✓ · v2 no hook of that name` | ✗ broken — writes `output.parts`; never injected | + med | S | med |
+| PLG-16 | `experimental.chat.system.transform` output is `{system: string[]}` | `opencode v1 has` `mcpx missing` | `opencode v1 ✓ · v2 no hook of that name` | ✗ broken — writes `output.parts`; never injected (#217) | + med | S | med |
 | PLG-17 | v2 `session.hook("context")` edits system, messages, tools | `opencode v2 has` | `opencode v1 three hooks · v2 one; invented tools dropped` | n/a — not used | + med | S | med |
 | PLG-18 | `chat.message` vs `session.hook("prompt")` | `opencode v1 has` `opencode v2 has` | `opencode v1 chat.message · v2 prompt` | n/a — not used | + low | S | low |
 | PLG-19 | `chat.params`/`chat.headers` vs `context.options`/`model.request.headers` | `opencode v1 has` `opencode v2 has` | `opencode v1 two hooks · v2 context, model.request (+ v2-only)` | n/a — not used | + low | S | low |
@@ -47,20 +47,20 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | PLG-24 | `tool.execute.after`: success-only vs status union | `opencode v1 has` `opencode v2 has` `has better replacement` | `opencode v1 success only · v2 completed or error` | partial — reads `title`, undefined for MCP | + low | S | low |
 | PLG-25 | `permission.ask` declared but dead vs live `evaluate` hook | `opencode v1 has` `opencode v2 has` `has better replacement` | `opencode v1 never triggered · v2 live` | n/a — not used | + low | S | low |
 | PLG-26 | Defining a tool: zod map vs `ctx.tool.transform` editor | `opencode v1 has` `opencode v2 has` | `opencode v1 map, un-namespaced · v2 editor, optional namespace` | partial — v1 map only | + high | M | med |
-| PLG-27 | v2 plugin tools hide behind code mode by default | `opencode v2 has` `mcpx missing` | `opencode v2 codemode !== false · v1 plugin tools direct` | ✗ — no v2 port; it would need `codemode: false` | + high | S | high |
+| PLG-27 | v2 plugin tools hide behind code mode by default | `opencode v2 has` `mcpx missing` | `opencode v2 codemode !== false · v1 plugin tools direct` | ✗ — no v2 port; it would need `codemode: false` (#47) | + high | S | high |
 | PLG-28 | A plugin tool can ask the user | `opencode v1 has` `has no replacement` | `opencode v1 ToolContext.ask · v2 —` | partial — `mcpx_daemon_select` relies on it | − lost | M | med |
 | PLG-29 | Toast from a server plugin | `opencode v1 has` `opencode v2 has` | `opencode v1 client.tui.showToast · v2 TUI plugin only` | partial — v1 toast only | + med | M | med |
-| PLG-30 | TUI plugin shape and dialogs | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 {id?, tui} JSX · v2 {id, setup} promises` | ✗ — v1 TUI plugin only | + med | M | low |
+| PLG-30 | TUI plugin shape and dialogs | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 {id?, tui} JSX · v2 {id, setup} promises` | ✗ — v1 TUI plugin only (#47) | + med | M | low |
 | PLG-31 | `ctx.rpc` between server and TUI plugins | `opencode v2 has` | `opencode v1 — · v2 ✓` | n/a — v1 uses a file as the channel | + med | M | low |
 | PLG-32 | Plugin storage | `opencode v1 has` `opencode v2 has` | `opencode v1 TUI kv only · v2 ctx.storage` | n/a — own remember file | + low | S | low |
 | PLG-33 | Calling a model from a plugin | `opencode v1 has` `opencode v2 has` | `opencode v1 full turn · v2 ctx.generate.text` | n/a — not examined | + med | M | low |
 | PLG-34 | Plugins add or change MCP servers (Location-scoped) | `opencode v2 has` | `opencode v1 config hook · v2 ctx.mcp.transform/reload/list` | n/a — not used | + med | S | med |
-| PLG-35 | `?codemode=false` appended to remote MCP URLs | `opencode v2 has` `mcpx missing` | `opencode v2 client` | ✗ — neither sends nor honours it | + med | M | med |
-| PLG-36 | Hooks and permission checks per child call in code mode | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1/v2 per child · mcpx one opaque call` | ✗ — script calls bypass opencode permissions | + high | L | high |
-| PLG-37 | Live status of each child call during a script | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 metadata · v2 progress` | ✗ — plugin makes one blocking POST | + med | S | low |
-| PLG-38 | Cancelling in the harness stops the script | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 abort signal · v2 fiber interrupt` | ✗ — plugin ignores the abort signal | + med | S | med |
-| PLG-39 | Harness session and working directory reach the script | `opencode v2 has` `mcpx missing` | `opencode v2 _meta on child calls · mcpx bash path only` | ✗ — plugin `mcpx_exec` sends neither | + high | S | high |
-| PLG-40 | Plugin `mcpx_exec` reads a field the daemon never returns | `mcpx missing` | mcpx plugin only | ✗ broken — whole envelope shown to model | + med | S | med |
+| PLG-35 | `?codemode=false` appended to remote MCP URLs | `opencode v2 has` `mcpx missing` | `opencode v2 client` | ✗ — neither sends nor honours it (#218) | + med | M | med |
+| PLG-36 | Hooks and permission checks per child call in code mode | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1/v2 per child · mcpx one opaque call` | ✗ — script calls bypass opencode permissions (#218) | + high | L | high |
+| PLG-37 | Live status of each child call during a script | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 metadata · v2 progress` | ✗ — plugin makes one blocking POST (#218) | + med | S | low |
+| PLG-38 | Cancelling in the harness stops the script | `opencode v1 has` `opencode v2 has` `mcpx missing` | `opencode v1 abort signal · v2 fiber interrupt` | ✗ — plugin ignores the abort signal (#218) | + med | S | med |
+| PLG-39 | Harness session and working directory reach the script | `opencode v2 has` `mcpx missing` | `opencode v2 _meta on child calls · mcpx bash path only` | ✗ — plugin `mcpx_exec` sends neither (#189) | + high | S | high |
+| PLG-40 | Plugin `mcpx_exec` reads a field the daemon never returns | `mcpx missing` | mcpx plugin only | ✗ broken — whole envelope shown to model (#189) | + med | S | med |
 | PLG-41 | Code execution offered as an MCP server | `mcpx has, others don't` | `mcpx /mcp · Cloudflare codeMcpServer · opencode — · lootbox —` | ✓ — `mcpx_exec` and friends over `/mcp` | + med | S | low |
 
 ## PLG-01 Plugin package `@opencode-ai/plugin` renamed `@opencode/plugin`

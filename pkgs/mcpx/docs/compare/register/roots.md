@@ -23,7 +23,7 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | ROOT-01 | `roots/list` and what a client answers | `2024-11-05 has` `2026-07-28 deprecates` `opencode v1 has` `opencode v2 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 dep. (MRTR)`; opencode one root; lootbox ✗ | partial — declared to every upstream; always `[]` | + med | S | med |
 | ROOT-02 | `notifications/roots/list_changed` removed | `2024-11-05 has` `2026-07-28 removes` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✗ — answers the notification with a `-32601` error | + low | S | low |
 | ROOT-03 | Roots deprecated; `ListRootsRequest` embedded in `InputRequiredResult` | `2026-07-28 deprecates` `has better replacement` | `26-07 only` | ✓ — embedded `roots/list` answered like legacy | − deprecated | S | low |
-| ROOT-04 | Server asks its host for roots | `mcpx missing` `2026-07-28 deprecates` | spec: any server may; mcpx never does | ✗ — never sends `roots/list` to a host | + med | M | low |
+| ROOT-04 | Server asks its host for roots | `mcpx missing` `2026-07-28 deprecates` | spec: any server may; mcpx never does | ✗ — never sends `roots/list` to a host (#210) | + med | M | low |
 | ROOT-05 | Per-request `roots` `_meta` key | `specs conflict` | SEP-2575 lists it; 2026-07-28 defines no such key | n/a — neither sent nor read | − moot | S | low |
 
 ## ROOT-01 `roots/list` and what a client answers

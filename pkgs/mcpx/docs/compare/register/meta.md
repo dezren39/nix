@@ -27,11 +27,11 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | META-04 | Typed `_meta` objects per message kind | `2026-07-28 has` | `26-07 ✓` | partial — request keys read; notification and result keys never set | + med | S | low |
 | META-05 | `RequestParams._meta` required, so `params` is required | `2026-07-28 has` | `26-07 ✓` | ✓ — client creates `params`; server treats absence as legacy | + low | S | low |
 | META-06 | 2026 reserved-key table | `2026-07-28 has` `specs conflict` | `26-07 ✓` | partial — three request keys handled; the rest ignored | + med | S | med |
-| META-07 | `traceparent` / `tracestate` / `baggage` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (prose only) | ✗ — not read, not forwarded | + med | S | low |
+| META-07 | `traceparent` / `tracestate` / `baggage` | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (prose only) | ✗ — not read, not forwarded (#212) | + med | S | low |
 | META-08 | `clientInfo` / `serverInfo` are self-reported, display-only | `2026-07-28 has` | `26-07 ✓` (legacy silent) | ✓ — neither drives behaviour | + low | S | low |
-| META-09 | `ai.opencode/sessionID` on every opencode v2 `tools/call` | `opencode v2 has` `mcpx missing` `has better replacement` | opencode v2 ✓ · opencode v1 — | ✗ — ignored; every host shares one scope | + high | M | high |
+| META-09 | `ai.opencode/sessionID` on every opencode v2 `tools/call` | `opencode v2 has` `mcpx missing` `has better replacement` | opencode v2 ✓ · opencode v1 — | ✗ — ignored; every host shares one scope (#211) | + high | M | high |
 | META-10 | Per-hop versus end-to-end keys through a proxy | `2026-07-28 has` | `26-07` (implied) | partial — per-hop keys replaced; nothing end-to-end survives | + med | M | med |
-| META-11 | Upstream result `_meta` reaching the host | `2024-11-05 has` `mcpx missing` | `24-11 ✓(schema) · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | partial — lost via `mcpx_call`; kept on `/v1` and in scripts | + med | M | low |
+| META-11 | Upstream result `_meta` reaching the host | `2024-11-05 has` `mcpx missing` | `24-11 ✓(schema) · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | partial — lost via `mcpx_call`; kept on `/v1` and in scripts (#206) | + med | M | low |
 
 ## META-01 `_meta` on requests, notifications and results, without rules
 

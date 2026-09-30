@@ -29,7 +29,7 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | TOOL-06 | `Tool.description` optional; "hint to the model" wording from 2025-03-26 | `2024-11-05 has` | `all five ✓` | ✓ — always sent | + low | S | low |
 | TOOL-07 | `inputSchema` opens to any 2020-12 keyword; root `type:"object"` stays | `2024-11-05 has` `2026-07-28 has` | `24-11..25-11 ✓ (restricted) · 26-07 ✓ (any keyword)` | ✓ — upstream schemas passed through raw | + med | M | med |
 | TOOL-08 | no-parameter tools: `{type:"object", additionalProperties:false}` recommended | `2025-11-25 has` | `25-11 ✓ · 26-07 ✓` | ✓ — used by every no-arg mcpx tool | + low | S | low |
-| TOOL-09 | `x-mcp-header` on inputSchema properties; HTTP clients drop invalid tools | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only` | ✗ — neither validated nor mirrored | + med | M | med |
+| TOOL-09 | `x-mcp-header` on inputSchema properties; HTTP clients drop invalid tools | `2026-07-28 has` `mcpx missing` | `26-07 ✓ only` | ✗ — neither validated nor mirrored (#200) | + med | M | med |
 | TOOL-10 | JSON Schema 2020-12 is the default dialect | `2025-11-25 has` | `25-11 ✓ · 26-07 ✓ · earlier unspecified` | n/a — no validator; codegen reads 2020-12 and draft-07 keywords | + low | S | low |
 | TOOL-11 | `$ref` MUST NOT dereference network URIs by default | `2026-07-28 has` | `26-07 ✓ only` | ✓ — codegen resolves only local `#/$defs/`, `#/definitions/` | + med | S | high |
 | TOOL-12 | bound schema depth / subschemas / validation time | `2026-07-28 has` | `26-07 ✓ only (SHOULD)` | partial — codegen depth 12 and cycle guard; no validator | + low | S | low |
@@ -37,16 +37,16 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | TOOL-14 | `outputSchema` ⇒ conforming `structuredContent` MUST; clients SHOULD validate | `2025-06-18 has` `opencode v1 has` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓ · opencode v1 enforces · v2 not traced` | n/a — validates nothing; declares no outputSchema | + low | S | med |
 | TOOL-15 | `Tool.annotations` object; untrusted unless the server is trusted | `2025-03-26 has` | `24-11 — · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | partial — upstream kept raw; core ten tools carry none | + med | S | med |
 | TOOL-16 | `readOnlyHint` (default false) | `2025-03-26 has` | `25-03 ✓ onward` | ✓ — op tools set it from `Mutating` | + med | S | low |
-| TOOL-17 | `destructiveHint` (default true, only when not read-only) | `2025-03-26 has` `mcpx missing` | `25-03 ✓ onward` | ✗ — confirm gate reads absent as non-destructive | + med | S | med |
+| TOOL-17 | `destructiveHint` (default true, only when not read-only) | `2025-03-26 has` `mcpx missing` | `25-03 ✓ onward` | ✗ — confirm gate reads absent as non-destructive (#207) | + med | S | med |
 | TOOL-18 | `idempotentHint` (default false) | `2025-03-26 has` | `25-03 ✓ onward` | ✓ — op tools set it; not used for retries | + med | S | med |
 | TOOL-19 | `openWorldHint` (default true) | `2025-03-26 has` | `25-03 ✓ onward` | partial — true on every op tool, including local ones | + low | S | low |
-| TOOL-20 | `Tool.icons` | `2025-11-25 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse | + low | S | low |
-| TOOL-21 | `Tool.execution.taskSupport`; `required` needs a task call | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 ✓ only · opencode v1 SDK throws on required` | ✗ — not parsed; `required` upstream tools uncallable | + med | M | med |
-| TOOL-22 | `_meta` on `Tool` | `2025-06-18 has` `specs conflict` `mcpx missing` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓ (schema; prose omits)` | ✗ — dropped on parse | + med | S | med |
+| TOOL-20 | `Tool.icons` | `2025-11-25 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse (#207) | + low | S | low |
+| TOOL-21 | `Tool.execution.taskSupport`; `required` needs a task call | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 ✓ only · opencode v1 SDK throws on required` | ✗ — not parsed; `required` upstream tools uncallable (#209) | + med | M | med |
+| TOOL-22 | `_meta` on `Tool` | `2025-06-18 has` `specs conflict` `mcpx missing` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓ (schema; prose omits)` | ✗ — dropped on parse (#207) | + med | S | med |
 | TOOL-23 | `tools/list` in deterministic order | `2026-07-28 has` | `26-07 ✓ only (SHOULD)` | ✓ — fixed slice; upstream cache sorted by name | + med | S | low |
 | TOOL-24 | mcpx's `tools/list` is 61 tools, not the promised ten | `does not match mcpx's goal` | `mcpx only` | partial — ten core plus 51 generated op tools | + high | S | med |
 | TOOL-25 | `tools/list` and other lists are not revision-filtered | `2025-06-18 has` `2025-11-25 has` | `mcpx design` | partial — safe today only because own tools carry few fields | + low | S | med |
-| TOOL-26 | `CallToolResult.isError`; `mcpx_call` drops it | `2024-11-05 has` `mcpx missing` `opencode v1 has` `opencode v2 has` | `all five ✓ · opencode v1 ✓ v2 ✓ (thrown)` | ✗ — upstream failures reported as success (wire W20) | + high | S | high |
+| TOOL-26 | `CallToolResult.isError`; `mcpx_call` drops it | `2024-11-05 has` `mcpx missing` `opencode v1 has` `opencode v2 has` | `all five ✓ · opencode v1 ✓ v2 ✓ (thrown)` | ✗ — upstream failures reported as success (wire W20) (#206) | + high | S | high |
 | TOOL-27 | `CallToolResult.structuredContent`; any JSON value in 2026 | `2025-06-18 has` `2026-07-28 has` `opencode v1 has` `opencode v2 has` | `25-06 ✓ (object) · 25-11 ✓ (object) · 26-07 ✓ (any)` | partial — downgraded below 2025-06-18; non-objects not downgraded | + med | S | med |
 | TOOL-28 | text duplicate of `structuredContent`; which one each client reads | `2025-06-18 has` `opencode v1 has` `opencode v2 has` | `25-06..26-07 SHOULD · opencode v1 text first · v2 structured first` | partial — `mcpx_call` sends text only | + med | S | med |
 | TOOL-29 | `mcpx_exec` returns artifacts as `resource_link` blocks | `2025-06-18 has` `mcpx has, others don't` | `25-06 ✓ onward · opencode v1 drops them` | ✓ — one link per artifact | + med | S | med |

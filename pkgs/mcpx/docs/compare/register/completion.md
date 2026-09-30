@@ -19,16 +19,16 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 
 | ID | Difference | Labels | Where it exists | mcpx @ 05c78b2 | Value | Effort | Risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| CMP-01 | method exists in 2024-11-05 with no gating capability | `2024-11-05 has` `mcpx missing` | `24-11 ✓ (ungated) · 25-03 ✓ (gated) · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | partial — served in every era; a 2024-11-05 upstream is never asked | + low | S | low |
+| CMP-01 | method exists in 2024-11-05 with no gating capability | `2024-11-05 has` `mcpx missing` | `24-11 ✓ (ungated) · 25-03 ✓ (gated) · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | partial — served in every era; a 2024-11-05 upstream is never asked (#213) | + low | S | low |
 | CMP-02 | calling without the capability → `-32601` | `2025-03-26 has` | `25-03 ✓ onward (prose)` | ✓ — client does not call undeclared upstreams | + low | S | low |
 | CMP-03 | `ref/prompt` and `ref/resource`; `ResourceReference` renamed, wire unchanged | `2024-11-05 has` `2025-06-18 has` | `all five (TS rename 25-06; 26-07 prose: uri may be a template)` | ✓ — wire unchanged; `/v1/complete` accepts both | + low | S | low |
 | CMP-04 | `PromptReference.title` | `2025-06-18 has` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✓ — tolerated; dropped when forwarded | + low | S | low |
-| CMP-05 | `context.arguments`: previously resolved argument values | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✗ — ignored by the MCP server, not forwarded by `/v1` | + med | S | med |
+| CMP-05 | `context.arguments`: previously resolved argument values | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✗ — ignored by the MCP server, not forwarded by `/v1` (#213) | + med | S | med |
 | CMP-06 | at most 100 values; schema-enforced from 2026 | `2024-11-05 has` `2026-07-28 has` | `24-11..25-11 prose · 26-07 @maxItems 100` | ✓ — own replies capped at 100 by default | + low | S | low |
 | CMP-07 | `total` and `hasMore` (no cursor) | `2024-11-05 has` | `all five ✓` | ✓ — computed correctly for what mcpx returns | + low | S | low |
 | CMP-08 | completion is neither MRTR-capable nor cacheable | `2026-07-28 has` | `26-07 ✓` | ✓ — n/a in practice | + low | S | low |
-| CMP-09 | mcpx ignores `ref` and completes from its own tool names | `2024-11-05 has` `mcpx missing` | `mcpx only` | ✗ — prompt argument got tool names (wire W24) | + med | S | med |
-| CMP-10 | MCP surface never forwards upstream, though the daemon can | `mcpx missing` | `mcpx only` | ✗ — `Pool.Complete` unused by `/mcp` | + med | S | low |
+| CMP-09 | mcpx ignores `ref` and completes from its own tool names | `2024-11-05 has` `mcpx missing` | `mcpx only` | ✗ — prompt argument got tool names (wire W24) (#213) | + med | S | med |
+| CMP-10 | MCP surface never forwards upstream, though the daemon can | `mcpx missing` | `mcpx only` | ✗ — `Pool.Complete` unused by `/mcp` (#213) | + med | S | low |
 | CMP-11 | neither opencode version sends `completion/complete` | `mcpx has, others don't` | `opencode v1 — · v2 —` | n/a — mcpx's completion serves other hosts | + low | S | low |
 
 ## CMP-01 `completion/complete` without a capability in 2024-11-05

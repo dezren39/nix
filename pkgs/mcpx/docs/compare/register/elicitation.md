@@ -25,24 +25,24 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | ELI-01 | `elicitation/create` and the `elicitation` client capability | `2025-06-18 has` `opencode v2 has` | `24-11 — · 25-03 — · 25-06 ✓ · 25-11 ✓ · 26-07 ✓ (MRTR)`; opencode v2 ✓, v1 ✗, lootbox ✗ | ✓ — both directions through the broker | + high | S | low |
 | ELI-02 | `requestedSchema` limited to flat primitive properties | `2025-06-18 has` | `25-06 ✓ · 25-11 ✓ (+ arrays for multi-select) · 26-07 ✓` | ✓ — forwarded verbatim; never validated | + low | S | low |
 | ELI-03 | Three-way action `accept` / `decline` / `cancel` | `2025-06-18 has` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✓ — `cancel` when nobody was asked | + low | S | low |
-| ELI-04 | Enum schemas: `enumNames` → titled/untitled single and multi-select | `2025-11-25 has` `mcpx missing` | `25-06 enum+enumNames · 25-11 rich · 26-07 rich` | partial — rich enums reach 2025-06-18 hosts undowngraded | + low | M | low |
+| ELI-04 | Enum schemas: `enumNames` → titled/untitled single and multi-select | `2025-11-25 has` `mcpx missing` | `25-06 enum+enumNames · 25-11 rich · 26-07 rich` | partial — rich enums reach 2025-06-18 hosts undowngraded (#214) | + low | M | low |
 | ELI-05 | `default` on every primitive schema | `2025-11-25 has` `opencode v2 has` | `25-06 boolean only · 25-11 all · 26-07 all`; opencode v2 applies defaults | ✓ — forwarded unchanged | + low | S | low |
 | ELI-06 | `ElicitResult.content` values may be `string[]` | `2025-11-25 has` | `25-06 scalars · 25-11 + string[] · 26-07 + string[]` | ✓ — answers relayed as raw JSON | + low | S | low |
 | ELI-07 | `requestedSchema.$schema` allowed | `2025-11-25 has` | `25-11 ✓ · 26-07 ✓` | ✓ — forwarded verbatim | − moot | S | low |
 | ELI-08 | `mode` field; omitted means form | `2025-11-25 has` | `25-11 ✓ · 26-07 ✓` | ✓ — stripped for pre-2025-11-25 hosts | + low | S | low |
-| ELI-09 | URL-mode elicitation | `2025-11-25 has` `opencode v2 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓`; opencode v2 renders a link field | partial — relayed; broker accepts url without declaring it | + med | S | med |
-| ELI-10 | `elicitationId` added, then removed | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 only` | partial — stripped for old hosts, leaked to 2026 hosts | + low | S | low |
+| ELI-09 | URL-mode elicitation | `2025-11-25 has` `opencode v2 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓`; opencode v2 renders a link field | partial — relayed; broker accepts url without declaring it (#214) | + med | S | med |
+| ELI-10 | `elicitationId` added, then removed | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 only` | partial — stripped for old hosts, leaked to 2026 hosts (#201) | + low | S | low |
 | ELI-11 | `notifications/elicitation/complete` added, then removed | `2025-11-25 has` `2026-07-28 removes` `opencode v2 has` | `25-11 only`; opencode v2 handles it | partial — consumed from upstreams, never sent to hosts | + low | S | low |
-| ELI-12 | `-32042` `URLElicitationRequiredError` added, then removed | `2025-11-25 has` `2026-07-28 removes` `has better replacement` `mcpx missing` | `25-11 only`; 26-07 reserves the code | ✗ — neither emitted nor handled from upstreams | + med | M | med |
+| ELI-12 | `-32042` `URLElicitationRequiredError` added, then removed | `2025-11-25 has` `2026-07-28 removes` `has better replacement` `mcpx missing` | `25-11 only`; 26-07 reserves the code | ✗ — neither emitted nor handled from upstreams (#214) | + med | M | med |
 | ELI-13 | Sensitive data: never → only via URL mode | `2025-11-25 has` | `25-06 never · 25-11 URL only · 26-07 URL only` | n/a — relays; broker answers persist to SQLite | + low | S | med |
 | ELI-14 | 2026 `ElicitRequest` embedded in `InputRequiredResult`, not a request | `2026-07-28 has` | `26-07 only` | ✓ — produced and answered | + med | S | low |
 | ELI-15 | Legacy delivery over Streamable HTTP: request on the POST's SSE | `2025-06-18 has` `2026-07-28 removes` | `25-03..25-11 allowed · 26-07 forbidden` | ✓ — works with a session (wire L1–L3) | + high | S | low |
 | ELI-16 | Legacy delivery over stdio: request on the pipe | `2025-06-18 has` | `25-06 ✓ · 25-11 ✓` | ✓ — interruptible calls run concurrently; not wire-driven | + high | S | low |
-| ELI-17 | Stateless 2026 host plus eliciting upstream | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — `-32603` after 8 busy rounds (wire M1) | + high | M | high |
-| ELI-18 | Naming the originating server in a relayed question | `mcpx missing` | spec: client MUST show who asks; mcpx: legacy path only | partial — legacy prefixed "(via mcpx)"; 2026 path raw | + med | S | med |
+| ELI-17 | Stateless 2026 host plus eliciting upstream | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — `-32603` after 8 busy rounds (wire M1) (#201) | + high | M | high |
+| ELI-18 | Naming the originating server in a relayed question | `mcpx missing` | spec: client MUST show who asks; mcpx: legacy path only | partial — legacy prefixed "(via mcpx)"; 2026 path raw (#201) | + med | S | med |
 | ELI-19 | Question from a shared upstream instance | `impl deferred` | mcpx only | partial — goes to the broker, never inline | + low | L | low |
-| ELI-20 | Questions raised inside `mcpx_exec` | `impl deferred` `opencode v2 has` `mcpx missing` | mcpx only | partial — always the broker, never the host | + low | L | low |
-| ELI-21 | Answering an elicitation from inside a script | `opencode v2 has` `mcpx missing` | opencode v2 UI form; mcpx designed, not built | ✗ — no `onElicit`; broker and policy only | + med | M | low |
+| ELI-20 | Questions raised inside `mcpx_exec` | `impl deferred` `opencode v2 has` `mcpx missing` | mcpx only | partial — always the broker, never the host (#77) | + low | L | low |
+| ELI-21 | Answering an elicitation from inside a script | `opencode v2 has` `mcpx missing` | opencode v2 UI form; mcpx designed, not built | ✗ — no `onElicit`; broker and policy only (#214) | + med | M | low |
 | ELI-22 | Client with no elicitation answerer | `opencode v1 has` `lootbox has` | opencode v1 and lootbox: `-32601`; mcpx: `cancel` | ✓ — declares, answers `cancel` when nobody is asked | + low | S | low |
 | ELI-23 | Elicitation attributed to a session or a whole location | `opencode v2 has` | opencode v2: Location-global forms | n/a — mcpx is the server here | + low | S | low |
 

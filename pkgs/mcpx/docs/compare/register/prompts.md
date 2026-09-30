@@ -20,13 +20,13 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 
 | ID | Difference | Labels | Where it exists | mcpx @ 05c78b2 | Value | Effort | Risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| PRM-01 | `Prompt.title` | `2025-06-18 has` `mcpx missing` | `24-11 — · 25-03 — · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✗ — kept, but also sent to 2025-03-26 hosts | + low | S | low |
-| PRM-02 | `PromptArgument.title`: in the schema, not in 2025-06-18 prose | `2025-06-18 has` `specs conflict` `mcpx missing` | `25-06 ✓ (schema) · 25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse | + low | S | low |
-| PRM-03 | `Prompt.icons` (not on arguments) | `2025-11-25 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse | + low | S | low |
-| PRM-04 | `_meta` on `Prompt` (not on arguments) | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse | + med | S | med |
+| PRM-01 | `Prompt.title` | `2025-06-18 has` `mcpx missing` | `24-11 — · 25-03 — · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✗ — kept, but also sent to 2025-03-26 hosts (#207) | + low | S | low |
+| PRM-02 | `PromptArgument.title`: in the schema, not in 2025-06-18 prose | `2025-06-18 has` `specs conflict` `mcpx missing` | `25-06 ✓ (schema) · 25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse (#207) | + low | S | low |
+| PRM-03 | `Prompt.icons` (not on arguments) | `2025-11-25 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse (#207) | + low | S | low |
+| PRM-04 | `_meta` on `Prompt` (not on arguments) | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✗ — dropped on parse (#207) | + med | S | med |
 | PRM-05 | audio allowed in `PromptMessage.content` | `2025-03-26 has` | `24-11 T I R · 25-03 +audio · later same` | ✗ — dropped by flattening (PRM-07) | + low | S | low |
 | PRM-06 | `resource_link` allowed in prompt messages; prose lags until 2026 | `2025-06-18 has` `specs conflict` | `25-06 ✓ (schema) · 25-11 ✓ (schema) · 26-07 ✓ (schema + prose)` | ✗ — dropped by flattening (PRM-07) | + low | S | low |
-| PRM-07 | mcpx flattens `prompts/get` into one user text message | `2024-11-05 has` `mcpx missing` | `every revision allows many messages, roles, content types` | ✗ — roles, order and non-text content lost | + med | S | med |
+| PRM-07 | mcpx flattens `prompts/get` into one user text message | `2024-11-05 has` `mcpx missing` | `every revision allows many messages, roles, content types` | ✗ — roles, order and non-text content lost (#206) | + med | S | med |
 | PRM-08 | opencode turns MCP prompts into slash commands (text only) | `opencode v1 has` `opencode v2 has` | `opencode v1 ✓ ($1..$n) · v2 ✓ (server:prompt)` | ✓ — mcpx prompts appear as commands | + low | S | low |
 
 ## PRM-01 `Prompt.title`

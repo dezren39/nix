@@ -117,11 +117,48 @@ it exists* and use the other labels for what it means for mcpx.
 - **Effort**: S (hours), M (days), L (a week or more), XL (a redesign).
 - **Risk**: what breaks, or who is surprised, if it is done or if it is not.
 
+## Where each `mcpx missing` row is tracked
+
+Every `mcpx missing` row names its issue in the status cell. Most issues group
+the rows one fix would close, so there are fewer issues than rows. All are in
+the milestone *mcpx: backlog build-out*; the ones where mcpx declares
+something it does not deliver hang under #177, the rest under #181.
+
+| issue | title | rows |
+| --- | --- | --- |
+| #47 | mcpx: port the opencode plugin to opencode v2 (a rewrite, and several things get better) | PLG-01, PLG-02, PLG-13, PLG-27, PLG-30 |
+| #77 | mcpx: protocol follow-ups -- inline answers from scripts, cancellation, task status, call-scoped timeout | ELI-20, PC-11 |
+| #189 | mcpx plugin: DaemonClient.call sends fields the daemon does not read; mcpx_exec loses the session and reads a missing field | PLG-39, PLG-40 |
+| #199 | mcpx: serving 2026-07-28 to a conformant client — server/discover fields, serverInfo, cache hints, header checks and HTTP statuses | ERR-07, ERR-09, ERR-13, LV-22, LV-23, LV-24, LV-26, PG-08, PG-09, PG-10, TR-26, TR-37, TR-38 |
+| #200 | mcpx client: cannot reach a conformant 2026-07-28 server | CAP-03, CAP-09, CAP-11, LOG-02, LOG-07, LV-28, LV-29, PG-02, PG-13, SUB-15, TOOL-09, TR-30, TR-39 |
+| #201 | mcpx: input_required for a stateless 2026 host — a busy loop, a session binding 2026 removed, and flattened results | ELI-10, ELI-17, ELI-18, MRTR-08, MRTR-10, MRTR-19 |
+| #202 | mcpx server: legacy conformance — counter-offer on initialize, 2025-03-26 batches, no replies to notifications, sessions and error codes | ERR-04, ERR-05, ERR-06, ERR-10, ERR-16, LV-05, LV-06, LV-07, PG-03, SUB-18, TR-05, TR-09, TR-27, TR-28, TR-35, TR-36 |
+| #203 | mcpx client: legacy Streamable HTTP and stdio robustness — session 404, GET stream, SSE retry, string ids, stream timeout, version header | LV-08, LV-39, PC-08, PC-09, PC-13, PG-07, TR-14, TR-22, TR-29, TR-34, TR-44, TR-45 |
+| #204 | mcpx: validate Origin on /mcp and /v1, and refuse cross-origin simple requests to /v1/exec | AUTH-23, AUTH-24, TR-41 |
+| #205 | mcpx: the per-server `auth:` block is parsed and never applied | AUTH-22 |
+| #206 | mcpx: mcpx_call reports upstream isError as success, and every proxied result is flattened to text | CT-06, CT-13, META-11, PRM-07, RES-09, RES-10, TOOL-26 |
+| #207 | mcpx: resources/templates/list sends uri instead of uriTemplate, upstream list metadata is dropped on parse, and titles leak to 2025-03-26 | PRM-01, PRM-02, PRM-03, PRM-04, RES-01, RES-02, RES-03, RES-04, RES-05, RES-06, RES-07, TOOL-17, TOOL-20, TOOL-22 |
+| #208 | mcpx: subscriptions and list_changed — declared on stdio and never delivered, 202 over HTTP, and the 2026 wire shape | CAP-15, CAP-17, CAP-18, CAP-20, RES-14, RES-15, SUB-03, SUB-04, SUB-05, SUB-08, SUB-09, SUB-10, SUB-11, SUB-12 |
+| #209 | mcpx: tasks — the 2026 extension is advertised and not implemented; core tasks are unbound and live in two stores | CAP-21, CAP-22, CAP-24, CAP-25, CAP-26, TASK-01, TASK-03, TASK-04, TASK-05, TASK-06, TASK-07, TASK-08, TASK-11, TASK-12, TASK-13, TASK-15, TASK-18, TASK-22, TASK-24, TASK-27, TOOL-21 |
+| #210 | mcpx: capabilities declared to upstreams that nothing answers, and host gates that ignore sub-capabilities | CAP-02, CAP-04, CAP-08, ROOT-04, SMP-09, SMP-11 |
+| #211 | mcpx: take the pool's session key from the request (`_meta["ai.opencode/sessionID"]`), not the daemon's pid | META-09, PM-10 |
+| #212 | mcpx: relay progress, log messages and trace context between hosts and upstreams | CODE-13, LOG-08, META-07, PC-04, PC-05 |
+| #213 | mcpx: completion/complete over MCP ignores ref and never asks the upstream | CMP-01, CMP-05, CMP-09, CMP-10 |
+| #214 | mcpx: elicitation edges — enum downgrade for 2025-06-18, url mode upstream, -32042, and a script-side answer hook | ELI-04, ELI-09, ELI-12, ELI-21 |
+| #215 | mcpx codegen: JavaScript reserved words, prelude-name clashes and colliding tool names | CODE-40, CODE-41, CODE-42 |
+| #216 | mcpx exec: typed results from outputSchema, an output cap, the final expression as the result, typed failures, paged search | CODE-16, CODE-19, CODE-30, CODE-35, CODE-36, CODE-44 |
+| #217 | mcpx plugin: the instructions option has never worked on opencode v1 | PLG-16 |
+| #218 | mcpx and opencode code mode: nested code mode, ?codemode=false, and what a harness expects of mcpx_exec | CODE-53, PLG-35, PLG-36, PLG-37, PLG-38 |
+| #219 | mcpx: /v1/exec leaves session-scoped servers running, /mcp never rebuilds its surface, /v1/protocol reports the default nativeElicit, stats reads one opencode database | PM-12, PM-13, PM-15, PM-21 |
+| #220 | mcpx client: the deprecated HTTP+SSE transport, for remote servers that still speak it | TR-10, TR-11 |
+
 ## Refreshing the status column
 
 The status column is a snapshot, and the protocol work was changing mcpx's
 protocol behaviour while this was written (a modern-first probe and
-conformance fixes). To refresh:
+conformance fixes). PR #198, open at the time, describes server-side
+transport fixes that touch rows in the transports, errors, notifications,
+capabilities and progress areas; the issues above say which rows. To refresh:
 
 1. Pick the new commit. Replace `05c78b2` in the header of each table and in
    the `mcpx @` field of each block you re-check.

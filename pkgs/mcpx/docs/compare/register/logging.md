@@ -21,13 +21,13 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | ID | Difference | Labels | Where it exists | mcpx @ 05c78b2 | Value | Effort | Risk |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | LOG-01 | `logging/setLevel` request removed | `2024-11-05 has` `2026-07-28 removes` `has better replacement` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | acc. — answers `{}` in every era, does nothing | + low | S | low |
-| LOG-02 | Per-request `_meta` `io.modelcontextprotocol/logLevel` | `2026-07-28 has` `2026-07-28 deprecates` `mcpx missing` `specs conflict` | `26-07 ✓ (dep.)` | ✗ — never sent upstream, never read from hosts | + low | S | low |
+| LOG-02 | Per-request `_meta` `io.modelcontextprotocol/logLevel` | `2026-07-28 has` `2026-07-28 deprecates` `mcpx missing` `specs conflict` | `26-07 ✓ (dep.)` | ✗ — never sent upstream, never read from hosts (#200) | + low | S | low |
 | LOG-03 | No `logLevel` means no log messages at all | `2026-07-28 has` `specs conflict` | `24-11..25-11: server decides · 26-07: MUST NOT emit` | ✓ — emits none; code comment states the opposite | + low | S | med |
 | LOG-04 | Invalid log level rejects the whole request | `2026-07-28 has` | `24-11..25-11: setLevel -32602 · 26-07: any request -32602` | partial — `setLevel` never validates; `_meta` level ignored | + low | S | low |
 | LOG-05 | RFC 5424 log levels unchanged | `2024-11-05 has` `2026-07-28 deprecates` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 dep.` | n/a — emits none; client only ever asks `info` | − moot | S | low |
 | LOG-06 | Logging feature deprecated (SEP-2577) | `2026-07-28 deprecates` | `26-07 dep.; removable from 2027-07-28` | ✓ — nothing declared or emitted | − deprecated | S | low |
-| LOG-07 | mcpx client sends `setLevel info` to every logging upstream | `2026-07-28 removes` `mcpx missing` | mcpx only; opencode v1/v2 never send `setLevel` | ✗ — removed method sent to modern upstreams; level hard-coded | + med | S | low |
-| LOG-08 | Relaying upstream log messages to an MCP host | `mcpx missing` `2026-07-28 deprecates` | spec: any server may emit; mcpx: event bus only | ✗ — upstream logs reach `/v1/events`, never a host | + low | M | low |
+| LOG-07 | mcpx client sends `setLevel info` to every logging upstream | `2026-07-28 removes` `mcpx missing` | mcpx only; opencode v1/v2 never send `setLevel` | ✗ — removed method sent to modern upstreams; level hard-coded (#200) | + med | S | low |
+| LOG-08 | Relaying upstream log messages to an MCP host | `mcpx missing` `2026-07-28 deprecates` | spec: any server may emit; mcpx: event bus only | ✗ — upstream logs reach `/v1/events`, never a host (#212) | + low | M | low |
 | LOG-09 | Client handling of `notifications/message` | `opencode v1 has` `has no replacement` | `opencode v1 ✓ · opencode v2 ✗` | n/a — mcpx sends none to hosts | − moot | S | low |
 
 ## LOG-01 `logging/setLevel` request removed

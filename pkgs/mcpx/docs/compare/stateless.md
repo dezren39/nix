@@ -216,17 +216,17 @@ each is in the linked area file. The PROTOCOL work in progress at the time of
 writing (a modern-first probe and conformance fixes) is expected to close some
 of these; the status column in each register file is where that shows.
 
-| # | change | area | effort |
-| --- | --- | --- | --- |
-| 1 | `supportedVersions` on both sides; `serverInfo` into result `_meta`; `ttlMs` and `cacheScope` on discover, list and read results | [lifecycle](register/lifecycle-versioning.md), [pagination-caching](register/pagination-caching.md) | S |
-| 2 | Bind `requestState` to the request, not the session: the method, an argument digest, the principal if there is one, and the expiry. Stop minting `Mcp-Session-Id` for modern clients. Fix the no-binding busy loop so a question the client cannot receive goes back to the broker, as the comment says it does | [mrtr](register/mrtr.md), [transports](register/transports.md) | M |
-| 3 | Client: treat `-32022` from `initialize` as a modern server and retry with `server/discover`; send `Mcp-Method`, `Mcp-Name` and `Mcp-Param-*` | [lifecycle](register/lifecycle-versioning.md), [transports](register/transports.md) | S–M |
-| 4 | Server: check `Mcp-Method` and `Mcp-Name`; answer header mismatches with `-32020` and HTTP 400; map `-32601` → 404 and `-32022`/`-32021`/`-32602` → 400 for modern requests | [transports](register/transports.md), [errors](register/errors.md) | S |
-| 5 | Take the pool's session key from `_meta["ai.opencode/sessionID"]` (or a namespaced equivalent) when present, instead of `mcp-<pid>` | [process-model](register/process-model.md), [meta](register/meta.md) | S |
-| 6 | Validate `Origin` on `/mcp` and `/v1`. It has been a MUST since 2024-11-05, and it is the one gap here with a working attack: DNS rebinding from a web page to a loopback port that runs scripts | [transports](register/transports.md) | S |
-| 7 | `subscriptions/listen` over HTTP as an SSE response stream; the acknowledgement as `notifications/subscriptions/acknowledged` with `_meta` subscription ids | [notifications](register/notifications.md) | M |
-| 8 | The tasks extension for 2026 clients (`tasks/update`, `resultType: "task"`, `ttlMs`, no `tasks/list`/`tasks/result`), and no `extensions` or core `tasks` capability to a revision that does not define it | [tasks](register/tasks.md), [capabilities](register/capabilities.md) | M–L |
-| 9 | Counter-offer on `initialize` (2024-11-05 and unknown versions) and add the 2024-11-05 floors | [lifecycle](register/lifecycle-versioning.md) | S |
+| # | change | area | issue | effort |
+| --- | --- | --- | --- | --- |
+| 1 | `supportedVersions` on both sides; `serverInfo` into result `_meta`; `ttlMs` and `cacheScope` on discover, list and read results | [lifecycle](register/lifecycle-versioning.md), [pagination-caching](register/pagination-caching.md) | #199, #200 | S |
+| 2 | Bind `requestState` to the request, not the session: the method, an argument digest, the principal if there is one, and the expiry. Stop minting `Mcp-Session-Id` for modern clients. Fix the no-binding busy loop so a question the client cannot receive goes back to the broker, as the comment says it does | [mrtr](register/mrtr.md), [transports](register/transports.md) | #201 | M |
+| 3 | Client: treat `-32022` from `initialize` as a modern server and retry with `server/discover`; send `Mcp-Method`, `Mcp-Name` and `Mcp-Param-*` | [lifecycle](register/lifecycle-versioning.md), [transports](register/transports.md) | #200 | S–M |
+| 4 | Server: check `Mcp-Method` and `Mcp-Name`; answer header mismatches with `-32020` and HTTP 400; map `-32601` → 404 and `-32022`/`-32021`/`-32602` → 400 for modern requests | [transports](register/transports.md), [errors](register/errors.md) | #199 | S |
+| 5 | Take the pool's session key from `_meta["ai.opencode/sessionID"]` (or a namespaced equivalent) when present, instead of `mcp-<pid>` | [process-model](register/process-model.md), [meta](register/meta.md) | #211 | S |
+| 6 | Validate `Origin` on `/mcp` and `/v1`. It has been a MUST since 2024-11-05, and it is the one gap here with a working attack: DNS rebinding from a web page to a loopback port that runs scripts | [transports](register/transports.md) | #204 | S |
+| 7 | `subscriptions/listen` over HTTP as an SSE response stream; the acknowledgement as `notifications/subscriptions/acknowledged` with `_meta` subscription ids | [notifications](register/notifications.md) | #208 | M |
+| 8 | The tasks extension for 2026 clients (`tasks/update`, `resultType: "task"`, `ttlMs`, no `tasks/list`/`tasks/result`), and no `extensions` or core `tasks` capability to a revision that does not define it | [tasks](register/tasks.md), [capabilities](register/capabilities.md) | #209 | M–L |
+| 9 | Counter-offer on `initialize` (2024-11-05 and unknown versions) and add the 2024-11-05 floors | [lifecycle](register/lifecycle-versioning.md) | #202 | S |
 
 Nothing on this list conflicts with keeping every legacy revision. Items 1–8
 touch only the modern path or add checks the legacy path already skips.

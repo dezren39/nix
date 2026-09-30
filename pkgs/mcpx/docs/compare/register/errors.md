@@ -24,19 +24,19 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | ERR-01 | `-32700` Parse error | `2024-11-05 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓ (typed)` | ✓ — sent without id; HTTP 400 | + low | S | low |
 | ERR-02 | `-32600` Invalid Request | `2024-11-05 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓ (typed)` | partial — stdio checks `jsonrpc`; HTTP never does | + low | S | low |
 | ERR-03 | `-32601` Method not found, and what it now covers | `2024-11-05 has` `2026-07-28 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓ + 404` | partial — used for unknown methods; always HTTP 200 | + med | S | low |
-| ERR-04 | `-32602` Invalid params, meanings widening | `2024-11-05 has` `2026-07-28 has` `mcpx missing` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓ (wider)` | partial — also used for internal failures | + med | S | med |
-| ERR-05 | `-32603` Internal error | `2024-11-05 has` `2026-07-28 has` `mcpx missing` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | partial — MRTR path uses it; resources and prompts use `-32602` | + med | S | low |
-| ERR-06 | `-32002` Resource not found → `-32602` | `2024-11-05 has` `2026-07-28 removes` `mcpx missing` `2026-07-28 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 MUST NOT emit` | partial — `-32602` to every era; legacy expects `-32002` | + low | S | low |
-| ERR-07 | `-32020` HeaderMismatch | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (HTTP 400) | ✗ — plain-JSON 400 for one case; others unchecked | + high | S | high |
+| ERR-04 | `-32602` Invalid params, meanings widening | `2024-11-05 has` `2026-07-28 has` `mcpx missing` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓ (wider)` | partial — also used for internal failures (#202) | + med | S | med |
+| ERR-05 | `-32603` Internal error | `2024-11-05 has` `2026-07-28 has` `mcpx missing` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | partial — MRTR path uses it; resources and prompts use `-32602` (#202) | + med | S | low |
+| ERR-06 | `-32002` Resource not found → `-32602` | `2024-11-05 has` `2026-07-28 removes` `mcpx missing` `2026-07-28 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 MUST NOT emit` | partial — `-32602` to every era; legacy expects `-32002` (#202) | + low | S | low |
+| ERR-07 | `-32020` HeaderMismatch | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (HTTP 400) | ✗ — plain-JSON 400 for one case; others unchecked (#199) | + high | S | high |
 | ERR-08 | `-32021` MissingRequiredClientCapability | `2026-07-28 has` | `26-07 ✓` (HTTP 400) | ✗ — never used; the broker answers instead | + low | S | low |
-| ERR-09 | `-32022` UnsupportedProtocolVersion | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (HTTP 400) | partial — right shape; `requested` empty; HTTP 200 | + med | S | med |
-| ERR-10 | Code for refusing a legacy `initialize`: `-32602` vs `-32022` | `2024-11-05 has` `specs conflict` `mcpx missing` | `24-11..25-11` example `-32602` · `26-07` `-32022` | ✗ — 2026-only `-32022` sent to legacy peers | + med | S | med |
+| ERR-09 | `-32022` UnsupportedProtocolVersion | `2026-07-28 has` `mcpx missing` | `26-07 ✓` (HTTP 400) | partial — right shape; `requested` empty; HTTP 200 (#199) | + med | S | med |
+| ERR-10 | Code for refusing a legacy `initialize`: `-32602` vs `-32022` | `2024-11-05 has` `specs conflict` `mcpx missing` | `24-11..25-11` example `-32602` · `26-07` `-32022` | ✗ — 2026-only `-32022` sent to legacy peers (#202) | + med | S | med |
 | ERR-11 | Draft codes `-32001` / `-32003` / `-32004` | `2026-07-28 has` | pre-release 2026 drafts only | n/a — never used by mcpx | + low | S | low |
 | ERR-12 | Error-code allocation policy (2026) | `2026-07-28 has` `specs conflict` | `26-07 ✓` | ✓ — standard codes plus `-32022` only | + low | S | low |
-| ERR-13 | HTTP status for modern JSON-RPC errors (400 / 404) | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | ✗ — every error goes out as 200 | + med | S | med |
+| ERR-13 | HTTP status for modern JSON-RPC errors (400 / 404) | `2026-07-28 has` `mcpx missing` | `26-07 ✓` | ✗ — every error goes out as 200 (#199) | + med | S | med |
 | ERR-14 | Check order for a malformed 2026 HTTP request | `2026-07-28 has` `specs conflict` | `26-07` (unspecified) | partial — header-vs-`_meta` first; missing fields never rejected | + low | S | low |
 | ERR-15 | Error response `id` optional | `2025-11-25 has` | `24-11 — · 25-03 — · 25-06 — · 25-11 ✓ · 26-07 ✓` | partial — sends id-less parse errors; client drops id-less errors | + low | S | low |
-| ERR-16 | Local errors versus peer errors through a proxy | `2026-07-28 has` `mcpx missing` | `26-07` guidance | partial — upstream code and data survive only as text | + med | M | med |
+| ERR-16 | Local errors versus peer errors through a proxy | `2026-07-28 has` `mcpx missing` | `26-07` guidance | partial — upstream code and data survive only as text (#202) | + med | M | med |
 | ERR-17 | Tool input validation: protocol error → `isError` | `2025-11-25 has` | `24-11..25-06` protocol error · `25-11 ✓ · 26-07 ✓` `isError` | ✓ — tool failures are `isError` results | + med | S | low |
 | ERR-18 | 2026 schema still shows `-32602` for bad tool arguments | `2026-07-28 has` `specs conflict` | `26-07` prose vs schema | ✓ — mcpx follows the prose | + low | S | low |
 

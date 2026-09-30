@@ -29,9 +29,9 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | SMP-06 | Tool-result messages hold only `tool_result` blocks, paired by id | `2025-11-25 has` | `25-11 ✓ · 26-07 ✓ (dep.)` | n/a — mcpx runs no tool loop | − moot | S | low |
 | SMP-07 | Sampling feature deprecated (SEP-2577) | `2026-07-28 deprecates` | `26-07 dep.; removable from 2027-07-28` | ✓ — relay exists; nothing new to build | − deprecated | S | low |
 | SMP-08 | 2026 `CreateMessageRequest` embedded; no `_meta`; result not a `Result` | `2026-07-28 has` | `26-07 only` | ✓ — decoded per `inputRequests` key | + low | S | low |
-| SMP-09 | Client declares `sampling` only when something can answer | `mcpx missing` `2026-07-28 deprecates` | spec: declare what you support; mcpx: always | ✗ — declared to every upstream; doc says otherwise | + med | S | med |
+| SMP-09 | Client declares `sampling` only when something can answer | `mcpx missing` `2026-07-28 deprecates` | spec: declare what you support; mcpx: always | ✗ — declared to every upstream; doc says otherwise (#210) | + med | S | med |
 | SMP-10 | Upstream sampling answered by an agent through the broker | `mcpx has, others don't` `2026-07-28 deprecates` | mcpx only | partial — decline becomes an error; `role`/`model` filled in | + low | S | med |
-| SMP-11 | Relaying sampling to a host checks sub-capabilities and revision | `2025-11-25 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓` | ✗ — only `sampling` presence checked | + low | S | low |
+| SMP-11 | Relaying sampling to a host checks sub-capabilities and revision | `2025-11-25 has` `mcpx missing` | `25-11 ✓ · 26-07 ✓` | ✗ — only `sampling` presence checked (#210) | + low | S | low |
 
 ## SMP-01 `sampling/createMessage` request, result and baseline fields
 

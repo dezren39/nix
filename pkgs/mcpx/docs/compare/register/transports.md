@@ -24,16 +24,16 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | TR-02 | stdio `stderr`: logging only, not an error signal | `2025-11-25 has` `opencode v1 has` `opencode v2 has` | `24-11 "logging" · 25-11 any logging, not errors · 26-07 same` · opencode v1 piped unread · v2 drained | ✓ — server silent; client drains to a ring buffer | + low | S | low |
 | TR-03 | Maximum stdio frame size | `opencode v2 has` | spec: none · opencode v2 16 MiB · mcpx 64 MiB | ✓ — 64 MiB both sides; larger than opencode v2 accepts | + med | S | med |
 | TR-04 | stdio server launch: environment and working directory | `opencode v1 has` `opencode v2 has` | opencode v1 ✓ · opencode v2 ✓ · mcpx ✓ | ✓ — config env and cwd over the daemon's env | + low | S | low |
-| TR-05 | stdio requests handled one at a time | `mcpx missing` | none required; cancellation and ping assume concurrency | partial — only calls that may ask the client run concurrently | + med | M | med |
+| TR-05 | stdio requests handled one at a time | `mcpx missing` | none required; cancellation and ping assume concurrency | partial — only calls that may ask the client run concurrently (#202) | + med | M | med |
 | TR-06 | 2026 stdio direction rules | `2026-07-28 has` | `26-07 ✓` | ✓ — legacy gets requests, modern gets `input_required` | + med | S | low |
 | TR-07 | Custom byte-stream transports reuse stdio framing | `2026-07-28 has` `mcpx has, others don't` | `26-07` SHOULD | partial — MCP over HTTP on a Unix socket, not NDJSON | + low | M | low |
 | TR-08 | JSON-RPC messages MUST be UTF-8 | `2025-03-26 has` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✓ — Go encoding/json emits UTF-8 | + low | S | low |
-| TR-09 | JSON-RPC batching | `2025-03-26 has` `2025-06-18 removes` `mcpx missing` | `25-03 ✓` only | ✗ — server rejects batches; client splits HTTP, drops stdio | + low | M | low |
-| TR-10 | HTTP+SSE transport (2024-11-05) | `2024-11-05 has` `2025-03-26 deprecates` `2026-07-28 deprecates` `mcpx missing` `opencode v1 has` | `24-11 ✓ · 25-03 dep · 25-06 dep · 25-11 dep · 26-07 dep` · opencode v1 fallback | ✗ — neither served nor spoken; `transport: sse` ignored | + med | M | med |
-| TR-11 | Client fallback from Streamable HTTP to HTTP+SSE | `specs conflict` `mcpx missing` `opencode v1 has` | `25-03` any 4xx · `25-11` 400/404/405 · `26-07` + body check | ✗ — no fallback | + med | M | med |
+| TR-09 | JSON-RPC batching | `2025-03-26 has` `2025-06-18 removes` `mcpx missing` | `25-03 ✓` only | ✗ — server rejects batches; client splits HTTP, drops stdio (#202) | + low | M | low |
+| TR-10 | HTTP+SSE transport (2024-11-05) | `2024-11-05 has` `2025-03-26 deprecates` `2026-07-28 deprecates` `mcpx missing` `opencode v1 has` | `24-11 ✓ · 25-03 dep · 25-06 dep · 25-11 dep · 26-07 dep` · opencode v1 fallback | ✗ — neither served nor spoken; `transport: sse` ignored (#220) | + med | M | med |
+| TR-11 | Client fallback from Streamable HTTP to HTTP+SSE | `specs conflict` `mcpx missing` `opencode v1 has` | `25-03` any 4xx · `25-11` 400/404/405 · `26-07` + body check | ✗ — no fallback (#220) | + med | M | med |
 | TR-12 | Streamable HTTP methods: POST+GET → POST only | `2025-03-26 has` `2026-07-28 removes` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 POST` | ✓ — POST served, GET 405, DELETE 204 | + low | S | low |
 | TR-13 | Standalone GET SSE stream: server side | `2025-03-26 has` `2026-07-28 removes` `has better replacement` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 405` | ✓ — 405 with `Allow: POST, DELETE` | + low | S | low |
-| TR-14 | Standalone GET SSE stream: client side | `2025-03-26 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✗ — never opened; unsolicited legacy messages lost | + med | M | med |
+| TR-14 | Standalone GET SSE stream: client side | `2025-03-26 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✗ — never opened; unsolicited legacy messages lost (#203) | + med | M | med |
 | TR-15 | `Accept: application/json, text/event-stream` on POST | `2025-03-26 has` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✓ — client sends it; server does not require it | + low | S | low |
 | TR-16 | Request answered with JSON or SSE, chosen per request | `2025-03-26 has` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✓ — JSON unless mcpx must ask the client something | + med | S | low |
 | TR-17 | 202 Accepted for notifications (and legacy responses) | `2025-03-26 has` `2026-07-28 has` | `25-03..25-11` notifications and responses · `26-07` notifications only | partial — known notifications 202; unknown ones get a 200 error | + low | S | low |
@@ -41,30 +41,30 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | TR-19 | Server requests on a request's SSE stream | `2025-03-26 has` `2026-07-28 removes` `has better replacement` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 forbidden` | ✓ — legacy elicitation there; modern gets `input_required` | + med | S | low |
 | TR-20 | Each message on exactly one stream (no broadcast) | `2025-03-26 has` `2026-07-28 removes` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07` per-request streams | ✓ — only per-request streams exist | + low | S | low |
 | TR-21 | SSE resumability via event ids and `Last-Event-ID` | `2025-03-26 has` `2025-11-25 has` `2026-07-28 removes` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓+ · 26-07 —` | ✗ — no event ids sent; no resume attempted | + low | M | low |
-| TR-22 | SSE polling: priming event, `retry`, reconnect | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 ✓` only | ✗ — client ignores `retry`; never reconnects | + low | M | med |
+| TR-22 | SSE polling: priming event, `retry`, reconnect | `2025-11-25 has` `2026-07-28 removes` `mcpx missing` | `25-11 ✓` only | ✗ — client ignores `retry`; never reconnects (#203) | + low | M | med |
 | TR-23 | `X-Accel-Buffering: no` on SSE responses | `2026-07-28 has` | `26-07` SHOULD | ✓ — set on every SSE response | + low | S | low |
 | TR-24 | SSE comment lines as keep-alive | `2026-07-28 has` | `26-07` encouraged | ✓ — client ignores comments; server sends none | + low | S | low |
 | TR-25 | `Mcp-Session-Id` value and assignment rules | `2025-03-26 has` `2026-07-28 removes` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 —` | ✓ — `sess-` + 32 random hex; never required | + low | S | low |
-| TR-26 | `Mcp-Session-Id` minted on `server/discover` | `2026-07-28 removes` `mcpx missing` | `26-07`: do not mint or echo | ✗ — minted for every discover, modern or not | + med | M | med |
-| TR-27 | `Mcp-Session-Id` minted on a failed `initialize` | `2025-03-26 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓` | ✗ — issued even when the handshake is refused | + low | S | low |
-| TR-28 | Unknown or expired session id → 404 | `2025-03-26 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ignore` | ✗ — served statelessly as 2025-03-26 | + med | S | med |
-| TR-29 | Client re-initializes after a session 404 | `2025-03-26 has` `opencode v1 has` `opencode v2 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓` · opencode v1 ✓ · opencode v2 ✓ | ✗ — 404 is a plain error; no re-initialize | + med | M | med |
-| TR-30 | Client sends a session id to modern servers | `2026-07-28 removes` `mcpx missing` | `26-07`: no sessions | ✗ — captured from any response, echoed always | + low | S | low |
+| TR-26 | `Mcp-Session-Id` minted on `server/discover` | `2026-07-28 removes` `mcpx missing` | `26-07`: do not mint or echo | ✗ — minted for every discover, modern or not (#199) | + med | M | med |
+| TR-27 | `Mcp-Session-Id` minted on a failed `initialize` | `2025-03-26 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓` | ✗ — issued even when the handshake is refused (#202) | + low | S | low |
+| TR-28 | Unknown or expired session id → 404 | `2025-03-26 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ignore` | ✗ — served statelessly as 2025-03-26 (#202) | + med | S | med |
+| TR-29 | Client re-initializes after a session 404 | `2025-03-26 has` `opencode v1 has` `opencode v2 has` `mcpx missing` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓` · opencode v1 ✓ · opencode v2 ✓ | ✗ — 404 is a plain error; no re-initialize (#203) | + med | M | med |
+| TR-30 | Client sends a session id to modern servers | `2026-07-28 removes` `mcpx missing` | `26-07`: no sessions | ✗ — captured from any response, echoed always (#200) | + low | S | low |
 | TR-31 | `DELETE` handled by the server | `2025-03-26 has` `2026-07-28 removes` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 405` | ✓ — 204, even for an unknown session | + low | S | low |
 | TR-32 | `DELETE` sent by the client on close | `2025-03-26 has` | `25-03 ✓ · 25-06 ✓ · 25-11 ✓` | ✓ — sent when a session id is held | + low | S | low |
 | TR-33 | `MCP-Protocol-Version` header requirement timeline | `2025-06-18 has` `specs conflict` | `25-03` auth only · `25-06 ✓ · 25-11 ✓ · 26-07 ✓ (= _meta)` | partial — sent always; server checks only against `_meta` | + med | S | med |
-| TR-34 | Client header value after a legacy handshake | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓` | ✗ — always 2025-11-25, not the negotiated version | + med | S | med |
-| TR-35 | Server uses the legacy header as the version | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓` | partial — header ignored; no-session requests served as 2025-03-26 | + med | S | med |
-| TR-36 | Invalid legacy header value → 400 | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓` | ✗ — `1999-01-01` accepted and served | + low | S | low |
-| TR-37 | `Mcp-Method` header (2026) | `2026-07-28 has` `mcpx missing` | `26-07` REQUIRED | ✗ — client never sends it; server never checks it | + high | S | high |
-| TR-38 | `Mcp-Name` header (2026) | `2026-07-28 has` `mcpx missing` | `26-07` REQUIRED on three methods | ✗ — client never sends it; server never checks it | + high | S | high |
-| TR-39 | Mirror `x-mcp-header` arguments into `Mcp-Param-{Name}` | `2026-07-28 has` `mcpx missing` | `26-07` clients MUST | ✗ — not implemented | + med | M | med |
+| TR-34 | Client header value after a legacy handshake | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓` | ✗ — always 2025-11-25, not the negotiated version (#203) | + med | S | med |
+| TR-35 | Server uses the legacy header as the version | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓` | partial — header ignored; no-session requests served as 2025-03-26 (#202) | + med | S | med |
+| TR-36 | Invalid legacy header value → 400 | `2025-06-18 has` `mcpx missing` | `25-06 ✓ · 25-11 ✓` | ✗ — `1999-01-01` accepted and served (#202) | + low | S | low |
+| TR-37 | `Mcp-Method` header (2026) | `2026-07-28 has` `mcpx missing` | `26-07` REQUIRED | ✗ — client never sends it; server never checks it (#199) | + high | S | high |
+| TR-38 | `Mcp-Name` header (2026) | `2026-07-28 has` `mcpx missing` | `26-07` REQUIRED on three methods | ✗ — client never sends it; server never checks it (#199) | + high | S | high |
+| TR-39 | Mirror `x-mcp-header` arguments into `Mcp-Param-{Name}` | `2026-07-28 has` `mcpx missing` | `26-07` clients MUST | ✗ — not implemented (#200) | + med | M | med |
 | TR-40 | Intermediaries and mirrored headers | `2026-07-28 has` | `26-07 ✓` | n/a — mcpx terminates and re-originates | + low | S | low |
-| TR-41 | `Origin` validation against DNS rebinding | `2024-11-05 has` `2025-11-25 has` `mcpx missing` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ 403 · 26-07 ✓ 403` · lootbox — | ✗ — any `Origin` accepted on `/mcp` and `/v1` | + high | S | high |
+| TR-41 | `Origin` validation against DNS rebinding | `2024-11-05 has` `2025-11-25 has` `mcpx missing` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ 403 · 26-07 ✓ 403` · lootbox — | ✗ — any `Origin` accepted on `/mcp` and `/v1` (#204) | + high | S | high |
 | TR-42 | Bind to localhost when running locally | `2024-11-05 has` | `24-11 ✓ · 25-03 ✓ · 25-06 ✓ · 25-11 ✓ · 26-07 ✓` | ✓ — loopback unless `daemon.address` says otherwise | + med | S | low |
 | TR-43 | `/mcp` mounted on the daemon's own listeners | `2025-03-26 has` | mcpx design | ✓ — Unix socket and loopback TCP; `serve --transport http` gone | + med | S | low |
-| TR-44 | Client drops server requests with string ids | `2024-11-05 has` `mcpx missing` | `RequestId = string \| number` in every revision | ✗ — ids decoded as int64; frame silently dropped | + med | S | med |
-| TR-45 | Client HTTP timeout caps whole SSE responses | `mcpx missing` | implementation | ✗ — 10 min cap cuts long streams | + low | S | med |
+| TR-44 | Client drops server requests with string ids | `2024-11-05 has` `mcpx missing` | `RequestId = string \| number` in every revision | ✗ — ids decoded as int64; frame silently dropped (#203) | + med | S | med |
+| TR-45 | Client HTTP timeout caps whole SSE responses | `mcpx missing` | implementation | ✗ — 10 min cap cuts long streams (#203) | + low | S | med |
 
 ## TR-01 stdio framing: one message per line, stdout only MCP
 

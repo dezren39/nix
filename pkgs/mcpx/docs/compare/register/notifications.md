@@ -27,22 +27,22 @@ Status column: **mcpx @ 05c78b2**. Legend and citation conventions: [../README.m
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | SUB-01 | `subscriptions/listen`, a long-lived notification request | `2026-07-28 has` | `26-07 only` | partial — works on stdio; HTTP see SUB-12 | + high | M | med |
 | SUB-02 | `SubscriptionFilter`: three list flags and `resourceSubscriptions[]` | `2026-07-28 has` | `26-07 only` (+ `taskIds` from the tasks extension) | ✓ — four fields mapped to daemon event kinds | + med | S | low |
-| SUB-03 | Acknowledgement carries `notifications` and `_meta` subscription id | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — `params.subscriptionId`; no `notifications` field | + med | S | med |
-| SUB-04 | Acknowledgement first; nothing on the subscription before it | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — listener starts before the ack is written | + low | S | low |
-| SUB-05 | Every listen-stream message tagged with `_meta` subscription id | `2026-07-28 has` `specs conflict` `mcpx missing` | `26-07 only` | ✗ — list_changed and updated sent untagged | + med | S | med |
+| SUB-03 | Acknowledgement carries `notifications` and `_meta` subscription id | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — `params.subscriptionId`; no `notifications` field (#208) | + med | S | med |
+| SUB-04 | Acknowledgement first; nothing on the subscription before it | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — listener starts before the ack is written (#208) | + low | S | low |
+| SUB-05 | Every listen-stream message tagged with `_meta` subscription id | `2026-07-28 has` `specs conflict` `mcpx missing` | `26-07 only` | ✗ — list_changed and updated sent untagged (#208) | + med | S | med |
 | SUB-06 | `list_changed` delivered only on an opted-in listen stream | `2024-11-05 has` `2026-07-28 has` | `24-11..25-11 unsolicited · 26-07 listen only` | ✓ — gated by the filter | + med | S | low |
 | SUB-07 | Progress and log messages stay on their request's stream | `2026-07-28 has` | `25-03..25-11 SHOULD relate · 26-07 MUST relate, never on listen` | n/a — mcpx sends neither to hosts | + med | M | med |
-| SUB-08 | Several concurrent subscriptions per client | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — a second listen replaces the first | + med | M | med |
-| SUB-09 | Client ends a subscription: close SSE, or `notifications/cancelled` on stdio | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — stdio cancel is recorded; the stream continues | + med | S | med |
-| SUB-10 | Graceful end: `SubscriptionsListenResult` with required subscription id | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — never sent; stdio exit ends silently | + low | S | low |
-| SUB-11 | Server teardown: `notifications/cancelled` versus a final result | `2026-07-28 has` `specs conflict` `mcpx missing` | `26-07 only` | ✗ — neither sent; comment says the transport sends one | + low | S | low |
-| SUB-12 | `subscriptions/listen` over Streamable HTTP | `2026-07-28 has` `mcpx missing` `2025-03-26 has` | `26-07 only` | ✗ — `202 Accepted`, empty body (wire W17) | + high | M | high |
+| SUB-08 | Several concurrent subscriptions per client | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — a second listen replaces the first (#208) | + med | M | med |
+| SUB-09 | Client ends a subscription: close SSE, or `notifications/cancelled` on stdio | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — stdio cancel is recorded; the stream continues (#208) | + med | S | med |
+| SUB-10 | Graceful end: `SubscriptionsListenResult` with required subscription id | `2026-07-28 has` `mcpx missing` | `26-07 only` | ✗ — never sent; stdio exit ends silently (#208) | + low | S | low |
+| SUB-11 | Server teardown: `notifications/cancelled` versus a final result | `2026-07-28 has` `specs conflict` `mcpx missing` | `26-07 only` | ✗ — neither sent; comment says the transport sends one (#208) | + low | S | low |
+| SUB-12 | `subscriptions/listen` over Streamable HTTP | `2026-07-28 has` `mcpx missing` `2025-03-26 has` | `26-07 only` | ✗ — `202 Accepted`, empty body (wire W17) (#208) | + high | M | high |
 | SUB-13 | `subscriptions/listen` from a legacy client | `2026-07-28 has` | `26-07 method` | acc. — accepted on stdio from any era | + low | S | low |
 | SUB-14 | stdio reconnect: client re-sends listen; server keeps no state | `2026-07-28 has` | `26-07 only` | ✓ — subscription state dies with the stdio process | + low | S | low |
-| SUB-15 | Client subscribes upstream for changes | `2026-07-28 has` `opencode v2 has` `mcpx missing` `2024-11-05 has` | spec: listen (26-07) or `resources/subscribe`; opencode v2 SDK listens | ✗ — never listens, never subscribes upstream | + med | M | med |
+| SUB-15 | Client subscribes upstream for changes | `2026-07-28 has` `opencode v2 has` `mcpx missing` `2024-11-05 has` | spec: listen (26-07) or `resources/subscribe`; opencode v2 SDK listens | ✗ — never listens, never subscribes upstream (#200) | + med | M | med |
 | SUB-16 | Client reaction to `list_changed` | `opencode v1 has` `opencode v2 has` | opencode v1 tools only; v2 tools, prompts, resources | ✓ — invalidates the upstream schema cache | + low | S | low |
 | SUB-17 | Client notifications shrink to `notifications/cancelled` only | `2026-07-28 removes` | `24-11..25-11 four or five kinds · 26-07 one` | ✓ — sends no client progress or roots notifications | − moot | S | low |
-| SUB-18 | A notification never gets a response | `mcpx missing` | every revision | ✗ — unknown notifications answered with `-32601` (wire S5) | + med | S | med |
+| SUB-18 | A notification never gets a response | `mcpx missing` | every revision | ✗ — unknown notifications answered with `-32601` (wire S5) (#202) | + med | S | med |
 
 ## SUB-01 `subscriptions/listen`, a long-lived notification request
 
