@@ -370,7 +370,20 @@ func (r *Registry) confirmDestructive(ctx context.Context, p *pool.Pool, tool st
 	if !r.consumer.ConfirmDestructive || r.broker == nil {
 		return nil
 	}
-	all, _, _ := p.CachedSchemas()
+	all, _, at := p.CachedSchemas()
+	if at.IsZero() {
+		// Never read, or invalidated by a list_changed. Deciding from an
+		// empty or stale list would let the call through unasked -- which
+		// is what happened on every call that arrived while a new daemon
+		// was still reading schemas -- so read them now, and refuse if
+		// they cannot be read: failing open is the one wrong answer here.
+		fresh, _, err := p.RefreshSchemas(ctx)
+		if err != nil {
+			return ErrNotConfirmed{Tool: p.Namespace() + "." + tool,
+				Reason: "its annotations could not be read: " + err.Error()}
+		}
+		all = fresh
+	}
 	var found *mcpclient.Tool
 	for i := range all {
 		if all[i].Name == tool {
