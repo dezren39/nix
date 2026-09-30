@@ -56,6 +56,11 @@ buildGoModule {
 
   subPackages = [ "cmd/mcpx" ];
 
+  # Pure-Go build, matching the design comment above: no cgo, no C toolchain
+  # needed, cross-compilation stays intact, and the result is a static binary.
+  # docs/container.md measured a CGO_ENABLED=0 build working end-to-end.
+  env.CGO_ENABLED = "0";
+
   ldflags = [
     "-s"
     "-w"
