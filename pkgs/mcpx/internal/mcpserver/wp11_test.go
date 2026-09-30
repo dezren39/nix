@@ -323,10 +323,12 @@ func (blobAsker) Abandon(string)                                                
 // A 2025-11-25 task whose call is asking its client something shows
 // input_required, and the question names the task.
 func TestATaskWaitingOnItsClientShowsInputRequired(t *testing.T) {
-	asker := &scriptedAsker{questions: oneQuestion(), text: "done"}
+	asker := &heldAsker{scriptedAsker: &scriptedAsker{questions: oneQuestion(), text: "done"},
+		release: make(chan struct{})}
+	defer close(asker.release)
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	s.Ask = asker
-	s.Timing = mcpserver.Timing{TaskPoll: 250 * time.Millisecond}
+	s.Timing = mcpserver.Timing{TaskPoll: 250 * time.Millisecond, AskPoll: 20 * time.Millisecond}
 	rec := &recorder{}
 	c := s.ConnWithSend("sess-task", rec.send)
 	s.HandleOn(context.Background(), c, mcpserver.Request(1, "initialize", map[string]any{
@@ -387,13 +389,46 @@ func TestATaskWaitingOnItsClientShowsInputRequired(t *testing.T) {
 		t.Fatal("nobody was waiting for the answer")
 	}
 	t.Run("2025-11-25/tasks/status-leaves-input-required-once-answered", func(t *testing.T) {
+		// Strictly working: the call is still running (heldAsker has not
+		// let it finish), so completed here would mean the status was never
+		// restored and only the end of the task hid it.
 		deadline := time.Now().Add(3 * time.Second)
 		for time.Now().Before(deadline) {
-			if st := status(); st == "working" || st == "completed" {
+			if st := status(); st == "working" {
 				return
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
 		t.Fatalf("status stuck at %q", status())
 	})
+}
+
+// heldAsker is scriptedAsker whose call, once answered, keeps running until
+// released.
+type heldAsker struct {
+	*scriptedAsker
+	mu       sync.Mutex
+	release  chan struct{}
+	answered bool
+}
+
+func (a *heldAsker) Reply(ctx context.Context, id string, answers map[string]json.RawMessage) error {
+	a.mu.Lock()
+	a.answered = true
+	a.mu.Unlock()
+	return a.scriptedAsker.Reply(ctx, id, answers)
+}
+
+func (a *heldAsker) Poll(ctx context.Context, id string, wait time.Duration) (mcpserver.Outcome, error) {
+	a.mu.Lock()
+	answered := a.answered
+	a.mu.Unlock()
+	if answered {
+		select {
+		case <-a.release:
+		default:
+			return mcpserver.Outcome{}, nil
+		}
+	}
+	return a.scriptedAsker.Poll(ctx, id, wait)
 }

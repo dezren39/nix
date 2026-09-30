@@ -104,6 +104,23 @@ func TestHTTPMCPClientsHaveTheirOwnIdentity(t *testing.T) {
 		}
 	})
 
+	// resources/read has to land in the same session's instance as a call.
+	// The CLI client sent sessionId/callId, which /v1/resource never read,
+	// so every read went to a fresh anonymous instance.
+	t.Run("2025-11-25/transport/resource-read-uses-the-sessions-instance", func(t *testing.T) {
+		a := legacySession(t, ep)
+		resp := mcpPost(t, ep, a, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "resources/read",
+			"params": map[string]any{"uri": "mcpx://demo/demo://greeting"}})
+		body := dumpJSON(t, decodeJSON(t, resp.Body))
+		resp.Body.Close()
+		if !strings.Contains(body, "hello from a resource") {
+			t.Fatalf("%s", body)
+		}
+		if st := e.run("--json", "status"); !strings.Contains(st, "session:mcp-"+a) {
+			t.Fatalf("no instance keyed to session %s:\n%s", a, st)
+		}
+	})
+
 	// 2026-07-28 has no session: a client that names itself under mcpx's
 	// own _meta key is one caller across requests; one that does not is
 	// scoped to the request.
@@ -224,6 +241,23 @@ func TestMCPSurfaceAnswersLikeV1(t *testing.T) {
 			}
 		}
 	})
+	// And an upstream that failed is 502 whichever route asked, including
+	// /v1/tools, which relays a daemon call and used to call every failure
+	// of it a bad request.
+	t.Run("v1/errors/upstream-failure-is-502-on-every-route", func(t *testing.T) {
+		c := e.socketClient(t)
+		for _, tc := range []struct {
+			path string
+			body any
+		}{
+			{"/v1/call", map[string]any{"server": "demo", "tool": "no-such-tool"}},
+			{"/v1/tools/mcpx_call", map[string]any{"namespace": "demo", "tool": "no-such-tool"}},
+		} {
+			if st, out := sockDo(t, c, http.MethodPost, tc.path, tc.body); st != http.StatusBadGateway {
+				t.Errorf("%s: %d %v", tc.path, st, out)
+			}
+		}
+	})
 }
 
 // Conflict #15: /v1/protocol reported the built-in default for nativeElicit.
@@ -275,6 +309,24 @@ func TestProfilesBoundTheMCPSurface(t *testing.T) {
 		}
 		if s := dumpJSON(t, got["3"]); !strings.Contains(s, "extra_summarise") {
 			t.Errorf("the profile's prompts should be listed: %s", s)
+		}
+	})
+}
+
+// A task's pollInterval was a literal 1000 in the task store; it follows
+// protoTasks.pollInterval now, on /v1 as on MCP.
+// https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-creation
+func TestTaskPollIntervalFollowsTheSetting(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.setenv("MCPX_PROTO_TASKS_POLL_INTERVAL=250ms")
+	e.run("refresh")
+	t.Run("2025-11-25/tasks/v1-task-pollInterval-comes-from-the-setting", func(t *testing.T) {
+		st, out := sockDo(t, e.socketClient(t), http.MethodPost, "/v1/call",
+			map[string]any{"server": "demo", "tool": "echo", "args": map[string]any{"message": "x"},
+				"task": map[string]any{"ttl": 60000}})
+		task, _ := out["task"].(map[string]any)
+		if st != http.StatusAccepted || task["pollInterval"] != float64(250) {
+			t.Fatalf("%d %v", st, out)
 		}
 	})
 }
