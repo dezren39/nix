@@ -302,7 +302,11 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 		close(lines)
 	}()
 	// Keep producing server events until one arrives: the subscription may
-	// not be established by the time the first one fires.
+	// not be established by the time the first one fires. `refresh` before
+	// `restart` for the reason spelled out in
+	// TestAStreamingCommandWritesToTheFileItWasGiven: the pool is lazy, so
+	// `restart` on its own stops what is running and starts nothing, and a
+	// loop of bare restarts has exactly one event in it.
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -320,6 +324,7 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 			}
 			return
 		case <-tick.C:
+			_, _ = e.try("refresh", "demo")
 			_, _ = e.try("restart", "demo")
 		case <-ctx.Done():
 			t.Fatalf("no event within the deadline: %v", ctx.Err())
@@ -361,12 +366,29 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 
 	// Keep producing server events until the file has one, for the same
 	// reason TestEventsStreamAsNDJSON retries: the subscription may not be
-	// established when the first event fires. The budget is generous because
-	// a restart costs a process start, and a slow runner failed a 15s one.
+	// established when the first event fires.
+	//
+	// `refresh` before `restart`, and not `restart` alone. The pool is lazy:
+	// `restart` drains the instances that are running and starts nothing,
+	// because the next call is what starts one. `ls` above leaves at most a
+	// single instance behind -- it answers from the schema cache and a
+	// background read starts the server to fill it -- so a loop of bare
+	// restarts had exactly one event in it. The first pass consumed it, and
+	// if the stream's subscription was not established yet, nobody heard it
+	// and every later pass was a silent no-op ("stopped 0 instance(s)")
+	// against a budget that could no longer be spent on anything. That is
+	// the race every CI runner lost: the `events` child is a cold binary
+	// starting on a loaded machine and `restart` is a warm one. `refresh`
+	// starts the server synchronously, so each pass round the loop really
+	// does publish a server event and the retry means what it says.
 	deadline := time.Now().Add(60 * time.Second)
-	var got string
+	var got, lastRestart string
+	var lastErr error
 	for time.Now().Before(deadline) {
-		_, _ = e.try("restart", "demo")
+		if _, err := e.try("refresh", "demo"); err != nil {
+			lastErr = err
+		}
+		lastRestart, lastErr = e.try("restart", "demo")
 		if b, err := os.ReadFile(out); err == nil && len(b) > 0 {
 			got = string(b)
 			break
@@ -374,11 +396,14 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 	if got == "" {
-		// stderr, because the interesting failure is the one where the
-		// command exited immediately and the loop then waited out its whole
-		// budget for a file that was never going to be written.
-		t.Fatalf("-o is in this command's usage but nothing was written to %s\nstderr: %s\nstdout: %s",
-			out, stderr.String(), stdout.String())
+		// The last restart's own answer, because "nothing was written" has
+		// two very different causes -- the command ignored -o, or no event
+		// was ever published -- and this is what tells them apart. stderr
+		// catches the third: the command exited immediately and the loop
+		// then waited out its whole budget for a file nobody was writing.
+		t.Fatalf("-o is in this command's usage but nothing was written to %s\n"+
+			"last restart: %q (err %v)\nstderr: %s\nstdout: %s",
+			out, strings.TrimSpace(lastRestart), lastErr, stderr.String(), stdout.String())
 	}
 	if !strings.Contains(got, `"kind"`) {
 		t.Errorf("the file should hold the event stream, got:\n%s", got)
