@@ -99,6 +99,13 @@ func scanGoEnv(t *testing.T, root string) goEnvScan {
 			switch d.Name() {
 			case ".git", "node_modules", "testdata":
 				return fs.SkipDir
+			// Harnesses that run the mcpx binary rather than being part of
+			// it. They set MCPX_* for a daemon under test, which is the
+			// e2e harness's job done from a main package instead of a
+			// _test.go file -- the opposite direction from the contract,
+			// which is about what mcpx sets for children it starts.
+			case "conformance", "testsupport":
+				return fs.SkipDir
 			}
 			return nil
 		}

@@ -42,6 +42,31 @@ The table below is generated from `settings.ScriptEnv()` in
 - **This page is current.** The test regenerates the table and fails when it
   differs.
 
+## This table is what mcpx adds, not all a child gets
+
+Every one of these is *added to* the environment mcpx itself was started with.
+A child gets the parent's environment entire, and then these on top:
+
+- `internal/runner/runner.go:359` — `cmd.Env = append(os.Environ(), …)`, every
+  script the runner starts
+- `internal/adapter/adapter.go:239` — `cmd.Env = os.Environ()`
+- `internal/mcpclient/stdio.go:61` — `env = append(env, os.Environ()...)`,
+  under `InheritEnv`, for every stdio MCP server the pool starts
+
+So a script also sees `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `AWS_*`, and whatever
+else was in the shell that started the daemon. `PATH` is inherited rather than
+constructed, which means a daemon started from a shell with an unusual `PATH`
+passes it on.
+
+`script.permissions` does not change this. It sandboxes the filesystem and the
+network through the runtime's own flags; there is no allowlist or denylist for
+the environment, and nothing here is filtered.
+
+This is worth knowing before putting a secret in the environment of a shell
+you then run `mcpx serve` from. It is stated rather than fixed because the
+alternative — an allowlist — would break every server that expects its own API
+key to arrive this way, which is most of them.
+
 ## Configuration is not here
 
 A variable here is a fact about one run -- which session, which daemon, which
