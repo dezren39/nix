@@ -7,9 +7,10 @@
   deno,
   bun-bin,
   nodejs,
-  # git backs the `repo` and `worktree` scopes. Without it those silently
-  # degrade to per-directory keys, so it is a hard runtime dependency rather
-  # than a nicety.
+  # git is the fallback for the `repo` and `worktree` scopes: mcpx reads .git
+  # itself and only asks git about layouts it does not vouch for
+  # (docs/git-discovery.md). Kept on the wrapper's PATH so those still
+  # resolve; the container image leaves it out.
   git,
   makeBinaryWrapper,
   installShellFiles,

@@ -163,6 +163,10 @@
     "publicMode": "0644",
     "publicDirMode": "0755"
   },
+  "git": {
+    "bin": "git",
+    "gitfileMaxBytes": "1MiB"
+  },
   "plugin": {
     "bin": "mcpx",
     "binArgs": [],

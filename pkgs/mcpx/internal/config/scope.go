@@ -3,11 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // CallContext is what a caller knows about itself. The daemon resolves a
@@ -68,23 +66,24 @@ func (s Scope) Key(ctx CallContext) (key string, degraded string) {
 		}
 		return "cwd:" + canonical(ctx.Cwd), ""
 
-	case ScopeRepo:
-		if dir, err := gitDir(ctx.Cwd, "--git-common-dir"); err == nil {
-			return "repo:" + dir, ""
+	case ScopeRepo, ScopeWorktree:
+		if ctx.Cwd == "" {
+			return fallback(ctx), "cwd is unknown"
 		}
-		if ctx.Cwd != "" {
-			return "cwd:" + canonical(ctx.Cwd), gitReason("repository")
+		// A directory outside any repository -- or one whose repository
+		// cannot be read -- keys by itself: narrower than the scope asked
+		// for, never wider.
+		w, _, err := locateGit(ctx.Cwd)
+		switch {
+		case err != nil:
+			return "cwd:" + canonical(ctx.Cwd), err.Error()
+		case s == ScopeRepo:
+			return "repo:" + w.commonDir, ""
+		case w.worktree != "":
+			return "worktree:" + w.worktree, ""
+		default:
+			return "cwd:" + canonical(ctx.Cwd), "no worktree: " + w.noWorktree
 		}
-		return fallback(ctx), gitReason("repository") + " and cwd is unknown"
-
-	case ScopeWorktree:
-		if dir, err := gitDir(ctx.Cwd, "--show-toplevel"); err == nil {
-			return "worktree:" + dir, ""
-		}
-		if ctx.Cwd != "" {
-			return "cwd:" + canonical(ctx.Cwd), gitReason("worktree")
-		}
-		return fallback(ctx), gitReason("worktree") + " and cwd is unknown"
 
 	case ScopeSession:
 		if ctx.SessionID != "" {
@@ -136,64 +135,6 @@ func PIDOf(key string) (int, bool) {
 	return n, err == nil
 }
 
-// gitDir caches git lookups; a cwd's repo does not change within a daemon's
-// lifetime often enough to matter, and the alternative is forking git on every
-// single tool call.
-var (
-	gitCacheMu sync.RWMutex
-	gitCache   = map[string]string{}
-)
-
-func gitDir(cwd, flag string) (string, error) {
-	if cwd == "" {
-		return "", fmt.Errorf("no cwd")
-	}
-	ck := flag + "\x00" + cwd
-
-	gitCacheMu.RLock()
-	hit, ok := gitCache[ck]
-	gitCacheMu.RUnlock()
-	if ok {
-		if hit == "" {
-			return "", fmt.Errorf("not a git repository")
-		}
-		return hit, nil
-	}
-
-	// --path-format=absolute (git 2.31, 2021) saves absolutising by hand.
-	// --git-common-dir otherwise answers relative to the caller's directory,
-	// which would make one clone look like several.
-	cmd := exec.Command("git", "rev-parse", "--path-format=absolute", flag)
-	cmd.Dir = cwd
-	out, err := cmd.Output()
-	dir := strings.TrimSpace(string(out))
-	if err != nil || dir == "" {
-		// Older git, or no git at all: fall back to the relative answer and
-		// absolutise it against the directory we asked from.
-		cmd = exec.Command("git", "rev-parse", flag)
-		cmd.Dir = cwd
-		out, err = cmd.Output()
-		dir = strings.TrimSpace(string(out))
-		if dir != "" && !filepath.IsAbs(dir) {
-			dir = filepath.Clean(filepath.Join(cwd, dir))
-		}
-	}
-	if dir != "" {
-		dir = canonical(dir)
-	}
-	if err != nil || dir == "" {
-		gitCacheMu.Lock()
-		gitCache[ck] = ""
-		gitCacheMu.Unlock()
-		return "", fmt.Errorf("not a git repository")
-	}
-
-	gitCacheMu.Lock()
-	gitCache[ck] = dir
-	gitCacheMu.Unlock()
-	return dir, nil
-}
-
 // canonical resolves a path for use as a key. Two callers naming one directory
 // differently -- /tmp and /private/tmp on macOS, or any symlinked checkout --
 // must land on the same process, so every path that becomes a key goes through
@@ -212,14 +153,4 @@ func canonical(p string) string {
 		return resolved
 	}
 	return filepath.Clean(p)
-}
-
-// gitReason distinguishes "this is not a repository" from "git is not
-// installed". They look identical from the exit status and need different
-// fixes, so the message says which one happened.
-func gitReason(what string) string {
-	if _, err := exec.LookPath("git"); err != nil {
-		return "git is not installed, so the " + what + " cannot be determined"
-	}
-	return "not a git " + what
 }
