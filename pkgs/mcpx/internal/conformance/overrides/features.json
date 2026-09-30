@@ -1,0 +1,32 @@
+{
+  "tools-x-mcp-header-int-safe-range": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "tools-x-mcp-header-no-ctl": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "tools-x-mcp-header-no-secrets": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "tools-x-mcp-header-not-empty": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "tools-x-mcp-header-primitive-only": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "tools-x-mcp-header-statically-reachable": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "tools-x-mcp-header-tchar": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "tools-x-mcp-header-unique-ci": {
+    "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter"
+  },
+  "resources-sec-file-traversal": {
+    "server": "n/a:mcpx serves no file:// resources of its own; artifacts are addressed by opaque ids"
+  },
+  "tools-client-sec-ref-resolution": {
+    "client": "n/a:mcpx never validates arguments against an upstream inputSchema, so it resolves no $ref for validation"
+  }
+}

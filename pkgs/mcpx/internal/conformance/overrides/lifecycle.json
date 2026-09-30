@@ -1,0 +1,6 @@
+{
+  "lifecycle-timeouts-all-requests-2024": {
+    "server": "applies",
+    "why": "2024-11-05 is served (mcpserver Supported); the catalogue's premise was wrong"
+  }
+}

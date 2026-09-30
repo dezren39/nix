@@ -283,7 +283,18 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 	e.run("ls")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server")
+	// --since 0, for the reason spelled out at length in
+	// TestAStreamingCommandWritesToTheFileItWasGiven below: `restart` is
+	// lazy, so it stops what is running and starts nothing, and after the
+	// one instance `ls` leaves behind is gone every later restart reports
+	// "stopped 0 instance(s)" and publishes nothing. There is exactly one
+	// server event for this test to catch, the ticker below cannot
+	// manufacture a second, and a child that has not finished subscribing
+	// when it fires has lost it for good. That race took the other test down
+	// on five CI runs; this one has been winning it rather than avoiding it,
+	// on a budget a third the size. Asking for the retained history makes a
+	// missed event a late one instead of a lost one.
+	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "--since", "0")
 	cmd.Dir, cmd.Env = e.dir, e.envVars
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -380,11 +391,33 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	// Reaped here rather than in the defer, because whether the child is
+	// still alive is the one thing this test could not see. An `events` that
+	// exited immediately writes nothing, and an `events` that is healthy but
+	// quiet also writes nothing -- for a day those produced the same failure
+	// message, and the empty one was read as the wrong one of the two.
+	//
+	// The channel is closed rather than sent to: t.Fatalf runs this
+	// function's defers on its way out, and a defer that re-reads a one-shot
+	// channel the failure path already drained blocks forever. It did; the
+	// package hit its 600s timeout instead of reporting in one second.
+	exited := make(chan struct{})
+	var waitErr error
+	go func() { waitErr = cmd.Wait(); close(exited) }()
+	defer func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	}()
 
 	deadline := time.Now().Add(60 * time.Second)
 	var got, provokeErr string
 	for time.Now().Before(deadline) {
+		select {
+		case <-exited:
+			t.Fatalf("`mcpx events -o` exited while the stream was supposed to be open: %v\n"+
+				"stderr: %s\nstdout: %s", waitErr, stderr.String(), stdout.String())
+		default:
+		}
 		if _, err := e.try("restart", "demo"); err != nil {
 			provokeErr = err.Error()
 		}
@@ -395,9 +428,6 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 	if got == "" {
-		// stderr, because the interesting failure is the one where the
-		// command exited immediately and the loop then waited out its whole
-		// budget for a file that was never going to be written.
 		t.Fatalf("-o is in this command's usage but nothing was written to %s\n"+
 			"stderr: %s\nstdout: %s\nlast provoke error: %s",
 			out, stderr.String(), stdout.String(), provokeErr)
@@ -420,6 +450,12 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	live := false
 	liveDeadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(liveDeadline) {
+		select {
+		case <-exited:
+			t.Fatalf("`mcpx events -o` exited after the replay, so the stream was not live: %v\n"+
+				"stderr: %s", waitErr, stderr.String())
+		default:
+		}
 		if _, err := e.try("call", "demo.echo", `{"message":"x"}`); err != nil {
 			provokeErr = err.Error()
 		}
