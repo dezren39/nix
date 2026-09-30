@@ -2729,6 +2729,78 @@ func TestTwoConfigurationsDoNotShareAGeneratedClient(t *testing.T) {
 	}
 }
 
+// TestEveryExecFlagChangesSomething is the guard for a fault this repository
+// has now shipped three times: a flag defined on a shared flag set, described
+// in the help, and read on only one of the two paths that share it.
+//
+// --typecheck was dropped on the exec path; --launcher, --no-launcher,
+// --export and --allow-repeat were all set only when a file was given. Each
+// was found by accident, never by a test, because a flag that does nothing
+// looks exactly like a flag that worked.
+//
+// A flag earns its place by changing an observable outcome. Add a row when
+// you add a flag to `mcpx exec`.
+func TestEveryExecFlagChangesSomething(t *testing.T) {
+	e := newEnv(t, oneServer)
+	for _, c := range []struct {
+		flag   string
+		args   []string
+		source string
+		// want must appear with the flag and must not appear without it.
+		want string
+		// fails marks a flag whose whole purpose is to refuse the run.
+		fails bool
+	}{
+		{
+			flag:   "--export",
+			args:   []string{"--export=main"},
+			source: `export const main = async () => { emit({via: "main"}); };`,
+			want:   `"via":"main"`,
+		},
+		{
+			flag:   "--launcher",
+			args:   []string{"--launcher", `console.log("LAUNCHED"); @entry`},
+			source: `emit({ok: 1});`,
+			want:   "LAUNCHED",
+		},
+		{
+			flag:   "--prefix",
+			args:   []string{"--prefix", "const shared = 41;"},
+			source: `emit({v: shared + 1});`,
+			want:   `"v":42`,
+		},
+		{
+			// The marker is the point: with the check the script is refused
+			// before it runs, without it the emit has already happened by
+			// the time the name turns out not to exist.
+			flag:   "--typecheck",
+			args:   []string{"--typecheck=on"},
+			source: `emit({ran: 1}); await totally_made_up.x({});`,
+			want:   "does not type check",
+			fails:  true,
+		},
+	} {
+		t.Run(c.flag, func(t *testing.T) {
+			argv := append([]string{"exec"}, c.args...)
+			argv = append(argv, c.source)
+			with, werr := e.try(argv...)
+			if !c.fails && werr != nil {
+				t.Fatalf("%s: %v\n%s", c.flag, werr, with)
+			}
+			if !strings.Contains(with, c.want) {
+				t.Errorf("%s did nothing: wanted %q in\n%s", c.flag, c.want, with)
+			}
+			// And without it, the same source must not produce that outcome,
+			// or the flag is not what caused it.
+			without, _ := e.try("exec", c.source)
+			if strings.Contains(without, c.want) {
+				t.Errorf("%s: %q appears without the flag too, so the test proves nothing:\n%s",
+					c.flag, c.want, without)
+			}
+		})
+	}
+}
+
 func TestConcurrentRunsOfOneScriptKeepTheirOwnLauncher(t *testing.T) {
 	// The generated entry point was named for the script, so every
 	// concurrent run of that script wrote the same file: six runs with six
