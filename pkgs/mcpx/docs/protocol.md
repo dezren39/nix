@@ -264,11 +264,16 @@ What mcpx sends upstream, and what it will accept from a server.
 
 | | |
 | --- | --- |
-| era probed first | legacy (`initialize`), because nearly every server in existence is legacy and probing modern first wastes a round trip on all of them |
-| legacy version sent | `2025-11-25` |
+| era probed first | modern (`server/discover`), with the era cached per server configuration; see [spec/era-probe.md](spec/era-probe.md) |
+| legacy version sent | `2025-11-25` offered; `2024-11-05` .. `2025-11-25` accepted, anything else disconnects |
 | modern versions offered | `2026-07-28` |
 | per-server override | `protocol: legacy \| modern \| force-legacy \| force-modern` |
-| declared to servers | `elicitation`, `roots`; `sampling` only when a handler exists to answer it |
+| declared to servers | `elicitation.form`, `roots`; `elicitation.url` and `sampling` only when a handler exists to answer them |
+| transports | stdio, Streamable HTTP, and HTTP+SSE (2024-11-05) as the last fallback |
+
+The per-revision rules -- headers, `x-mcp-header`, `resultType`, cancellation,
+pagination, `subscriptions/listen`, resumption -- are in
+[spec/client.md](spec/client.md).
 
 ### 4.1 Server-initiated requests mcpx answers
 
