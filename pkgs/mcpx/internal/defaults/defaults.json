@@ -21,7 +21,8 @@
       "user",
       "process",
       "version"
-    ]
+    ],
+    "trace": false
   },
   "daemon": {
     "reapInterval": "30s",
@@ -183,7 +184,9 @@
     "instructions": false,
     "tools": false,
     "remember": "session",
-    "annotate": true
+    "annotate": true,
+    "headless": "auto",
+    "daemonTools": "auto"
   },
   "protoMessages": {
     "listMaxAge": "1m",

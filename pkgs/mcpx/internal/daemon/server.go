@@ -143,15 +143,17 @@ func NewServer(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if os.Getenv("MCPX_TRACE") != "" {
-		pool.Trace = func(f string, a ...any) { opts.Logger.Printf(f, a...) }
-	}
 	if opts.Settings == nil {
 		sch, serr := settings.New(settings.Registry())
 		if serr != nil {
 			return nil, serr
 		}
 		opts.Settings = settings.NewSet(sch)
+	}
+	// logging.trace, which is MCPX_TRACE. It was read here by name, so a
+	// configuration file or `mcpx daemon --logging-trace` could not turn it on.
+	if opts.Settings.Bool("logging.trace") {
+		pool.Trace = func(f string, a ...any) { opts.Logger.Printf(f, a...) }
 	}
 	srv := &Server{
 		set:      opts.Settings,
@@ -704,7 +706,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	dur := time.Since(start).Truncate(time.Millisecond)
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
-		writeErr(w, failureStatus(err), err)
+		writeJSON(w, failureStatus(err), callErrorBody(err))
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})

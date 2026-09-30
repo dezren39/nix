@@ -371,6 +371,9 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	}
 	res, err := c.Call(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
 	if err != nil {
+		if a.JSON {
+			a.outCallFailure(err)
+		}
 		return err
 	}
 	text, failed := renderResult(res.Result)
@@ -387,6 +390,22 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 		return fmt.Errorf("%s.%s reported an error (isError)", ns, tool)
 	}
 	return nil
+}
+
+// outCallFailure writes a refused call to stdout as the daemon's error
+// document, so --json carries the diagnostics as data and not only as the
+// text on stderr. The error is still returned, because the exit status is
+// what a script checks first.
+func (a *App) outCallFailure(err error) {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return
+	}
+	var body daemon.CallErrorBody
+	if json.Unmarshal(he.Body, &body) != nil || body.Error == "" {
+		return
+	}
+	_ = a.out(body)
 }
 
 // renderResult unwraps a CallToolResult the same way the script client does,
@@ -657,6 +676,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		}
 	}
 
+	// script.permissions, from a file, MCPX_SCRIPT_PERMISSIONS, MCPX_PERMISSIONS
+	// or --script-permissions. Only this path read MCPX_PERMISSIONS, by name,
+	// so the other three were accepted here and ignored. Only when given: the
+	// default "all" would otherwise hide the config file's top-level
+	// "permissions" key.
+	setPerms := ""
+	if a.Settings().Given("script.permissions") {
+		setPerms = a.Settings().String("script.permissions")
+	}
 	opts := runner.Options{
 		// Set when something other than a terminal is collecting the output:
 		// the MCP server, which has to return it rather than print it.
@@ -668,7 +696,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		Timeout:        *timeout,
 		Prelude:        prelude,
 		Export:         *export,
-		Permissions:    firstNonEmpty(*perms, os.Getenv("MCPX_PERMISSIONS"), cfgPerms(cfg)),
+		Permissions:    firstNonEmpty(*perms, setPerms, cfgPerms(cfg)),
 		Log:            writer,
 		CollectLogs:    collect,
 		OnResult:       onResult,
