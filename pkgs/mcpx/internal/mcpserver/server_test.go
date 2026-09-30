@@ -247,7 +247,10 @@ func TestExtraToolsAppearAndAreCallable(t *testing.T) {
 	}
 }
 
-func TestStdioAnswersFramesInOrder(t *testing.T) {
+// Every request gets one reply, matched by id. Not by position: requests run
+// concurrently so a cancellation can reach one, and JSON-RPC does not order
+// replies.
+func TestStdioAnswersEveryRequestByID(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n" +
@@ -260,8 +263,21 @@ func TestStdioAnswersFramesInOrder(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected one reply per request, got %d:\n%s", len(lines), out.String())
 	}
-	if !strings.Contains(lines[1], "mcpx_exec") {
-		t.Errorf("the second reply should be the tool list: %s", lines[1])
+	byID := map[float64]string{}
+	for _, l := range lines {
+		var f struct {
+			ID float64 `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(l), &f); err != nil {
+			t.Fatal(err)
+		}
+		byID[f.ID] = l
+	}
+	if !strings.Contains(byID[2], "mcpx_exec") {
+		t.Errorf("the reply to id 2 should be the tool list: %s", byID[2])
+	}
+	if _, ok := byID[1]; !ok {
+		t.Errorf("ping was not answered:\n%s", out.String())
 	}
 }
 

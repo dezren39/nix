@@ -331,3 +331,44 @@ func TestAServerOverridesThePoolBlock(t *testing.T) {
 		t.Errorf("pool.scope should still apply where the server is silent: %v", r.Scope)
 	}
 }
+
+func TestSearchPathDedupesUserConfig(t *testing.T) {
+	t.Setenv("MCPX_CONFIG", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	userCfg := write(t, home, filepath.Join(".config", "mcpx", "config.json"), `{}`)
+
+	// The upward walk passes through $HOME, so without dedupe the user
+	// config appeared twice: once from the walk, once from the home
+	// fallback. The duplicated source changed the daemon key, making a
+	// daemon started from one cwd invisible to a CLI run from another
+	// (e.g. `mcpx status` said "not running" for a live systemd daemon).
+	proj := filepath.Join(home, "some", "project")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, wd := range []string{home, proj} {
+		paths := config.SearchPathFrom(wd)
+		var count int
+		seen := map[string]bool{}
+		for _, p := range paths {
+			if seen[p] {
+				t.Fatalf("SearchPathFrom(%q) has duplicate %q in %v", wd, p, paths)
+			}
+			seen[p] = true
+			if p == userCfg {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("SearchPathFrom(%q) lists the user config %d times, want 1: %v", wd, count, paths)
+		}
+	}
+
+	// Nearest-first precedence is preserved: a project config still wins.
+	projCfg := write(t, proj, filepath.Join(".config", "mcpx", "config.json"), `{}`)
+	if paths := config.SearchPathFrom(proj); len(paths) == 0 || paths[0] != projCfg {
+		t.Fatalf("project config should come first, got %v", paths)
+	}
+}

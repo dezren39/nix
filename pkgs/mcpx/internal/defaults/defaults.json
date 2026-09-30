@@ -76,6 +76,12 @@
     "abandonGrace": "5s",
     "mcpPath": "/mcp"
   },
+  "transport": {
+    "sseKeepAlive": "15s",
+    "stdioDrain": "30s",
+    "loopbackHosts": ["localhost", "127.0.0.1", "::1"],
+    "allowedOrigins": []
+  },
   "consumer": {
     "disambiguate": "never",
     "disambiguateDefault": "new",
