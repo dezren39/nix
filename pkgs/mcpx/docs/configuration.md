@@ -397,9 +397,9 @@ and a switch to turn the report off would have kept it quiet.
 
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `prompt.autonomy` | enum | `propose` | call | yes | `--prompt-autonomy` | `MCPX_PROMPT_AUTONOMY` | whether a request returns the script (propose) or runs it (run) |
 | `prompt.catalogBudget` | int | `1200` | call | yes | `--prompt-catalog-budget` | `MCPX_PROMPT_CATALOG_BUDGET` | approximate token ceiling for the slice of catalog sent with a sampling request |
 | `prompt.maxTokens` | int | `1500` | call | yes | `--prompt-max-tokens` | `MCPX_PROMPT_MAX_TOKENS` | *(plumbing)* maxTokens on the sampling request |
-| `prompt.autonomy` | enum | `propose` | call | yes | `--prompt-autonomy` | `MCPX_PROMPT_AUTONOMY` | whether a request returns the script (propose) or runs it (run) |
 | `prompt.runTimeout` | duration | `5m0s` | call | yes | `--prompt-run-timeout` | `MCPX_PROMPT_RUN_TIMEOUT` | how long a recipe or generated script may run |
 | `prompt.sample` | enum | `never` | daemon | no | `--prompt-sample` | `MCPX_PROMPT_SAMPLE` | whether a request with no matching recipe may ask the caller's model to write one |
 | `prompt.sampleTimeout` | duration | `1m30s` | daemon | no | `--prompt-sample-timeout` | `MCPX_PROMPT_SAMPLE_TIMEOUT` | how long a generation request waits for a model |
