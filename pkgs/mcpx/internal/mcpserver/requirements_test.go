@@ -985,7 +985,7 @@ func TestElicitationPerEra(t *testing.T) {
 
 // spec + "2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow"
 func TestMRTRServerRules(t *testing.T) {
-	first := func(s *mcpserver.Server) string {
+	first := func(t *testing.T, s *mcpserver.Server) string {
 		b := protoJSON(t, s.Handle(context.Background(), mcpserver.Request(1, "tools/call", modernCall(1, nil))))
 		var d struct {
 			Result struct {
@@ -1002,7 +1002,7 @@ func TestMRTRServerRules(t *testing.T) {
 	t.Run("2026-07-28/mrtr/requestState-is-bound-to-the-originating-request", func(t *testing.T) {
 		s := mcpserver.New(newBackend(), "mcpx", "test")
 		s.Ask = &scriptedAsker{questions: oneQuestion(), text: "done"}
-		state := first(s)
+		state := first(t, s)
 		other := modernCall(2, map[string]any{"requestState": state,
 			"arguments": map[string]any{"namespace": "x", "tool": "other"}})
 		if b := protoJSON(t, s.Handle(context.Background(), mcpserver.Request(2, "tools/call", other))); !strings.Contains(b, "-32602") {
@@ -1019,7 +1019,7 @@ func TestMRTRServerRules(t *testing.T) {
 	t.Run("2026-07-28/mrtr/missing-input-response-asks-again", func(t *testing.T) {
 		s := mcpserver.New(newBackend(), "mcpx", "test")
 		s.Ask = &scriptedAsker{questions: oneQuestion(), text: "done"}
-		state := first(s)
+		state := first(t, s)
 		b := protoJSON(t, s.Handle(context.Background(), mcpserver.Request(2, "tools/call",
 			modernCall(2, map[string]any{"requestState": state,
 				"inputResponses": map[string]any{"unasked": map[string]any{"action": "accept"}}}))))
@@ -1030,7 +1030,7 @@ func TestMRTRServerRules(t *testing.T) {
 	t.Run("2026-07-28/mrtr/tampered-requestState-is-rejected", func(t *testing.T) {
 		s := mcpserver.New(newBackend(), "mcpx", "test")
 		s.Ask = &scriptedAsker{questions: oneQuestion(), text: "done"}
-		state := first(s)
+		state := first(t, s)
 		b := protoJSON(t, s.Handle(context.Background(), mcpserver.Request(2, "tools/call",
 			modernCall(2, map[string]any{"requestState": "x" + state}))))
 		if !strings.Contains(b, "-32602") {
