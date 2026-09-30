@@ -79,11 +79,22 @@ func TestChainWalksFromARealCallBackToTheDaemonThatStartedIt(t *testing.T) {
 		t.Fatalf("no call trace id in:\n%s", slowest)
 	}
 
-	out := e.run("log", "--level", "debug", "--chain", trace)
+	// No --level. A chain walks a trace tree by id and every filter was
+	// silently discarded, so this asked for debug records and got all of
+	// them -- which read as though the filter had worked.
+	out := e.run("log", "--chain", trace)
 	for _, want := range []string{"dmn-", "srv-", "cal-", "daemon starting"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("the chain does not reach %q:\n%s", want, out)
 		}
+	}
+
+	refused, err := e.try("log", "--level", "debug", "--chain", trace)
+	if err == nil {
+		t.Fatalf("a filter beside --chain should be refused, not dropped:\n%s", refused)
+	}
+	if !strings.Contains(refused, "--level") {
+		t.Fatalf("the refusal should name the flag:\n%s", refused)
 	}
 }
 

@@ -189,8 +189,12 @@ func TestCapabilitiesAreDeclaredOnlyWhereTheRevisionDefinesThem(t *testing.T) {
 	if strings.Contains(old, `"tasks"`) {
 		t.Errorf("tasks arrived in 2025-11-25; declaring them to 2025-06-18 promises a revision's worth of methods it has not got:\n%s", old)
 	}
-	if !strings.Contains(old, `"logging"`) {
-		t.Errorf("2025-06-18 has logging/setLevel:\n%s", old)
+	if strings.Contains(old, `"logging"`) {
+		// The capability means "this server sends log messages to the
+		// client", not "this server accepts logging/setLevel". mcpx emits no
+		// notifications/message at all, so declaring it was a promise of a
+		// stream that does not exist. The method is still answered.
+		t.Errorf("mcpx sends no notifications/message, so logging must not be declared:\n%s", old)
 	}
 
 	modern := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(2, "server/discover",

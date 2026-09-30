@@ -442,21 +442,26 @@ func outputSettings() []Setting {
 		{
 			Path: "catalog.budget", Kind: KindInt, Default: "2000",
 			Scope: ScopeCall, Hot: true,
-			Commands:    []string{"catalog", "types", "ls", "search"},
+			// Only `catalog` renders a budgeted listing. It was offered on
+			// types, ls and search as well, where --budget parsed and did
+			// nothing -- a flag offered where it has no effect implies one.
+			Commands:    []string{"catalog"},
 			FlagAliases: []string{"budget"},
 			Name:        "Catalog budget", Short: "token ceiling for the catalog listing",
 		},
 		{
 			Path: "catalog.bias", Kind: KindList, Default: "", Repeatable: true,
 			Scope: ScopeCall, Hot: true,
-			Commands:    []string{"catalog", "search"},
+			Commands:    []string{"catalog"},
 			FlagAliases: []string{"bias"},
 			Name:        "Catalog bias", Short: "words that pull matching tools toward the front",
 		},
 		{
 			Path: "catalog.instructions", Kind: KindBool, Default: "true",
 			Scope: ScopeCall, Hot: true,
-			Commands: []string{"catalog", "types", "ls"},
+			// `types` is the only output that carries instructions; ls
+			// prints a table and catalog prints signatures.
+			Commands: []string{"types"},
 			Name:     "Server instructions", Short: "include each server's own instructions",
 		},
 	}

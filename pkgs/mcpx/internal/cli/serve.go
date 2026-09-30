@@ -307,6 +307,7 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 	srv := mcpserver.New(mcpBackend{app: a}, "mcpx", a.Version)
 	srv.Notify = daemonNotifier{app: a}
 	srv.PageSize = a.Settings().Int("mcp.pageSize")
+	srv.MaxCompletions = a.Settings().Int("completion.maxValues")
 	// The ask loop's five bounds. They were read from internal/defaults at
 	// the point of use, so the settings that name them did nothing.
 	srv.Timing = mcpserver.Timing{

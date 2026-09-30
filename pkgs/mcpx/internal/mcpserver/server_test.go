@@ -546,7 +546,7 @@ func TestCapabilitiesMatchWhatIsActuallyAnswered(t *testing.T) {
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
 		map[string]any{"protocolVersion": "2025-11-25"}))
 	b, _ := json.Marshal(resp)
-	for _, want := range []string{"completions", "logging", "tools", "resources", "prompts"} {
+	for _, want := range []string{"completions", "tools", "resources", "prompts"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("%q is answered and should be declared: %s", want, b)
 		}
@@ -560,9 +560,11 @@ func TestCapabilitiesMatchWhatIsActuallyAnswered(t *testing.T) {
 		} `json:"result"`
 	}
 	_ = json.Unmarshal(b, &doc)
-	if _, declared := doc.Result.Capabilities["sampling"]; declared {
-		t.Errorf("sampling is not implemented and must not be declared: %v",
-			doc.Result.Capabilities)
+	for _, absent := range []string{"sampling", "logging"} {
+		if _, declared := doc.Result.Capabilities[absent]; declared {
+			t.Errorf("%s is not implemented and must not be declared: %v",
+				absent, doc.Result.Capabilities)
+		}
 	}
 }
 
@@ -642,12 +644,39 @@ func TestPushCapabilitiesAreDeclaredOnlyWhenSomethingCanPush(t *testing.T) {
 		t.Errorf("nothing can push, so nothing should be promised: %s", b)
 	}
 
+	// A notifier is not enough. The daemon builds every HTTP connection with
+	// no send function, so s.Notify != nil was true there and nothing could
+	// ever reach the client: it declared subscribe, accepted
+	// subscriptions/listen, acknowledged it and then delivered nothing.
+	mute := mcpserver.New(newBackend(), "mcpx", "test")
+	mute.Notify = &fakeNotifier{got: make(chan mcpserver.ListenFilter, 1)}
+	b, _ = json.Marshal(mute.Handle(context.Background(),
+		mcpserver.Request(1, "initialize", map[string]any{"protocolVersion": "2025-11-25"})))
+	if strings.Contains(string(b), `"subscribe":true`) {
+		t.Errorf("this connection cannot carry a push, so nothing should be promised: %s", b)
+	}
+
 	loud := mcpserver.New(newBackend(), "mcpx", "test")
 	loud.Notify = &fakeNotifier{got: make(chan mcpserver.ListenFilter, 1)}
+	loud.SetPush(func(string, any) {})
 	b, _ = json.Marshal(loud.Handle(context.Background(),
 		mcpserver.Request(1, "initialize", map[string]any{"protocolVersion": "2025-11-25"})))
 	if !strings.Contains(string(b), `"subscribe":true`) {
-		t.Errorf("with a notifier, subscription should be declared: %s", b)
+		t.Errorf("with a notifier and a pushable connection, subscription should be declared: %s", b)
+	}
+
+	// list_changed is only ever delivered on a stream the client opened, and
+	// only 2026-07-28 has a way to open one. Telling an older client it will
+	// receive them is telling it to wait for something with no mechanism.
+	b, _ = json.Marshal(loud.Handle(context.Background(),
+		mcpserver.Request(2, "initialize", map[string]any{"protocolVersion": "2025-06-18"})))
+	if strings.Contains(string(b), `"listChanged":true`) {
+		t.Errorf("2025-06-18 has no subscriptions/listen, so list_changed cannot arrive: %s", b)
+	}
+	b, _ = json.Marshal(loud.Handle(context.Background(),
+		mcpserver.Request(3, "server/discover", nil)))
+	if !strings.Contains(string(b), `"listChanged":true`) {
+		t.Errorf("2026-07-28 can open a stream, so list_changed should be declared: %s", b)
 	}
 }
 

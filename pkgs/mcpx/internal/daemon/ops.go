@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -103,6 +104,24 @@ func wireRecords(recs []logstore.Record) []logRecord {
 	return out
 }
 
+// logFilterNames are the query parameters that narrow a log query. They are
+// listed rather than derived so that adding one to the op declaration without
+// deciding what chain should do with it is a compile-free but visible
+// omission rather than a silent drop.
+var logFilterNames = []string{
+	"level", "event", "server", "tool", "session", "trace", "grep", "since", "until",
+}
+
+func namedFilters(q url.Values) []string {
+	var out []string
+	for _, name := range logFilterNames {
+		if q.Get(name) != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func (s *Server) handleLogQuery(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -133,6 +152,16 @@ func (s *Server) handleLogQuery(w http.ResponseWriter, r *http.Request) {
 	defer st.Close()
 
 	if chain := q.Get("chain"); chain != "" {
+		// Chain walks a trace tree by id and takes no filters. Accepting
+		// them and dropping them returned the whole tree at every level and
+		// looked like it had worked, which is a worse answer than a refusal:
+		// a caller reading it concludes the trace touched everything.
+		if named := namedFilters(q); len(named) > 0 {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf(
+				"chain returns a whole trace tree and cannot be filtered; "+
+					"drop %s, or drop chain", strings.Join(named, ", ")))
+			return
+		}
 		levels, err := st.Chain(chain, query.Limit)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)

@@ -136,6 +136,23 @@ func (a *App) CmdLog(ctx context.Context, args []string) error {
 			"which usually means a shell substitution came back empty")
 	}
 	if *chain != "" {
+		// The same refusal the daemon makes. printChain takes an id and a
+		// limit; every other flag was folded into q above and then dropped,
+		// so `--chain X --level error` printed the whole tree and looked
+		// like it had filtered it.
+		var named []string
+		fs.Visit(func(fl *flag.Flag) {
+			switch fl.Name {
+			case "level", "event", "server", "tool", "session", "trace", "grep",
+				"since", "until", "reverse":
+				named = append(named, "--"+fl.Name)
+			}
+		})
+		if len(named) > 0 {
+			sort.Strings(named)
+			return fmt.Errorf("--chain returns a whole trace tree and cannot be "+
+				"filtered; drop %s, or drop --chain", strings.Join(named, ", "))
+		}
 		return a.printChain(st, *chain, *limit, p)
 	}
 
