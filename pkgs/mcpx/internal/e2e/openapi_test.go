@@ -15,15 +15,18 @@ import (
 // a pure function against itself, true whatever the function did. The
 // property only shows up across configurations, which needs the binary.
 //
-// The mechanism is that upstream tools are reached through the
-// /v1/tools/{tool} template rather than enumerated; if that ever changes to
-// enumeration, the daemon with a server configured gains paths and this
-// fails.
+// The mechanism is that an upstream tool is covered by the declared
+// /v1/call/{server}/{tool} template rather than enumerated. The daemon's own
+// /v1/openapi.json does enumerate, deliberately -- configuring one server
+// with eight tools takes it from 53 paths to 61 -- so this asserts the
+// property of the command's document, which is the one that gets published.
 func TestTheOpenAPIDocumentIsTheSameWhateverIsConfigured(t *testing.T) {
 	bare := newEnv(t, `{"mcpServers":{}}`)
 	loaded := newEnv(t, oneServer)
-	// Not just configured: started, with its catalogue read. A document
-	// built from a live daemon's tools would differ from here on.
+	// Not just configured: started, with its catalogue read and a call made,
+	// which is what fills the catalogue the daemon's document enumerates
+	// from. Without this the two documents could agree only because the
+	// second daemon never learned any tools.
 	loaded.run("ls")
 	loaded.run("call", "demo.echo", `{"message":"warm"}`)
 
@@ -33,11 +36,16 @@ func TestTheOpenAPIDocumentIsTheSameWhateverIsConfigured(t *testing.T) {
 			"a running server, so the document is not publishable\n%s",
 			firstDifference(a, b))
 	}
-	// The premise: if neither daemon has any tools, the comparison is
-	// between two empty documents and proves nothing.
-	if !strings.Contains(a, "/v1/tools/{tool}") {
+	// The premise. If the template were gone the documents could agree by
+	// both describing nothing, and if the catalogue were empty there would
+	// have been nothing for the second one to add.
+	if !strings.Contains(a, "/v1/call/{server}/{tool}") {
 		t.Error("the upstream-tool template is absent, so there was nothing for a " +
 			"configured server to add and this comparison proves nothing")
+	}
+	if tools := loaded.run("--json", "tools"); !strings.Contains(tools, `"echo"`) {
+		t.Errorf("the configured daemon knows no tools, so its document had nothing "+
+			"machine-specific to include and this comparison proves nothing:\n%s", tools)
 	}
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(a), &doc); err != nil {

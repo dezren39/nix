@@ -69,29 +69,38 @@ func TestNoPathIsAdvertisedThatNothingServes(t *testing.T) {
 	}
 }
 
-// The upstream-tool template is present.
+// The templates that stand in for what a machine happens to be running.
 //
-// Without it the only way to describe a configured server's tools is to
+// Without them the only way to describe a configured server's tools is to
 // enumerate them, and the document stops being publishable -- which is the
 // property TestTheOpenAPIDocumentIsTheSameWhateverIsConfigured checks by
-// driving the binary under two configurations. This is the cheap half: the
-// template is the mechanism that makes that property hold, so losing it here
-// fails in one package rather than in an end-to-end run.
+// driving the binary under two configurations. This is the cheap half: these
+// are the mechanism that property rests on, so losing one fails in this
+// package rather than in an end-to-end run.
+//
+// /v1/call/{server}/{tool} is the one that matters for upstream tools.
+// /v1/tools/{tool} is mcpx's own MCP surface and does not reach them at all,
+// which this file's doc comment used to claim it did -- against a live
+// daemon, POST /v1/tools/echo, /v1/tools/demo_echo and /v1/tools/demo.echo
+// all answer 400 "no tool named ...", while POST /v1/call/demo/echo answers
+// 200 with the result.
 //
 // It replaces a test that called cli.OpenAPI twice in one process and
 // asserted the two results agreed. cli.OpenAPI reads the operation table, a
 // nil-backed mcpserver and the settings registry -- all compiled in -- so
 // that comparison was true by construction and could not observe the thing
 // its name promised.
-func TestTheUpstreamToolTemplateIsPresent(t *testing.T) {
+func TestTheTemplatesThatKeepTheDocumentPublishableArePresent(t *testing.T) {
 	paths, _ := cli.OpenAPI("test")["paths"].(map[string]any)
 	if len(paths) == 0 {
 		t.Fatal("no paths; the document changed shape and this test checks nothing")
 	}
-	if _, ok := paths["/v1/tools/{tool}"]; !ok {
-		t.Error("the upstream-tool template is missing; without it the only way to " +
-			"describe a configured server's tools is to enumerate them, and the " +
-			"document stops being publishable")
+	for _, tmpl := range []string{"/v1/call/{server}/{tool}", "/v1/tools/{tool}"} {
+		if _, ok := paths[tmpl]; !ok {
+			t.Errorf("%s is missing; without it the only way to describe a configured "+
+				"server's tools is to enumerate them, and the document stops being "+
+				"publishable", tmpl)
+		}
 	}
 }
 
