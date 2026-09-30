@@ -139,6 +139,18 @@ func (t *StdioTransport) Send(ctx context.Context, msg []byte) error {
 		return errors.New("stdio transport closed")
 	}
 	if _, err := t.stdin.Write(append(msg, '\n')); err != nil {
+		// The write failed because the child is already gone, and why it is
+		// gone is in its last words on stderr. Recv waits for that drain
+		// before it reports; Send did not, so a server that printed its
+		// reason and exited was reported as
+		// "write to X: broken pipe (stderr: )" -- the exact defect NewStdio's
+		// comment above records having fixed on the read side, left standing
+		// on the write side. It is the difference between telling somebody
+		// their server refused to start and why, and telling them a pipe
+		// broke. Bounded for the same reason it is bounded there: a
+		// grandchild that inherited the pipe can hold it open.
+		<-waitOrTimeout(t.exited, defaults.StdioExitGrace)
+		<-waitOrTimeout(t.stderrDone, defaults.StdioDrainGrace)
 		return fmt.Errorf("write to %s: %w (stderr: %s)", t.label, err, t.stderr.Tail(400))
 	}
 	return nil
@@ -150,7 +162,7 @@ func (t *StdioTransport) Recv() ([]byte, error) {
 		line, err := readLine(t.stdout)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				<-waitOrTimeout(t.exited, 2*time.Second)
+				<-waitOrTimeout(t.exited, defaults.StdioExitGrace)
 				// The reason a server died is usually its last words on
 				// stderr; wait for them, bounded, since a grandchild that
 				// inherited the pipe can hold it open.

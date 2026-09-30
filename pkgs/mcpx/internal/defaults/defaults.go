@@ -55,6 +55,7 @@ type Defaults struct {
 	// rebuild, and so that every constant in the program has one home.
 	Plumbing struct {
 		ShutdownGrace        string `json:"shutdownGrace"`
+		StdioExitGrace       string `json:"stdioExitGrace"`
 		StdioDrainGrace      string `json:"stdioDrainGrace"`
 		StdioMaxLine         string `json:"stdioMaxLine"`
 		DaemonConnectTimeout string `json:"daemonConnectTimeout"`
@@ -442,7 +443,13 @@ var (
 	ReapInterval = mustDur(builtin.Daemon.ReapInterval, "daemon.reapInterval")
 	SaveInterval = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
 
-	ShutdownGrace        = mustDur(builtin.Plumbing.ShutdownGrace, "plumbing.shutdownGrace")
+	ShutdownGrace = mustDur(builtin.Plumbing.ShutdownGrace, "plumbing.shutdownGrace")
+	// StdioExitGrace bounds the wait for a dead child to be reaped before an
+	// I/O failure against it is reported, so the report can name the reason
+	// rather than the symptom. StdioDrainGrace then bounds the wait for that
+	// reason to arrive on stderr; the two are separate because a grandchild
+	// holding the pipe open delays only the second.
+	StdioExitGrace       = mustDur(builtin.Plumbing.StdioExitGrace, "plumbing.stdioExitGrace")
 	StdioDrainGrace      = mustDur(builtin.Plumbing.StdioDrainGrace, "plumbing.stdioDrainGrace")
 	StdioMaxLine         = mustBytes(builtin.Plumbing.StdioMaxLine, "plumbing.stdioMaxLine")
 	DaemonConnectTimeout = mustDur(builtin.Plumbing.DaemonConnectTimeout, "plumbing.daemonConnectTimeout")
