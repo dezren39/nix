@@ -700,7 +700,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	res, err := s.reg.Call(r.Context(), req.Server, req.Tool, cc, args)
+	res, err := s.reg.Call(withRun(r.Context(), r.Header.Get("X-Mcpx-Run")), req.Server, req.Tool, cc, args)
 	dur := time.Since(start).Truncate(time.Millisecond)
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)

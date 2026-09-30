@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
@@ -46,7 +47,35 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 				Arguments json.RawMessage `json:"arguments"`
 			} `json:"arguments"`
 		}
-		if err := json.Unmarshal(params, &p); err != nil || p.Name != "mcpx_call" {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return "", mcpserver.ErrNotInterruptible
+		}
+		if p.Name == "mcpx_exec" {
+			// A script is one call making many; the daemon correlates its
+			// questions through the run id rather than a single (server, key).
+			var e struct {
+				Arguments struct {
+					Source     string `json:"source"`
+					TimeoutSec int    `json:"timeoutSec"`
+				} `json:"arguments"`
+			}
+			if json.Unmarshal(params, &e) != nil || e.Arguments.Source == "" {
+				return "", mcpserver.ErrNotInterruptible
+			}
+			c, err := d.client(ctx)
+			if err != nil {
+				return "", err
+			}
+			// The same preparation the direct path does before /v1/exec.
+			if err := d.app.ensureAnySchemas(ctx, c); err != nil {
+				return "", err
+			}
+			body["kind"] = "exec"
+			body["source"] = e.Arguments.Source
+			body["options"] = mcpBackend{app: d.app}.execOptions(ctx, e.Arguments.TimeoutSec)
+			break
+		}
+		if p.Name != "mcpx_call" {
 			return "", mcpserver.ErrNotInterruptible
 		}
 		ns, tool := p.Arguments.Namespace, p.Arguments.Tool
@@ -175,6 +204,19 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		case upstreamNotFound(failed):
 			out.Err = fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, failed)
 		}
+		return out, nil
+	}
+	if string(reply.Result["kind"]) == `"exec"` {
+		var res execsvc.Result
+		if err := json.Unmarshal(reply.Result["result"], &res); err != nil {
+			return out, err
+		}
+		text, rerr := renderExec(res)
+		if rerr != nil {
+			out.Text, out.IsError = rerr.Error(), true
+			return out, nil
+		}
+		out.Text = text
 		return out, nil
 	}
 	out.Text, out.Contents, out.IsError = renderAsk(reply.Result)

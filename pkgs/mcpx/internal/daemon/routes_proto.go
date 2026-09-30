@@ -18,6 +18,7 @@ import (
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
+	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
@@ -57,6 +58,8 @@ type askCall struct {
 	Server  string
 	Key     string
 	Session string
+	// Run is the exec run id when this call is a script, "" otherwise.
+	Run string
 
 	mu sync.Mutex
 	// questions are what the upstream server has asked so far, in order.
@@ -99,14 +102,23 @@ func (a *askCall) snapshot() ([]mcpserver.Question, chan struct{}) {
 // attribution is genuinely ambiguous, and the honest answer is to make none
 // and let the broker route it. Guessing would hand one client's credential
 // prompt to another client.
+//
+// A script (mcpx_exec) is one ask-call making many upstream calls. Each of
+// them joins the table under (server, key) as the *run's* askCall, so a
+// question on a connection whose in-flight calls all belong to one run is
+// that run's. Plain calls do not register; the pool's in-flight count is what
+// makes a shared key ambiguous (see askFor).
 type askTable struct {
 	mu    sync.Mutex
 	byID  map[string]*askCall
 	byKey map[string][]*askCall
+	// byRun maps an exec run id to the ask-call running that script.
+	byRun map[string]*askCall
 }
 
 func newAskTable() *askTable {
-	return &askTable{byID: map[string]*askCall{}, byKey: map[string][]*askCall{}}
+	return &askTable{byID: map[string]*askCall{}, byKey: map[string][]*askCall{},
+		byRun: map[string]*askCall{}}
 }
 
 func askKey(server, key string) string { return server + "\x00" + key }
@@ -122,14 +134,63 @@ func (t *askTable) begin(id, server, key, session string) *askCall {
 	return a
 }
 
+// beginRun registers the ask-call running a script. It holds no key of its
+// own; its upstream calls join under theirs as they are made.
+func (t *askTable) beginRun(id, run, session string) *askCall {
+	a := &askCall{ID: id, Run: run, Session: session, changed: make(chan struct{})}
+	t.mu.Lock()
+	t.byID[id] = a
+	t.byRun[run] = a
+	t.mu.Unlock()
+	return a
+}
+
+// join records one in-flight upstream call on (server, key) as a member of
+// run, when that run is live. leave undoes exactly this entry. A call from no
+// live run registers nothing: the pool's in-flight count already sees it.
+func (t *askTable) join(run, server, key string) (leave func()) {
+	k := askKey(server, key)
+	t.mu.Lock()
+	owner := t.byRun[run]
+	if run == "" || owner == nil {
+		t.mu.Unlock()
+		return func() {}
+	}
+	t.byKey[k] = append(t.byKey[k], owner)
+	t.mu.Unlock()
+	return func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		list := t.byKey[k]
+		for i, other := range list {
+			if other == owner {
+				t.byKey[k] = append(list[:i:i], list[i+1:]...)
+				break
+			}
+		}
+		if len(t.byKey[k]) == 0 {
+			delete(t.byKey, k)
+		}
+	}
+}
+
 func (t *askTable) end(id string) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	a := t.byID[id]
 	delete(t.byID, id)
-	if a != nil {
-		k := askKey(a.Server, a.Key)
-		kept := t.byKey[k][:0]
-		for _, other := range t.byKey[k] {
+	if a == nil {
+		return
+	}
+	if a.Run != "" {
+		delete(t.byRun, a.Run)
+	}
+	// Every key, not just the call's own: a run's members may still be in
+	// flight after the script is gone (killed on timeout, say), and a
+	// question they raise must not be attributed to a call nobody polls.
+	for k, list := range t.byKey {
+		kept := list[:0]
+		for _, other := range list {
 			if other != a {
 				kept = append(kept, other)
 			}
@@ -140,7 +201,6 @@ func (t *askTable) end(id string) {
 			t.byKey[k] = kept
 		}
 	}
-	t.mu.Unlock()
 }
 
 func (t *askTable) get(id string) (*askCall, bool) {
@@ -150,32 +210,52 @@ func (t *askTable) get(id string) (*askCall, bool) {
 	return a, ok
 }
 
-// forKey returns the one call a question on this connection belongs to.
-func (t *askTable) forKey(server, key string) (*askCall, bool) {
+// owner returns the one call that owns every registered entry on this
+// connection, and how many entries that is. Entries are interruptible calls
+// and the in-flight upstream calls of a running script (its members); plain
+// calls are not registered here -- the pool counts them (see askFor).
+func (t *askTable) owner(server, key string) (*askCall, int, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	list := t.byKey[askKey(server, key)]
-	if len(list) != 1 {
-		return nil, false
+	if len(list) == 0 {
+		return nil, 0, false
 	}
-	return list[0], true
+	// Several entries are one run calling in parallel; a second owner is
+	// two callers sharing an instance, which is ambiguous.
+	for _, a := range list[1:] {
+		if a != list[0] {
+			return nil, 0, false
+		}
+	}
+	return list[0], len(list), true
 }
 
-// askFor returns the ask call a question on (server, key) belongs to.
+// askFor returns the call a question on (server, key) belongs to.
 //
-// The table alone cannot answer that: it holds only calls started through
-// /v1/ask, while /v1/call, exec, the CLI and the plugin reach the same
-// connection without registering. One ask call in the table beside a plain
-// call on the same key looked unambiguous, and handed the plain caller's
-// question to the ask caller. The pool counts every upstream request, so the
-// attribution is made only when that count is one and the one is ours.
+// One rule for single calls and scripts alike: a call owns the question when
+// every upstream request in flight on the key is one of its own. The table
+// knows the owned requests; the pool counts all of them, from /v1/call, exec,
+// the CLI and the plugin, none of which register. Equal counts mean nobody
+// else is on the connection. Before #229 the table alone decided, and one ask
+// call beside a plain call on the same key was handed the plain caller's
+// question.
+//
+// The residual window: an entry is registered just before its request is
+// counted, so a stranger's question arriving in that instant, while the
+// owner's request has not yet been sent, can still be misattributed.
 func (r *Registry) askFor(server, key string) (*askCall, bool) {
-	a, ok := r.asks.forKey(server, key)
+	p, ok := r.Pool(server)
 	if !ok {
 		return nil, false
 	}
-	p, ok := r.Pool(server)
-	if !ok || p.InFlight(key) != 1 {
+	return r.asks.sole(server, key, p.InFlight(key))
+}
+
+// sole is askFor's rule given the pool's in-flight count for the key.
+func (t *askTable) sole(server, key string, inflight int) (*askCall, bool) {
+	a, n, ok := t.owner(server, key)
+	if !ok || inflight != n {
 		return nil, false
 	}
 	return a, true
@@ -238,6 +318,31 @@ func (r *Registry) GetPromptAsk(ctx context.Context, id, server, name string, ar
 	return p.GetPrompt(ctx, key, name, args)
 }
 
+// runKey carries the exec run a /v1/call was made from.
+type runKey struct{}
+
+// withRun marks ctx as belonging to the script run, when there is one.
+func withRun(ctx context.Context, run string) context.Context {
+	if run == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, runKey{}, run)
+}
+
+func runFrom(ctx context.Context) string {
+	v, _ := ctx.Value(runKey{}).(string)
+	return v
+}
+
+// joinAsk registers an ordinary call on (server, key) for correlation. See
+// askTable for why even calls that can own no question are registered.
+func (r *Registry) joinAsk(ctx context.Context, server, key string) func() {
+	if r.asks == nil {
+		return func() {}
+	}
+	return r.asks.join(runFrom(ctx), server, key)
+}
+
 func (r *Registry) beginAsk(id, server, key, session string) {
 	r.asks.begin(id, server, key, session)
 }
@@ -264,6 +369,10 @@ type askReq struct {
 	Context   config.CallContext `json:"context"`
 	Session   string             `json:"session"`
 	TTL       int64              `json:"ttl"`
+	// Source and Options are a script, for kind "exec": mcpx_exec, whose
+	// many upstream calls are correlated through its run id.
+	Source  string          `json:"source"`
+	Options execsvc.Options `json:"options"`
 }
 
 func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
@@ -272,15 +381,21 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if req.Server == "" {
+	switch {
+	case req.Kind == "exec":
+		if req.Source == "" {
+			writeErr(w, http.StatusBadRequest, errors.New("source is required"))
+			return
+		}
+	case req.Server == "":
 		writeErr(w, http.StatusBadRequest, errors.New("server is required"))
 		return
 	}
 	switch req.Kind {
-	case "tools/call", "prompts/get", "resources/read":
+	case "tools/call", "prompts/get", "resources/read", "exec":
 	default:
 		writeErr(w, http.StatusBadRequest, fmt.Errorf(
-			"kind is tools/call, prompts/get or resources/read, not %q", req.Kind))
+			"kind is tools/call, prompts/get, resources/read or exec, not %q", req.Kind))
 		return
 	}
 	cc := callContext(r, req.Context, req.Session)
@@ -303,6 +418,8 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 			err error
 		)
 		switch req.Kind {
+		case "exec":
+			return s.runAsk(ctx, id, cc, req)
 		case "tools/call":
 			var args any = map[string]any{}
 			if len(req.Args) > 0 {
@@ -325,6 +442,33 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 	ready <- t.TaskID
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"callId": t.TaskID, "task": t})
+}
+
+// runAsk runs a script as an interruptible call.
+//
+// The run id is chosen here, before the script exists, and registered
+// against this call: the script's first tool call may be asked a question
+// in its first millisecond, and it carries the run id (X-Mcpx-Run) so the
+// daemon can tell which call it belongs to.
+func (s *Server) runAsk(ctx context.Context, id string, cc config.CallContext, req askReq) (any, *tasks.Fault) {
+	run := execsvc.NewRunID()
+	opts := req.Options
+	if opts.Session == "" {
+		opts.Session = cc.SessionID
+	}
+	s.reg.asks.beginRun(id, run, opts.Session)
+	defer s.reg.endAsk(id)
+	start := time.Now()
+	res, err := s.ExecService().Run(ctx, execsvc.Request{Source: req.Source, Opts: opts, RunID: run}, nil)
+	if err != nil && res == nil {
+		return nil, &tasks.Fault{Code: http.StatusBadRequest, Message: err.Error()}
+	}
+	raw, merr := json.Marshal(res)
+	if merr != nil {
+		return nil, &tasks.Fault{Code: http.StatusInternalServerError, Message: merr.Error()}
+	}
+	return map[string]any{"result": json.RawMessage(raw), "kind": req.Kind,
+		"durationMs": time.Since(start).Milliseconds()}, nil
 }
 
 // handleAskPoll reports where a call has got to, waiting for it to move.
@@ -643,7 +787,7 @@ func (s *Server) handleCallPath(w http.ResponseWriter, r *http.Request) {
 	}
 	cc := callContext(r, config.CallContext{}, r.URL.Query().Get("session"))
 	start := time.Now()
-	res, err := s.reg.Call(r.Context(), r.PathValue("server"), r.PathValue("tool"), cc, args)
+	res, err := s.reg.Call(withRun(r.Context(), r.Header.Get("X-Mcpx-Run")), r.PathValue("server"), r.PathValue("tool"), cc, args)
 	if err != nil {
 		writeJSON(w, failureStatus(err), map[string]any{"ok": false, "error": err.Error()})
 		return

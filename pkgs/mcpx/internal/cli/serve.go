@@ -163,14 +163,7 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
 		return "", err
 	}
-	opts := execsvc.Options{
-		Session:      b.app.mcpCaller(ctx).SessionID,
-		Output:       execsvc.OutputStructured,
-		Capabilities: []string{execsvc.CapabilityArtifacts},
-	}
-	if timeoutSec > 0 {
-		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
-	}
+	opts := b.execOptions(ctx, timeoutSec)
 	body, err := c.do(ctx, http.MethodPost, "/v1/exec",
 		map[string]any{"source": source, "options": opts})
 	if err != nil {
@@ -180,6 +173,27 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := json.Unmarshal(body, &res); err != nil {
 		return "", err
 	}
+	return renderExec(res)
+}
+
+// execOptions is what mcpx_exec asks /v1/exec for, whichever path runs it.
+func (b mcpBackend) execOptions(ctx context.Context, timeoutSec int) execsvc.Options {
+	opts := execsvc.Options{
+		// The connection's own identity, not the process's: see mcpCaller.
+		Session:      b.app.mcpCaller(ctx).SessionID,
+		Output:       execsvc.OutputStructured,
+		Capabilities: []string{execsvc.CapabilityArtifacts},
+	}
+	if timeoutSec > 0 {
+		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
+	}
+	return opts
+}
+
+// renderExec turns a script's result into mcpx_exec's tool result. Shared by
+// the direct path and the interruptible one (serve_ask.go), so a script
+// answered inline renders exactly like one that was never asked anything.
+func renderExec(res execsvc.Result) (string, error) {
 
 	var sb strings.Builder
 	for _, e := range res.Emits {
@@ -1050,20 +1064,51 @@ func (n daemonNotifier) Listen(ctx context.Context, f mcpserver.ListenFilter, se
 		return
 	}
 	// Resource URIs arrive namespaced from mcpx's own listings; the daemon
-	// knows them by their upstream form.
+	// knows them by their upstream form. The update goes back out under the
+	// URI the client subscribed with: a client matches notifications to its
+	// subscriptions by URI, and one naming the upstream form matches nothing
+	// it asked for.
 	uris := make([]string, 0, len(f.ResourceSubscriptions))
+	asked := map[string][]string{}
 	for _, u := range f.ResourceSubscriptions {
 		if rest, ok := strings.CutPrefix(u, "mcpx://"); ok {
 			if _, uri, ok := strings.Cut(rest, "/"); ok {
 				uris = append(uris, uri)
+				asked[uri] = append(asked[uri], u)
 				continue
 			}
 		}
 		uris = append(uris, u)
 	}
 	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: uris}, func(e events.Event) {
-		if method, params, ok := events.MCPNotification(e); ok {
-			send(method, params)
+		method, params, ok := events.MCPNotification(e)
+		if !ok {
+			return
+		}
+		for _, p := range subscribedURIs(e, params, asked) {
+			send(method, p)
 		}
 	})
+}
+
+// subscribedURIs rewrites a resource update to the mcpx:// URI the client
+// subscribed with. The event names its server but the listing names a
+// namespace, which a config may override and this process cannot see; so
+// the match is on the upstream URI, and every subscription with that
+// upstream form hears it. An update is a hint to read again, so hearing one
+// meant for a same-named resource elsewhere costs a read, where hearing none
+// costs the update.
+func subscribedURIs(e events.Event, params any, asked map[string][]string) []any {
+	if e.Kind != events.ResourceUpdated {
+		return []any{params}
+	}
+	origs := asked[strings.TrimPrefix(e.URI, "/")]
+	if len(origs) == 0 {
+		return []any{params}
+	}
+	out := make([]any, 0, len(origs))
+	for _, o := range origs {
+		out = append(out, map[string]any{"uri": o})
+	}
+	return out
 }

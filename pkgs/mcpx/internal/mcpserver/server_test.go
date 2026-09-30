@@ -13,6 +13,9 @@ import (
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
+// fakeBackend counts calls under a lock: stdio requests run concurrently, so
+// an unguarded map here is a fatal "concurrent map writes" waiting for a run
+// where two requests land at once.
 type fakeBackend struct {
 	mu    sync.Mutex
 	calls map[string]int
@@ -20,8 +23,17 @@ type fakeBackend struct {
 
 func newBackend() *fakeBackend { return &fakeBackend{calls: map[string]int{}} }
 
-// hit is locked because stdio runs each request on its own goroutine.
-func (f *fakeBackend) hit(n string) { f.mu.Lock(); f.calls[n]++; f.mu.Unlock() }
+func (f *fakeBackend) hit(n string) {
+	f.mu.Lock()
+	f.calls[n]++
+	f.mu.Unlock()
+}
+
+func (f *fakeBackend) count(n string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[n]
+}
 
 func (f *fakeBackend) Namespaces(context.Context) (string, error) {
 	f.hit("namespaces")
@@ -200,7 +212,7 @@ func TestEveryToolReachesItsBackend(t *testing.T) {
 		if _, isErr := call(t, s, c.tool, c.args); isErr {
 			t.Errorf("%s reported an error", c.tool)
 		}
-		if f.calls[c.want] == 0 {
+		if f.count(c.want) == 0 {
 			t.Errorf("%s never reached the backend", c.tool)
 		}
 	}
