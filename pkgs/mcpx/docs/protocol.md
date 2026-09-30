@@ -25,10 +25,10 @@ the failure is silent. Either the peer ignores it, or it rejects the frame,
 and nothing says which.
 
 So mcpx accepts `tasks/*` from a 2025-06-18 client and `subscriptions/listen`
-from a legacy one — and it will
-not put `structuredContent` in front of a 2025-03-26 client, will not stamp
-`resultType` on a reply to anything but 2026-07-28, and will never send
-`elicitation/create` to a client that did not declare `elicitation`.
+from a legacy one — and it will not put `structuredContent` in front of a
+2025-03-26 client, will not stamp `resultType` on a reply to anything but
+2026-07-28, and will never send `elicitation/create` to a client that did not
+declare `elicitation`.
 
 ---
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -354,11 +355,25 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	// No --kinds filter. Waiting for a *server* event meant provoking one with
-	// `restart demo`, and under a loaded runner that restart is itself what
-	// fails -- twice in CI, with the stream idle and nothing on stderr. Any
-	// event proves the same thing about -o, and a call emits several.
-	cmd := exec.CommandContext(ctx, e.mcpx, "events", "-o", out)
+	// --since 0 is not decoration; without it this test cannot pass reliably
+	// and it failed in CI every single run while passing on a laptop.
+	//
+	// A subscription with no position is live only, and `restart` is lazy:
+	// it stops what is running and starts nothing, so the first restart
+	// publishes server.stopped and every restart after it reports "stopped 0
+	// instance(s)" and publishes nothing at all. There is therefore exactly
+	// one event to catch, the retry loop cannot manufacture a second, and a
+	// freshly exec'd child that has not finished subscribing when it fires
+	// has lost it for good. Locally the child wins that race in a few
+	// milliseconds; under a loaded runner it loses it, deterministically.
+	//
+	// The daemon already answers that: /v1/events takes since= (and
+	// Last-Event-ID), and present-but-zero means "everything still
+	// retained". So the child asks for the history as well, a missed event
+	// is a late one rather than a lost one, and `--since` and `--kinds` --
+	// both advertised by the generated command -- are exercised rather than
+	// avoided.
+	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "--since", "0", "-o", out)
 	cmd.Dir, cmd.Env = e.dir, e.envVars
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -367,14 +382,10 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 
-	// Keep producing server events until the file has one, for the same
-	// reason TestEventsStreamAsNDJSON retries: the subscription may not be
-	// established when the first event fires. The budget is generous because
-	// a restart costs a process start, and a slow runner failed a 15s one.
 	deadline := time.Now().Add(60 * time.Second)
 	var got, provokeErr string
 	for time.Now().Before(deadline) {
-		if _, err := e.try("call", "demo.echo", `{"message":"x"}`); err != nil {
+		if _, err := e.try("restart", "demo"); err != nil {
 			provokeErr = err.Error()
 		}
 		if b, rerr := os.ReadFile(out); rerr == nil && len(b) > 0 {
@@ -394,7 +405,96 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	if !strings.Contains(got, `"kind"`) {
 		t.Errorf("the file should hold the event stream, got:\n%s", got)
 	}
+	if !strings.Contains(got, `"kind":"server.`) {
+		t.Errorf("--kinds server should have let a server event through, got:\n%s", got)
+	}
 	if strings.Contains(stdout.String(), `"kind"`) {
 		t.Errorf("-o means instead of printing, but stdout also got the stream:\n%s", stdout.String())
 	}
+
+	// Replay alone would not prove the stream is still live afterwards, and
+	// -o has to keep appending, not write once. A call publishes call.* and
+	// server.* both; only the server ones may appear, since --kinds is in
+	// force.
+	before := len(got)
+	live := false
+	liveDeadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(liveDeadline) {
+		if _, err := e.try("call", "demo.echo", `{"message":"x"}`); err != nil {
+			provokeErr = err.Error()
+		}
+		if b, rerr := os.ReadFile(out); rerr == nil && len(b) > before {
+			got, live = string(b), true
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if !live {
+		t.Fatalf("the file stopped growing after the replay, so -o wrote the "+
+			"history and not the live stream\nstderr: %s\nlast provoke error: %s\nfile:\n%s",
+			stderr.String(), provokeErr, got)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if !strings.Contains(line, `"kind":"server.`) {
+			t.Errorf("--kinds server let through a line that is not a server event: %s", line)
+		}
+	}
+}
+
+// The property the test above depends on, asserted on its own and without a
+// race to lose: an event that happened before the reader existed is still
+// delivered when the reader names a position.
+//
+// Every event here is published before `mcpx events` is even spawned, so a
+// live-only subscription can never see one. That is the deterministic form
+// of what CI hit: `restart` publishes once and then has nothing left to
+// stop, so the single event a filtered stream would ever get had already
+// fired by the time the child subscribed.
+func TestAStreamPositionMakesAMissedEventALateOneNotALostOne(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.run("call", "demo.echo", `{"message":"x"}`) // server.started
+	e.run("restart", "demo")                      // server.stopped
+
+	n := 0
+	read := func(t *testing.T, window time.Duration, args ...string) string {
+		t.Helper()
+		n++
+		out := filepath.Join(e.dir, fmt.Sprintf("pos-%d.ndjson", n))
+		ctx, cancel := context.WithTimeout(context.Background(), window+10*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, e.mcpx, append(args, "-o", out)...)
+		cmd.Dir, cmd.Env = e.dir, e.envVars
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+		deadline := time.Now().Add(window)
+		for time.Now().Before(deadline) {
+			if b, err := os.ReadFile(out); err == nil && len(b) > 0 {
+				return string(b)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if stderr.Len() > 0 {
+			t.Logf("stderr: %s", stderr.String())
+		}
+		return ""
+	}
+
+	t.Run("with a position the history arrives", func(t *testing.T) {
+		got := read(t, 20*time.Second, "events", "--kinds", "server", "--since", "0")
+		if !strings.Contains(got, `"kind":"server.`) {
+			t.Fatalf("--since 0 should replay the retained server events, got:\n%s", got)
+		}
+	})
+	t.Run("without one it does not", func(t *testing.T) {
+		// Nothing publishes during this window, so an empty file is the
+		// answer and not a slow one. This is the half that shows --since is
+		// carrying the test above rather than decorating it.
+		if got := read(t, 3*time.Second, "events", "--kinds", "server"); got != "" {
+			t.Fatalf("a positionless subscription is live only; it should not have replayed:\n%s", got)
+		}
+	})
 }

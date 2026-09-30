@@ -42,6 +42,7 @@
   },
   "plumbing": {
     "shutdownGrace": "2s",
+    "stdioExitGrace": "2s",
     "stdioDrainGrace": "3s",
     "stdioMaxLine": "64MiB",
     "daemonConnectTimeout": "20s",
