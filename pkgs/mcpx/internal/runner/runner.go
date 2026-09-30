@@ -74,6 +74,20 @@ func Detect(prefer string, perms []string) (*Runtime, error) {
 	if prefer != "" && prefer != "auto" {
 		candidates = []string{prefer}
 	}
+	// A narrowed permission profile is a restriction, and only Deno can
+	// enforce one. Bun and Node used to run the script anyway with the
+	// user's full authority, so script.permissions strict read files it
+	// promised it could not. Refusing is the only honest answer there, and
+	// auto must not fall back to a runtime that would ignore the profile
+	// (docs/decisions/0003).
+	if !unrestricted(perms) {
+		if prefer != "" && prefer != "auto" && prefer != "deno" {
+			return nil, fmt.Errorf("%s has no permission model, so it cannot enforce "+
+				"script.permissions %s; use --runtime deno, or permissions all",
+				prefer, strings.Join(perms, " "))
+		}
+		candidates = []string{"deno"}
+	}
 	var tried []string
 	for _, name := range candidates {
 		bin, err := exec.LookPath(name)
@@ -101,8 +115,18 @@ func Detect(prefer string, perms []string) (*Runtime, error) {
 			}}, nil
 		}
 	}
+	if !unrestricted(perms) {
+		return nil, fmt.Errorf("script.permissions %s needs deno, the one runtime that can "+
+			"enforce a permission profile, and deno is not installed", strings.Join(perms, " "))
+	}
 	return nil, fmt.Errorf("no JavaScript runtime found (tried %s); install deno, bun or node",
 		strings.Join(tried, ", "))
+}
+
+// unrestricted reports whether a rendered profile grants everything, which
+// is the one profile a runtime with no permission model honours by default.
+func unrestricted(perms []string) bool {
+	return len(perms) == 0 || (len(perms) == 1 && perms[0] == "--allow-all")
 }
 
 // Options configure one script execution.

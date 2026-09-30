@@ -75,6 +75,13 @@ type Op struct {
 	// Destructive marks an operation a caller cannot undo -- stopping the
 	// daemon, restarting a server. It maps to the MCP destructiveHint.
 	Destructive bool
+	// Idempotent marks a mutating operation that has no further effect when
+	// repeated with the same arguments -- MCP's idempotentHint, which a
+	// client may use to retry without asking. Reads are idempotent without
+	// saying so. It is declared rather than derived: "destructive implies
+	// idempotent" made restart claim it, and a second restart kills the
+	// calls the first one let start.
+	Idempotent bool
 	// Streams marks an endpoint whose response never ends. MCP cannot carry
 	// a stream as a tool result, so these are excluded from tools; the MCP
 	// equivalent is subscriptions/listen.
@@ -487,8 +494,9 @@ func Ops() []Op {
 		},
 		{
 			Name: "task_cancel", Method: "POST", Path: "/v1/tasks/{id}/cancel",
-			Summary:  "Cancel a running task",
-			Mutating: true,
+			Idempotent: true,
+			Summary:    "Cancel a running task",
+			Mutating:   true,
 			Params: []Param{
 				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the task's id, as returned when it was started"},
 			},
@@ -528,8 +536,9 @@ func Ops() []Op {
 		},
 		{
 			Name: "shutdown", Method: "POST", Path: "/v1/shutdown",
-			Command: "stop",
-			Summary: "Stop the daemon",
+			Idempotent: true,
+			Command:    "stop",
+			Summary:    "Stop the daemon",
 			Description: "Every pooled server process stops with it, and every other " +
 				"client of this daemon loses its session.",
 			Admin: true, Mutating: true, Destructive: true,
@@ -738,7 +747,7 @@ func (o Op) Annotations() map[string]any {
 		"title":           o.Summary,
 		"readOnlyHint":    !o.Mutating,
 		"destructiveHint": o.Destructive,
-		"idempotentHint":  !o.Mutating || o.Destructive,
+		"idempotentHint":  !o.Mutating || o.Idempotent,
 		"openWorldHint":   true,
 	}
 }

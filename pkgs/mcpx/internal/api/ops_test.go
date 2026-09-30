@@ -167,3 +167,24 @@ func TestEveryParameterIsDescribed(t *testing.T) {
 		t.Fatal("no parameters found; the table changed shape and this test checks nothing")
 	}
 }
+
+// TestIdempotentHintIsTrue: a client may retry an idempotent tool without
+// asking, so the hint has to be true where it is given. It was derived as
+// "destructive implies idempotent", which made restart claim it -- and a
+// second restart kills the calls the first one let start.
+func TestIdempotentHintIsTrue(t *testing.T) {
+	want := map[string]bool{
+		"restart": false, "refresh": false, "exec": false, "call": false,
+		"artifact_delete": true, "shutdown": true, "task_cancel": true,
+		"settings_set": true, "status": true,
+	}
+	for _, op := range api.Ops() {
+		w, ok := want[op.Name]
+		if !ok {
+			continue
+		}
+		if got, _ := op.Annotations()["idempotentHint"].(bool); got != w {
+			t.Errorf("%s: idempotentHint = %v, want %v", op.Name, got, w)
+		}
+	}
+}
