@@ -202,7 +202,11 @@ config, none of the local variables -- and compare native discovery with `git
 rev-parse` for both questions. A case that expects git to refuse first checks
 that it does, so a fixture that accidentally built a valid repository cannot
 pass as a refusal. They skip only when git is absent (the Nix sandbox) or
-older than a feature they need; with git 2.55 none skip.
+older than a feature they need. With git 2.55 on macOS none skip; with
+Debian's git 2.39 on Linux (the `golang:1.26-bookworm` image, as a non-root
+user) 52 pass and the two needing 2.45 and 2.48 skip. That run found the one
+portability gap so far: git 2.39 counts `GIT_INTERNAL_SUPER_PREFIX` as
+repository-local and newer git does not, so the scrub list is the union.
 
 **Without git.** `TestScopesResolveWithoutGit` and three siblings clear `PATH`
 and build repositories by hand -- `HEAD`, `objects/`, `refs/`, and the two

@@ -86,8 +86,11 @@ func revParse(cwd string) (gitWhere, error) {
 // rev-parse --local-env-vars`: the variables that describe *the* repository
 // a process is working on. Git clears exactly these before it works on a
 // different one -- a submodule -- which is the position the daemon is in
-// for every caller. A test checks this against the installed git.
+// for every caller. It is the union over git versions, since the fallback
+// runs whichever git is installed; a test checks it against that git.
 var gitLocalEnv = []string{
+	// Before 2.40 (Debian bookworm ships 2.39).
+	"GIT_INTERNAL_SUPER_PREFIX",
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
 	"GIT_CONFIG",
 	"GIT_CONFIG_PARAMETERS",
