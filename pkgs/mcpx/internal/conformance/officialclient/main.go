@@ -164,6 +164,9 @@ func callsFor(ctx context.Context, m *mcpx, scenario string) ([]toolCall, error)
 	if calls, ok := scenarioCalls[scenario]; ok {
 		return calls, nil
 	}
+	if scenario == "json-schema-2020-12-preservation" {
+		return schemaEcho(ctx, m)
+	}
 	out, err := m.run(ctx, "--json", "search", "")
 	if err != nil {
 		return nil, fmt.Errorf("search: %v\n%s", err, out)
@@ -182,6 +185,30 @@ func callsFor(ctx context.Context, m *mcpx, scenario string) ([]toolCall, error)
 		}
 	}
 	return calls, nil
+}
+
+// schemaEcho round-trips the focal tool's inputSchema -- as mcpx holds it,
+// which is what the scenario is checking mcpx preserved -- back through the
+// scenario's echo tool.
+func schemaEcho(ctx context.Context, m *mcpx) ([]toolCall, error) {
+	out, err := m.run(ctx, "--json", "search", "")
+	if err != nil {
+		return nil, fmt.Errorf("search: %v\n%s", err, out)
+	}
+	var tools []struct {
+		Namespace   string         `json:"namespace"`
+		Tool        string         `json:"tool"`
+		InputSchema map[string]any `json:"inputSchema"`
+	}
+	if err := json.Unmarshal(out, &tools); err != nil {
+		return nil, fmt.Errorf("search output: %v\n%s", err, out)
+	}
+	for _, t := range tools {
+		if t.Namespace == *namespace && t.Tool == "json_schema_2020_12_tool" && t.InputSchema != nil {
+			return []toolCall{{Name: "json_schema_echo", Arguments: map[string]any{"schema": t.InputSchema}}}, nil
+		}
+	}
+	return nil, fmt.Errorf("the focal tool is not in mcpx's catalogue:\n%s", out)
 }
 
 type mcpx struct {
