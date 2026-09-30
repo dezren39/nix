@@ -73,10 +73,11 @@ Once found, the common directory comes from the `commondir` file if there is
 one, and the worktree from where `.git` was found -- unless the repository's
 `config` says otherwise through `core.bare` or `core.worktree`.
 
-Native discovery reads `HEAD`, `commondir`, a `.git` file, and five config
-keys: `core.repositoryformatversion`, `core.bare`, `core.worktree`,
-`extensions.*` and, when `extensions.worktreeConfig` is on, the worktree's
-`config.worktree`. Nothing else, and it executes nothing.
+Native discovery reads `HEAD`, `commondir`, a `.git` file, and from `config`
+three keys — `core.repositoryformatversion`, `core.bare`, `core.worktree` —
+plus whatever `extensions.*` holds, since an unknown extension is what makes a
+repository unreadable. When `extensions.worktreeConfig` is on it reads the
+worktree's `config.worktree` as well. Nothing else, and it executes nothing.
 
 Every outcome is one of four:
 
@@ -97,10 +98,12 @@ repository-local variables removed (`GIT_DIR`, `GIT_WORK_TREE`,
 no git on `PATH`, "unsure" keys by directory, and the reason says what could
 not be read and that git is not there to ask.
 
-**Nothing is cached.** One resolution five directories deep costs 0.24–0.35
-ms here (`BenchmarkDiscoverGit`, macOS/APFS); forking `git rev-parse` from the
-same place costs about 41 ms. A cache would save a third of a millisecond per
-call and bring back the stale answers of §1.4.
+**Nothing is cached.** One resolution five directories deep costs 0.073–0.081
+ms (`BenchmarkDiscoverGit`, `-benchtime 300x -count=5`, M3 Pro / macOS / APFS);
+forking `git rev-parse --show-toplevel` from the same place costs 9.7 ms on the
+same machine, so the native answer is about 125× cheaper. A cache would save
+under a tenth of a millisecond per call and bring back the stale answers of
+§1.4.
 
 `mcpx doctor` reports what the two scopes resolve to from the current
 directory and what resolved them. A missing git is not a warning; it becomes
