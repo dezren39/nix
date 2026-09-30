@@ -119,16 +119,14 @@ func gapSkips(body *ast.BlockStmt) map[string]bool {
 			out[""] = true
 		}
 	}
+	// Any call that takes a name and a func literal -- t.Run, forReq -- and
+	// whose func skips as a gap marks the names it was given.
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) != 2 {
+		if !ok || len(call.Args) < 2 {
 			return true
 		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Run" {
-			return true
-		}
-		fl, ok := call.Args[1].(*ast.FuncLit)
+		fl, ok := call.Args[len(call.Args)-1].(*ast.FuncLit)
 		if !ok {
 			return true
 		}
@@ -141,13 +139,15 @@ func gapSkips(body *ast.BlockStmt) map[string]bool {
 		if !skipped {
 			return true
 		}
-		ast.Inspect(call.Args[0], func(m ast.Node) bool {
-			if bl, ok := m.(*ast.BasicLit); ok && bl.Kind == token.STRING {
-				v, _ := strconv.Unquote(bl.Value)
-				out[v] = true
-			}
-			return true
-		})
+		for _, a := range call.Args[:len(call.Args)-1] {
+			ast.Inspect(a, func(m ast.Node) bool {
+				if bl, ok := m.(*ast.BasicLit); ok && bl.Kind == token.STRING {
+					v, _ := strconv.Unquote(bl.Value)
+					out[v] = true
+				}
+				return true
+			})
+		}
 		return true
 	})
 	return out
@@ -218,6 +218,13 @@ func match(lits map[string]bool, chunk string, first bool) (string, bool) {
 	if first {
 		if rev, rest, ok := strings.Cut(chunk, "/"); ok && isRev(rev) {
 			cands = append(cands, rest, "/"+rest)
+			// forReq's "<rev>/<area>/<id>": the id is the literal; the
+			// area comes from the catalogue.
+			if _, id, ok := strings.Cut(rest, "/"); ok && !strings.Contains(id, "/") {
+				if lits[id] {
+					return id, true
+				}
+			}
 		}
 	}
 	for _, c := range cands {

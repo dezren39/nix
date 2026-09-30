@@ -66,11 +66,23 @@ func TestMatrix(t *testing.T) {
 
 	t.Run("every-reference-names-a-real-test", func(t *testing.T) {
 		src := conformance.NewSources(root(t))
+		byID := map[string]conformance.Requirement{}
+		for _, r := range reqs {
+			byID[r.ID] = r
+		}
 		for _, c := range conformance.Covers() {
 			ref, err := conformance.ParseRef(c.Test)
 			if err != nil {
 				t.Errorf("%s: %v", c.ID, err)
 				continue
+			}
+			if ref.Template {
+				r := byID[c.ID]
+				if len(r.Revs) == 0 {
+					t.Errorf("%s: unknown requirement", c.ID)
+					continue
+				}
+				ref.Sub = conformance.Expand(ref.Sub, r.Revs[0], r)
 			}
 			if err := src.Check(ref); err != nil {
 				t.Errorf("%s (%s): %v", c.ID, c.Side, err)
@@ -80,7 +92,11 @@ func TestMatrix(t *testing.T) {
 			if g.Test == "" {
 				continue
 			}
-			ref, err := conformance.ParseRef(g.Test)
+			test := g.Test
+			if !strings.Contains(test, "@") && !strings.Contains(test, "/") {
+				test += "@all"
+			}
+			ref, err := conformance.ParseRef(test)
 			if err != nil {
 				t.Errorf("gap %s: %v", g.ID, err)
 				continue
@@ -96,16 +112,6 @@ func TestMatrix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	t.Run("gaps-only-where-untested", func(t *testing.T) {
-		for _, g := range conformance.Gaps() {
-			for _, rev := range g.Revs {
-				if s := st[conformance.Cell{ID: g.ID, Rev: rev, Side: g.Side}]; s.Kind == "tested" {
-					t.Errorf("%s %s/%s is recorded as a gap and is tested by %v", g.ID, rev, g.Side, s.Tests)
-				}
-			}
-		}
-	})
 
 	t.Run("every-applicable-requirement-is-tested-or-a-gap", func(t *testing.T) {
 		// MCPX_MATRIX_AREAS=tools,resources narrows the report to those area

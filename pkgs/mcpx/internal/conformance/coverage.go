@@ -86,6 +86,25 @@ type Ref struct {
 	Pkg, Func, Sub string
 	Revs           []string // revisions covered; nil with All
 	All            bool
+	// Template is set when the subtest contains "{rev}": the reference
+	// stands for one subtest per revision of the requirement.
+	Template bool
+}
+
+// RevPlaceholder in a reference is replaced by each revision the
+// requirement has.
+const RevPlaceholder = "{rev}"
+
+// AreaPlaceholder and IDPlaceholder are replaced by the requirement's area
+// group and id: the subtest names forReq in the conformance tests produces.
+const (
+	AreaPlaceholder = "{area}"
+	IDPlaceholder   = "{id}"
+)
+
+// Expand is the concrete reference for one revision of a requirement.
+func Expand(test, rev string, r Requirement) string {
+	return strings.NewReplacer(RevPlaceholder, rev, AreaPlaceholder, AreaGroup(r.Area), IDPlaceholder, r.ID).Replace(test)
 }
 
 // ParseRef reads a Cover.Test.
@@ -112,6 +131,10 @@ func ParseRef(s string) (Ref, error) {
 			}
 			r.Revs = append(r.Revs, v)
 		}
+		return r, nil
+	}
+	if strings.Contains(r.Sub, RevPlaceholder) {
+		r.Template, r.All = true, true
 		return r, nil
 	}
 	first, _, _ := strings.Cut(r.Sub, "/")
@@ -146,4 +169,44 @@ func PerRev(fn, sub string, revs ...string) []string {
 		out[i] = fn + "/" + r + "/" + sub
 	}
 	return out
+}
+
+// SR and CR cover a requirement with a table-driven test over revisions:
+// the subtest "<fn>/<rev>/<sub>" for every revision the requirement has.
+func SR(id, fn, sub string) []Cover { return S(id, fn+"/"+RevPlaceholder+"/"+sub) }
+func CR(id, fn, sub string) []Cover { return C(id, fn+"/"+RevPlaceholder+"/"+sub) }
+
+// SReq and CReq cover requirements with forReq subtests of fn: one subtest
+// "<rev>/<area>/<id>" per revision the requirement has, which is exactly
+// what forReq runs, since it reads the revisions from the catalogue.
+func SReq(fn string, ids ...string) []Cover { return reqs(Server, fn, ids) }
+func CReq(fn string, ids ...string) []Cover { return reqs(Client, fn, ids) }
+
+func reqs(side, fn string, ids []string) []Cover {
+	out := make([]Cover, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, Cover{ID: id, Side: side, Test: fn + "/" + RevPlaceholder + "/" + AreaPlaceholder + "/" + IDPlaceholder})
+	}
+	return out
+}
+
+// GapAt is the gap recorded for a requirement in one revision on one side,
+// if any. The conformance tests skip there, so the failing check is kept
+// and runs again the moment the gap entry is removed.
+func GapAt(id, side, rev string) *Gap {
+	for i := range gaps {
+		g := &gaps[i]
+		if g.ID != id || g.Side != side {
+			continue
+		}
+		if g.Revs == nil {
+			return g
+		}
+		for _, r := range g.Revs {
+			if r == rev {
+				return g
+			}
+		}
+	}
+	return nil
 }

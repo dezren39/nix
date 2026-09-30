@@ -50,7 +50,7 @@ func Evaluate(reqs []Requirement, cs []Cover, gs []Gap) (map[Cell]Status, error)
 			if ref.CoversRev(rev) {
 				hit = true
 				k := Cell{c.ID, rev, c.Side}
-				tests[k] = append(tests[k], c.Test)
+				tests[k] = append(tests[k], Expand(c.Test, rev, *r))
 			}
 		}
 		if !hit {
@@ -85,13 +85,15 @@ func Evaluate(reqs []Requirement, cs []Cover, gs []Gap) (map[Cell]Status, error)
 					out[k] = Status{Kind: "n/a", Detail: strings.TrimPrefix(a, NAPrefix)}
 				case strings.HasPrefix(a, NotImplPrefix):
 					out[k] = Status{Kind: "gap", Detail: "not implemented: " + strings.TrimPrefix(a, NotImplPrefix)}
+				// A recorded gap wins over a cover: the covering test
+				// skips there.
+				case gapAt[k].Issue != "":
+					g := gapAt[k]
+					out[k] = Status{Kind: "gap", Detail: g.Issue + ": " + g.Why}
 				case len(tests[k]) > 0:
 					t := append([]string(nil), tests[k]...)
 					sort.Strings(t)
 					out[k] = Status{Kind: "tested", Tests: t}
-				case gapAt[k].Issue != "":
-					g := gapAt[k]
-					out[k] = Status{Kind: "gap", Detail: g.Issue + ": " + g.Why}
 				default:
 					out[k] = Status{Kind: "missing"}
 				}

@@ -8,66 +8,66 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | revision | side | level | applies | tested | gap | missing | n/a |
 |---|---|---|---|---|---|---|---|
-| 2024-11-05 | server | MUST | 33 | 1 | 0 | 32 | 21 |
+| 2024-11-05 | server | MUST | 33 | 9 | 0 | 24 | 21 |
 | 2024-11-05 | server | MUST NOT | 6 | 0 | 0 | 6 | 4 |
-| 2024-11-05 | server | SHOULD | 35 | 0 | 0 | 35 | 46 |
-| 2024-11-05 | server | SHOULD NOT | 1 | 0 | 0 | 1 | 1 |
-| 2024-11-05 | server | MAY | 10 | 0 | 1 | 9 | 14 |
-| 2024-11-05 | server | other | 11 | 0 | 0 | 11 | 1 |
-| 2024-11-05 | client | MUST | 32 | 1 | 0 | 31 | 22 |
-| 2024-11-05 | client | MUST NOT | 9 | 0 | 0 | 9 | 1 |
-| 2024-11-05 | client | SHOULD | 38 | 0 | 0 | 38 | 43 |
-| 2024-11-05 | client | SHOULD NOT | 1 | 0 | 0 | 1 | 1 |
-| 2024-11-05 | client | MAY | 15 | 0 | 1 | 14 | 9 |
-| 2024-11-05 | client | other | 7 | 0 | 0 | 7 | 5 |
-| 2025-03-26 | server | MUST | 52 | 1 | 7 | 44 | 29 |
+| 2024-11-05 | server | SHOULD | 36 | 5 | 0 | 31 | 45 |
+| 2024-11-05 | server | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
+| 2024-11-05 | server | MAY | 10 | 1 | 1 | 8 | 14 |
+| 2024-11-05 | server | other | 11 | 4 | 0 | 7 | 1 |
+| 2024-11-05 | client | MUST | 32 | 9 | 0 | 23 | 22 |
+| 2024-11-05 | client | MUST NOT | 9 | 0 | 1 | 8 | 1 |
+| 2024-11-05 | client | SHOULD | 38 | 5 | 2 | 31 | 43 |
+| 2024-11-05 | client | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
+| 2024-11-05 | client | MAY | 15 | 2 | 1 | 12 | 9 |
+| 2024-11-05 | client | other | 7 | 4 | 0 | 3 | 5 |
+| 2025-03-26 | server | MUST | 52 | 9 | 7 | 36 | 29 |
 | 2025-03-26 | server | MUST NOT | 7 | 0 | 0 | 7 | 8 |
-| 2025-03-26 | server | SHOULD | 50 | 0 | 5 | 45 | 53 |
-| 2025-03-26 | server | SHOULD NOT | 4 | 0 | 1 | 3 | 1 |
-| 2025-03-26 | server | MAY | 19 | 0 | 3 | 16 | 18 |
-| 2025-03-26 | server | other | 11 | 0 | 0 | 11 | 1 |
-| 2025-03-26 | client | MUST | 47 | 1 | 8 | 38 | 34 |
-| 2025-03-26 | client | MUST NOT | 12 | 0 | 1 | 11 | 3 |
-| 2025-03-26 | client | SHOULD | 51 | 0 | 5 | 46 | 52 |
-| 2025-03-26 | client | SHOULD NOT | 2 | 0 | 1 | 1 | 3 |
-| 2025-03-26 | client | MAY | 22 | 0 | 2 | 20 | 15 |
-| 2025-03-26 | client | other | 7 | 0 | 0 | 7 | 5 |
-| 2025-06-18 | server | MUST | 66 | 1 | 13 | 52 | 35 |
+| 2025-03-26 | server | SHOULD | 50 | 8 | 5 | 37 | 53 |
+| 2025-03-26 | server | SHOULD NOT | 4 | 1 | 1 | 2 | 1 |
+| 2025-03-26 | server | MAY | 19 | 1 | 3 | 15 | 18 |
+| 2025-03-26 | server | other | 11 | 4 | 0 | 7 | 1 |
+| 2025-03-26 | client | MUST | 47 | 9 | 8 | 30 | 34 |
+| 2025-03-26 | client | MUST NOT | 12 | 1 | 2 | 9 | 3 |
+| 2025-03-26 | client | SHOULD | 51 | 8 | 7 | 36 | 52 |
+| 2025-03-26 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
+| 2025-03-26 | client | MAY | 22 | 3 | 2 | 17 | 15 |
+| 2025-03-26 | client | other | 7 | 4 | 0 | 3 | 5 |
+| 2025-06-18 | server | MUST | 66 | 10 | 13 | 43 | 35 |
 | 2025-06-18 | server | MUST NOT | 10 | 0 | 1 | 9 | 8 |
-| 2025-06-18 | server | SHOULD | 52 | 0 | 4 | 48 | 63 |
-| 2025-06-18 | server | SHOULD NOT | 4 | 0 | 1 | 3 | 1 |
-| 2025-06-18 | server | MAY | 17 | 0 | 2 | 15 | 18 |
-| 2025-06-18 | server | other | 15 | 0 | 0 | 15 | 3 |
-| 2025-06-18 | client | MUST | 58 | 1 | 13 | 44 | 43 |
-| 2025-06-18 | client | MUST NOT | 13 | 0 | 2 | 11 | 5 |
-| 2025-06-18 | client | SHOULD | 59 | 0 | 4 | 55 | 56 |
-| 2025-06-18 | client | SHOULD NOT | 2 | 0 | 1 | 1 | 3 |
-| 2025-06-18 | client | MAY | 20 | 0 | 2 | 18 | 15 |
-| 2025-06-18 | client | other | 10 | 0 | 0 | 10 | 8 |
-| 2025-11-25 | server | MUST | 116 | 1 | 13 | 102 | 64 |
+| 2025-06-18 | server | SHOULD | 52 | 7 | 4 | 41 | 63 |
+| 2025-06-18 | server | SHOULD NOT | 4 | 1 | 1 | 2 | 1 |
+| 2025-06-18 | server | MAY | 17 | 1 | 2 | 14 | 18 |
+| 2025-06-18 | server | other | 15 | 4 | 0 | 11 | 3 |
+| 2025-06-18 | client | MUST | 58 | 10 | 14 | 34 | 43 |
+| 2025-06-18 | client | MUST NOT | 13 | 0 | 3 | 10 | 5 |
+| 2025-06-18 | client | SHOULD | 59 | 7 | 6 | 46 | 56 |
+| 2025-06-18 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
+| 2025-06-18 | client | MAY | 20 | 3 | 2 | 15 | 15 |
+| 2025-06-18 | client | other | 10 | 4 | 0 | 6 | 8 |
+| 2025-11-25 | server | MUST | 116 | 10 | 13 | 93 | 64 |
 | 2025-11-25 | server | MUST NOT | 22 | 0 | 1 | 21 | 13 |
-| 2025-11-25 | server | SHOULD | 78 | 0 | 5 | 73 | 81 |
-| 2025-11-25 | server | SHOULD NOT | 11 | 0 | 1 | 10 | 3 |
-| 2025-11-25 | server | MAY | 27 | 0 | 2 | 25 | 28 |
-| 2025-11-25 | server | other | 19 | 0 | 0 | 19 | 2 |
-| 2025-11-25 | client | MUST | 82 | 1 | 14 | 67 | 98 |
-| 2025-11-25 | client | MUST NOT | 16 | 0 | 2 | 14 | 19 |
-| 2025-11-25 | client | SHOULD | 74 | 0 | 9 | 65 | 85 |
-| 2025-11-25 | client | SHOULD NOT | 5 | 0 | 1 | 4 | 9 |
-| 2025-11-25 | client | MAY | 25 | 0 | 3 | 22 | 30 |
-| 2025-11-25 | client | other | 13 | 0 | 0 | 13 | 8 |
-| 2026-07-28 | server | MUST | 135 | 1 | 15 | 119 | 89 |
-| 2026-07-28 | server | MUST NOT | 46 | 0 | 1 | 45 | 18 |
-| 2026-07-28 | server | SHOULD | 74 | 0 | 6 | 68 | 86 |
-| 2026-07-28 | server | SHOULD NOT | 12 | 0 | 1 | 11 | 8 |
-| 2026-07-28 | server | MAY | 31 | 0 | 2 | 29 | 30 |
-| 2026-07-28 | server | other | 23 | 0 | 0 | 23 | 4 |
-| 2026-07-28 | client | MUST | 98 | 1 | 21 | 76 | 126 |
-| 2026-07-28 | client | MUST NOT | 26 | 0 | 2 | 24 | 38 |
-| 2026-07-28 | client | SHOULD | 83 | 0 | 9 | 74 | 77 |
-| 2026-07-28 | client | SHOULD NOT | 13 | 0 | 1 | 12 | 7 |
-| 2026-07-28 | client | MAY | 23 | 0 | 3 | 20 | 38 |
-| 2026-07-28 | client | other | 13 | 0 | 0 | 13 | 14 |
+| 2025-11-25 | server | SHOULD | 78 | 8 | 5 | 65 | 81 |
+| 2025-11-25 | server | SHOULD NOT | 11 | 1 | 1 | 9 | 3 |
+| 2025-11-25 | server | MAY | 27 | 1 | 2 | 24 | 28 |
+| 2025-11-25 | server | other | 19 | 4 | 0 | 15 | 2 |
+| 2025-11-25 | client | MUST | 82 | 11 | 14 | 57 | 98 |
+| 2025-11-25 | client | MUST NOT | 16 | 0 | 3 | 13 | 19 |
+| 2025-11-25 | client | SHOULD | 74 | 7 | 11 | 56 | 85 |
+| 2025-11-25 | client | SHOULD NOT | 5 | 1 | 1 | 3 | 9 |
+| 2025-11-25 | client | MAY | 25 | 3 | 3 | 19 | 30 |
+| 2025-11-25 | client | other | 13 | 4 | 0 | 9 | 8 |
+| 2026-07-28 | server | MUST | 135 | 12 | 15 | 108 | 89 |
+| 2026-07-28 | server | MUST NOT | 46 | 1 | 1 | 44 | 18 |
+| 2026-07-28 | server | SHOULD | 74 | 3 | 6 | 65 | 86 |
+| 2026-07-28 | server | SHOULD NOT | 12 | 1 | 2 | 9 | 8 |
+| 2026-07-28 | server | MAY | 31 | 3 | 2 | 26 | 30 |
+| 2026-07-28 | server | other | 23 | 2 | 0 | 21 | 4 |
+| 2026-07-28 | client | MUST | 98 | 4 | 21 | 73 | 126 |
+| 2026-07-28 | client | MUST NOT | 26 | 1 | 2 | 23 | 38 |
+| 2026-07-28 | client | SHOULD | 83 | 3 | 10 | 70 | 77 |
+| 2026-07-28 | client | SHOULD NOT | 13 | 3 | 1 | 9 | 7 |
+| 2026-07-28 | client | MAY | 23 | 2 | 3 | 18 | 38 |
+| 2026-07-28 | client | other | 13 | 1 | 0 | 12 | 14 |
 
 ## 2024-11-05
 
@@ -119,24 +119,24 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-respect-negotiated-version-and-capabilities-should](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#operation) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-all-requests-2024](https://modelcontextprotocol.io/specification/2024-11-05/basic/lifecycle#error-handling) | SHOULD | both | n/a: 2024-11-05 not served | **MISSING** |
-| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | **MISSING** | **MISSING** |
+| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-implementations-support-base-and-lifecycle` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-implementations-support-base-and-lifecycle` |
+| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-initialization-first-interaction` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-initialization-first-interaction` |
+| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-client-sends-initialize` |
+| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-server-responds-caps-and-info` | n/a: addresses the other side |
+| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-client-sends-initialized-after-init` |
+| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-client-no-requests-before-init-response` |
+| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-server-no-requests-before-initialized` | n/a: addresses the other side |
+| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-capabilities-establish-session-features` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-capabilities-establish-session-features` |
+| [lifecycle-respect-negotiated-version-and-capabilities-should](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#operation) | SHOULD | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-should` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-should` |
+| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **gap** #203: StdioTransport.Close sends SIGTERM at the same moment it closes stdin instead of waiting for the child to exit |
+| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-stdio-server-may-exit` | n/a: addresses the other side |
+| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-http-shutdown-closing-connection` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-http-shutdown-closing-connection` |
+| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-prepared-for-error-cases` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-prepared-for-error-cases` |
+| [lifecycle-timeouts-all-requests-2024](https://modelcontextprotocol.io/specification/2024-11-05/basic/lifecycle#error-handling) | SHOULD | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-timeouts-all-requests-2024` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-timeouts-all-requests-2024` |
+| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-instructions-may-go-in-system-prompt` |
+| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-capability-sets-open` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-capability-sets-open` |
+| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | tested: `conformance.TestLifecycleServer/2024-11-05/lifecycle/lifecycle-implementation-name-version-required` | tested: `conformance.TestLifecycleClient/2024-11-05/lifecycle/lifecycle-implementation-name-version-required` |
 
 ### logging
 
@@ -188,17 +188,17 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | **MISSING** | **MISSING** |
+| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | tested: `conformance.TestLifecycleServer/2024-11-05/ping/ping-receiver-responds-promptly-empty` | tested: `conformance.TestLifecycleClient/2024-11-05/ping/ping-receiver-responds-promptly-empty` |
+| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | tested: `conformance.TestLifecycleServer/2024-11-05/ping/ping-either-party-may-initiate` | tested: `conformance.TestLifecycleClient/2024-11-05/ping/ping-either-party-may-initiate` |
 | [ping-sender-may-consider-stale](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MAY | both | n/a: catalogue marks it n/a | n/a: does not ping |
 | [ping-periodic-pings](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: optional feature mcpx does not implement | n/a: optional feature mcpx does not implement |
 | [ping-frequency-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-timeouts-appropriate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
+| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | tested: `conformance.TestLifecycleServer/2024-11-05/ping/ping-avoid-excessive` | tested: `conformance.TestLifecycleClient/2024-11-05/ping/ping-avoid-excessive` |
 | [ping-timeout-is-connection-failure](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-multiple-failures-may-reset](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | MAY | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-log-failures](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | **MISSING** | **MISSING** |
+| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | tested: `conformance.TestLifecycleServer/2024-11-05/ping/ping-schema-receiver-must-respond` | tested: `conformance.TestLifecycleClient/2024-11-05/ping/ping-schema-receiver-must-respond` |
 
 ### progress
 
@@ -376,13 +376,13 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **MISSING** |
+| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2024-11-05/versioning/lifecycle-client-sends-supported-version` |
+| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2024-11-05/versioning/lifecycle-client-sends-latest-version` |
+| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2024-11-05/versioning/lifecycle-client-may-support-older` |
+| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2024-11-05/versioning/lifecycle-server-echoes-supported-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2024-11-05/versioning/lifecycle-server-counteroffers-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | tested: `conformance.TestLifecycleServer/2024-11-05/versioning/lifecycle-server-counteroffers-latest` | n/a: addresses the other side |
+| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **gap** #203: initializeLegacy records whatever protocolVersion the server answers; an unsupported one is accepted |
 
 ## 2025-03-26
 
@@ -457,29 +457,29 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-initialize-not-in-batch](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#initialization) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-respect-negotiated-version-and-capabilities-should](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#operation) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-establish](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-cancel-on-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-may-reset-on-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | MAY | both | n/a: catalogue marks it n/a | **MISSING** |
-| [lifecycle-timeouts-max-regardless-of-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | **MISSING** | **MISSING** |
+| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-implementations-support-base-and-lifecycle` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-implementations-support-base-and-lifecycle` |
+| [lifecycle-initialize-not-in-batch](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#initialization) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-initialize-not-in-batch` |
+| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-initialization-first-interaction` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-initialization-first-interaction` |
+| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-client-sends-initialize` |
+| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-server-responds-caps-and-info` | n/a: addresses the other side |
+| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-client-sends-initialized-after-init` |
+| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-client-no-requests-before-init-response` |
+| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-server-no-requests-before-initialized` | n/a: addresses the other side |
+| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-capabilities-establish-session-features` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-capabilities-establish-session-features` |
+| [lifecycle-respect-negotiated-version-and-capabilities-should](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle#operation) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-should` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-should` |
+| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **gap** #203: StdioTransport.Close sends SIGTERM at the same moment it closes stdin instead of waiting for the child to exit |
+| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-stdio-server-may-exit` | n/a: addresses the other side |
+| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-http-shutdown-closing-connection` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-http-shutdown-closing-connection` |
+| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-prepared-for-error-cases` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-prepared-for-error-cases` |
+| [lifecycle-timeouts-establish](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-timeouts-establish` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-timeouts-establish` |
+| [lifecycle-timeouts-cancel-on-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-timeouts-cancel-on-expiry` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-timeouts-cancel-on-expiry` |
+| [lifecycle-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-timeouts-per-request-configurable` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-timeouts-per-request-configurable` |
+| [lifecycle-timeouts-may-reset-on-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | MAY | both | n/a: catalogue marks it n/a | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-timeouts-may-reset-on-progress` |
+| [lifecycle-timeouts-max-regardless-of-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-timeouts-max-regardless-of-progress` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-timeouts-max-regardless-of-progress` |
+| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-instructions-may-go-in-system-prompt` |
+| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-capability-sets-open` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-capability-sets-open` |
+| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | tested: `conformance.TestLifecycleServer/2025-03-26/lifecycle/lifecycle-implementation-name-version-required` | tested: `conformance.TestLifecycleClient/2025-03-26/lifecycle/lifecycle-implementation-name-version-required` |
 
 ### logging
 
@@ -535,17 +535,17 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | **MISSING** | **MISSING** |
+| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | tested: `conformance.TestLifecycleServer/2025-03-26/ping/ping-receiver-responds-promptly-empty` | tested: `conformance.TestLifecycleClient/2025-03-26/ping/ping-receiver-responds-promptly-empty` |
+| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-03-26/ping/ping-either-party-may-initiate` | tested: `conformance.TestLifecycleClient/2025-03-26/ping/ping-either-party-may-initiate` |
 | [ping-sender-may-consider-stale](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MAY | both | n/a: catalogue marks it n/a | n/a: does not ping |
 | [ping-periodic-pings](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: optional feature mcpx does not implement | n/a: optional feature mcpx does not implement |
 | [ping-frequency-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-timeouts-appropriate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
+| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-03-26/ping/ping-avoid-excessive` | tested: `conformance.TestLifecycleClient/2025-03-26/ping/ping-avoid-excessive` |
 | [ping-timeout-is-connection-failure](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-multiple-failures-may-reset](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | MAY | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-log-failures](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | **MISSING** | **MISSING** |
+| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | tested: `conformance.TestLifecycleServer/2025-03-26/ping/ping-schema-receiver-must-respond` | tested: `conformance.TestLifecycleClient/2025-03-26/ping/ping-schema-receiver-must-respond` |
 
 ### progress
 
@@ -766,13 +766,13 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **MISSING** |
+| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/versioning/lifecycle-client-sends-supported-version` |
+| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/versioning/lifecycle-client-sends-latest-version` |
+| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-03-26/versioning/lifecycle-client-may-support-older` |
+| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2025-03-26/versioning/lifecycle-server-echoes-supported-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2025-03-26/versioning/lifecycle-server-counteroffers-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | tested: `conformance.TestLifecycleServer/2025-03-26/versioning/lifecycle-server-counteroffers-latest` | n/a: addresses the other side |
+| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **gap** #203: initializeLegacy records whatever protocolVersion the server answers; an unsupported one is accepted |
 
 ## 2025-06-18
 
@@ -874,28 +874,28 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-respect-negotiated-version-and-capabilities-must](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#operation) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-establish](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-cancel-on-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-may-reset-on-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | MAY | both | n/a: catalogue marks it n/a | **MISSING** |
-| [lifecycle-timeouts-max-regardless-of-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | **MISSING** | **MISSING** |
+| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-implementations-support-base-and-lifecycle` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-implementations-support-base-and-lifecycle` |
+| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-initialization-first-interaction` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-initialization-first-interaction` |
+| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-client-sends-initialize` |
+| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-server-responds-caps-and-info` | n/a: addresses the other side |
+| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-client-sends-initialized-after-init` |
+| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-client-no-requests-before-init-response` |
+| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-server-no-requests-before-initialized` | n/a: addresses the other side |
+| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-capabilities-establish-session-features` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-capabilities-establish-session-features` |
+| [lifecycle-respect-negotiated-version-and-capabilities-must](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#operation) | MUST | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-must` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-must` |
+| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **gap** #203: StdioTransport.Close sends SIGTERM at the same moment it closes stdin instead of waiting for the child to exit |
+| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-stdio-server-may-exit` | n/a: addresses the other side |
+| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-http-shutdown-closing-connection` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-http-shutdown-closing-connection` |
+| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-prepared-for-error-cases` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-prepared-for-error-cases` |
+| [lifecycle-timeouts-establish](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-timeouts-establish` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-timeouts-establish` |
+| [lifecycle-timeouts-cancel-on-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-timeouts-cancel-on-expiry` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-timeouts-cancel-on-expiry` |
+| [lifecycle-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-timeouts-per-request-configurable` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-timeouts-per-request-configurable` |
+| [lifecycle-timeouts-may-reset-on-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | MAY | both | n/a: catalogue marks it n/a | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-timeouts-may-reset-on-progress` |
+| [lifecycle-timeouts-max-regardless-of-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-timeouts-max-regardless-of-progress` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-timeouts-max-regardless-of-progress` |
+| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-instructions-may-go-in-system-prompt` |
+| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-capability-sets-open` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-capability-sets-open` |
+| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | tested: `conformance.TestLifecycleServer/2025-06-18/lifecycle/lifecycle-implementation-name-version-required` | tested: `conformance.TestLifecycleClient/2025-06-18/lifecycle/lifecycle-implementation-name-version-required` |
 
 ### logging
 
@@ -954,17 +954,17 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | **MISSING** | **MISSING** |
+| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | tested: `conformance.TestLifecycleServer/2025-06-18/ping/ping-receiver-responds-promptly-empty` | tested: `conformance.TestLifecycleClient/2025-06-18/ping/ping-receiver-responds-promptly-empty` |
+| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-06-18/ping/ping-either-party-may-initiate` | tested: `conformance.TestLifecycleClient/2025-06-18/ping/ping-either-party-may-initiate` |
 | [ping-sender-may-consider-stale](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MAY | both | n/a: catalogue marks it n/a | n/a: does not ping |
 | [ping-periodic-pings](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: optional feature mcpx does not implement | n/a: optional feature mcpx does not implement |
 | [ping-frequency-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-timeouts-appropriate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
+| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-06-18/ping/ping-avoid-excessive` | tested: `conformance.TestLifecycleClient/2025-06-18/ping/ping-avoid-excessive` |
 | [ping-timeout-is-connection-failure](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-multiple-failures-may-reset](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | MAY | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-log-failures](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | **MISSING** | **MISSING** |
+| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | tested: `conformance.TestLifecycleServer/2025-06-18/ping/ping-schema-receiver-must-respond` | tested: `conformance.TestLifecycleClient/2025-06-18/ping/ping-schema-receiver-must-respond` |
 
 ### progress
 
@@ -1199,14 +1199,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-http-protocol-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-06-18/versioning/lifecycle-client-sends-supported-version` |
+| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-06-18/versioning/lifecycle-client-sends-latest-version` |
+| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-06-18/versioning/lifecycle-client-may-support-older` |
+| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2025-06-18/versioning/lifecycle-server-echoes-supported-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2025-06-18/versioning/lifecycle-server-counteroffers-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | tested: `conformance.TestLifecycleServer/2025-06-18/versioning/lifecycle-server-counteroffers-latest` | n/a: addresses the other side |
+| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **gap** #203: initializeLegacy records whatever protocolVersion the server answers; an unsupported one is accepted |
+| [lifecycle-http-protocol-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | **gap** #203: the HTTP transport sends MCP-Protocol-Version 2025-11-25 after negotiating 2025-06-18 |
 
 ## 2025-11-25
 
@@ -1386,29 +1386,29 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-respect-negotiated-version-and-capabilities-must](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#operation) | MUST | both | **MISSING** | **MISSING** |
-| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-establish](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-cancel-on-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-timeouts-may-reset-on-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | MAY | both | n/a: catalogue marks it n/a | **MISSING** |
-| [lifecycle-timeouts-max-regardless-of-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | **MISSING** | **MISSING** |
-| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | **MISSING** | **MISSING** |
-| [lifecycle-include-context-only-if-declared](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | SHOULD | server | **MISSING** | n/a: addresses the other side |
+| [lifecycle-implementations-support-base-and-lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/index) | MUST | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-implementations-support-base-and-lifecycle` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-implementations-support-base-and-lifecycle` |
+| [lifecycle-initialization-first-interaction](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-initialization-first-interaction` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-initialization-first-interaction` |
+| [lifecycle-client-sends-initialize](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-client-sends-initialize` |
+| [lifecycle-server-responds-caps-and-info](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | server | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-server-responds-caps-and-info` | n/a: addresses the other side |
+| [lifecycle-client-sends-initialized-after-init](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-client-sends-initialized-after-init` |
+| [lifecycle-client-no-requests-before-init-response](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-client-no-requests-before-init-response` |
+| [lifecycle-server-no-requests-before-initialized](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization) | SHOULD NOT | server | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-server-no-requests-before-initialized` | n/a: addresses the other side |
+| [lifecycle-capabilities-establish-session-features](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#capability-negotiation) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-capabilities-establish-session-features` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-capabilities-establish-session-features` |
+| [lifecycle-respect-negotiated-version-and-capabilities-must](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#operation) | MUST | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-must` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-respect-negotiated-version-and-capabilities-must` |
+| [lifecycle-stdio-client-shutdown-sequence](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | SHOULD | client | n/a: addresses the other side | **gap** #203: StdioTransport.Close sends SIGTERM at the same moment it closes stdin instead of waiting for the child to exit |
+| [lifecycle-stdio-server-may-exit](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio) | MAY | server | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-stdio-server-may-exit` | n/a: addresses the other side |
+| [lifecycle-http-shutdown-closing-connection](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#http) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-http-shutdown-closing-connection` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-http-shutdown-closing-connection` |
+| [lifecycle-prepared-for-error-cases](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#error-handling) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-prepared-for-error-cases` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-prepared-for-error-cases` |
+| [lifecycle-timeouts-establish](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-timeouts-establish` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-timeouts-establish` |
+| [lifecycle-timeouts-cancel-on-expiry](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-timeouts-cancel-on-expiry` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-timeouts-cancel-on-expiry` |
+| [lifecycle-timeouts-per-request-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-timeouts-per-request-configurable` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-timeouts-per-request-configurable` |
+| [lifecycle-timeouts-may-reset-on-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | MAY | both | n/a: catalogue marks it n/a | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-timeouts-may-reset-on-progress` |
+| [lifecycle-timeouts-max-regardless-of-progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-timeouts-max-regardless-of-progress` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-timeouts-max-regardless-of-progress` |
+| [lifecycle-cancel-not-initialize](https://modelcontextprotocol.io/specification/2025-11-25/schema#cancellednotification) | MUST NOT | client | n/a: addresses the other side | **gap** #203: a timed-out initialize is followed by notifications/cancelled for it |
+| [lifecycle-instructions-may-go-in-system-prompt](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializeresult) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-instructions-may-go-in-system-prompt` |
+| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-capability-sets-open` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-capability-sets-open` |
+| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-implementation-name-version-required` | tested: `conformance.TestLifecycleClient/2025-11-25/lifecycle/lifecycle-implementation-name-version-required` |
+| [lifecycle-include-context-only-if-declared](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | SHOULD | server | tested: `conformance.TestLifecycleServer/2025-11-25/lifecycle/lifecycle-include-context-only-if-declared` | n/a: addresses the other side |
 
 ### logging
 
@@ -1473,17 +1473,17 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | **MISSING** | **MISSING** |
+| [ping-receiver-responds-promptly-empty](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MUST | both | tested: `conformance.TestLifecycleServer/2025-11-25/ping/ping-receiver-responds-promptly-empty` | tested: `conformance.TestLifecycleClient/2025-11-25/ping/ping-receiver-responds-promptly-empty` |
+| [ping-either-party-may-initiate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview) | (definitional) | both | tested: `conformance.TestLifecycleServer/2025-11-25/ping/ping-either-party-may-initiate` | tested: `conformance.TestLifecycleClient/2025-11-25/ping/ping-either-party-may-initiate` |
 | [ping-sender-may-consider-stale](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements) | MAY | both | n/a: catalogue marks it n/a | n/a: does not ping |
 | [ping-periodic-pings](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: optional feature mcpx does not implement | n/a: optional feature mcpx does not implement |
 | [ping-frequency-configurable](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-timeouts-appropriate](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | **MISSING** | **MISSING** |
+| [ping-avoid-excessive](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#implementation-considerations) | SHOULD | both | tested: `conformance.TestLifecycleServer/2025-11-25/ping/ping-avoid-excessive` | tested: `conformance.TestLifecycleClient/2025-11-25/ping/ping-avoid-excessive` |
 | [ping-timeout-is-connection-failure](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-multiple-failures-may-reset](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | MAY | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
 | [ping-log-failures](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#error-handling) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | **MISSING** | **MISSING** |
+| [ping-schema-receiver-must-respond](https://modelcontextprotocol.io/specification/2025-11-25/schema#pingrequest) | must (lowercase) | both | tested: `conformance.TestLifecycleServer/2025-11-25/ping/ping-schema-receiver-must-respond` | tested: `conformance.TestLifecycleClient/2025-11-25/ping/ping-schema-receiver-must-respond` |
 
 ### progress
 
@@ -1815,14 +1815,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-http-protocol-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [lifecycle-client-sends-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/versioning/lifecycle-client-sends-supported-version` |
+| [lifecycle-client-sends-latest-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/versioning/lifecycle-client-sends-latest-version` |
+| [lifecycle-client-may-support-older](https://modelcontextprotocol.io/specification/2025-11-25/schema#initializerequestparams) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/versioning/lifecycle-client-may-support-older` |
+| [lifecycle-server-echoes-supported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2025-11-25/versioning/lifecycle-server-echoes-supported-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2025-11-25/versioning/lifecycle-server-counteroffers-version` | n/a: addresses the other side |
+| [lifecycle-server-counteroffers-latest](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD | server | tested: `conformance.TestLifecycleServer/2025-11-25/versioning/lifecycle-server-counteroffers-latest` | n/a: addresses the other side |
+| [lifecycle-client-disconnects-on-unsupported-version](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | SHOULD (prose) / MUST (schema) | client | n/a: addresses the other side | **gap** #203: initializeLegacy records whatever protocolVersion the server answers; an unsupported one is accepted |
+| [lifecycle-http-protocol-version-header](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2025-11-25/versioning/lifecycle-http-protocol-version-header` |
 
 ## 2026-07-28
 
@@ -1950,26 +1950,26 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [discover-client-may-call](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#when-to-call) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [discover-supportedversions](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
-| [discover-client-choose-from-list](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | should (lowercase) | client | n/a: addresses the other side | **MISSING** |
-| [discover-capabilities](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
-| [discover-serverinfo-in-meta](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [discover-serverinfo-not-for-behavior](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [discover-instructions-optional](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | MAY | server | **MISSING** | n/a: addresses the other side |
+| [discover-client-may-call](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#when-to-call) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/discover/discover-client-may-call` |
+| [discover-supportedversions](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | REQUIRED (schema) | server | tested: `conformance.TestLifecycleServer/2026-07-28/discover/discover-supportedversions` | n/a: addresses the other side |
+| [discover-client-choose-from-list](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | should (lowercase) | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/discover/discover-client-choose-from-list` |
+| [discover-capabilities](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | REQUIRED (schema) | server | tested: `conformance.TestLifecycleServer/2026-07-28/discover/discover-capabilities` | n/a: addresses the other side |
+| [discover-serverinfo-in-meta](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | SHOULD | server | tested: `conformance.TestLifecycleServer/2026-07-28/discover/discover-serverinfo-in-meta` | n/a: addresses the other side |
+| [discover-serverinfo-not-for-behavior](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/discover/discover-serverinfo-not-for-behavior` |
+| [discover-instructions-optional](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#discoverresult) | MAY | server | tested: `conformance.TestLifecycleServer/2026-07-28/discover/discover-instructions-optional` | n/a: addresses the other side |
 
 ### discover / caching
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [discover-cacheable](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#response) | REQUIRED (schema) | server | **MISSING** | n/a: addresses the other side |
+| [discover-cacheable](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#response) | REQUIRED (schema) | server | tested: `conformance.TestLifecycleServer/2026-07-28/discover/discover-cacheable` | n/a: addresses the other side |
 
 ### discover / meta
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [discover-resulttype](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#response) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [discover-request-meta-required](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#request) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [discover-resulttype](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#response) | MUST | server | tested: `conformance.TestLifecycleServer/2026-07-28/discover/discover-resulttype` | n/a: addresses the other side |
+| [discover-request-meta-required](https://modelcontextprotocol.io/specification/2026-07-28/server/discover#request) | MUST | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/discover/discover-request-meta-required` |
 
 ### elicitation
 
@@ -2078,14 +2078,14 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | **MISSING** | **MISSING** |
-| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | **MISSING** | **MISSING** |
-| [lifecycle-include-context-only-if-declared](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-stateless-no-reliance-on-prior-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-stateless-multiple-conversations](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-stateless-no-connection-reuse-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | SHOULD NOT | server | **MISSING** | n/a: addresses the other side |
-| [lifecycle-stateless-client-process-lifetime](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | SHOULD NOT | client | n/a: addresses the other side | **MISSING** |
-| [lifecycle-stateless-explicit-handles](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
+| [lifecycle-capability-sets-open](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | (definitional) | both | tested: `conformance.TestLifecycleServer/2026-07-28/lifecycle/lifecycle-capability-sets-open` | tested: `conformance.TestLifecycleClient/2026-07-28/lifecycle/lifecycle-capability-sets-open` |
+| [lifecycle-implementation-name-version-required](https://modelcontextprotocol.io/specification/2026-07-28/schema#implementation) | REQUIRED (schema field) | both | tested: `conformance.TestLifecycleServer/2026-07-28/lifecycle/lifecycle-implementation-name-version-required` | tested: `conformance.TestLifecycleClient/2026-07-28/lifecycle/lifecycle-implementation-name-version-required` |
+| [lifecycle-include-context-only-if-declared](https://modelcontextprotocol.io/specification/2026-07-28/schema#clientcapabilities) | SHOULD | server | tested: `conformance.TestLifecycleServer/2026-07-28/lifecycle/lifecycle-include-context-only-if-declared` | n/a: addresses the other side |
+| [lifecycle-stateless-no-reliance-on-prior-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | MUST NOT | server | tested: `conformance.TestLifecycleServer/2026-07-28/lifecycle/lifecycle-stateless-no-reliance-on-prior-requests` | n/a: addresses the other side |
+| [lifecycle-stateless-multiple-conversations](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | SHOULD | server | tested: `conformance.TestLifecycleServer/2026-07-28/lifecycle/lifecycle-stateless-multiple-conversations` | n/a: addresses the other side |
+| [lifecycle-stateless-no-connection-reuse-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | SHOULD NOT | server | **gap** #201: requestState is HMAC-bound to the connection that minted it | n/a: addresses the other side |
+| [lifecycle-stateless-client-process-lifetime](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | SHOULD NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/lifecycle/lifecycle-stateless-client-process-lifetime` |
+| [lifecycle-stateless-explicit-handles](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#statelessness) | MUST | both | tested: `conformance.TestLifecycleServer/2026-07-28/lifecycle/lifecycle-stateless-explicit-handles` | n/a: catalogue marks it n/a |
 
 ### logging
 
@@ -2553,21 +2553,21 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [versioning-implementations-support-base-versioning-patterns](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MUST | both | **MISSING** | **MISSING** |
-| [meta-extension-ids-follow-meta-rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#extension-negotiation) | MUST | both | **MISSING** | n/a: declares no extensions |
-| [versioning-server-unsupported-version-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [versioning-client-retry-with-supported](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [versioning-server-must-implement-discover](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [versioning-client-may-discover-first](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | MAY | client | n/a: addresses the other side | **MISSING** |
-| [versioning-extension-fallback-or-reject](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#extension-negotiation) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
+| [versioning-implementations-support-base-versioning-patterns](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MUST | both | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/versioning-implementations-support-base-versioning-patterns` | tested: `conformance.TestLifecycleClient/2026-07-28/versioning/versioning-implementations-support-base-versioning-patterns` |
+| [meta-extension-ids-follow-meta-rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#extension-negotiation) | MUST | both | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/meta-extension-ids-follow-meta-rules` | n/a: declares no extensions |
+| [versioning-server-unsupported-version-error](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/versioning-server-unsupported-version-error` | n/a: addresses the other side |
+| [versioning-client-retry-with-supported](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | SHOULD | client | n/a: addresses the other side | **gap** #200: a -32022 answer is returned as an error; the client does not retry with a version from data.supported |
+| [versioning-server-must-implement-discover](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | MUST | server | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/versioning-server-must-implement-discover` | n/a: addresses the other side |
+| [versioning-client-may-discover-first](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation) | MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/versioning/versioning-client-may-discover-first` |
+| [versioning-extension-fallback-or-reject](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#extension-negotiation) | MUST | both | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/versioning-extension-fallback-or-reject` | n/a: catalogue marks it n/a |
 | [versioning-extensions-document-fallback](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#extension-negotiation) | SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [versioning-dual-era-server-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#backward-compatibility-with-initialization-based-versions) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [versioning-era-cache](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#backward-compatibility-with-initialization-based-versions) | SHOULD / MAY | client | n/a: addresses the other side | **MISSING** |
+| [versioning-dual-era-server-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#backward-compatibility-with-initialization-based-versions) | MAY | server | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/versioning-dual-era-server-may` | n/a: addresses the other side |
+| [versioning-era-cache](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#backward-compatibility-with-initialization-based-versions) | SHOULD / MAY | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/versioning/versioning-era-cache` |
 | [versioning-modern-only-server-names-versions-to-initialize](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#backward-compatibility-with-initialization-based-versions) | SHOULD | server | n/a: dual-era); for an initialize naming an unsupported version it does name the legacy list | n/a: addresses the other side |
 | [versioning-modern-client-probe-legacy-stdio](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#compatibility-matrix) | SHOULD | client | n/a: addresses the other side | n/a: unless `protocol: force-modern`; then discover is first (yes |
-| [versioning-dual-era-client-probe-discover-first-stdio](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [versioning-fallback-not-keyed-to-one-code](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | MUST NOT | client | n/a: addresses the other side | **MISSING** |
+| [versioning-dual-era-client-probe-discover-first-stdio](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/versioning/versioning-dual-era-client-probe-discover-first-stdio` |
+| [versioning-fallback-not-keyed-to-one-code](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility) | MUST NOT | client | n/a: addresses the other side | tested: `conformance.TestLifecycleClient/2026-07-28/versioning/versioning-fallback-not-keyed-to-one-code` |
 | [versioning-dual-era-http-detect](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#backward-compatibility) | MAY / SHOULD | client | n/a: addresses the other side | n/a: legacy first |
-| [versioning-dual-era-server-selects-by-opening](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#compatibility-matrix) | (normative description) | server | **MISSING** | n/a: addresses the other side |
-| [versioning-dual-era-both-concurrently](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#compatibility-matrix) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [deprecated-should-not-adopt](https://modelcontextprotocol.io/specification/2026-07-28/deprecated#deprecated) | SHOULD NOT / SHOULD | both | **MISSING** | **MISSING** |
+| [versioning-dual-era-server-selects-by-opening](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#compatibility-matrix) | (normative description) | server | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/versioning-dual-era-server-selects-by-opening` | n/a: addresses the other side |
+| [versioning-dual-era-both-concurrently](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#compatibility-matrix) | MAY | server | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/versioning-dual-era-both-concurrently` | n/a: addresses the other side |
+| [deprecated-should-not-adopt](https://modelcontextprotocol.io/specification/2026-07-28/deprecated#deprecated) | SHOULD NOT / SHOULD | both | tested: `conformance.TestLifecycleServer/2026-07-28/versioning/deprecated-should-not-adopt` | tested: `conformance.TestLifecycleClient/2026-07-28/versioning/deprecated-should-not-adopt` |

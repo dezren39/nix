@@ -1145,7 +1145,7 @@
     "quote": "\"Implementations **SHOULD** implement appropriate timeouts for all requests, to prevent hung connections and resource exhaustion.\"",
     "applicability": {
       "client": "applies",
-      "server": "n/a:2024-11-05 not served"
+      "server": "applies"
     },
     "notes": {
       "client": "yes (pool call timeout, HTTP client timeout)",

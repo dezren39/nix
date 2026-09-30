@@ -32,12 +32,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/conformance"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/mcpspec"
@@ -445,7 +447,9 @@ func (ss *stdioSrv) request(t *testing.T, rev, method string, p map[string]any) 
 		p = params(rev, p)
 	}
 	b := frame(id, method, p)
-	checkClientFrame(t, rev, b, "")
+	if len(methodsOf(rev, method)) == 1 {
+		checkClientFrame(t, rev, b, "")
+	}
 	ss.send(t, b)
 	return ss.response(t, rev, id)
 }
@@ -747,7 +751,9 @@ func (p *peer) ask(t *testing.T, method string, params any) map[string]any {
 	t.Helper()
 	p.mu.Lock()
 	p.nextID++
-	id := fmt.Sprintf("srv-%d", p.nextID)
+	// Numeric: string ids are a requirement of their own (messages), and
+	// the harness should not make every question depend on it.
+	id := 1000 + p.nextID
 	ch := make(chan map[string]any, 1)
 	key, _ := json.Marshal(id)
 	p.replies[string(key)] = ch
@@ -938,4 +944,125 @@ func methodsOf(rev string, methods ...string) []string {
 		}
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Requirements
+
+var (
+	catOnce sync.Once
+	catByID map[string]conformance.Requirement
+	catErr  error
+)
+
+func requirement(t *testing.T, id string) conformance.Requirement {
+	t.Helper()
+	catOnce.Do(func() {
+		root, err := conformance.ModuleRoot(".")
+		if err != nil {
+			catErr = err
+			return
+		}
+		reqs, err := conformance.Load(filepath.Join(root, conformance.CataloguePath))
+		catErr = err
+		catByID = map[string]conformance.Requirement{}
+		for _, r := range reqs {
+			catByID[r.ID] = r
+		}
+	})
+	if catErr != nil {
+		t.Fatal(catErr)
+	}
+	r, ok := catByID[id]
+	if !ok {
+		t.Fatalf("no requirement %q in the catalogue", id)
+	}
+	return r
+}
+
+// forReq runs fn once per revision the requirement has, as the subtest
+// "<rev>/<area>/<id>" -- the name conformance.SReq/CReq cover. Taking the
+// revisions from the catalogue is what makes the cover honest: the test
+// cannot claim a revision it does not run. Where a gap is recorded for the
+// cell, the subtest skips with "gap: <issue>" instead of failing.
+func forReq(t *testing.T, side, id string, fn func(t *testing.T, rev string)) {
+	t.Helper()
+	r := requirement(t, id)
+	for _, rev := range r.Revs {
+		t.Run(rev+"/"+conformance.AreaGroup(r.Area)+"/"+id, func(t *testing.T) {
+			if g := conformance.GapAt(id, side, rev); g != nil {
+				t.Skip("gap: " + g.Issue + " " + g.Why)
+			}
+			fn(t, rev)
+		})
+	}
+}
+
+func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
+}
+
+// asker is an Asker whose call raises the given questions until each is
+// answered, then finishes with text.
+type asker struct {
+	mu        sync.Mutex
+	questions []mcpserver.Question
+	answers   map[string]json.RawMessage
+	text      string
+	began     int
+	abandoned int
+}
+
+func newAsker(text string, qs ...mcpserver.Question) *asker {
+	return &asker{questions: qs, answers: map[string]json.RawMessage{}, text: text}
+}
+
+func (a *asker) Begin(context.Context, string, json.RawMessage) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.began++
+	return fmt.Sprintf("call-%d", a.began), nil
+}
+
+func (a *asker) Poll(ctx context.Context, _ string, wait time.Duration) (mcpserver.Outcome, error) {
+	a.mu.Lock()
+	var open []mcpserver.Question
+	for _, q := range a.questions {
+		if _, ok := a.answers[q.ID]; !ok {
+			open = append(open, q)
+		}
+	}
+	a.mu.Unlock()
+	if len(open) == 0 {
+		return mcpserver.Outcome{Done: true, Text: a.text}, nil
+	}
+	return mcpserver.Outcome{Questions: open}, nil
+}
+
+func (a *asker) Reply(_ context.Context, _ string, answers map[string]json.RawMessage) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k, v := range answers {
+		a.answers[k] = v
+	}
+	return nil
+}
+
+func (a *asker) Abandon(string) { a.mu.Lock(); a.abandoned++; a.mu.Unlock() }
+
+// elicitQ is a form elicitation an upstream server raises.
+func elicitQ(id string) mcpserver.Question {
+	return mcpserver.Question{ID: id, Method: "elicitation/create", Mode: "form", Server: "up",
+		Params: json.RawMessage(`{"message":"which repo?","requestedSchema":{"type":"object","properties":{"repo":{"type":"string"}}}}`)}
+}
+
+// callThatAsks is the tools/call params that go through the Asker.
+func callThatAsks() map[string]any {
+	return map[string]any{"name": "mcpx_call", "arguments": map[string]any{"namespace": "up", "tool": "t"}}
+}
+
+// sampleQ is a sampling request an upstream server raises.
+func sampleQ(id string) mcpserver.Question {
+	return mcpserver.Question{ID: id, Method: "sampling/createMessage", Server: "up",
+		Params: json.RawMessage(`{"messages":[{"role":"user","content":{"type":"text","text":"hi"}}],"maxTokens":10}`)}
 }
