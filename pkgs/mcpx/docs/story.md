@@ -2399,19 +2399,28 @@ offers it, because a result nobody collects is memory nobody frees.
 
 ```
 created:      2026-09-27T04:20:00-05:00
-last-updated: 2026-09-30T14:30:00-05:00
-increment:    2
+last-updated: 2026-09-30T16:10:00-05:00
+increment:    3
 status:       standard
 tags:         area:packaging, platform:nix
-description:  buildGoModule with vendorHash = null; unit tests run in the
+description:  buildGoModule with a pinned vendorHash; unit tests run in the
               sandbox; deno, bun and node are pinned on the wrapper's PATH.
 ```
 
-mcpx has one third-party Go dependency: `modernc.org/sqlite`, which backs the
-log index. It is a pure-Go translation rather than the usual cgo driver,
-because a cgo driver would make this derivation need a C toolchain and would
-break cross-compilation, for a database that is only ever an index over files
-that remain the source of truth.
+mcpx has **five** direct third-party Go dependencies. `modernc.org/sqlite`
+backs the log index, and it is a pure-Go translation rather than the usual cgo
+driver, because a cgo driver would make this derivation need a C toolchain and
+would break cross-compilation, for a database that is only ever an index over
+files that remain the source of truth. The other four are one decision each:
+`bubbletea`, `bubbles` and `lipgloss` for the browser, and `gopkg.in/yaml.v3`
+for OpenAPI documents. Each is argued in
+[`package.nix`](../package.nix) and listed with its reason in
+[`docs/dependencies.md`](./dependencies.md).
+
+This entry and `docs/dependencies.md` both said "one" until the browser and the
+OpenAPI work landed, while the browser entry above already described three of
+the four by name — the file disagreed with itself, which is how a count that
+nothing checks decays.
 
 That reasoning was written down and not enforced: `buildGoModule` leaves cgo
 enabled on a native build, so the derivation was free to link against a C
@@ -2432,9 +2441,13 @@ has. A man page maintained separately is wrong within two releases.
 
 `nix build .#mcpx` runs the unit suites in the sandbox. The end-to-end suite
 spawns JavaScript runtimes and binds unix sockets, so it runs outside with
-`go test ./...`.
+`go test ./...`. The sandbox list is hand-written (`package.nix`), and of the
+32 packages under `internal/` that have tests it names 18 — `internal/e2e` is
+excluded on purpose, and the other fourteen, `internal/api`, `internal/cli`
+and `internal/mcpclient` among them, by drift. A list maintained beside a
+generated one, which is the failure mode this document keeps finding (#285).
 
-2026-09-30T14:30:00-05:00
+2026-09-30T16:10:00-05:00
 
 ## The comparison register
 
