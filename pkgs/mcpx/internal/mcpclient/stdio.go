@@ -2,6 +2,7 @@ package mcpclient
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -35,6 +36,8 @@ type StdioTransport struct {
 	stderr  *ringBuffer
 	exited  chan struct{}
 	waitErr error
+
+	stdinGrace, termGrace time.Duration
 }
 
 // StdioOptions configure a child MCP server process.
@@ -47,6 +50,9 @@ type StdioOptions struct {
 	InheritEnv bool
 	// StderrTo, if non-nil, receives a copy of the child's stderr.
 	StderrTo io.Writer
+	// StdinGrace and TermGrace are Close's waits after closing stdin and
+	// after SIGTERM. Zero means defaults.StdioStdinGrace / StdioTermGrace.
+	StdinGrace, TermGrace time.Duration
 }
 
 // maxLine bounds a single JSON-RPC frame. MCP servers such as
@@ -113,6 +119,8 @@ func NewStdio(opts StdioOptions) (*StdioTransport, error) {
 		stderr:     newRingBuffer(64 << 10),
 		exited:     make(chan struct{}),
 		stderrDone: make(chan struct{}),
+		stdinGrace: cmp.Or(opts.StdinGrace, defaults.StdioStdinGrace),
+		termGrace:  cmp.Or(opts.TermGrace, defaults.StdioTermGrace),
 	}
 
 	go func() {
@@ -233,7 +241,13 @@ func waitOrTimeout(ch <-chan struct{}, d time.Duration) <-chan struct{} {
 	return out
 }
 
-// Close terminates the child process group.
+// Close ends the child the way every revision's stdio transport says a
+// client SHOULD: close its stdin and let it exit by itself, then SIGTERM if
+// it has not within a grace, then SIGKILL. Signalling at once, as mcpx used
+// to, denied a well-behaved server the clean exit that EOF is meant to give
+// it (#203, LV-39). Signals go to the whole process group, so a server's own
+// children (chrome-devtools-mcp's browser) end with it.
+// https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio
 func (t *StdioTransport) Close() error {
 	t.closeMu.Lock()
 	if t.closed {
@@ -248,13 +262,16 @@ func (t *StdioTransport) Close() error {
 		return nil
 	}
 	pgid := -t.cmd.Process.Pid
-	_ = syscall.Kill(pgid, syscall.SIGTERM)
-
 	select {
 	case <-t.exited:
-	case <-time.After(defaults.StdioDrainGrace):
-		_ = syscall.Kill(pgid, syscall.SIGKILL)
-		<-waitOrTimeout(t.exited, 2*time.Second)
+	case <-time.After(t.stdinGrace):
+		_ = syscall.Kill(pgid, syscall.SIGTERM)
+		select {
+		case <-t.exited:
+		case <-time.After(t.termGrace):
+			_ = syscall.Kill(pgid, syscall.SIGKILL)
+			<-waitOrTimeout(t.exited, defaults.StdioKillWait)
+		}
 	}
 	t.outR.Close()
 	t.errR.Close()

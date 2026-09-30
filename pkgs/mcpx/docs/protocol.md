@@ -175,6 +175,27 @@ an elicitation, and vice versa. Anything mcpx may not send this client is left
 with the broker and its default audience, so nothing is lost by a client's
 narrowness — it just does not get to answer.
 
+**Why a non-declaring 2026-07-28 client never gets `-32021` for a tool that
+asks.** 2026-07-28 `basic/index` says a server "MUST NOT rely on capabilities
+the client has not declared" and "if processing a request requires a
+capability the client did not include ... MUST return" `-32021`
+(`MissingRequiredClientCapabilityError`). The error is conditional on
+*requiring* the capability, and mcpx never does: a question it may not send
+the client goes to the broker, which is a durable queue answerable by any
+consumer (`mcpx elicit`, `/v1`, the plugin, a human) whether or not one is
+listening when it is asked -- there is no state in which the broker has no
+audience, only one in which nobody has answered yet, which ends in the
+question's own timeout. mcpx also cannot know in advance: whether an upstream
+tool elicits is decided by the upstream mid-call, so a pre-dispatch `-32021`
+would be a guess. The official suite's
+`sep-2575-server-rejects-undeclared-capability` assumes a fixture tool
+(`test_missing_capability`) that mcpx does not publish, and so does not test
+this path (#252 item 1). The extension's own methods are different:
+`tasks/get`, `tasks/update` and `tasks/cancel` from a client that did not
+declare `io.modelcontextprotocol/tasks` answer `-32021` with
+`data.requiredCapabilities` (HTTP 400), because there the capability is the
+whole request.
+
 The message is rewritten to name the originator: *"github (via mcpx) asks:
 which repository?"*. A client asked "are you sure?" with no idea who is asking
 cannot answer it.
@@ -312,6 +333,7 @@ What mcpx sends upstream, and what it will accept from a server.
 | per-server override | `protocol: legacy \| modern \| force-legacy \| force-modern` |
 | declared to servers | `elicitation.form`, `roots`; `elicitation.url` and `sampling` only when a handler exists to answer them |
 | transports | stdio, Streamable HTTP, and HTTP+SSE (2024-11-05) as the last fallback |
+| stdio shutdown | close stdin, wait `stdioShutdown.stdinGrace` (2s) for the server to exit, then `SIGTERM` the process group, wait `stdioShutdown.termGrace` (3s), then `SIGKILL` -- every revision's stdio SHOULD (#203 LV-39; it used to `SIGTERM` at once) |
 
 The per-revision rules -- headers, `x-mcp-header`, `resultType`, cancellation,
 pagination, `subscriptions/listen`, resumption -- are in
@@ -381,9 +403,18 @@ era has.
   servers, and it does support the mechanism -- and is honest per resource
   instead: the listen acknowledgement's `resourceSubscriptions` lists only the
   URIs whose updates will arrive, which is what the acknowledgement exists to
-  report, and a legacy `resources/subscribe` for such a URI is refused with
-  `-32602` naming the reason, rather than succeeding and then staying silent.
-  Only agreed URIs' updates are ever sent on a stream.
+  report. A legacy `resources/subscribe` for such a URI -- or for one no
+  configured server owns, like a bare `test://x` -- **succeeds** and delivers
+  nothing (#251). A subscription is a standing interest, not a lookup: the
+  spec does not require the resource to exist or its updates to be
+  deliverable, and the legacy revisions have no way to say "agreed, but
+  nothing will come". Refusing with `-32602`, as #247 first did, broke clients
+  that subscribe before they know (the official suite's
+  `server-resources-subscribe` and `-unsubscribe` among them). The reason is
+  not lost: the daemon publishes a `server.log` event at level `warning`
+  ("no updates will be delivered for <uri>: <reason>"), visible on
+  `/v1/events`. Honesty stays where the protocol has a mechanism for it, the
+  listen acknowledgement. Only agreed URIs' updates are ever sent on a stream.
 - **Absolute-path URIs.** A listing drops a leading `/` when it namespaces
   (`/abs/doc` is listed as `mcpx://demo/abs/doc`). The daemon resolves the
   inner part against the server's own resource list to recover `/abs/doc`,
