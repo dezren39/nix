@@ -184,6 +184,12 @@ func TestResourceSubscriptionsReachUpstream(t *testing.T) {
 		if !strings.Contains(fmt.Sprint(list), absURI) {
 			t.Fatalf("the absolute-path resource is not listed as %s: %v", absURI, list)
 		}
+		// The listing's spelling must also be readable: it names /abs/doc,
+		// which the server knows with its leading slash.
+		write(`{"jsonrpc":"2.0","id":30,"method":"resources/read","params":{"uri":"` + absURI + `"}}`)
+		if r := await(t, in, "read reply", isReply(30)); r["error"] != nil {
+			t.Fatalf("reading the listed absolute-path resource: %v", r)
+		}
 		write(`{"jsonrpc":"2.0","id":3,"method":"resources/subscribe","params":{"uri":"` + absURI + `"}}`)
 		if r := await(t, in, "subscribe reply", isReply(3)); r["error"] != nil {
 			t.Fatalf("subscribe: %v", r)

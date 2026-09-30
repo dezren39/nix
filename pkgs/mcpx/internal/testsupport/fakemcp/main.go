@@ -223,6 +223,11 @@ func handle(r req) map[string]any {
 				map[string]any{"uri": p.URI, "mimeType": "image/png", "blob": "iVBORw0KGgo="},
 			}})
 		}
+		if subscribeMode && p.URI == absResource {
+			return ok(r.ID, map[string]any{"contents": []any{
+				map[string]any{"uri": p.URI, "mimeType": "text/plain", "text": "an absolute-path resource"},
+			}})
+		}
 		if p.URI != "demo://greeting" {
 			return fail(r.ID, -32602, "no such resource: "+p.URI)
 		}

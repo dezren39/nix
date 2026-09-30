@@ -304,7 +304,7 @@ func (r *Registry) ReadResourceAsk(ctx context.Context, id, server, uri string, 
 	key := r.keyFor(p, cc)
 	r.beginAsk(id, server, key, cc.SessionID)
 	defer r.endAsk(id)
-	return p.ReadResource(ctx, key, uri)
+	return p.ReadResource(ctx, key, upstreamResourceURI(ctx, p, uri))
 }
 
 // GetPromptAsk is prompts/get, interruptibly.

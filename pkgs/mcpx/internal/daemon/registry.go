@@ -641,7 +641,9 @@ func (r *Registry) ReadResource(ctx context.Context, server, uri string, cc conf
 		return nil, UnknownServer{Name: server}
 	}
 	key := r.keyFor(p, cc)
-	return p.ReadResource(ctx, key, uri)
+	// The listing drops a leading '/', so mcpx://ns/abs/doc names /abs/doc;
+	// the server only knows its own spelling.
+	return p.ReadResource(ctx, key, upstreamResourceURI(ctx, p, uri))
 }
 
 // PromptInfo is one prompt, with the namespace it came from.
