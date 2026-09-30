@@ -45,13 +45,13 @@ const (
 	ServerStarted Kind = "server.started"
 	ServerStopped Kind = "server.stopped"
 
-	CallStarted  Kind = "call.started"
+	// CallFinished is published by the daemon's hooks. There is no
+	// call.started: it was declared here and published by nothing, so a
+	// subscriber waiting for it waited forever (docs/decisions/0001).
 	CallFinished Kind = "call.finished"
 
 	ServerLog Kind = "server.log"
 	Progress  Kind = "progress"
-
-	TaskUpdated Kind = "task.updated"
 )
 
 // Event is one thing that happened.
@@ -179,7 +179,7 @@ func (b *Bus) Subscribe(f Filter, since uint64) (sub *Subscription, gap bool) {
 // knows it missed something and can resynchronise instead of trusting a
 // stream with a hole in it.
 func (b *Bus) SubscribeFrom(f Filter, since uint64, replay bool) (sub *Subscription, gap bool) {
-	ch := make(chan Event, 256)
+	ch := make(chan Event, defaults.EventSubscriberBuf)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
