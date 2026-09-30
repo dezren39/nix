@@ -198,20 +198,22 @@ type Defaults struct {
 		LogTail        string   `json:"logTail"`
 	} `json:"autostart"`
 	Limits struct {
-		SearchLimit        int    `json:"searchLimit"`
-		CompletionValues   int    `json:"completionValues"`
-		ElicitPending      int    `json:"elicitPending"`
-		RegistryPageSize   int    `json:"registryPageSize"`
-		LeaseTTL           string `json:"leaseTTL"`
-		SocketProbeTimeout string `json:"socketProbeTimeout"`
-		WarmTimeout        string `json:"warmTimeout"`
-		RefreshTimeout     string `json:"refreshTimeout"`
-		InlineStartTimeout string `json:"inlineStartTimeout"`
-		InlineStartPoll    string `json:"inlineStartPoll"`
-		InlineProbeTimeout string `json:"inlineProbeTimeout"`
-		DoctorTimeout      string `json:"doctorTimeout"`
-		FollowBacklog      int    `json:"followBacklog"`
-		ReleaseTimeout     string `json:"releaseTimeout"`
+		SearchLimit          int    `json:"searchLimit"`
+		CompletionValues     int    `json:"completionValues"`
+		ElicitPending        int    `json:"elicitPending"`
+		RegistryPageSize     int    `json:"registryPageSize"`
+		RegistryMaxPages     int    `json:"registryMaxPages"`
+		RegistryNameFallback int    `json:"registryNameFallback"`
+		LeaseTTL             string `json:"leaseTTL"`
+		SocketProbeTimeout   string `json:"socketProbeTimeout"`
+		WarmTimeout          string `json:"warmTimeout"`
+		RefreshTimeout       string `json:"refreshTimeout"`
+		InlineStartTimeout   string `json:"inlineStartTimeout"`
+		InlineStartPoll      string `json:"inlineStartPoll"`
+		InlineProbeTimeout   string `json:"inlineProbeTimeout"`
+		DoctorTimeout        string `json:"doctorTimeout"`
+		FollowBacklog        int    `json:"followBacklog"`
+		ReleaseTimeout       string `json:"releaseTimeout"`
 	} `json:"limits"`
 	// Files are the permission bits mcpx creates things with. They are data
 	// for the same reason everything else here is -- one place to read the
@@ -606,20 +608,22 @@ var (
 	AutostartPingTimeout    = mustDur(builtin.Autostart.PingTimeout, "autostart.pingTimeout")
 	AutostartLogTail        = mustBytes(builtin.Autostart.LogTail, "autostart.logTail")
 
-	SearchLimit        = builtin.Limits.SearchLimit
-	CompletionValues   = builtin.Limits.CompletionValues
-	ElicitPending      = builtin.Limits.ElicitPending
-	RegistryPageSize   = builtin.Limits.RegistryPageSize
-	LeaseTTL           = mustDur(builtin.Limits.LeaseTTL, "limits.leaseTTL")
-	SocketProbeTimeout = mustDur(builtin.Limits.SocketProbeTimeout, "limits.socketProbeTimeout")
-	WarmTimeout        = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")
-	RefreshTimeout     = mustDur(builtin.Limits.RefreshTimeout, "limits.refreshTimeout")
-	InlineStartTimeout = mustDur(builtin.Limits.InlineStartTimeout, "limits.inlineStartTimeout")
-	InlineStartPoll    = mustDur(builtin.Limits.InlineStartPoll, "limits.inlineStartPoll")
-	InlineProbeTimeout = mustDur(builtin.Limits.InlineProbeTimeout, "limits.inlineProbeTimeout")
-	DoctorTimeout      = mustDur(builtin.Limits.DoctorTimeout, "limits.doctorTimeout")
-	ReleaseTimeout     = mustDur(builtin.Limits.ReleaseTimeout, "limits.releaseTimeout")
-	FollowBacklog      = builtin.Limits.FollowBacklog
+	SearchLimit          = builtin.Limits.SearchLimit
+	CompletionValues     = builtin.Limits.CompletionValues
+	ElicitPending        = builtin.Limits.ElicitPending
+	RegistryPageSize     = builtin.Limits.RegistryPageSize
+	RegistryMaxPages     = builtin.Limits.RegistryMaxPages
+	RegistryNameFallback = builtin.Limits.RegistryNameFallback
+	LeaseTTL             = mustDur(builtin.Limits.LeaseTTL, "limits.leaseTTL")
+	SocketProbeTimeout   = mustDur(builtin.Limits.SocketProbeTimeout, "limits.socketProbeTimeout")
+	WarmTimeout          = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")
+	RefreshTimeout       = mustDur(builtin.Limits.RefreshTimeout, "limits.refreshTimeout")
+	InlineStartTimeout   = mustDur(builtin.Limits.InlineStartTimeout, "limits.inlineStartTimeout")
+	InlineStartPoll      = mustDur(builtin.Limits.InlineStartPoll, "limits.inlineStartPoll")
+	InlineProbeTimeout   = mustDur(builtin.Limits.InlineProbeTimeout, "limits.inlineProbeTimeout")
+	DoctorTimeout        = mustDur(builtin.Limits.DoctorTimeout, "limits.doctorTimeout")
+	ReleaseTimeout       = mustDur(builtin.Limits.ReleaseTimeout, "limits.releaseTimeout")
+	FollowBacklog        = builtin.Limits.FollowBacklog
 
 	DirMode       = mustMode(builtin.Files.DirMode, "files.dirMode")
 	PublicDirMode = mustMode(builtin.Files.PublicDirMode, "files.publicDirMode")
