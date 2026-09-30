@@ -174,5 +174,11 @@
     "tools": false,
     "remember": "session",
     "annotate": true
+  },
+  "protoMessages": {
+    "listMaxAge": "1m",
+    "readMaxAge": "0s",
+    "listenKeepAlive": "15s",
+    "taskAfter": "2s"
   }
 }

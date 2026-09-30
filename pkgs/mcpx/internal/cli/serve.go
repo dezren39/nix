@@ -316,6 +316,13 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 		AskRounds:   a.Settings().Int("proto.askRounds"),
 		StateTTL:    a.Settings().Duration("proto.stateTTL"),
 		SessionIdle: a.Settings().Duration("proto.sessionIdle"),
+
+		ListenKeepAlive: a.Settings().Duration("protoMessages.listenKeepAlive"),
+		TaskAfter:       a.Settings().Duration("protoMessages.taskAfter"),
+	}
+	srv.Cache = mcpserver.Cache{
+		List: a.Settings().Duration("protoMessages.listMaxAge"),
+		Read: a.Settings().Duration("protoMessages.readMaxAge"),
 	}
 	if a.Settings().Bool("proto.native") {
 		// Native elicitation and sampling: a question an upstream server

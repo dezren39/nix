@@ -231,6 +231,14 @@ type Defaults struct {
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
 	} `json:"plugin"`
+	// ProtoMessages governs the per-message fields mcpx's own MCP server
+	// attaches: cache hints on results and keep-alives on listen streams.
+	ProtoMessages struct {
+		ListMaxAge      string `json:"listMaxAge"`
+		ReadMaxAge      string `json:"readMaxAge"`
+		ListenKeepAlive string `json:"listenKeepAlive"`
+		TaskAfter       string `json:"taskAfter"`
+	} `json:"protoMessages"`
 }
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
@@ -382,6 +390,21 @@ var (
 	ProtoAbandonGrace = mustDur(builtin.Proto.AbandonGrace, "proto.abandonGrace")
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
+
+	// ProtoListMaxAge is the ttlMs a 2026-07-28 client is given on
+	// server/discover and every list result. Short, because the lists follow
+	// configuration and a list_changed only reaches a client that listens.
+	ProtoListMaxAge = mustDur(builtin.ProtoMessages.ListMaxAge, "protoMessages.listMaxAge")
+	// ProtoReadMaxAge is the ttlMs on resources/read. Zero: a resource is
+	// whatever an upstream server says it is now.
+	ProtoReadMaxAge = mustDur(builtin.ProtoMessages.ReadMaxAge, "protoMessages.readMaxAge")
+	// ProtoListenKeepAlive is how often an idle HTTP listen stream carries a
+	// comment, so an intermediary does not time it out.
+	ProtoListenKeepAlive = mustDur(builtin.ProtoMessages.ListenKeepAlive, "protoMessages.listenKeepAlive")
+	// ProtoTaskAfter is how long a tools/call from a client that declared
+	// the tasks extension runs in line before mcpx hands back a task
+	// instead of the result.
+	ProtoTaskAfter = mustDur(builtin.ProtoMessages.TaskAfter, "protoMessages.taskAfter")
 
 	CatalogBudget = builtin.Catalog.Budget
 

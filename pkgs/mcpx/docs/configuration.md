@@ -408,6 +408,15 @@ that `--help` denies exists is worse than a long list.
 | `proto.sessionIdle` | duration | `30m` | daemon | no | `--proto-session-idle` | `MCPX_PROTO_SESSION_IDLE` | *(plumbing)* how long an unused Streamable HTTP session is kept |
 | `proto.stateTTL` | duration | `30m` | daemon | no | `--proto-state-t-t-l` | `MCPX_PROTO_STATE_T_T_L` | *(plumbing)* how long a client may resume an interrupted request with |
 
+### protoMessages
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `protoMessages.listMaxAge` | duration | `1m0s` | daemon | no | `--proto-messages-list-max-age` | `MCPX_PROTO_MESSAGES_LIST_MAX_AGE` | ttlMs on server/discover and every list result sent to a 2026-07-28 client |
+| `protoMessages.listenKeepAlive` | duration | `15s` | daemon | no | `--proto-messages-listen-keep-alive` | `MCPX_PROTO_MESSAGES_LISTEN_KEEP_ALIVE` | how often an idle subscriptions/listen HTTP stream carries a comment |
+| `protoMessages.taskAfter` | duration | `2s` | daemon | no | `--proto-messages-task-after` | `MCPX_PROTO_MESSAGES_TASK_AFTER` | how long a tools/call runs in line before a tasks-extension client is handed a task |
+| `protoMessages.readMaxAge` | duration | `0s` | daemon | no | `--proto-messages-read-max-age` | `MCPX_PROTO_MESSAGES_READ_MAX_AGE` | ttlMs on resources/read results sent to a 2026-07-28 client |
+
 
 ### recipes
 

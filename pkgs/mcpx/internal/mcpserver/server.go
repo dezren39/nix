@@ -123,6 +123,11 @@ type Server struct {
 	// PageSize caps how many items a list reply carries.
 	PageSize int
 
+	// Cache is the freshness a 2026-07-28 client is told it may assume.
+	// New fills it from the defaults; unlike Timing, zero is a meaningful
+	// value here -- "immediately stale" -- so it is not a sentinel.
+	Cache Cache
+
 	// MaxCompletions caps a completion/complete reply. Zero uses the
 	// built-in default.
 	MaxCompletions int
@@ -152,6 +157,9 @@ type Server struct {
 
 	// taskStore holds background requests.
 	taskStore *taskStore
+	// taskOwners is which connection started each task, by its id. Empty
+	// means nobody in particular: the task id alone is the handle.
+	taskOwners map[string]string
 
 	// sessions are the Streamable HTTP connections, keyed by the id mcpx
 	// issued at initialize.
@@ -174,7 +182,17 @@ func (s *Server) conn() *Conn {
 
 // New builds a server.
 func New(b Backend, name, version string) *Server {
-	return &Server{backend: b, name: name, version: version}
+	return &Server{backend: b, name: name, version: version,
+		Cache: Cache{List: defaults.ProtoListMaxAge, Read: defaults.ProtoReadMaxAge}}
+}
+
+// Cache is the ttlMs mcpx attaches to the results 2026-07-28 makes
+// cacheable.
+type Cache struct {
+	// List covers server/discover and the four list methods.
+	List time.Duration
+	// Read covers resources/read.
+	Read time.Duration
 }
 
 // WithExtras returns a server that also offers these tools.
@@ -184,15 +202,27 @@ func New(b Backend, name, version string) *Server {
 func (s *Server) WithExtras(extras []Extra) *Server {
 	return &Server{
 		backend: s.backend, name: s.name, version: s.version,
-		PageSize: s.PageSize, MaxCompletions: s.MaxCompletions,
+		PageSize: s.PageSize, MaxCompletions: s.MaxCompletions, Cache: s.Cache,
 		Timing: s.Timing, OnCancel: s.OnCancel,
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
 		Notify: s.Notify,
 		Ask:    s.Ask,
-		extras: append(append([]Extra(nil), s.extras...), extras...),
+		extras: sortedExtras(append(append([]Extra(nil), s.extras...), extras...)),
 	}
+}
+
+// sortedExtras orders contributed tools by name.
+//
+// tools/list SHOULD be deterministic, and the extras arrive from three
+// sources -- adapter declarations, OpenAPI documents, the /v1 operation
+// table -- whose order is whatever each happened to produce. Sorting here,
+// once, makes the list the same across calls and across restarts without
+// trusting every source to stay stable.
+func sortedExtras(in []Extra) []Extra {
+	sort.SliceStable(in, func(i, j int) bool { return in[i].Tool.Name < in[j].Tool.Name })
+	return in
 }
 
 // ---- protocol types ----
@@ -228,30 +258,34 @@ const (
 	// codeUnsupportedVersion is defined by the specification, not by
 	// JSON-RPC, and carries the supported list in its data.
 	codeUnsupportedVersion = -32022
+	// codeMissingCapability is MissingRequiredClientCapability, 2026-07-28.
+	codeMissingCapability = -32021
+	// codeResourceNotFoundLegacy is what 2025-11-25 and earlier call a
+	// resource that does not exist. 2026-07-28 retired it in favour of
+	// -32602 and forbids emitting it, so it goes to legacy clients only.
+	codeResourceNotFoundLegacy = -32002
 )
 
-// unsupportedVersion is the answer to a version mcpx does not implement.
+// ErrResourceNotFound is what a Backend wraps when a resource does not
+// exist, as opposed to failing to read one that does. The difference is an
+// error code the client acts on: not-found is the caller's mistake,
+// anything else is mcpx's.
+var ErrResourceNotFound = errors.New("resource not found")
+
+// unsupportedVersion is the answer to a modern request carrying a version
+// mcpx does not implement.
 //
 // The list matters: a client has no other way to discover what would work,
-// and the specification says it SHOULD retry with something from it.
-func supportedFor(legacyOnly bool) []string {
-	if legacyOnly {
-		return LegacySupported()
-	}
-	return Supported
-}
-
-func unsupportedVersion(id json.RawMessage, params json.RawMessage, legacyOnly bool) *response {
-	var p struct {
-		ProtocolVersion string `json:"protocolVersion"`
-	}
-	_ = json.Unmarshal(params, &p)
+// and the specification says it SHOULD retry with something from it. Only
+// the modern era reaches here -- a legacy initialize with an unknown version
+// is answered with a version, not refused (see negotiate).
+func unsupportedVersion(id json.RawMessage, params json.RawMessage) *response {
 	return &response{JSONRPC: "2.0", ID: id, Error: &rpcError{
 		Code:    codeUnsupportedVersion,
 		Message: "Unsupported protocol version",
 		Data: map[string]any{
-			"supported": supportedFor(legacyOnly),
-			"requested": p.ProtocolVersion,
+			"supported": Supported,
+			"requested": requestVersion(params),
 		},
 	}}
 }
@@ -425,14 +459,18 @@ func (s *Server) Handle(ctx context.Context, req request) *response {
 // stdio client lives there now.
 func (s *Server) HandleOn(ctx context.Context, c *Conn, req request) *response {
 	peer := c.peerFor(req.Params)
+	if req.Method == "server/discover" {
+		// Only the modern era has it, so whatever the request carried the
+		// answer is spelled in the modern shape. A probe that sent no _meta
+		// is still a client asking which era mcpx is.
+		peer = Peer{Version: ModernLatest, Modern: true, Caps: requestCapabilities(req.Params)}
+	}
 	resp := s.handle(ctx, c, req)
 	if resp == nil || resp.Error != nil {
 		return resp
 	}
 	if peer.Modern {
-		// Mandatory in 2026-07-28: it is how a client tells a finished
-		// result from one still asking for input.
-		resp.Result = stampComplete(resp.Result)
+		resp.Result = s.envelope(req, resp.Result)
 	}
 	// Send conservatively. Everything above builds results in the newest
 	// shape; this is the one place that spells them in the client's own.
@@ -440,18 +478,63 @@ func (s *Server) HandleOn(ctx context.Context, c *Conn, req request) *response {
 	return resp
 }
 
-// stampComplete marks a result complete unless it already says otherwise.
-func stampComplete(result any) any {
-	m, ok := result.(map[string]any)
+// cacheable is the method list the caching page makes a MUST, with the
+// scope each gets.
+//
+// public means identical for every caller of this daemon: the tools, the
+// prompts and the templates follow configuration, not who is asking.
+// resources/list is private because it includes the caller's own session
+// artifacts, and resources/read because a resource may be anything an
+// upstream server decides it is for this caller.
+var cacheable = map[string]struct {
+	scope string
+	read  bool
+}{
+	"server/discover":          {scope: "public"},
+	"tools/list":               {scope: "public"},
+	"prompts/list":             {scope: "public"},
+	"resources/templates/list": {scope: "public"},
+	"resources/list":           {scope: "private"},
+	"resources/read":           {scope: "private", read: true},
+}
+
+// envelope adds what 2026-07-28 wants on every result: resultType, the
+// server's identity, and on the cacheable ones a freshness hint.
+func (s *Server) envelope(req request, result any) any {
+	// A copy, for the reason downgrade copies: a stored task result is
+	// handed out more than once.
+	m, ok := copyMap(result)
 	if !ok {
-		b, err := json.Marshal(result)
-		if err != nil || json.Unmarshal(b, &m) != nil || m == nil {
-			return result
-		}
+		return result
 	}
 	if _, set := m["resultType"]; !set {
+		// Mandatory in 2026-07-28: it is how a client tells a finished
+		// result from one still asking for input.
 		m["resultType"] = "complete"
 	}
+	// Only on a complete result. An input_required is an interim answer the
+	// caching page says carries no hints, and a task handle is not the
+	// method's result at all.
+	if c, ok := cacheable[req.Method]; ok && m["resultType"] == "complete" {
+		ttl := s.Cache.List
+		if c.read {
+			ttl = s.Cache.Read
+		}
+		if ttl < 0 {
+			ttl = 0 // the specification requires >= 0
+		}
+		m["ttlMs"] = ttl.Milliseconds()
+		m["cacheScope"] = c.scope
+	}
+	// SHOULD on every result, merged rather than assigned: a result may
+	// already carry _meta of its own -- a listen's subscriptionId -- and
+	// that must survive.
+	meta, _ := m["_meta"].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	meta[MetaServerInfo] = map[string]any{"name": s.name, "version": s.version}
+	m["_meta"] = meta
 	return m
 }
 
@@ -467,46 +550,25 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	// handshake. Checked before dispatch so an unsupported one is refused
 	// uniformly rather than by whichever handler happens to notice.
 	if v := requestVersion(req.Params); v != "" && !supports(v) {
-		return unsupportedVersion(req.ID, req.Params, false)
+		return unsupportedVersion(req.ID, req.Params)
+	}
+	if bad := malformedMeta(req); bad != nil {
+		return bad
 	}
 	peer := c.peerFor(req.Params)
 
 	switch req.Method {
-	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel":
-		return s.handleTask(ctx, req)
+	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel", "tasks/update":
+		return s.handleTask(ctx, c, req, peer)
 	case "tools/call":
-		// A caller that asked for a task gets a handle now and the result
-		// later, rather than holding a request open for however long the
-		// tool takes. Handled here, ahead of the ordinary dispatch, by
-		// running that same dispatch in the background with the task
-		// request stripped off.
-		if want, ttl := wantsTask(req.Params); want {
-			inner := req
-			inner.Params = withoutTask(req.Params)
-			t := s.startTask(ttl, func(tctx context.Context) (any, *rpcError) {
-				// Answered on the same connection, so a question the call
-				// raises reaches the client that started it rather than
-				// whichever one the server happens to call default.
-				resp := s.HandleOn(tctx, c, inner)
-				if resp == nil {
-					return nil, &rpcError{Code: codeInternal, Message: "no result"}
-				}
-				if resp.Error != nil {
-					return nil, resp.Error
-				}
-				return resp.Result, nil
-			})
-			return &response{JSONRPC: "2.0", ID: req.ID,
-				Result: map[string]any{"task": t}}
+		if resp := s.maybeTask(ctx, c, req, peer); resp != nil {
+			return resp
 		}
 	}
 
 	switch req.Method {
 	case "initialize":
 		version := negotiate(req.Params)
-		if version == "" {
-			return unsupportedVersion(req.ID, req.Params, true)
-		}
 		// What the client declared here governs everything mcpx may send it
 		// for the life of the connection. A legacy server never asks again,
 		// so not recording it is the same as deciding the answer is "no".
@@ -516,31 +578,30 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		_ = json.Unmarshal(req.Params, &ip)
 		c.SetCapabilities(ip.Capabilities, version)
 		return reply(map[string]any{
-			// Echo the protocol version the client asked for when it is one
-			// we understand, rather than insisting on ours. A client that
-			// speaks an older revision of a compatible protocol is better
-			// served than refused.
 			"protocolVersion": version,
-			"capabilities":    s.capabilities(version, c),
+			"capabilities":    s.capabilities(ctx, version, c),
 			"serverInfo":      map[string]any{"name": s.name, "version": s.version},
 			"instructions":    Instructions,
 		})
 
 	case "server/discover":
 		// Mandatory in the modern revisions, and the probe a dual-era client
-		// uses to decide which era it is talking to. Answering it is what
-		// makes mcpx reachable from a modern client at all.
+		// uses to decide which era it is talking to. serverInfo is not here:
+		// 2026-07-28 moved it into _meta, which envelope adds to every
+		// modern result, this one included.
 		return reply(map[string]any{
-			"protocolVersions": Supported,
-			"serverInfo":       map[string]any{"name": s.name, "version": s.version},
-			"capabilities":     s.capabilities(ModernLatest, c),
-			"instructions":     Instructions,
+			"supportedVersions": Supported,
+			"capabilities":      s.capabilities(ctx, ModernLatest, c),
+			"instructions":      Instructions,
 		})
 
 	case "notifications/initialized", "initialized":
 		return nil // a notification: no reply, by definition
 
 	case "ping":
+		// Removed from 2026-07-28 and answered anyway: accept liberally. A
+		// modern client that pings is asking whether mcpx is alive, and
+		// method-not-found would be the wrong answer to that.
 		return reply(map[string]any{})
 
 	case "tools/list":
@@ -566,7 +627,8 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// Accepted, but no longer declared. The capability means "this server
 		// sends log messages to the client", and mcpx sends none: there is no
 		// notifications/message anywhere in this package. Declaring it was a
-		// promise of a stream that does not exist. The method still answers,
+		// promise of a stream that does not exist. The method still answers
+		// -- including from a 2026-07-28 client, which no longer has it --
 		// because refusing would make a well-behaved client that asked anyway
 		// treat the whole connection as degraded.
 		return reply(map[string]any{})
@@ -582,10 +644,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err != nil {
 			return fail(codeInternal, err.Error())
 		}
-		if ts == nil {
-			ts = []ResourceRef{}
-		}
-		items, next := page(ts, req.Params, s.pageSize())
+		items, next := page(asTemplates(ts), req.Params, s.pageSize())
 		out := map[string]any{"resourceTemplates": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -593,9 +652,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(out)
 
 	case "resources/subscribe", "resources/unsubscribe":
-		// The legacy mechanism: per-URI, per-connection. The modern revision
-		// replaced it with resourceSubscriptions on subscriptions/listen,
-		// which is handled below; both feed the same forwarding.
+		// The legacy mechanism: per-URI, per-connection, its notifications
+		// untagged. The modern revision replaced it with
+		// resourceSubscriptions on subscriptions/listen, handled below; both
+		// feed the same notifier.
 		var p struct {
 			URI string `json:"uri"`
 		}
@@ -616,28 +676,12 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 			uris = append(uris, u)
 		}
 		c.mu.Unlock()
+		sort.Strings(uris)
 		s.restartListen(c, ListenFilter{ResourceSubscriptions: uris})
 		return reply(map[string]any{})
 
 	case "subscriptions/listen":
-		// A long-lived stream. On stdio its result arrives only when it
-		// ends, so the reply is withheld here and notifications flow in the
-		// meantime; the transport sends the terminating
-		// notifications/cancelled when the client closes it.
-		var p struct {
-			Notifications ListenFilter `json:"notifications"`
-		}
-		if err := json.Unmarshal(req.Params, &p); err != nil {
-			return fail(codeInvalidParams, err.Error())
-		}
-		if s.Notify == nil {
-			return fail(codeMethodNotFound, "this mcpx pushes no notifications")
-		}
-		s.restartListen(c, p.Notifications)
-		c.push("notifications/subscriptions/acknowledged", map[string]any{
-			"subscriptionId": json.RawMessage(req.ID),
-		})
-		return nil
+		return s.listen(ctx, c, req, peer)
 
 	case "notifications/cancelled":
 		// A notification, so no reply. Recorded rather than ignored: a
@@ -710,9 +754,19 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
+		if s.backend == nil {
+			return notFound(req.ID, p.URI, peer, ErrResourceNotFound)
+		}
 		text, mime, err := s.backend.ReadResource(ctx, p.URI)
 		if err != nil {
-			return fail(codeInvalidParams, err.Error())
+			if errors.Is(err, ErrResourceNotFound) {
+				return notFound(req.ID, p.URI, peer, err)
+			}
+			// Everything else is mcpx failing to read something that may
+			// well exist, which the resources page says is -32603. It was
+			// -32602 for every failure, telling a client its perfectly good
+			// URI was the problem when an upstream server had timed out.
+			return fail(codeInternal, err.Error())
 		}
 		if mime == "" {
 			mime = "text/plain"
@@ -766,6 +820,81 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	return fail(codeMethodNotFound, "no method "+req.Method)
 }
 
+// notFound is the error for a resource that does not exist, in the code the
+// client's revision defines.
+//
+// 2026-07-28 moved it to -32602 and forbids -32002; every earlier revision
+// says -32002. Both carry the URI in data, as each revision's example does.
+func notFound(id json.RawMessage, uri string, p Peer, err error) *response {
+	code := codeResourceNotFoundLegacy
+	if p.Modern {
+		code = codeInvalidParams
+	}
+	return &response{JSONRPC: "2.0", ID: id, Error: &rpcError{
+		Code: code, Message: err.Error(), Data: map[string]any{"uri": uri}}}
+}
+
+// asTemplates renders templates in the shape every revision's
+// ResourceTemplate has.
+//
+// The field is uriTemplate. mcpx sent `uri`, which no revision defines on a
+// template, so a strict client rejected the whole list and a lenient one
+// found a template with no template in it.
+func asTemplates(ts []ResourceRef) []map[string]any {
+	out := make([]map[string]any, 0, len(ts))
+	for _, t := range ts {
+		m := map[string]any{"uriTemplate": t.URI, "name": t.Name}
+		if t.Description != "" {
+			m["description"] = t.Description
+		}
+		if t.MimeType != "" {
+			m["mimeType"] = t.MimeType
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// The log levels a 2026-07-28 request may name, from the schema's
+// LoggingLevel.
+var logLevels = map[string]bool{
+	"debug": true, "info": true, "notice": true, "warning": true,
+	"error": true, "critical": true, "alert": true, "emergency": true,
+}
+
+// malformedMeta refuses a modern request missing a field 2026-07-28 makes
+// mandatory on every request, or naming a log level that does not exist.
+//
+// Only a request -- a notification has no id to answer on, and the
+// per-request fields are defined for requests. And only one that declared a
+// protocol version: without one it is a legacy request, which has no _meta
+// requirements at all.
+func malformedMeta(req request) *response {
+	if len(req.ID) == 0 || requestVersion(req.Params) == "" || !Modern(requestVersion(req.Params)) {
+		return nil
+	}
+	var p struct {
+		Meta map[string]json.RawMessage `json:"_meta"`
+	}
+	_ = json.Unmarshal(req.Params, &p)
+	bad := func(msg string) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID,
+			Error: &rpcError{Code: codeInvalidParams, Message: msg}}
+	}
+	raw, ok := p.Meta[MetaClientCapabilities]
+	var caps map[string]json.RawMessage
+	if !ok || json.Unmarshal(raw, &caps) != nil || caps == nil {
+		return bad(MetaClientCapabilities + " is required on every 2026-07-28 request and must be an object")
+	}
+	if raw, ok := p.Meta[MetaLogLevel]; ok {
+		var level string
+		if json.Unmarshal(raw, &level) != nil || !logLevels[level] {
+			return bad(MetaLogLevel + " is not a log level: " + string(raw))
+		}
+	}
+	return nil
+}
+
 // negotiate picks a protocol version.
 // Supported are the protocol versions mcpx actually implements, newest first.
 //
@@ -775,7 +904,13 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 // the ecosystem, and the matrix in the specification is unforgiving about it:
 // modern against legacy fails, legacy against modern fails, and only a
 // dual-era implementation bridges them.
-var Supported = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"}
+//
+// 2024-11-05 is served over stdio and Streamable HTTP. Its own HTTP
+// transport -- HTTP+SSE, a GET stream plus a POST endpoint -- is not hosted:
+// 2025-03-26 replaced it, and 2026-07-28 says new implementations SHOULD NOT
+// adopt it. A 2024-11-05 client speaking Streamable HTTP is served; one that
+// only knows HTTP+SSE is not.
+var Supported = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
 
 // ModernLatest is the newest per-request-metadata revision mcpx serves.
 // server/discover answers with this one's capability shape.
@@ -833,29 +968,30 @@ func supports(version string) bool {
 
 // negotiate picks a version for a legacy initialize.
 //
-// It returns the empty string when the requested version is one mcpx does not
-// implement, so the caller can answer with an UnsupportedProtocolVersionError
-// rather than agreeing to something it cannot do.
+// A version mcpx serves is agreed as asked. Anything else -- a revision mcpx
+// does not know, or a modern one, which has no handshake -- is answered with
+// Latest. Every legacy lifecycle page says the same thing: if the server
+// does not support the requested version it MUST respond with another
+// version it supports, and SHOULD pick its latest. The client then decides
+// whether it can speak that, and disconnects if not.
 //
-// The previous implementation echoed whatever was asked for. A client
-// requesting 2026-07-28 was told yes, and then found no server/discover and
-// no per-request metadata handling. Agreeing to everything is the same as
-// declaring nothing.
+// mcpx used to refuse with -32022 instead. That code is 2026-07-28's, and a
+// legacy client has no idea what it means: it saw an initialize fail and
+// had no version to fall back to, which is exactly the situation the rule
+// exists to prevent. Echoing whatever was asked -- the bug before that --
+// is wrong the other way: a client requesting 2026-07-28 was told yes and
+// then found no per-request metadata handling.
 func negotiate(params json.RawMessage) string {
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
-	if json.Unmarshal(params, &p) != nil || p.ProtocolVersion == "" {
+	if json.Unmarshal(params, &p) != nil {
 		return Latest
 	}
-	// Only a legacy version can be agreed here. A client that sent
-	// `initialize` is legacy by definition -- the modern revisions have no
-	// handshake at all -- so agreeing to a modern version over this channel
-	// would promise a protocol neither side is speaking.
 	if supports(p.ProtocolVersion) && !Modern(p.ProtocolVersion) {
 		return p.ProtocolVersion
 	}
-	return ""
+	return Latest
 }
 
 // LegacySupported is what an initialize may negotiate.
@@ -1173,7 +1309,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ex := &httpExchange{w: w, flusher: asFlusher(w)}
-	ctx := withSender(r.Context(), ex.send)
+	ctx := withKeepAlive(withSender(r.Context(), ex.send), ex.comment)
 	resp := s.HandleOn(ctx, c, req)
 
 	if ex.streaming {
@@ -1197,9 +1333,10 @@ const sessionHeader = "Mcp-Session-Id"
 
 // sessionFor resolves the connection a request belongs to.
 //
-// A modern client never sends initialize, so the session is issued on
-// server/discover instead. Without one it has no identity that outlives a
-// POST, and mcpx cannot hand it a requestState it could verify later.
+// Only initialize issues one. server/discover used to as well, so that a
+// modern client had an identity to bind a requestState to; but 2026-07-28
+// has no sessions, and a requestState is now bound to the request that
+// carries it (see requestBinding), which needs none.
 //
 // A session exists so that a client's *answer* -- which arrives on a later,
 // separate POST -- can be matched to the request still waiting for it. A
@@ -1211,7 +1348,7 @@ func (s *Server) sessionFor(r *http.Request, req request) (*Conn, string) {
 			return c, ""
 		}
 	}
-	if req.Method != "initialize" && req.Method != "server/discover" {
+	if req.Method != "initialize" {
 		// Stateless. Correct for every modern request and for a legacy one
 		// that will never be asked anything, and the alternative -- minting
 		// a session per request -- is a map that only grows.
@@ -1323,6 +1460,22 @@ func (e *httpExchange) send(frame any) error {
 	return nil
 }
 
+// comment writes an SSE comment line, which a client ignores and a proxy
+// counts as traffic. Only on a stream already open: a keep-alive is never
+// what turns a plain reply into a stream.
+func (e *httpExchange) comment() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.streaming || e.flusher == nil {
+		return nil
+	}
+	if _, err := io.WriteString(e.w, ": keep-alive\n\n"); err != nil {
+		return err
+	}
+	e.flusher.Flush()
+	return nil
+}
+
 func asFlusher(w http.ResponseWriter) http.Flusher {
 	f, _ := w.(http.Flusher)
 	return f
@@ -1373,84 +1526,52 @@ func ResultOf(resp *response) (string, bool, error) {
 	return strings.Join(parts, "\n"), r.IsError, nil
 }
 
-// capabilities declares what this server can actually do.
+// capabilities declares what this server can actually do, in the shape the
+// revision defines.
 //
 // Push-dependent capabilities are declared only when something can push, and
 // "something can push" is a property of the connection rather than of the
 // server. It used to be tested as s.Notify != nil, which is true for every
 // connection the daemon serves -- including the HTTP ones, which are built
-// with no send function at all and can therefore deliver nothing. A client
-// over that transport was told subscribe and listChanged were available, sent
-// subscriptions/listen, got an acknowledgement and then silence forever.
+// with no send function at all and can therefore deliver nothing.
 //
-// The delivery of list_changed also needs a stream the client opened, which
-// only 2026-07-28 has. An older client has no way to ask for one, so it is
-// told the truth: mcpx will not push it a list_changed it cannot receive.
-func (s *Server) capabilities(version string, c *Conn) map[string]any {
+// The two eras reach a client differently. A legacy client receives
+// list_changed unsolicited, so it needs a connection that can push. A modern
+// client receives it only on a subscriptions/listen stream it opened, and
+// that stream is the listen request's own response -- over HTTP as much as
+// over stdio -- so a transport that can stream a response can deliver it.
+func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[string]any {
 	push := s.Notify != nil && c != nil && c.canPush()
-	// listChanged is not gated on subscriptions/listen. That mechanism is
-	// 2026-07-28's, but notifications/tools|prompts|resources/list_changed
-	// are defined in every revision mcpx serves and arrive unsolicited on a
-	// connection that can push. Gating them on the 2026 mechanism told every
-	// legacy client the list would never change, which is both untrue and a
-	// capability mcpx implements.
-	streamed := push
+	if Modern(version) {
+		push = s.Notify != nil && ((c != nil && c.canPush()) || senderFrom(ctx) != nil)
+	}
 	caps := map[string]any{
-		"tools":       map[string]any{"listChanged": streamed},
-		"resources":   map[string]any{"subscribe": push, "listChanged": streamed},
-		"prompts":     map[string]any{"listChanged": streamed},
-		"completions": map[string]any{},
+		"tools":     map[string]any{"listChanged": push},
+		"resources": map[string]any{"subscribe": push, "listChanged": push},
+		"prompts":   map[string]any{"listChanged": push},
+	}
+	if Defines(version, FeatCompletions) {
+		// completion/complete is answered for every revision; only the
+		// capability that declares it is newer than 2024-11-05.
+		caps["completions"] = map[string]any{}
 	}
 	if Defines(version, FeatTasks) {
-		// Core in 2025-11-25 and an extension in 2026-07-28, so it is
-		// declared both ways and a client of either era finds it where it
-		// looks. mcpx accepts tasks/* from an older client too -- offering
-		// more than a revision requires withholds nothing -- but it does
-		// not advertise them there, because a declaration is a promise
-		// about the revision in force.
+		// Core tasks, 2025-11-25 only. 2026-07-28 removed this capability
+		// and the SEP that did so says a server MUST NOT keep advertising
+		// it under a revision that has the extension.
 		caps["tasks"] = map[string]any{
 			"list": map[string]any{}, "cancel": map[string]any{},
 			"requests": map[string]any{"tools": map[string]any{"call": map[string]any{}}},
 		}
+	}
+	if Defines(version, FeatExtensions) {
+		// ServerCapabilities.extensions exists only in 2026-07-28. mcpx
+		// sent it to 2025-11-25 as well, whose schema has no such field.
 		caps["extensions"] = map[string]any{
-			"io.modelcontextprotocol/tasks": map[string]any{},
+			ExtTasks: map[string]any{},
 		}
 	}
 	return caps
-}
-
-// restartListen replaces the active notification stream with one for f.
-//
-// One stream per connection. The specification allows a client to reopen
-// with a different filter, and the simplest faithful implementation is to
-// stop the old and start the new.
-func (s *Server) restartListen(c *Conn, f ListenFilter) {
-	c.mu.Lock()
-	if c.listening != nil {
-		c.listening()
-		c.listening = nil
-	}
-	push := c.pushFn
-	notify := s.Notify
-	if push == nil || notify == nil {
-		c.mu.Unlock()
-		return
-	}
-	lctx, cancel := context.WithCancel(context.Background())
-	c.listening = cancel
-	c.mu.Unlock()
-
-	go notify.Listen(lctx, f, push)
-}
-
-// stopListen ends any stream this connection opened.
-func (c *Conn) stopListen() {
-	c.mu.Lock()
-	if c.listening != nil {
-		c.listening()
-		c.listening = nil
-	}
-	c.mu.Unlock()
 }
 
 // SetPush installs how to reach the default connection's client.
@@ -1520,20 +1641,27 @@ func decodeCursor(c string) (int, error) {
 // whether the message arrived at all.
 func (c *Conn) cancel(params json.RawMessage) {
 	var p struct {
-		RequestID any    `json:"requestId"`
-		Reason    string `json:"reason"`
+		RequestID json.RawMessage `json:"requestId"`
+		Reason    string          `json:"reason"`
 	}
-	if json.Unmarshal(params, &p) != nil {
+	if json.Unmarshal(params, &p) != nil || len(p.RequestID) == 0 {
 		return
+	}
+	// On stdio this is how a client ends a subscriptions/listen: there is
+	// no per-request stream to close.
+	c.cancelListen(p.RequestID)
+	id := listenKey(p.RequestID)
+	if unq, err := strconv.Unquote(id); err == nil {
+		id = unq // a string id is recorded as the string, not its JSON
 	}
 	c.mu.Lock()
 	if c.cancelled == nil {
 		c.cancelled = map[string]string{}
 	}
-	c.cancelled[fmt.Sprint(p.RequestID)] = p.Reason
+	c.cancelled[id] = p.Reason
 	c.mu.Unlock()
 	if c.s.OnCancel != nil {
-		c.s.OnCancel(fmt.Sprint(p.RequestID), p.Reason)
+		c.s.OnCancel(id, p.Reason)
 	}
 }
 
