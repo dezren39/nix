@@ -96,6 +96,15 @@ func (a *App) CmdDoctor(ctx context.Context, args []string) error {
 		add(check{"config", "warn", "no configuration file found",
 			"run `mcpx init`, or `mcpx registry add <name> --write`"})
 	default:
+		if len(cfg.Ignored) > 0 {
+			var parts []string
+			for _, k := range cfg.Ignored {
+				parts = append(parts, fmt.Sprintf("%s: %s.%s", filepath.Base(k.File), k.Server, k.Key))
+			}
+			add(check{"server keys", "warn", strings.Join(parts, "; "),
+				"mcpx does not read these; another MCP host may. " +
+					"plumbing.strictUnknownKeys refuses them"})
+		}
 		servers, rerr := cfg.ResolveAll()
 		if rerr != nil {
 			add(check{"config", "fail", rerr.Error(), "fix the server definitions"})
