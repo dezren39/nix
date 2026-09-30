@@ -27,7 +27,7 @@
     "npm:react-syntax-highlighter@^15.5.0": "15.6.6_react@18.3.1",
     "npm:react@^18.3.1": "18.3.1",
     "npm:sonner@^1.4.3": "1.7.4_react@18.3.1_react-dom@18.3.1",
-    "npm:tailwind-merge@^2.2.1": "2.6.0",
+    "npm:tailwind-merge@3": "3.7.0",
     "npm:tailwindcss@4": "4.3.3",
     "npm:typescript@^5.7.2": "5.9.2",
     "npm:vite@8": "8.3.1",
@@ -1173,8 +1173,8 @@
     "state-local@1.0.7": {
       "integrity": "sha512-HTEHMNieakEnoe33shBYcZ7NX83ACUjCu8c40iOGEZsngj9zRnkqS9j1pqQPXwobB0ZcVTk27REb7COQ0UR59w=="
     },
-    "tailwind-merge@2.6.0": {
-      "integrity": "sha512-P+Vu1qXfzediirmHOC3xKGAYeZtPcV9g76X+xg2FD4tYgR71ewMA35Y3sCz3zhiN/dwefRpJX0yBcgwi1fXNQA=="
+    "tailwind-merge@3.7.0": {
+      "integrity": "sha512-XPPUyAc+cvspz3lHTcR/QgPfW2A0lv/xQNIjX3HGhLR+Nq2lHaLq5MtTesHn8GUr3W3DguT2KT5x3NVgRtYwmA=="
     },
     "tailwindcss@4.3.3": {
       "integrity": "sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ=="
@@ -1290,7 +1290,7 @@
         "npm:react-syntax-highlighter@^15.5.0",
         "npm:react@^18.3.1",
         "npm:sonner@^1.4.3",
-        "npm:tailwind-merge@^2.2.1",
+        "npm:tailwind-merge@3",
         "npm:tailwindcss@4",
         "npm:typescript@^5.7.2",
         "npm:vite@8",
