@@ -49,8 +49,12 @@ type Outcome struct {
 	Done bool
 	// Text is the result, rendered the way every other mcpx tool result is.
 	Text string
-	// MimeType applies to a resource read.
-	MimeType string
+	// Contents is a finished resource read, in place of Text.
+	Contents []ResourceContents
+	// Err classifies a failed prompts/get or resources/read, the way a
+	// Backend does: wrapping ErrResourceNotFound or ErrInvalidParams when
+	// the upstream server said so. Text still carries the message.
+	Err error
 	// IsError marks a tool that failed, which is a result rather than a
 	// protocol error: a client that retries the wrong thing on a tool
 	// failure never converges.
@@ -146,6 +150,9 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		if errors.Is(err, ErrNotInterruptible) {
 			return nil
 		}
+		if errors.Is(err, ErrInvalidParams) {
+			return fail(codeInvalidParams, err.Error())
+		}
 		if err != nil {
 			return fail(codeInternal, err.Error())
 		}
@@ -173,6 +180,24 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			return fail(codeInternal, err.Error())
 		}
 		if out.Done {
+			if out.IsError && req.Method != "tools/call" {
+				// Only a tool has a result that can say it failed. A read or
+				// a prompt that failed upstream is an error, and was being
+				// returned as contents whose text was the error message --
+				// which is how a read of a URI that exists nowhere "passed"
+				// the official suite's resources-read-text.
+				switch {
+				case req.Method == "resources/read" && errors.Is(out.Err, ErrResourceNotFound):
+					var p struct {
+						URI string `json:"uri"`
+					}
+					_ = json.Unmarshal(req.Params, &p)
+					return notFound(req.ID, p.URI, peer, errors.New(out.Text))
+				case req.Method == "prompts/get" && errors.Is(out.Err, ErrInvalidParams):
+					return fail(codeInvalidParams, out.Text)
+				}
+				return fail(codeInternal, out.Text)
+			}
 			return reply(askResult(req, out))
 		}
 
@@ -288,13 +313,7 @@ func askResult(req request, out Outcome) map[string]any {
 			URI string `json:"uri"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		mime := out.MimeType
-		if mime == "" {
-			mime = "text/plain"
-		}
-		return map[string]any{"contents": []any{map[string]any{
-			"uri": p.URI, "mimeType": mime, "text": out.Text,
-		}}}
+		return readResult(p.URI, out.Contents)
 	default:
 		// Decoded as the direct path decodes it, so an mcpx_exec answered
 		// inline keeps its resource_link blocks.

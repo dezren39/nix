@@ -33,6 +33,7 @@ func (s *Server) tasks() *taskStore {
 	defer s.mu.Unlock()
 	if s.taskStore == nil {
 		s.taskStore = tasks.New()
+		s.taskStore.PollInterval = s.Timing.resolved().TaskPoll
 	}
 	return s.taskStore
 }
@@ -192,12 +193,6 @@ func modernTask(t Task) map[string]any {
 		out["statusMessage"] = t.StatusMessage
 	}
 	return out
-}
-
-// SetTaskStatus lets a long-running call report progress into its task, and
-// is how a call waiting on an elicitation shows input_required.
-func (s *Server) SetTaskStatus(taskID, status, message string) {
-	s.tasks().SetStatus(taskID, status, message)
 }
 
 func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer) *response {

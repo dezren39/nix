@@ -82,7 +82,7 @@ What a host connected to mcpx gets.
 | `resources/list`, `resources/read`, `resources/templates/list` | all | always | §3 |
 | `resources/subscribe`, `resources/unsubscribe` | legacy only | **any** era | forwards from the same bus `subscriptions/listen` reads |
 | `subscriptions/listen` | 2026-07-28 | **any** era | only the four notification kinds the filter names |
-| `completion/complete` | all | always | from mcpx's own names |
+| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
 | `logging/setLevel` | legacy only | **any** era | accepted; mcpx emits no `notifications/message` of its own |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core, 2026-07-28 extension | **any** era | handles and results |
 | `notifications/cancelled` | all | always | recorded; mcpx cannot yet interrupt an upstream call mid-flight |
@@ -97,11 +97,11 @@ declaration is a promise about the revision in force.
 
 | capability | 2025-03-26 | 2025-06-18 | 2025-11-25 | 2026-07-28 |
 | --- | --- | --- | --- | --- |
-| `tools.listChanged` | ✓ | ✓ | ✓ | ✓ |
+| `tools.listChanged` | — | — | — | — (mcpx's own tool list is fixed while it runs) |
 | `resources.subscribe` / `.listChanged` | ✓ | ✓ | ✓ | ✓ |
 | `prompts.listChanged` | ✓ | ✓ | ✓ | ✓ |
 | `completions` | ✓ | ✓ | ✓ | ✓ |
-| `logging` | ✓ | ✓ | ✓ | — removed in 2026-07-28 |
+| `logging` | — | — | — | — (mcpx sends no `notifications/message`; `logging/setLevel` is still accepted) |
 | `tasks` (core shape) | — | — | ✓ | ✓ |
 | `extensions["io.modelcontextprotocol/tasks"]` | — | — | ✓ | ✓ |
 

@@ -436,7 +436,7 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
 		}
-		return map[string]any{"result": raw, "kind": req.Kind,
+		return map[string]any{"result": raw, "kind": req.Kind, "server": req.Server,
 			"durationMs": time.Since(start).Milliseconds()}, nil
 	})
 	ready <- t.TaskID
@@ -709,7 +709,7 @@ func (s *Server) handleProtocol(w http.ResponseWriter, r *http.Request) {
 			"latest":       mcpserver.Latest,
 			"oldest":       mcpserver.Oldest,
 			"features":     mcpserver.FeatureMatrix(),
-			"nativeElicit": defaults.ProtoNative,
+			"nativeElicit": s.set.Bool("proto.native"),
 		},
 		"asClient": map[string]any{
 			"legacy":  mcpclient.ProtocolVersion,
@@ -752,7 +752,15 @@ func (s *Server) handleToolInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": err.Error()})
+		// The status the daemon gave the call behind the tool, when there
+		// was one: a tool that reached an upstream server which failed is
+		// a 502 here as on /v1/call, not the 400 of a malformed request.
+		status := http.StatusBadRequest
+		var carried interface{ HTTPStatus() int }
+		if errors.As(err, &carried) && carried.HTTPStatus() >= 400 {
+			status = carried.HTTPStatus()
+		}
+		writeJSON(w, status, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": text})
@@ -781,7 +789,7 @@ func (s *Server) handleCallPath(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	res, err := s.reg.Call(withRun(r.Context(), r.Header.Get("X-Mcpx-Run")), r.PathValue("server"), r.PathValue("tool"), cc, args)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, failureStatus(err), map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": !resultFailed(res), "result": res,
