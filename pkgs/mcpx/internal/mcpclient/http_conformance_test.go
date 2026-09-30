@@ -246,6 +246,11 @@ func TestModernHTTPCancellationClosesTheStream(t *testing.T) {
 			case s.method == "tools/list":
 				writeJSON(w, result(s.id, map[string]any{"tools": []any{}, "ttlMs": 0, "cacheScope": "private"}))
 			case s.method == "tools/call":
+				// A stream opened and left waiting, which is what a slow
+				// call looks like: the client's Send has returned.
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
 				<-r.Context().Done()
 				closed <- struct{}{}
 			}
@@ -554,6 +559,28 @@ func TestHTTPSSETransport(t *testing.T) {
 		var refused *mcpclient.LegacyHTTPRefusedError
 		if !errors.As(err, &refused) {
 			t.Fatalf("want LegacyHTTPRefusedError, got %v", err)
+		}
+	})
+}
+
+// https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server
+func TestLegacyHTTPCancellation(t *testing.T) {
+	t.Run("2025-11-25/transport/client-cancel-by-notification-even-before-response-headers", func(t *testing.T) {
+		rec := &recorder{}
+		srv := httptest.NewServer(&legacyHTTP{rec: rec, version: "2025-11-25", onCall: func(w http.ResponseWriter, s seen) {
+			time.Sleep(300 * time.Millisecond) // no headers until after the client gave up
+		}})
+		t.Cleanup(srv.Close)
+		c := dialURL(t, srv.URL, mcpclient.ForceLegacy, mcpclient.Options{})
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		_, _ = c.CallTool(ctx, "slow", nil)
+		deadline := time.Now().Add(3 * time.Second)
+		for len(rec.all("notifications/cancelled")) == 0 {
+			if time.Now().After(deadline) {
+				t.Fatal("a timed-out legacy request was never cancelled")
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	})
 }

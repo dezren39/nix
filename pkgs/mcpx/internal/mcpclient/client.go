@@ -800,6 +800,12 @@ func (c *Client) roundTrip(ctx context.Context, method string, params json.RawMe
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
+		if ctx.Err() != nil {
+			// The HTTP transport's Send lasts until the response headers
+			// arrive, so a server that is slow to start answering is timed
+			// out here, not below -- and was never told.
+			c.cancelled(method, id)
+		}
 		return nil, err
 	}
 

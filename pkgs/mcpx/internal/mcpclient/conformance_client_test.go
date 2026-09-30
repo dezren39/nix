@@ -74,6 +74,15 @@ func (w *wire) Send(_ context.Context, msg []byte) error {
 			w.t.Errorf("client frame is not valid %s: %v\n%s", rev, err, msg)
 		}
 	}
+	// _meta is an open object in every schema, so strict mode does not look
+	// inside it; the capabilities a modern request declares there are
+	// checked against the revision's ClientCapabilities on their own.
+	if caps, ok := meta[mcpclient.MetaClientCapabilities]; ok {
+		b, _ := json.Marshal(caps)
+		if err := mcpspec.ValidateStrict(rev, "ClientCapabilities", b); err != nil {
+			w.t.Errorf("declared capabilities are not valid %s: %v\n%s", rev, err, b)
+		}
+	}
 	method, _ := f["method"].(string)
 	if method == "" || f["id"] == nil {
 		return nil
