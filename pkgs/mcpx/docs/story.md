@@ -1616,8 +1616,12 @@ only job is to shell out, and there are hundreds of such programs.
   ] }] }
 ```
 
-That is git as an MCP server. It appears in `tools/list`, it is callable from
-a script, and `mcpx adapter check` says whether the binary is even installed.
+That is git as an MCP server. It appears in `tools/list`, and `mcpx adapter
+check` says whether the binary is even installed. It is not yet callable from
+a script: adapted tools are attached as MCP extras and the generated client is
+built from the catalog, which does not see them (#102), so a script reaches
+them through `mcpx_exec` rather than as `git.log(...)`. #83 is the design that
+closes that.
 
 **Not a shell escape.** A tool is a named subcommand with declared parameters,
 so a model cannot invent a command line and what is reachable is exactly what
