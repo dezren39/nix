@@ -31,8 +31,8 @@ FROM ${GO_IMAGE} AS build
 # Flipping this to 0 was tested rather than guessed: it builds, the binary is
 # fully static ("not a dynamic executable"), it is the same size to within a
 # hundred bytes, and `--version`, `ls`, `call` and `exec` all work. So mcpx is
-# not what stands between this image and a static one -- bun and git are, and
-# both are dynamically linked distribution binaries. The behavioural change is
+# not what stands between this image and a static one -- bun is, a
+# dynamically linked distribution binary. The behavioural change is
 # real but external: pure-Go os/user parses /etc/passwd instead of asking NSS,
 # and the resolver stops honouring nsswitch.conf. Neither matters inside this
 # image; both matter to somebody. docs/container.md has the measurements.
@@ -63,11 +63,14 @@ FROM ${BUN_IMAGE} AS bun
 
 FROM ${RUNTIME_IMAGE}
 
-# git is not optional: the `repo` and `worktree` sharing scopes key instances
-# by the repository they are in, and without git they silently fall back to
-# per-directory keys. ca-certificates is for the registry.
+# No git. The `repo` and `worktree` sharing scopes find a repository by
+# reading .git themselves (internal/config/gitdiscover.go), and git -- 105 MB
+# here, mostly perl -- is only a fallback for repository layouts that reader
+# does not vouch for. Without it those rare layouts key by directory and
+# `mcpx doctor` says why; docs/git-discovery.md has the list. ca-certificates
+# is for the registry.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun

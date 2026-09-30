@@ -21,6 +21,11 @@ type StdioTransport struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
+	// outR and errR are the parent's read ends, closed by Close once the
+	// child is gone. Ours rather than cmd.StdoutPipe/StderrPipe: see NewStdio.
+	outR, errR *os.File
+	// stderrDone is closed when the child's stderr has been read to EOF.
+	stderrDone chan struct{}
 
 	writeMu sync.Mutex
 	closeMu sync.Mutex
@@ -72,33 +77,51 @@ func NewStdio(opts StdioOptions) (*StdioTransport, error) {
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	// Plain pipes, not cmd.StdoutPipe/StderrPipe. Those are closed by
+	// cmd.Wait as soon as the child exits, which races the readers: a child
+	// that prints why it is refusing to start and exits had its stderr
+	// thrown away ("read |0: file already closed", stderr empty) about one
+	// start in twenty. With our own pipes the readers drain to EOF.
+	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	stderrPipe, err := cmd.StderrPipe()
+	errR, errW, err := os.Pipe()
 	if err != nil {
+		outR.Close()
+		outW.Close()
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", opts.Command, err)
+	cmd.Stdout, cmd.Stderr = outW, errW
+	startErr := cmd.Start()
+	// The child holds its own copies; ours must go, or EOF never arrives.
+	outW.Close()
+	errW.Close()
+	if startErr != nil {
+		outR.Close()
+		errR.Close()
+		return nil, fmt.Errorf("start %s: %w", opts.Command, startErr)
 	}
 
 	t := &StdioTransport{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReaderSize(stdout, 1<<20),
-		label:  strings.TrimSpace(opts.Command + " " + strings.Join(opts.Args, " ")),
-		stderr: newRingBuffer(64 << 10),
-		exited: make(chan struct{}),
+		cmd:        cmd,
+		stdin:      stdin,
+		stdout:     bufio.NewReaderSize(outR, 1<<20),
+		outR:       outR,
+		errR:       errR,
+		label:      strings.TrimSpace(opts.Command + " " + strings.Join(opts.Args, " ")),
+		stderr:     newRingBuffer(64 << 10),
+		exited:     make(chan struct{}),
+		stderrDone: make(chan struct{}),
 	}
 
 	go func() {
+		defer close(t.stderrDone)
 		var w io.Writer = t.stderr
 		if opts.StderrTo != nil {
 			w = io.MultiWriter(t.stderr, opts.StderrTo)
 		}
-		_, _ = io.Copy(w, stderrPipe)
+		_, _ = io.Copy(w, errR)
 	}()
 	go func() {
 		t.waitErr = cmd.Wait()
@@ -128,6 +151,10 @@ func (t *StdioTransport) Recv() ([]byte, error) {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				<-waitOrTimeout(t.exited, 2*time.Second)
+				// The reason a server died is usually its last words on
+				// stderr; wait for them, bounded, since a grandchild that
+				// inherited the pipe can hold it open.
+				<-waitOrTimeout(t.stderrDone, defaults.StdioDrainGrace)
 				return nil, fmt.Errorf("%s exited: %v (stderr: %s)", t.label, t.waitErr, t.stderr.Tail(800))
 			}
 			return nil, err
@@ -207,6 +234,8 @@ func (t *StdioTransport) Close() error {
 		_ = syscall.Kill(pgid, syscall.SIGKILL)
 		<-waitOrTimeout(t.exited, 2*time.Second)
 	}
+	t.outR.Close()
+	t.errR.Close()
 	return nil
 }
 

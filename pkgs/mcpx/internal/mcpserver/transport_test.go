@@ -40,14 +40,6 @@ func frame(id any, method string, params map[string]any) []byte {
 	return b
 }
 
-func modernParams(extra map[string]any) map[string]any {
-	p := map[string]any{"_meta": modernMeta}
-	for k, v := range extra {
-		p[k] = v
-	}
-	return p
-}
-
 // post answers one POST in process.
 func post(s *mcpserver.Server, body []byte, headers map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(string(body)))
@@ -394,7 +386,7 @@ func TestLegacyStreamableHTTPSessions(t *testing.T) {
 	})
 
 	// https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header
-	for _, bad := range []string{"garbage", "2024-11-05", "2025-01-01"} {
+	for _, bad := range []string{"garbage", "2024-10-07", "2025-01-01"} {
 		t.Run("2025-11-25/streamable-http/unsupported-protocol-version-header-is-400/"+bad, func(t *testing.T) {
 			w := post(s, frame(2, "tools/list", nil), map[string]string{"MCP-Protocol-Version": bad})
 			if w.Code != http.StatusBadRequest {

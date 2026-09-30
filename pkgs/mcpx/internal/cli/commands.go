@@ -373,16 +373,27 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	text, failed := renderResult(res.Result)
 	if *raw || a.JSON {
-		return a.out(json.RawMessage(res.Result))
+		if err := a.out(json.RawMessage(res.Result)); err != nil {
+			return err
+		}
+	} else {
+		fmt.Println(text)
 	}
-	fmt.Println(renderResult(res.Result))
+	// The result is printed either way -- it is the explanation -- but a
+	// script must not read a failed tool as a success.
+	if failed {
+		return fmt.Errorf("%s.%s reported an error (isError)", ns, tool)
+	}
 	return nil
 }
 
 // renderResult unwraps a CallToolResult the same way the script client does,
-// so CLI and script output agree.
-func renderResult(raw json.RawMessage) string {
+// so CLI and script output agree. failed is the result's isError, which every
+// caller has to carry to its own surface: dropping it tells a model that a
+// failed tool succeeded.
+func renderResult(raw json.RawMessage) (text string, failed bool) {
 	var r struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -392,14 +403,14 @@ func renderResult(raw json.RawMessage) string {
 		IsError           bool            `json:"isError"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return string(raw)
+		return string(raw), false
 	}
 	if len(r.StructuredContent) > 0 {
 		var buf strings.Builder
 		enc := json.NewEncoder(&buf)
 		enc.SetIndent("", "  ")
 		if enc.Encode(json.RawMessage(r.StructuredContent)) == nil {
-			return strings.TrimRight(buf.String(), "\n")
+			return strings.TrimRight(buf.String(), "\n"), r.IsError
 		}
 	}
 	var texts []string
@@ -409,9 +420,9 @@ func renderResult(raw json.RawMessage) string {
 		}
 	}
 	if len(texts) > 0 {
-		return strings.Join(texts, "\n")
+		return strings.Join(texts, "\n"), r.IsError
 	}
-	return string(raw)
+	return string(raw), r.IsError
 }
 
 // ---- run / exec ----

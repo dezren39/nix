@@ -11,7 +11,25 @@ import (
 // every shape that revision defines is understood by everything newer:
 // guessing downward is recoverable, guessing upward is a frame the client
 // cannot parse.
-const Oldest = "2025-03-26"
+const Oldest = "2024-11-05"
+
+// Headerless is the revision a legacy message is taken to speak when nothing
+// said otherwise on the transport: a Streamable HTTP request with no
+// MCP-Protocol-Version header and no session, and a stdio batch before
+// initialize.
+//
+// Not Oldest, and the difference is deliberate. Oldest governs how results
+// are *spelled* for a client that declared nothing -- guessing downward is
+// the safe direction for shapes. But 2024-11-05 has no Streamable HTTP at
+// all (its HTTP transport is HTTP+SSE, which mcpx does not host), so nothing
+// arriving on /mcp can be a 2024-11-05 request that omitted the header; the
+// 2025-06-18 and 2025-11-25 transport pages say a server SHOULD assume
+// 2025-03-26 there, and 2026-07-28's says it MAY. And 2024-11-05's schema
+// has no JSON-RPC batch type, so a line that opens with '[' comes from a
+// client that believes batches exist -- 2025-03-26, which says a server
+// MUST accept them. Judging that batch against 2024-11-05 would refuse the
+// only revision that could have sent it.
+const Headerless = "2025-03-26"
 
 // AtLeast compares revisions.
 //
@@ -42,17 +60,38 @@ const (
 	// FeatResourceLink is the resource_link content block. Added in
 	// 2025-06-18; before it, a link had to be text or an embedded resource.
 	FeatResourceLink Feature = "resource_link"
-	// FeatAudio is the audio content block, added in 2025-03-26 -- which is
-	// the oldest revision mcpx serves, so it is always available. Named
-	// anyway, because "always true today" is a fact about the floor rather
-	// than about the feature.
+	// FeatAudio is the audio content block, added in 2025-03-26. A
+	// 2024-11-05 client is given a text block describing it instead.
 	FeatAudio Feature = "audio"
+	// FeatToolAnnotations is Tool.annotations -- readOnlyHint and the rest.
+	// Added in 2025-03-26.
+	FeatToolAnnotations Feature = "toolAnnotations"
+	// FeatCompletions is the completions server capability. completion/complete
+	// itself is older, but 2024-11-05 has no capability to declare it with.
+	FeatCompletions Feature = "completions"
+	// FeatTitle is the display title on tools, prompts, prompt arguments,
+	// resources and templates. Added in 2025-06-18.
+	FeatTitle Feature = "title"
+	// FeatIcons is the icons array on those same things. Added in 2025-11-25.
+	FeatIcons Feature = "icons"
+	// FeatExtensions is ServerCapabilities.extensions. 2026-07-28 only:
+	// 2025-11-25's schema has no such field, so declaring an extension there
+	// is sending a field the client was never told about.
+	FeatExtensions Feature = "extensions"
+	// FeatTasksExtension is io.modelcontextprotocol/tasks, which replaced
+	// core tasks in 2026-07-28 with different wire shapes.
+	FeatTasksExtension Feature = "tasksExtension"
+	// FeatCacheable is ttlMs and cacheScope on list, read and discover
+	// results. 2026-07-28.
+	FeatCacheable Feature = "cacheable"
 	// FeatElicitation is a server asking its client a question. Added in
 	// 2025-06-18, form mode only.
 	FeatElicitation Feature = "elicitation"
 	// FeatElicitationURL is url-mode elicitation. Added in 2025-11-25.
 	FeatElicitationURL Feature = "elicitationURL"
-	// FeatTasks is tasks/*: core in 2025-11-25, an extension in 2026-07-28.
+	// FeatTasks is core tasks/* -- the tasks capability, the task parameter,
+	// tasks/list and a blocking tasks/result. 2025-11-25 only: 2026-07-28
+	// moved tasks to an extension and removed both of those methods.
 	FeatTasks Feature = "tasks"
 	// FeatElicitationComplete is notifications/elicitation/complete, which
 	// exists only in 2025-11-25: 2026-07-28 dropped it along with every
@@ -82,12 +121,19 @@ const (
 	FeatBatch Feature = "batch"
 )
 
-// floors is the revision each feature arrived in. A feature with an empty
-// floor is in every revision mcpx serves.
+// floors is the revision each feature arrived in. A feature with no floor is
+// in every revision mcpx serves, back to 2024-11-05.
 var floors = map[Feature]string{
 	FeatStructuredContent:   "2025-06-18",
 	FeatResourceLink:        "2025-06-18",
 	FeatAudio:               "2025-03-26",
+	FeatToolAnnotations:     "2025-03-26",
+	FeatCompletions:         "2025-03-26",
+	FeatTitle:               "2025-06-18",
+	FeatIcons:               "2025-11-25",
+	FeatExtensions:          "2026-07-28",
+	FeatTasksExtension:      "2026-07-28",
+	FeatCacheable:           "2026-07-28",
 	FeatElicitation:         "2025-06-18",
 	FeatElicitationURL:      "2025-11-25",
 	FeatTasks:               "2025-11-25",
@@ -95,15 +141,13 @@ var floors = map[Feature]string{
 	FeatResultType:          "2026-07-28",
 	FeatInputRequired:       "2026-07-28",
 	FeatSubscriptionsListen: "2026-07-28",
-	FeatResourceSubscribe:   "2025-03-26",
-	FeatLoggingSetLevel:     "2025-03-26",
 	FeatDiscover:            "2026-07-28",
-	FeatInitialize:          "2025-03-26",
 	FeatBatch:               "2025-03-26",
 }
 
 // ceilings is the first revision that no longer defines a feature.
 var ceilings = map[Feature]string{
+	FeatTasks:               "2026-07-28",
 	FeatElicitationComplete: "2026-07-28",
 	FeatResourceSubscribe:   "2026-07-28",
 	FeatLoggingSetLevel:     "2026-07-28",
@@ -135,8 +179,7 @@ func Defines(version string, f Feature) bool {
 // the vocabulary it has -- and a content block it cannot parse is not a
 // degraded result, it is an unreadable one.
 func downgrade(result any, version string) any {
-	if Defines(version, FeatStructuredContent) && Defines(version, FeatResourceLink) &&
-		Defines(version, FeatAudio) && Defines(version, FeatResultType) {
+	if Defines(version, FeatResultType) {
 		// The newest revision defines everything mcpx builds, so there is
 		// nothing to rewrite and nothing to pay for.
 		return result
@@ -165,13 +208,67 @@ func downgrade(result any, version string) any {
 	if msgs, present := m["messages"]; present {
 		m["messages"] = downgradeMessages(msgs, version)
 	}
-	if !Defines(version, FeatResultType) {
-		// Harmless to a client that ignores unknown fields, and a lie to one
-		// that does not: resultType is the modern era's signal, and sending
-		// it to a legacy client says mcpx is speaking a revision it is not.
-		delete(m, "resultType")
+	// The listed primitives carry fields that arrived one revision at a
+	// time. Each is optional where it exists, so removing it loses a
+	// display nicety and never meaning.
+	for _, key := range []string{"tools", "prompts", "resources", "resourceTemplates"} {
+		if list, present := m[key].([]any); present {
+			m[key] = downgradeItems(list, version)
+		}
+	}
+	// The modern-only envelope. Harmless to a client that ignores unknown
+	// fields, and a lie to one that does not: each says mcpx is speaking a
+	// revision it is not.
+	delete(m, "resultType")
+	delete(m, "ttlMs")
+	delete(m, "cacheScope")
+	if meta, ok := m["_meta"].(map[string]any); ok {
+		delete(meta, MetaServerInfo)
+		if len(meta) == 0 {
+			delete(m, "_meta")
+		}
 	}
 	return m
+}
+
+// downgradeItems strips per-item fields a revision does not define from a
+// list of tools, prompts, resources or templates.
+func downgradeItems(list []any, version string) []any {
+	out := make([]any, 0, len(list))
+	for _, item := range list {
+		it, ok := asMap(item)
+		if !ok {
+			out = append(out, item)
+			continue
+		}
+		if !Defines(version, FeatTitle) {
+			delete(it, "title")
+			if args, ok := it["arguments"].([]any); ok {
+				for _, a := range args {
+					if am, ok := a.(map[string]any); ok {
+						delete(am, "title")
+					}
+				}
+			}
+		}
+		if !Defines(version, FeatIcons) {
+			delete(it, "icons")
+			// execution.taskSupport arrived with core tasks.
+			delete(it, "execution")
+		}
+		if !Defines(version, FeatStructuredContent) {
+			delete(it, "outputSchema")
+		}
+		if !Defines(version, FeatToolAnnotations) {
+			// Tool.annotations is 2025-03-26; resource annotations are
+			// older, so only a tool's are removed.
+			if _, isTool := it["inputSchema"]; isTool {
+				delete(it, "annotations")
+			}
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // copyMap renders a result as a fresh map, sharing nothing with the original.
@@ -297,8 +394,10 @@ func describeBlob(block map[string]any, kind string) string {
 var Features = []Feature{
 	FeatInitialize, FeatDiscover, FeatResultType, FeatInputRequired,
 	FeatStructuredContent, FeatResourceLink, FeatAudio,
+	FeatToolAnnotations, FeatCompletions, FeatTitle, FeatIcons,
 	FeatElicitation, FeatElicitationURL, FeatElicitationComplete,
-	FeatTasks, FeatResourceSubscribe, FeatSubscriptionsListen,
+	FeatTasks, FeatTasksExtension, FeatExtensions, FeatCacheable,
+	FeatResourceSubscribe, FeatSubscriptionsListen,
 	FeatLoggingSetLevel, FeatBatch,
 }
 

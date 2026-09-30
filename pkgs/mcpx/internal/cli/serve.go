@@ -13,6 +13,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/adapter"
 	"github.com/dezren39/mcpx/internal/artifacts"
+	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/execsvc"
@@ -114,7 +115,14 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if err != nil {
 		return "", err
 	}
-	return renderResult(res.Result), nil
+	text, failed := renderResult(res.Result)
+	if failed {
+		// mcpserver turns a backend error into a result with isError, and
+		// /v1/tools into ok:false; ToolFailure lets the latter tell it from
+		// a call mcpx could not make.
+		return "", daemon.ToolFailure{Text: text}
+	}
+	return text, nil
 }
 
 // Exec runs a script through the daemon's /v1/exec.
@@ -137,15 +145,7 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
 		return "", err
 	}
-	session := b.app.mcpSession()
-	opts := execsvc.Options{
-		Session:      session,
-		Output:       execsvc.OutputStructured,
-		Capabilities: []string{execsvc.CapabilityArtifacts},
-	}
-	if timeoutSec > 0 {
-		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
-	}
+	opts := b.execOptions(timeoutSec)
 	body, err := c.do(ctx, http.MethodPost, "/v1/exec",
 		map[string]any{"source": source, "options": opts})
 	if err != nil {
@@ -155,6 +155,26 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := json.Unmarshal(body, &res); err != nil {
 		return "", err
 	}
+	return renderExec(res)
+}
+
+// execOptions is what mcpx_exec asks /v1/exec for, whichever path runs it.
+func (b mcpBackend) execOptions(timeoutSec int) execsvc.Options {
+	opts := execsvc.Options{
+		Session:      b.app.mcpSession(),
+		Output:       execsvc.OutputStructured,
+		Capabilities: []string{execsvc.CapabilityArtifacts},
+	}
+	if timeoutSec > 0 {
+		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
+	}
+	return opts
+}
+
+// renderExec turns a script's result into mcpx_exec's tool result. Shared by
+// the direct path and the interruptible one (serve_ask.go), so a script
+// answered inline renders exactly like one that was never asked anything.
+func renderExec(res execsvc.Result) (string, error) {
 
 	var sb strings.Builder
 	for _, e := range res.Emits {
@@ -317,9 +337,15 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 		AskRounds:   a.Settings().Int("proto.askRounds"),
 		StateTTL:    a.Settings().Duration("proto.stateTTL"),
 		SessionIdle: a.Settings().Duration("proto.sessionIdle"),
-
+		TaskAfter:   a.Settings().Duration("protoMessages.taskAfter"),
+		// One keep-alive for every event stream mcpx serves: a legacy GET
+		// stream and a 2026-07-28 listen stream are the same thing to a proxy.
 		SSEKeepAlive: a.Settings().Duration("transport.sseKeepAlive"),
 		StdioDrain:   a.Settings().Duration("transport.stdioDrain"),
+	}
+	srv.Cache = mcpserver.Cache{
+		List: a.Settings().Duration("protoMessages.listMaxAge"),
+		Read: a.Settings().Duration("protoMessages.readMaxAge"),
 	}
 	// Browser origins the HTTP transport serves: loopback at any port, the
 	// daemon's own address when it listens somewhere else, and whatever
@@ -579,26 +605,58 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 }
 
 // ReadResource resolves a namespaced URI back to its server.
+//
+// A resource that does not exist is reported as mcpserver.ErrResourceNotFound
+// so the protocol layer can answer with the code the client's revision
+// defines for it; everything else is a failure to read, which is a
+// different code. The four ways a URI names nothing: it is not an mcpx URI
+// at all, it names no namespace, the namespace is not configured, or the
+// upstream server itself said not-found.
 func (b mcpBackend) ReadResource(ctx context.Context, uri string) (string, string, error) {
 	// Artifacts are answered before the namespace split, because "artifacts"
 	// is not a server and would otherwise be looked up as one.
 	if id, ok := artifacts.IDFromURI(uri); ok {
-		return b.readArtifact(ctx, id)
+		text, mime, err := b.readArtifact(ctx, id)
+		// The daemon's 404 arrives as its message; artifacts.ErrNotFound
+		// is the only thing that says "no artifact <id>".
+		if err != nil && strings.Contains(err.Error(), "no artifact "+id) {
+			return "", "", fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, err)
+		}
+		return text, mime, err
 	}
-	ns, rest, ok := strings.Cut(strings.TrimPrefix(uri, "mcpx://"), "/")
-	if !ok {
-		return "", "", fmt.Errorf("a resource URI looks like mcpx://<namespace>/<uri>, got %q", uri)
+	rest, isOurs := strings.CutPrefix(uri, "mcpx://")
+	ns, inner, ok := strings.Cut(rest, "/")
+	if !isOurs || !ok || ns == "" {
+		return "", "", fmt.Errorf("%w: a resource URI looks like mcpx://<namespace>/<uri>, got %q",
+			mcpserver.ErrResourceNotFound, uri)
 	}
 	c, err := b.app.ensure(ctx)
 	if err != nil {
 		return "", "", err
 	}
 	session := b.app.mcpSession()
-	raw, err := c.ReadResource(ctx, ns, rest, b.app.callContext(session, session))
+	raw, err := c.ReadResource(ctx, ns, inner, b.app.callContext(session, session))
 	if err != nil {
+		if upstreamNotFound(err) {
+			return "", "", fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, err)
+		}
 		return "", "", err
 	}
 	return renderResource(raw)
+}
+
+// upstreamNotFound reads a not-found out of the daemon's answer.
+//
+// The daemon returns an upstream failure as text -- "unknown server or
+// namespace", or the upstream JSON-RPC error rendered as "mcp error <code>:"
+// -- so this is string matching across a process boundary. The codes it
+// looks for are the only two any revision uses for a missing resource:
+// -32002 up to 2025-11-25, -32602 since.
+func upstreamNotFound(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "unknown server or namespace") ||
+		strings.Contains(msg, "mcp error -32002:") ||
+		strings.Contains(msg, "mcp error -32602:")
 }
 
 // GetPrompt resolves a namespaced prompt back to its server.

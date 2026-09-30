@@ -169,6 +169,10 @@
     "publicMode": "0644",
     "publicDirMode": "0755"
   },
+  "git": {
+    "bin": "git",
+    "gitfileMaxBytes": "1MiB"
+  },
   "plugin": {
     "bin": "mcpx",
     "binArgs": [],
@@ -180,6 +184,11 @@
     "tools": false,
     "remember": "session",
     "annotate": true
+  },
+  "protoMessages": {
+    "listMaxAge": "1m",
+    "readMaxAge": "0s",
+    "taskAfter": "2s"
   },
   "upstream": {
     "protocol": "modern",
