@@ -660,9 +660,12 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 				"isError": true,
 			})
 		}
-		return reply(map[string]any{
-			"content": []any{map[string]any{"type": "text", "text": text}},
-		})
+		text, blocks := decodeResult(text)
+		content := []any{map[string]any{"type": "text", "text": text}}
+		for _, b := range blocks {
+			content = append(content, b)
+		}
+		return reply(map[string]any{"content": content})
 
 	case "resources/list":
 		if s.backend == nil {

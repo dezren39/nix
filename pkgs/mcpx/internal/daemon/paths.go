@@ -155,7 +155,36 @@ func privateRuntimeDir() (string, error) {
 // /private/tmp on macOS, and a process whose $PWD holds the unresolved form
 // -- a shell, an editor, the opencode plugin -- otherwise computed a second
 // key for the same file, reported no daemon running, and started another.
+//
+// The *contents* used to be in the key as well, so that editing a config got
+// a fresh daemon rather than a stale one. That stopped being a good trade the
+// moment the daemon learned to reload: a daemon that reloads changes the
+// contents of the files it was keyed by, which moves its own key, which makes
+// it unreachable by the client that just edited it -- and, worse, hands the
+// next command a *different* daemon that happens to match the new key with
+// old servers loaded. That was observed: `mcpx servers remove` succeeded, the
+// file was correct, and the next `mcpx servers list` showed the removed
+// server, because it had found a daemon started two edits ago.
+//
+// So the key is the file set, and staleness is handled where it belongs: the
+// daemon notices its files changed and re-reads them.
 func FingerprintConfig(paths []string) string {
+	h := sha256.New()
+	for _, p := range paths {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		h.Write([]byte(p))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+// ContentFingerprint hashes what the config files currently say.
+//
+// Not the daemon key -- that is the file set -- but the thing the daemon
+// compares against to notice somebody edited one behind its back.
+func ContentFingerprint(paths []string) string {
 	h := sha256.New()
 	for _, p := range paths {
 		if real, err := filepath.EvalSymlinks(p); err == nil {

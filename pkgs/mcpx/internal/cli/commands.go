@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/settings"
 	"io"
 	"log/slog"
 	"os"
@@ -16,8 +17,10 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/artifacts"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/preflight"
 	"github.com/dezren39/mcpx/internal/runner"
@@ -285,9 +288,16 @@ func (a *App) setOutputFormat(f logging.Format) {
 // CmdSearch ranks tools across every namespace.
 func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	fs := newFlagSet("search")
-	limit := fs.Int("n", 20, "max results")
+	// -n, --limit and --search-limit are one setting, declared once. The
+	// value is sent only when somebody actually chose it: a client's
+	// inherited default must not override what the daemon is configured
+	// with, or every command would quietly impose its own.
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	limit := 0
+	if v, ok := a.Settings().Value("search.limit"); ok && v.Origin.Layer != settings.LayerDefault {
+		limit = a.Settings().Int("search.limit")
 	}
 	if fs.NArg() == 0 {
 		return errors.New("usage: mcpx search <query>")
@@ -304,7 +314,7 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
-	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), *limit)
+	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit)
 	if err != nil {
 		return err
 	}
@@ -464,6 +474,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		"leave console.* alone instead of mirroring it into the record stream")
 	perms := fs.String("permissions", "",
 		"deno sandbox: all (default), net, read, read-net, strict, or explicit flags")
+	// --remote and --local are the readable spellings of exec.where. The
+	// setting is an enum because there is a third value -- auto -- and an
+	// enum with three values is not two booleans.
+	remote := fs.Bool("remote", false, "run the script on the daemon rather than here")
+	local := fs.Bool("local", false, "run the script in this process (the default when the daemon is local)")
 	// parseFlags binds everything the registry declares for this command that
 	// the hand-written flags above have not already claimed, then folds what
 	// was given into the resolved settings.
@@ -502,6 +517,23 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return err
 	}
 
+	eo := a.resolveExecOptions()
+	if *remote && *local {
+		return errors.New("--remote and --local contradict each other")
+	}
+	if *remote {
+		eo.Where = "remote"
+	} else if *local {
+		eo.Where = "local"
+	}
+	elsewhere, werr := a.runsRemotely(c, eo.Where)
+	if werr != nil {
+		return werr
+	}
+	// One identifier for this execution, used by the artifact index to group
+	// what the script produced and by a stream consumer to name the run.
+	runID := execsvc.NewRunID()
+
 	sessionKey := *session
 	hostSession := os.Getenv("MCPX_SESSION_ID")
 	// Ephemeral unless the caller named a session or the host assigned one.
@@ -515,10 +547,17 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// Free any pinned instances (browsers) as soon as the script ends, rather
 	// than leaving them parked until the idle timer fires.
 	defer func() {
-		rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		rctx, cancel := context.WithTimeout(context.Background(),
+			a.Settings().Duration("session.releaseTimeout"))
 		defer cancel()
 		_ = c.ReleaseCaller(rctx, sessionKey)
 	}()
+
+	if elsewhere {
+		return a.execOnDaemon(ctx, c, fs, inline, ns, sessionKey, eo,
+			execRemoteFlags{timeout: *timeout, runtime: *rt, permissions: *perms,
+				export: *export, session: sessionKey})
+	}
 
 	// The session is deliberately not baked into the generated module: several
 	// concurrent runs share one client file, and each must keep its own
@@ -596,7 +635,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// preserving order.
 	var streamed []logging.Streamed
 	onResult := func(v logging.Streamed) { streamed = append(streamed, v) }
-	if !a.JSON {
+	// Only the text shape writes streamed values straight to stdout. The
+	// other two carry them as fields -- in the document, or in an emit frame
+	// -- and printing them here as well would put a bare JSON line in the
+	// middle of a document a caller is parsing.
+	if !a.JSON && eo.Output == execsvc.OutputText {
 		stdout := io.Writer(os.Stdout)
 		onResult = func(v logging.Streamed) {
 			fmt.Fprintln(stdout, string(v.Value))
@@ -626,8 +669,13 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			"cwd":     mustGetwd(),
 		}, logging.HarnessIDs()),
 		Env: map[string]string{
-			"MCPX_SESSION":  sessionKey,
-			"MCPX_ENDPOINT": endpoint,
+			"MCPX_SESSION": sessionKey,
+			"MCPX_RUN":     runID,
+			// Whether artifact({path}) may hand the daemon a path instead of
+			// bytes. A socket is the evidence that the daemon shares this
+			// filesystem; a remote endpoint has none.
+			"MCPX_ARTIFACTS_LOCAL": boolFlag(a.localSocket() != ""),
+			"MCPX_ENDPOINT":        endpoint,
 			// The socket as well as the port, so a script can use whichever
 			// is faster. Empty when the daemon is remote: a socket on another
 			// machine is not reachable from here.
@@ -730,6 +778,18 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		opts.File = file
 		opts.Args = fs.Args()[1:]
 	}
+
+	// Deterministic diagnostics, before anything starts. What this catches is
+	// a tool whose schema moved under a script that used to work; left to the
+	// runtime it surfaces as an error from the server, halfway through, after
+	// the side effects of every call before it.
+	diagSource := opts.Source
+	if diagSource == "" {
+		diagSource = sourceOfScript(opts.File)
+	}
+	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
+		return derr
+	}
 	for _, raw := range envVars.Values() {
 		kv, ok := raw.(string)
 		if !ok {
@@ -751,6 +811,28 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		fmt.Fprintf(os.Stderr, "mcpx: workdir %s\n", dir)
 	}
 
+	// The artifact store is the daemon's, opened from this side. When the
+	// daemon is on this machine that is the same SQLite index and the same
+	// blobs, so a file the script registered can be hardlinked into an
+	// output directory rather than fetched back over a socket.
+	var store *artifacts.Store
+	if st, serr := a.localStore(); serr == nil {
+		store = st
+		defer store.Close()
+	} else if eo.ArtifactsDir != "" {
+		// Only worth failing for when the caller actually asked for files.
+		return serr
+	}
+	svc := a.localService(store, a.localSocket())
+	wire := execsvc.Options{
+		Session:   sessionKey,
+		Output:    eo.Output,
+		Artifacts: eo.artifactOptions(mustGetwd()),
+	}
+	if wire.Artifacts != nil {
+		wire.Capabilities = []string{execsvc.CapabilityArtifacts}
+	}
+
 	if a.JSON {
 		// Everything the run produced belongs in the document, including the
 		// script's own stderr. Letting it through would mean the caller has to
@@ -758,13 +840,16 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		var out, errOut strings.Builder
 		opts.Stdout = &out
 		opts.Stderr = &errOut
-		res, err := runner.Run(ctx, opts)
+		res, err := svc.RunWith(ctx, opts, wire, nil)
 		if err != nil {
 			return err
 		}
 		env := runEnvelope(res, out.String(), collected, streamed)
 		if s := errOut.String(); s != "" {
 			env["stderr"] = s
+		}
+		if len(res.Artifacts) > 0 {
+			env["artifacts"] = res.Artifacts
 		}
 		if err := a.out(env); err != nil {
 			return err
@@ -775,9 +860,39 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return nil
 	}
 
-	res, err := runner.Run(ctx, opts)
+	// A caller asking for frames wants them on stdout as they happen, and
+	// nothing else on stdout: the script's own output is carried inside a
+	// stdout frame rather than written beside them.
+	var sink execsvc.Sink
+	switch eo.Output {
+	case execsvc.OutputStream:
+		var raw strings.Builder
+		opts.Stdout = &raw
+		enc := json.NewEncoder(os.Stdout)
+		sink = func(f execsvc.Frame) error { return enc.Encode(f) }
+	case execsvc.OutputStructured:
+		var raw strings.Builder
+		opts.Stdout = &raw
+	default:
+		// Text: the script's stdout is the answer and goes straight to the
+		// terminal as it is produced. The service still collects a copy, but
+		// it must not become the only destination -- a long run that printed
+		// as it went would print nothing until it ended.
+		if opts.Stdout == nil {
+			opts.Stdout = os.Stdout
+		}
+	}
+
+	res, err := svc.RunWith(ctx, opts, wire, sink)
 	if err != nil {
 		return err
+	}
+	if eo.Output == execsvc.OutputStructured {
+		if err := a.out(res); err != nil {
+			return err
+		}
+	} else if eo.Output != execsvc.OutputStream {
+		a.reportArtifacts(res)
 	}
 	if res.ExitCode != 0 {
 		os.Exit(res.ExitCode)
@@ -788,11 +903,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 // runEnvelope is the machine-readable form of a script run: one document
 // carrying everything a caller would otherwise have to scrape from two
 // streams and an exit status.
-func runEnvelope(res *runner.Result, stdout string, logs []logging.Record, streamed []logging.Streamed) map[string]any {
+func runEnvelope(res *execsvc.Result, stdout string, logs []logging.Record, streamed []logging.Streamed) map[string]any {
 	env := map[string]any{
 		"ok":         res.ExitCode == 0 && !res.TimedOut,
 		"exitCode":   res.ExitCode,
-		"durationMs": res.Duration.Milliseconds(),
+		"durationMs": res.DurationMs,
 		"runtime":    res.Runtime,
 		"stdout":     stdout,
 	}
@@ -910,26 +1025,10 @@ func (a *App) buildPrelude(ctx context.Context, c *Client, ns []string, captureC
 		names = append(names, n.Namespace)
 	}
 	sort.Strings(names)
-
-	var b strings.Builder
-	b.WriteString("// --- mcpx prelude (generated) ---\n")
-	fmt.Fprintf(&b, "import tools, { call, readResource, log, emit, ToolError, installGlobals, captureConsole } from %q;\n",
-		"./"+runner.ClientFileName)
-	// A snippet gets the same surface a file script does, so behaviour does
-	// not depend on which way the code was supplied.
-	b.WriteString("installGlobals();\n")
-	if captureConsole {
-		b.WriteString("captureConsole();\n")
-	}
-	if len(names) > 0 {
-		fmt.Fprintf(&b, "const { %s } = tools;\n", strings.Join(names, ", "))
-	}
-	b.WriteString("void [tools, call, readResource, log, emit, ToolError")
-	for _, n := range names {
-		b.WriteString(", " + n)
-	}
-	b.WriteString("];\n// --- end prelude ---\n\n")
-	return b.String(), nil
+	// Built by the shared service, not here. Two preludes would mean a
+	// snippet that compiles when a person runs it and not when the daemon
+	// does, which is the exact class of difference this whole change removes.
+	return execsvc.Prelude(names, captureConsole), nil
 }
 
 // ---- client (write the module for hand-written scripts) ----
@@ -959,10 +1058,10 @@ func (a *App) CmdClient(ctx context.Context, args []string) error {
 		fmt.Print(src)
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(*outPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(*outPath), defaults.PublicDirMode); err != nil {
 		return err
 	}
-	if err := os.WriteFile(*outPath, []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(*outPath, []byte(src), defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s\n", *outPath)
@@ -1233,10 +1332,10 @@ func (a *App) CmdInit(ctx context.Context, args []string) error {
 	if _, err := os.Stat(path); err == nil && !*force {
 		return fmt.Errorf("%s already exists (use --force)", path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
+	if err := os.MkdirAll(filepath.Dir(path), defaults.PublicDirMode); err != nil && filepath.Dir(path) != "." {
 		return err
 	}
-	if err := os.WriteFile(path, []byte(starterConfig), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(starterConfig), defaults.PublicMode); err != nil {
 		return err
 	}
 	fmt.Printf("wrote %s\n", path)
@@ -1390,7 +1489,7 @@ func boolFlag(b bool) string {
 // CmdCatalog prints every namespace with as many signatures as fit a budget.
 func (a *App) CmdCatalog(ctx context.Context, args []string) error {
 	fs := newFlagSet("catalog")
-	budget := fs.Int("budget", 0, "approximate token ceiling (default 2000)")
+	budget := fs.Int("budget", 0, fmt.Sprintf("approximate token ceiling (default %d)", defaults.CatalogBudget))
 	bias := fs.String("bias", "", "promote tools matching these words")
 	nsFlag := fs.String("ns", "", "restrict to these namespaces")
 	if err := parseFlags(a, fs, args); err != nil {

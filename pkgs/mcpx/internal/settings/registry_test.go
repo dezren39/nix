@@ -283,3 +283,111 @@ func TestPlumbingIsHiddenFromOrdinaryHelpButStillDescribed(t *testing.T) {
 type nopWriter struct{}
 
 func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+func TestEverySettingSaysWhoReadsIt(t *testing.T) {
+	// A setting with no scope cannot be handled correctly by any surface: the
+	// CLI does not know whether to send it with the request, and the /v1 API
+	// does not know whether changing it at runtime means anything. Guessing
+	// on a declaration's behalf is how a flag ends up silently ignored.
+	for _, set := range schema(t).All() {
+		if set.Scope == settings.ScopeUnset {
+			t.Errorf("%s does not say whether it is read by the daemon, the client, "+
+				"one call, or the plugin", set.Path)
+		}
+		if set.Hot && set.Scope == settings.ScopePlugin {
+			t.Errorf("%s is marked hot but nothing in this process reads it", set.Path)
+		}
+	}
+}
+
+func TestCallScopedSettingsAreHotByDefinition(t *testing.T) {
+	// A call-scoped value arrives with the request, so whoever reads it reads
+	// it afresh every time. Marking one cold would be a contradiction: it
+	// would claim a restart is needed for a value that never outlives a
+	// request.
+	for _, set := range schema(t).All() {
+		if set.Scope == settings.ScopeCall && !set.Hot {
+			t.Errorf("%s is call-scoped but not hot", set.Path)
+		}
+	}
+}
+
+func TestPluginEnvironmentNamesAreTheContractWithTheTypeScript(t *testing.T) {
+	// The plugin reads process.env directly; it cannot ask Go to resolve a
+	// setting. These spellings are therefore load-bearing in a way the rest
+	// are not, and renaming a path silently renames a variable the plugin is
+	// already coded against.
+	s := schema(t)
+	for path, env := range map[string]string{
+		"plugin.bin":            "MCPX_PLUGIN_BIN",
+		"plugin.binArgs":        "MCPX_PLUGIN_BIN_ARGS",
+		"plugin.backend":        "MCPX_PLUGIN_BACKEND",
+		"plugin.discoveryRetry": "MCPX_PLUGIN_DISCOVERY_RETRY",
+		"plugin.toolTiming":     "MCPX_PLUGIN_TOOL_TIMING",
+		"plugin.env":            "MCPX_PLUGIN_ENV",
+		"plugin.instructions":   "MCPX_PLUGIN_INSTRUCTIONS",
+		"plugin.tools":          "MCPX_PLUGIN_TOOLS",
+		"plugin.skills":         "MCPX_PLUGIN_SKILLS",
+	} {
+		set, ok := s.Lookup(path)
+		if !ok {
+			t.Errorf("%s should be declared", path)
+			continue
+		}
+		if set.EnvName() != env {
+			t.Errorf("%s reads %s, but the plugin is coded against %s",
+				path, set.EnvName(), env)
+		}
+		if set.Scope != settings.ScopePlugin {
+			t.Errorf("%s should be plugin-scoped", path)
+		}
+	}
+}
+
+func TestRuntimeOverrideWinsAndCanBeDropped(t *testing.T) {
+	s := schema(t)
+	set := settings.NewSet(s)
+	_ = s.ApplyEnv(set, []string{"MCPX_LOGGING_LEVEL=warn"})
+	if err := set.SetRuntime("logging.level", "debug"); err != nil {
+		t.Fatal(err)
+	}
+	if got := set.String("logging.level"); got != "debug" {
+		t.Errorf("a runtime override should be the most recent word: %q", got)
+	}
+	v, _ := set.Value("logging.level")
+	if v.Origin.Layer != settings.LayerRuntime {
+		t.Errorf("origin should be runtime, got %v", v.Origin)
+	}
+	if len(v.Shadowed) == 0 || v.Shadowed[0].Layer != settings.LayerEnv {
+		t.Errorf("what it displaced should be remembered: %v", v.Shadowed)
+	}
+	if !set.ClearRuntime("logging.level") {
+		t.Error("clearing an override that was there should say so")
+	}
+	if got := set.String("logging.level"); got != "warn" {
+		t.Errorf("dropping the override should fall back to the environment: %q", got)
+	}
+}
+
+func TestAnInvalidRuntimeOverrideIsRefused(t *testing.T) {
+	set := settings.NewSet(schema(t))
+	if err := set.SetRuntime("pool.idleTimeout", "forever"); err == nil {
+		t.Fatal("a runtime change that skips the parser is the one way to get an " +
+			"invalid value into a running process")
+	}
+}
+
+func TestPerCallOverridesDoNotLeakIntoTheSetTheyCameFrom(t *testing.T) {
+	base := settings.NewSet(schema(t))
+	view := base.WithOverrides(map[string]string{"search.limit": "3"}, "X-Mcpx-Settings")
+	if got := view.Int("search.limit"); got != 3 {
+		t.Errorf("the view should see the override, got %d", got)
+	}
+	if got := base.Int("search.limit"); got == 3 {
+		t.Error("one request's value has escaped into the daemon's own")
+	}
+	v, _ := view.Value("search.limit")
+	if v.Origin.Detail != "X-Mcpx-Settings" {
+		t.Errorf("the view should say where the value came from: %v", v.Origin)
+	}
+}

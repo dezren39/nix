@@ -12,10 +12,13 @@ import (
 
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // Registry holds one pool per configured server plus the schema cache.
@@ -53,6 +56,23 @@ type Registry struct {
 
 	logf     func(string, ...any)
 	degraded sync.Map
+
+	// consumer is the policy for questions mcpx raises about its own
+	// behaviour, and history is what it knows about schemas that changed.
+	// Both are set by the daemon once settings have been resolved; the zero
+	// values mean "ask nothing, remember nothing", which is what a registry
+	// built for a test should do.
+	consumer ConsumerPolicy
+	history  *diagnose.History
+	// set is the daemon's resolved configuration, so the registry reads a
+	// knob at the moment it needs it rather than from a copy taken at
+	// startup. That is what makes daemon.leaseTTL changeable at runtime.
+	set *settings.Set
+
+	// hooks is what InstallHooks attached, kept so that a pool created by a
+	// later reload gets the same wiring. Without it, a server added at
+	// runtime would be the one server whose events nobody hears.
+	hooks *pool.Hooks
 }
 
 // leaseState remembers which pool keys a caller created, so releasing a
@@ -79,7 +99,11 @@ type cachedEntry struct {
 	FetchedAt    time.Time            `json:"fetchedAt"`
 }
 
-const cacheVersion = 3
+// cacheVersion is bumped whenever a cached entry gains a field. Adding one
+// parses cleanly against an old file and leaves it empty, which presented as
+// the destructive-call policy silently never firing: the annotations were
+// there upstream and absent from the cache nobody had reason to invalidate.
+const cacheVersion = 4
 
 // NewRegistry builds pools from config and seeds them from the disk cache.
 func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*Registry, error) {
@@ -225,7 +249,7 @@ func (r *Registry) SaveCache() error {
 	}
 	path := r.paths.SchemaCachePath(r.hash)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := os.WriteFile(tmp, b, defaults.PrivateMode); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -268,6 +292,10 @@ func (r *Registry) Warm(ctx context.Context, force bool) map[string]error {
 	if err := r.SaveCache(); err != nil {
 		r.logf("save cache: %v", err)
 	}
+	// Schemas have just been read, which is the only moment mcpx can tell
+	// that one of them changed. Recording it here is what lets a diagnostic
+	// say when.
+	r.ObserveCatalog()
 	return errs
 }
 
@@ -560,6 +588,12 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 		return nil, fmt.Errorf("unknown server or namespace %q", server)
 	}
 	key := r.keyFor(p, cc)
+	// Two policies sit between resolving the instance and using it, and both
+	// are off unless somebody turned them on. See internal/daemon/consumer.go.
+	key = r.disambiguate(ctx, p, cc, key)
+	if err := r.confirmDestructive(ctx, p, tool, cc); err != nil {
+		return nil, err
+	}
 	return p.Call(ctx, key, tool, args)
 }
 
@@ -760,7 +794,7 @@ func (r *Registry) Reap() {
 	var stale []string
 	r.sessMu.Lock()
 	for k, s := range r.leases {
-		if now.Sub(s.lastSeen) > 30*time.Minute {
+		if now.Sub(s.lastSeen) > r.leaseTTL() {
 			stale = append(stale, k)
 		}
 	}
@@ -827,6 +861,19 @@ func (r *Registry) Restart(name string) (int, error) {
 		return 0, fmt.Errorf("unknown server or namespace %q", name)
 	}
 	return p.Restart(), nil
+}
+
+// UseSettings gives the registry the daemon's resolved configuration.
+//
+// Separate from NewRegistry for the same reason InstallHooks is: a registry
+// built for a test should work without one.
+func (r *Registry) UseSettings(set *settings.Set) { r.set = set }
+
+func (r *Registry) leaseTTL() time.Duration {
+	if r.set == nil {
+		return defaults.LeaseTTL
+	}
+	return r.set.Duration("daemon.leaseTTL")
 }
 
 // Close shuts every pool down. The caller is responsible for persisting the

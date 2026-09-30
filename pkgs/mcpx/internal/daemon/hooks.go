@@ -68,6 +68,7 @@ func (r *Registry) InstallHooks(bus *events.Bus, broker *elicit.Broker, roots []
 		},
 		Elicit: r.answerServer,
 	}
+	r.hooks = hooks
 	seen := map[*pool.Pool]bool{}
 	for _, p := range r.pools {
 		if seen[p] {
@@ -233,7 +234,7 @@ func (r *Registry) sampleViaBroker(ctx context.Context, server, key string, para
 // OpenBroker opens the question store beside the log index.
 func OpenBroker(paths Paths) (*elicit.Broker, error) {
 	dir := filepath.Join(paths.State, "logs")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, defaults.PublicDirMode); err != nil {
 		return nil, err
 	}
 	return elicit.Open(filepath.Join(dir, "elicit.db"))

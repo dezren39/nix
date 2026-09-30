@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -72,6 +73,11 @@ type Defaults struct {
 		StatsTop             int    `json:"statsTop"`
 		RegistryLimit        int    `json:"registryLimit"`
 	} `json:"plumbing"`
+	// Resolve governs GET /v1/resolve, which answers "which daemon serves
+	// this directory" for a caller that has no mcpx binary.
+	Resolve struct {
+		DialTimeout string `json:"dialTimeout"`
+	} `json:"resolve"`
 	// Elicit governs questions a server asks back.
 	Elicit struct {
 		TTL            string `json:"ttl"`
@@ -101,6 +107,126 @@ type Defaults struct {
 		CaptureConsole   bool   `json:"captureConsole"`
 		TypecheckTimeout string `json:"typecheckTimeout"`
 	} `json:"script"`
+	// Consumer governs the things mcpx asks for on its own behalf: which
+	// instance to lease, whether to confirm a destructive call, how a
+	// request in words is turned into a script. Grouped under one name
+	// because they share a justification -- mcpx initiating a conversation
+	// rather than forwarding one -- and that is the thing a reader will want
+	// to find or switch off as a whole.
+	Consumer struct {
+		Disambiguate        string `json:"disambiguate"`
+		DisambiguateDefault string `json:"disambiguateDefault"`
+		ConfirmDestructive  bool   `json:"confirmDestructive"`
+		AskTimeout          string `json:"askTimeout"`
+		DiagnosePreflight   bool   `json:"diagnosePreflight"`
+		HistoryPerTool      int    `json:"historyPerTool"`
+		RecipeMinScore      int    `json:"recipeMinScore"`
+		RecipeMatchMargin   int    `json:"recipeMatchMargin"`
+		RecipeLimit         int    `json:"recipeLimit"`
+		PromptMode          string `json:"promptMode"`
+		PromptSample        string `json:"promptSample"`
+		PromptCatalogBudget int    `json:"promptCatalogBudget"`
+		PromptSampleTimeout string `json:"promptSampleTimeout"`
+		PromptMaxTokens     int    `json:"promptMaxTokens"`
+		RunTimeout          string `json:"runTimeout"`
+	} `json:"consumer"`
+	// Exec governs running a script, whether the CLI does it or the daemon
+	// does it on a caller's behalf.
+	Exec struct {
+		Timeout      string `json:"timeout"`
+		StderrLimit  int    `json:"stderrLimit"`
+		Output       string `json:"output"`
+		RemoteOutput string `json:"remoteOutput"`
+		Delivery     string `json:"delivery"`
+	} `json:"exec"`
+	// Artifacts governs the outbox: files a script produced, held for a
+	// caller to fetch rather than printed into its context.
+	Artifacts struct {
+		TTL                string `json:"ttl"`
+		MaxBytes           string `json:"maxBytes"`
+		Quota              string `json:"quota"`
+		InlineMaxBytes     string `json:"inlineMaxBytes"`
+		ChunkBytes         string `json:"chunkBytes"`
+		GCInterval         string `json:"gcInterval"`
+		InterceptImages    bool   `json:"interceptImages"`
+		NameMaxLength      int    `json:"nameMaxLength"`
+		NameCollisionLimit int    `json:"nameCollisionLimit"`
+		IDBytes            int    `json:"idBytes"`
+		ListLimit          int    `json:"listLimit"`
+	} `json:"artifacts"`
+	// HTTP governs the daemon's own listener and the clients that talk to
+	// it. Every one of these was an inline literal beside the code that
+	// happened to need it, which meant the request body ceiling was three
+	// different numbers depending on which route you hit and no document
+	// said so.
+	HTTP struct {
+		BodyLimit         string `json:"bodyLimit"`
+		CallBodyLimit     string `json:"callBodyLimit"`
+		ControlBodyLimit  string `json:"controlBodyLimit"`
+		ReadHeaderTimeout string `json:"readHeaderTimeout"`
+		ShutdownGrace     string `json:"shutdownGrace"`
+		SSEPing           string `json:"ssePing"`
+		SSERetry          string `json:"sseRetry"`
+		StreamBufferInit  string `json:"streamBufferInit"`
+		StreamBufferMax   string `json:"streamBufferMax"`
+		IdleConns         int    `json:"idleConns"`
+		RemoteIdleConns   int    `json:"remoteIdleConns"`
+	} `json:"http"`
+	// Autostart is how a CLI command brings a daemon into being when there
+	// is not one. The binary and the argument list are here because a
+	// packaged mcpx may not be the one on $PATH, and a sandbox may need the
+	// daemon started differently without patching the binary.
+	Autostart struct {
+		Bin            string   `json:"bin"`
+		Args           []string `json:"args"`
+		IdleExit       string   `json:"idleExit"`
+		ConnectTimeout string   `json:"connectTimeout"`
+		PollInterval   string   `json:"pollInterval"`
+		PingTimeout    string   `json:"pingTimeout"`
+		LogTail        string   `json:"logTail"`
+	} `json:"autostart"`
+	Limits struct {
+		SearchLimit        int    `json:"searchLimit"`
+		CompletionValues   int    `json:"completionValues"`
+		ElicitPending      int    `json:"elicitPending"`
+		RegistryPageSize   int    `json:"registryPageSize"`
+		LeaseTTL           string `json:"leaseTTL"`
+		SocketProbeTimeout string `json:"socketProbeTimeout"`
+		WarmTimeout        string `json:"warmTimeout"`
+		RefreshTimeout     string `json:"refreshTimeout"`
+		InlineStartTimeout string `json:"inlineStartTimeout"`
+		InlineStartPoll    string `json:"inlineStartPoll"`
+		InlineProbeTimeout string `json:"inlineProbeTimeout"`
+		DoctorTimeout      string `json:"doctorTimeout"`
+		FollowBacklog      int    `json:"followBacklog"`
+		ReleaseTimeout     string `json:"releaseTimeout"`
+	} `json:"limits"`
+	// Files are the permission bits mcpx creates things with. They are data
+	// for the same reason everything else here is -- one place to read the
+	// answer -- but they are deliberately *not* settings: the state
+	// directory holds a socket that grants the power to run tools as this
+	// user, and a configuration key that widens it is a footgun with no
+	// legitimate use.
+	Files struct {
+		DirMode       string `json:"dirMode"`
+		PublicDirMode string `json:"publicDirMode"`
+		PrivateMode   string `json:"privateMode"`
+		PublicMode    string `json:"publicMode"`
+	} `json:"files"`
+	// Plugin is read by the opencode plugin rather than by this binary. It
+	// is declared here so that `mcpx settings` can answer what the plugin
+	// will do, which is otherwise only discoverable by reading TypeScript.
+	Plugin struct {
+		Bin            string   `json:"bin"`
+		BinArgs        []string `json:"binArgs"`
+		Backend        string   `json:"backend"`
+		DiscoveryRetry string   `json:"discoveryRetry"`
+		ToolTiming     bool     `json:"toolTiming"`
+		Env            string   `json:"env"`
+		Instructions   bool     `json:"instructions"`
+		Tools          bool     `json:"tools"`
+		Skills         []string `json:"skills"`
+	} `json:"plugin"`
 }
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
@@ -211,6 +337,12 @@ var (
 	StatsTop             = builtin.Plumbing.StatsTop
 	RegistryLimit        = builtin.Plumbing.RegistryLimit
 
+	// ResolveDialTimeout bounds the liveness check /v1/resolve makes against
+	// the socket it is about to name. It is a local connect on a unix
+	// socket, so it either succeeds immediately or the daemon is gone;
+	// waiting longer only makes a dead daemon slower to report.
+	ResolveDialTimeout = mustDur(builtin.Resolve.DialTimeout, "resolve.dialTimeout")
+
 	ElicitTTL            = mustDur(builtin.Elicit.TTL, "elicit.ttl")
 	ElicitPollInterval   = mustDur(builtin.Elicit.PollInterval, "elicit.pollInterval")
 	ElicitHandlerTimeout = mustDur(builtin.Elicit.HandlerTimeout, "elicit.handlerTimeout")
@@ -252,4 +384,129 @@ var (
 	Permissions      = builtin.Script.Permissions
 	CaptureConsole   = builtin.Script.CaptureConsole
 	TypecheckTimeout = mustDur(builtin.Script.TypecheckTimeout, "script.typecheckTimeout")
+
+	Disambiguate        = builtin.Consumer.Disambiguate
+	DisambiguateDefault = builtin.Consumer.DisambiguateDefault
+	ConfirmDestructive  = builtin.Consumer.ConfirmDestructive
+	AskTimeout          = mustDur(builtin.Consumer.AskTimeout, "consumer.askTimeout")
+	DiagnosePreflight   = builtin.Consumer.DiagnosePreflight
+	HistoryPerTool      = builtin.Consumer.HistoryPerTool
+	RecipeMinScore      = builtin.Consumer.RecipeMinScore
+	RecipeMatchMargin   = builtin.Consumer.RecipeMatchMargin
+	RecipeLimit         = builtin.Consumer.RecipeLimit
+	PromptMode          = builtin.Consumer.PromptMode
+	PromptSample        = builtin.Consumer.PromptSample
+	PromptCatalogBudget = builtin.Consumer.PromptCatalogBudget
+	PromptSampleTimeout = mustDur(builtin.Consumer.PromptSampleTimeout, "consumer.promptSampleTimeout")
+	PromptMaxTokens     = builtin.Consumer.PromptMaxTokens
+	RunTimeout          = mustDur(builtin.Consumer.RunTimeout, "consumer.runTimeout")
+	ExecTimeout         = mustDur(builtin.Exec.Timeout, "exec.timeout")
+	ExecOutput          = builtin.Exec.Output
+	// ExecStderrLimit bounds how much of a failed script's stderr is kept to
+	// explain the failure. Unbounded, a script looping on stderr would be
+	// held in memory in full, by the daemon, on someone else's behalf.
+	ExecStderrLimit  = builtin.Exec.StderrLimit
+	ExecRemoteOutput = builtin.Exec.RemoteOutput
+	ExecDelivery     = builtin.Exec.Delivery
+
+	ArtifactTTL = mustDur(builtin.Artifacts.TTL, "artifacts.ttl")
+	// ArtifactMaxBytes is the ceiling for one artifact. A screenshot is
+	// under a megabyte; the headroom is for the video and the core dump
+	// somebody will eventually want to hand back.
+	ArtifactMaxBytes = mustBytes(builtin.Artifacts.MaxBytes, "artifacts.maxBytes")
+	ArtifactQuota    = mustBytes(builtin.Artifacts.Quota, "artifacts.quota")
+	// ArtifactInlineMaxBytes bounds what may be base64'd into a structured
+	// result. Well under the per-artifact cap on purpose: inline delivery
+	// puts bytes in the caller's context, which is the cost this whole
+	// feature exists to avoid.
+	ArtifactInlineMaxBytes  = mustBytes(builtin.Artifacts.InlineMaxBytes, "artifacts.inlineMaxBytes")
+	ArtifactChunkBytes      = mustBytes(builtin.Artifacts.ChunkBytes, "artifacts.chunkBytes")
+	ArtifactGCInterval      = mustDur(builtin.Artifacts.GCInterval, "artifacts.gcInterval")
+	ArtifactInterceptImages = builtin.Artifacts.InterceptImages
+	ArtifactNameMaxLength   = builtin.Artifacts.NameMaxLength
+	// ArtifactNameCollisionLimit bounds the -1, -2, -3 search when a name is
+	// already taken in an output directory. A directory holding this many
+	// files of one name is a bug in the caller, and looping forever hides it.
+	ArtifactNameCollisionLimit = builtin.Artifacts.NameCollisionLimit
+	// ArtifactIDBytes is the width of the random handle an artifact is
+	// served by. It is the whole of the access control until OAuth scopes
+	// land, so it is sized as a secret rather than as an identifier.
+	ArtifactIDBytes       = builtin.Artifacts.IDBytes
+	ArtifactListLimit     = builtin.Artifacts.ListLimit
+	HTTPBodyLimit         = mustBytes(builtin.HTTP.BodyLimit, "http.bodyLimit")
+	HTTPCallBodyLimit     = mustBytes(builtin.HTTP.CallBodyLimit, "http.callBodyLimit")
+	HTTPControlBodyLimit  = mustBytes(builtin.HTTP.ControlBodyLimit, "http.controlBodyLimit")
+	HTTPReadHeaderTimeout = mustDur(builtin.HTTP.ReadHeaderTimeout, "http.readHeaderTimeout")
+	HTTPShutdownGrace     = mustDur(builtin.HTTP.ShutdownGrace, "http.shutdownGrace")
+	HTTPSSEPing           = mustDur(builtin.HTTP.SSEPing, "http.ssePing")
+	HTTPSSERetry          = mustDur(builtin.HTTP.SSERetry, "http.sseRetry")
+	HTTPStreamBufferInit  = mustBytes(builtin.HTTP.StreamBufferInit, "http.streamBufferInit")
+	HTTPStreamBufferMax   = mustBytes(builtin.HTTP.StreamBufferMax, "http.streamBufferMax")
+	HTTPIdleConns         = builtin.HTTP.IdleConns
+	HTTPRemoteIdleConns   = builtin.HTTP.RemoteIdleConns
+
+	AutostartBin            = builtin.Autostart.Bin
+	AutostartArgs           = builtin.Autostart.Args
+	AutostartIdleExit       = mustDur(builtin.Autostart.IdleExit, "autostart.idleExit")
+	AutostartConnectTimeout = mustDur(builtin.Autostart.ConnectTimeout, "autostart.connectTimeout")
+	AutostartPollInterval   = mustDur(builtin.Autostart.PollInterval, "autostart.pollInterval")
+	AutostartPingTimeout    = mustDur(builtin.Autostart.PingTimeout, "autostart.pingTimeout")
+	AutostartLogTail        = mustBytes(builtin.Autostart.LogTail, "autostart.logTail")
+
+	SearchLimit        = builtin.Limits.SearchLimit
+	CompletionValues   = builtin.Limits.CompletionValues
+	ElicitPending      = builtin.Limits.ElicitPending
+	RegistryPageSize   = builtin.Limits.RegistryPageSize
+	LeaseTTL           = mustDur(builtin.Limits.LeaseTTL, "limits.leaseTTL")
+	SocketProbeTimeout = mustDur(builtin.Limits.SocketProbeTimeout, "limits.socketProbeTimeout")
+	WarmTimeout        = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")
+	RefreshTimeout     = mustDur(builtin.Limits.RefreshTimeout, "limits.refreshTimeout")
+	InlineStartTimeout = mustDur(builtin.Limits.InlineStartTimeout, "limits.inlineStartTimeout")
+	InlineStartPoll    = mustDur(builtin.Limits.InlineStartPoll, "limits.inlineStartPoll")
+	InlineProbeTimeout = mustDur(builtin.Limits.InlineProbeTimeout, "limits.inlineProbeTimeout")
+	DoctorTimeout      = mustDur(builtin.Limits.DoctorTimeout, "limits.doctorTimeout")
+	ReleaseTimeout     = mustDur(builtin.Limits.ReleaseTimeout, "limits.releaseTimeout")
+	FollowBacklog      = builtin.Limits.FollowBacklog
+
+	DirMode       = mustMode(builtin.Files.DirMode, "files.dirMode")
+	PublicDirMode = mustMode(builtin.Files.PublicDirMode, "files.publicDirMode")
+	PrivateMode   = mustMode(builtin.Files.PrivateMode, "files.privateMode")
+	PublicMode    = mustMode(builtin.Files.PublicMode, "files.publicMode")
+
+	PluginBin            = builtin.Plugin.Bin
+	PluginBinArgs        = builtin.Plugin.BinArgs
+	PluginBackend        = builtin.Plugin.Backend
+	PluginDiscoveryRetry = mustDur(builtin.Plugin.DiscoveryRetry, "plugin.discoveryRetry")
+	PluginToolTiming     = builtin.Plugin.ToolTiming
+	PluginEnv            = builtin.Plugin.Env
+	PluginInstructions   = builtin.Plugin.Instructions
+	PluginTools          = builtin.Plugin.Tools
+	PluginSkills         = builtin.Plugin.Skills
 )
+
+// mustMode reads an octal permission string. Written as "0700" rather than as
+// the number 448, because the only readers who will ever check it think in
+// octal and a JSON file cannot hold an octal literal.
+func mustMode(s, field string) os.FileMode {
+	n, err := strconv.ParseUint(strings.TrimSpace(s), 8, 32)
+	if err != nil {
+		panic(fmt.Sprintf("mcpx: defaults.json %s is not an octal mode: %v", field, err))
+	}
+	return os.FileMode(n)
+}
+
+// Str renders a duration the way a user would type it, so a default can go
+// into the settings registry without being restated.
+func Str(d time.Duration) string { return d.String() }
+
+// Bytes renders a size in the syntax the settings parser accepts.
+func Bytes(n int64) string { return strconv.FormatInt(n, 10) }
+
+// Num renders an integer default.
+func Num(n int) string { return strconv.Itoa(n) }
+
+// Flag renders a boolean default.
+func Flag(b bool) string { return strconv.FormatBool(b) }
+
+// CSV renders a list default.
+func CSV(v []string) string { return strings.Join(v, ",") }

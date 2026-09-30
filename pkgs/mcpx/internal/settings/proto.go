@@ -10,7 +10,7 @@ package settings
 func protoSettings() []Setting {
 	return []Setting{
 		{
-			Path: "proto.native", Kind: KindBool, Default: "true",
+			Path: "proto.native", Scope: ScopeDaemon, Kind: KindBool, Default: "true",
 			Commands: []string{"serve", "daemon"},
 			Name:     "Native elicitation",
 			Short:    "put an upstream server's questions to mcpx's own MCP client",
@@ -24,7 +24,7 @@ func protoSettings() []Setting {
 				"that declared neither elicitation nor sampling.",
 		},
 		{
-			Path: "proto.serveMCP", Kind: KindBool, Default: "true",
+			Path: "proto.serveMCP", Scope: ScopeDaemon, Kind: KindBool, Default: "true",
 			Commands: []string{"daemon"},
 			Name:     "Serve MCP from the daemon",
 			Short:    "mount mcpx's own MCP server on the daemon's listeners",
@@ -35,12 +35,12 @@ func protoSettings() []Setting {
 				"nothing else.",
 		},
 		{
-			Path: "proto.mcpPath", Kind: KindString, Default: "/mcp",
+			Path: "proto.mcpPath", Scope: ScopeDaemon, Kind: KindString, Default: "/mcp",
 			Commands: []string{"daemon"},
 			Name:     "MCP path", Short: "where the daemon serves MCP",
 		},
 		{
-			Path: "proto.askTimeout", Kind: KindDuration, Default: "10m",
+			Path: "proto.askTimeout", Scope: ScopeDaemon, Kind: KindDuration, Default: "10m",
 			Commands: []string{"serve", "daemon"},
 			Name:     "Question timeout",
 			Short:    "how long one request may be held while a question goes unanswered",
@@ -50,12 +50,12 @@ func protoSettings() []Setting {
 				"only thing this bounds there is how long mcpx waits between rounds.",
 		},
 		{
-			Path: "proto.askPoll", Kind: KindDuration, Default: "500ms",
+			Path: "proto.askPoll", Scope: ScopeDaemon, Kind: KindDuration, Default: "500ms",
 			Plumbing: true,
 			Name:     "Question poll", Short: "how long one wait for a question may block",
 		},
 		{
-			Path: "proto.askRounds", Kind: KindInt, Default: "8",
+			Path: "proto.askRounds", Scope: ScopeDaemon, Kind: KindInt, Default: "8",
 			Commands: []string{"serve", "daemon"},
 			Name:     "Question rounds",
 			Short:    "how many times one request may come back asking for more",
@@ -63,19 +63,19 @@ func protoSettings() []Setting {
 				"without a bound mcpx would relay it forever.",
 		},
 		{
-			Path: "proto.askTTL", Kind: KindDuration, Default: "15m",
+			Path: "proto.askTTL", Scope: ScopeDaemon, Kind: KindDuration, Default: "15m",
 			Plumbing: true,
 			Name:     "Interruptible call lifetime",
 			Short:    "how long the daemon keeps a call waiting for an answer",
 		},
 		{
-			Path: "proto.stateTTL", Kind: KindDuration, Default: "30m",
+			Path: "proto.stateTTL", Scope: ScopeDaemon, Kind: KindDuration, Default: "30m",
 			Plumbing: true,
 			Name:     "Request state lifetime",
 			Short:    "how long a client may resume an interrupted request with",
 		},
 		{
-			Path: "proto.sessionIdle", Kind: KindDuration, Default: "30m",
+			Path: "proto.sessionIdle", Scope: ScopeDaemon, Kind: KindDuration, Default: "30m",
 			Plumbing: true,
 			Name:     "MCP session idle",
 			Short:    "how long an unused Streamable HTTP session is kept",

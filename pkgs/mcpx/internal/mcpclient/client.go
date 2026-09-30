@@ -120,6 +120,12 @@ type Tool struct {
 	Description  string          `json:"description,omitempty"`
 	InputSchema  json.RawMessage `json:"inputSchema,omitempty"`
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	// Annotations are the behaviour hints a server attaches to a tool:
+	// readOnlyHint, destructiveHint, idempotentHint, openWorldHint. They are
+	// kept raw because mcpx forwards them unchanged and reads only the one
+	// it acts on. Without them a client has nothing but the description to
+	// decide whether a call is worth confirming.
+	Annotations json.RawMessage `json:"annotations,omitempty"`
 }
 
 type toolsListResult struct {

@@ -239,7 +239,7 @@ type askReq struct {
 
 func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 	var req askReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<20)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, defaults.HTTPCallBodyLimit)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -395,7 +395,7 @@ func (s *Server) handleAskAnswers(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Answers map[string]json.RawMessage `json:"answers"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, defaults.HTTPStreamBufferMax)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -556,7 +556,7 @@ func (s *Server) handleToolInvoke(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errors.New("this daemon serves no MCP tools"))
 		return
 	}
-	body, err := readBody(w, r, 64<<20)
+	body, err := readBody(w, r, defaults.HTTPCallBodyLimit)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -576,7 +576,7 @@ func (s *Server) handleToolInvoke(w http.ResponseWriter, r *http.Request) {
 // generated OpenAPI document describes, so a client built from that document
 // has somewhere to send its request.
 func (s *Server) handleCallPath(w http.ResponseWriter, r *http.Request) {
-	body, err := readBody(w, r, 64<<20)
+	body, err := readBody(w, r, defaults.HTTPCallBodyLimit)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
