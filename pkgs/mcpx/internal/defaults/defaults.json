@@ -95,6 +95,8 @@
   },
   "exec": {
     "timeout": "120s",
+    "workDirs": 8,
+    "programs": 64,
     "stderrLimit": 65536,
     "output": "text",
     "remoteOutput": "structured",

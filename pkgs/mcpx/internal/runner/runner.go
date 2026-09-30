@@ -11,7 +11,6 @@ package runner
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/launcher"
@@ -115,6 +115,18 @@ type Options struct {
 	ClientSource string
 	// WorkDir holds the generated client; defaults to a per-session temp dir.
 	WorkDir string
+	// WorkRoot is where the runner keeps one directory per distinct client,
+	// named for the hash of its contents.
+	//
+	// Sharing a single directory between every run was wrong twice: two
+	// projects overwrote each other's generated client, so a script was
+	// type-checked and run against another project's catalogue, and the
+	// runtime's check cache was invalidated every time the catalogue
+	// changed. Content addressing fixes both -- same catalogue, same
+	// directory, and two different ones never meet.
+	//
+	// Ignored when WorkDir is set.
+	WorkRoot string
 	// Runtime preference ("auto", "deno", "bun", "node").
 	Runtime string
 	// Timeout bounds execution; 0 means no limit.
@@ -225,15 +237,25 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	workDir := opts.WorkDir
 	cleanup := func() {}
-	if workDir == "" {
+	switch {
+	case workDir != "":
+		if err := os.MkdirAll(workDir, 0o700); err != nil {
+			return nil, err
+		}
+	case opts.WorkRoot != "":
+		sum := sha256.Sum256([]byte(opts.ClientSource))
+		workDir = filepath.Join(opts.WorkRoot, hex.EncodeToString(sum[:])[:16])
+		if err := os.MkdirAll(workDir, 0o700); err != nil {
+			return nil, err
+		}
+		pruneWorkDirs(opts.WorkRoot, workDir)
+	default:
 		d, err := os.MkdirTemp("", "mcpx-run-")
 		if err != nil {
 			return nil, err
 		}
 		workDir = d
 		cleanup = func() { _ = os.RemoveAll(d) }
-	} else if err := os.MkdirAll(workDir, 0o700); err != nil {
-		return nil, err
 	}
 	// Called through the variable, not captured by value: the script block
 	// below extends cleanup, and `defer cleanup()` would have deferred the
@@ -252,25 +274,21 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	scriptPath := opts.File
 	if scriptPath == "" {
-		// A unique name, because the working directory is shared whenever
-		// the caller named one -- which is how the generated client keeps a
-		// stable path for the runtime's type-check cache. A fixed
-		// "script.ts" there means two concurrent runs overwrite each
-		// other's program.
-		name, nerr := uniqueScriptName()
-		if nerr != nil {
-			return nil, nerr
-		}
-		scriptPath = filepath.Join(workDir, name)
+		// Named for its own contents, which does three things at once: two
+		// concurrent runs never write the same path unless they are running
+		// the same program, the same program run twice reuses the path and
+		// so hits the runtime's type-check cache, and a different program
+		// cannot be mistaken for it.
 		src := opts.Prelude + opts.Source
-		if err := os.WriteFile(scriptPath, []byte(src), 0o600); err != nil {
+		sum := sha256.Sum256([]byte(src))
+		scriptPath = filepath.Join(workDir, "script-"+hex.EncodeToString(sum[:])[:16]+".ts")
+		// Written only when absent or different, so a concurrent run of the
+		// same program does not rewrite the file underneath it.
+		if err := writeIfChanged(scriptPath, src); err != nil {
 			return nil, err
 		}
-		// Only the program: the client and its declarations are what the
-		// directory exists to keep.
-		prev := cleanup
-		path := scriptPath
-		cleanup = func() { _ = os.Remove(path); prev() }
+		// Kept, not deleted: it is the cache entry. Bounded instead.
+		prunePrograms(workDir, scriptPath)
 	} else {
 		abs, err := filepath.Abs(scriptPath)
 		if err != nil {
@@ -731,11 +749,79 @@ func allowsRead(perms []string) bool {
 	return false
 }
 
-// uniqueScriptName names one run's program.
-func uniqueScriptName() (string, error) {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
+// prunePrograms bounds how many generated programs a client directory keeps.
+//
+// Each is a cache entry for the type checker, worth keeping while it is
+// still being run and worth nothing afterwards. The newest survive.
+func prunePrograms(dir, keep string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
 	}
-	return "script-" + hex.EncodeToString(b[:]) + ".ts", nil
+	type aged struct {
+		path string
+		at   time.Time
+	}
+	var progs []aged
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "script-") || !strings.HasSuffix(name, ".ts") {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if p == keep {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		progs = append(progs, aged{p, info.ModTime()})
+	}
+	if len(progs) < defaults.ExecPrograms {
+		return
+	}
+	sort.Slice(progs, func(i, j int) bool { return progs[i].at.After(progs[j].at) })
+	for _, p := range progs[defaults.ExecPrograms-1:] {
+		_ = os.Remove(p.path)
+	}
+}
+
+// pruneWorkDirs bounds how many client directories are kept.
+//
+// One per distinct catalogue, and a catalogue changes whenever a server is
+// added or updates its schema, so without a bound this grows for as long as
+// mcpx is used. The newest are kept, because they are the ones whose cache
+// is worth having.
+func pruneWorkDirs(root, keep string) {
+	ents, err := os.ReadDir(root)
+	if err != nil || len(ents) <= defaults.ExecWorkDirs {
+		return
+	}
+	type aged struct {
+		path string
+		at   time.Time
+	}
+	var dirs []aged
+	for _, e := range ents {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(root, e.Name())
+		if p == keep {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		dirs = append(dirs, aged{p, info.ModTime()})
+	}
+	if len(dirs) < defaults.ExecWorkDirs {
+		return
+	}
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].at.After(dirs[j].at) })
+	for _, d := range dirs[defaults.ExecWorkDirs-1:] {
+		_ = os.RemoveAll(d.path)
+	}
 }

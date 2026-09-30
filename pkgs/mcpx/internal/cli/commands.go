@@ -813,17 +813,13 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		}
 		opts.WorkDir = dir
 		fmt.Fprintf(os.Stderr, "mcpx: workdir %s\n", dir)
-	} else if opts.File == "" {
-		// A stable directory, as the daemon's /v1/exec already uses. A fresh
-		// temp directory per run puts the generated client at a new path
-		// every time, so Deno re-checks all of it on every run and its cache
-		// never hits: --typecheck cost 431ms each time instead of 20ms over
-		// the baseline. The client is identical between runs; only the path
-		// was changing.
-		dir := filepath.Join(a.Paths.Cache, "exec")
-		if err := os.MkdirAll(dir, 0o700); err == nil {
-			opts.WorkDir = dir
-		}
+	} else {
+		// One directory per distinct catalogue, named for the hash of the
+		// generated client. A single shared directory -- which is what this
+		// was, and what the daemon used -- let two projects overwrite each
+		// other's client: 7 of 12 concurrent cross-project runs failed,
+		// each type-checked against the other's catalogue.
+		opts.WorkRoot = filepath.Join(a.Paths.Cache, "exec")
 	}
 
 	// The artifact store is the daemon's, opened from this side. When the

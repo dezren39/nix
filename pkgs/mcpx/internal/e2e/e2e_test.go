@@ -2688,3 +2688,43 @@ func stubRegistry(t *testing.T) string {
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
+
+func TestTwoConfigurationsDoNotShareAGeneratedClient(t *testing.T) {
+	// One working directory for every run meant two projects overwrote each
+	// other's generated client: a script was type-checked, and would have
+	// run, against another project's catalogue. Seven of twelve concurrent
+	// cross-project runs failed that way.
+	//
+	// The cache root is shared deliberately here -- that is the condition
+	// that used to break it. The directory inside it is named for the
+	// client's contents, so two catalogues never meet.
+	cache := t.TempDir()
+	a := newEnv(t, oneServer)
+	b := newEnv(t, strings.ReplaceAll(oneServer, "demo", "other"))
+	for _, e := range []*env{a, b} {
+		e.envVars = append(e.envVars, "MCPX_CACHE_DIR="+cache,
+			"MCPX_DAEMON_AUTOSTART=false", "MCPX_DAEMON_INLINE=true")
+	}
+
+	type outcome struct {
+		out string
+		err error
+	}
+	results := make(chan outcome, 8)
+	for i := 0; i < 4; i++ {
+		go func() {
+			out, err := a.try("exec", "--typecheck=on", `emit({t: typeof demo});`)
+			results <- outcome{out, err}
+		}()
+		go func() {
+			out, err := b.try("exec", "--typecheck=on", `emit({t: typeof other});`)
+			results <- outcome{out, err}
+		}()
+	}
+	for i := 0; i < 8; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Errorf("a run saw the other configuration's client:\n%s", r.out)
+		}
+	}
+}

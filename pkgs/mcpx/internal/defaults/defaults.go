@@ -134,6 +134,8 @@ type Defaults struct {
 	// does it on a caller's behalf.
 	Exec struct {
 		Timeout      string `json:"timeout"`
+		WorkDirs     int    `json:"workDirs"`
+		Programs     int    `json:"programs"`
 		StderrLimit  int    `json:"stderrLimit"`
 		Output       string `json:"output"`
 		RemoteOutput string `json:"remoteOutput"`
@@ -405,7 +407,13 @@ var (
 	// ExecStderrLimit bounds how much of a failed script's stderr is kept to
 	// explain the failure. Unbounded, a script looping on stderr would be
 	// held in memory in full, by the daemon, on someone else's behalf.
-	ExecStderrLimit  = builtin.Exec.StderrLimit
+	ExecStderrLimit = builtin.Exec.StderrLimit
+	// ExecWorkDirs bounds how many content-addressed client directories are
+	// kept. One per distinct catalogue; without a bound it grows forever.
+	ExecWorkDirs = builtin.Exec.WorkDirs
+	// ExecPrograms bounds how many generated programs one client directory
+	// keeps as type-check cache entries.
+	ExecPrograms     = builtin.Exec.Programs
 	ExecRemoteOutput = builtin.Exec.RemoteOutput
 	ExecDelivery     = builtin.Exec.Delivery
 
