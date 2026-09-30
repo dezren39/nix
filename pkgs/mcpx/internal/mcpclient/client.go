@@ -592,6 +592,25 @@ func (c *Client) invalidate(kind string, n Notifications) {
 	}
 }
 
+// CanSubscribeResources reports whether the server declared
+// resources.subscribe. Without it neither era's mechanism does anything: a
+// legacy server has no resources/subscribe to answer, and a modern one is
+// never sent resourceSubscriptions it did not declare (see listener.filter).
+func (c *Client) CanSubscribeResources() bool {
+	return declares(c.Capabilities, "resources", "subscribe")
+}
+
+// declares reports whether a capability object sets a boolean flag.
+func declares(caps map[string]json.RawMessage, capability, flag string) bool {
+	var v map[string]json.RawMessage
+	if json.Unmarshal(caps[capability], &v) != nil {
+		return false
+	}
+	var b bool
+	_ = json.Unmarshal(v[flag], &b)
+	return b
+}
+
 // SubscribeResource asks for notifications when a resource changes.
 //
 // The legacy revisions do this with resources/subscribe per URI. The modern

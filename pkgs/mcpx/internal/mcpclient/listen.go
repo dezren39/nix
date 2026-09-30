@@ -61,15 +61,7 @@ func (c *Client) startListen() {
 // Nothing the server did not declare is asked for.
 func (l *listener) filter() ListenFilter {
 	caps := l.c.Capabilities
-	flag := func(cap, key string) bool {
-		var v map[string]json.RawMessage
-		if json.Unmarshal(caps[cap], &v) != nil {
-			return false
-		}
-		var b bool
-		_ = json.Unmarshal(v[key], &b)
-		return b
-	}
+	flag := func(cap, key string) bool { return declares(caps, cap, key) }
 	f := ListenFilter{
 		ToolsListChanged:     flag("tools", "listChanged"),
 		PromptsListChanged:   flag("prompts", "listChanged"),

@@ -290,12 +290,16 @@ func (b mcpBackend) Status(ctx context.Context) (string, error) {
 
 func (b mcpBackend) RegistrySearch(ctx context.Context, query string, limit int) (string, error) {
 	if limit <= 0 {
-		limit = 20
+		// The setting, not a literal: the CLI and /v1 both read registry.limit,
+		// and a number here meant the MCP tool was the one surface where
+		// config = env = cli = /v1 did not hold.
+		limit = b.app.Settings().Int("registry.limit")
 	}
-	servers, err := b.app.registrySearch(ctx, query, limit)
+	res, err := b.app.registrySearch(ctx, query, limit)
 	if err != nil {
 		return "", err
 	}
+	servers := res.Servers
 	if len(servers) == 0 {
 		return "Nothing matched. The registry matches server names as a substring, " +
 			"so try one word rather than a phrase.", nil
@@ -309,6 +313,11 @@ func (b mcpBackend) RegistrySearch(ctx context.Context, query string, limit int)
 		}
 		fmt.Fprintf(&sb, "%s\n    %s\n    %s\n    add with: mcpx registry add %s --write\n",
 			s.Name, firstLine(s.Description), how, s.Name)
+	}
+	if res.Truncated {
+		// Every other surface says this. Without it a model reads a cut list
+		// as the whole answer and stops looking.
+		fmt.Fprintf(&sb, "\n%d shown; more matched. Ask again with a higher limit.\n", len(servers))
 	}
 	return sb.String(), nil
 }
@@ -1043,6 +1052,16 @@ func (b mcpBackend) readArtifact(ctx context.Context, id string) (string, string
 type daemonNotifier struct{ app *App }
 
 func (n daemonNotifier) Listen(ctx context.Context, f mcpserver.ListenFilter, send func(string, any)) {
+	n.ListenResources(ctx, f, nil, send)
+}
+
+// ListenResources is Listen that first hears which resources the daemon
+// subscribed upstream. The daemon holds those subscriptions for as long as
+// this event stream is open, so ending the stream -- the client leaving,
+// the connection ending -- is also unsubscribing; and a stream that
+// reconnects to a restarted daemon subscribes again.
+func (n daemonNotifier) ListenResources(ctx context.Context, f mcpserver.ListenFilter,
+	ready func([]string, map[string]string), send func(string, any)) {
 	var kinds []string
 	if f.ToolsListChanged {
 		kinds = append(kinds, string(events.ToolsChanged))
@@ -1063,24 +1082,32 @@ func (n daemonNotifier) Listen(ctx context.Context, f mcpserver.ListenFilter, se
 	if err != nil {
 		return
 	}
-	// Resource URIs arrive namespaced from mcpx's own listings; the daemon
-	// knows them by their upstream form. The update goes back out under the
-	// URI the client subscribed with: a client matches notifications to its
-	// subscriptions by URI, and one naming the upstream form matches nothing
-	// it asked for.
-	uris := make([]string, 0, len(f.ResourceSubscriptions))
+	// The mcpx:// URIs go to the daemon as they are: it knows which server
+	// a namespace names, which this process cannot (a config may override
+	// it), and it subscribes there. Updates come back under the upstream
+	// URI and go out under the one the client subscribed with: a client
+	// matches notifications to its subscriptions by URI, and one naming the
+	// upstream form matches nothing it asked for.
 	asked := map[string][]string{}
 	for _, u := range f.ResourceSubscriptions {
 		if rest, ok := strings.CutPrefix(u, "mcpx://"); ok {
 			if _, uri, ok := strings.Cut(rest, "/"); ok {
-				uris = append(uris, uri)
 				asked[uri] = append(asked[uri], u)
-				continue
 			}
 		}
-		uris = append(uris, u)
 	}
-	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: uris}, func(e events.Event) {
+	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: f.ResourceSubscriptions}, func(e events.Event) {
+		if e.Kind == events.ResourceWatching {
+			if ready != nil {
+				var w struct {
+					Watching []string          `json:"watching"`
+					Refused  map[string]string `json:"refused"`
+				}
+				_ = json.Unmarshal(e.Data, &w)
+				ready(w.Watching, w.Refused)
+			}
+			return
+		}
 		method, params, ok := events.MCPNotification(e)
 		if !ok {
 			return

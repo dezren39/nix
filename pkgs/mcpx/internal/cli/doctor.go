@@ -63,9 +63,15 @@ func (a *App) CmdDoctor(ctx context.Context, args []string) error {
 	// The repo and worktree scopes, resolved from here. Native discovery
 	// does not need git, so its absence is only reported when a repository
 	// here needs it.
+	//
+	// A row either way: a check that disappears reads as a check that
+	// passed, and "cannot tell" is the one answer doctor exists to give.
 	if wd, err := os.Getwd(); err == nil {
 		st, detail, fix := config.DiagnoseGit(wd)
 		add(check{"git", st, detail, fix})
+	} else {
+		add(check{"git", "warn", "cannot read the working directory: " + err.Error(),
+			"run from a directory that exists"})
 	}
 
 	// Settings. A contradiction here stops everything, so it is worth

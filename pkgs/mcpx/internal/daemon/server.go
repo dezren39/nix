@@ -827,8 +827,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		Kinds:   splitCSV(q.Get("kinds")),
 		Session: q.Get("session"),
 		Server:  q.Get("server"),
-		URIs:    splitCSV(q.Get("uri")),
 	}
+	// Naming resources subscribes to them upstream for as long as this
+	// stream is open. See watchResources in routes_proto.go.
+	var watch *resourceWatch
+	f.URIs, watch = s.watchResources(r.Context(), f.Server, splitCSV(q.Get("uri")))
+	defer watch.release()
 	raw := firstNonEmptyStr(r.Header.Get("Last-Event-ID"), q.Get("since"))
 	since, _ := strconv.ParseUint(raw, 10, 64)
 	// Present-but-zero replays everything retained; absent is live only.
@@ -848,6 +852,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		// Said in-band, so a subscriber can resynchronise instead of
 		// trusting a stream with a hole in it.
 		fmt.Fprintf(w, "event: gap\ndata: {\"since\":%d,\"latest\":%d}\n\n", since, s.Events.Latest())
+	}
+	if len(f.URIs) > 0 {
+		watch.announce(w)
 	}
 	flusher.Flush()
 

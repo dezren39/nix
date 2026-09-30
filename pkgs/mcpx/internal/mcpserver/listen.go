@@ -194,6 +194,32 @@ func (s *Server) listen(ctx context.Context, c *Conn, req request, peer Peer) *r
 		prev.end()
 	}
 
+	// stopped closes when nothing can write to send any more. The HTTP
+	// path waits for it before returning, because a response writer used
+	// after its handler returns is a data race, and the notifier is on
+	// another goroutine.
+	stopped := make(chan struct{})
+	open := func() {}
+	if s.Notify != nil && !agreed.empty() {
+		var watching []string
+		watching, _, open, stopped = s.runNotifier(lctx, ctx, agreed, func(method string, params any) {
+			_ = send(map[string]any{"jsonrpc": "2.0", "method": method,
+				"params": tagged(params, req.ID)})
+		}, func() {
+			// The notifier stopped on its own -- the daemon's event
+			// stream ended. That is mcpx ending the subscription, and
+			// the client has to be told so, or it waits forever on a
+			// stream nothing will write to.
+			c.closeListen(key, l)
+		})
+		// Only the resources whose updates will actually arrive: those
+		// whose server declares resources.subscribe and accepted mcpx's
+		// own subscription.
+		agreed.ResourceSubscriptions = watching
+	} else {
+		close(stopped)
+	}
+
 	if err := send(map[string]any{"jsonrpc": "2.0",
 		"method": "notifications/subscriptions/acknowledged",
 		"params": map[string]any{
@@ -201,35 +227,10 @@ func (s *Server) listen(ctx context.Context, c *Conn, req request, peer Peer) *r
 			"notifications": agreed,
 		}}); err != nil {
 		c.dropListen(key, l)
+		<-stopped
 		return nil
 	}
-
-	// stopped closes when nothing can write to send any more. The HTTP
-	// path waits for it before returning, because a response writer used
-	// after its handler returns is a data race, and the notifier is on
-	// another goroutine.
-	stopped := make(chan struct{})
-	if s.Notify != nil && !agreed.empty() {
-		go func() {
-			defer close(stopped)
-			s.Notify.Listen(lctx, agreed, func(method string, params any) {
-				if lctx.Err() != nil || !agreed.allows(method) {
-					return
-				}
-				_ = send(map[string]any{"jsonrpc": "2.0", "method": method,
-					"params": tagged(params, req.ID)})
-			})
-			if lctx.Err() == nil {
-				// The notifier stopped on its own -- the daemon's event
-				// stream ended. That is mcpx ending the subscription, and
-				// the client has to be told so, or it waits forever on a
-				// stream nothing will write to.
-				c.closeListen(key, l)
-			}
-		}()
-	} else {
-		close(stopped)
-	}
+	open()
 
 	if !overHTTP {
 		return nil
@@ -324,38 +325,147 @@ func (c *Conn) cancelListen(requestID json.RawMessage) bool {
 	return true
 }
 
+// runNotifier runs the notifier for f until ctx ends.
+//
+// It returns once the notifier has said which of f's resources it will
+// deliver updates for -- f's own, for a notifier that has nothing to
+// arrange -- so that the caller can agree to exactly those. Nothing reaches
+// deliver, and ended is not called, until the caller calls open: the
+// acknowledgement is the first thing a stream carries. stopped closes when
+// the notifier has returned.
+func (s *Server) runNotifier(ctx, wait context.Context, f ListenFilter,
+	deliver func(method string, params any), ended func(),
+) (watching []string, refused map[string]string, open func(), stopped chan struct{}) {
+	gate := make(chan struct{})
+	var once sync.Once
+	open = func() { once.Do(func() { close(gate) }) }
+	stopped = make(chan struct{})
+	type result struct {
+		watching []string
+		refused  map[string]string
+	}
+	ready := make(chan result, 1)
+	var agreedURIs map[string]bool // written before gate closes, read after
+	send := func(method string, params any) {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return
+		}
+		if ctx.Err() != nil || !f.allows(method) {
+			return
+		}
+		if method == "notifications/resources/updated" {
+			// Only what was agreed; the notifier may match more loosely.
+			m, _ := copyMap(params)
+			if u, _ := m["uri"].(string); !agreedURIs[u] {
+				return
+			}
+		}
+		deliver(method, params)
+	}
+	rn, arranges := s.Notify.(ResourceNotifier)
+	go func() {
+		defer close(stopped)
+		if arranges && len(f.ResourceSubscriptions) > 0 {
+			rn.ListenResources(ctx, f, func(w []string, r map[string]string) {
+				select {
+				case ready <- result{w, r}:
+				default:
+				}
+			}, send)
+		} else {
+			ready <- result{watching: f.ResourceSubscriptions}
+			s.Notify.Listen(ctx, f, send)
+		}
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+		if ctx.Err() == nil && ended != nil {
+			ended()
+		}
+	}()
+	var got result
+	select {
+	case got = <-ready:
+	case <-stopped:
+		select {
+		case got = <-ready:
+		default:
+		}
+	case <-ctx.Done():
+	case <-wait.Done():
+		// Whoever asked stopped waiting. Nothing was agreed, so nothing
+		// may be delivered: close the gate on an empty agreement.
+	}
+	refused = map[string]string{}
+	agreedURIs = map[string]bool{}
+	for _, u := range got.watching {
+		agreedURIs[u] = true
+	}
+	for _, u := range f.ResourceSubscriptions {
+		if agreedURIs[u] {
+			continue
+		}
+		reason := got.refused[u]
+		if reason == "" {
+			reason = "mcpx could not arrange updates for it"
+		}
+		refused[u] = reason
+	}
+	watching = []string{}
+	for _, u := range f.ResourceSubscriptions {
+		if agreedURIs[u] {
+			watching = append(watching, u)
+		}
+	}
+	return watching, refused, open, stopped
+}
+
 // restartListen replaces the legacy resources/subscribe stream with one for
-// f. Legacy subscriptions are per connection, so there is only ever one, and
-// its notifications go out untagged on the connection's push.
-func (s *Server) restartListen(c *Conn, f ListenFilter) {
+// f, and reports the subscriptions it could not honour. Legacy
+// subscriptions are per connection, so there is only ever one, and its
+// notifications go out untagged on the connection's push.
+//
+// The new stream is running before the old one ends, so a resource both
+// name stays subscribed upstream throughout rather than being dropped and
+// taken again on every change to the set.
+func (s *Server) restartListen(wait context.Context, c *Conn, f ListenFilter) map[string]string {
+	c.mu.Lock()
+	push := c.pushFn
+	c.mu.Unlock()
+	notify := s.Notify
+	var l *listenStream
+	var refused map[string]string
+	if push != nil && notify != nil && !f.empty() {
+		lctx, cancel := context.WithCancel(context.Background())
+		l = &listenStream{cancel: cancel, done: make(chan struct{})}
+		var open func()
+		_, refused, open, _ = s.runNotifier(lctx, wait, f, push, nil)
+		open()
+	}
 	c.mu.Lock()
 	if c.listens == nil {
 		c.listens = map[string]*listenStream{}
 	}
 	prev := c.listens[legacyListen]
 	delete(c.listens, legacyListen)
-	push := c.pushFn
-	notify := s.Notify
-	var l *listenStream
-	var lctx context.Context
-	if push != nil && notify != nil {
-		var cancel context.CancelFunc
-		lctx, cancel = context.WithCancel(context.Background())
-		l = &listenStream{cancel: cancel, done: make(chan struct{})}
+	if l != nil {
 		c.listens[legacyListen] = l
 	}
 	c.mu.Unlock()
 	if prev != nil {
 		prev.end()
 	}
-	if l == nil {
-		return
+	select {
+	case <-c.ended:
+		// The connection ended while the new stream was being arranged,
+		// after its streams were stopped; this one would outlive it.
+		c.stopListen()
+	default:
 	}
-	go notify.Listen(lctx, f, func(method string, params any) {
-		if lctx.Err() == nil && f.allows(method) {
-			push(method, params)
-		}
-	})
+	return refused
 }
 
 // stopListen ends every stream this connection opened: the transport is
