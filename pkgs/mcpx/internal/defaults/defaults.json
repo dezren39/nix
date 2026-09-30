@@ -27,6 +27,9 @@
     "reapInterval": "30s",
     "saveInterval": "5m"
   },
+  "cli": {
+    "cellWidth": 60
+  },
   "catalog": {
     "budget": 2000
   },

@@ -13,6 +13,7 @@ func consumerOps() []Op {
 	return []Op{
 		{
 			Name: "diagnose", Method: "POST", Path: "/v1/diagnose",
+			Command: "diagnose",
 			Summary: "Explain what is wrong with a script, deterministically",
 			Description: "Compares every tool call in the source against the schemas the " +
 				"configured servers publish now, and against what those schemas " +
@@ -29,6 +30,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "catalog_history", Method: "GET", Path: "/v1/catalog/history",
+			CLI:     "history",
 			Summary: "What changed in the tool schemas, and when",
 			Description: "mcpx records every tool's schema each time it reads one, so a " +
 				"diagnostic can say `options became required on the twentieth` " +
@@ -40,6 +42,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "recipes_list", Method: "GET", Path: "/v1/recipes",
+			Command: "recipes list",
 			Summary: "Saved scripts, with the placeholders each takes",
 			Description: "A recipe is a saved script that declares its own holes with " +
 				"`// @param name:type = default`. With q set, the list is ranked " +
@@ -53,6 +56,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "recipe_get", Method: "GET", Path: "/v1/recipes/{name}",
+			Command:     "recipes show",
 			Summary:     "One recipe, with its source",
 			Description: "Everything the listing carries, plus the script itself.",
 			Params: []Param{
@@ -61,6 +65,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "recipe_save", Method: "POST", Path: "/v1/recipes/{name}",
+			Command: "recipes save",
 			Summary: "Save a script as a recipe",
 			Description: "Writes the source into the nearest project scripts directory, " +
 				"where `mcpx run <name>` and every recipe route will find it. This " +
@@ -75,6 +80,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "recipe_run", Method: "POST", Path: "/v1/recipes/{name}/run",
+			Command: "recipes run",
 			Summary: "Run a recipe with its placeholders filled in",
 			Description: "Placeholders that are not supplied and have no default are " +
 				"asked for as one form through the question broker, with a " +
@@ -93,6 +99,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "intent", Method: "POST", Path: "/v1/intent",
+			Command: "prompt",
 			Summary: "A request in words, a script back",
 			Description: "Matches a recipe first, deterministically and for nothing. Only " +
 				"when nothing matches does it ask for a script to be written, and " +

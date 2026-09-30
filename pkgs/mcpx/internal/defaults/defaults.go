@@ -99,6 +99,11 @@ type Defaults struct {
 		AbandonGrace string `json:"abandonGrace"`
 		MCPPath      string `json:"mcpPath"`
 	} `json:"proto"`
+	// CLI governs how the command line renders what it did not write a
+	// formatter for: the commands generated from the /v1 operation table.
+	CLI struct {
+		CellWidth int `json:"cellWidth"`
+	} `json:"cli"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -384,6 +389,10 @@ var (
 	ProtoMCPPath = builtin.Proto.MCPPath
 
 	CatalogBudget = builtin.Catalog.Budget
+
+	// OpCellWidth caps a table cell in a generated command's output; a
+	// description in full turns a table into a wall.
+	OpCellWidth = builtin.CLI.CellWidth
 
 	Permissions      = builtin.Script.Permissions
 	CaptureConsole   = builtin.Script.CaptureConsole

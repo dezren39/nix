@@ -142,15 +142,6 @@ func (c *Client) resolution(ctx context.Context, path string, body any) (*Resolu
 	return &out, nil
 }
 
-// CatalogHistory reads what mcpx remembers about schemas that changed.
-func (c *Client) CatalogHistory(ctx context.Context, tool string) (json.RawMessage, error) {
-	path := "/v1/catalog/history"
-	if tool != "" {
-		path += "?tool=" + url.QueryEscape(tool)
-	}
-	return c.do(ctx, "GET", path, nil)
-}
-
 // ---- mcpx diagnose ----
 
 // CmdDiagnose explains what is wrong with a script without running it.

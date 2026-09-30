@@ -1,0 +1,199 @@
+package cli
+
+import (
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/dezren39/mcpx/internal/api"
+)
+
+// TestEveryDispatchedCommandIsDeclared holds the dispatch table and the
+// command table together, in both directions.
+//
+// They were two literals in two packages and had drifted by seven: serve,
+// openapi, adapter, registry, api, man and completion all ran and none was
+// declared, so none appeared in help, the man page or completion. A command
+// that runs and is not declared is invisible; one that is declared and does
+// not run is a lie in the manual.
+func TestEveryDispatchedCommandIsDeclared(t *testing.T) {
+	declared := map[string]string{}
+	for _, c := range Commands() {
+		for _, name := range append([]string{c.Name}, c.Aliases...) {
+			if prev, dup := declared[name]; dup {
+				t.Errorf("%q is declared twice (by %s and %s)", name, prev, c.Name)
+			}
+			declared[name] = c.Name
+		}
+	}
+	handlers := (&App{}).Handlers()
+	var undeclared, unrunnable []string
+	for name := range handlers {
+		if _, ok := declared[name]; !ok {
+			undeclared = append(undeclared, name)
+		}
+	}
+	for name := range declared {
+		if _, ok := handlers[name]; !ok {
+			unrunnable = append(unrunnable, name)
+		}
+	}
+	sort.Strings(undeclared)
+	sort.Strings(unrunnable)
+	if len(undeclared) > 0 {
+		t.Errorf("dispatched but not in Commands() -- absent from help, man and completion:\n  %s",
+			strings.Join(undeclared, "\n  "))
+	}
+	if len(unrunnable) > 0 {
+		t.Errorf("in Commands() but nothing runs them:\n  %s", strings.Join(unrunnable, "\n  "))
+	}
+}
+
+// TestEveryOperationIsReachableFromTheCLI is the CLI's half of the parity
+// rule: every /v1 operation is either named by a hand-written command, and
+// that command exists, or reached by a generated one.
+func TestEveryOperationIsReachableFromTheCLI(t *testing.T) {
+	hand := (&App{}).handWritten()
+	generated := map[string]api.Op{}
+	for _, g := range opGroups() {
+		for _, op := range g.ops() {
+			generated[op.Name] = op
+		}
+	}
+	for _, op := range api.Ops() {
+		words := op.CLIWords()
+		if op.GeneratedCommand() {
+			if _, ok := generated[op.Name]; !ok {
+				t.Errorf("%s declares no hand-written command and no generated one reaches it", op.Name)
+			}
+			continue
+		}
+		if op.CLI != "" {
+			t.Errorf("%s sets both Command and CLI; CLI only renames a generated command", op.Name)
+		}
+		if _, ok := hand[words[0]]; !ok {
+			t.Errorf("%s names %q as its command, and there is no such command", op.Name, op.Command)
+		}
+	}
+}
+
+// TestGeneratedCommandsDoNotShadow: a generated name that collides with a
+// hand-written command would never run, because the hand-written one wins,
+// and the operation would silently lose its only CLI path.
+func TestGeneratedCommandsDoNotShadow(t *testing.T) {
+	hand := (&App{}).handWritten()
+	for _, g := range opGroups() {
+		for _, name := range append([]string{g.Name}, g.Aliases...) {
+			if _, taken := hand[name]; taken {
+				t.Errorf("generated command %q collides with a hand-written one; "+
+					"give the operation a Command (if that command reaches it) or a CLI name", name)
+			}
+		}
+		// A noun that is both an operation taking positional arguments and
+		// a family of verbs cannot tell `mcpx x get` from `mcpx x <value
+		// that happens to be "get">`.
+		if g.Bare != nil && len(g.Verbs) > 0 && len(positional(*g.Bare)) > 0 {
+			t.Errorf("%s takes positional arguments and also has verbs (%s); "+
+				"a value spelled like a verb would be misread", g.Name, strings.Join(g.verbWords(), ", "))
+		}
+	}
+}
+
+func TestGeneratedCLIPathsAreUnique(t *testing.T) {
+	seen := map[string]string{}
+	for _, op := range api.Ops() {
+		if !op.GeneratedCommand() {
+			continue
+		}
+		path := strings.Join(op.CLIWords(), " ")
+		if prev, dup := seen[path]; dup {
+			t.Errorf("`mcpx %s` would be both %s and %s", path, prev, op.Name)
+		}
+		seen[path] = op.Name
+	}
+}
+
+func TestEveryCommandIsInAListedGroup(t *testing.T) {
+	// A group missing from commandGroups drops its commands from help and
+	// the man page without any error.
+	for _, c := range Commands() {
+		if !contains(commandGroups, c.Group) {
+			t.Errorf("%s is in group %q, which help and the man page do not list", c.Name, c.Group)
+		}
+		if strings.TrimSpace(c.Summary) == "" {
+			t.Errorf("%s has no summary", c.Name)
+		}
+	}
+	usage := Usage()
+	for _, c := range Commands() {
+		if !strings.Contains(usage, "mcpx "+c.Name+" ") && !strings.Contains(usage, "mcpx "+c.Name+"\n") {
+			t.Errorf("`mcpx help` does not list %s", c.Name)
+		}
+	}
+}
+
+func TestGeneratedFlagsFollowTheParameters(t *testing.T) {
+	cases := map[string]string{
+		"waitMs":      "wait-ms",
+		"skipDefault": "skip-default",
+		"id":          "id",
+		"q":           "q",
+	}
+	for in, want := range cases {
+		if got := paramFlag(in); got != want {
+			t.Errorf("paramFlag(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestPositionalArgumentsFillThePathFirst(t *testing.T) {
+	op, ok := api.ByName("artifact_put")
+	if !ok {
+		t.Fatal("artifact_put is not declared")
+	}
+	var names []string
+	for _, p := range positional(op) {
+		names = append(names, p.Name)
+	}
+	if got := strings.Join(names, ","); got != "name,content" {
+		t.Errorf("artifact put positionals = %s, want name,content", got)
+	}
+	op, _ = api.ByName("task_result")
+	names = nil
+	for _, p := range positional(op) {
+		names = append(names, p.Name)
+	}
+	if got := strings.Join(names, ","); got != "id" {
+		t.Errorf("task result positionals = %s, want id", got)
+	}
+}
+
+func TestHoistKeepsAValueWithItsFlag(t *testing.T) {
+	got := hoistOpFlags([]string{"tsk-1", "--wait-ms", "5", "--json", "-"}, map[string]bool{"wait-ms": true})
+	want := []string{"--wait-ms", "5", "--json", "tsk-1", "-"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("hoist = %q, want %q", got, want)
+	}
+}
+
+func TestConvertRefusesTheWrongShape(t *testing.T) {
+	if _, err := convertParam(api.Param{Name: "limit", Type: "integer"}, "ten"); err == nil {
+		t.Error("an integer parameter accepted \"ten\"")
+	}
+	if v, err := convertParam(api.Param{Name: "limit", Type: "integer"}, "10"); err != nil || v != 10 {
+		t.Errorf("an integer parameter gave %v, %v", v, err)
+	}
+	if _, err := convertParam(api.Param{Name: "by", Enum: []string{"calls", "errors"}}, "nope"); err == nil {
+		t.Error("an enum parameter accepted a value outside it")
+	}
+	if _, err := convertParam(api.Param{Name: "args", Type: "object"}, "{not json"); err == nil {
+		t.Error("an object parameter accepted invalid JSON")
+	}
+	v, err := convertParam(api.Param{Name: "args", Type: "object"}, `{"a":1}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := v.(map[string]any); !ok || m["a"] != float64(1) {
+		t.Errorf("object parameter gave %#v", v)
+	}
+}

@@ -102,6 +102,7 @@ func (a *App) renderPrompt(ctx context.Context, args []string) error {
 func (a *App) CmdResources(ctx context.Context, args []string) error {
 	fs := newFlagSet("resources")
 	nsFlag := fs.String("ns", "", "restrict to these namespaces")
+	templates := fs.Bool("templates", false, "list the templated resources instead")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
@@ -131,6 +132,9 @@ func (a *App) CmdResources(ctx context.Context, args []string) error {
 		return nil
 	}
 
+	if *templates {
+		return a.printResourceTemplates(ctx, c, splitCSV(*nsFlag))
+	}
 	list, err := c.Resources(ctx, splitCSV(*nsFlag))
 	if err != nil {
 		return err
@@ -149,5 +153,30 @@ func (a *App) CmdResources(ctx context.Context, args []string) error {
 		}
 	}
 	fmt.Printf("\n%d resources. `mcpx resources <ns>/<uri>` reads one.\n", len(list))
+	return nil
+}
+
+// printResourceTemplates lists the parameterised resources, which are the
+// half of `resources` a plain listing leaves out: a template is not a
+// resource until somebody fills it in, so it has no URI to read.
+func (a *App) printResourceTemplates(ctx context.Context, c *Client, ns []string) error {
+	list, err := c.ResourceTemplatesIn(ctx, ns)
+	if err != nil {
+		return err
+	}
+	if a.JSON {
+		return a.out(list)
+	}
+	if len(list) == 0 {
+		fmt.Println("No resource templates. Not every server publishes them.")
+		return nil
+	}
+	for _, r := range list {
+		fmt.Printf("%s/%s\n", r.Namespace, r.URI)
+		if d := firstLine(r.Description); d != "" {
+			fmt.Printf("    %s\n", d)
+		}
+	}
+	fmt.Printf("\n%d resource templates.\n", len(list))
 	return nil
 }

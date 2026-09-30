@@ -96,6 +96,7 @@ func protoOps() []Op {
 		},
 		{
 			Name: "call_path", Method: "POST", Path: "/v1/call/{server}/{tool}",
+			Command: "call",
 			Summary: "Call one tool, with the pair in the URL",
 			Description: "The same call as POST /v1/call, spelled the way a shell script " +
 				"wants to spell it: one path per tool, arguments as the whole body, " +

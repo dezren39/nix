@@ -29,8 +29,59 @@ type Command struct {
 	Group string
 }
 
-// Commands is every subcommand mcpx has.
+// Commands is every subcommand mcpx has: the hand-written ones, then one per
+// family of /v1 operations the command line reaches through a generated
+// command.
 func Commands() []Command {
+	return append(handCommands(), opCommands()...)
+}
+
+// opCommands describes the generated commands from the same table that
+// builds them, so help, the man page and completion cover an operation the
+// moment it is declared.
+func opCommands() []Command {
+	var out []Command
+	for _, g := range opGroups() {
+		c := Command{Name: g.Name, Aliases: g.Aliases, Group: "operations"}
+		var usage, detail []string
+		if g.Bare != nil {
+			c.Summary = lowerFirst(g.Bare.Summary)
+			usage = append(usage, OpUsage(*g.Bare))
+			detail = append(detail, strings.TrimSpace(g.Bare.Description+" "+g.Bare.Method+" "+g.Bare.Path+"."))
+		}
+		for _, v := range g.Verbs {
+			usage = append(usage, v.Word+" "+OpUsage(v.Op))
+			detail = append(detail, fmt.Sprintf("%s: %s. %s %s.", v.Word, v.Op.Summary, v.Op.Method, v.Op.Path))
+		}
+		if c.Summary == "" {
+			// The family's root resource describes it best -- /v1/tasks
+			// rather than /v1/tasks/{id}/cancel -- and a read of it better
+			// than a write, since that is the answer to "what are these".
+			lead := g.Verbs[0].Op
+			for _, v := range g.Verbs[1:] {
+				if len(v.Op.Path) < len(lead.Path) ||
+					(len(v.Op.Path) == len(lead.Path) && v.Op.Method == "GET") {
+					lead = v.Op
+				}
+			}
+			c.Summary = lowerFirst(lead.Summary) + " (" + strings.Join(g.verbWords(), ", ") + ")"
+		}
+		c.Usage = strings.Join(usage, " | ")
+		c.Detail = strings.Join(detail, " ")
+		out = append(out, c)
+	}
+	return out
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// handCommands are the commands with an implementation of their own.
+func handCommands() []Command {
 	return []Command{
 		{
 			Name: "run", Group: "running",
@@ -298,7 +349,7 @@ func Commands() []Command {
 				"produced it, so it teaches its own scriptable form.",
 		},
 		{
-			Name: "log", Group: "inspection",
+			Name: "log", Aliases: []string{"logs"}, Group: "inspection",
 			Usage:   "[--since d] [--chain id] [--follow] | sql '<query>' | record '<json>'",
 			Summary: "query the structured log, or add to it",
 			Detail: "--chain walks a record back through its parents, which is how a " +
@@ -320,6 +371,74 @@ func Commands() []Command {
 		{
 			Name: "help", Group: "configuration",
 			Usage: "[command]", Summary: "show this help, or help for one command",
+		},
+		{
+			Name: "man", Group: "configuration",
+			Usage:   "[--install dir]",
+			Summary: "print the manual page, or install it",
+			Detail: "Generated from the command table and the setting registry the " +
+				"program runs on, so it cannot describe a flag that does not exist.",
+		},
+		{
+			Name: "completion", Group: "configuration",
+			Usage:   "bash|zsh|fish",
+			Summary: "print a shell completion script",
+			Examples: []string{
+				"source <(mcpx completion bash)",
+				"mcpx completion fish > ~/.config/fish/completions/mcpx.fish",
+			},
+		},
+		{
+			Name: "serve", Group: "daemon",
+			Usage:   "[--tools]",
+			Summary: "speak MCP over stdio, for a host that spawns its servers",
+			Detail: "A thin shim over the daemon: every tool it lists is answered by " +
+				"the daemon, which is started if it is not running. HTTP is served " +
+				"by the daemon itself at /mcp; this command exists because an MCP " +
+				"host starts servers by spawning a process. --tools prints the " +
+				"tool list and exits.",
+			Examples: []string{
+				`{"mcpServers":{"mcpx":{"command":"mcpx","args":["serve"]}}}`,
+				"mcpx serve --tools",
+			},
+		},
+		{
+			Name: "openapi", Group: "discovery",
+			Usage:   "[-o file]",
+			Summary: "print an OpenAPI document for mcpx",
+		},
+		{
+			Name: "adapter", Group: "configuration",
+			Usage:   "[list|check|call|tools] [<name>.<tool> '<json>']",
+			Summary: "command-line programs declared as MCP tools",
+			Detail: "An adapter file, named by paths.adapters, declares a program and " +
+				"the tools it offers. list shows them, check says whether each " +
+				"program is installed, call runs one tool, and tools prints the " +
+				"tool definitions an MCP host would see.",
+			Examples: []string{
+				"mcpx adapter check",
+				`mcpx adapter call jq.run '{"filter":"."}'`,
+			},
+		},
+		{
+			Name: "registry", Group: "configuration",
+			Usage:   "[search|show|add] <query|name> [--limit N] [--write]",
+			Summary: "find servers in a public registry and add them",
+			Examples: []string{
+				"mcpx registry search github",
+				"mcpx registry add io.github.example/server --write",
+			},
+		},
+		{
+			Name: "api", Group: "configuration",
+			Usage:   "[list|tools|call] [--spec <path-or-url>] [<tool> '<json>']",
+			Summary: "HTTP services described by OpenAPI, as tools",
+			Detail: "Declarations named by paths.apis, or one given with --spec, are " +
+				"turned into a tool per operation: read-only methods by default, " +
+				"every method with --methods all.",
+			Examples: []string{
+				"mcpx api tools --spec https://example.com/openapi.json",
+			},
 		},
 	}
 }
@@ -350,16 +469,8 @@ func ManPage(version string) string {
 	b.WriteString("A first argument that is a file, or that obviously contains source,\n" +
 		"is run without needing \\fBrun\\fR or \\fBexec\\fR.\n")
 
-	groups := []string{"running", "discovery", "daemon", "configuration", "inspection"}
-	titles := map[string]string{
-		"running":       "RUNNING CODE",
-		"discovery":     "FINDING TOOLS",
-		"daemon":        "THE DAEMON",
-		"configuration": "CONFIGURATION",
-		"inspection":    "INSPECTION",
-	}
-	for _, g := range groups {
-		fmt.Fprintf(&b, ".SH %s\n", titles[g])
+	for _, g := range commandGroups {
+		fmt.Fprintf(&b, ".SH %s\n", strings.ToUpper(commandGroupTitles[g]))
 		for _, c := range Commands() {
 			if c.Group != g {
 				continue
@@ -486,6 +597,20 @@ func roffEscape(s string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// commandGroups orders the listing in help and the man page. A group
+// missing here would drop its commands from both, which is why a test checks
+// every command's group is one of these.
+var commandGroups = []string{"running", "discovery", "daemon", "configuration", "inspection", "operations"}
+
+var commandGroupTitles = map[string]string{
+	"running":       "running code",
+	"discovery":     "finding tools",
+	"daemon":        "the daemon",
+	"configuration": "configuration",
+	"inspection":    "inspection",
+	"operations":    "daemon operations",
 }
 
 // CommandsByGroup is the ordered listing used by help.
