@@ -44,6 +44,7 @@ type Defaults struct {
 		MaxAge   string   `json:"maxAge"`
 		Keep     int      `json:"keep"`
 		Include  []string `json:"include"`
+		Trace    bool     `json:"trace"`
 	} `json:"logging"`
 	Daemon struct {
 		ReapInterval string `json:"reapInterval"`
@@ -99,6 +100,21 @@ type Defaults struct {
 		AbandonGrace string `json:"abandonGrace"`
 		MCPPath      string `json:"mcpPath"`
 	} `json:"proto"`
+	// Transport governs how mcpx's own MCP server behaves on the wire, as
+	// opposed to what it says: keep-alives, shutdown, who may connect.
+	Transport struct {
+		SSEKeepAlive   string   `json:"sseKeepAlive"`
+		StdioDrain     string   `json:"stdioDrain"`
+		LoopbackHosts  []string `json:"loopbackHosts"`
+		AllowedOrigins []string `json:"allowedOrigins"`
+	} `json:"transport"`
+
+	// CLI governs how the command line renders what it did not write a
+	// formatter for: the commands generated from the /v1 operation table.
+	CLI struct {
+		CellWidth   int `json:"cellWidth"`
+		UsageColumn int `json:"usageColumn"`
+	} `json:"cli"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -189,20 +205,22 @@ type Defaults struct {
 		LogTail        string   `json:"logTail"`
 	} `json:"autostart"`
 	Limits struct {
-		SearchLimit        int    `json:"searchLimit"`
-		CompletionValues   int    `json:"completionValues"`
-		ElicitPending      int    `json:"elicitPending"`
-		RegistryPageSize   int    `json:"registryPageSize"`
-		LeaseTTL           string `json:"leaseTTL"`
-		SocketProbeTimeout string `json:"socketProbeTimeout"`
-		WarmTimeout        string `json:"warmTimeout"`
-		RefreshTimeout     string `json:"refreshTimeout"`
-		InlineStartTimeout string `json:"inlineStartTimeout"`
-		InlineStartPoll    string `json:"inlineStartPoll"`
-		InlineProbeTimeout string `json:"inlineProbeTimeout"`
-		DoctorTimeout      string `json:"doctorTimeout"`
-		FollowBacklog      int    `json:"followBacklog"`
-		ReleaseTimeout     string `json:"releaseTimeout"`
+		SearchLimit          int    `json:"searchLimit"`
+		CompletionValues     int    `json:"completionValues"`
+		ElicitPending        int    `json:"elicitPending"`
+		RegistryPageSize     int    `json:"registryPageSize"`
+		RegistryMaxPages     int    `json:"registryMaxPages"`
+		RegistryNameFallback int    `json:"registryNameFallback"`
+		LeaseTTL             string `json:"leaseTTL"`
+		SocketProbeTimeout   string `json:"socketProbeTimeout"`
+		WarmTimeout          string `json:"warmTimeout"`
+		RefreshTimeout       string `json:"refreshTimeout"`
+		InlineStartTimeout   string `json:"inlineStartTimeout"`
+		InlineStartPoll      string `json:"inlineStartPoll"`
+		InlineProbeTimeout   string `json:"inlineProbeTimeout"`
+		DoctorTimeout        string `json:"doctorTimeout"`
+		FollowBacklog        int    `json:"followBacklog"`
+		ReleaseTimeout       string `json:"releaseTimeout"`
 	} `json:"limits"`
 	// Files are the permission bits mcpx creates things with. They are data
 	// for the same reason everything else here is -- one place to read the
@@ -216,6 +234,17 @@ type Defaults struct {
 		PrivateMode   string `json:"privateMode"`
 		PublicMode    string `json:"publicMode"`
 	} `json:"files"`
+	// Git is how the repo and worktree scopes find a repository. Discovery
+	// reads .git itself (internal/config/gitdiscover.go); Bin is only run for
+	// the layouts that port does not vouch for, and GitfileMaxBytes is git's
+	// own ceiling on a .git file, kept so an absurd one is refused by both
+	// rather than read into the daemon's memory. Neither is a setting: PATH
+	// already chooses the git, and changing the ceiling would only make mcpx
+	// disagree with git about which files are valid.
+	Git struct {
+		Bin             string `json:"bin"`
+		GitfileMaxBytes string `json:"gitfileMaxBytes"`
+	} `json:"git"`
 	// Plugin is read by the opencode plugin rather than by this binary. It
 	// is declared here so that `mcpx settings` can answer what the plugin
 	// will do, which is otherwise only discoverable by reading TypeScript.
@@ -230,8 +259,99 @@ type Defaults struct {
 		Remember       string   `json:"remember"`
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
+		// Headless and DaemonTools are "auto" rather than a boolean: the
+		// plugin decides them at boot from where it is running and what it
+		// found, and a fixed true or false here would be right in only one
+		// of those cases.
+		Headless    string `json:"headless"`
+		DaemonTools string `json:"daemonTools"`
 	} `json:"plugin"`
+	// ProtoMessages governs the per-message fields mcpx's own MCP server
+	// attaches: cache hints on results and keep-alives on listen streams.
+	ProtoMessages struct {
+		ListMaxAge string `json:"listMaxAge"`
+		ReadMaxAge string `json:"readMaxAge"`
+		TaskAfter  string `json:"taskAfter"`
+	} `json:"protoMessages"`
+	// ProtoTasks governs the tasks mcpx hands out, on MCP and on /v1.
+	ProtoTasks struct {
+		PollInterval string `json:"pollInterval"`
+	} `json:"protoTasks"`
+	// Upstream governs how mcpx connects to the servers it fronts: which
+	// protocol era it tries first, how long it waits to find out, and where
+	// it remembers the answer.
+	Upstream struct {
+		Protocol       string `json:"protocol"`
+		ProbeTimeout   string `json:"probeTimeout"`
+		EraCache       bool   `json:"eraCache"`
+		EraFile        string `json:"eraFile"`
+		EraFileVersion int    `json:"eraFileVersion"`
+		ErrorBodyLimit string `json:"errorBodyLimit"`
+		// SSEReconnectDelay is the wait before resuming a Streamable HTTP
+		// stream the server closed without saying how long to wait (no
+		// retry field).
+		SSEReconnectDelay string `json:"sseReconnectDelay"`
+		// SSEReconnectAttempts bounds consecutive resumptions of one stream.
+		SSEReconnectAttempts int `json:"sseReconnectAttempts"`
+		// ListenReopenDelay is the wait before reopening a
+		// subscriptions/listen stream that ended without a response.
+		ListenReopenDelay string `json:"listenReopenDelay"`
+		// LegacyStreamEndpointTimeout bounds the wait for an HTTP+SSE
+		// (2024-11-05) server's endpoint event.
+		LegacyStreamEndpointTimeout string `json:"legacyStreamEndpointTimeout"`
+		// CancelSendTimeout bounds sending notifications/cancelled.
+		CancelSendTimeout string `json:"cancelSendTimeout"`
+		// ElicitReplyTimeout bounds sending the reply to a server's request.
+		ElicitReplyTimeout string `json:"elicitReplyTimeout"`
+		// SessionDeleteTimeout bounds the DELETE that ends an HTTP session.
+		SessionDeleteTimeout string `json:"sessionDeleteTimeout"`
+		// ListPageLimit bounds the pages one list request follows.
+		ListPageLimit int `json:"listPageLimit"`
+		// VersionAttempts bounds how often a probe offers one version.
+		VersionAttempts int `json:"versionAttempts"`
+	} `json:"upstream"`
 }
+
+// Upstream connection defaults.
+var (
+	// UpstreamProtocol is the era preference for a server that names none.
+	UpstreamProtocol = builtin.Upstream.Protocol
+	// UpstreamProbeTimeout is how long a stdio server/discover may go
+	// unanswered before initialize is sent alongside it.
+	UpstreamProbeTimeout = mustDur(builtin.Upstream.ProbeTimeout, "upstream.probeTimeout")
+	// UpstreamEraCache remembers each server configuration's era.
+	UpstreamEraCache = builtin.Upstream.EraCache
+	// UpstreamEraFile is the era cache's name inside the state directory.
+	UpstreamEraFile = builtin.Upstream.EraFile
+	// UpstreamEraFileVersion is bumped when the file's shape changes; a file
+	// of any other version is ignored and rewritten.
+	UpstreamEraFileVersion = builtin.Upstream.EraFileVersion
+	// HTTPErrorBodyLimit bounds how much of a non-2xx body is read: enough
+	// for a JSON-RPC error, not enough for an HTML error page to matter.
+	HTTPErrorBodyLimit = mustBytes(builtin.Upstream.ErrorBodyLimit, "upstream.errorBodyLimit")
+	// UpstreamSSEReconnectDelay is the resume wait when a server sent no
+	// retry field.
+	UpstreamSSEReconnectDelay = mustDur(builtin.Upstream.SSEReconnectDelay, "upstream.sseReconnectDelay")
+	// UpstreamSSEReconnectAttempts bounds consecutive resumptions.
+	UpstreamSSEReconnectAttempts = builtin.Upstream.SSEReconnectAttempts
+	// UpstreamListenReopenDelay is the wait before reopening a listen stream.
+	UpstreamListenReopenDelay = mustDur(builtin.Upstream.ListenReopenDelay, "upstream.listenReopenDelay")
+	// UpstreamLegacyStreamEndpointTimeout bounds the HTTP+SSE endpoint event.
+	UpstreamLegacyStreamEndpointTimeout = mustDur(builtin.Upstream.LegacyStreamEndpointTimeout,
+		"upstream.legacyStreamEndpointTimeout")
+	// UpstreamCancelSendTimeout bounds sending notifications/cancelled.
+	UpstreamCancelSendTimeout = mustDur(builtin.Upstream.CancelSendTimeout, "upstream.cancelSendTimeout")
+	// UpstreamElicitReplyTimeout bounds sending a reply to a server request.
+	UpstreamElicitReplyTimeout = mustDur(builtin.Upstream.ElicitReplyTimeout, "upstream.elicitReplyTimeout")
+	// UpstreamSessionDeleteTimeout bounds the session DELETE on close.
+	UpstreamSessionDeleteTimeout = mustDur(builtin.Upstream.SessionDeleteTimeout, "upstream.sessionDeleteTimeout")
+	// ListPageLimit bounds the pages one list request follows, so a server
+	// whose cursors never end cannot hold a listing forever.
+	ListPageLimit = builtin.Upstream.ListPageLimit
+	// UpstreamVersionAttempts bounds how often server/discover offers one
+	// version, so a server that rejects what it lists cannot loop a probe.
+	UpstreamVersionAttempts = builtin.Upstream.VersionAttempts
+)
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
 // package variables before it runs init(), so the exported values below would
@@ -317,6 +437,7 @@ var (
 	LogMaxAge   = mustDur(builtin.Logging.MaxAge, "logging.maxAge")
 	LogKeep     = builtin.Logging.Keep
 	LogIncludes = builtin.Logging.Include
+	LogTrace    = builtin.Logging.Trace
 
 	ReapInterval = mustDur(builtin.Daemon.ReapInterval, "daemon.reapInterval")
 	SaveInterval = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
@@ -383,7 +504,40 @@ var (
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
 
+	// ProtoListMaxAge is the ttlMs a 2026-07-28 client is given on
+	// server/discover and every list result. Short, because the lists follow
+	// configuration and a list_changed only reaches a client that listens.
+	ProtoListMaxAge = mustDur(builtin.ProtoMessages.ListMaxAge, "protoMessages.listMaxAge")
+	// ProtoReadMaxAge is the ttlMs on resources/read. Zero: a resource is
+	// whatever an upstream server says it is now.
+	ProtoReadMaxAge = mustDur(builtin.ProtoMessages.ReadMaxAge, "protoMessages.readMaxAge")
+	// ProtoTaskAfter is how long a tools/call from a client that declared
+	// the tasks extension runs in line before mcpx hands back a task
+	// instead of the result.
+	ProtoTaskAfter = mustDur(builtin.ProtoMessages.TaskAfter, "protoMessages.taskAfter")
+	// TaskPollInterval is the pollInterval every task carries: how often a
+	// client is told it may usefully ask after one.
+	TaskPollInterval = mustDur(builtin.ProtoTasks.PollInterval, "protoTasks.pollInterval")
+	// TransportSSEKeepAlive is how often an otherwise quiet event stream
+	// carries a comment line, so an intermediary or a client idle timeout
+	// does not close a stream that is merely waiting.
+	TransportSSEKeepAlive = mustDur(builtin.Transport.SSEKeepAlive, "transport.sseKeepAlive")
+	// TransportStdioDrain bounds how long `mcpx serve` keeps answering
+	// requests already in flight after its input closes, before it cancels
+	// them and exits.
+	TransportStdioDrain = mustDur(builtin.Transport.StdioDrain, "transport.stdioDrain")
+	// TransportLoopbackHosts are the Origin hosts a browser page on this
+	// machine presents; any port, http or https.
+	TransportLoopbackHosts = builtin.Transport.LoopbackHosts
+	// TransportAllowedOrigins are further Origins allowed to reach /mcp.
+	TransportAllowedOrigins = builtin.Transport.AllowedOrigins
+
 	CatalogBudget = builtin.Catalog.Budget
+
+	// OpCellWidth caps a table cell in a generated command's output; a
+	// description in full turns a table into a wall.
+	OpCellWidth = builtin.CLI.CellWidth
+	UsageColumn = builtin.CLI.UsageColumn
 
 	Permissions      = builtin.Script.Permissions
 	CaptureConsole   = builtin.Script.CaptureConsole
@@ -466,25 +620,30 @@ var (
 	AutostartPingTimeout    = mustDur(builtin.Autostart.PingTimeout, "autostart.pingTimeout")
 	AutostartLogTail        = mustBytes(builtin.Autostart.LogTail, "autostart.logTail")
 
-	SearchLimit        = builtin.Limits.SearchLimit
-	CompletionValues   = builtin.Limits.CompletionValues
-	ElicitPending      = builtin.Limits.ElicitPending
-	RegistryPageSize   = builtin.Limits.RegistryPageSize
-	LeaseTTL           = mustDur(builtin.Limits.LeaseTTL, "limits.leaseTTL")
-	SocketProbeTimeout = mustDur(builtin.Limits.SocketProbeTimeout, "limits.socketProbeTimeout")
-	WarmTimeout        = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")
-	RefreshTimeout     = mustDur(builtin.Limits.RefreshTimeout, "limits.refreshTimeout")
-	InlineStartTimeout = mustDur(builtin.Limits.InlineStartTimeout, "limits.inlineStartTimeout")
-	InlineStartPoll    = mustDur(builtin.Limits.InlineStartPoll, "limits.inlineStartPoll")
-	InlineProbeTimeout = mustDur(builtin.Limits.InlineProbeTimeout, "limits.inlineProbeTimeout")
-	DoctorTimeout      = mustDur(builtin.Limits.DoctorTimeout, "limits.doctorTimeout")
-	ReleaseTimeout     = mustDur(builtin.Limits.ReleaseTimeout, "limits.releaseTimeout")
-	FollowBacklog      = builtin.Limits.FollowBacklog
+	SearchLimit          = builtin.Limits.SearchLimit
+	CompletionValues     = builtin.Limits.CompletionValues
+	ElicitPending        = builtin.Limits.ElicitPending
+	RegistryPageSize     = builtin.Limits.RegistryPageSize
+	RegistryMaxPages     = builtin.Limits.RegistryMaxPages
+	RegistryNameFallback = builtin.Limits.RegistryNameFallback
+	LeaseTTL             = mustDur(builtin.Limits.LeaseTTL, "limits.leaseTTL")
+	SocketProbeTimeout   = mustDur(builtin.Limits.SocketProbeTimeout, "limits.socketProbeTimeout")
+	WarmTimeout          = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")
+	RefreshTimeout       = mustDur(builtin.Limits.RefreshTimeout, "limits.refreshTimeout")
+	InlineStartTimeout   = mustDur(builtin.Limits.InlineStartTimeout, "limits.inlineStartTimeout")
+	InlineStartPoll      = mustDur(builtin.Limits.InlineStartPoll, "limits.inlineStartPoll")
+	InlineProbeTimeout   = mustDur(builtin.Limits.InlineProbeTimeout, "limits.inlineProbeTimeout")
+	DoctorTimeout        = mustDur(builtin.Limits.DoctorTimeout, "limits.doctorTimeout")
+	ReleaseTimeout       = mustDur(builtin.Limits.ReleaseTimeout, "limits.releaseTimeout")
+	FollowBacklog        = builtin.Limits.FollowBacklog
 
 	DirMode       = mustMode(builtin.Files.DirMode, "files.dirMode")
 	PublicDirMode = mustMode(builtin.Files.PublicDirMode, "files.publicDirMode")
 	PrivateMode   = mustMode(builtin.Files.PrivateMode, "files.privateMode")
 	PublicMode    = mustMode(builtin.Files.PublicMode, "files.publicMode")
+
+	GitBin          = builtin.Git.Bin
+	GitfileMaxBytes = mustBytes(builtin.Git.GitfileMaxBytes, "git.gitfileMaxBytes")
 
 	PluginBin            = builtin.Plugin.Bin
 	PluginBinArgs        = builtin.Plugin.BinArgs
@@ -496,6 +655,8 @@ var (
 	PluginTools          = builtin.Plugin.Tools
 	PluginRemember       = builtin.Plugin.Remember
 	PluginAnnotate       = builtin.Plugin.Annotate
+	PluginHeadless       = builtin.Plugin.Headless
+	PluginDaemonTools    = builtin.Plugin.DaemonTools
 )
 
 // mustMode reads an octal permission string. Written as "0700" rather than as

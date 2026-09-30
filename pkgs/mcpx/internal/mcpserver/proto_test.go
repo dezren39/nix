@@ -26,8 +26,24 @@ func TestWhichRevisionDefinesWhat(t *testing.T) {
 			"2025-03-26": false, "2025-06-18": true, "2025-11-25": true, "2026-07-28": true}},
 		{mcpserver.FeatElicitationURL, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": true}},
+		// Core tasks are 2025-11-25's alone; 2026-07-28 moved them to an
+		// extension with different shapes.
 		{mcpserver.FeatTasks, map[string]bool{
-			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": true}},
+			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": false}},
+		{mcpserver.FeatTasksExtension, map[string]bool{
+			"2025-11-25": false, "2026-07-28": true}},
+		{mcpserver.FeatExtensions, map[string]bool{
+			"2025-11-25": false, "2026-07-28": true}},
+		{mcpserver.FeatAudio, map[string]bool{
+			"2024-11-05": false, "2025-03-26": true}},
+		{mcpserver.FeatToolAnnotations, map[string]bool{
+			"2024-11-05": false, "2025-03-26": true}},
+		{mcpserver.FeatCompletions, map[string]bool{
+			"2024-11-05": false, "2025-03-26": true}},
+		{mcpserver.FeatTitle, map[string]bool{
+			"2025-03-26": false, "2025-06-18": true}},
+		{mcpserver.FeatIcons, map[string]bool{
+			"2025-06-18": false, "2025-11-25": true}},
 		{mcpserver.FeatResultType, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": false, "2026-07-28": true}},
 		// Removed rather than added: a ceiling, not a floor. The three below
@@ -40,7 +56,7 @@ func TestWhichRevisionDefinesWhat(t *testing.T) {
 		{mcpserver.FeatElicitationComplete, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": true, "2026-07-28": false}},
 		{mcpserver.FeatInitialize, map[string]bool{
-			"2025-03-26": true, "2025-06-18": true, "2025-11-25": true, "2026-07-28": false}},
+			"2024-11-05": true, "2025-03-26": true, "2025-06-18": true, "2025-11-25": true, "2026-07-28": false}},
 		{mcpserver.FeatDiscover, map[string]bool{
 			"2025-03-26": false, "2025-06-18": false, "2025-11-25": false, "2026-07-28": true}},
 	}
@@ -169,13 +185,14 @@ func TestOutboundShapesAreDowngradedToTheNegotiatedRevision(t *testing.T) {
 
 func TestResultTypeGoesOnlyToARevisionThatDefinesIt(t *testing.T) {
 	srv := mcpserver.New(newBackend(), "mcpx", "test")
-	modern := map[string]any{"_meta": map[string]any{
-		mcpserver.MetaProtocolVersion: "2026-07-28"}}
-	got := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(1, "ping", modern)).Result)
+	modern := modernParams(nil)
+	// tools/list, because 2026-07-28 removed ping and a removed method has
+	// no result to stamp.
+	got := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(1, "tools/list", modern)).Result)
 	if !strings.Contains(got, `"resultType":"complete"`) {
 		t.Errorf("2026-07-28 makes resultType mandatory:\n%s", got)
 	}
-	legacy := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(2, "ping", nil)).Result)
+	legacy := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(2, "tools/list", nil)).Result)
 	if strings.Contains(legacy, "resultType") {
 		t.Errorf("resultType to a legacy client claims a revision mcpx is not speaking:\n%s", legacy)
 	}
@@ -198,7 +215,7 @@ func TestCapabilitiesAreDeclaredOnlyWhereTheRevisionDefinesThem(t *testing.T) {
 	}
 
 	modern := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(2, "server/discover",
-		map[string]any{"_meta": map[string]any{mcpserver.MetaProtocolVersion: "2026-07-28"}})).Result)
+		modernParams(nil))).Result)
 	if strings.Contains(modern, `"logging"`) {
 		t.Errorf("2026-07-28 removed logging/setLevel:\n%s", modern)
 	}
@@ -219,9 +236,6 @@ func TestEveryMethodIsAcceptedWhateverWasNegotiated(t *testing.T) {
 		{"tasks from a 2025-06-18 client", "tasks/list",
 			map[string]any{}},
 		{"subscriptions/listen from a legacy client", "tools/list", map[string]any{}},
-		{"resources/subscribe from a modern one", "resources/subscribe",
-			map[string]any{"uri": "x://y", "_meta": map[string]any{
-				mcpserver.MetaProtocolVersion: "2026-07-28"}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -450,5 +464,55 @@ func TestASamplingOnlyClientIsNotSentAnElicitation(t *testing.T) {
 		if body := protoJSON(t, resp.Result); strings.Contains(body, "elicitation/create") {
 			t.Fatalf("a sampling-only client was offered an elicitation:\n%s", body)
 		}
+	}
+}
+
+// TestARemovedMethodIsNotFoundForTheRevisionThatRemovedIt is the limit of
+// "accept liberally".
+//
+// Offering a client more than its revision requires withholds nothing. But a
+// method the revision *removed* is different: the removal is the
+// specification pointing at a replacement, and 2026-07-28 requires
+// method-not-found for it -- "If the server does not implement the requested
+// RPC method, it MUST respond with 404 Not Found and a JSON-RPC error with
+// code -32601", the 404 being how a dual-era client tells a modern server
+// from a legacy endpoint that is simply absent. The official conformance
+// suite scores exactly these five, by name, in the frozen 2026-07-28 set.
+//
+// This previously answered them all, and a subtest asserted that as correct.
+func TestARemovedMethodIsNotFoundForTheRevisionThatRemovedIt(t *testing.T) {
+	for _, m := range []string{
+		"initialize", "ping", "logging/setLevel",
+		"resources/subscribe", "resources/unsubscribe",
+	} {
+		t.Run("2026-07-28/removed/"+m, func(t *testing.T) {
+			srv := mcpserver.New(newBackend(), "mcpx", "test")
+			srv.Notify = quietNotifier{}
+			srv.SetPush(func(string, any) {})
+			resp := srv.Handle(context.Background(), mcpserver.Request(2, m,
+				modernParams(map[string]any{"uri": "x://y", "level": "info"})))
+			if resp == nil || resp.Error == nil {
+				t.Fatalf("%s was answered for a 2026-07-28 peer: %+v", m, resp)
+			}
+			if resp.Error.Code != -32601 {
+				t.Errorf("%s: code %d, want -32601", m, resp.Error.Code)
+			}
+		})
+		t.Run("legacy-still-served/"+m, func(t *testing.T) {
+			// The same method on a legacy connection is untouched.
+			if m == "initialize" {
+				t.Skip("initialize is the legacy handshake itself")
+			}
+			srv := mcpserver.New(newBackend(), "mcpx", "test")
+			srv.Notify = quietNotifier{}
+			srv.SetPush(func(string, any) {})
+			srv.Handle(context.Background(), mcpserver.Request(1, "initialize",
+				map[string]any{"protocolVersion": "2025-06-18"}))
+			resp := srv.Handle(context.Background(), mcpserver.Request(2, m,
+				map[string]any{"uri": "x://y", "level": "info"}))
+			if resp != nil && resp.Error != nil && resp.Error.Code == -32601 {
+				t.Errorf("%s must still be served to a legacy peer: %v", m, resp.Error)
+			}
+		})
 	}
 }

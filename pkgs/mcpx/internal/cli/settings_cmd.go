@@ -178,6 +178,11 @@ func (a *App) settingsSet(ctx context.Context, args []string) error {
 	if !ok {
 		return fmt.Errorf("no setting %q; `mcpx settings list` shows them all", path)
 	}
+	// Before the daemon is asked, because a refusal from it falls through to
+	// the local write below, which would then persist a key nothing reads.
+	if err := decl.Writable(); err != nil {
+		return err
+	}
 	if err := settings.Validate(*decl, value); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}

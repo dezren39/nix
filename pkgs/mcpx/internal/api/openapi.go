@@ -65,6 +65,9 @@ func operation(op Op) map[string]any {
 	body := map[string]any{}
 	var required []string
 	for _, p := range op.Params {
+		if p.Raw {
+			continue
+		}
 		if p.In == InBody {
 			var schema any
 			_ = json.Unmarshal([]byte(p.schema()), &schema)
@@ -88,7 +91,16 @@ func operation(op Op) map[string]any {
 	if len(params) > 0 {
 		out["parameters"] = params
 	}
-	if op.Method != "GET" {
+	if raw, ok := op.RawParam(); ok {
+		out["requestBody"] = map[string]any{
+			"required":    raw.Required,
+			"description": raw.Desc,
+			"content": map[string]any{
+				"application/octet-stream": map[string]any{
+					"schema": map[string]any{"type": "string", "format": "binary"}},
+			},
+		}
+	} else if op.Method != "GET" {
 		schema := map[string]any{"type": "object", "properties": body}
 		if len(required) > 0 {
 			schema["required"] = required

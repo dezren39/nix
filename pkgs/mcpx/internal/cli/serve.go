@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/dezren39/mcpx/internal/adapter"
 	"github.com/dezren39/mcpx/internal/artifacts"
+	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/execsvc"
@@ -90,6 +93,17 @@ func (b mcpBackend) Search(ctx context.Context, query string, limit int) (string
 	if err != nil {
 		return "", err
 	}
+	visible, err := b.app.visibleNamespaces(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	kept := hits[:0]
+	for _, h := range hits {
+		if visible(h.Namespace) {
+			kept = append(kept, h)
+		}
+	}
+	hits = kept
 	if len(hits) == 0 {
 		return "No matching tools. mcpx_namespaces lists what exists.", nil
 	}
@@ -108,12 +122,25 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
-	session := b.app.mcpSession()
-	res, err := c.Call(ctx, ns, tool, b.app.callContext(session, session), args)
+	visible, err := b.app.visibleNamespaces(ctx, c)
 	if err != nil {
 		return "", err
 	}
-	return renderResult(res.Result), nil
+	if !visible(ns) {
+		return "", unknownNamespace(ns)
+	}
+	res, err := c.Call(ctx, ns, tool, b.app.mcpCaller(ctx), args)
+	if err != nil {
+		return "", err
+	}
+	text, failed := renderResult(res.Result)
+	if failed {
+		// mcpserver turns a backend error into a result with isError, and
+		// /v1/tools into ok:false; ToolFailure lets the latter tell it from
+		// a call mcpx could not make.
+		return "", daemon.ToolFailure{Text: text}
+	}
+	return text, nil
 }
 
 // Exec runs a script through the daemon's /v1/exec.
@@ -136,15 +163,7 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
 		return "", err
 	}
-	session := b.app.mcpSession()
-	opts := execsvc.Options{
-		Session:      session,
-		Output:       execsvc.OutputStructured,
-		Capabilities: []string{execsvc.CapabilityArtifacts},
-	}
-	if timeoutSec > 0 {
-		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
-	}
+	opts := b.execOptions(ctx, timeoutSec)
 	body, err := c.do(ctx, http.MethodPost, "/v1/exec",
 		map[string]any{"source": source, "options": opts})
 	if err != nil {
@@ -154,6 +173,27 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := json.Unmarshal(body, &res); err != nil {
 		return "", err
 	}
+	return renderExec(res)
+}
+
+// execOptions is what mcpx_exec asks /v1/exec for, whichever path runs it.
+func (b mcpBackend) execOptions(ctx context.Context, timeoutSec int) execsvc.Options {
+	opts := execsvc.Options{
+		// The connection's own identity, not the process's: see mcpCaller.
+		Session:      b.app.mcpCaller(ctx).SessionID,
+		Output:       execsvc.OutputStructured,
+		Capabilities: []string{execsvc.CapabilityArtifacts},
+	}
+	if timeoutSec > 0 {
+		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
+	}
+	return opts
+}
+
+// renderExec turns a script's result into mcpx_exec's tool result. Shared by
+// the direct path and the interruptible one (serve_ask.go), so a script
+// answered inline renders exactly like one that was never asked anything.
+func renderExec(res execsvc.Result) (string, error) {
 
 	var sb strings.Builder
 	for _, e := range res.Emits {
@@ -250,12 +290,16 @@ func (b mcpBackend) Status(ctx context.Context) (string, error) {
 
 func (b mcpBackend) RegistrySearch(ctx context.Context, query string, limit int) (string, error) {
 	if limit <= 0 {
-		limit = 20
+		// The setting, not a literal: the CLI and /v1 both read registry.limit,
+		// and a number here meant the MCP tool was the one surface where
+		// config = env = cli = /v1 did not hold.
+		limit = b.app.Settings().Int("registry.limit")
 	}
-	servers, err := b.app.registrySearch(ctx, query, limit)
+	res, err := b.app.registrySearch(ctx, query, limit)
 	if err != nil {
 		return "", err
 	}
+	servers := res.Servers
 	if len(servers) == 0 {
 		return "Nothing matched. The registry matches server names as a substring, " +
 			"so try one word rather than a phrase.", nil
@@ -269,6 +313,11 @@ func (b mcpBackend) RegistrySearch(ctx context.Context, query string, limit int)
 		}
 		fmt.Fprintf(&sb, "%s\n    %s\n    %s\n    add with: mcpx registry add %s --write\n",
 			s.Name, firstLine(s.Description), how, s.Name)
+	}
+	if res.Truncated {
+		// Every other surface says this. Without it a model reads a cut list
+		// as the whole answer and stops looking.
+		fmt.Fprintf(&sb, "\n%d shown; more matched. Ask again with a higher limit.\n", len(servers))
 	}
 	return sb.String(), nil
 }
@@ -284,11 +333,41 @@ func flatten(attrs map[string]any) string {
 	return strings.Join(parts, " ")
 }
 
-// mcpSession is the session key calls made through the MCP server belong to.
+// mcpCaller is who a request made through the MCP server is from, as the
+// daemon's call context.
+//
+// Built per request from the identity mcpserver resolved for it, not per
+// App. Inside the daemon the App is the daemon's own, so asking the process
+// who it is answered with the daemon's pid and cwd for every HTTP client:
+// they all shared one session, and every session-scoped upstream instance
+// with it (conflict #2). Only stdio -- one process, one client -- may still
+// answer from the process. See docs/spec/identity.md.
+func (a *App) mcpCaller(ctx context.Context) config.CallContext {
+	id := mcpserver.IdentityFrom(ctx)
+	switch id.Source {
+	case mcpserver.IdentityProcess:
+		s := a.mcpSession()
+		return a.callContext(s, s)
+	case mcpserver.IdentitySession:
+		// Prefixed so a session id can never collide with a name a CLI
+		// user or a client chose. No cwd and no pid: the daemon's are not
+		// the client's, and a scope that needs one degrades to per-call,
+		// which is the direction that cannot leak.
+		s := "mcp-" + id.Key
+		return config.CallContext{SessionID: s, CallID: s}
+	case mcpserver.IdentityClient:
+		return config.CallContext{SessionID: id.Key, CallID: id.Key}
+	}
+	// Nobody in particular: the request is its own scope.
+	return config.CallContext{CallID: newSessionKey()}
+}
+
+// mcpSession is the session key of a process that is itself one MCP
+// client's server -- `mcpx serve` over stdio.
 //
 // A host that speaks MCP has its own notion of a session and no way to tell
-// us, so one is derived per process. That is the honest answer: every call
-// from one connection shares a lease, and two connections do not.
+// us, so one is derived per process. That is the honest answer there: every
+// call from one connection shares a lease, and two connections do not.
 func (a *App) mcpSession() string {
 	if s := os.Getenv("MCPX_SESSION_ID"); s != "" {
 		return s
@@ -307,7 +386,9 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 	srv := mcpserver.New(mcpBackend{app: a}, "mcpx", a.Version)
 	srv.Notify = daemonNotifier{app: a}
 	srv.PageSize = a.Settings().Int("mcp.pageSize")
-	srv.MaxCompletions = a.Settings().Int("completion.maxValues")
+	// A function, because completion.maxValues is hot: the daemon's /mcp
+	// is built once and a value copied here never followed a change.
+	srv.MaxCompletions = func() int { return a.Settings().Int("completion.maxValues") }
 	// The ask loop's five bounds. They were read from internal/defaults at
 	// the point of use, so the settings that name them did nothing.
 	srv.Timing = mcpserver.Timing{
@@ -316,7 +397,27 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 		AskRounds:   a.Settings().Int("proto.askRounds"),
 		StateTTL:    a.Settings().Duration("proto.stateTTL"),
 		SessionIdle: a.Settings().Duration("proto.sessionIdle"),
+		TaskAfter:   a.Settings().Duration("protoMessages.taskAfter"),
+		// One keep-alive for every event stream mcpx serves: a legacy GET
+		// stream and a 2026-07-28 listen stream are the same thing to a proxy.
+		SSEKeepAlive: a.Settings().Duration("transport.sseKeepAlive"),
+		StdioDrain:   a.Settings().Duration("transport.stdioDrain"),
+		TaskPoll:     a.Settings().Duration("protoTasks.pollInterval"),
 	}
+	srv.Cache = mcpserver.Cache{
+		List: a.Settings().Duration("protoMessages.listMaxAge"),
+		Read: a.Settings().Duration("protoMessages.readMaxAge"),
+	}
+	// Browser origins the HTTP transport serves: loopback at any port, the
+	// daemon's own address when it listens somewhere else, and whatever
+	// was configured. The daemon's address is named explicitly rather than
+	// taken from the request's Host, which DNS rebinding controls.
+	hosts := append([]string(nil), defaults.TransportLoopbackHosts...)
+	if addr := a.Settings().String("daemon.address"); addr != "" && !unspecifiedHost(addr) {
+		hosts = append(hosts, addr)
+	}
+	srv.Origins = mcpserver.OriginPolicy{Hosts: hosts,
+		Origins: a.Settings().List("transport.allowedOrigins")}
 	if a.Settings().Bool("proto.native") {
 		// Native elicitation and sampling: a question an upstream server
 		// asks is put to mcpx's own client, if that client said it could
@@ -380,6 +481,13 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	// server over stdio fails.
 	a.machineOutput = true
 	return srv.ServeStdio(ctx, os.Stdin, os.Stdout)
+}
+
+// unspecifiedHost reports whether an address means every interface, which
+// names no origin a browser could present.
+func unspecifiedHost(h string) bool {
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsUnspecified()
 }
 
 func writeJSONResponse(w http.ResponseWriter, v any) {
@@ -482,8 +590,15 @@ func (b mcpBackend) Resources(ctx context.Context) ([]mcpserver.ResourceRef, err
 	if err != nil {
 		return nil, err
 	}
+	visible, err := b.app.visibleNamespaces(ctx, c)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]mcpserver.ResourceRef, 0, len(list))
 	for _, r := range list {
+		if !visible(r.Namespace) {
+			continue
+		}
 		// Namespaced, because two servers may publish the same URI and a
 		// caller has no way to say which one it meant otherwise.
 		out = append(out, mcpserver.ResourceRef{
@@ -510,7 +625,13 @@ func (b mcpBackend) artifactResources(ctx context.Context) []mcpserver.ResourceR
 	if err != nil {
 		return nil
 	}
-	list, err := c.Artifacts(ctx, "", b.app.mcpSession())
+	session := b.app.mcpCaller(ctx).SessionID
+	if session == "" {
+		// A caller with no identity has no artifacts of its own, and the
+		// daemon reads an empty session as "every session's".
+		return nil
+	}
+	list, err := c.Artifacts(ctx, "", session)
 	if err != nil || len(list) == 0 {
 		return nil
 	}
@@ -539,8 +660,15 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 	if err != nil {
 		return nil, err
 	}
+	visible, err := b.app.visibleNamespaces(ctx, c)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]mcpserver.PromptRef, 0, len(list))
 	for _, p := range list {
+		if !visible(p.Namespace) {
+			continue
+		}
 		args := make([]mcpserver.PromptArg, 0, len(p.Arguments))
 		for _, a := range p.Arguments {
 			args = append(args, mcpserver.PromptArg{
@@ -558,26 +686,106 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 }
 
 // ReadResource resolves a namespaced URI back to its server.
-func (b mcpBackend) ReadResource(ctx context.Context, uri string) (string, string, error) {
+//
+// A resource that does not exist is reported as mcpserver.ErrResourceNotFound
+// so the protocol layer can answer with the code the client's revision
+// defines for it; everything else is a failure to read, which is a
+// different code. The four ways a URI names nothing: it is not an mcpx URI
+// at all, it names no namespace, the namespace is not configured, or the
+// upstream server itself said not-found.
+func (b mcpBackend) ReadResource(ctx context.Context, uri string) ([]mcpserver.ResourceContents, error) {
 	// Artifacts are answered before the namespace split, because "artifacts"
 	// is not a server and would otherwise be looked up as one.
 	if id, ok := artifacts.IDFromURI(uri); ok {
-		return b.readArtifact(ctx, id)
+		body, mime, err := b.readArtifact(ctx, id)
+		// The daemon's 404 arrives as its message; artifacts.ErrNotFound
+		// is the only thing that says "no artifact <id>".
+		if err != nil && strings.Contains(err.Error(), "no artifact "+id) {
+			return nil, fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, err)
+		}
+		if err != nil {
+			return nil, err
+		}
+		entry := mcpserver.ResourceContents{MimeType: mime, Text: body}
+		if !textMime(mime) {
+			// ArtifactBody already base64-encoded it; it is a blob, and
+			// was being sent as text a client could not tell from prose.
+			entry = mcpserver.ResourceContents{MimeType: mime, Blob: body}
+		}
+		return []mcpserver.ResourceContents{entry}, nil
 	}
-	ns, rest, ok := strings.Cut(strings.TrimPrefix(uri, "mcpx://"), "/")
-	if !ok {
-		return "", "", fmt.Errorf("a resource URI looks like mcpx://<namespace>/<uri>, got %q", uri)
+	rest, isOurs := strings.CutPrefix(uri, "mcpx://")
+	ns, inner, ok := strings.Cut(rest, "/")
+	if !isOurs || !ok || ns == "" {
+		return nil, fmt.Errorf("%w: a resource URI looks like mcpx://<namespace>/<uri>, got %q",
+			mcpserver.ErrResourceNotFound, uri)
 	}
 	c, err := b.app.ensure(ctx)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	session := b.app.mcpSession()
-	raw, err := c.ReadResource(ctx, ns, rest, b.app.callContext(session, session))
+	visible, err := b.app.visibleNamespaces(ctx, c)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	return renderResource(raw)
+	if !visible(ns) {
+		return nil, fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, unknownNamespace(ns))
+	}
+	raw, err := c.ReadResource(ctx, ns, inner, b.app.mcpCaller(ctx))
+	if err != nil {
+		if upstreamNotFound(err) {
+			return nil, fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, err)
+		}
+		return nil, err
+	}
+	return resourceContents(raw, "mcpx://"+ns+"/"), nil
+}
+
+// resourceContents reads a resources/read reply into entries, keeping each
+// blob a blob. Entry URIs are namespaced the way the listing namespaces
+// them, so a client can read any of them back.
+func resourceContents(raw json.RawMessage, prefix string) []mcpserver.ResourceContents {
+	var doc struct {
+		Contents []struct {
+			URI      string `json:"uri"`
+			Text     string `json:"text"`
+			Blob     string `json:"blob"`
+			MimeType string `json:"mimeType"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return []mcpserver.ResourceContents{{MimeType: "application/json", Text: string(raw)}}
+	}
+	out := make([]mcpserver.ResourceContents, 0, len(doc.Contents))
+	for _, c := range doc.Contents {
+		uri := ""
+		if c.URI != "" {
+			uri = prefix + strings.TrimPrefix(c.URI, "/")
+		}
+		out = append(out, mcpserver.ResourceContents{URI: uri, MimeType: c.MimeType,
+			Text: c.Text, Blob: c.Blob})
+	}
+	return out
+}
+
+// textMime is what the daemon serves an artifact as text; everything else
+// arrives base64.
+func textMime(mime string) bool {
+	return strings.HasPrefix(mime, "text/") || strings.HasPrefix(mime, "application/json")
+}
+
+// upstreamNotFound reads a not-found out of the daemon's answer.
+//
+// The daemon returns an upstream failure as text -- "unknown server or
+// namespace", or the upstream JSON-RPC error rendered as "mcp error <code>:"
+// -- so this is string matching across a process boundary. The codes it
+// looks for are the only two any revision uses for a missing resource:
+// -32002 up to 2025-11-25, -32602 since.
+func upstreamNotFound(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "unknown server or namespace") ||
+		strings.Contains(msg, "mcp error -32002:") ||
+		strings.Contains(msg, "mcp error -32602:")
 }
 
 // GetPrompt resolves a namespaced prompt back to its server.
@@ -586,22 +794,134 @@ func (b mcpBackend) GetPrompt(ctx context.Context, name string, args map[string]
 	if err != nil {
 		return "", err
 	}
-	list, err := c.Prompts(ctx, nil)
+	ns, inner, err := b.app.resolvePrompt(ctx, c, name)
 	if err != nil {
 		return "", err
 	}
+	raw, err := c.GetPrompt(ctx, ns, inner, args, b.app.mcpCaller(ctx))
+	if err != nil {
+		if upstreamInvalid(err) {
+			// The upstream server said the request was wrong -- a missing
+			// required argument, most often -- which is the client's to fix.
+			return "", fmt.Errorf("%w: %v", mcpserver.ErrInvalidParams, err)
+		}
+		return "", err
+	}
+	return renderPrompt(raw), nil
+}
+
+// resolvePrompt maps a namespaced prompt name back to its server, within the
+// profile. A name that resolves to nothing is the client's mistake, so it
+// wraps ErrInvalidParams: -32602, not the -32603 of a server that failed.
+func (a *App) resolvePrompt(ctx context.Context, c *Client, name string) (string, string, error) {
+	list, err := c.Prompts(ctx, nil)
+	if err != nil {
+		return "", "", err
+	}
+	visible, err := a.visibleNamespaces(ctx, c)
+	if err != nil {
+		return "", "", err
+	}
 	for _, p := range list {
-		if p.Namespace+"_"+p.Name != name && p.Name != name {
+		if !visible(p.Namespace) {
 			continue
 		}
-		session := b.app.mcpSession()
-		raw, err := c.GetPrompt(ctx, p.Namespace, p.Name, args, b.app.callContext(session, session))
-		if err != nil {
-			return "", err
+		if p.Namespace+"_"+p.Name == name || p.Name == name {
+			return p.Namespace, p.Name, nil
 		}
-		return renderPrompt(raw), nil
 	}
-	return "", fmt.Errorf("no prompt named %q", name)
+	return "", "", fmt.Errorf("%w: no prompt named %q", mcpserver.ErrInvalidParams, name)
+}
+
+// upstreamInvalid reads an upstream -32602 out of the daemon's answer, the
+// same string match upstreamNotFound makes and for the same reason.
+func upstreamInvalid(err error) bool {
+	return strings.Contains(err.Error(), "mcp error -32602:")
+}
+
+// Complete forwards completion/complete to the server that owns the ref,
+// through /v1/complete, so the two surfaces give the same answer to the same
+// question (conflict #9).
+func (b mcpBackend) Complete(ctx context.Context, params json.RawMessage) ([]string, error) {
+	var p struct {
+		Ref struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+			URI  string `json:"uri"`
+		} `json:"ref"`
+		Argument json.RawMessage `json:"argument"`
+		Context  json.RawMessage `json:"context"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("%w: %v", mcpserver.ErrInvalidParams, err)
+	}
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref := map[string]any{"type": p.Ref.Type}
+	var server string
+	switch p.Ref.Type {
+	case "ref/prompt":
+		ns, inner, err := b.app.resolvePrompt(ctx, c, p.Ref.Name)
+		if err != nil {
+			return nil, err
+		}
+		server, ref["name"] = ns, inner
+	case "ref/resource":
+		if _, ok := artifacts.IDFromURI(p.Ref.URI); ok || p.Ref.URI == artifactTemplate {
+			// mcpx's own template. Its ids are unguessable by design, so
+			// there is nothing to offer.
+			return nil, nil
+		}
+		ns, inner, ok := strings.Cut(strings.TrimPrefix(p.Ref.URI, "mcpx://"), "/")
+		visible, err := b.app.visibleNamespaces(ctx, c)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(p.Ref.URI, "mcpx://") || !ok || !visible(ns) {
+			return nil, fmt.Errorf("%w: no resource template %q", mcpserver.ErrInvalidParams, p.Ref.URI)
+		}
+		server, ref["uri"] = ns, inner
+	}
+	body := map[string]any{"server": server, "ref": ref, "argument": p.Argument,
+		"context": b.app.mcpCaller(ctx)}
+	raw, err := c.do(ctx, http.MethodPost, "/v1/complete", body)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Completion struct {
+			Values []string `json:"values"`
+		} `json:"completion"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out.Completion.Values, nil
+}
+
+// visibleNamespaces is the profile applied as a boundary, not only a view.
+//
+// Namespaces, catalog and types were filtered by the profile and search,
+// resources, prompts and calls were not, so a server hidden from
+// mcpx_namespaces was still listed, searchable and callable over MCP
+// (conflict #14). The daemon's namespace listing is the one place the
+// profile is resolved, so it is asked here rather than re-deriving the rule.
+func (a *App) visibleNamespaces(ctx context.Context, c *Client) (func(string) bool, error) {
+	nss, err := c.Namespaces(ctx, a.Profile)
+	if err != nil {
+		return nil, err
+	}
+	in := map[string]bool{}
+	for _, n := range nss {
+		in[n.Namespace], in[n.Server] = true, true
+	}
+	return func(ns string) bool { return in[ns] }, nil
+}
+
+func unknownNamespace(ns string) error {
+	return fmt.Errorf("unknown server or namespace %q", ns)
 }
 
 // renderResource pulls the text out of a resources/read reply.
@@ -678,17 +998,24 @@ func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.Resource
 	if err != nil {
 		return nil, err
 	}
+	visible, err := b.app.visibleNamespaces(ctx, c)
+	if err != nil {
+		return nil, err
+	}
 	// The template comes first because it is always true, where the list
 	// below depends on what happens to be configured. A client reading this
 	// learns it can address any artifact by id without having listed it.
 	out := []mcpserver.ResourceRef{{
-		URI:  "mcpx://artifacts/{id}",
+		URI:  artifactTemplate,
 		Name: "mcpx artifact",
 		Description: "A file a script produced. The id comes from a resource_link in " +
 			"an mcpx_exec result, or from GET /v1/artifacts. Binary bodies arrive " +
 			"base64 encoded with their type stated.",
 	}}
 	for _, r := range list {
+		if !visible(r.Namespace) {
+			continue
+		}
 		out = append(out, mcpserver.ResourceRef{
 			URI:         "mcpx://" + r.Namespace + "/" + strings.TrimPrefix(r.URI, "/"),
 			Name:        r.Name,
@@ -699,12 +1026,13 @@ func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.Resource
 	return out, nil
 }
 
+// artifactTemplate is the one resource template mcpx itself publishes.
+const artifactTemplate = "mcpx://artifacts/{id}"
+
 // readArtifact fetches one artifact's body from the daemon.
 //
-// resources/read carries text, so a binary body comes back base64 with its
-// real type stated beside it. That is lossy in exactly one way -- the client
-// has to decode -- and it is what the protocol offers; the alternative is a
-// URI the client fetches over HTTP, which is what /v1/artifacts/{id} is for.
+// A binary body comes back base64, which ReadResource sends as a blob with
+// its real type beside it.
 func (b mcpBackend) readArtifact(ctx context.Context, id string) (string, string, error) {
 	c, err := b.app.ensure(ctx)
 	if err != nil {
@@ -724,6 +1052,16 @@ func (b mcpBackend) readArtifact(ctx context.Context, id string) (string, string
 type daemonNotifier struct{ app *App }
 
 func (n daemonNotifier) Listen(ctx context.Context, f mcpserver.ListenFilter, send func(string, any)) {
+	n.ListenResources(ctx, f, nil, send)
+}
+
+// ListenResources is Listen that first hears which resources the daemon
+// subscribed upstream. The daemon holds those subscriptions for as long as
+// this event stream is open, so ending the stream -- the client leaving,
+// the connection ending -- is also unsubscribing; and a stream that
+// reconnects to a restarted daemon subscribes again.
+func (n daemonNotifier) ListenResources(ctx context.Context, f mcpserver.ListenFilter,
+	ready func([]string, map[string]string), send func(string, any)) {
 	var kinds []string
 	if f.ToolsListChanged {
 		kinds = append(kinds, string(events.ToolsChanged))
@@ -744,21 +1082,60 @@ func (n daemonNotifier) Listen(ctx context.Context, f mcpserver.ListenFilter, se
 	if err != nil {
 		return
 	}
-	// Resource URIs arrive namespaced from mcpx's own listings; the daemon
-	// knows them by their upstream form.
-	uris := make([]string, 0, len(f.ResourceSubscriptions))
+	// The mcpx:// URIs go to the daemon as they are: it knows which server
+	// a namespace names, which this process cannot (a config may override
+	// it), and it subscribes there. Updates come back under the upstream
+	// URI and go out under the one the client subscribed with: a client
+	// matches notifications to its subscriptions by URI, and one naming the
+	// upstream form matches nothing it asked for.
+	asked := map[string][]string{}
 	for _, u := range f.ResourceSubscriptions {
 		if rest, ok := strings.CutPrefix(u, "mcpx://"); ok {
 			if _, uri, ok := strings.Cut(rest, "/"); ok {
-				uris = append(uris, uri)
-				continue
+				asked[uri] = append(asked[uri], u)
 			}
 		}
-		uris = append(uris, u)
 	}
-	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: uris}, func(e events.Event) {
-		if method, params, ok := events.MCPNotification(e); ok {
-			send(method, params)
+	_ = c.Stream(ctx, events.Filter{Kinds: kinds, URIs: f.ResourceSubscriptions}, func(e events.Event) {
+		if e.Kind == events.ResourceWatching {
+			if ready != nil {
+				var w struct {
+					Watching []string          `json:"watching"`
+					Refused  map[string]string `json:"refused"`
+				}
+				_ = json.Unmarshal(e.Data, &w)
+				ready(w.Watching, w.Refused)
+			}
+			return
+		}
+		method, params, ok := events.MCPNotification(e)
+		if !ok {
+			return
+		}
+		for _, p := range subscribedURIs(e, params, asked) {
+			send(method, p)
 		}
 	})
+}
+
+// subscribedURIs rewrites a resource update to the mcpx:// URI the client
+// subscribed with. The event names its server but the listing names a
+// namespace, which a config may override and this process cannot see; so
+// the match is on the upstream URI, and every subscription with that
+// upstream form hears it. An update is a hint to read again, so hearing one
+// meant for a same-named resource elsewhere costs a read, where hearing none
+// costs the update.
+func subscribedURIs(e events.Event, params any, asked map[string][]string) []any {
+	if e.Kind != events.ResourceUpdated {
+		return []any{params}
+	}
+	origs := asked[strings.TrimPrefix(e.URI, "/")]
+	if len(origs) == 0 {
+		return []any{params}
+	}
+	out := make([]any, 0, len(origs))
+	for _, o := range origs {
+		out = append(out, map[string]any{"uri": o})
+	}
+	return out
 }

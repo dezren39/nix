@@ -69,6 +69,16 @@ type Instance struct {
 	startedAt time.Time
 	trace     string
 	calls     atomic.Int64
+	// questions pending on this instance pause its calls' budgets.
+	questions questions
+	// eraSource is how this instance's era was settled: probe, cache or
+	// forced.
+	eraSource string
+	// subscribed are the resource URIs this instance has been asked to
+	// report updates for. See watch.go.
+	subMu      sync.Mutex
+	subscribed map[string]bool
+	monitored  bool
 }
 
 // Trace is this instance's identifier, carried by every record about it.
@@ -118,6 +128,9 @@ type Pool struct {
 	seq       int
 	closed    bool
 
+	flightMu sync.Mutex
+	inflight map[string]int
+
 	// schema cache
 	schemaMu     sync.RWMutex
 	tools        []mcpclient.Tool
@@ -126,6 +139,12 @@ type Pool struct {
 	instructions string
 	schemaAt     time.Time
 	schemaErr    error
+
+	// watched counts, per upstream resource URI, the subscribers that want
+	// its updates; watchKey is the scope key they were resolved under.
+	watchMu  sync.Mutex
+	watched  map[string]int
+	watchKey string
 
 	lastErr   error
 	failCount int
@@ -361,47 +380,108 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	defer cancel()
 	launched := time.Now()
 
-	var (
-		tr  mcpclient.Transport
-		err error
-	)
-	if p.cfg.Stdio() {
-		tr, err = mcpclient.NewStdio(mcpclient.StdioOptions{
-			Command:    p.cfg.Command,
-			Args:       p.cfg.Args,
-			Env:        p.cfg.Env,
-			Cwd:        p.cfg.Cwd,
-			InheritEnv: true,
-		})
-	} else {
-		tr, err = mcpclient.NewHTTP(mcpclient.HTTPOptions{
-			URL:     p.cfg.URL,
-			Headers: p.cfg.Headers,
-		})
-	}
+	tr, err := p.dial()
 	if err != nil {
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
 	}
+	source := ""
 
 	// The server-request handler and roots go in before the handshake, not
 	// after it: the handshake is where capabilities are declared, and a
 	// legacy server never asks again. Installed afterwards, sampling could
 	// never be declared and the first roots/list could arrive before any
 	// roots were set.
-	opts := mcpclient.Options{ClientName: "mcpx", ClientVersion: Version, Preference: p.preference()}
+	pref := p.Preference()
+	opts := mcpclient.Options{ClientName: "mcpx", ClientVersion: Version, Preference: pref}
 	ref := &instanceRef{p: p}
+	eraKey := Identity(p.cfg)
+	var cached EraRecord
+	var eras EraStore
 	if h := p.Hooks; h != nil {
 		if h.Elicit != nil {
 			opts.OnServerRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+				// While a person or agent answers, the call that provoked the
+				// question is not using its budget. See budget.go.
+				if in := ref.ptr.Load(); in != nil {
+					defer in.questions.asking()()
+				}
 				return h.Elicit(ctx, p.cfg.Name, ref.key(), method, params)
 			}
 		}
 		opts.Roots = h.Roots
+		opts.ProbeTimeout = h.ProbeTimeout
+		eras = h.Eras
 	}
-	cl, err := mcpclient.NewWithOptions(sctx, tr, opts)
+	forced := pref == mcpclient.ForceLegacy || pref == mcpclient.ForceModern
+	if eras != nil && !forced {
+		if rec, ok := eras.Get(eraKey); ok {
+			cached = rec
+			opts.Cached = rec.Era
+		}
+	}
+	var cl *mcpclient.Client
+	if cached.Transport == TransportHTTPSSE && !p.cfg.Stdio() {
+		// Last time this endpoint spoke only the deprecated HTTP+SSE
+		// transport; going straight there saves the two refused POSTs.
+		if cl, tr, err = p.connectSSE(sctx, tr, opts); err == nil {
+			source = mcpclient.SourceCache
+		} else if tr, err = p.dial(); err != nil {
+			return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
+		}
+	}
+	if cl == nil {
+		cl, err = mcpclient.NewWithOptions(sctx, tr, opts)
+		if err == nil {
+			source = cl.Source
+		}
+	}
+	var refused *mcpclient.LegacyHTTPRefusedError
+	if errors.As(err, &refused) && !p.cfg.Stdio() {
+		// Both a modern POST and a legacy initialize were refused with a
+		// bare 400, 404 or 405: the signature of a server that speaks only
+		// HTTP+SSE (2024-11-05). The fallback every later revision
+		// describes is to GET the URL and expect an endpoint event.
+		if cl, tr, err = p.connectSSE(sctx, tr, opts); err == nil {
+			source = mcpclient.SourceProbe
+			if cached.Era != "" && cached.Transport != TransportHTTPSSE {
+				cl.CachedEraWrong = true
+			}
+		} else {
+			err = fmt.Errorf("%v; http+sse fallback: %w", refused, err)
+		}
+	}
+	if errors.Is(err, mcpclient.ErrClosedDuringProbe) {
+		// A legacy server that exits on any first message but initialize.
+		// The process is gone, so the only way to reach it is a new one
+		// that hears initialize first -- and the cache is what keeps this
+		// from happening on every start.
+		_ = tr.Close()
+		if tr, err = p.dial(); err != nil {
+			return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
+		}
+		opts.Preference, opts.Cached = mcpclient.ForceLegacy, ""
+		cl, err = mcpclient.NewWithOptions(sctx, tr, opts)
+		source = mcpclient.SourceProbe
+		if err == nil && cached.Era != "" && cached.Era != cl.Era {
+			cl.CachedEraWrong = true
+		}
+	}
 	if err != nil {
 		_ = tr.Close()
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
+	}
+	if cl.CachedEraWrong {
+		lifecycle("server.era.stale", map[string]any{
+			"server": p.cfg.Name, "cached": string(cached.Era), "cachedAt": cached.At,
+			"era": string(cl.Era), "negotiated": cl.Negotiated,
+		})
+	}
+	if eras != nil && !forced && source != mcpclient.SourceCache {
+		rec := EraRecord{Era: cl.Era, Version: cl.Negotiated, At: time.Now(), Source: source}
+		if _, ok := tr.(*mcpclient.LegacySSETransport); ok {
+			rec.Transport = TransportHTTPSSE
+		}
+		_ = eras.Put(eraKey, rec)
 	}
 	// Everything the server volunteers flows to whoever installed hooks: log
 	// lines, progress, list changes, resource updates. Installed before the
@@ -428,17 +508,57 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		trace:     newTraceID("srv"),
 		startedAt: time.Now(),
 		lastUsed:  time.Now(),
+		eraSource: source,
 	}
 	ref.set(in)
+	// A replacement instance -- after a restart, a crash, an eviction --
+	// knows nothing of what its predecessor was subscribed to.
+	p.resubscribe(sctx, in)
 	lifecycle("server.start", map[string]any{
 		"server": p.cfg.Name, "instance": in.ID, "pid": in.PID(),
 		"trace": in.trace, "sharing": string(p.cfg.Sharing), "scope": string(p.cfg.Scope),
 		"transport": transportName(p.cfg),
-		// Time to ready, not time to spawn: the event fires after initialize
-		// has answered, so this is when the server could first take a call.
+		"era":       string(cl.Era), "negotiated": cl.Negotiated, "eraSource": source,
+		// Time to ready, not time to spawn: the event fires after the
+		// handshake has answered, so this is when the server could first
+		// take a call.
 		"readyMs": float64(time.Since(launched).Microseconds()) / 1000,
 	})
 	return in, nil
+}
+
+// connectSSE closes tr and connects over the HTTP+SSE transport instead,
+// legacy-only: that transport predates the modern era.
+func (p *Pool) connectSSE(ctx context.Context, tr mcpclient.Transport, opts mcpclient.Options) (*mcpclient.Client, mcpclient.Transport, error) {
+	_ = tr.Close()
+	sse, err := mcpclient.NewLegacySSE(ctx, mcpclient.HTTPOptions{URL: p.cfg.URL, Headers: p.cfg.Headers})
+	if err != nil {
+		return nil, tr, err
+	}
+	opts.Preference, opts.Cached = mcpclient.ForceLegacy, ""
+	cl, err := mcpclient.NewWithOptions(ctx, sse, opts)
+	if err != nil {
+		_ = sse.Close()
+		return nil, tr, err
+	}
+	return cl, sse, nil
+}
+
+// dial creates the transport for one instance.
+func (p *Pool) dial() (mcpclient.Transport, error) {
+	if p.cfg.Stdio() {
+		return mcpclient.NewStdio(mcpclient.StdioOptions{
+			Command:    p.cfg.Command,
+			Args:       p.cfg.Args,
+			Env:        p.cfg.Env,
+			Cwd:        p.cfg.Cwd,
+			InheritEnv: true,
+		})
+	}
+	return mcpclient.NewHTTP(mcpclient.HTTPOptions{
+		URL:     p.cfg.URL,
+		Headers: p.cfg.Headers,
+	})
 }
 
 // Schemas returns the cached tool and resource lists, fetching them on first
@@ -585,9 +705,9 @@ func (p *Pool) GetPrompt(ctx context.Context, sessionKey, name string, args map[
 		return nil, err
 	}
 	defer lease.Release()
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
-	return lease.Client().GetPrompt(cctx, name, args)
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
+	res, err := lease.Client().GetPrompt(cctx, name, args)
+	return res, finish(err)
 }
 
 // Hooks receive what servers volunteer.
@@ -610,6 +730,14 @@ type Hooks struct {
 	Roots  []mcpclient.Root
 	// LogLevel is requested from every server that supports logging.
 	LogLevel string
+	// Protocol is the era preference for a server whose config names none.
+	Protocol mcpclient.Preference
+	// ProbeTimeout bounds an unanswered stdio server/discover; zero means
+	// the default.
+	ProbeTimeout time.Duration
+	// Eras remembers each server configuration's era across starts. Nil
+	// means every start probes.
+	Eras EraStore
 }
 
 func (h *Hooks) notifications(server string) mcpclient.Notifications {
@@ -629,20 +757,25 @@ func (h *Hooks) notifications(server string) mcpclient.Notifications {
 	if h.OnElicitationComplete != nil {
 		n.OnElicitationComplete = func(id string) { h.OnElicitationComplete(server, id) }
 	}
+	// Warnings go where every other server event goes, so a tool that
+	// vanished from the catalogue for invalid annotations says why.
+	n.OnWarning = func(w mcpclient.Warning) {
+		lifecycle("server.warning", map[string]any{"server": server, "tool": w.Tool, "reason": w.Reason})
+	}
 	return n
 }
 
-// preference is which protocol era to probe first for this server.
-func (p *Pool) preference() mcpclient.Preference {
-	switch p.cfg.Protocol {
-	case "modern":
-		return mcpclient.PreferModern
-	case "force-legacy":
-		return mcpclient.ForceLegacy
-	case "force-modern":
-		return mcpclient.ForceModern
+// Preference is which protocol era this server is probed for first: its own
+// protocol key, else the daemon-wide upstream.protocol, else the built-in
+// default.
+func (p *Pool) Preference() mcpclient.Preference {
+	if p.cfg.Protocol != "" {
+		return mcpclient.Preference(p.cfg.Protocol)
 	}
-	return mcpclient.PreferLegacy
+	if h := p.Hooks; h != nil && h.Protocol != "" {
+		return h.Protocol
+	}
+	return mcpclient.Preference(defaults.UpstreamProtocol)
 }
 
 // Call runs a tool on a leased instance.
@@ -657,10 +790,10 @@ func (p *Pool) Call(ctx context.Context, sessionKey, tool string, args any) (jso
 		Trace("call %s.%s session=%q instance=%s pid=%d", p.cfg.Name, tool, sessionKey, lease.inst.ID, lease.inst.PID())
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
 	started := time.Now()
 	res, err := lease.Client().CallTool(cctx, tool, args)
+	err = finish(err)
 	// Reported from here rather than from the daemon's HTTP handler because
 	// this is the only place that knows which instance served the call. The
 	// handler sees a namespace; the log wants the process, so that a slow call
@@ -687,9 +820,9 @@ func (p *Pool) ReadResource(ctx context.Context, sessionKey, uri string) (json.R
 	}
 	defer lease.Release()
 
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
-	return lease.Client().ReadResource(cctx, uri)
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
+	res, err := lease.Client().ReadResource(cctx, uri)
+	return res, finish(err)
 }
 
 // ReapIdle stops instances that nobody holds and that have gone quiet, plus
@@ -699,8 +832,10 @@ func (p *Pool) ReapIdle(now time.Time) int {
 	var stop []*Instance
 	kept := p.instances[:0]
 	for _, in := range p.instances {
+		// An instance carrying resource subscriptions is not idle: it is
+		// the only thing that will ever report those resources changing.
 		expired := in.holders == 0 && now.Sub(in.lastUsed) > p.cfg.IdleTimeout &&
-			len(p.instances) > p.cfg.Min
+			len(p.instances) > p.cfg.Min && !in.hasSubscriptions()
 		// A pid-scoped instance belongs to a process. When that process is
 		// gone the instance has no possible future caller, so it goes
 		// immediately rather than waiting out the idle timer.

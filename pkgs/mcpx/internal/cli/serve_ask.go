@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
@@ -28,21 +29,13 @@ func (d daemonAsker) client(ctx context.Context) (*Client, error) {
 	return d.app.ensure(ctx)
 }
 
-// callContextOf is the session a call made through the MCP server belongs
-// to. One per connection would be better and the protocol gives no way to
-// learn it, so one per process is the honest answer.
-func (d daemonAsker) callContextOf() config.CallContext {
-	s := d.app.mcpSession()
-	return d.app.callContext(s, s)
-}
-
 // Begin translates one of mcpx's own tools into the upstream call behind it.
 //
 // Only `mcpx_call` and the two pass-through methods reach a server that
 // could ask anything. Everything else -- a catalogue read, a script, a /v1
 // operation -- answers ErrNotInterruptible and is run the ordinary way.
 func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMessage) (string, error) {
-	body := map[string]any{"kind": kind, "context": d.callContextOf()}
+	body := map[string]any{"kind": kind, "context": d.app.mcpCaller(ctx)}
 
 	switch kind {
 	case "tools/call":
@@ -54,7 +47,35 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 				Arguments json.RawMessage `json:"arguments"`
 			} `json:"arguments"`
 		}
-		if err := json.Unmarshal(params, &p); err != nil || p.Name != "mcpx_call" {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return "", mcpserver.ErrNotInterruptible
+		}
+		if p.Name == "mcpx_exec" {
+			// A script is one call making many; the daemon correlates its
+			// questions through the run id rather than a single (server, key).
+			var e struct {
+				Arguments struct {
+					Source     string `json:"source"`
+					TimeoutSec int    `json:"timeoutSec"`
+				} `json:"arguments"`
+			}
+			if json.Unmarshal(params, &e) != nil || e.Arguments.Source == "" {
+				return "", mcpserver.ErrNotInterruptible
+			}
+			c, err := d.client(ctx)
+			if err != nil {
+				return "", err
+			}
+			// The same preparation the direct path does before /v1/exec.
+			if err := d.app.ensureAnySchemas(ctx, c); err != nil {
+				return "", err
+			}
+			body["kind"] = "exec"
+			body["source"] = e.Arguments.Source
+			body["options"] = mcpBackend{app: d.app}.execOptions(ctx, e.Arguments.TimeoutSec)
+			break
+		}
+		if p.Name != "mcpx_call" {
 			return "", mcpserver.ErrNotInterruptible
 		}
 		ns, tool := p.Arguments.Namespace, p.Arguments.Tool
@@ -81,7 +102,11 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		if err := json.Unmarshal(params, &p); err != nil {
 			return "", mcpserver.ErrNotInterruptible
 		}
-		server, name, err := d.resolvePrompt(ctx, p.Name)
+		c, err := d.client(ctx)
+		if err != nil {
+			return "", err
+		}
+		server, name, err := d.app.resolvePrompt(ctx, c, p.Name)
 		if err != nil {
 			return "", err
 		}
@@ -108,6 +133,21 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 	if err != nil {
 		return "", err
 	}
+	// Outside the profile, the direct path answers -- with the same refusal
+	// it gives every client, rather than the ask path starting the call.
+	// Only a request that names a server has one to check: a script
+	// (kind "exec") names none, and treating "" as a hidden namespace sent
+	// every mcpx_exec down the direct path, where its questions could not
+	// reach the client.
+	if server, named := body["server"].(string); named {
+		visible, err := d.app.visibleNamespaces(ctx, c)
+		if err != nil {
+			return "", err
+		}
+		if !visible(server) {
+			return "", mcpserver.ErrNotInterruptible
+		}
+	}
 	raw, err := c.do(ctx, http.MethodPost, "/v1/ask", body)
 	if err != nil {
 		return "", err
@@ -122,24 +162,6 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		return "", fmt.Errorf("the daemon started a call but named no id")
 	}
 	return out.CallID, nil
-}
-
-// resolvePrompt maps a namespaced prompt name back to its server.
-func (d daemonAsker) resolvePrompt(ctx context.Context, name string) (string, string, error) {
-	c, err := d.client(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	list, err := c.Prompts(ctx, nil)
-	if err != nil {
-		return "", "", err
-	}
-	for _, p := range list {
-		if p.Namespace+"_"+p.Name == name || p.Name == name {
-			return p.Namespace, p.Name, nil
-		}
-	}
-	return "", "", fmt.Errorf("no prompt named %q", name)
 }
 
 type askPollReply struct {
@@ -177,30 +199,52 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		// protocol error: a client that retries the wrong thing on a tool
 		// failure never converges.
 		out.Text, out.IsError = reply.Error, true
+		// Classified for the two methods whose failure is a protocol
+		// error; which one applies is the caller's to pick, since the
+		// same upstream -32602 means not-found for a read and a bad
+		// argument for a prompt.
+		failed := errors.New(reply.Error)
+		switch {
+		case upstreamNotFound(failed) && upstreamInvalid(failed):
+			out.Err = fmt.Errorf("%w, %w: %v", mcpserver.ErrResourceNotFound, mcpserver.ErrInvalidParams, failed)
+		case upstreamNotFound(failed):
+			out.Err = fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, failed)
+		}
 		return out, nil
 	}
-	out.Text, out.MimeType = renderAsk(reply.Result)
+	if string(reply.Result["kind"]) == `"exec"` {
+		var res execsvc.Result
+		if err := json.Unmarshal(reply.Result["result"], &res); err != nil {
+			return out, err
+		}
+		text, rerr := renderExec(res)
+		if rerr != nil {
+			out.Text, out.IsError = rerr.Error(), true
+			return out, nil
+		}
+		out.Text = text
+		return out, nil
+	}
+	out.Text, out.Contents, out.IsError = renderAsk(reply.Result)
 	return out, nil
 }
 
-// renderAsk turns the daemon's task result into the text every other mcpx
-// tool result is, using the same renderers the direct path uses. Two ways to
+// renderAsk turns the daemon's task result into what every other mcpx
+// result is, using the same renderers the direct path uses. Two ways to
 // render one result is two ways for them to disagree.
-func renderAsk(result map[string]json.RawMessage) (string, string) {
-	var kind string
+func renderAsk(result map[string]json.RawMessage) (text string, contents []mcpserver.ResourceContents, failed bool) {
+	var kind, server string
 	_ = json.Unmarshal(result["kind"], &kind)
+	_ = json.Unmarshal(result["server"], &server)
 	inner := result["result"]
 	switch kind {
 	case "prompts/get":
-		return renderPrompt(inner), ""
+		return renderPrompt(inner), nil, false
 	case "resources/read":
-		text, mime, err := renderResource(inner)
-		if err != nil {
-			return string(inner), ""
-		}
-		return text, mime
+		return "", resourceContents(inner, "mcpx://"+server+"/"), false
 	default:
-		return renderResult(inner), ""
+		text, failed := renderResult(inner)
+		return text, nil, failed
 	}
 }
 

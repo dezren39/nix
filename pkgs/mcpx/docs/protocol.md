@@ -24,8 +24,8 @@ did not negotiate *and* did not declare is a lie about what was agreed, and
 the failure is silent. Either the peer ignores it, or it rejects the frame,
 and nothing says which.
 
-So mcpx accepts `tasks/*` from a 2025-06-18 client, `subscriptions/listen`
-from a legacy one and `resources/subscribe` from a modern one — and it will
+So mcpx accepts `tasks/*` from a 2025-06-18 client and `subscriptions/listen`
+from a legacy one — and it will
 not put `structuredContent` in front of a 2025-03-26 client, will not stamp
 `resultType` on a reply to anything but 2026-07-28, and will never send
 `elicitation/create` to a client that did not declare `elicitation`.
@@ -80,28 +80,43 @@ What a host connected to mcpx gets.
 | `tools/call` | all | always | see §3 |
 | `prompts/list`, `prompts/get` | all | always | §3 |
 | `resources/list`, `resources/read`, `resources/templates/list` | all | always | §3 |
-| `resources/subscribe`, `resources/unsubscribe` | legacy only | **any** era | forwards from the same bus `subscriptions/listen` reads |
+| `resources/subscribe`, `resources/unsubscribe` | legacy only | **legacy only** — `-32601` to a 2026-07-28 peer | forwards from the same bus `subscriptions/listen` reads |
 | `subscriptions/listen` | 2026-07-28 | **any** era | only the four notification kinds the filter names |
-| `completion/complete` | all | always | from mcpx's own names |
-| `logging/setLevel` | legacy only | **any** era | accepted; mcpx emits no `notifications/message` of its own |
+| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
+| `logging/setLevel` | legacy only | **legacy only** — `-32601` to a 2026-07-28 peer | accepted; mcpx emits no `notifications/message` of its own |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core, 2026-07-28 extension | **any** era | handles and results |
 | `notifications/cancelled` | all | always | recorded; mcpx cannot yet interrupt an upstream call mid-flight |
 
-Three rows are the "accept liberally" rule doing visible work:
-`resources/subscribe` from a modern client, `subscriptions/listen` from a
-legacy one, and `tasks/*` from anything. mcpx answers all of them. It
-**declares** none of them outside the revision that defines them, because a
-declaration is a promise about the revision in force.
+Two rows are the "accept liberally" rule doing visible work:
+`subscriptions/listen` from a legacy client and `tasks/*` from anything. mcpx
+answers both. It **declares** neither outside the revision that defines it,
+because a declaration is a promise about the revision in force.
+
+**The rule stops at removal.** Offering a client a method its revision never
+had withholds nothing. Answering one its revision *removed* is different: the
+removal is the specification naming a replacement, and 2026-07-28 requires
+method-not-found — "If the server does not implement the requested RPC method,
+it MUST respond with `404 Not Found` and a JSON-RPC error with code `-32601`".
+The 404 is load-bearing rather than decorative: it is how a dual-era client
+tells a modern server from a legacy endpoint that simply is not there. So
+`initialize`, `ping`, `logging/setLevel`, `resources/subscribe` and
+`resources/unsubscribe` are `-32601` to a 2026-07-28 peer and unchanged for
+every older one. `internal/mcpserver/revisions.go` holds the list as
+`removedIn`, keyed to the same feature ceilings the rest of the matrix uses.
+
+mcpx answered all five to everyone until the official conformance suite scored
+it: `sep-2575-http-server-method-not-found-404-*`, five checks by name in the
+frozen 2026-07-28 requirement set.
 
 ### 2.2 Capabilities mcpx declares
 
 | capability | 2025-03-26 | 2025-06-18 | 2025-11-25 | 2026-07-28 |
 | --- | --- | --- | --- | --- |
-| `tools.listChanged` | ✓ | ✓ | ✓ | ✓ |
+| `tools.listChanged` | — | — | — | — (mcpx's own tool list is fixed while it runs) |
 | `resources.subscribe` / `.listChanged` | ✓ | ✓ | ✓ | ✓ |
 | `prompts.listChanged` | ✓ | ✓ | ✓ | ✓ |
 | `completions` | ✓ | ✓ | ✓ | ✓ |
-| `logging` | ✓ | ✓ | ✓ | — removed in 2026-07-28 |
+| `logging` | — | — | — | — (mcpx sends no `notifications/message`; `logging/setLevel` is still accepted) |
 | `tasks` (core shape) | — | — | ✓ | ✓ |
 | `extensions["io.modelcontextprotocol/tasks"]` | — | — | ✓ | ✓ |
 
@@ -243,6 +258,33 @@ is genuinely ambiguous. mcpx makes none, and the question goes to the broker.
 Guessing would hand one client's credential prompt to another client, and that
 is not a trade worth making for a convenience.
 
+The rule is one comparison. The ask table holds the upstream requests a
+call *owns*; the pool counts every upstream request in flight on the key,
+whoever made it (`/v1/call`, exec, the CLI, the plugin). A call owns a question
+when all the table's entries on the key are its own **and** their number equals
+the pool's count — nobody else is on the connection. Until #229 the table
+alone decided, and an interruptible call sharing a key with somebody's
+ordinary `mcpx call` was handed that caller's question. One window remains: an
+entry is registered an instant before its request is counted, so a stranger's
+question arriving in exactly that instant can still be misattributed.
+
+**A script** (`mcpx_exec`) is one call that makes many. It runs as an
+interruptible call too (`/v1/ask` kind `exec`), and its run id is chosen and
+registered *before* the script starts. The generated client sends that id as
+`X-Mcpx-Run` on every `/v1/call`, so each upstream call the script makes joins
+the table as a member of the run. A question on a key whose in-flight calls all
+belong to one run is that run's — including calls the script makes in
+parallel. Two runs, or a run and anyone else, on one key: ambiguous, broker.
+When the run ends (finished, timed out, abandoned) its membership is removed
+everywhere, so a straggling upstream call killed with the script cannot pin a
+question to a call nobody polls; that question stays with the broker.
+
+A script that asks more than `proto.askRounds` questions in one legacy request
+is abandoned like any other call — scripts that elicit in a loop hit it first.
+The script's own `exec.timeout` (120s) is usually shorter than
+`proto.askTimeout` and a person answering eats into it; set `timeoutSec` on
+the tool call for a script that expects to ask.
+
 ### 3.5 Bounds
 
 - `proto.askTimeout` (10m) — how long one client request may be held. A legacy
@@ -264,11 +306,16 @@ What mcpx sends upstream, and what it will accept from a server.
 
 | | |
 | --- | --- |
-| era probed first | legacy (`initialize`), because nearly every server in existence is legacy and probing modern first wastes a round trip on all of them |
-| legacy version sent | `2025-11-25` |
+| era probed first | modern (`server/discover`), with the era cached per server configuration; see [spec/era-probe.md](spec/era-probe.md) |
+| legacy version sent | `2025-11-25` offered; `2024-11-05` .. `2025-11-25` accepted, anything else disconnects |
 | modern versions offered | `2026-07-28` |
 | per-server override | `protocol: legacy \| modern \| force-legacy \| force-modern` |
-| declared to servers | `elicitation`, `roots`; `sampling` only when a handler exists to answer it |
+| declared to servers | `elicitation.form`, `roots`; `elicitation.url` and `sampling` only when a handler exists to answer them |
+| transports | stdio, Streamable HTTP, and HTTP+SSE (2024-11-05) as the last fallback |
+
+The per-revision rules -- headers, `x-mcp-header`, `resultType`, cancellation,
+pagination, `subscriptions/listen`, resumption -- are in
+[spec/client.md](spec/client.md).
 
 ### 4.1 Server-initiated requests mcpx answers
 
@@ -297,6 +344,51 @@ stops the two eras answering the same question differently.
 All of them from any era. `notifications/tasks/status` (2025-11-25) is
 received and dropped — mcpx polls task state rather than tracking it, so
 nothing would act on it. That is a gap, named rather than hidden.
+
+### 4.2.1 Resource subscriptions, end to end (#241)
+
+mcpx declared `resources.subscribe` to its own clients and never subscribed
+upstream, so `notifications/resources/updated` never flowed: a capability
+declared and not delivered. Now a client subscribing to
+`mcpx://<namespace>/<uri>` -- by legacy `resources/subscribe` (stdio, or
+Streamable HTTP with the update on the GET stream) or by `resourceSubscriptions`
+on a 2026-07-28 `subscriptions/listen` -- makes the daemon subscribe `<uri>`
+on the server that owns the namespace, with whichever mechanism that server's
+era has.
+
+- **The lifetime is a `/v1/events` stream.** `mcpx serve` hears the daemon's
+  events over `GET /v1/events?uri=mcpx://...`; a stream naming a resource in
+  mcpx:// form (or bare with `server=`) *is* a subscription to it, held until
+  the stream closes. So a listen stream ending, a connection ending, a legacy
+  unsubscribe (which replaces the connection's stream), or `mcpx serve`
+  crashing all release it without a separate call that could be missed, and a
+  stream that reconnects to a restarted daemon subscribes again by
+  reconnecting. The stream's first event, `resource.watching`, says what was
+  subscribed and why anything was not.
+- **Counted per URI across every client.** The upstream sees one connection,
+  mcpx's, and one `resources/unsubscribe` from it would end the updates for
+  everyone. The first watcher subscribes; the last one unsubscribes
+  (`internal/pool/watch.go`).
+- **Instances.** One holding a subscription is not idle and is not reaped. A
+  newly started instance is given every subscription still wanted, and one
+  that ends while its subscriptions are wanted -- `mcpx restart`, a crash -- is
+  replaced at once, since nobody else would start it and the updates would
+  stop without a word. A replacement that fails to start is the pool's ordinary
+  start failure; the next call to that server retries and resubscribes.
+- **A server that does not declare `resources.subscribe`** is never sent a
+  subscription (that would be asking for an undeclared capability). mcpx keeps
+  declaring `resources.subscribe` itself -- it is one capability over many
+  servers, and it does support the mechanism -- and is honest per resource
+  instead: the listen acknowledgement's `resourceSubscriptions` lists only the
+  URIs whose updates will arrive, which is what the acknowledgement exists to
+  report, and a legacy `resources/subscribe` for such a URI is refused with
+  `-32602` naming the reason, rather than succeeding and then staying silent.
+  Only agreed URIs' updates are ever sent on a stream.
+- **Absolute-path URIs.** A listing drops a leading `/` when it namespaces
+  (`/abs/doc` is listed as `mcpx://demo/abs/doc`). The daemon resolves the
+  inner part against the server's own resource list to recover `/abs/doc`,
+  and `events.Filter` compares URIs without a leading `/`; before, the two
+  forms never matched.
 
 ### 4.3 Generic requests
 
@@ -376,9 +468,5 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
 - **url-mode elicitation raised by mcpx itself.** The pass-through works; mcpx
   never starts one of its own.
 - **OAuth for remote servers.** Declared and not performed, unchanged.
-- **A modern client cannot answer a question raised by `mcpx_exec`.** A script
-  makes many upstream calls and the question belongs to one of them; the
-  correlation in §3.4 identifies a *call*, and a script is not one. Those
-  questions go to the broker.
 
 2026-09-29T20:00:00-05:00

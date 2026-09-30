@@ -475,12 +475,27 @@ type CallErrorInput struct {
 // the schema the server published.
 const InvalidParams = -32602
 
+// JSON-RPC 2.0 reserves serverErrorLow..serverErrorHigh for
+// implementation-defined server errors.
+const (
+	serverErrorHigh = -32000
+	serverErrorLow  = -32099
+)
+
 // CallError explains a failed upstream call.
 //
 // The interesting case is -32602 and schema validation text, because those
 // are exactly the failures a schema change produces, and the server's own
 // message rarely says which argument or when it changed.
 func CallError(in CallErrorInput, cat Catalog) []Diagnostic {
+	// Decided before the catalog is consulted. The lookups below answer
+	// "no such tool" and "no such namespace", and those are only true when
+	// the server said the call itself was wrong: said about a crash or a
+	// timeout they blame the caller for the server's failure, and said about
+	// a namespace whose schemas have not been read yet they are false.
+	if !aboutArguments(in.Code, in.Message) {
+		return nil
+	}
 	tool, ok := cat.lookup(in.Namespace, in.Tool)
 	if !ok {
 		if !cat.hasNamespace(in.Namespace) {
@@ -498,9 +513,6 @@ func CallError(in CallErrorInput, cat Catalog) []Diagnostic {
 			d.Changed = ch
 		}
 		return []Diagnostic{d}
-	}
-	if in.Code != InvalidParams && !looksLikeSchemaError(in.Message) {
-		return nil
 	}
 
 	sent := map[string]bool{}
@@ -546,6 +558,25 @@ func CallError(in CallErrorInput, cat Catalog) []Diagnostic {
 		Changed: cat.change(tool.Path(), ""),
 		Source:  in.Source,
 	}}
+}
+
+// aboutArguments reports whether a failure is the server rejecting what was
+// sent, which is the only failure a schema can explain.
+func aboutArguments(code int, msg string) bool {
+	if code == InvalidParams {
+		return true
+	}
+	// A code in the server-error range names its own condition, so its text
+	// is not read for schema words. MCP forbids reading cross-implementation
+	// meaning into -32000..-32019 and allocates -32020..-32099 to conditions
+	// of its own (2026-07-28 schema). And mcpx's own client reports a dropped
+	// connection as -32000 "connection closed: unexpected EOF"
+	// (internal/mcpclient/client.go, fail), which the text match below would
+	// take for a complaint about a type: "unexpected" contains "expected".
+	if code <= serverErrorHigh && code >= serverErrorLow {
+		return false
+	}
+	return looksLikeSchemaError(msg)
 }
 
 func looksLikeSchemaError(msg string) bool {

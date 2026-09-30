@@ -38,6 +38,15 @@ func TestTheDocumentationListsEverySetting(t *testing.T) {
 		if !strings.Contains(doc, "`"+set.EnvName()+"`") {
 			missing = append(missing, set.Path+" (variable "+set.EnvName()+")")
 		}
+		// The flag column was not checked at all, so a stale spelling in it
+		// was invisible -- which mattered the moment name derivation changed
+		// and --daemon-lease-t-t-l became --daemon-lease-ttl. Contains() only
+		// proves the new name is present, so a row naming both the old and the
+		// new would still pass; that is caught by the table being regenerated
+		// rather than edited.
+		if f := set.FlagName(); f != "" && !strings.Contains(doc, "`--"+f+"`") {
+			missing = append(missing, set.Path+" (flag --"+f+")")
+		}
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {

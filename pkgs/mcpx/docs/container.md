@@ -5,7 +5,7 @@ measured along the way.
 
 ```
 created:      2026-09-30T04:00:00-05:00
-last-updated: 2026-09-30T04:00:00-05:00
+last-updated: 2026-09-30T07:30:00-05:00
 status:       implemented
 ```
 
@@ -23,14 +23,15 @@ Three stages:
 | --- | --- | --- |
 | `build` | `golang:1.26-bookworm` | `go.mod` asks for 1.26.7; the image ships 1.26.8 |
 | `bun` | `oven/bun:1-debian` | a pinned bun, so the build does not depend on a release URL |
-| runtime | `debian:bookworm-slim` | ordinary, has glibc, has an apt for git |
+| runtime | `debian:bookworm-slim` | ordinary, and has the glibc the builder linked against |
 
 All three are pinned by tag *and* digest. The tag says what it is; the digest
 says which one. A tag moves, and a build that depends on when it ran is not a
 build.
 
-The runtime stage adds `git` and `ca-certificates`, copies in `bun` and
-`mcpx`, drops to an unprivileged user, and sets `ENTRYPOINT ["mcpx"]`.
+The runtime stage adds `ca-certificates`, copies in `bun` and `mcpx`, drops
+to an unprivileged user, and sets `ENTRYPOINT ["mcpx"]`. It has no git; §3
+says why that is not a loss.
 
 ```
 docker build -f Containerfile -t mcpx .
@@ -70,13 +71,74 @@ something under deno. Bun and node run with the privileges of the process.
 Inside a container that is a smaller gap than it is on a laptop, but it is a
 gap.
 
-## 3. git is not optional
+## 3. No git
 
 The `repo` and `worktree` sharing scopes key server instances by the
-repository the call came from. Without `git` on `PATH` they fall back to a
-per-directory key, silently -- the same config produces different pooling
-behaviour depending on what happens to be installed. So it is installed,
-not left to whoever extends the image.
+repository a call came from. They used to ask git, and the first version of
+this image installed git so they could: 105 MB, most of it perl.
+
+They no longer ask git. mcpx reads `.git` itself -- a port of git's own
+discovery rules, compared against `git rev-parse` case by case in the test
+suite -- and runs git only for the few layouts that port does not vouch for:
+a repository format newer than it knows, an extension it has not heard of, a
+config file it cannot parse. Without git those key by directory, and `mcpx
+doctor` says which file it could not read. The full record, every case and
+what was decided for it, is `docs/git-discovery.md`.
+
+Taking git out cost nothing, because in this image it had not been working:
+
+```
+$ docker run --rm -v "$PWD:/work:ro" --entrypoint git mcpx:before -C /work/proj \
+    rev-parse --git-common-dir
+fatal: detected dubious ownership in repository at '/work/proj'
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory /work/proj
+```
+
+A mounted checkout belongs to the host's uid, the image runs as 1000, and git
+refuses a repository someone else owns. So with git installed, the repo and
+worktree scopes fell back to per-directory keys for every mounted checkout --
+the situation the old version of this section said git was there to prevent.
+Native discovery does not check ownership: `safe.directory` exists to stop
+git running configuration from a repository someone else controls, and
+discovery runs nothing.
+
+What was verified in the image with no git on `PATH`, one daemon for the whole
+run, a real repository with a linked worktree (made with
+`worktree.useRelativePaths`, so its paths survive the mount) and a submodule,
+a bare repository, and a tmpfs mounted inside the checkout:
+
+```
+INSTANCE  CALLS  KEY
+byrepo#2  4      repo:/work/proj/.git              proj, proj/sub, proj-wt/sub, and exec from proj-wt
+byrepo#3  1      repo:/work/proj/.git/modules/mod  the submodule is its own repository
+bytree#2  2      worktree:/work/proj               proj and proj/sub
+bytree#3  2      worktree:/work/proj-wt            proj-wt/sub and exec
+bytree#4  1      worktree:/work/proj/mod
+bytree#5  1      cwd:/work/bare.git                no worktree: core.bare is true in /work/bare.git/config
+bytree#6  1      cwd:/work/proj/mnt/inner          discovery stops at the mount point /work/proj/mnt
+tiny#1    1      global
+```
+
+The old image's git, told to trust the mount with `safe.directory=*`, gave
+the same answers for the submodule, the bare repository and the mount -- and
+refused the other three directories with `unknown repository extension
+found: relativeworktrees`, because Debian's git is 2.39 and the checkout was
+made by 2.55. With `GIT_DISCOVERY_ACROSS_FILESYSTEM=1` in the
+container's environment the mounted directory keys to `worktree:/work/proj`,
+as it would in git. `mcpx ls` listed all three namespaces, `call` and `exec`
+(on bun) reached each, and `mcpx doctor -v` from the linked worktree said:
+
+```
+ok    git   repo /work/proj/.git, worktree /work/proj-wt; resolved natively; no git on PATH,
+            which only matters for a repository native discovery cannot read
+```
+
+A repository that does need git is visible, not silent: the key falls back to
+the directory, the daemon logs why once, and `doctor` turns the line into a
+warning that says to install git. Adding it back is one package in the
+`apt-get install` line.
 
 ## 4. Static linking: a goal, not a state
 
@@ -131,25 +193,34 @@ What a genuinely static *image* would still need:
    linked against glibc. A static mcpx beside a dynamic bun on
    `debian:bookworm-slim` saves nothing at all. Going further means dropping
    `exec` from the image, or a musl build of everything.
-3. The same for `git`, which is a distribution binary with distribution
-   dependencies -- and an expensive one: see §5.
+None of that is blocked by this file. git used to be a third item here; it
+is no longer in the image (§3).
 
-None of that is blocked by this file.
+## 5. Where the size goes
 
-## 5. Where the 413 MB goes
+Measured on linux/arm64 with the digests pinned in `Containerfile`, before
+and after §3, both built on the same machine:
 
-```
-108 MB  debian:bookworm-slim
-105 MB  apt-get install ca-certificates git
- 79 MB  bun
- 15 MB  mcpx
-```
+| layer | with git | without |
+| --- | --- | --- |
+| `debian:bookworm-slim` | 108 MB | 108 MB |
+| `apt-get install` | 105 MB (`ca-certificates git`) | 10.4 MB (`ca-certificates`) |
+| bun | 79.4 MB | 79.4 MB |
+| mcpx | 14.8 MB | 14.9 MB |
+| **layers, uncompressed** | **307 MB** | **213 MB** |
+| compressed content | 106 MB | 75.6 MB |
+| `docker images` disk usage | 413 MB | 288 MB |
 
-`git` costing more than bun was not expected. `--no-install-recommends` is
-already set; the weight is perl, which git's Debian packaging depends on
-outright. Getting rid of it means a git built without its perl subcommands, or
-accepting the degraded per-directory keying that §3 exists to avoid. Recorded
-rather than solved -- it is a real 105 MB and it deserves its own decision.
+The 413 MB this document used to quote is the last row, which is the
+uncompressed layers plus the compressed blobs they were unpacked from. The
+layers are what a running container occupies; the compressed size is what a
+pull transfers.
+
+`git` costing more than bun was not expected: with `--no-install-recommends`
+already set, the weight is perl, which Debian's git depends on outright.
+What remains of the apt layer is `ca-certificates` and the openssl it pulls
+in, for the registry. `perl-base` is still in the image -- it is part of
+Debian's essential set, in the base layer -- but nothing in mcpx uses it.
 
 ## 6. What was deliberately left out
 

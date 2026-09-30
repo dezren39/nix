@@ -139,11 +139,11 @@ func TestSearchSendsWhatTheRegistryExpects(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := registry.New(srv.URL, registry.Options{}).Search(context.Background(), "weather", 5)
+	res, err := registry.New(srv.URL, registry.Options{}).Search(context.Background(), "weather", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Name != "io.github.a/b" {
+	if got := res.Servers; len(got) != 1 || got[0].Name != "io.github.a/b" {
 		t.Errorf("got %+v", got)
 	}
 	// version=latest matters: without it the registry returns every version

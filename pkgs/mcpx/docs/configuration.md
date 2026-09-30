@@ -213,7 +213,7 @@ that `--help` denies exists is worse than a long list.
 | `daemon.inline` | bool | `false` | client | no | `--daemon-inline` | `MCPX_DAEMON_INLINE` | as a last resort, run servers inside this process |
 | `daemon.inlineStartPoll` | duration | `20ms` | client | no | `--daemon-inline-start-poll` | `MCPX_DAEMON_INLINE_START_POLL` | *(plumbing)* how often a starting in-process daemon is probed |
 | `daemon.inlineStartTimeout` | duration | `5s` | client | no | `--daemon-inline-start-timeout` | `MCPX_DAEMON_INLINE_START_TIMEOUT` | *(plumbing)* how long an in-process daemon has to become reachable |
-| `daemon.leaseTTL` | duration | `30m0s` | daemon | yes | `--daemon-lease-t-t-l` | `MCPX_DAEMON_LEASE_T_T_L` | *(plumbing)* how long a silent caller's instances are remembered |
+| `daemon.leaseTTL` | duration | `30m0s` | daemon | yes | `--daemon-lease-ttl` | `MCPX_DAEMON_LEASE_TTL` | *(plumbing)* how long a silent caller's instances are remembered |
 | `daemon.port` | int | `0` | daemon | no | `--daemon-port`, `--port` | `MCPX_DAEMON_PORT` | listen on a TCP port instead of choosing one |
 | `daemon.probeTimeout` | duration | `200ms` | client | no | `--daemon-probe-timeout` | `MCPX_DAEMON_PROBE_TIMEOUT` | *(plumbing)* how long another daemon's socket is given to answer |
 | `daemon.reapInterval` | duration | `30s` | daemon | no | `--daemon-reap-interval` | `MCPX_DAEMON_REAP_INTERVAL` | *(plumbing)* how often idle instances are swept |
@@ -296,11 +296,12 @@ that `--help` denies exists is worse than a long list.
 | `logging.format` | enum | `text` | client | no | `--logging-format`, `--format` | `MCPX_LOGGING_FORMAT` | how records are rendered |
 | `logging.include` | list | `host,user,process,version` | daemon | no | `--logging-include`, `--include` | `MCPX_LOGGING_INCLUDE` | which context blocks are attached to lifecycle records |
 | `logging.keep` | int | `8` | daemon | no | `--logging-keep`, `--keep` | `MCPX_LOGGING_KEEP` | how many rolled files to keep |
-| `logging.level` | enum | `info` | daemon | yes | `--logging-level`, `--log-level` | `MCPX_LOGGING_LEVEL` | the lowest level that is kept |
+| `logging.level` | enum | `info` | daemon | yes | `--logging-level`, `--log-level` | `MCPX_LOGGING_LEVEL`, `MCPX_LOG_LEVEL` | the lowest level that is kept |
 | `logging.maxAge` | duration | `24h` | daemon | no | `--logging-max-age` | `MCPX_LOGGING_MAX_AGE` | roll the log file once it is this old |
 | `logging.maxBytes` | bytes | `16MB` | daemon | no | `--logging-max-bytes` | `MCPX_LOGGING_MAX_BYTES` | roll the log file once it reaches this size |
 | `logging.maxLines` | int | `0` | daemon | no | `--logging-max-lines` | `MCPX_LOGGING_MAX_LINES` | roll the log file once it holds this many records |
 | `logging.source` | enum | `warn` | daemon | yes | `--logging-source`, `--log-source` | `MCPX_LOGGING_SOURCE` | from which level upward to record the calling file and line |
+| `logging.trace` | bool | `false` | daemon | no | `--logging-trace` | `MCPX_TRACE` | log which instance served every tool call |
 
 
 ### logstore
@@ -332,11 +333,12 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `paths.adapters` | paths | *(empty)* | client | no | `--paths-adapters` | `MCPX_PATHS_ADAPTERS` | files declaring command-line programs as MCP servers |
 | `paths.apis` | paths | *(empty)* | client | no | `--paths-apis` | `MCPX_PATHS_APIS` | files naming OpenAPI documents to expose as tools |
-| `paths.cache` | string | *(empty)* | client | no | `--paths-cache` | `MCPX_PATHS_CACHE` | where generated clients and schemas are kept |
+| `paths.cache` | string | *(empty)* | client | no | `--paths-cache` | `MCPX_PATHS_CACHE`, `MCPX_CACHE_DIR` | where generated clients and schemas are kept |
 | `paths.config` | paths | *(empty)* | client | no | `--paths-config` | `MCPX_PATHS_CONFIG` | where configuration files are looked for |
+| `paths.configFile` | string | *(empty)* | client | no | `--config` (global, before the command) | `MCPX_CONFIG` | read exactly this configuration file instead of searching; the environment or `--config` only, and refused in a configuration file |
 | `paths.placeholders` | paths | *(empty)* | client | no | `--paths-placeholders` | `MCPX_PATHS_PLACEHOLDERS` | directories of files declaring launcher placeholders |
 | `paths.scripts` | paths | *(empty)* | client | no | `--paths-scripts` | `MCPX_PATHS_SCRIPTS` | where named scripts are looked for |
-| `paths.state` | string | *(empty)* | client | no | `--paths-state` | `MCPX_PATHS_STATE` | where the daemon socket, logs and index live |
+| `paths.state` | string | *(empty)* | client | no | `--paths-state` | `MCPX_PATHS_STATE`, `MCPX_STATE_DIR` | where the daemon socket, logs and index live |
 
 
 ### plugin
@@ -353,6 +355,8 @@ that `--help` denies exists is worse than a long list.
 | `plugin.tools` | bool | `false` | plugin | no | `--plugin-tools` | `MCPX_PLUGIN_TOOLS` | expose mcpx itself as tools the model can call |
 | `plugin.remember` | enum | `session` | plugin | no | `--plugin-remember` | `MCPX_PLUGIN_REMEMBER` | how long a chosen daemon stays chosen |
 | `plugin.annotate` | bool | `true` | plugin | no | `--plugin-annotate` | `MCPX_PLUGIN_ANNOTATE` | add mcpx's own notes to a tool result |
+| `plugin.headless` | enum | `auto` | plugin | no | `--plugin-headless` | `MCPX_PLUGIN_HEADLESS` | suppress toasts, because nobody is looking at a screen |
+| `plugin.daemonTools` | enum | `auto` | plugin | no | `--plugin-daemon-tools` | `MCPX_PLUGIN_DAEMON_TOOLS` | offer the tools that list and choose between daemons |
 
 
 ### plumbing
@@ -367,6 +371,18 @@ that `--help` denies exists is worse than a long list.
 | `plumbing.sourceProbePaths` | bool | `true` | client | no | `--plumbing-source-probe-paths` | `MCPX_PLUMBING_SOURCE_PROBE_PATHS` | *(plumbing)* treat a source argument that names an existing file as a file |
 | `plumbing.strictUnknownKeys` | bool | `false` | client | no | `--plumbing-strict-unknown-keys` | `MCPX_PLUMBING_STRICT_UNKNOWN_KEYS` | *(plumbing)* fail on a configuration key no setting claims |
 | `plumbing.validatePaths` | bool | `true` | client | no | `--plumbing-validate-paths` | `MCPX_PLUMBING_VALIDATE_PATHS` | *(plumbing)* resolve and verify every referenced path before doing any work |
+
+`plumbing.strictUnknownKeys` governs keys **no setting claims**, and keys a
+server entry declares that mcpx does not know — `type`, `alwaysAllow` and the
+rest, which belong to the other hosts that read the same file. Those are
+recorded, reported by `mcpx doctor`, and refused only when this is on.
+
+A key inside a server's `"mcpx"` block is not governed by it and is always
+refused. That block is mcpx's alone — nothing else writes into it — so a key
+it does not know is a typo or a name that no longer exists, not another host's
+field. This is deliberately not a setting: it is how `mcpx init` wrote
+`"mode": "session"` into every new config for months without anyone noticing,
+and a switch to turn the report off would have kept it quiet.
 
 
 ### pool
@@ -400,13 +416,22 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `proto.askPoll` | duration | `500ms` | daemon | no | `--proto-ask-poll` | `MCPX_PROTO_ASK_POLL` | *(plumbing)* how long one wait for a question may block |
 | `proto.askRounds` | int | `8` | daemon | no | `--proto-ask-rounds` | `MCPX_PROTO_ASK_ROUNDS` | how many times one request may come back asking for more |
-| `proto.askTTL` | duration | `15m` | daemon | no | `--proto-ask-t-t-l` | `MCPX_PROTO_ASK_T_T_L` | *(plumbing)* how long the daemon keeps a call waiting for an answer |
+| `proto.askTTL` | duration | `15m` | daemon | no | `--proto-ask-ttl` | `MCPX_PROTO_ASK_TTL` | *(plumbing)* how long the daemon keeps a call waiting for an answer |
 | `proto.askTimeout` | duration | `10m` | daemon | no | `--proto-ask-timeout` | `MCPX_PROTO_ASK_TIMEOUT` | how long one request may be held while a question goes unanswered |
 | `proto.mcpPath` | string | `/mcp` | daemon | no | `--proto-mcp-path` | `MCPX_PROTO_MCP_PATH` | where the daemon serves MCP |
 | `proto.native` | bool | `true` | daemon | no | `--proto-native` | `MCPX_PROTO_NATIVE` | put an upstream server's questions to mcpx's own MCP client |
-| `proto.serveMCP` | bool | `true` | daemon | no | `--proto-serve-m-c-p` | `MCPX_PROTO_SERVE_M_C_P` | mount mcpx's own MCP server on the daemon's listeners |
+| `proto.serveMCP` | bool | `true` | daemon | no | `--proto-serve-mcp` | `MCPX_PROTO_SERVE_MCP` | mount mcpx's own MCP server on the daemon's listeners |
 | `proto.sessionIdle` | duration | `30m` | daemon | no | `--proto-session-idle` | `MCPX_PROTO_SESSION_IDLE` | *(plumbing)* how long an unused Streamable HTTP session is kept |
-| `proto.stateTTL` | duration | `30m` | daemon | no | `--proto-state-t-t-l` | `MCPX_PROTO_STATE_T_T_L` | *(plumbing)* how long a client may resume an interrupted request with |
+| `proto.stateTTL` | duration | `30m` | daemon | no | `--proto-state-ttl` | `MCPX_PROTO_STATE_TTL` | *(plumbing)* how long a client may resume an interrupted request with |
+
+### protoMessages
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `protoMessages.listMaxAge` | duration | `1m0s` | daemon | no | `--proto-messages-list-max-age` | `MCPX_PROTO_MESSAGES_LIST_MAX_AGE` | ttlMs on server/discover and every list result sent to a 2026-07-28 client |
+| `protoMessages.taskAfter` | duration | `2s` | daemon | no | `--proto-messages-task-after` | `MCPX_PROTO_MESSAGES_TASK_AFTER` | how long a tools/call runs in line before a tasks-extension client is handed a task |
+| `protoTasks.pollInterval` | duration | `1s` | daemon | no | `--proto-tasks-poll-interval` | `MCPX_PROTO_TASKS_POLL_INTERVAL` | the pollInterval every task carries |
+| `protoMessages.readMaxAge` | duration | `0s` | daemon | no | `--proto-messages-read-max-age` | `MCPX_PROTO_MESSAGES_READ_MAX_AGE` | ttlMs on resources/read results sent to a 2026-07-28 client |
 
 
 ### recipes
@@ -423,6 +448,7 @@ that `--help` denies exists is worse than a long list.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `registry.limit` | int | `20` | call | yes | `--registry-limit` | `MCPX_REGISTRY_LIMIT` | how many registry results are returned |
+| `registry.maxPages` | int | `10` | client | no | `--registry-max-pages` | `MCPX_REGISTRY_MAX_PAGES` | *(plumbing)* how many requests one registry search may make |
 | `registry.pageSize` | int | `30` | client | no | `--registry-page-size` | `MCPX_REGISTRY_PAGE_SIZE` | *(plumbing)* how many entries are fetched per registry request |
 | `registry.timeout` | duration | `30s` | client | no | `--registry-timeout` | `MCPX_REGISTRY_TIMEOUT` | how long a registry request may take |
 | `registry.url` | string | `https://registry.modelcontextprotocol.io` | client | no | `--registry-url` | `MCPX_REGISTRY_URL` | where `mcpx registry` looks for servers |
@@ -438,7 +464,7 @@ that `--help` denies exists is worse than a long list.
 | `script.launcher` | source | *(empty)* | client | no | `--script-launcher` | `MCPX_SCRIPT_LAUNCHER` | replace the generated launcher entirely |
 | `script.onError` | source | *(empty)* | client | no | `--script-on-error` | `MCPX_SCRIPT_ON_ERROR` | runs when the script throws; the error still propagates |
 | `script.onSuccess` | source | *(empty)* | client | no | `--script-on-success` | `MCPX_SCRIPT_ON_SUCCESS` | runs when the script returns without throwing |
-| `script.permissions` | string | `all` | client | no | `--script-permissions`, `--permissions` | `MCPX_SCRIPT_PERMISSIONS` | the sandbox profile, or raw runtime flags |
+| `script.permissions` | string | `all` | client | no | `--script-permissions`, `--permissions` | `MCPX_SCRIPT_PERMISSIONS`, `MCPX_PERMISSIONS` | the sandbox profile, or raw runtime flags |
 | `script.prefix` | source | *(empty)* | client | no | `--script-prefix` | `MCPX_SCRIPT_PREFIX` | runs after globals are installed, before the script |
 | `script.runtime` | enum | `auto` | client | no | `--script-runtime`, `--runtime` | `MCPX_SCRIPT_RUNTIME` | which JavaScript runtime executes the script |
 | `script.suffix` | source | *(empty)* | client | no | `--script-suffix` | `MCPX_SCRIPT_SUFFIX` | runs last on both paths, like a finally |
@@ -472,3 +498,19 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `tasks.resultWait` | duration | `2m0s` | call | yes | `--tasks-result-wait` | `MCPX_TASKS_RESULT_WAIT` | how long collecting a task result blocks before giving up |
 | `tasks.ttl` | duration | `10m0s` | daemon | yes | `--tasks-ttl` | `MCPX_TASKS_TTL` | how long a finished task's result is kept |
+
+### transport
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `transport.allowedOrigins` | list | *(empty)* | daemon | no | `--transport-allowed-origins` | `MCPX_TRANSPORT_ALLOWED_ORIGINS` | browser Origins, beyond loopback, that may reach /mcp |
+| `transport.sseKeepAlive` | duration | `15s` | daemon | no | `--transport-sse-keep-alive` | `MCPX_TRANSPORT_SSE_KEEP_ALIVE` | how often a quiet MCP event stream carries a comment line |
+| `transport.stdioDrain` | duration | `30s` | client | no | `--transport-stdio-drain` | `MCPX_TRANSPORT_STDIO_DRAIN` | how long `mcpx serve` finishes in-flight requests after its input closes |
+
+### upstream
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `upstream.eraCache` | bool | `true` | daemon | no | `--upstream-era-cache` | `MCPX_UPSTREAM_ERA_CACHE` | remember which era each server configuration speaks, across restarts |
+| `upstream.probeTimeout` | duration | `2s` | daemon | no | `--upstream-probe-timeout` | `MCPX_UPSTREAM_PROBE_TIMEOUT` | how long a stdio server/discover may go unanswered before initialize is also sent |
+| `upstream.protocol` | enum | `modern` | daemon | no | `--upstream-protocol` | `MCPX_UPSTREAM_PROTOCOL` | which protocol era to try first against a server that names none |

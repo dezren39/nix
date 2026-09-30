@@ -177,6 +177,10 @@ func (s *Server) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
+	if err := decl.Writable(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	var req struct {
 		Value   string `json:"value"`
 		Persist string `json:"persist"`

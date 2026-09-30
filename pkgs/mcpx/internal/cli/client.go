@@ -180,13 +180,23 @@ func (c *Client) Remote() bool { return c.endpoint != "" }
 var ErrNoDaemon = errors.New("mcpx daemon is not running")
 
 func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte, error) {
+	if body == nil {
+		return c.send(ctx, method, path, nil, "")
+	}
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return c.send(ctx, method, path, b, "application/json")
+}
+
+// send is do for a body that is already bytes, which is what an artifact
+// is: marshalling a file into JSON to have the daemon unmarshal it again
+// would cost a base64 pass in each direction for nothing.
+func (c *Client) send(ctx context.Context, method, path string, body []byte, contentType string) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		rdr = bytes.NewReader(b)
+		rdr = bytes.NewReader(body)
 	}
 	base := c.endpoint
 	if base == "" {
@@ -198,8 +208,8 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if body != nil && contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if c.callSettings != "" {
 		req.Header.Set(daemon.CallSettingsHeader, c.callSettings)
@@ -241,6 +251,10 @@ type HTTPError struct {
 }
 
 func (e *HTTPError) Error() string { return e.Msg }
+
+// HTTPStatus lets a caller one hop further -- /v1/tools, relaying a tool
+// that made a daemon call -- answer with the status the daemon gave.
+func (e *HTTPError) HTTPStatus() int { return e.Status }
 
 func isDialErr(err error) bool {
 	var oe *net.OpError
@@ -589,9 +603,11 @@ func (c *Client) GetPrompt(ctx context.Context, server, name string, args map[st
 
 // ReadResource reads one resource from a namespace.
 func (c *Client) ReadResource(ctx context.Context, server, uri string, cc config.CallContext) (json.RawMessage, error) {
+	// "context", which is what /v1/resource reads. This sent sessionId and
+	// callId, which it does not, so every read landed in a fresh anonymous
+	// scope whatever session the caller named.
 	b, err := c.do(ctx, http.MethodPost, "/v1/resource", map[string]any{
-		"server": server, "uri": uri,
-		"sessionId": cc.SessionID, "callId": cc.CallID,
+		"server": server, "uri": uri, "context": cc,
 	})
 	if err != nil {
 		return nil, err
@@ -611,7 +627,16 @@ func (c *Client) ReadResource(ctx context.Context, server, uri string, cc config
 
 // ResourceTemplates lists every templated resource.
 func (c *Client) ResourceTemplates(ctx context.Context) ([]daemon.ResourceInfo, error) {
-	b, err := c.do(ctx, http.MethodGet, "/v1/resource-templates", nil)
+	return c.ResourceTemplatesIn(ctx, nil)
+}
+
+// ResourceTemplatesIn lists the templated resources of some namespaces.
+func (c *Client) ResourceTemplatesIn(ctx context.Context, ns []string) ([]daemon.ResourceInfo, error) {
+	path := "/v1/resource-templates"
+	if len(ns) > 0 {
+		path += "?ns=" + url.QueryEscape(strings.Join(ns, ","))
+	}
+	b, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}

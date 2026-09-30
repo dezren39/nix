@@ -10,6 +10,7 @@ import (
 	"github.com/dezren39/mcpx/internal/defaults"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,11 @@ type HTTPTransport struct {
 
 	sessionMu sync.RWMutex
 	sessionID string
+	// negotiated is the legacy version initialize settled on; it is what
+	// MCP-Protocol-Version carries on every later legacy request.
+	negotiated string
+	// getStream is set once the standalone GET stream has been started.
+	getStream bool
 
 	incoming chan []byte
 	errOnce  sync.Once
@@ -69,28 +75,52 @@ func (t *HTTPTransport) setHeaders(req *http.Request) {
 	t.setHeadersFor(req, nil)
 }
 
+// setNegotiated records the version a legacy initialize settled on.
+func (t *HTTPTransport) setNegotiated(v string) {
+	t.sessionMu.Lock()
+	t.negotiated = v
+	t.sessionMu.Unlock()
+}
+
+// headerVersionFloor is the first revision with an MCP-Protocol-Version
+// header. A server that negotiated 2025-03-26 or earlier never defined it,
+// and a client sends only what was negotiated.
+const headerVersionFloor = "2025-06-18"
+
 // setHeadersFor sets headers for one outgoing frame.
 //
-// The version header follows the frame. In 2026-07-28 every request carries
-// its version in _meta, and the header MUST match it or the server answers
-// 400 -- so a fixed header was correct only until the client started saying
-// which version it spoke, and then wrong on every modern request.
+// The version header follows the frame. A modern frame carries its version
+// in _meta and the header MUST match it. A legacy frame carries the version
+// initialize negotiated -- not mcpx's own newest -- because a server that
+// negotiated down reads the header as the version in use and rejects one it
+// never agreed to. Before initialize has answered there is nothing to send.
+//
+// Modern frames also carry Mcp-Method and Mcp-Name, and never
+// Mcp-Session-Id: 2026-07-28 has no sessions, and a session id minted for an
+// earlier legacy exchange means nothing to a modern request.
 func (t *HTTPTransport) setHeadersFor(req *http.Request, msg []byte) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	version := ProtocolVersion
+	t.sessionMu.RLock()
+	sid, negotiated := t.sessionID, t.negotiated
+	t.sessionMu.RUnlock()
 	if v := frameVersion(msg); v != "" {
-		version = v
+		req.Header.Set("MCP-Protocol-Version", v)
+		for k, hv := range standardHeaders(msg) {
+			req.Header.Set(k, hv)
+		}
+	} else {
+		if negotiated >= headerVersionFloor {
+			req.Header.Set("MCP-Protocol-Version", negotiated)
+		}
+		if sid != "" {
+			req.Header.Set("Mcp-Session-Id", sid)
+		}
 	}
-	req.Header.Set("MCP-Protocol-Version", version)
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
 	}
-	t.sessionMu.RLock()
-	if t.sessionID != "" {
-		req.Header.Set("Mcp-Session-Id", t.sessionID)
-	}
-	t.sessionMu.RUnlock()
+	extraHeaders(req.Context(), req)
 }
 
 // Send POSTs a frame and dispatches the reply asynchronously.
@@ -134,19 +164,43 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 		return nil // notification acknowledged, no body
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, defaults.HTTPErrorBodyLimit))
 		resp.Body.Close()
-		return fmt.Errorf("post %s: http %d: %s", t.url, resp.StatusCode, strings.TrimSpace(string(b)))
+		he := &HTTPStatusError{URL: t.url, Status: resp.StatusCode, Body: bytes.TrimSpace(b)}
+		he.rpc, he.id = parseRPCError(he.Body)
+		// A modern server answers a bad request with 400 and a JSON-RPC
+		// error naming the request. That is the reply, not a transport
+		// failure, and the caller waiting on that id should receive it as
+		// one -- which is how an UnsupportedProtocolVersionError reaches the
+		// code that knows to retry.
+		if he.rpc != nil && he.id != nil && sameID(he.id, msg) {
+			t.push(he.Body)
+			return nil
+		}
+		return he
 	}
 
 	ct := resp.Header.Get("Content-Type")
 	switch {
 	case strings.HasPrefix(ct, "text/event-stream"):
+		reqID := frameID(msg)
+		modern := frameVersion(msg) != ""
 		t.wg.Add(1)
 		go func() {
 			defer t.wg.Done()
-			defer resp.Body.Close()
-			t.readSSE(resp.Body)
+			st := t.readSSE(resp.Body, reqID)
+			resp.Body.Close()
+			if reqID == nil || st.answered || ctx.Err() != nil {
+				return
+			}
+			if modern {
+				// 2026-07-28 has no resumption: "a broken response stream
+				// loses the in-flight request". The caller hears so now,
+				// and may re-issue it as a new request.
+				t.lost(reqID)
+				return
+			}
+			t.resume(ctx, reqID, st)
 		}()
 	default:
 		b, readErr := io.ReadAll(resp.Body)
@@ -161,7 +215,19 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 	return nil
 }
 
-func (t *HTTPTransport) readSSE(r io.Reader) {
+// sseState is what one SSE stream said about itself: the last event id,
+// for resuming it, the retry interval the server asked for, and whether the
+// response the stream was opened for arrived on it.
+type sseState struct {
+	lastID   string
+	retry    time.Duration
+	answered bool
+}
+
+// readSSE delivers every message on a stream. reqID, when set, is the
+// request whose response the stream is expected to carry.
+func (t *HTTPTransport) readSSE(r io.Reader, reqID json.RawMessage) sseState {
+	var st sseState
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
 	var data strings.Builder
@@ -171,27 +237,226 @@ func (t *HTTPTransport) readSSE(r io.Reader) {
 		}
 		payload := data.String()
 		data.Reset()
-		if strings.TrimSpace(payload) != "" {
-			t.push([]byte(payload))
+		if strings.TrimSpace(payload) == "" {
+			return // a priming event: an id and an empty data field
 		}
+		if reqID != nil && answers([]byte(payload), reqID) {
+			st.answered = true
+		}
+		t.push([]byte(payload))
 	}
 	for sc.Scan() {
 		line := sc.Text()
+		field, value, _ := strings.Cut(line, ":")
+		value = strings.TrimPrefix(value, " ")
 		switch {
 		case line == "":
 			flush()
 		case strings.HasPrefix(line, ":"):
 			// comment / keepalive
-		case strings.HasPrefix(line, "data:"):
-			v := strings.TrimPrefix(line, "data:")
-			v = strings.TrimPrefix(v, " ")
+		case field == "data":
 			if data.Len() > 0 {
 				data.WriteByte('\n')
 			}
-			data.WriteString(v)
+			data.WriteString(value)
+		case field == "id":
+			// An id containing NUL is ignored, per the SSE specification.
+			if !strings.ContainsRune(value, 0) {
+				st.lastID = value
+			}
+		case field == "retry":
+			if ms, err := strconv.Atoi(value); err == nil && ms >= 0 {
+				st.retry = time.Duration(ms) * time.Millisecond
+			}
 		}
 	}
 	flush()
+	return st
+}
+
+// resume reconnects a legacy stream the server closed before the response
+// it was opened for.
+//
+// 2025-11-25 lets a server close a POST's stream early -- to shed a
+// connection it holds for a slow call -- and expects the client to come back
+// with GET and Last-Event-ID after the retry interval, where the rest of the
+// stream, response included, is replayed. A stream that carried no event id
+// cannot be resumed; the request is then lost, and the caller is told so at
+// once rather than at its deadline.
+//
+// https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery
+func (t *HTTPTransport) resume(ctx context.Context, reqID json.RawMessage, st sseState) {
+	for attempt := 0; attempt < defaults.UpstreamSSEReconnectAttempts; attempt++ {
+		if st.lastID == "" {
+			break
+		}
+		wait := st.retry
+		if wait <= 0 {
+			wait = defaults.UpstreamSSEReconnectDelay
+		}
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return
+		case <-t.closed:
+			return
+		}
+		body, err := t.get(ctx, st.lastID)
+		if err != nil {
+			break
+		}
+		next := t.readSSE(body, reqID)
+		body.Close()
+		if next.answered {
+			return
+		}
+		if next.lastID == "" {
+			next.lastID = st.lastID
+		}
+		if next.retry <= 0 {
+			next.retry = st.retry
+		}
+		st = next
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	t.lost(reqID)
+}
+
+// lost answers a request whose response stream ended without its response.
+func (t *HTTPTransport) lost(reqID json.RawMessage) {
+	b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": reqID, "error": map[string]any{
+		"code": codeStreamLost, "message": "the server closed the response stream before answering",
+	}})
+	t.push(b)
+}
+
+// codeStreamLost is the JSON-RPC error mcpx reports for a request whose
+// response stream closed first. -32000 is the start of the range JSON-RPC
+// reserves for implementation-defined server errors.
+const codeStreamLost = -32000
+
+// get opens a GET stream, resuming after lastID when it is set.
+func (t *HTTPTransport) get(ctx context.Context, lastID string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.url, nil)
+	if err != nil {
+		return nil, err
+	}
+	t.setHeadersFor(req, nil)
+	req.Header.Del("Content-Type")
+	req.Header.Set("Accept", "text/event-stream")
+	if lastID != "" {
+		req.Header.Set("Last-Event-ID", lastID)
+	}
+	// Not t.hc: its timeout bounds a whole exchange, and a stream is open
+	// for as long as the server keeps it.
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		resp.Body.Close()
+		return nil, &HTTPStatusError{URL: t.url, Status: resp.StatusCode}
+	}
+	return resp.Body, nil
+}
+
+var streamClient = &http.Client{}
+
+// listen opens the standalone GET stream a legacy Streamable HTTP server
+// uses for messages that belong to no request: list changes, resource
+// updates, and requests of its own. A server that has none answers 405 and
+// that is the end of it. Without this stream, a server that asks a question
+// outside a request's own stream -- which the TypeScript SDK does for a
+// server.request() made inside a tool handler -- asks into silence, and the
+// tool call waits until it times out.
+//
+// https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server
+func (t *HTTPTransport) listen() {
+	t.sessionMu.Lock()
+	if t.getStream {
+		t.sessionMu.Unlock()
+		return
+	}
+	t.getStream = true
+	t.sessionMu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-t.closed
+		cancel()
+	}()
+	t.wg.Add(1)
+	go func() {
+		defer t.wg.Done()
+		var st sseState
+		failures := 0
+		for ctx.Err() == nil {
+			body, err := t.get(ctx, st.lastID)
+			if err != nil {
+				var he *HTTPStatusError
+				if errors.As(err, &he) || failures >= defaults.UpstreamSSEReconnectAttempts {
+					return // 405, or anything else that says "no stream here"
+				}
+				failures++
+			} else {
+				failures = 0
+				next := t.readSSE(body, nil)
+				body.Close()
+				if next.lastID != "" {
+					st.lastID = next.lastID
+				}
+				if next.retry > 0 {
+					st.retry = next.retry
+				}
+			}
+			wait := st.retry
+			if wait <= 0 {
+				wait = defaults.UpstreamSSEReconnectDelay
+			}
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+			}
+		}
+	}()
+}
+
+// frameID is the id of a request frame, or nil for anything else.
+func frameID(msg []byte) json.RawMessage {
+	var f struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if json.Unmarshal(msg, &f) != nil || f.Method == "" || len(f.ID) == 0 || string(f.ID) == "null" {
+		return nil
+	}
+	return f.ID
+}
+
+// answers reports whether a payload (object or batch) contains the response
+// to id.
+func answers(payload []byte, id json.RawMessage) bool {
+	var one struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		var batch []json.RawMessage
+		if json.Unmarshal(trimmed, &batch) != nil {
+			return false
+		}
+		for _, m := range batch {
+			if answers(m, id) {
+				return true
+			}
+		}
+		return false
+	}
+	return json.Unmarshal(trimmed, &one) == nil && one.Method == "" &&
+		bytes.Equal(bytes.TrimSpace(one.ID), bytes.TrimSpace(id))
 }
 
 func (t *HTTPTransport) push(b []byte) {
@@ -239,7 +504,7 @@ func (t *HTTPTransport) Close() error {
 		sid := t.sessionID
 		t.sessionMu.RUnlock()
 		if sid != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), defaults.UpstreamSessionDeleteTimeout)
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, http.MethodDelete, t.url, nil)
 			if err == nil {
@@ -272,4 +537,58 @@ func frameVersion(msg []byte) string {
 	}
 	v, _ := f.Params.Meta[MetaProtocolVersion].(string)
 	return v
+}
+
+// HTTPStatusError is a POST answered with a status outside 2xx.
+//
+// Structured rather than a string because the status and the body are what
+// the era probe decides on: a 4xx with a recognised modern JSON-RPC error is
+// a modern server, a 4xx with anything else is a legacy one, and a failure
+// to connect is neither.
+type HTTPStatusError struct {
+	URL    string
+	Status int
+	Body   []byte
+	// rpc is the JSON-RPC error in Body, if Body is one; id is its id.
+	rpc *rpcError
+	id  json.RawMessage
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("post %s: http %d: %s", e.URL, e.Status, string(e.Body))
+}
+
+// RPCCode returns the JSON-RPC error code carried in the body, if any.
+func (e *HTTPStatusError) RPCCode() (int, bool) {
+	if e.rpc == nil {
+		return 0, false
+	}
+	return e.rpc.Code, true
+}
+
+// parseRPCError reads a JSON-RPC error response out of a body.
+func parseRPCError(body []byte) (*rpcError, json.RawMessage) {
+	var r struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   *rpcError       `json:"error"`
+	}
+	if json.Unmarshal(body, &r) != nil || r.JSONRPC != "2.0" || r.Error == nil {
+		return nil, nil
+	}
+	if len(r.ID) == 0 || string(r.ID) == "null" {
+		return r.Error, nil
+	}
+	return r.Error, r.ID
+}
+
+// sameID reports whether a response id matches the id of the frame sent.
+func sameID(id json.RawMessage, msg []byte) bool {
+	var f struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if json.Unmarshal(msg, &f) != nil || len(f.ID) == 0 {
+		return false
+	}
+	return bytes.Equal(bytes.TrimSpace(f.ID), bytes.TrimSpace(id))
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/tasks"
 )
 
 // Conn is one client's connection.
@@ -34,11 +35,9 @@ type Conn struct {
 	version string
 	// id is the Mcp-Session-Id this connection is reachable by, for the
 	// transports that need to correlate a later POST with this connection.
+	// It is also who owns a legacy task started here: empty for a
+	// connection that does not outlive one request.
 	id string
-	// bind is the identity a requestState is tied to. Empty for a
-	// connection that does not outlive one request, which is precisely the
-	// case where no resumable token may be issued.
-	bind string
 
 	// send writes one frame to this client, or is nil when the transport
 	// cannot carry an unsolicited frame.
@@ -52,9 +51,30 @@ type Conn struct {
 	pending   map[int64]chan *clientReply
 	nextID    atomic.Int64
 	subs      map[string]bool
-	listening context.CancelFunc
+	subMu     sync.Mutex
+	listens   map[string]*listenStream
 	cancelled map[string]string
 	lastUsed  time.Time
+
+	// inflight are the requests this connection is still answering, keyed
+	// by canonical id, so notifications/cancelled can reach the context the
+	// work runs under rather than only being written down.
+	inflight map[string]*inflightReq
+	// legacy marks a Streamable HTTP session minted by initialize. A modern
+	// request presenting its id is not bound to it: that revision has no
+	// sessions, and a legacy client's pending questions are not its business.
+	legacy bool
+	// process marks the connection that is this process's own client --
+	// stdio's -- whose identity is the process itself. See Identity.
+	process bool
+	// stream is that GET stream while one is open.
+	stream *eventStream
+	// ended is closed when the session is terminated.
+	ended     chan struct{}
+	endedOnce sync.Once
+	// listChanged forwards list_changed to a legacy client, which declared
+	// nothing to opt in with: the capability mcpx declared is the promise.
+	listChanged context.CancelFunc
 }
 
 // clientReply is a JSON-RPC response from the client to a request we sent it.
@@ -64,8 +84,9 @@ type clientReply struct {
 }
 
 func (s *Server) newConn(id string, send func(any) error) *Conn {
-	c := &Conn{s: s, id: id, bind: id, send: send,
-		pending: map[int64]chan *clientReply{}, lastUsed: time.Now()}
+	c := &Conn{s: s, id: id, send: send,
+		pending: map[int64]chan *clientReply{}, lastUsed: time.Now(),
+		ended: make(chan struct{})}
 	if send != nil {
 		c.pushFn = func(method string, params any) {
 			_ = send(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
@@ -173,6 +194,22 @@ const (
 	MetaClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
 	MetaClientInfo         = "io.modelcontextprotocol/clientInfo"
 )
+
+// DeclaredExtension reports whether the client declared an extension in its
+// capabilities -- which only a 2026-07-28 client can do, because no earlier
+// ClientCapabilities has an extensions field. The tasks SEP says so
+// directly: under 2025-11-25 the extension must be treated as undeclared.
+func (p Peer) DeclaredExtension(name string) bool {
+	if !Defines(p.Version, FeatExtensions) {
+		return false
+	}
+	var ext map[string]json.RawMessage
+	if json.Unmarshal(p.Caps["extensions"], &ext) != nil {
+		return false
+	}
+	_, ok := ext[name]
+	return ok
+}
 
 // Declared reports whether the client declared a capability.
 func (p Peer) Declared(name string) bool {
@@ -345,9 +382,41 @@ func (c *Conn) askClient(ctx context.Context, p Peer, q Question) (json.RawMessa
 	if err != nil {
 		return nil, err
 	}
+	if taskID := tasks.IDFrom(ctx); taskID != "" && !p.Modern {
+		// A 2025-11-25 task that needs its requestor's input shows it:
+		// input_required while the question is out, working again once it
+		// is answered, and the question itself names the task it belongs
+		// to. The status is a SHOULD and the metadata a MUST, and neither
+		// happened -- the task sat at working while its client was being
+		// asked something in its name.
+		// https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status
+		if params, err = withRelatedTask(params, taskID); err != nil {
+			return nil, err
+		}
+		st := c.s.tasks()
+		st.SetStatus(taskID, tasks.InputRequired, "waiting on "+q.Method)
+		defer st.SetStatus(taskID, tasks.Working, "")
+	}
 	ctx, cancel := context.WithTimeout(ctx, defaults.ElicitHandlerTimeout)
 	defer cancel()
 	return c.Request(ctx, q.Method, params)
+}
+
+// MetaRelatedTask ties a message to the 2025-11-25 task it serves.
+const MetaRelatedTask = "io.modelcontextprotocol/related-task"
+
+func withRelatedTask(params json.RawMessage, taskID string) (json.RawMessage, error) {
+	m := map[string]any{}
+	if err := json.Unmarshal(params, &m); err != nil {
+		return nil, err
+	}
+	meta, _ := m["_meta"].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	meta[MetaRelatedTask] = map[string]any{"taskId": taskID}
+	m["_meta"] = meta
+	return json.Marshal(m)
 }
 
 // Question is one thing a server asked mid-call.
@@ -395,12 +464,29 @@ func (q Question) paramsFor(p Peer) (json.RawMessage, error) {
 				m["message"] = q.Server + " (via mcpx) asks: " + msg
 			}
 		}
-		if !AtLeast(p.Version, "2025-11-25") {
+		switch {
+		case !AtLeast(p.Version, "2025-11-25"):
 			// Neither field exists before 2025-11-25, and url mode itself
 			// does not; a url question never reaches here, because Sendable
 			// refused it.
 			delete(m, "mode")
 			delete(m, "elicitationId")
+		case p.Modern:
+			// 2026-07-28 dropped elicitationId along with the
+			// notifications/elicitation/complete it correlated: a url
+			// question is complete when the client retries.
+			delete(m, "elicitationId")
+		default:
+			// 2025-11-25 makes elicitationId REQUIRED on a url-mode
+			// request. An upstream server of another revision may not have
+			// sent one, and relaying the question without it is sending a
+			// request the client's schema rejects. The question's own id is
+			// unique per call, which is what the field needs to be.
+			if mode, _ := m["mode"].(string); mode == "url" {
+				if id, _ := m["elicitationId"].(string); id == "" {
+					m["elicitationId"] = "mcpx-" + q.ID
+				}
+			}
 		}
 	}
 	return json.Marshal(m)

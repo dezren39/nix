@@ -45,9 +45,9 @@ func (p *Pool) Request(ctx context.Context, sessionKey, method string, params js
 	}
 	defer lease.Release()
 
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
-	return lease.Client().Request(cctx, method, params)
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
+	res, err := lease.Client().Request(cctx, method, params)
+	return res, finish(err)
 }
 
 // Complete forwards completion/complete upstream.
@@ -64,9 +64,9 @@ func (p *Pool) Complete(ctx context.Context, sessionKey string, params json.RawM
 	}
 	defer lease.Release()
 
-	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
-	defer cancel()
-	return lease.Client().Complete(cctx, params)
+	cctx, finish := p.upstream(ctx, sessionKey, lease)
+	res, ok, err := lease.Client().Complete(cctx, params)
+	return res, ok, finish(err)
 }
 
 // Era reports which protocol generation a live instance settled on, and the
@@ -82,6 +82,27 @@ func (p *Pool) Era() (mcpclient.Era, string) {
 		}
 	}
 	return "", ""
+}
+
+// EraSource says how a live instance's era was settled -- probe, cache or
+// forced -- or "" when nothing is running.
+func (p *Pool) EraSource() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, in := range p.instances {
+		if in.Client.Alive() {
+			return in.eraSource
+		}
+	}
+	return ""
+}
+
+// CachedEra returns what the era cache remembers for this configuration.
+func (p *Pool) CachedEra() (EraRecord, bool) {
+	if p.Hooks == nil || p.Hooks.Eras == nil {
+		return EraRecord{}, false
+	}
+	return p.Hooks.Eras.Get(Identity(p.cfg))
 }
 
 // Capabilities returns what a live instance declared, or nil when none is up.

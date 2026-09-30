@@ -31,6 +31,9 @@ const (
 	ResourcesChanged Kind = "resources.changed"
 	PromptsChanged   Kind = "prompts.changed"
 	ResourceUpdated  Kind = "resource.updated"
+	// ResourceWatching opens a /v1/events stream that named resources: what
+	// it subscribed upstream and what it could not. Never on the bus.
+	ResourceWatching Kind = "resource.watching"
 
 	ElicitOpened    Kind = "elicit.opened"
 	ElicitAnswered  Kind = "elicit.answered"
@@ -100,8 +103,10 @@ func (f Filter) Matches(e Event) bool {
 		return false
 	}
 	if e.Kind == ResourceUpdated && len(f.URIs) > 0 {
+		// Compared without a leading "/": mcpx's listings drop it (see the
+		// daemon's upstreamResourceURI), so a subscriber may name /abs as abs.
 		for _, u := range f.URIs {
-			if u == e.URI {
+			if strings.TrimPrefix(u, "/") == strings.TrimPrefix(e.URI, "/") {
 				return true
 			}
 		}
