@@ -34,6 +34,8 @@ type Client struct {
 	HTTP    *http.Client
 
 	pageSize int
+	maxPages int
+	timeout  time.Duration
 }
 
 // Options are the knobs a caller resolved for this client.
@@ -45,11 +47,16 @@ type Client struct {
 // which is what registry.timeout and registry.pageSize were silently doing
 // for every caller before anything passed them.
 type Options struct {
-	// Timeout bounds one request. Zero uses defaults.RegistryTimeout.
+	// Timeout bounds one request, and one search however many pages it
+	// takes. Zero uses defaults.RegistryTimeout.
 	Timeout time.Duration
-	// PageSize is how many entries a listing asks for when the caller named
-	// no limit. Zero uses defaults.RegistryPageSize.
+	// PageSize is how many entries one request asks for. It is not the
+	// number of results: Search asks for pages of this size until it has
+	// the limit it was given. Zero uses defaults.RegistryPageSize.
 	PageSize int
+	// MaxPages caps the requests one search makes. Zero uses
+	// defaults.RegistryMaxPages.
+	MaxPages int
 }
 
 // New builds a client.
@@ -63,10 +70,15 @@ func New(base string, opt Options) *Client {
 	if opt.PageSize <= 0 {
 		opt.PageSize = defaults.RegistryPageSize
 	}
+	if opt.MaxPages <= 0 {
+		opt.MaxPages = defaults.RegistryMaxPages
+	}
 	return &Client{
 		BaseURL:  strings.TrimRight(base, "/"),
 		HTTP:     &http.Client{Timeout: opt.Timeout},
 		pageSize: opt.PageSize,
+		maxPages: opt.MaxPages,
+		timeout:  opt.Timeout,
 	}
 }
 
@@ -145,30 +157,75 @@ type listResponse struct {
 	} `json:"metadata"`
 }
 
-// Search finds servers whose name matches.
+// Results is what one search found.
+type Results struct {
+	Servers []Server `json:"servers"`
+	// Truncated says the registry had more than was returned: the limit was
+	// reached with a page still unread, or the page cap was. Without it a
+	// short list and a complete one look identical, which is how every
+	// search used to end silently at one page.
+	Truncated bool `json:"truncated"`
+}
+
+// Search finds servers whose name matches, following the registry's cursor
+// until it has limit of them, the registry has no more, or MaxPages requests
+// have been made.
+//
+// A limit of zero or less means registry.limit's built-in default. It used to
+// mean the page size, which made registry.pageSize a second result count that
+// only `--limit 0` could reach; the two are different questions once a search
+// spans pages, and callers holding a resolved settings set pass registry.limit
+// themselves.
 //
 // The registry matches on name only, as a substring. That is worth knowing
 // before sending a sentence: "weather" finds things, "a server for weather
 // forecasts" finds nothing.
-func (c *Client) Search(ctx context.Context, query string, limit int) ([]Server, error) {
+func (c *Client) Search(ctx context.Context, query string, limit int) (Results, error) {
 	if limit <= 0 {
-		limit = c.pageSize
+		limit = defaults.RegistryLimit
 	}
-	q := url.Values{}
-	q.Set("version", "latest")
-	q.Set("limit", fmt.Sprint(limit))
-	if s := strings.TrimSpace(query); s != "" {
-		q.Set("search", s)
+	// One deadline for the whole walk. The per-request timeout alone would
+	// let a slow registry that always has another page hold the caller --
+	// a daemon handler, possibly -- for MaxPages times the timeout.
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	// Empty rather than nil, so "nothing matched" is [] in JSON and not null.
+	res := Results{Servers: []Server{}}
+	cursor := ""
+	for page := 1; ; page++ {
+		q := url.Values{}
+		q.Set("version", "latest")
+		// Never more than is still wanted, so the last page does not fetch
+		// rows only to throw them away.
+		q.Set("limit", fmt.Sprint(min(c.pageSize, limit-len(res.Servers))))
+		if s := strings.TrimSpace(query); s != "" {
+			q.Set("search", s)
+		}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		var doc listResponse
+		if err := c.get(ctx, "/v0/servers?"+q.Encode(), &doc); err != nil {
+			return Results{}, err
+		}
+		for _, e := range doc.Servers {
+			if len(res.Servers) == limit {
+				// The registry sent more than it was asked for.
+				res.Truncated = true
+				break
+			}
+			res.Servers = append(res.Servers, e.Server)
+		}
+		cursor = doc.Metadata.NextCursor
+		if cursor == "" {
+			return res, nil
+		}
+		if len(res.Servers) >= limit || page >= c.maxPages {
+			res.Truncated = true
+			return res, nil
+		}
 	}
-	var doc listResponse
-	if err := c.get(ctx, "/v0/servers?"+q.Encode(), &doc); err != nil {
-		return nil, err
-	}
-	out := make([]Server, 0, len(doc.Servers))
-	for _, e := range doc.Servers {
-		out = append(out, e.Server)
-	}
-	return out, nil
 }
 
 // Get fetches one server by its reverse-DNS name.
@@ -180,7 +237,8 @@ func (c *Client) Get(ctx context.Context, name string) (*Server, error) {
 	if err := c.get(ctx, path, &doc); err != nil {
 		// Falling back to a search means a partial name still resolves, which
 		// is what somebody typing from memory will give.
-		hits, serr := c.Search(ctx, name, 10)
+		found, serr := c.Search(ctx, name, 10)
+		hits := found.Servers
 		if serr != nil || len(hits) == 0 {
 			return nil, err
 		}

@@ -201,6 +201,7 @@ type Defaults struct {
 		CompletionValues   int    `json:"completionValues"`
 		ElicitPending      int    `json:"elicitPending"`
 		RegistryPageSize   int    `json:"registryPageSize"`
+		RegistryMaxPages   int    `json:"registryMaxPages"`
 		LeaseTTL           string `json:"leaseTTL"`
 		SocketProbeTimeout string `json:"socketProbeTimeout"`
 		WarmTimeout        string `json:"warmTimeout"`
@@ -551,6 +552,7 @@ var (
 	CompletionValues   = builtin.Limits.CompletionValues
 	ElicitPending      = builtin.Limits.ElicitPending
 	RegistryPageSize   = builtin.Limits.RegistryPageSize
+	RegistryMaxPages   = builtin.Limits.RegistryMaxPages
 	LeaseTTL           = mustDur(builtin.Limits.LeaseTTL, "limits.leaseTTL")
 	SocketProbeTimeout = mustDur(builtin.Limits.SocketProbeTimeout, "limits.socketProbeTimeout")
 	WarmTimeout        = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")

@@ -23,7 +23,11 @@ func (a *App) CmdRegistry(ctx context.Context, args []string) error {
 	// otherwise take "--limit" and "3" as part of the query. The failure is
 	// silent and reads as the registry having no results.
 	args = hoistFlags(args, map[string]bool{"limit": true, "config": true})
-	limit := fs.Int("limit", 20, "results to show")
+	// Zero rather than a number: the default is registry.limit, which a
+	// config file, MCPX_REGISTRY_LIMIT or --registry-limit may have set. This
+	// used to say 20, so none of those reached this command. It cannot be an
+	// alias of the setting because search.limit already owns --limit.
+	limitFlag := fs.Int("limit", 0, "results to show (default registry.limit)")
 	local := fs.Bool("local", false, "prefer an installable package over a remote")
 	write := fs.Bool("write", false, "with add: modify the config file instead of printing")
 	cfgPath := fs.String("config", "", "with --write: which file to modify")
@@ -35,13 +39,18 @@ func (a *App) CmdRegistry(ctx context.Context, args []string) error {
 	switch sub {
 	case "search", "":
 		query := strings.Join(fs.Args(), " ")
-		servers, err := client.Search(ctx, query, *limit)
+		limit := *limitFlag
+		if limit <= 0 {
+			limit = a.Settings().Int("registry.limit")
+		}
+		res, err := client.Search(ctx, query, limit)
 		if err != nil {
 			return err
 		}
 		if a.JSON {
-			return a.out(servers)
+			return a.out(res)
 		}
+		servers := res.Servers
 		if len(servers) == 0 {
 			// The registry matches names as a substring, so a sentence finds
 			// nothing and the reason is not obvious from an empty list.
@@ -55,6 +64,16 @@ func (a *App) CmdRegistry(ctx context.Context, args []string) error {
 		}
 		fmt.Printf("\n%d servers. `mcpx registry show <name>` for detail, "+
 			"`mcpx registry add <name>` to configure one.\n", len(servers))
+		switch {
+		case !res.Truncated:
+		case len(servers) < limit:
+			// Short of the limit and still truncated: the page cap stopped
+			// it, and raising --limit would change nothing.
+			fmt.Printf("%d shown; more exist -- the search stopped at registry.maxPages "+
+				"requests, so raise that or registry.pageSize.\n", len(servers))
+		default:
+			fmt.Printf("%d shown; more exist -- raise --limit to see them.\n", len(servers))
+		}
 		return nil
 
 	case "show":
@@ -218,7 +237,8 @@ func (a *App) addServerToConfig(explicit, name string, entry map[string]any) (st
 
 // registryServers is what the TUI and scripts read.
 func (a *App) registrySearch(ctx context.Context, query string, limit int) ([]registry.Server, error) {
-	return registry.New(a.Settings().String("registry.url"), a.registryOptions()).Search(ctx, query, limit)
+	res, err := registry.New(a.Settings().String("registry.url"), a.registryOptions()).Search(ctx, query, limit)
+	return res.Servers, err
 }
 
 // hoistFlags moves flags ahead of positional arguments.
@@ -256,12 +276,13 @@ func hoistFlags(args []string, valued map[string]bool) []string {
 	return append(flags, rest...)
 }
 
-// registryOptions carries the two knobs the registry client used to take from
-// built-in constants, so registry.timeout and registry.pageSize mean
-// something wherever they are set.
+// registryOptions carries the knobs the registry client used to take from
+// built-in constants, so registry.timeout, registry.pageSize and
+// registry.maxPages mean something wherever they are set.
 func (a *App) registryOptions() registry.Options {
 	return registry.Options{
 		Timeout:  a.Settings().Duration("registry.timeout"),
 		PageSize: a.Settings().Int("registry.pageSize"),
+		MaxPages: a.Settings().Int("registry.maxPages"),
 	}
 }

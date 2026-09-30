@@ -431,6 +431,7 @@ that `--help` denies exists is worse than a long list.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `registry.limit` | int | `20` | call | yes | `--registry-limit` | `MCPX_REGISTRY_LIMIT` | how many registry results are returned |
+| `registry.maxPages` | int | `10` | client | no | `--registry-max-pages` | `MCPX_REGISTRY_MAX_PAGES` | *(plumbing)* how many requests one registry search may make |
 | `registry.pageSize` | int | `30` | client | no | `--registry-page-size` | `MCPX_REGISTRY_PAGE_SIZE` | *(plumbing)* how many entries are fetched per registry request |
 | `registry.timeout` | duration | `30s` | client | no | `--registry-timeout` | `MCPX_REGISTRY_TIMEOUT` | how long a registry request may take |
 | `registry.url` | string | `https://registry.modelcontextprotocol.io` | client | no | `--registry-url` | `MCPX_REGISTRY_URL` | where `mcpx registry` looks for servers |
