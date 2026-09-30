@@ -14,6 +14,8 @@ const (
 	MetaProtocolVersion    = "io.modelcontextprotocol/protocolVersion"
 	MetaClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
 	MetaClientInfo         = "io.modelcontextprotocol/clientInfo"
+	MetaLogLevel           = "io.modelcontextprotocol/logLevel"
+	MetaSubscriptionID     = "io.modelcontextprotocol/subscriptionId"
 )
 
 // Options configure a connection.
@@ -49,23 +51,54 @@ func NewWithOptions(ctx context.Context, t Transport, o Options) (*Client, error
 // capabilities are what mcpx declares as a client, in either era.
 //
 // Declared only where mcpx can actually deliver. Roots it always serves.
-// Elicitation it always answers -- with cancel when nobody is listening,
-// which is the truthful answer and better than silence. Sampling it can only
-// pass on to something with a model, so it is declared only when a handler
-// is installed to do that; a server told sampling works when it does not
-// waits out a deadline for nothing.
-func (c *Client) capabilities() map[string]any {
+// Elicitation form mode it always answers -- with cancel when nobody is
+// listening, which is the truthful answer and better than silence. URL mode
+// needs someone to open the URL, so it is declared only with a handler
+// installed: the broker stores the URL, shows it, and takes the answer and
+// the server's completion notification. Sampling it can only pass on to
+// something with a model, so it too needs a handler.
+//
+// The shapes differ by era: 2026-07-28 dropped roots.listChanged along with
+// notifications/roots/list_changed, so a modern request declares roots as {}.
+// A legacy initialize is sent before any version is agreed, so it declares
+// in the shape of the version it offers (ProtocolVersion); form and url are
+// what that revision defines, and an older server ignores keys it does not
+// know.
+func (c *Client) capabilities(modern bool) map[string]any {
 	c.mu.Lock()
 	h := c.onElicit
 	c.mu.Unlock()
+	elicitation := map[string]any{"form": map[string]any{}}
+	if h != nil {
+		elicitation["url"] = map[string]any{}
+	}
 	caps := map[string]any{
-		"elicitation": map[string]any{},
+		"elicitation": elicitation,
 		"roots":       map[string]any{"listChanged": false},
+	}
+	if modern {
+		caps["roots"] = map[string]any{}
 	}
 	if h != nil {
 		caps["sampling"] = map[string]any{}
 	}
 	return caps
+}
+
+// elicitModeDeclared reports whether a mode was declared for the revision in
+// use. A 2025-06-18 server never heard of url mode: mcpx's initialize named
+// it, but the server answered with a revision that has no such thing.
+func (c *Client) elicitModeDeclared(mode string) bool {
+	c.mu.Lock()
+	h := c.onElicit
+	c.mu.Unlock()
+	switch mode {
+	case "", "form":
+		return true
+	case "url":
+		return h != nil && (c.Era == EraModern || c.Negotiated >= "2025-11-25")
+	}
+	return false
 }
 
 // withMeta adds the per-request metadata 2026-07-28 requires.
@@ -91,8 +124,14 @@ func (c *Client) withMeta(params json.RawMessage, version string) (json.RawMessa
 		}
 	}
 	set(MetaProtocolVersion, version)
-	set(MetaClientCapabilities, c.capabilities())
+	set(MetaClientCapabilities, c.capabilities(true))
 	set(MetaClientInfo, map[string]any{"name": c.clientName, "version": c.clientVersion})
+	c.mu.Lock()
+	level := c.logLevel
+	c.mu.Unlock()
+	if level != "" {
+		set(MetaLogLevel, level)
+	}
 	b, err := json.Marshal(meta)
 	if err != nil {
 		return nil, err
@@ -130,10 +169,26 @@ func (c *Client) answer(ctx context.Context, method string, params json.RawMessa
 		}
 		return map[string]any{"roots": roots}, nil
 	case "elicitation/create", "sampling/createMessage":
+		if method == "elicitation/create" {
+			var p struct {
+				Mode string `json:"mode"`
+			}
+			_ = json.Unmarshal(params, &p)
+			if !c.elicitModeDeclared(p.Mode) {
+				// "Server sends an elicitation/create request with a mode
+				// not declared in client capabilities: -32602." Answering
+				// anyway would teach the server that undeclared works.
+				return nil, &rpcError{Code: codeInvalidParams,
+					Message: fmt.Sprintf("elicitation mode %q was not declared by this client", p.Mode)}
+			}
+		}
 		if h != nil {
 			out, err := h(ctx, method, params)
 			if err != nil {
 				return nil, &rpcError{Code: -32603, Message: err.Error()}
+			}
+			if method == "elicitation/create" {
+				out = applyDefaults(out, params)
 			}
 			return out, nil
 		}
@@ -201,3 +256,171 @@ func (c *Client) resolveInput(ctx context.Context, params json.RawMessage, ir in
 
 // maxInputRounds is read once so a test can see the bound it is testing.
 var maxInputRounds = defaults.InputRounds
+
+// applyDefaults fills an accepted form answer's missing fields from the
+// requested schema's defaults.
+//
+// 2025-11-25: "Clients that support defaults SHOULD pre-populate form fields
+// with these values." mcpx has no form; whoever answers through the broker
+// sends only what they chose to set. Pre-populating means the same thing
+// here as in a form nobody edited: what was left out takes its default. A
+// field the answerer did set is never overwritten.
+//
+// https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#requested-schema
+func applyDefaults(out any, params json.RawMessage) any {
+	var p struct {
+		Mode            string `json:"mode"`
+		RequestedSchema struct {
+			Properties map[string]struct {
+				Default json.RawMessage `json:"default"`
+			} `json:"properties"`
+		} `json:"requestedSchema"`
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return out
+	}
+	var res map[string]json.RawMessage
+	if json.Unmarshal(b, &res) != nil {
+		return out
+	}
+	// ElicitResult.content is an object when present; a handler's nil map
+	// marshals as null, which no revision allows.
+	if raw, ok := res["content"]; ok && string(raw) == "null" {
+		delete(res, "content")
+		out = res
+	}
+	if json.Unmarshal(params, &p) != nil || (p.Mode != "" && p.Mode != "form") {
+		return out
+	}
+	var action string
+	_ = json.Unmarshal(res["action"], &action)
+	if action != "accept" {
+		return out
+	}
+	content := map[string]json.RawMessage{}
+	if raw, ok := res["content"]; ok && string(raw) != "null" {
+		if json.Unmarshal(raw, &content) != nil {
+			return out
+		}
+	}
+	changed := false
+	for name, prop := range p.RequestedSchema.Properties {
+		if _, set := content[name]; set || len(prop.Default) == 0 {
+			continue
+		}
+		content[name] = prop.Default
+		changed = true
+	}
+	if !changed {
+		return out
+	}
+	cb, err := json.Marshal(content)
+	if err != nil {
+		return out
+	}
+	res["content"] = cb
+	return res
+}
+
+// cancelled tells the server a request is no longer wanted, where the
+// revision in use has the client say so.
+//
+//   - initialize is never cancelled: every legacy revision says the client
+//     MUST NOT, since a half-finished handshake has no defined state.
+//   - Over modern Streamable HTTP, closing the response stream IS the
+//     cancellation, and the caller's context closing it has already done
+//     that; 2026-07-28 expects no notifications/cancelled there.
+//   - Everywhere else -- legacy, and modern stdio, where it is a MUST -- the
+//     notification is sent, on its own context so it outlives the request.
+//
+// https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/cancellation
+func (c *Client) cancelled(method string, id int64) {
+	if method == "initialize" {
+		return
+	}
+	if _, isHTTP := c.t.(*HTTPTransport); isHTTP && c.metaVersion != "" {
+		return
+	}
+	cp, _ := json.Marshal(map[string]any{"requestId": id, "reason": "timeout"})
+	ctx, cancel := context.WithTimeout(context.Background(), defaults.UpstreamCancelSendTimeout)
+	defer cancel()
+	_ = c.notify(ctx, "notifications/cancelled", cp)
+}
+
+// mirrorsHeaders reports whether this connection must mirror x-mcp-header
+// parameters: modern, over HTTP. stdio clients MAY ignore the annotations,
+// and a legacy revision never defined them.
+func (c *Client) mirrorsHeaders() bool {
+	_, isHTTP := c.t.(*HTTPTransport)
+	return isHTTP && c.Era == EraModern
+}
+
+// Warning is something mcpx noticed about a server that is not an error.
+type Warning struct {
+	Tool   string `json:"tool,omitempty"`
+	Reason string `json:"reason"`
+}
+
+// checkToolHeaders records each tool's x-mcp-header parameters and drops the
+// tools whose annotations are invalid, warning about each.
+func (c *Client) checkToolHeaders(tools []Tool) []Tool {
+	if !c.mirrorsHeaders() {
+		return tools
+	}
+	headers := map[string][]headerParam{}
+	invalid := map[string]string{}
+	kept := tools[:0:0]
+	for _, t := range tools {
+		hp, err := toolHeaders(t.InputSchema)
+		if err != nil {
+			invalid[t.Name] = err.Error()
+			c.warn(Warning{Tool: t.Name, Reason: "excluded: invalid x-mcp-header: " + err.Error()})
+			continue
+		}
+		headers[t.Name] = hp
+		kept = append(kept, t)
+	}
+	c.mu.Lock()
+	c.toolHeaders, c.invalidTools = headers, invalid
+	c.mu.Unlock()
+	return kept
+}
+
+// toolCallHeaders puts a call's Mcp-Param-* headers on its context. The
+// tool list is read first if this connection has not read it, or again when
+// refresh is set, since the annotations come from it.
+func (c *Client) toolCallHeaders(ctx context.Context, name string, args any, refresh bool) (context.Context, error) {
+	if !c.mirrorsHeaders() {
+		return ctx, nil
+	}
+	c.mu.Lock()
+	known := c.toolHeaders != nil
+	c.mu.Unlock()
+	if !known || refresh {
+		if _, err := c.ListTools(ctx); err != nil {
+			return nil, err
+		}
+	}
+	c.mu.Lock()
+	why, bad := c.invalidTools[name]
+	hp := c.toolHeaders[name]
+	c.mu.Unlock()
+	if bad {
+		return nil, fmt.Errorf("tool %q was excluded because its x-mcp-header annotations are invalid: %s", name, why)
+	}
+	h, err := paramHeaders(hp, args)
+	if err != nil {
+		return nil, fmt.Errorf("tool %q: %w", name, err)
+	}
+	return withExtraHeaders(ctx, h), nil
+}
+
+func (c *Client) warn(w Warning) {
+	c.mu.Lock()
+	f := c.notif.OnWarning
+	c.mu.Unlock()
+	if f != nil {
+		f(w)
+	}
+}
