@@ -528,6 +528,7 @@ type ExecResult struct {
 // here, through the same runner the CLI uses, against this daemon's own
 // endpoint.
 func (s *Server) execScript(ctx context.Context, source, session string) (*ExecResult, error) {
+	s.warmIfCold(ctx)
 	nss, err := s.reg.CodegenNamespaces(nil, config.Profile{All: true})
 	if err != nil {
 		return nil, err
@@ -699,4 +700,30 @@ func stripFences(s string) string {
 		t = t[:j]
 	}
 	return strings.TrimSpace(t)
+}
+
+// warmIfCold reads the schemas when no server has any yet.
+//
+// A daemon that has just started reads them in the background. A recipe run,
+// a generated script or a diagnosis that arrived first used the empty
+// catalog: the client was generated with no namespaces, so the script died
+// on "demo.echo is not a function", and a diagnosis compared the source with
+// nothing and found nothing wrong. The CLI's own commands wait for the
+// schemas; these routes are also reached by the plugin and by MCP, which do
+// not. "No server has any" rather than "some server has none", as the CLI's
+// ensureAnySchemas does it, so one server that cannot start does not put its
+// start timeout on every request.
+func (s *Server) warmIfCold(ctx context.Context) {
+	s.reg.mu.RLock()
+	cold := len(s.reg.pools) > 0
+	for _, p := range s.reg.pools {
+		if _, _, at := p.CachedSchemas(); !at.IsZero() {
+			cold = false
+			break
+		}
+	}
+	s.reg.mu.RUnlock()
+	if cold {
+		s.reg.Warm(ctx, false)
+	}
 }

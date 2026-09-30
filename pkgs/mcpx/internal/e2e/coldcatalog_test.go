@@ -27,3 +27,30 @@ func TestConfirmDestructiveHoldsOnAColdDaemon(t *testing.T) {
 		t.Fatalf("the refusal should say why:\n%s", out)
 	}
 }
+
+// TestARecipeRunOnAColdDaemonSeesItsServers: the daemon generated the
+// client a recipe runs against from the schema cache, which a daemon that
+// had just started had not filled yet, so the recipe died on "demo.echo is
+// not a function". Found by a flaky run of an autonomy test.
+func TestARecipeRunOnAColdDaemonSeesItsServers(t *testing.T) {
+	e := newEnv(t, oneServer)
+	writeRecipe(t, e, "say", sayRecipe)
+	e.setenv("FAKEMCP_START_DELAY=1500ms")
+	out, err := e.try("recipes", "run", "say", "message=cold-start")
+	if err != nil || !strings.Contains(out, "cold-start") {
+		t.Fatalf("a recipe run as the first command should reach its server: %v\n%s", err, out)
+	}
+}
+
+// TestDiagnoseOverV1OnAColdDaemonSeesItsServers: the CLI waits for the
+// schemas before diagnosing; the plugin and MCP reach /v1/diagnose directly,
+// and got a false all-clear from the empty catalog.
+func TestDiagnoseOverV1OnAColdDaemonSeesItsServers(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.setenv("FAKEMCP_START_DELAY=1500ms")
+	e.run("ls")
+	code, doc := postJSON(t, e.socketClient(t), "/v1/diagnose", `{"source":"await demo.echo()"}`)
+	if code != 200 || doc["fatal"] != true {
+		t.Fatalf("/v1/diagnose on a cold daemon should find the missing argument: %d %v", code, doc)
+	}
+}
