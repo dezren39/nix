@@ -554,19 +554,22 @@ installGlobals();
 // phase: prefix
 %s
 
-const mod = await import(%q);
-const entry = wanted ? (mod as any)[wanted] : (mod as any).default;
-
-if (wanted && typeof entry !== "function") {
-  const names = Object.keys(mod).filter((k) => typeof (mod as any)[k] === "function");
-  throw new Error(
-    "no exported function " + JSON.stringify(wanted) + " in %s" +
-      (names.length ? "; found " + names.join(", ") : ""),
-  );
-}
-
 const __started = performance.now();
 try {
+  // Inside the try, because a script's top-level code runs here: outside it,
+  // a snippet that threw -- which is how most snippets fail -- skipped
+  // onError and suffix entirely, the two phases that exist for exactly that.
+  const mod = await import(%q);
+  const entry = wanted ? (mod as any)[wanted] : (mod as any).default;
+
+  if (wanted && typeof entry !== "function") {
+    const names = Object.keys(mod).filter((k) => typeof (mod as any)[k] === "function");
+    throw new Error(
+      "no exported function " + JSON.stringify(wanted) + " in %s" +
+        (names.length ? "; found " + names.join(", ") : ""),
+    );
+  }
+
   if (typeof entry === "function") {
     // A default export is the program's main and receives argv as an array.
     // A named export is being called as a function, so arguments are spread:
