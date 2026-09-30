@@ -124,9 +124,19 @@ func run(url, scenario string) error {
 	stopAnswering := m.answerElicitations(ctx)
 	defer stopAnswering()
 
-	// Listing forces the daemon up, the upstream connected, and tools/list sent.
-	if out, err := m.run(ctx, "--json", "ls"); err != nil {
-		return fmt.Errorf("ls: %v\n%s", err, out)
+	// Refreshing forces the daemon up, the upstream connected, and tools/list sent. Not `ls`: that is
+	// answered from the schema cache and never lists, so a scenario that checks what the client does with a
+	// listing (json-schema-ref-no-deref) passed only when the daemon's background startup warm happened to
+	// list before this program stopped it; with MCPX_DAEMON_WARM=false it failed "never requested tools/list".
+	out, err := m.run(ctx, "--json", "refresh")
+	if err != nil {
+		return fmt.Errorf("refresh: %v\n%s", err, out)
+	}
+	var refreshed struct {
+		Errors map[string]any `json:"errors"`
+	}
+	if json.Unmarshal([]byte(out), &refreshed) == nil && len(refreshed.Errors) > 0 {
+		return fmt.Errorf("refresh: %v", refreshed.Errors)
 	}
 	calls, err := callsFor(ctx, m, scenario)
 	if err != nil {
