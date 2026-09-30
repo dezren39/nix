@@ -1388,7 +1388,13 @@ func ResultOf(resp *response) (string, bool, error) {
 // told the truth: mcpx will not push it a list_changed it cannot receive.
 func (s *Server) capabilities(version string, c *Conn) map[string]any {
 	push := s.Notify != nil && c != nil && c.canPush()
-	streamed := push && Defines(version, FeatSubscriptionsListen)
+	// listChanged is not gated on subscriptions/listen. That mechanism is
+	// 2026-07-28's, but notifications/tools|prompts|resources/list_changed
+	// are defined in every revision mcpx serves and arrive unsolicited on a
+	// connection that can push. Gating them on the 2026 mechanism told every
+	// legacy client the list would never change, which is both untrue and a
+	// capability mcpx implements.
+	streamed := push
 	caps := map[string]any{
 		"tools":       map[string]any{"listChanged": streamed},
 		"resources":   map[string]any{"subscribe": push, "listChanged": streamed},

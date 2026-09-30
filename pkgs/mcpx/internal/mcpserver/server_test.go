@@ -670,8 +670,11 @@ func TestPushCapabilitiesAreDeclaredOnlyWhenSomethingCanPush(t *testing.T) {
 	// receive them is telling it to wait for something with no mechanism.
 	b, _ = json.Marshal(loud.Handle(context.Background(),
 		mcpserver.Request(2, "initialize", map[string]any{"protocolVersion": "2025-06-18"})))
-	if strings.Contains(string(b), `"listChanged":true`) {
-		t.Errorf("2025-06-18 has no subscriptions/listen, so list_changed cannot arrive: %s", b)
+	// 2025-06-18 has no subscriptions/listen, but it does define
+	// notifications/tools/list_changed, which arrives unsolicited. A
+	// pushable connection can deliver it, so it must be declared.
+	if !strings.Contains(string(b), `"listChanged":true`) {
+		t.Errorf("legacy revisions define list_changed and mcpx sends it: %s", b)
 	}
 	b, _ = json.Marshal(loud.Handle(context.Background(),
 		mcpserver.Request(3, "server/discover", nil)))
