@@ -27,6 +27,11 @@ type Command struct {
 	Examples []string
 	// Group orders the listing.
 	Group string
+	// Local says why a command reaches no /v1 operation. Every command
+	// either reaches one or says why it cannot, so "the CLI can do it and
+	// nothing else can" is a decision written down rather than a gap nobody
+	// noticed; docs/parity.md prints it.
+	Local string
 }
 
 // Commands is every subcommand mcpx has: the hand-written ones, then one per
@@ -85,6 +90,7 @@ func handCommands() []Command {
 	return []Command{
 		{
 			Name: "run", Group: "running",
+			Local:   "Resolves a script name against the caller's search path, which only the caller has; the source itself runs anywhere through `exec`.",
 			Usage:   "[flags] <script|file> [args...]",
 			Summary: "run a named script or a file",
 			Detail: "Resolves a bare name along the script search path, or takes a " +
@@ -111,6 +117,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "scripts", Group: "running",
+			Local:   "Lists the caller's script search path.",
 			Summary: "list every script on the search path",
 			Detail: "Shows the name, where it was found, and its first comment line. " +
 				"A script shadowed by a nearer one of the same name is listed too, " +
@@ -204,6 +211,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "daemons", Group: "daemon",
+			Local:   "Reads every daemon's info file on this machine; one daemon cannot see the others.",
 			Summary: "list every mcpx daemon on this machine",
 		},
 		{
@@ -220,6 +228,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "daemon", Group: "daemon",
+			Local:   "Starts a daemon, which a daemon's own API cannot do.",
 			Usage:   "[--detached]",
 			Summary: "run the daemon in the foreground",
 			Detail: "Normally the daemon is started on demand. Running it in the " +
@@ -228,6 +237,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "config", Group: "configuration",
+			Local:   "Reads the configuration files on the caller's search path; `settings` is the running daemon's view.",
 			Usage:   "[--path|--sources|--defaults|--schema]",
 			Summary: "show the resolved configuration and where it came from",
 			Detail: "--sources lists every file that contributed and which server each " +
@@ -276,10 +286,12 @@ func handCommands() []Command {
 		},
 		{
 			Name: "init", Group: "configuration",
+			Local:   "Writes a file into the current directory.",
 			Summary: "write a starter configuration file",
 		},
 		{
 			Name: "schema", Group: "discovery",
+			Local:   "Reshapes what `tools` and `types` return into JSON Schema, OpenAPI or MCP form; the data is those operations', the conversion is local.",
 			Usage:   "[--format json-schema|openapi|typescript|mcp] [--ns ...]",
 			Summary: "publish tool types in whichever form a consumer reads",
 			Detail: "The same information, reshaped. TypeScript is what a script " +
@@ -310,6 +322,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "doctor", Group: "inspection",
+			Local: "Checks this machine: binaries on PATH, permissions, configuration files.",
 			Usage: "[-v]", Summary: "diagnose the installation",
 			Detail: "Checks the runtime, git, the configuration chain, whether every " +
 				"server's command is actually installed, the directories, the " +
@@ -331,6 +344,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "tui", Group: "inspection",
+			Local:   "An interactive interface over the reads above; it consumes the API rather than extending it.",
 			Summary: "full-screen browser for namespaces, tools and the log",
 			Detail: "Three panes -- namespaces, their tools, one signature -- so " +
 				"comparing two tools is a keystroke rather than two commands and " +
@@ -341,6 +355,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "explore", Group: "inspection",
+			Local:   "An interactive interface over the reads above; it consumes the API rather than extending it.",
 			Summary: "browse namespaces, tools and the log interactively",
 			Detail: "Everything it shows is available from other commands; it exists " +
 				"because discovery is a loop, and running four commands with " +
@@ -370,10 +385,12 @@ func handCommands() []Command {
 		},
 		{
 			Name: "help", Group: "configuration",
+			Local: "Text about the binary, produced by the binary.",
 			Usage: "[command]", Summary: "show this help, or help for one command",
 		},
 		{
 			Name: "man", Group: "configuration",
+			Local:   "Text about the binary, produced by the binary.",
 			Usage:   "[--install dir]",
 			Summary: "print the manual page, or install it",
 			Detail: "Generated from the command table and the setting registry the " +
@@ -381,6 +398,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "completion", Group: "configuration",
+			Local:   "Text about the binary, produced by the binary.",
 			Usage:   "bash|zsh|fish",
 			Summary: "print a shell completion script",
 			Examples: []string{
@@ -390,6 +408,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "serve", Group: "daemon",
+			Local:   "It is the MCP surface: a stdio shim over the daemon, which serves the same tools at `/mcp` itself.",
 			Usage:   "[--tools]",
 			Summary: "speak MCP over stdio, for a host that spawns its servers",
 			Detail: "A thin shim over the daemon: every tool it lists is answered by " +
@@ -409,6 +428,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "adapter", Group: "configuration",
+			Local:   "Adapter declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83, #102).",
 			Usage:   "[list|check|call|tools] [<name>.<tool> '<json>']",
 			Summary: "command-line programs declared as MCP tools",
 			Detail: "An adapter file, named by paths.adapters, declares a program and " +
@@ -431,6 +451,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "api", Group: "configuration",
+			Local:   "OpenAPI declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83).",
 			Usage:   "[list|tools|call] [--spec <path-or-url>] [<tool> '<json>']",
 			Summary: "HTTP services described by OpenAPI, as tools",
 			Detail: "Declarations named by paths.apis, or one given with --spec, are " +
