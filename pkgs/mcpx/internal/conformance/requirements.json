@@ -13098,7 +13098,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#root",
     "quote": "\"This **MUST** be a `file://` URI in the current specification.\" (schema: \"This *must* start with `file://` for now.\")",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13121,7 +13121,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#security-considerations",
     "quote": "\"Clients **MUST**: - Only expose roots with appropriate permissions\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13144,7 +13144,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#security-considerations",
     "quote": "\"Validate all root URIs to prevent path traversal\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13167,7 +13167,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#security-considerations",
     "quote": "\"Implement proper access controls\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13190,7 +13190,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#security-considerations",
     "quote": "\"Monitor root accessibility\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13282,7 +13282,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#implementation-guidelines",
     "quote": "\"Prompt users for consent before exposing roots to servers\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13305,7 +13305,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#implementation-guidelines",
     "quote": "\"Provide clear user interfaces for root management\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13328,7 +13328,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#implementation-guidelines",
     "quote": "\"Validate root accessibility before exposing\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13351,7 +13351,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/roots#implementation-guidelines",
     "quote": "\"Monitor for root changes\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13968,7 +13968,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/sampling#sampling-parameters",
     "quote": "\"The client **MUST** respect the `maxTokens` parameter.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -13991,7 +13991,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/schema#createmessagerequestparams",
     "quote": "\"The client MAY choose to sample fewer tokens than the requested maximum.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14010,7 +14010,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/sampling#sampling-parameters",
     "quote": "\"The client **MAY** modify or ignore `temperature`, `stopSequences` and `metadata`.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14033,7 +14033,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/schema#createmessagerequestparams",
     "quote": "\"The server's preferences for which model to select. The client MAY ignore these preferences.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14056,7 +14056,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/sampling#system-prompt",
     "quote": "\"The client MAY modify or omit this prompt.\" (2026 prose adds \"without communicating this to the server\")",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14079,7 +14079,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/sampling#context-inclusion",
     "quote": "\"The client **MAY** modify or ignore this field without communicating this to the server.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14102,7 +14102,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/schema#modelpreferences",
     "quote": "\"If multiple hints are specified, the client MUST evaluate them in order (such that the first match is taken).\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14125,7 +14125,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/schema#modelpreferences",
     "quote": "\"The client SHOULD prioritize these hints over the numeric priorities, but MAY still use the priorities to select from ambiguous matches.\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14148,7 +14148,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/schema#modelhint",
     "quote": "\"The client SHOULD treat this as a substring of a model name\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14171,7 +14171,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/sampling#model-hints",
     "quote": "\"Clients **MAY** map hints to equivalent models from different providers\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
@@ -14303,7 +14303,7 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/client/sampling#security-considerations",
     "quote": "\"Clients **SHOULD** respect model preference hints\"",
     "applicability": {
-      "client": "applies",
+      "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen",
       "server": "n/a:addresses the other side"
     },
     "notes": {
