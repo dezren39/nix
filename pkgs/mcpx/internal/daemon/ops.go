@@ -284,8 +284,9 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 	client := registry.New(cs.String("registry.url"), registry.Options{
 		Timeout:  cs.Duration("registry.timeout"),
 		PageSize: cs.Int("registry.pageSize"),
+		MaxPages: cs.Int("registry.maxPages"),
 	})
-	servers, err := client.Search(r.Context(), r.URL.Query().Get("q"), limit)
+	res, err := client.Search(r.Context(), r.URL.Query().Get("q"), limit)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
@@ -296,8 +297,8 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 		Install   string `json:"install,omitempty"`
 		AddWith   string `json:"addWith"`
 	}
-	out := make([]entry, 0, len(servers))
-	for _, srv := range servers {
+	out := make([]entry, 0, len(res.Servers))
+	for _, srv := range res.Servers {
 		e := entry{Server: srv, Namespace: registry.Namespace(srv.Name),
 			AddWith: "mcpx registry add " + srv.Name + " --write"}
 		if in, ierr := srv.ToInstall(false); ierr == nil {
@@ -305,7 +306,7 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, e)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"servers": out})
+	writeJSON(w, http.StatusOK, map[string]any{"servers": out, "truncated": res.Truncated})
 }
 
 // ---- completion ----
