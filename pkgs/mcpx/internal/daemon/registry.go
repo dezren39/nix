@@ -591,6 +591,7 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 	if err != nil {
 		return nil, err
 	}
+	defer r.joinAsk(ctx, server, key)()
 	res, err := p.Call(ctx, key, tool, args)
 	if err != nil {
 		return nil, r.explainCall(server, tool, args, err)
