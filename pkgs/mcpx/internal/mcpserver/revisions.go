@@ -77,6 +77,9 @@ const (
 	FeatDiscover Feature = "discover"
 	// FeatInitialize is the handshake, which only the legacy era has.
 	FeatInitialize Feature = "initialize"
+	// FeatBatch is JSON-RPC batching: a server MUST accept batches in
+	// 2025-03-26, and 2025-06-18 removed them.
+	FeatBatch Feature = "batch"
 )
 
 // floors is the revision each feature arrived in. A feature with an empty
@@ -96,6 +99,7 @@ var floors = map[Feature]string{
 	FeatLoggingSetLevel:     "2025-03-26",
 	FeatDiscover:            "2026-07-28",
 	FeatInitialize:          "2025-03-26",
+	FeatBatch:               "2025-03-26",
 }
 
 // ceilings is the first revision that no longer defines a feature.
@@ -104,6 +108,7 @@ var ceilings = map[Feature]string{
 	FeatResourceSubscribe:   "2026-07-28",
 	FeatLoggingSetLevel:     "2026-07-28",
 	FeatInitialize:          "2026-07-28",
+	FeatBatch:               "2025-06-18",
 }
 
 // Defines reports whether a revision defines a feature.
@@ -294,7 +299,7 @@ var Features = []Feature{
 	FeatStructuredContent, FeatResourceLink, FeatAudio,
 	FeatElicitation, FeatElicitationURL, FeatElicitationComplete,
 	FeatTasks, FeatResourceSubscribe, FeatSubscriptionsListen,
-	FeatLoggingSetLevel,
+	FeatLoggingSetLevel, FeatBatch,
 }
 
 // FeatureMatrix is which revision defines which feature.
