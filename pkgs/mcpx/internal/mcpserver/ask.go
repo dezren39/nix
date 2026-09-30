@@ -49,8 +49,8 @@ type Outcome struct {
 	Done bool
 	// Text is the result, rendered the way every other mcpx tool result is.
 	Text string
-	// MimeType applies to a resource read.
-	MimeType string
+	// Contents is a finished resource read, in place of Text.
+	Contents []ResourceContents
 	// IsError marks a tool that failed, which is a result rather than a
 	// protocol error: a client that retries the wrong thing on a tool
 	// failure never converges.
@@ -146,6 +146,9 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		if errors.Is(err, ErrNotInterruptible) {
 			return nil
 		}
+		if errors.Is(err, ErrInvalidParams) {
+			return fail(codeInvalidParams, err.Error())
+		}
 		if err != nil {
 			return fail(codeInternal, err.Error())
 		}
@@ -173,6 +176,12 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			return fail(codeInternal, err.Error())
 		}
 		if out.Done {
+			if out.IsError && req.Method != "tools/call" {
+				// Only a tool has a result that can say it failed. A read or
+				// a prompt that failed upstream is an error, and was being
+				// returned as contents whose text was the error message.
+				return fail(codeInternal, out.Text)
+			}
 			return reply(askResult(req, out))
 		}
 
@@ -288,13 +297,7 @@ func askResult(req request, out Outcome) map[string]any {
 			URI string `json:"uri"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		mime := out.MimeType
-		if mime == "" {
-			mime = "text/plain"
-		}
-		return map[string]any{"contents": []any{map[string]any{
-			"uri": p.URI, "mimeType": mime, "text": out.Text,
-		}}}
+		return readResult(p.URI, out.Contents)
 	default:
 		res := map[string]any{"content": []any{
 			map[string]any{"type": "text", "text": out.Text}}}

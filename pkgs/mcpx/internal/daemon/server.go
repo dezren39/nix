@@ -453,7 +453,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 		cc := config.CallContext{SessionID: req.SessionID, CallID: req.CallID}
 		out, err := s.reg.GetPrompt(r.Context(), req.Server, req.Name, req.Arguments, cc)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			writeJSON(w, failureStatus(err), map[string]any{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"result": out})
@@ -704,7 +704,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	dur := time.Since(start).Truncate(time.Millisecond)
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
-		writeErr(w, 502, err)
+		writeErr(w, failureStatus(err), err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})
@@ -726,7 +726,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	cc := callContext(r, req.Context, req.Session)
 	res, err := s.reg.ReadResource(r.Context(), req.Server, req.URI, cc)
 	if err != nil {
-		writeErr(w, 502, err)
+		writeErr(w, failureStatus(err), err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": res})

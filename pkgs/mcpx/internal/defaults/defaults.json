@@ -190,6 +190,9 @@
     "readMaxAge": "0s",
     "taskAfter": "2s"
   },
+  "protoTasks": {
+    "pollInterval": "1s"
+  },
   "upstream": {
     "protocol": "modern",
     "probeTimeout": "2s",

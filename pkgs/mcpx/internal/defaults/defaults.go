@@ -257,6 +257,10 @@ type Defaults struct {
 		ReadMaxAge string `json:"readMaxAge"`
 		TaskAfter  string `json:"taskAfter"`
 	} `json:"protoMessages"`
+	// ProtoTasks governs the tasks mcpx hands out, on MCP and on /v1.
+	ProtoTasks struct {
+		PollInterval string `json:"pollInterval"`
+	} `json:"protoTasks"`
 	// Upstream governs how mcpx connects to the servers it fronts: which
 	// protocol era it tries first, how long it waits to find out, and where
 	// it remembers the answer.
@@ -450,6 +454,9 @@ var (
 	// the tasks extension runs in line before mcpx hands back a task
 	// instead of the result.
 	ProtoTaskAfter = mustDur(builtin.ProtoMessages.TaskAfter, "protoMessages.taskAfter")
+	// TaskPollInterval is the pollInterval every task carries: how often a
+	// client is told it may usefully ask after one.
+	TaskPollInterval = mustDur(builtin.ProtoTasks.PollInterval, "protoTasks.pollInterval")
 	// TransportSSEKeepAlive is how often an otherwise quiet event stream
 	// carries a comment line, so an intermediary or a client idle timeout
 	// does not close a stream that is merely waiting.

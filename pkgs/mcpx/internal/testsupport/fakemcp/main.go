@@ -135,6 +135,13 @@ func handle(r req) map[string]any {
 			URI string `json:"uri"`
 		}
 		_ = json.Unmarshal(r.Params, &p)
+		if p.URI == "demo://logo" {
+			// Binary, and deliberately unlisted so no listing test moves:
+			// the eight bytes of a PNG signature, as a blob.
+			return ok(r.ID, map[string]any{"contents": []any{
+				map[string]any{"uri": p.URI, "mimeType": "image/png", "blob": "iVBORw0KGgo="},
+			}})
+		}
 		if p.URI != "demo://greeting" {
 			return fail(r.ID, -32602, "no such resource: "+p.URI)
 		}

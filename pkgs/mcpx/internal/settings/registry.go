@@ -26,6 +26,7 @@ func Registry() []Setting {
 	s = append(s, wireSettings()...)
 	s = append(s, pluginSettings()...)
 	s = append(s, protoMessagesSettings()...)
+	s = append(s, protoTasksSettings()...)
 	s = append(s, upstreamSettings()...)
 	return s
 }

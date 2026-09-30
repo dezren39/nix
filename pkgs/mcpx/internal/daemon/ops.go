@@ -426,7 +426,10 @@ func localCompletion(prompts []mcpclient.Prompt, templates []mcpclient.Resource,
 // taskStore is the daemon's own, created on first use so a daemon that never
 // runs one carries nothing.
 func (s *Server) taskStore() *tasks.Store {
-	s.taskOnce.Do(func() { s.tasks = tasks.New() })
+	s.taskOnce.Do(func() {
+		s.tasks = tasks.New()
+		s.tasks.PollInterval = s.set.Duration("protoTasks.pollInterval")
+	})
 	return s.tasks
 }
 

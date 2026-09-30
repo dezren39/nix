@@ -175,6 +175,9 @@ func (s *Server) listen(ctx context.Context, c *Conn, req request, peer Peer) *r
 	if s.Notify == nil {
 		agreed = ListenFilter{}
 	}
+	// Never agreed, for the reason capabilities() never declares it: this
+	// server's tool list does not change while it runs.
+	agreed.ToolsListChanged = false
 
 	lctx, cancel := context.WithCancel(context.Background())
 	l := &listenStream{id: req.ID, send: send, cancel: cancel, done: make(chan struct{})}

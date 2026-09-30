@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/tasks"
 )
 
 // Conn is one client's connection.
@@ -62,6 +63,9 @@ type Conn struct {
 	// request presenting its id is not bound to it: that revision has no
 	// sessions, and a legacy client's pending questions are not its business.
 	legacy bool
+	// process marks the connection that is this process's own client --
+	// stdio's -- whose identity is the process itself. See Identity.
+	process bool
 	// stream is that GET stream while one is open.
 	stream *eventStream
 	// ended is closed when the session is terminated.
@@ -377,9 +381,41 @@ func (c *Conn) askClient(ctx context.Context, p Peer, q Question) (json.RawMessa
 	if err != nil {
 		return nil, err
 	}
+	if taskID := tasks.IDFrom(ctx); taskID != "" && !p.Modern {
+		// A 2025-11-25 task that needs its requestor's input shows it:
+		// input_required while the question is out, working again once it
+		// is answered, and the question itself names the task it belongs
+		// to. The status is a SHOULD and the metadata a MUST, and neither
+		// happened -- the task sat at working while its client was being
+		// asked something in its name.
+		// https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status
+		if params, err = withRelatedTask(params, taskID); err != nil {
+			return nil, err
+		}
+		st := c.s.tasks()
+		st.SetStatus(taskID, tasks.InputRequired, "waiting on "+q.Method)
+		defer st.SetStatus(taskID, tasks.Working, "")
+	}
 	ctx, cancel := context.WithTimeout(ctx, defaults.ElicitHandlerTimeout)
 	defer cancel()
 	return c.Request(ctx, q.Method, params)
+}
+
+// MetaRelatedTask ties a message to the 2025-11-25 task it serves.
+const MetaRelatedTask = "io.modelcontextprotocol/related-task"
+
+func withRelatedTask(params json.RawMessage, taskID string) (json.RawMessage, error) {
+	m := map[string]any{}
+	if err := json.Unmarshal(params, &m); err != nil {
+		return nil, err
+	}
+	meta, _ := m["_meta"].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	meta[MetaRelatedTask] = map[string]any{"taskId": taskID}
+	m["_meta"] = meta
+	return json.Marshal(m)
 }
 
 // Question is one thing a server asked mid-call.

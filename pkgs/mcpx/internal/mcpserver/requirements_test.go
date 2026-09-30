@@ -273,9 +273,9 @@ type richBackend struct {
 	readErr error
 }
 
-func (r richBackend) ReadResource(ctx context.Context, uri string) (string, string, error) {
+func (r richBackend) ReadResource(ctx context.Context, uri string) ([]mcpserver.ResourceContents, error) {
 	if r.readErr != nil {
-		return "", "", r.readErr
+		return nil, r.readErr
 	}
 	return r.fakeBackend.ReadResource(ctx, uri)
 }
@@ -550,10 +550,10 @@ func TestSubscriptionsListen(t *testing.T) {
 	t.Run("2026-07-28/subscriptions/acknowledged-first-with-subscriptionId-in-meta", func(t *testing.T) {
 		s, n, rec, c := setup()
 		if resp := s.HandleOn(context.Background(), c, mcpserver.Request(7, "subscriptions/listen",
-			modernParams(map[string]any{"notifications": map[string]any{"toolsListChanged": true}}))); resp != nil {
+			modernParams(map[string]any{"notifications": map[string]any{"resourcesListChanged": true}}))); resp != nil {
 			t.Fatalf("stdio withholds the result: %v", resp)
 		}
-		n.stream(t, 0) <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+		n.stream(t, 0) <- [2]any{"notifications/resources/list_changed", map[string]any{}}
 		frames := rec.wait(t, 2)
 		ack := frames[0]
 		if ack["method"] != "notifications/subscriptions/acknowledged" {
@@ -567,7 +567,7 @@ func TestSubscriptionsListen(t *testing.T) {
 			t.Errorf("ack _meta: %v", p)
 		}
 		agreed, _ := p["notifications"].(map[string]any)
-		if agreed["toolsListChanged"] != true {
+		if agreed["resourcesListChanged"] != true {
 			t.Errorf("the agreed subset is missing: %v", p)
 		}
 	})
@@ -588,7 +588,7 @@ func TestSubscriptionsListen(t *testing.T) {
 	t.Run("2026-07-28/subscriptions/concurrent-listens-are-kept-apart", func(t *testing.T) {
 		s, n, rec, c := setup()
 		s.HandleOn(context.Background(), c, mcpserver.Request(1, "subscriptions/listen",
-			modernParams(map[string]any{"notifications": map[string]any{"toolsListChanged": true}})))
+			modernParams(map[string]any{"notifications": map[string]any{"resourcesListChanged": true}})))
 		s.HandleOn(context.Background(), c, mcpserver.Request(2, "subscriptions/listen",
 			modernParams(map[string]any{"notifications": map[string]any{"promptsListChanged": true}})))
 		if c.Listening() != 2 {
@@ -597,7 +597,7 @@ func TestSubscriptionsListen(t *testing.T) {
 		// Both kinds down both streams, since which goroutine opened which
 		// is not ordered: each stream's own filter must keep one of them.
 		for i := 0; i < 2; i++ {
-			n.stream(t, i) <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+			n.stream(t, i) <- [2]any{"notifications/resources/list_changed", map[string]any{}}
 			n.stream(t, i) <- [2]any{"notifications/prompts/list_changed", map[string]any{}}
 		}
 		frames := rec.wait(t, 4)
@@ -609,7 +609,7 @@ func TestSubscriptionsListen(t *testing.T) {
 		for _, f := range frames[2:] {
 			ids[f["method"].(string)] = subID(f)
 		}
-		if ids["notifications/tools/list_changed"] != float64(1) || ids["notifications/prompts/list_changed"] != float64(2) {
+		if ids["notifications/resources/list_changed"] != float64(1) || ids["notifications/prompts/list_changed"] != float64(2) {
 			t.Errorf("tags: %v", ids)
 		}
 	})
@@ -619,10 +619,10 @@ func TestSubscriptionsListen(t *testing.T) {
 	t.Run("2026-07-28/subscriptions/unrequested-type-is-never-sent", func(t *testing.T) {
 		s, n, rec, c := setup()
 		s.HandleOn(context.Background(), c, mcpserver.Request(3, "subscriptions/listen",
-			modernParams(map[string]any{"notifications": map[string]any{"toolsListChanged": true}})))
+			modernParams(map[string]any{"notifications": map[string]any{"resourcesListChanged": true}})))
 		ch := n.stream(t, 0)
 		ch <- [2]any{"notifications/elicitation/complete", map[string]any{"elicitationId": "x"}}
-		ch <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+		ch <- [2]any{"notifications/resources/list_changed", map[string]any{}}
 		frames := rec.wait(t, 2)
 		time.Sleep(20 * time.Millisecond)
 		for _, f := range frames {
@@ -636,7 +636,7 @@ func TestSubscriptionsListen(t *testing.T) {
 	t.Run("2026-07-28/subscriptions/stdio-cancel-by-notifications-cancelled", func(t *testing.T) {
 		s, n, _, c := setup()
 		s.HandleOn(context.Background(), c, mcpserver.Request(4, "subscriptions/listen",
-			modernParams(map[string]any{"notifications": map[string]any{"toolsListChanged": true}})))
+			modernParams(map[string]any{"notifications": map[string]any{"resourcesListChanged": true}})))
 		n.stream(t, 0)
 		s.HandleOn(context.Background(), c, mcpserver.Request(0, "notifications/cancelled",
 			map[string]any{"requestId": 4}))
@@ -655,7 +655,7 @@ func TestSubscriptionsListen(t *testing.T) {
 	t.Run("2026-07-28/subscriptions/cancel-matches-the-id-however-it-is-spelled", func(t *testing.T) {
 		s, n, _, c := setup()
 		s.HandleOn(context.Background(), c, mcpserver.Request(4, "subscriptions/listen",
-			modernParams(map[string]any{"notifications": map[string]any{"toolsListChanged": true}})))
+			modernParams(map[string]any{"notifications": map[string]any{"resourcesListChanged": true}})))
 		n.stream(t, 0)
 		s.HandleOn(context.Background(), c, mcpserver.Request(0, "notifications/cancelled",
 			map[string]any{"requestId": json.RawMessage("4.0")}))
@@ -671,7 +671,7 @@ func TestSubscriptionsListen(t *testing.T) {
 	t.Run("2026-07-28/subscriptions/server-teardown-sends-cancelled-then-result", func(t *testing.T) {
 		s, n, rec, c := setup()
 		s.HandleOn(context.Background(), c, mcpserver.Request(5, "subscriptions/listen",
-			modernParams(map[string]any{"notifications": map[string]any{"toolsListChanged": true}})))
+			modernParams(map[string]any{"notifications": map[string]any{"resourcesListChanged": true}})))
 		close(n.stream(t, 0))
 		frames := rec.wait(t, 3)
 		cancelled, final := frames[1], frames[2]
@@ -736,7 +736,7 @@ func TestHTTPListenIsAStream(t *testing.T) {
 		srv := httptest.NewServer(s)
 		defer srv.Close()
 
-		body, _ := json.Marshal(listenReq(11, map[string]any{"toolsListChanged": true}))
+		body, _ := json.Marshal(listenReq(11, map[string]any{"resourcesListChanged": true}))
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, bytes.NewReader(body))
@@ -781,7 +781,7 @@ func TestHTTPListenIsAStream(t *testing.T) {
 		if ack := next("data:"); !strings.Contains(ack, "notifications/subscriptions/acknowledged") {
 			t.Fatalf("first event: %s", ack)
 		}
-		n.stream(t, 0) <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+		n.stream(t, 0) <- [2]any{"notifications/resources/list_changed", map[string]any{}}
 		if ev := next("data:"); !strings.Contains(ev, "list_changed") || !strings.Contains(ev, mcpserver.MetaSubscriptionID) {
 			t.Errorf("notification: %s", ev)
 		}

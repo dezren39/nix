@@ -601,14 +601,14 @@ func TestLegacyGETStream(t *testing.T) {
 		}
 		select {
 		case lf := <-n.got:
-			if !lf.ToolsListChanged || !lf.PromptsListChanged || !lf.ResourcesListChanged {
+			if lf.ToolsListChanged || !lf.PromptsListChanged || !lf.ResourcesListChanged {
 				t.Errorf("a legacy client is sent every list_changed it was promised: %+v", lf)
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("opening the stream should start forwarding list_changed")
 		}
-		n.fire <- [2]any{"notifications/tools/list_changed", map[string]any{}}
-		r.waitFor(t, func(l string) bool { return strings.Contains(l, "notifications/tools/list_changed") })
+		n.fire <- [2]any{"notifications/prompts/list_changed", map[string]any{}}
+		r.waitFor(t, func(l string) bool { return strings.Contains(l, "notifications/prompts/list_changed") })
 	})
 	t.Run("2025-11-25/streamable-http/session-declares-what-the-get-stream-delivers", func(t *testing.T) {
 		fresh(t)
@@ -1070,14 +1070,14 @@ func TestStdioTransport(t *testing.T) {
 		ss.next(t)
 		select {
 		case lf := <-n.got:
-			if !lf.ToolsListChanged {
+			if !lf.PromptsListChanged || lf.ToolsListChanged {
 				t.Fatalf("filter %+v", lf)
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("a legacy stdio client declared listChanged and is never sent one")
 		}
-		n.fire <- [2]any{"notifications/tools/list_changed", map[string]any{}}
-		if f := ss.next(t); f["method"] != "notifications/tools/list_changed" {
+		n.fire <- [2]any{"notifications/prompts/list_changed", map[string]any{}}
+		if f := ss.next(t); f["method"] != "notifications/prompts/list_changed" {
 			t.Fatalf("got %v", f)
 		}
 	})
