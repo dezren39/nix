@@ -55,6 +55,7 @@ type Defaults struct {
 	// rebuild, and so that every constant in the program has one home.
 	Plumbing struct {
 		ShutdownGrace        string `json:"shutdownGrace"`
+		StdioExitGrace       string `json:"stdioExitGrace"`
 		StdioDrainGrace      string `json:"stdioDrainGrace"`
 		StdioMaxLine         string `json:"stdioMaxLine"`
 		DaemonConnectTimeout string `json:"daemonConnectTimeout"`
@@ -443,6 +444,7 @@ var (
 	SaveInterval = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
 
 	ShutdownGrace        = mustDur(builtin.Plumbing.ShutdownGrace, "plumbing.shutdownGrace")
+	StdioExitGrace       = mustDur(builtin.Plumbing.StdioExitGrace, "plumbing.stdioExitGrace")
 	StdioDrainGrace      = mustDur(builtin.Plumbing.StdioDrainGrace, "plumbing.stdioDrainGrace")
 	StdioMaxLine         = mustBytes(builtin.Plumbing.StdioMaxLine, "plumbing.stdioMaxLine")
 	DaemonConnectTimeout = mustDur(builtin.Plumbing.DaemonConnectTimeout, "plumbing.daemonConnectTimeout")
