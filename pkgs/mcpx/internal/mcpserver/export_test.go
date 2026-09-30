@@ -37,3 +37,7 @@ func (q Question) ParamsFor(p Peer) (json.RawMessage, error) { return q.paramsFo
 func (c *Conn) DeliverForTest(id int64, result json.RawMessage) bool {
 	return c.deliver(id, result, nil)
 }
+
+// StopListenForTest ends every stream a connection holds, as its transport
+// going away does.
+func (c *Conn) StopListenForTest() { c.stopListen() }

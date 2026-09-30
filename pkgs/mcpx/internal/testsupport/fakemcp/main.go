@@ -27,7 +27,58 @@ var (
 	mu    sync.Mutex
 	state []string
 	pid   = os.Getpid()
+
+	// notify writes an unsolicited frame; set by main.
+	notify func(map[string]any)
+	// subscribed are the URIs a client subscribed to, in FAKEMCP_SUBSCRIBE
+	// mode.
+	subscribed = map[string]bool{}
 )
+
+// FAKEMCP_SUBSCRIBE declares resources.subscribe, lists an absolute-path
+// resource beside the greeting, and while any resource is subscribed sends
+// notifications/resources/updated for it every FAKEMCP_UPDATE_EVERY. Every
+// subscribe and unsubscribe is appended to FAKEMCP_SUB_LOG, so a test can
+// see what mcpx asked upstream rather than what it says it asked. Off by
+// default, so no other test's capabilities or listings move.
+var subscribeMode = os.Getenv("FAKEMCP_SUBSCRIBE") != ""
+
+// absResource is the absolute-path URI subscribe mode lists: a listing
+// drops its leading "/" when it namespaces it, which is the case #241 found
+// unmatchable.
+const absResource = "/abs/doc"
+
+func subLog(line string) {
+	path := os.Getenv("FAKEMCP_SUB_LOG")
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(f, "%d %s\n", pid, line)
+	f.Close()
+}
+
+func emitUpdates() {
+	every, err := time.ParseDuration(os.Getenv("FAKEMCP_UPDATE_EVERY"))
+	if err != nil || every <= 0 {
+		return
+	}
+	for range time.Tick(every) {
+		mu.Lock()
+		uris := make([]string, 0, len(subscribed))
+		for u := range subscribed {
+			uris = append(uris, u)
+		}
+		mu.Unlock()
+		for _, u := range uris {
+			notify(map[string]any{"jsonrpc": "2.0", "method": "notifications/resources/updated",
+				"params": map[string]any{"uri": u}})
+		}
+	}
+}
 
 func main() {
 	// FAKEMCP_FAIL_START makes the server exit before the handshake, so the
@@ -56,6 +107,10 @@ func main() {
 		out.WriteByte('\n')
 		out.Flush()
 		writeMu.Unlock()
+	}
+	notify = send
+	if subscribeMode {
+		go emitUpdates()
 	}
 
 	for {
@@ -108,15 +163,36 @@ func fail(id *int64, code int, msg string) map[string]any {
 func handle(r req) map[string]any {
 	switch r.Method {
 	case "initialize":
+		resources := map[string]any{}
+		if subscribeMode {
+			resources["subscribe"] = true
+		}
 		return ok(r.ID, map[string]any{
 			"protocolVersion": "2025-06-18",
 			"serverInfo":      map[string]any{"name": "fakemcp", "version": "1.0.0"},
 			"capabilities": map[string]any{
 				"tools":     map[string]any{},
-				"resources": map[string]any{},
+				"resources": resources,
 				"prompts":   map[string]any{},
 			},
 		})
+	case "resources/subscribe", "resources/unsubscribe":
+		if !subscribeMode {
+			break
+		}
+		var p struct {
+			URI string `json:"uri"`
+		}
+		_ = json.Unmarshal(r.Params, &p)
+		mu.Lock()
+		if r.Method == "resources/subscribe" {
+			subscribed[p.URI] = true
+		} else {
+			delete(subscribed, p.URI)
+		}
+		mu.Unlock()
+		subLog(strings.TrimPrefix(r.Method, "resources/") + " " + p.URI)
+		return ok(r.ID, map[string]any{})
 	case "notifications/initialized", "notifications/cancelled":
 		return nil
 	case "ping":
@@ -124,12 +200,17 @@ func handle(r req) map[string]any {
 	case "tools/list":
 		return ok(r.ID, map[string]any{"tools": toolDefs()})
 	case "resources/list":
-		return ok(r.ID, map[string]any{"resources": []any{
+		list := []any{
 			map[string]any{
 				"uri": "demo://greeting", "name": "greeting",
 				"description": "a fixed greeting", "mimeType": "text/plain",
 			},
-		}})
+		}
+		if subscribeMode {
+			list = append(list, map[string]any{"uri": absResource, "name": "abs",
+				"description": "an absolute-path resource", "mimeType": "text/plain"})
+		}
+		return ok(r.ID, map[string]any{"resources": list})
 	case "resources/read":
 		var p struct {
 			URI string `json:"uri"`
