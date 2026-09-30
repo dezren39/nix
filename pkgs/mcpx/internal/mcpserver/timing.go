@@ -39,6 +39,8 @@ type Timing struct {
 	// StdioDrain is how long in-flight stdio requests may finish after the
 	// input closes, before they are cancelled.
 	StdioDrain time.Duration
+	// TaskPoll is the pollInterval a task this server hands out carries.
+	TaskPoll time.Duration
 }
 
 func (t Timing) resolved() Timing {
@@ -65,6 +67,9 @@ func (t Timing) resolved() Timing {
 	}
 	if t.StdioDrain <= 0 {
 		t.StdioDrain = defaults.TransportStdioDrain
+	}
+	if t.TaskPoll <= 0 {
+		t.TaskPoll = defaults.TaskPollInterval
 	}
 	return t
 }

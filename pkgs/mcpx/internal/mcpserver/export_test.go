@@ -31,3 +31,9 @@ func (s *Server) ConnWithSend(id string, send func(any) error) *Conn { return s.
 
 // ParamsFor renders a question for a client's revision.
 func (q Question) ParamsFor(p Peer) (json.RawMessage, error) { return q.paramsFor(p) }
+
+// DeliverForTest hands a connection the client's reply to a request mcpx
+// sent it, as the transport's read loop does.
+func (c *Conn) DeliverForTest(id int64, result json.RawMessage) bool {
+	return c.deliver(id, result, nil)
+}

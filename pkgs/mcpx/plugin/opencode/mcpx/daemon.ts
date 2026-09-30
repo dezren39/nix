@@ -557,10 +557,11 @@ export class DaemonClient {
 
   /**
    * Search the public registry for servers that are not configured here.
+   * `truncated` means the registry had more than came back.
    *
    * @op registry_search
    */
-  registrySearch(q: string, limit?: number): Promise<{ servers: RegistryEntry[] }> {
+  registrySearch(q: string, limit?: number): Promise<{ servers: RegistryEntry[]; truncated: boolean }> {
     return this.get(`/v1/registry/search${query({ q, limit })}`)
   }
 

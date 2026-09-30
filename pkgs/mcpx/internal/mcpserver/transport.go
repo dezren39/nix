@@ -526,7 +526,7 @@ func (s *Server) startListChanged(c *Conn) {
 	}
 	c.listChanged = cancel
 	c.mu.Unlock()
-	go s.Notify.Listen(ctx, ListenFilter{ToolsListChanged: true,
+	go s.Notify.Listen(ctx, ListenFilter{
 		PromptsListChanged: true, ResourcesListChanged: true}, c.push)
 }
 

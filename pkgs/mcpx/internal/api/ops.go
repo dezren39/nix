@@ -300,7 +300,8 @@ func Ops() []Op {
 			Summary: "Search a public registry of MCP servers",
 			Description: "Servers that are not configured here yet. The registry matches " +
 				"names as a substring, so one word finds more than a phrase. The " +
-				"answer carries enough to add one with `mcpx registry add`.",
+				"answer carries enough to add one with `mcpx registry add`, and " +
+				"`truncated` is true when the registry had more than was returned.",
 			Params: []Param{
 				{Name: "q", In: InQuery, Type: "string", Required: true, Desc: "one word; matched against server names"},
 				{Name: "limit", In: InQuery, Type: "integer", Desc: "results to return"},

@@ -252,6 +252,10 @@ type HTTPError struct {
 
 func (e *HTTPError) Error() string { return e.Msg }
 
+// HTTPStatus lets a caller one hop further -- /v1/tools, relaying a tool
+// that made a daemon call -- answer with the status the daemon gave.
+func (e *HTTPError) HTTPStatus() int { return e.Status }
+
 func isDialErr(err error) bool {
 	var oe *net.OpError
 	if errors.As(err, &oe) && oe.Op == "dial" {
@@ -599,9 +603,11 @@ func (c *Client) GetPrompt(ctx context.Context, server, name string, args map[st
 
 // ReadResource reads one resource from a namespace.
 func (c *Client) ReadResource(ctx context.Context, server, uri string, cc config.CallContext) (json.RawMessage, error) {
+	// "context", which is what /v1/resource reads. This sent sessionId and
+	// callId, which it does not, so every read landed in a fresh anonymous
+	// scope whatever session the caller named.
 	b, err := c.do(ctx, http.MethodPost, "/v1/resource", map[string]any{
-		"server": server, "uri": uri,
-		"sessionId": cc.SessionID, "callId": cc.CallID,
+		"server": server, "uri": uri, "context": cc,
 	})
 	if err != nil {
 		return nil, err

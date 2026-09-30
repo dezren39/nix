@@ -372,6 +372,18 @@ that `--help` denies exists is worse than a long list.
 | `plumbing.strictUnknownKeys` | bool | `false` | client | no | `--plumbing-strict-unknown-keys` | `MCPX_PLUMBING_STRICT_UNKNOWN_KEYS` | *(plumbing)* fail on a configuration key no setting claims |
 | `plumbing.validatePaths` | bool | `true` | client | no | `--plumbing-validate-paths` | `MCPX_PLUMBING_VALIDATE_PATHS` | *(plumbing)* resolve and verify every referenced path before doing any work |
 
+`plumbing.strictUnknownKeys` governs keys **no setting claims**, and keys a
+server entry declares that mcpx does not know — `type`, `alwaysAllow` and the
+rest, which belong to the other hosts that read the same file. Those are
+recorded, reported by `mcpx doctor`, and refused only when this is on.
+
+A key inside a server's `"mcpx"` block is not governed by it and is always
+refused. That block is mcpx's alone — nothing else writes into it — so a key
+it does not know is a typo or a name that no longer exists, not another host's
+field. This is deliberately not a setting: it is how `mcpx init` wrote
+`"mode": "session"` into every new config for months without anyone noticing,
+and a switch to turn the report off would have kept it quiet.
+
 
 ### pool
 
@@ -418,6 +430,7 @@ that `--help` denies exists is worse than a long list.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `protoMessages.listMaxAge` | duration | `1m0s` | daemon | no | `--proto-messages-list-max-age` | `MCPX_PROTO_MESSAGES_LIST_MAX_AGE` | ttlMs on server/discover and every list result sent to a 2026-07-28 client |
 | `protoMessages.taskAfter` | duration | `2s` | daemon | no | `--proto-messages-task-after` | `MCPX_PROTO_MESSAGES_TASK_AFTER` | how long a tools/call runs in line before a tasks-extension client is handed a task |
+| `protoTasks.pollInterval` | duration | `1s` | daemon | no | `--proto-tasks-poll-interval` | `MCPX_PROTO_TASKS_POLL_INTERVAL` | the pollInterval every task carries |
 | `protoMessages.readMaxAge` | duration | `0s` | daemon | no | `--proto-messages-read-max-age` | `MCPX_PROTO_MESSAGES_READ_MAX_AGE` | ttlMs on resources/read results sent to a 2026-07-28 client |
 
 
@@ -435,6 +448,7 @@ that `--help` denies exists is worse than a long list.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `registry.limit` | int | `20` | call | yes | `--registry-limit` | `MCPX_REGISTRY_LIMIT` | how many registry results are returned |
+| `registry.maxPages` | int | `10` | client | no | `--registry-max-pages` | `MCPX_REGISTRY_MAX_PAGES` | *(plumbing)* how many requests one registry search may make |
 | `registry.pageSize` | int | `30` | client | no | `--registry-page-size` | `MCPX_REGISTRY_PAGE_SIZE` | *(plumbing)* how many entries are fetched per registry request |
 | `registry.timeout` | duration | `30s` | client | no | `--registry-timeout` | `MCPX_REGISTRY_TIMEOUT` | how long a registry request may take |
 | `registry.url` | string | `https://registry.modelcontextprotocol.io` | client | no | `--registry-url` | `MCPX_REGISTRY_URL` | where `mcpx registry` looks for servers |
