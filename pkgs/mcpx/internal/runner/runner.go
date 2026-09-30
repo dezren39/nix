@@ -311,7 +311,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// A module with a default export is a program with an entry point; one
 	// without is a program that ran on import. Supporting both is what lets a
 	// single file be imported as a library and still invoked directly.
-	if opts.File != "" {
+	{
 		launcher, lerr := writeLauncher(workDir, scriptPath, opts.Export,
 			opts.Phases, opts.CaptureConsole, opts)
 		if lerr != nil {

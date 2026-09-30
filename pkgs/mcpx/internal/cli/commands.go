@@ -730,6 +730,32 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// variable, or the config file. Reading the flag variable directly would
 	// silently ignore the other three.
 	opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
+	// Both paths. These were set only for a file, so `mcpx exec --launcher`,
+	// --no-launcher, --export and --allow-repeat were accepted and dropped:
+	// the flags existed, the help described them, and nothing read them.
+	//
+	// Phases stay where they are, because there the difference is real: a
+	// snippet splices them into its own scope so they can declare bindings
+	// it uses, while a file gets them wrapped around its import.
+	if *noLauncher && *launcherFlag != "" {
+		return errors.New("--launcher and --no-launcher contradict each other; " +
+			"--no-launcher means there is nothing to replace")
+	}
+	if *noLauncher {
+		opts.Launcher, opts.LauncherName = runner.LauncherNone, "none"
+	} else if *launcherFlag != "" {
+		text, name, lerr := a.resolveLauncher(*launcherFlag)
+		if lerr != nil {
+			return lerr
+		}
+		opts.Launcher, opts.LauncherName = text, name
+	}
+	opts.PlaceholderFiles = PlaceholderFiles()
+	for _, r := range allowRepeat.Values() {
+		if str, ok := r.(string); ok {
+			opts.AllowRepeat = append(opts.AllowRepeat, str)
+		}
+	}
 	if inline {
 		// A snippet is generated wholesale, so prefix lines share its scope
 		// and can declare bindings the snippet uses.
@@ -755,25 +781,6 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			OnSuccess: cfg.ScriptPhase("onSuccess", onSuccess.Values()),
 			OnError:   cfg.ScriptPhase("onError", onError.Values()),
 			Suffix:    suffixLines,
-		}
-		if *noLauncher && *launcherFlag != "" {
-			return errors.New("--launcher and --no-launcher contradict each other; " +
-				"--no-launcher means there is nothing to replace")
-		}
-		if *noLauncher {
-			opts.Launcher, opts.LauncherName = runner.LauncherNone, "none"
-		} else if *launcherFlag != "" {
-			text, name, lerr := a.resolveLauncher(*launcherFlag)
-			if lerr != nil {
-				return lerr
-			}
-			opts.Launcher, opts.LauncherName = text, name
-		}
-		opts.PlaceholderFiles = PlaceholderFiles()
-		for _, r := range allowRepeat.Values() {
-			if str, ok := r.(string); ok {
-				opts.AllowRepeat = append(opts.AllowRepeat, str)
-			}
 		}
 		file, rerr := resolveScript(fs.Arg(0))
 		if rerr != nil {
