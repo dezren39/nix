@@ -17,6 +17,7 @@ import { join } from "node:path"
 
 import {
   discover,
+  goDurationMs,
   liveCandidates,
   rank,
   readInfoFiles,
@@ -409,5 +410,26 @@ describe("ranking", () => {
     const trap = c({ configPath: "/proj-other/.mcpx.json", startedAt: "2030-01-01T00:00:00Z" })
     const real = c({ configPath: "/proj/.mcpx.json", startedAt: "2020-01-01T00:00:00Z" })
     expect(rank([trap, real], "/proj/sub")[0]).toBe(real)
+  })
+})
+
+describe("goDurationMs", () => {
+  test("parses the spelling the settings registry emits", () => {
+    expect(goDurationMs("60s")).toBe(60_000)
+    expect(goDurationMs("1m0s")).toBe(60_000)
+    expect(goDurationMs("1m30s")).toBe(90_000)
+    expect(goDurationMs("500ms")).toBe(500)
+    expect(goDurationMs("2h")).toBe(7_200_000)
+  })
+
+  test("treats anything it does not understand as absent", () => {
+    // A cooldown of NaN retries forever, which is the failure the caller
+    // falls back from rather than into.
+    expect(goDurationMs(undefined)).toBeUndefined()
+    expect(goDurationMs("")).toBeUndefined()
+    expect(goDurationMs("60")).toBeUndefined()
+    expect(goDurationMs("soon")).toBeUndefined()
+    expect(goDurationMs("60s please")).toBeUndefined()
+    expect(goDurationMs("-30s")).toBeUndefined()
   })
 })

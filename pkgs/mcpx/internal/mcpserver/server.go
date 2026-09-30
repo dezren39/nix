@@ -122,6 +122,15 @@ type Server struct {
 
 	// PageSize caps how many items a list reply carries.
 	PageSize int
+
+	// MaxCompletions caps a completion/complete reply. Zero uses the
+	// built-in default.
+	MaxCompletions int
+
+	// Timing is the ask loop's policy. A zero field means the built-in
+	// default; the whole struct zero is what a test that does not care
+	// should be able to leave alone.
+	Timing Timing
 	// OnCancel is called when a client cancels a request.
 	OnCancel func(id, reason string)
 
@@ -175,7 +184,8 @@ func New(b Backend, name, version string) *Server {
 func (s *Server) WithExtras(extras []Extra) *Server {
 	return &Server{
 		backend: s.backend, name: s.name, version: s.version,
-		PageSize: s.PageSize, OnCancel: s.OnCancel,
+		PageSize: s.PageSize, MaxCompletions: s.MaxCompletions,
+		Timing: s.Timing, OnCancel: s.OnCancel,
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
@@ -511,7 +521,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 			// speaks an older revision of a compatible protocol is better
 			// served than refused.
 			"protocolVersion": version,
-			"capabilities":    s.capabilities(version),
+			"capabilities":    s.capabilities(version, c),
 			"serverInfo":      map[string]any{"name": s.name, "version": s.version},
 			"instructions":    Instructions,
 		})
@@ -523,7 +533,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(map[string]any{
 			"protocolVersions": Supported,
 			"serverInfo":       map[string]any{"name": s.name, "version": s.version},
-			"capabilities":     s.capabilities(ModernLatest),
+			"capabilities":     s.capabilities(ModernLatest, c),
 			"instructions":     Instructions,
 		})
 
@@ -553,9 +563,12 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(map[string]any{"completion": s.complete(ctx, req.Params)})
 
 	case "logging/setLevel":
-		// Accepted so a client can ask, even though mcpx currently emits no
-		// notifications/message of its own. Refusing would make a
-		// well-behaved client treat the whole connection as degraded.
+		// Accepted, but no longer declared. The capability means "this server
+		// sends log messages to the client", and mcpx sends none: there is no
+		// notifications/message anywhere in this package. Declaring it was a
+		// promise of a stream that does not exist. The method still answers,
+		// because refusing would make a well-behaved client that asked anyway
+		// treat the whole connection as degraded.
 		return reply(map[string]any{})
 
 	case "resources/templates/list":
@@ -1250,7 +1263,7 @@ func (s *Server) dropSession(id string) {
 // without this the map is a leak that grows with every host that connects
 // once.
 func (s *Server) reapSessionsLocked() {
-	cutoff := time.Now().Add(-defaults.ProtoSessionIdle)
+	cutoff := time.Now().Add(-s.Timing.resolved().SessionIdle)
 	for id, c := range s.sessions {
 		c.mu.Lock()
 		idle := c.lastUsed.Before(cutoff)
@@ -1362,21 +1375,31 @@ func ResultOf(resp *response) (string, bool, error) {
 
 // capabilities declares what this server can actually do.
 //
-// Push-dependent capabilities are declared only when something can push.
-// Claiming listChanged or subscribe without a notifier behind them invites a
-// client to wait for notifications that will never come.
-func (s *Server) capabilities(version string) map[string]any {
-	push := s.Notify != nil
+// Push-dependent capabilities are declared only when something can push, and
+// "something can push" is a property of the connection rather than of the
+// server. It used to be tested as s.Notify != nil, which is true for every
+// connection the daemon serves -- including the HTTP ones, which are built
+// with no send function at all and can therefore deliver nothing. A client
+// over that transport was told subscribe and listChanged were available, sent
+// subscriptions/listen, got an acknowledgement and then silence forever.
+//
+// The delivery of list_changed also needs a stream the client opened, which
+// only 2026-07-28 has. An older client has no way to ask for one, so it is
+// told the truth: mcpx will not push it a list_changed it cannot receive.
+func (s *Server) capabilities(version string, c *Conn) map[string]any {
+	push := s.Notify != nil && c != nil && c.canPush()
+	// listChanged is not gated on subscriptions/listen. That mechanism is
+	// 2026-07-28's, but notifications/tools|prompts|resources/list_changed
+	// are defined in every revision mcpx serves and arrive unsolicited on a
+	// connection that can push. Gating them on the 2026 mechanism told every
+	// legacy client the list would never change, which is both untrue and a
+	// capability mcpx implements.
+	streamed := push
 	caps := map[string]any{
-		"tools":       map[string]any{"listChanged": push},
-		"resources":   map[string]any{"subscribe": push, "listChanged": push},
-		"prompts":     map[string]any{"listChanged": push},
+		"tools":       map[string]any{"listChanged": streamed},
+		"resources":   map[string]any{"subscribe": push, "listChanged": streamed},
+		"prompts":     map[string]any{"listChanged": streamed},
 		"completions": map[string]any{},
-	}
-	if Defines(version, FeatLoggingSetLevel) {
-		// 2026-07-28 removed logging/setLevel, so declaring `logging` to a
-		// modern client offers a method that revision does not have.
-		caps["logging"] = map[string]any{}
 	}
 	if Defines(version, FeatTasks) {
 		// Core in 2025-11-25 and an extension in 2026-07-28, so it is
@@ -1553,10 +1576,17 @@ func (s *Server) complete(ctx context.Context, params json.RawMessage) map[strin
 		}
 	}
 	sort.Strings(values)
-	// The specification caps a completion reply at 100.
+	// The ceiling the specification sets, and the one /v1/complete already
+	// read from completion.maxValues. It was written here as the literal 100,
+	// so configuring the setting moved one of the two surfaces and not the
+	// other.
+	max := s.MaxCompletions
+	if max <= 0 {
+		max = defaults.CompletionValues
+	}
 	total := len(values)
-	if len(values) > 100 {
-		values = values[:100]
+	if len(values) > max {
+		values = values[:max]
 	}
 	if values == nil {
 		values = []string{}

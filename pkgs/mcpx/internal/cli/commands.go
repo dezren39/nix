@@ -181,7 +181,11 @@ func (a *App) CmdTypes(ctx context.Context, args []string) error {
 	if err := a.ensureSchemas(ctx, c, ns); err != nil {
 		return err
 	}
-	text, err := c.Types(ctx, ns, !*noInstr, a.Profile)
+	// --no-instructions is the short spelling of the same choice; the
+	// setting carries it from a config file, MCPX_CATALOG_INSTRUCTIONS or
+	// --catalog-instructions, none of which reached this call before.
+	wantInstr := a.Settings().Bool("catalog.instructions") && !*noInstr
+	text, err := c.Types(ctx, ns, wantInstr, a.Profile)
 	if err != nil {
 		return err
 	}
@@ -242,11 +246,7 @@ func (a *App) resolveLauncher(v string) (text, name string, err error) {
 		return runner.LauncherNone, "none", nil
 	}
 	dir := mustGetwd()
-	r, rerr := source.Resolve(v, source.Options{
-		Dir:      dir,
-		AllowDir: false,
-		Probe:    true,
-	})
+	r, rerr := source.Resolve(v, plumbingSourceOptions(dir, nil))
 	if rerr != nil {
 		return "", "", rerr
 	}
@@ -623,8 +623,8 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// Script records go to the same durable log the daemon writes, so a run's
 	// output is recoverable afterwards even when the terminal showed little.
 	if dir := firstNonEmpty(set.String("logging.dir"), cfgLog.Dir,
-		filepath.Join(a.Paths.State, "logs")); dir != "" {
-		if sink, serr := logging.NewFileSink(logging.FileOptions{Dir: dir}); serr == nil {
+		filepath.Join(a.Paths.State, "logs")); dir != "" && set.Bool("logging.file") {
+		if sink, serr := logging.NewFileSink(fileOptions(set, dir)); serr == nil {
 			writer = writer.WithFile(sink, slog.LevelDebug)
 			defer sink.Close()
 		}
@@ -705,11 +705,21 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			envPairs = append(envPairs, str)
 		}
 	}
+	// script.env is the same list from a config file, MCPX_SCRIPT_ENV or
+	// --script-env. --env is a hand-written alias that Bind skips, so before
+	// this the other three spellings were accepted and had no effect.
+	envPairs = append(envPairs, a.Settings().List("script.env")...)
 	pre := preflight.Merge(preflight.CheckEnvPairs(envPairs, "--env"))
-	if logDirFlag := os.Getenv("MCPX_LOGGING_DIR"); logDirFlag != "" {
-		pre = preflight.Merge(pre, preflight.CheckPaths([]preflight.PathCheck{
-			{Path: logDirFlag, Where: "logging.dir", WantDir: true, Writable: true},
-		}))
+	// plumbing.validatePaths is the switch this block exists behind. It read
+	// MCPX_LOGGING_DIR by name, so the same directory given in a config file
+	// or as --log-dir went unchecked; the resolved value is the one that will
+	// actually be written to.
+	if a.Settings().Bool("plumbing.validatePaths") {
+		if logDir := a.Settings().String("logging.dir"); logDir != "" {
+			pre = preflight.Merge(pre, preflight.CheckPaths([]preflight.PathCheck{
+				{Path: logDir, Where: "logging.dir", WantDir: true, Writable: true},
+			}))
+		}
 	}
 	if err := pre.Err(); err != nil {
 		return err
@@ -718,8 +728,14 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		fmt.Fprintln(os.Stderr, "mcpx:", w.String())
 	}
 
-	prefixLines := cfgScriptLines(cfg, prefix.Values(), true)
-	suffixLines := cfgScriptLines(cfg, suffix.Values(), false)
+	// Each phase takes its command-line values and then whatever the
+	// registry resolved from a variable or the generated --script-<phase>
+	// flag. Only those two layers: the configuration file reaches these
+	// through cfg.ScriptPhase below, and counting it twice would run the
+	// line twice. Before this, --script-prefix and MCPX_SCRIPT_PREFIX were
+	// accepted, recorded and dropped.
+	prefixLines := cfgScriptLines(cfg, a.phaseValues("script.prefix", prefix), true)
+	suffixLines := cfgScriptLines(cfg, a.phaseValues("script.suffix", suffix), false)
 
 	// Both paths, not only the file one. This lived in the `else` branch, so
 	// `mcpx exec --typecheck=on` accepted the flag and ignored it -- on the
@@ -741,10 +757,16 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return errors.New("--launcher and --no-launcher contradict each other; " +
 			"--no-launcher means there is nothing to replace")
 	}
+	// --launcher is the short spelling; script.launcher carries the same
+	// choice from a config file, MCPX_SCRIPT_LAUNCHER or --script-launcher,
+	// all three of which were previously parsed and ignored. The bare form of
+	// the generated flag resolves to "none", which resolveLauncher
+	// understands, so --no-launcher and --script-launcher mean the same thing.
+	launcherWanted := firstNonEmpty(*launcherFlag, a.Settings().String("script.launcher"))
 	if *noLauncher {
 		opts.Launcher, opts.LauncherName = runner.LauncherNone, "none"
-	} else if *launcherFlag != "" {
-		text, name, lerr := a.resolveLauncher(*launcherFlag)
+	} else if launcherWanted != "" {
+		text, name, lerr := a.resolveLauncher(launcherWanted)
 		if lerr != nil {
 			return lerr
 		}
@@ -756,6 +778,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			opts.AllowRepeat = append(opts.AllowRepeat, str)
 		}
 	}
+	// The plumbing setting is the durable form of --allow-repeat: a launcher
+	// template kept in a config file wants its repeats declared beside it,
+	// not retyped on every command line.
+	opts.AllowRepeat = append(opts.AllowRepeat,
+		a.Settings().List("plumbing.launcherPlaceholderRepeat")...)
 	if inline {
 		// A snippet is generated wholesale, so prefix lines share its scope
 		// and can declare bindings the snippet uses.
@@ -776,10 +803,10 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// They can act -- set globals, log, time, clean up -- but cannot
 		// declare bindings the script will see.
 		opts.Phases = runner.Phases{
-			Before:    cfg.ScriptPhase("before", before.Values()),
+			Before:    cfg.ScriptPhase("before", a.phaseValues("script.before", before)),
 			Prefix:    prefixLines,
-			OnSuccess: cfg.ScriptPhase("onSuccess", onSuccess.Values()),
-			OnError:   cfg.ScriptPhase("onError", onError.Values()),
+			OnSuccess: cfg.ScriptPhase("onSuccess", a.phaseValues("script.onSuccess", onSuccess)),
+			OnError:   cfg.ScriptPhase("onError", a.phaseValues("script.onError", onError)),
 			Suffix:    suffixLines,
 		}
 		file, rerr := resolveScript(fs.Arg(0))
@@ -801,11 +828,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
 		return derr
 	}
-	for _, raw := range envVars.Values() {
-		kv, ok := raw.(string)
-		if !ok {
-			continue
-		}
+	// envPairs is the same list the preflight above checked: --env, plus
+	// whatever script.env resolved to from a file, MCPX_SCRIPT_ENV or
+	// --script-env. Iterating envVars here instead was how the three other
+	// spellings were validated and then dropped.
+	for _, kv := range envPairs {
 		k, v, found := strings.Cut(kv, "=")
 		if !found {
 			return fmt.Errorf("--env expects KEY=VALUE, got %q", kv)
@@ -1536,6 +1563,22 @@ func cfgPerms(c *config.Config) string {
 	return c.Permissions
 }
 
+// phaseValues is a phase's command-line values plus whatever the registry
+// resolved for it above the configuration file.
+//
+// The split is deliberate and narrow: cfg.ScriptPhase folds the file layers
+// itself, with an inheritance marker the registry does not model, so the
+// file's lines would run twice if they were taken from both. What the file
+// reader cannot see -- MCPX_SCRIPT_PREFIX, --script-prefix, a runtime
+// override -- is what this adds.
+func (a *App) phaseValues(path string, flagged *repeatable) []any {
+	out := flagged.Values()
+	for _, line := range a.Settings().ListAboveFile(path) {
+		out = append(out, line)
+	}
+	return out
+}
+
 // cfgScriptLines resolves a layered prefix or suffix, with command-line values
 // as the nearest layer.
 func cfgScriptLines(cfg *config.Config, flags []any, isPrefix bool) []string {
@@ -1559,13 +1602,7 @@ func resolvePhase(lines []string) []string {
 		return lines
 	}
 	dir := mustGetwd()
-	opt := source.Options{
-		Dir:        dir,
-		AllowDir:   true,
-		Recursive:  false,
-		Probe:      true,
-		Extensions: []string{".ts", ".js", ".mts", ".mjs"},
-	}
+	opt := plumbingSourceOptions(dir, []string{".ts", ".js", ".mts", ".mjs"})
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
 		r, err := source.Resolve(line, opt)

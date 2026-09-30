@@ -177,11 +177,6 @@ type Setting struct {
 	// non-default value. They are checked before any work begins.
 	Requires []Requirement
 
-	// SourceKind constrains a KindSource setting: whether a directory is a
-	// legal value for it, and whether that directory is read recursively.
-	AllowDir  bool
-	Recursive bool
-
 	// Scope says which process reads this. See Scope.
 	Scope Scope
 

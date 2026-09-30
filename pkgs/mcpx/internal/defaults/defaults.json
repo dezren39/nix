@@ -172,6 +172,7 @@
     "env": "full",
     "instructions": false,
     "tools": false,
-    "skills": []
+    "remember": "session",
+    "annotate": true
   }
 }

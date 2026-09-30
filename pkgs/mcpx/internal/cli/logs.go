@@ -29,7 +29,7 @@ func (a *App) logDir(override string) string {
 	if cfg != nil {
 		cfgDir = cfg.Logging.Dir
 	}
-	return firstSet(override, os.Getenv("MCPX_LOG_DIR"), cfgDir,
+	return firstSet(override, a.Settings().String("logging.dir"), cfgDir,
 		filepath.Join(paths.State, "logs"))
 }
 
@@ -48,9 +48,14 @@ func (a *App) openStore(override string) (*logstore.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := st.Ingest(); err != nil {
-		st.Close()
-		return nil, err
+	// plumbing.indexOnQuery is the switch this paragraph describes. Off, the
+	// index answers from whatever it already holds, which is what somebody
+	// querying a very large log repeatedly wants.
+	if a.Settings().Bool("plumbing.indexOnQuery") {
+		if _, err := st.Ingest(); err != nil {
+			st.Close()
+			return nil, err
+		}
 	}
 	return st, nil
 }
@@ -131,6 +136,23 @@ func (a *App) CmdLog(ctx context.Context, args []string) error {
 			"which usually means a shell substitution came back empty")
 	}
 	if *chain != "" {
+		// The same refusal the daemon makes. printChain takes an id and a
+		// limit; every other flag was folded into q above and then dropped,
+		// so `--chain X --level error` printed the whole tree and looked
+		// like it had filtered it.
+		var named []string
+		fs.Visit(func(fl *flag.Flag) {
+			switch fl.Name {
+			case "level", "event", "server", "tool", "session", "trace", "grep",
+				"since", "until", "reverse":
+				named = append(named, "--"+fl.Name)
+			}
+		})
+		if len(named) > 0 {
+			sort.Strings(named)
+			return fmt.Errorf("--chain returns a whole trace tree and cannot be "+
+				"filtered; drop %s, or drop --chain", strings.Join(named, ", "))
+		}
 		return a.printChain(st, *chain, *limit, p)
 	}
 
@@ -182,6 +204,9 @@ func (a *App) followLog(ctx context.Context, st *logstore.Store, q logstore.Quer
 			return nil
 		case <-tick.C:
 		}
+		// Follow always ingests: the whole point of it is to see what has
+		// just been written, and indexOnQuery is about the cost of a query
+		// rather than about a tail that has nothing to show.
 		if _, err := st.Ingest(); err != nil {
 			return err
 		}

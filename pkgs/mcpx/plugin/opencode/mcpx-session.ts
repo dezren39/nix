@@ -5,6 +5,7 @@ import { tool, type Plugin } from "@opencode-ai/plugin"
 import {
   DaemonClient,
   TUNING,
+  goDurationMs,
   ago,
   discover,
   forgetRemembered,
@@ -189,6 +190,10 @@ export default (async ({ directory, worktree, project, client }, options) => {
     tools: bool(raw.tools, env.MCPX_PLUGIN_TOOLS, false),
     annotate: bool(raw.annotate, env.MCPX_PLUGIN_ANNOTATE, true),
     headless: raw.headless ?? truthy(env.MCPX_PLUGIN_HEADLESS) ?? headlessByDefault(),
+    // plugin.discoveryRetry. The registry declared it and nothing read it,
+    // so an editor without mcpx installed paid the whole ladder again after
+    // whatever TUNING happened to say.
+    discoveryRetryMs: goDurationMs(env.MCPX_PLUGIN_DISCOVERY_RETRY) ?? TUNING.missCooldownMs,
   }
   const level: Level =
     settings.level === "minimal" || settings.level === "standard" ? settings.level : "full"
@@ -241,7 +246,7 @@ export default (async ({ directory, worktree, project, client }, options) => {
       chosen = undefined
     }
     if (!found) {
-      if (Date.now() - missedAt < TUNING.missCooldownMs) {
+      if (Date.now() - missedAt < settings.discoveryRetryMs) {
         return { candidates: [], rung: 6, reason: "none", ambiguous: false }
       }
       found = discover(ladderOptions())

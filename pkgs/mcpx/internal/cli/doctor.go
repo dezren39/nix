@@ -89,6 +89,7 @@ func (a *App) CmdDoctor(ctx context.Context, args []string) error {
 
 	// Configuration.
 	cfg, cerr := config.Load(a.ConfigPath)
+	config.ApplyPoolSettings(cfg, a.Settings())
 	switch {
 	case cerr != nil:
 		add(check{"config", "fail", cerr.Error(), "fix the file or pass --config"})

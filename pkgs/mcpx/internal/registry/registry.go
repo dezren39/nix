@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
 )
@@ -31,16 +32,41 @@ const DefaultURL = "https://registry.modelcontextprotocol.io"
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+
+	pageSize int
+}
+
+// Options are the knobs a caller resolved for this client.
+//
+// They are passed in rather than read here because this package has no access
+// to a resolved settings set and should not grow one: a client for an HTTP
+// API that reaches for a global to find its own timeout is a client nobody
+// can test twice in one process. A zero field means the built-in default,
+// which is what registry.timeout and registry.pageSize were silently doing
+// for every caller before anything passed them.
+type Options struct {
+	// Timeout bounds one request. Zero uses defaults.RegistryTimeout.
+	Timeout time.Duration
+	// PageSize is how many entries a listing asks for when the caller named
+	// no limit. Zero uses defaults.RegistryPageSize.
+	PageSize int
 }
 
 // New builds a client.
-func New(base string) *Client {
+func New(base string, opt Options) *Client {
 	if strings.TrimSpace(base) == "" {
 		base = DefaultURL
 	}
+	if opt.Timeout <= 0 {
+		opt.Timeout = defaults.RegistryTimeout
+	}
+	if opt.PageSize <= 0 {
+		opt.PageSize = defaults.RegistryPageSize
+	}
 	return &Client{
-		BaseURL: strings.TrimRight(base, "/"),
-		HTTP:    &http.Client{Timeout: defaults.RegistryTimeout},
+		BaseURL:  strings.TrimRight(base, "/"),
+		HTTP:     &http.Client{Timeout: opt.Timeout},
+		pageSize: opt.PageSize,
 	}
 }
 
@@ -126,7 +152,7 @@ type listResponse struct {
 // forecasts" finds nothing.
 func (c *Client) Search(ctx context.Context, query string, limit int) ([]Server, error) {
 	if limit <= 0 {
-		limit = defaults.RegistryPageSize
+		limit = c.pageSize
 	}
 	q := url.Values{}
 	q.Set("version", "latest")

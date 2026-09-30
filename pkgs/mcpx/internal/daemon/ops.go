@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -70,9 +71,11 @@ func (s *Server) openStore() (*logstore.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := st.Ingest(); err != nil {
-		st.Close()
-		return nil, err
+	if s.set.Bool("plumbing.indexOnQuery") {
+		if _, err := st.Ingest(); err != nil {
+			st.Close()
+			return nil, err
+		}
 	}
 	return st, nil
 }
@@ -97,6 +100,24 @@ func wireRecords(recs []logstore.Record) []logRecord {
 		out = append(out, logRecord{ID: r.ID, Time: r.Time,
 			Level: logging.LevelName(r.Level), Msg: r.Msg,
 			Template: r.Template, Attrs: r.Attrs})
+	}
+	return out
+}
+
+// logFilterNames are the query parameters that narrow a log query. They are
+// listed rather than derived so that adding one to the op declaration without
+// deciding what chain should do with it is a compile-free but visible
+// omission rather than a silent drop.
+var logFilterNames = []string{
+	"level", "event", "server", "tool", "session", "trace", "grep", "since", "until",
+}
+
+func namedFilters(q url.Values) []string {
+	var out []string
+	for _, name := range logFilterNames {
+		if q.Get(name) != "" {
+			out = append(out, name)
+		}
 	}
 	return out
 }
@@ -131,6 +152,16 @@ func (s *Server) handleLogQuery(w http.ResponseWriter, r *http.Request) {
 	defer st.Close()
 
 	if chain := q.Get("chain"); chain != "" {
+		// Chain walks a trace tree by id and takes no filters. Accepting
+		// them and dropping them returned the whole tree at every level and
+		// looked like it had worked, which is a worse answer than a refusal:
+		// a caller reading it concludes the trace touched everything.
+		if named := namedFilters(q); len(named) > 0 {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf(
+				"chain returns a whole trace tree and cannot be filtered; "+
+					"drop %s, or drop chain", strings.Join(named, ", ")))
+			return
+		}
 		levels, err := st.Chain(chain, query.Limit)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
@@ -249,7 +280,10 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 	// It used to be environment-only here and config-only in the CLI, which
 	// meant `mcpx registry search` and GET /v1/registry/search could quietly
 	// query two different registries.
-	client := registry.New(cs.String("registry.url"))
+	client := registry.New(cs.String("registry.url"), registry.Options{
+		Timeout:  cs.Duration("registry.timeout"),
+		PageSize: cs.Int("registry.pageSize"),
+	})
 	servers, err := client.Search(r.Context(), r.URL.Query().Get("q"), limit)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)

@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dezren39/mcpx/internal/diagnose"
+	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/recipes"
 )
 
@@ -45,10 +48,36 @@ func (s *Server) handleDiagnose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ds := diagnose.Script(req.Source, s.reg.DiagnoseCatalog())
+	// The session was decoded and discarded, so the parameter's own
+	// description -- "for the record" -- described a record nothing wrote.
+	// A diagnostic run is worth one line: it is what a later failure gets
+	// compared against, and without the session it cannot be joined to the
+	// run it was diagnosing.
+	s.recordDiagnosis(req.Session, len(ds), anyFatal(ds))
 	writeJSON(w, 200, map[string]any{
 		"diagnostics": nonNilDiagnostics(ds),
 		"fatal":       anyFatal(ds),
 	})
+}
+
+// recordDiagnosis writes one line about a diagnostic run. Silent when the
+// daemon has no durable log, which it survives.
+func (s *Server) recordDiagnosis(session string, found int, fatal bool) {
+	if s.sink == nil {
+		return
+	}
+	attrs := map[string]any{
+		logging.KeyEvent: "diagnose.run",
+		"diagnostics":    found,
+		"fatal":          fatal,
+	}
+	if session != "" {
+		attrs["session"] = session
+	}
+	s.sink.Write(logging.Record{
+		Time: time.Now(), Level: slog.LevelInfo,
+		Msg: "diagnosed a script", Attrs: attrs,
+	}, nil)
 }
 
 func nonNilDiagnostics(ds []diagnose.Diagnostic) []diagnose.Diagnostic {

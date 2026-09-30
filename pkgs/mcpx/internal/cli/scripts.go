@@ -14,6 +14,7 @@ import (
 	"github.com/dezren39/mcpx/internal/runner"
 	"github.com/dezren39/mcpx/internal/searchpath"
 	"github.com/dezren39/mcpx/internal/settings"
+	"github.com/dezren39/mcpx/internal/source"
 )
 
 // ScriptsDirNames are the per-project directories mcpx looks in for named
@@ -96,12 +97,54 @@ func SetPlumbingSource(a *App) { plumbingApp = a }
 
 func plumbingBool(path string) bool {
 	if plumbingApp == nil {
-		return false
+		// No App means no config file and no flags -- a daemon, or a test
+		// calling in directly. The declared default is still the right
+		// answer, and it used to return false regardless, which silently
+		// inverted every switch whose default is on.
+		return defaultPlumbing().Bool(path)
 	}
 	return plumbingApp.Plumbing(path)
 }
 
+var (
+	defaultPlumbingOnce sync.Once
+	defaultPlumbingSet  *settings.Set
+)
+
+func defaultPlumbing() *settings.Set {
+	defaultPlumbingOnce.Do(func() {
+		sch, err := settings.New(settings.Registry())
+		if err != nil {
+			panic("mcpx: settings registry is invalid: " + err.Error())
+		}
+		defaultPlumbingSet = settings.NewSet(sch)
+	})
+	return defaultPlumbingSet
+}
+
 func allowOverlap() bool { return plumbingBool("plumbing.allowTsJsOverlap") }
+
+// plumbingSourceOptions builds source.Options from the plumbing settings.
+//
+// source.Options has always said in its doc comment that it comes from the
+// plumbing settings; it did not. Every call site wrote the three booleans as
+// literals, so plumbing.sourceDirAllowed, sourceDirRecursive and
+// sourceProbePaths were three switches wired to nothing. The literals also
+// disagreed with each other -- a launcher refused a directory while a phase
+// accepted one -- which is the kind of difference a setting exists to make
+// deliberate.
+//
+// Extensions stays a caller's argument: it is not a policy, it is what this
+// particular call is willing to read.
+func plumbingSourceOptions(dir string, exts []string) source.Options {
+	return source.Options{
+		Dir:        dir,
+		AllowDir:   plumbingBool("plumbing.sourceDirAllowed"),
+		Recursive:  plumbingBool("plumbing.sourceDirRecursive"),
+		Probe:      plumbingBool("plumbing.sourceProbePaths"),
+		Extensions: exts,
+	}
+}
 
 // PlaceholderFiles lists every file on the placeholder search path.
 //

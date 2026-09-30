@@ -542,6 +542,9 @@ func (s *Server) reloadConfig() (added, removed []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// A reload re-reads the file and would otherwise drop whatever the
+	// environment, a flag or a runtime override said about the pool.
+	config.ApplyPoolSettings(cfg, s.set)
 	added, removed, err = s.reg.Reload(cfg)
 	if err != nil {
 		return nil, nil, err

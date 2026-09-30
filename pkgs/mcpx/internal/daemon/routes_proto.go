@@ -257,7 +257,7 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 	cc := callContext(r, req.Context, req.Session)
 	ttl := req.TTL
 	if ttl <= 0 {
-		ttl = int64(defaults.ProtoAskTTL / time.Millisecond)
+		ttl = s.set.Duration("proto.askTTL").Milliseconds()
 	}
 
 	// The task id is the call id, and the call has to be registered under it

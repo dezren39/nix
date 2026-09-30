@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/dezren39/mcpx/internal/config"
@@ -66,6 +67,16 @@ func (a *App) Settings() *settings.Set {
 			a.settingsErr = cerr
 			return
 		}
+		// plumbing.strictUnknownKeys turns a key no setting claims from a
+		// note `mcpx doctor` prints into a refusal. It is read from the set
+		// that was just built, which is the only order that works: the switch
+		// itself lives in the file being judged.
+		if set.Bool("plumbing.strictUnknownKeys") {
+			if uerr := unknownKeysError(set.Unknown()); uerr != nil {
+				a.settingsErr = uerr
+				return
+			}
+		}
 		a.settings = set
 		a.settingsSchema = sch
 	})
@@ -108,6 +119,23 @@ func (a *App) BindFlags(fs *flag.FlagSet, cmd string) func() error {
 		}
 		return a.Settings().CheckRequirements()
 	}
+}
+
+// unknownKeysError turns the collected unknown keys into one message naming
+// every file, because a config split across three files that each contain a
+// typo should be fixed in one pass rather than three runs.
+func unknownKeysError(unknown []settings.UnknownKeys) error {
+	if len(unknown) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("configuration keys no setting claims")
+	for _, u := range unknown {
+		fmt.Fprintf(&b, "\n  %s: %s", u.File, strings.Join(u.Keys, ", "))
+	}
+	b.WriteString("\n(run `mcpx config --schema` for the list, or turn " +
+		"plumbing.strictUnknownKeys off)")
+	return errors.New(b.String())
 }
 
 func configFilesFarthestFirst(explicit string) []string {

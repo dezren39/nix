@@ -307,6 +307,16 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 	srv := mcpserver.New(mcpBackend{app: a}, "mcpx", a.Version)
 	srv.Notify = daemonNotifier{app: a}
 	srv.PageSize = a.Settings().Int("mcp.pageSize")
+	srv.MaxCompletions = a.Settings().Int("completion.maxValues")
+	// The ask loop's five bounds. They were read from internal/defaults at
+	// the point of use, so the settings that name them did nothing.
+	srv.Timing = mcpserver.Timing{
+		AskTimeout:  a.Settings().Duration("proto.askTimeout"),
+		AskPoll:     a.Settings().Duration("proto.askPoll"),
+		AskRounds:   a.Settings().Int("proto.askRounds"),
+		StateTTL:    a.Settings().Duration("proto.stateTTL"),
+		SessionIdle: a.Settings().Duration("proto.sessionIdle"),
+	}
 	if a.Settings().Bool("proto.native") {
 		// Native elicitation and sampling: a question an upstream server
 		// asks is put to mcpx's own client, if that client said it could

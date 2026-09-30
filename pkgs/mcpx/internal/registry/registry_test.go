@@ -139,7 +139,7 @@ func TestSearchSendsWhatTheRegistryExpects(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := registry.New(srv.URL).Search(context.Background(), "weather", 5)
+	got, err := registry.New(srv.URL, registry.Options{}).Search(context.Background(), "weather", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestAFailingRegistryNamesItself(t *testing.T) {
 		http.Error(w, "nope", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	_, err := registry.New(srv.URL).Search(context.Background(), "x", 1)
+	_, err := registry.New(srv.URL, registry.Options{}).Search(context.Background(), "x", 1)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -170,7 +170,7 @@ func TestAFailingRegistryNamesItself(t *testing.T) {
 }
 
 func TestTheDefaultIsTheOfficialRegistry(t *testing.T) {
-	if c := registry.New(""); c.BaseURL != registry.DefaultURL {
+	if c := registry.New("", registry.Options{}); c.BaseURL != registry.DefaultURL {
 		t.Errorf("got %q", c.BaseURL)
 	}
 }

@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/dezren39/mcpx/internal/defaults"
 )
 
 // Asker runs a request that an upstream server may interrupt with a
@@ -152,7 +150,8 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		callID = id
 	}
 
-	deadline := time.Now().Add(defaults.ProtoAskTimeout)
+	tm := s.Timing.resolved()
+	deadline := time.Now().Add(tm.AskTimeout)
 	rounds := 0
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
@@ -162,7 +161,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			// may still collect from /v1/tasks.
 			return fail(codeInternal, req.Method+": "+err.Error())
 		}
-		wait := defaults.ProtoAskPoll
+		wait := tm.AskPoll
 		if left := time.Until(deadline); left < wait {
 			wait = left
 		}
@@ -193,10 +192,10 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			}
 			continue
 		}
-		if rounds++; rounds > defaults.ProtoAskRounds {
+		if rounds++; rounds > tm.AskRounds {
 			s.Ask.Abandon(callID)
 			return fail(codeInternal, fmt.Sprintf(
-				"%s was still asking for input after %d rounds", req.Method, defaults.ProtoAskRounds))
+				"%s was still asking for input after %d rounds", req.Method, tm.AskRounds))
 		}
 
 		if peer.Modern {
@@ -309,7 +308,10 @@ func (c *Conn) binding() string {
 
 // states returns the signer, built once per server.
 func (s *Server) states() *stateSigner {
-	s.stateOnce.Do(func() { s.signer = newStateSigner() })
+	s.stateOnce.Do(func() {
+		s.signer = newStateSigner()
+		s.signer.ttl = s.Timing.resolved().StateTTL
+	})
 	return s.signer
 }
 
