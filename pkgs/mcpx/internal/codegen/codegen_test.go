@@ -321,3 +321,20 @@ func TestPreludeCannotCloseTheComment(t *testing.T) {
 		t.Fatalf("prelude must be escaped:\n%s", out)
 	}
 }
+
+func TestToolMetadataNeverEmitsNull(t *testing.T) {
+	// A nil Go slice marshals to JSON null, and the emitted type says
+	// string[]. One parameterless tool therefore made the generated client
+	// fail to type check -- and with it every script, whatever the script
+	// said, so --typecheck could not report the mistakes it exists to find.
+	for _, schema := range []string{``, `{}`, `{"type":"object"}`, `{"type":"object","properties":{}}`} {
+		out := codegen.Module([]codegen.Namespace{{
+			Name:   "demo",
+			Server: "demo",
+			Tools:  []codegen.Tool{{Name: "go", InputSchema: json.RawMessage(schema)}},
+		}}, "", "")
+		if strings.Contains(out, `"params": null`) || strings.Contains(out, `"required": null`) {
+			t.Errorf("schema %q emitted a null where string[] is declared:\n%s", schema, out)
+		}
+	}
+}

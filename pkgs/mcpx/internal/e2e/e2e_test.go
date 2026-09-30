@@ -2636,3 +2636,36 @@ func TestResolveTellsAPluginWhichDaemonServesADirectory(t *testing.T) {
 		t.Errorf("relative dir: status %d, want 400", bad.StatusCode)
 	}
 }
+
+func TestTypeCheckCatchesAnUnknownNamespaceBeforeAnythingRuns(t *testing.T) {
+	// Three separate faults let a typo'd namespace run half a script:
+	// preflight ignores unknown namespaces on purpose, --typecheck was
+	// silently dropped on the exec path, and when it did run it failed on
+	// mcpx's own generated client, so nobody could leave it on.
+	//
+	// The emit before the bad call is the point: without a check, it ran,
+	// and so would anything else with a side effect.
+	e := newEnv(t, oneServer)
+	out, err := e.try("exec", "--typecheck=on",
+		`emit({step: "before"}); await totally_made_up.some_tool({});`)
+	if err == nil {
+		t.Fatalf("an unknown namespace should stop the run:\n%s", out)
+	}
+	if !strings.Contains(out, "totally_made_up") {
+		t.Errorf("the error should name the namespace:\n%s", out)
+	}
+	if strings.Contains(out, `"step"`) {
+		t.Errorf("nothing should have run:\n%s", out)
+	}
+}
+
+func TestTypeCheckPassesForAScriptThatUsesTheGlobals(t *testing.T) {
+	// The other half: the ambient declarations must actually load, or a
+	// check that works reports "Cannot find name 'emit'" for every script.
+	e := newEnv(t, oneServer)
+	out := e.run("exec", "--typecheck=on",
+		`const r = await demo.echo({message: "hi"}); emit({ok: r != null});`)
+	if !strings.Contains(out, "true") {
+		t.Fatalf("a correct script must pass the check and run:\n%s", out)
+	}
+}
