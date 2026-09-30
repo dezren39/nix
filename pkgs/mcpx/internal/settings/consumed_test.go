@@ -300,7 +300,11 @@ func walkGo(t *testing.T, root string, fn func(path, body string)) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "node_modules" {
+			// vendor/ is other people's code, and in the nix build it is
+			// there: buildGoModule copies the vendored modules into the
+			// source tree, and reading all of modernc.org/sqlite line by line
+			// put this package past go test's ten minutes on a loaded builder.
+			if d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "vendor" {
 				return fs.SkipDir
 			}
 			return nil
