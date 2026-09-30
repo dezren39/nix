@@ -8,66 +8,66 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | revision | side | level | applies | tested | gap | missing | n/a |
 |---|---|---|---|---|---|---|---|
-| 2024-11-05 | server | MUST | 33 | 9 | 0 | 24 | 21 |
-| 2024-11-05 | server | MUST NOT | 6 | 0 | 0 | 6 | 4 |
-| 2024-11-05 | server | SHOULD | 36 | 5 | 0 | 31 | 45 |
+| 2024-11-05 | server | MUST | 33 | 14 | 0 | 19 | 21 |
+| 2024-11-05 | server | MUST NOT | 6 | 3 | 0 | 3 | 4 |
+| 2024-11-05 | server | SHOULD | 36 | 7 | 0 | 29 | 45 |
 | 2024-11-05 | server | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | server | MAY | 10 | 1 | 1 | 8 | 14 |
-| 2024-11-05 | server | other | 11 | 4 | 0 | 7 | 1 |
-| 2024-11-05 | client | MUST | 32 | 9 | 0 | 23 | 22 |
-| 2024-11-05 | client | MUST NOT | 9 | 0 | 1 | 8 | 1 |
+| 2024-11-05 | server | MAY | 10 | 2 | 1 | 7 | 14 |
+| 2024-11-05 | server | other | 11 | 6 | 0 | 5 | 1 |
+| 2024-11-05 | client | MUST | 32 | 14 | 0 | 18 | 22 |
+| 2024-11-05 | client | MUST NOT | 9 | 3 | 1 | 5 | 1 |
 | 2024-11-05 | client | SHOULD | 38 | 5 | 2 | 31 | 43 |
 | 2024-11-05 | client | SHOULD NOT | 1 | 1 | 0 | 0 | 1 |
-| 2024-11-05 | client | MAY | 15 | 2 | 1 | 12 | 9 |
-| 2024-11-05 | client | other | 7 | 4 | 0 | 3 | 5 |
-| 2025-03-26 | server | MUST | 52 | 9 | 7 | 36 | 29 |
-| 2025-03-26 | server | MUST NOT | 7 | 0 | 0 | 7 | 8 |
-| 2025-03-26 | server | SHOULD | 50 | 8 | 5 | 37 | 53 |
+| 2024-11-05 | client | MAY | 15 | 3 | 1 | 11 | 9 |
+| 2024-11-05 | client | other | 7 | 6 | 0 | 1 | 5 |
+| 2025-03-26 | server | MUST | 52 | 15 | 7 | 30 | 29 |
+| 2025-03-26 | server | MUST NOT | 7 | 4 | 0 | 3 | 8 |
+| 2025-03-26 | server | SHOULD | 50 | 10 | 5 | 35 | 53 |
 | 2025-03-26 | server | SHOULD NOT | 4 | 1 | 1 | 2 | 1 |
-| 2025-03-26 | server | MAY | 19 | 1 | 3 | 15 | 18 |
-| 2025-03-26 | server | other | 11 | 4 | 0 | 7 | 1 |
-| 2025-03-26 | client | MUST | 47 | 9 | 8 | 30 | 34 |
-| 2025-03-26 | client | MUST NOT | 12 | 1 | 2 | 9 | 3 |
+| 2025-03-26 | server | MAY | 19 | 4 | 3 | 12 | 18 |
+| 2025-03-26 | server | other | 11 | 6 | 0 | 5 | 1 |
+| 2025-03-26 | client | MUST | 47 | 15 | 8 | 24 | 34 |
+| 2025-03-26 | client | MUST NOT | 12 | 5 | 2 | 5 | 3 |
 | 2025-03-26 | client | SHOULD | 51 | 8 | 7 | 36 | 52 |
 | 2025-03-26 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-03-26 | client | MAY | 22 | 3 | 2 | 17 | 15 |
-| 2025-03-26 | client | other | 7 | 4 | 0 | 3 | 5 |
-| 2025-06-18 | server | MUST | 66 | 10 | 13 | 43 | 35 |
-| 2025-06-18 | server | MUST NOT | 10 | 0 | 1 | 9 | 8 |
-| 2025-06-18 | server | SHOULD | 52 | 7 | 4 | 41 | 63 |
+| 2025-03-26 | client | MAY | 22 | 5 | 3 | 14 | 15 |
+| 2025-03-26 | client | other | 7 | 6 | 0 | 1 | 5 |
+| 2025-06-18 | server | MUST | 66 | 18 | 13 | 35 | 35 |
+| 2025-06-18 | server | MUST NOT | 10 | 5 | 1 | 4 | 8 |
+| 2025-06-18 | server | SHOULD | 52 | 9 | 4 | 39 | 63 |
 | 2025-06-18 | server | SHOULD NOT | 4 | 1 | 1 | 2 | 1 |
-| 2025-06-18 | server | MAY | 17 | 1 | 2 | 14 | 18 |
-| 2025-06-18 | server | other | 15 | 4 | 0 | 11 | 3 |
-| 2025-06-18 | client | MUST | 58 | 10 | 14 | 34 | 43 |
-| 2025-06-18 | client | MUST NOT | 13 | 0 | 3 | 10 | 5 |
+| 2025-06-18 | server | MAY | 17 | 3 | 2 | 12 | 18 |
+| 2025-06-18 | server | other | 15 | 6 | 0 | 9 | 3 |
+| 2025-06-18 | client | MUST | 58 | 18 | 14 | 26 | 43 |
+| 2025-06-18 | client | MUST NOT | 13 | 5 | 3 | 5 | 5 |
 | 2025-06-18 | client | SHOULD | 59 | 7 | 6 | 46 | 56 |
 | 2025-06-18 | client | SHOULD NOT | 2 | 1 | 1 | 0 | 3 |
-| 2025-06-18 | client | MAY | 20 | 3 | 2 | 15 | 15 |
-| 2025-06-18 | client | other | 10 | 4 | 0 | 6 | 8 |
-| 2025-11-25 | server | MUST | 116 | 10 | 13 | 93 | 64 |
-| 2025-11-25 | server | MUST NOT | 22 | 0 | 1 | 21 | 13 |
-| 2025-11-25 | server | SHOULD | 78 | 8 | 5 | 65 | 81 |
+| 2025-06-18 | client | MAY | 20 | 5 | 2 | 13 | 15 |
+| 2025-06-18 | client | other | 10 | 6 | 0 | 4 | 8 |
+| 2025-11-25 | server | MUST | 116 | 20 | 15 | 81 | 64 |
+| 2025-11-25 | server | MUST NOT | 22 | 5 | 1 | 16 | 13 |
+| 2025-11-25 | server | SHOULD | 78 | 12 | 6 | 60 | 81 |
 | 2025-11-25 | server | SHOULD NOT | 11 | 1 | 1 | 9 | 3 |
-| 2025-11-25 | server | MAY | 27 | 1 | 2 | 24 | 28 |
-| 2025-11-25 | server | other | 19 | 4 | 0 | 15 | 2 |
-| 2025-11-25 | client | MUST | 82 | 11 | 14 | 57 | 98 |
-| 2025-11-25 | client | MUST NOT | 16 | 0 | 3 | 13 | 19 |
-| 2025-11-25 | client | SHOULD | 74 | 7 | 11 | 56 | 85 |
+| 2025-11-25 | server | MAY | 27 | 4 | 2 | 21 | 28 |
+| 2025-11-25 | server | other | 19 | 9 | 0 | 10 | 2 |
+| 2025-11-25 | client | MUST | 82 | 20 | 15 | 47 | 98 |
+| 2025-11-25 | client | MUST NOT | 16 | 5 | 3 | 8 | 19 |
+| 2025-11-25 | client | SHOULD | 74 | 8 | 12 | 54 | 85 |
 | 2025-11-25 | client | SHOULD NOT | 5 | 1 | 1 | 3 | 9 |
-| 2025-11-25 | client | MAY | 25 | 3 | 3 | 19 | 30 |
-| 2025-11-25 | client | other | 13 | 4 | 0 | 9 | 8 |
-| 2026-07-28 | server | MUST | 135 | 12 | 15 | 108 | 89 |
-| 2026-07-28 | server | MUST NOT | 46 | 1 | 1 | 44 | 18 |
-| 2026-07-28 | server | SHOULD | 74 | 3 | 6 | 65 | 86 |
-| 2026-07-28 | server | SHOULD NOT | 12 | 1 | 2 | 9 | 8 |
-| 2026-07-28 | server | MAY | 31 | 3 | 2 | 26 | 30 |
-| 2026-07-28 | server | other | 23 | 2 | 0 | 21 | 4 |
-| 2026-07-28 | client | MUST | 98 | 4 | 21 | 73 | 126 |
-| 2026-07-28 | client | MUST NOT | 26 | 1 | 2 | 23 | 38 |
-| 2026-07-28 | client | SHOULD | 83 | 3 | 10 | 70 | 77 |
-| 2026-07-28 | client | SHOULD NOT | 13 | 3 | 1 | 9 | 7 |
-| 2026-07-28 | client | MAY | 23 | 2 | 3 | 18 | 38 |
-| 2026-07-28 | client | other | 13 | 1 | 0 | 12 | 14 |
+| 2025-11-25 | client | MAY | 25 | 6 | 3 | 16 | 30 |
+| 2025-11-25 | client | other | 13 | 8 | 0 | 5 | 8 |
+| 2026-07-28 | server | MUST | 135 | 28 | 18 | 89 | 89 |
+| 2026-07-28 | server | MUST NOT | 46 | 13 | 1 | 32 | 18 |
+| 2026-07-28 | server | SHOULD | 74 | 9 | 9 | 56 | 86 |
+| 2026-07-28 | server | SHOULD NOT | 12 | 2 | 2 | 8 | 8 |
+| 2026-07-28 | server | MAY | 31 | 10 | 2 | 19 | 30 |
+| 2026-07-28 | server | other | 23 | 8 | 1 | 14 | 4 |
+| 2026-07-28 | client | MUST | 98 | 17 | 23 | 58 | 126 |
+| 2026-07-28 | client | MUST NOT | 26 | 9 | 2 | 15 | 38 |
+| 2026-07-28 | client | SHOULD | 83 | 6 | 12 | 65 | 77 |
+| 2026-07-28 | client | SHOULD NOT | 13 | 4 | 1 | 8 | 7 |
+| 2026-07-28 | client | MAY | 23 | 7 | 3 | 13 | 38 |
+| 2026-07-28 | client | other | 13 | 6 | 0 | 7 | 14 |
 
 ## 2024-11-05
 
@@ -75,7 +75,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | tested: `conformance.TestMessagesServer/2024-11-05/security/security-implementors-guidelines` | n/a: catalogue marks it n/a |
 
 ### authorization
 
@@ -111,9 +111,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | **MISSING** | n/a: sends no errors except to server requests |
+| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2024-11-05/errors/errors-error-has-code-and-message` | tested: `conformance.TestMessagesClient/2024-11-05/errors/errors-error-has-code-and-message` |
+| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2024-11-05/errors/errors-codes-integers` | tested: `conformance.TestMessagesClient/2024-11-05/errors/errors-codes-integers` |
+| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | tested: `conformance.TestMessagesServer/2024-11-05/errors/errors-message-concise-single-sentence` | n/a: sends no errors except to server requests |
 
 ### lifecycle
 
@@ -155,21 +155,21 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2024-11-05/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2024-11-05/messages/all-messages-follow-jsonrpc-2-server-stdio` | tested: `conformance.TestJSONRPCFramesEveryRevision/2024-11-05/messages/all-messages-follow-jsonrpc-2-client` |
-| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | **MISSING** | **MISSING** |
-| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | **MISSING** | **MISSING** |
-| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-response-same-id](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST | both | **MISSING** | **MISSING** |
-| [messages-response-result-xor-error](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST / MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
+| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2024-11-05/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2024-11-05/messages/all-messages-follow-jsonrpc-2-server-stdio`<br>`conformance.TestMessagesServer/2024-11-05/messages/messages-all-messages-follow-jsonrpc-2` | tested: `conformance.TestJSONRPCFramesEveryRevision/2024-11-05/messages/all-messages-follow-jsonrpc-2-client` |
+| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | tested: `conformance.TestMessagesServer/2024-11-05/messages/messages-other-components-may` | tested: `conformance.TestMessagesClient/2024-11-05/messages/messages-other-components-may` |
+| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | tested: `conformance.TestMessagesServer/2024-11-05/messages/messages-request-id-string-or-integer` | tested: `conformance.TestMessagesClient/2024-11-05/messages/messages-request-id-string-or-integer` |
+| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2024-11-05/messages/messages-request-id-not-null` | tested: `conformance.TestMessagesClient/2024-11-05/messages/messages-request-id-not-null` |
+| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2024-11-05/messages/messages-request-id-unique-per-session` | tested: `conformance.TestMessagesClient/2024-11-05/messages/messages-request-id-unique-per-session` |
+| [messages-response-same-id](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST | both | tested: `conformance.TestMessagesServer/2024-11-05/messages/messages-response-same-id` | tested: `conformance.TestMessagesClient/2024-11-05/messages/messages-response-same-id` |
+| [messages-response-result-xor-error](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST / MUST NOT | both | tested: `conformance.TestMessagesServer/2024-11-05/messages/messages-response-result-xor-error` | tested: `conformance.TestMessagesClient/2024-11-05/messages/messages-response-result-xor-error` |
+| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2024-11-05/messages/messages-notification-no-id` | tested: `conformance.TestMessagesClient/2024-11-05/messages/messages-notification-no-id` |
 
 ### meta
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [meta-reserved-for-mcp](https://modelcontextprotocol.io/specification/GH(2025-03-26) `Result._meta`) | (definitional) | both | **MISSING** | **MISSING** |
-| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | **MISSING** | **MISSING** |
+| [meta-reserved-for-mcp](https://modelcontextprotocol.io/specification/GH(2025-03-26) `Result._meta`) | (definitional) | both | tested: `conformance.TestMessagesServer/2024-11-05/meta/meta-reserved-for-mcp` | tested: `conformance.TestMessagesClient/2024-11-05/meta/meta-reserved-for-mcp` |
+| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | tested: `conformance.TestMessagesServer/2024-11-05/meta/meta-progress-token-receiver-not-obligated` | tested: `conformance.TestMessagesClient/2024-11-05/meta/meta-progress-token-receiver-not-obligated` |
 
 ### pagination
 
@@ -390,7 +390,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | tested: `conformance.TestMessagesServer/2025-03-26/security/security-implementors-guidelines` | n/a: catalogue marks it n/a |
 
 ### authorization
 
@@ -449,9 +449,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | **MISSING** | n/a: sends no errors except to server requests |
+| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-03-26/errors/errors-error-has-code-and-message` | tested: `conformance.TestMessagesClient/2025-03-26/errors/errors-error-has-code-and-message` |
+| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-03-26/errors/errors-codes-integers` | tested: `conformance.TestMessagesClient/2025-03-26/errors/errors-codes-integers` |
+| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | tested: `conformance.TestMessagesServer/2025-03-26/errors/errors-message-concise-single-sentence` | n/a: sends no errors except to server requests |
 
 ### lifecycle
 
@@ -498,25 +498,25 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-03-26/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2025-03-26/messages/all-messages-follow-jsonrpc-2-server-stdio` | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-03-26/messages/all-messages-follow-jsonrpc-2-client` |
-| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | **MISSING** | **MISSING** |
-| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | **MISSING** | **MISSING** |
-| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-response-same-id](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST | both | **MISSING** | **MISSING** |
-| [messages-response-result-xor-error](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST / MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | **MISSING** | **MISSING** |
-| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-batch-may-send-must-receive](https://modelcontextprotocol.io/specification/2025-03-26/basic/index#batching) | MAY / MUST | both | **MISSING** | **MISSING** |
-| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | **MISSING** | **MISSING** |
+| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-03-26/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2025-03-26/messages/all-messages-follow-jsonrpc-2-server-stdio`<br>`conformance.TestMessagesServer/2025-03-26/messages/messages-all-messages-follow-jsonrpc-2` | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-03-26/messages/all-messages-follow-jsonrpc-2-client` |
+| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-other-components-may` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-other-components-may` |
+| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-request-id-string-or-integer` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-request-id-string-or-integer` |
+| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-request-id-not-null` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-request-id-not-null` |
+| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-request-id-unique-per-session` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-request-id-unique-per-session` |
+| [messages-response-same-id](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-response-same-id` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-response-same-id` |
+| [messages-response-result-xor-error](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST / MUST NOT | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-response-result-xor-error` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-response-result-xor-error` |
+| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-result-any-object` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-result-any-object` |
+| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-notification-no-response` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-notification-no-response` |
+| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-notification-no-id` | tested: `conformance.TestMessagesClient/2025-03-26/messages/messages-notification-no-id` |
+| [messages-batch-may-send-must-receive](https://modelcontextprotocol.io/specification/2025-03-26/basic/index#batching) | MAY / MUST | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/messages-batch-may-send-must-receive` | **gap** #203: the stdio receive loop drops a line holding a JSON array |
+| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | tested: `conformance.TestMessagesServer/2025-03-26/messages/transport-jsonrpc-utf8` | tested: `conformance.TestMessagesClient/2025-03-26/messages/transport-jsonrpc-utf8` |
 
 ### meta
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [meta-reserved-for-mcp](https://modelcontextprotocol.io/specification/GH(2025-03-26) `Result._meta`) | (definitional) | both | **MISSING** | **MISSING** |
-| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | **MISSING** | **MISSING** |
+| [meta-reserved-for-mcp](https://modelcontextprotocol.io/specification/GH(2025-03-26) `Result._meta`) | (definitional) | both | tested: `conformance.TestMessagesServer/2025-03-26/meta/meta-reserved-for-mcp` | tested: `conformance.TestMessagesClient/2025-03-26/meta/meta-reserved-for-mcp` |
+| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | tested: `conformance.TestMessagesServer/2025-03-26/meta/meta-progress-token-receiver-not-obligated` | tested: `conformance.TestMessagesClient/2025-03-26/meta/meta-progress-token-receiver-not-obligated` |
 
 ### pagination
 
@@ -780,7 +780,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | tested: `conformance.TestMessagesServer/2025-06-18/security/security-implementors-guidelines` | n/a: catalogue marks it n/a |
 
 ### authorization
 
@@ -866,9 +866,9 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | **MISSING** | n/a: sends no errors except to server requests |
+| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-06-18/errors/errors-error-has-code-and-message` | tested: `conformance.TestMessagesClient/2025-06-18/errors/errors-error-has-code-and-message` |
+| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-06-18/errors/errors-codes-integers` | tested: `conformance.TestMessagesClient/2025-06-18/errors/errors-codes-integers` |
+| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | tested: `conformance.TestMessagesServer/2025-06-18/errors/errors-message-concise-single-sentence` | n/a: sends no errors except to server requests |
 
 ### lifecycle
 
@@ -914,28 +914,28 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-06-18/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2025-06-18/messages/all-messages-follow-jsonrpc-2-server-stdio` | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-06-18/messages/all-messages-follow-jsonrpc-2-client` |
-| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | **MISSING** | **MISSING** |
-| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | **MISSING** | **MISSING** |
-| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-response-same-id](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST | both | **MISSING** | **MISSING** |
-| [messages-response-result-xor-error](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST / MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | **MISSING** | **MISSING** |
-| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | **MISSING** | **MISSING** |
+| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-06-18/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2025-06-18/messages/all-messages-follow-jsonrpc-2-server-stdio`<br>`conformance.TestMessagesServer/2025-06-18/messages/messages-all-messages-follow-jsonrpc-2` | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-06-18/messages/all-messages-follow-jsonrpc-2-client` |
+| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-other-components-may` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-other-components-may` |
+| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-request-id-string-or-integer` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-request-id-string-or-integer` |
+| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-request-id-not-null` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-request-id-not-null` |
+| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-request-id-unique-per-session` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-request-id-unique-per-session` |
+| [messages-response-same-id](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-response-same-id` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-response-same-id` |
+| [messages-response-result-xor-error](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#responses) | MUST / MUST NOT | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-response-result-xor-error` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-response-result-xor-error` |
+| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-result-any-object` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-result-any-object` |
+| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-notification-no-response` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-notification-no-response` |
+| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/messages-notification-no-id` | tested: `conformance.TestMessagesClient/2025-06-18/messages/messages-notification-no-id` |
+| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | tested: `conformance.TestMessagesServer/2025-06-18/messages/transport-jsonrpc-utf8` | tested: `conformance.TestMessagesClient/2025-06-18/messages/transport-jsonrpc-utf8` |
 
 ### meta
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [meta-no-assumptions-on-reserved-keys](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | both | **MISSING** | **MISSING** |
-| [meta-prefix-label-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | both | **MISSING** | **MISSING** |
+| [meta-no-assumptions-on-reserved-keys](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-06-18/meta/meta-no-assumptions-on-reserved-keys` | tested: `conformance.TestMessagesClient/2025-06-18/meta/meta-no-assumptions-on-reserved-keys` |
+| [meta-prefix-label-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | both | tested: `conformance.TestMessagesServer/2025-06-18/meta/meta-prefix-label-format` | tested: `conformance.TestMessagesClient/2025-06-18/meta/meta-prefix-label-format` |
 | [meta-reserved-prefix-2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18/basic/index#meta) | (reservation) | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [meta-name-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / MAY | both | **MISSING** | **MISSING** |
-| [meta-schema-may-reserve-names](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | **MISSING** | **MISSING** |
-| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | **MISSING** | **MISSING** |
+| [meta-name-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / MAY | both | tested: `conformance.TestMessagesServer/2025-06-18/meta/meta-name-format` | tested: `conformance.TestMessagesClient/2025-06-18/meta/meta-name-format` |
+| [meta-schema-may-reserve-names](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | tested: `conformance.TestMessagesServer/2025-06-18/meta/meta-schema-may-reserve-names` | tested: `conformance.TestMessagesClient/2025-06-18/meta/meta-schema-may-reserve-names` |
+| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | tested: `conformance.TestMessagesServer/2025-06-18/meta/meta-progress-token-receiver-not-obligated` | tested: `conformance.TestMessagesClient/2025-06-18/meta/meta-progress-token-receiver-not-obligated` |
 
 ### pagination
 
@@ -1214,7 +1214,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | tested: `conformance.TestMessagesServer/2025-11-25/security/security-implementors-guidelines` | n/a: catalogue marks it n/a |
 
 ### authorization
 
@@ -1364,23 +1364,23 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [messages-error-response-same-id-unless-unreadable](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | **MISSING** | n/a: sends no errors except to server requests |
+| [messages-error-response-same-id-unless-unreadable](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/errors/messages-error-response-same-id-unless-unreadable` | tested: `conformance.TestMessagesClient/2025-11-25/errors/messages-error-response-same-id-unless-unreadable` |
+| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/errors/errors-error-has-code-and-message` | tested: `conformance.TestMessagesClient/2025-11-25/errors/errors-error-has-code-and-message` |
+| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/errors/errors-codes-integers` | tested: `conformance.TestMessagesClient/2025-11-25/errors/errors-codes-integers` |
+| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | tested: `conformance.TestMessagesServer/2025-11-25/errors/errors-message-concise-single-sentence` | n/a: sends no errors except to server requests |
 
 ### json-schema
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [json-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | (definitional) | both | **MISSING** | n/a: catalogue marks it n/a |
-| [json-schema-may-declare-dialect](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | MAY | both | **MISSING** | **MISSING** |
-| [json-schema-support-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **MISSING** | n/a: passes through |
-| [json-schema-validate-per-dialect-and-error-on-unsupported](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [json-schema-document-dialects](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [json-schema-recommend-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | RECOMMENDED | both | **MISSING** | n/a: catalogue marks it n/a |
-| [json-schema-schemas-valid](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-validation) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [tools-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | (definition) | both | **MISSING** | **MISSING** |
+| [json-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | (definitional) | both | tested: `conformance.TestMessagesServer/2025-11-25/json-schema/json-schema-default-2020-12` | n/a: catalogue marks it n/a |
+| [json-schema-may-declare-dialect](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | MAY | both | tested: `conformance.TestMessagesServer/2025-11-25/json-schema/json-schema-may-declare-dialect` | tested: `conformance.TestMessagesClient/2025-11-25/json-schema/json-schema-may-declare-dialect` |
+| [json-schema-support-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **gap** pending:json-schema-validation: mcpx never validates arguments against a tool's inputSchema; schemas pass through | n/a: passes through |
+| [json-schema-validate-per-dialect-and-error-on-unsupported](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **gap** pending:json-schema-validation: no validator in the binary, so an unsupported $schema is forwarded, not refused | **gap** pending:json-schema-validation: no validator in the binary, so an unsupported $schema is accepted |
+| [json-schema-document-dialects](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | SHOULD | both | **gap** pending:json-schema-validation: no document states which dialects mcpx supports | **gap** pending:json-schema-validation: no document states which dialects mcpx supports |
+| [json-schema-recommend-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | RECOMMENDED | both | tested: `conformance.TestMessagesServer/2025-11-25/json-schema/json-schema-recommend-2020-12` | n/a: catalogue marks it n/a |
+| [json-schema-schemas-valid](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-validation) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/json-schema/json-schema-schemas-valid` | n/a: catalogue marks it n/a |
+| [tools-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | (definition) | both | tested: `conformance.TestMessagesServer/2025-11-25/json-schema/tools-schema-default-2020-12` | tested: `conformance.TestMessagesClient/2025-11-25/json-schema/tools-schema-default-2020-12` |
 
 ### lifecycle
 
@@ -1427,29 +1427,29 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-11-25/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2025-11-25/messages/all-messages-follow-jsonrpc-2-server-stdio` | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-11-25/messages/all-messages-follow-jsonrpc-2-client` |
-| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | **MISSING** | **MISSING** |
-| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | **MISSING** | **MISSING** |
-| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-result-response-same-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | **MISSING** | **MISSING** |
-| [messages-result-response-has-result](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | **MISSING** | **MISSING** |
-| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | **MISSING** | **MISSING** |
-| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | **MISSING** | **MISSING** |
+| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-11-25/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2025-11-25/messages/all-messages-follow-jsonrpc-2-server-stdio`<br>`conformance.TestMessagesServer/2025-11-25/messages/messages-all-messages-follow-jsonrpc-2` | tested: `conformance.TestJSONRPCFramesEveryRevision/2025-11-25/messages/all-messages-follow-jsonrpc-2-client` |
+| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-other-components-may` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-other-components-may` |
+| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-request-id-string-or-integer` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-request-id-string-or-integer` |
+| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-request-id-not-null` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-request-id-not-null` |
+| [messages-request-id-unique-per-session](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-request-id-unique-per-session` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-request-id-unique-per-session` |
+| [messages-result-response-same-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-result-response-same-id` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-result-response-same-id` |
+| [messages-result-response-has-result](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-result-response-has-result` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-result-response-has-result` |
+| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-result-any-object` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-result-any-object` |
+| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-notification-no-response` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-notification-no-response` |
+| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/messages-notification-no-id` | tested: `conformance.TestMessagesClient/2025-11-25/messages/messages-notification-no-id` |
+| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/messages/transport-jsonrpc-utf8` | tested: `conformance.TestMessagesClient/2025-11-25/messages/transport-jsonrpc-utf8` |
 
 ### meta
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [meta-no-assumptions-on-reserved-keys](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | both | **MISSING** | **MISSING** |
-| [meta-prefix-label-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | both | **MISSING** | **MISSING** |
-| [meta-reverse-dns-should](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | both | **MISSING** | **MISSING** |
-| [meta-reserved-prefix-second-label](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | **MISSING** | **MISSING** |
-| [meta-name-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / MAY | both | **MISSING** | **MISSING** |
-| [meta-schema-may-reserve-names](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | **MISSING** | **MISSING** |
-| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | **MISSING** | **MISSING** |
+| [meta-no-assumptions-on-reserved-keys](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | both | tested: `conformance.TestMessagesServer/2025-11-25/meta/meta-no-assumptions-on-reserved-keys` | tested: `conformance.TestMessagesClient/2025-11-25/meta/meta-no-assumptions-on-reserved-keys` |
+| [meta-prefix-label-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | both | tested: `conformance.TestMessagesServer/2025-11-25/meta/meta-prefix-label-format` | tested: `conformance.TestMessagesClient/2025-11-25/meta/meta-prefix-label-format` |
+| [meta-reverse-dns-should](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | both | tested: `conformance.TestMessagesServer/2025-11-25/meta/meta-reverse-dns-should` | tested: `conformance.TestMessagesClient/2025-11-25/meta/meta-reverse-dns-should` |
+| [meta-reserved-prefix-second-label](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | tested: `conformance.TestMessagesServer/2025-11-25/meta/meta-reserved-prefix-second-label` | tested: `conformance.TestMessagesClient/2025-11-25/meta/meta-reserved-prefix-second-label` |
+| [meta-name-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / MAY | both | tested: `conformance.TestMessagesServer/2025-11-25/meta/meta-name-format` | tested: `conformance.TestMessagesClient/2025-11-25/meta/meta-name-format` |
+| [meta-schema-may-reserve-names](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | tested: `conformance.TestMessagesServer/2025-11-25/meta/meta-schema-may-reserve-names` | tested: `conformance.TestMessagesClient/2025-11-25/meta/meta-schema-may-reserve-names` |
+| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | tested: `conformance.TestMessagesServer/2025-11-25/meta/meta-progress-token-receiver-not-obligated` | tested: `conformance.TestMessagesClient/2025-11-25/meta/meta-progress-token-receiver-not-obligated` |
 | [meta-icons-client-mime-support](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#icons) | MUST / SHOULD | client | n/a: addresses the other side | n/a: renders no icons |
 | [meta-icons-consumer-security](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#icons) | MUST | client | n/a: addresses the other side | n/a: never fetches icons; passes metadata through |
 | [meta-icons-reject-unsafe-schemes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#icons) | MUST | client | n/a: addresses the other side | n/a: does not dereference). Downstream host must do it |
@@ -1830,7 +1830,7 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
+| [security-implementors-guidelines](https://modelcontextprotocol.io/specification/2026-07-28/index#implementation-guidelines) | SHOULD | both | tested: `conformance.TestMessagesServer/2026-07-28/security/security-implementors-guidelines` | n/a: catalogue marks it n/a |
 
 ### authorization
 
@@ -2033,46 +2033,46 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [messages-error-response-same-id-unless-unreadable](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | **MISSING** | **MISSING** |
-| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | **MISSING** | n/a: sends no errors except to server requests |
-| [errors-data-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MAY | both | **MISSING** | n/a: catalogue marks it n/a |
-| [errors-standard-jsonrpc-codes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | (definitional) | both | **MISSING** | n/a: catalogue marks it n/a |
-| [errors-legacy-subrange-no-new-codes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT / SHOULD NOT | both | **MISSING** | **MISSING** |
-| [errors-receivers-no-meaning-for-legacy-subrange](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT | both | **MISSING** | **MISSING** |
-| [errors-reserved-subrange-only-spec-codes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT / MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [errors-do-not-emit-32002-and-32042](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT | both | **MISSING** | n/a: catalogue marks it n/a |
-| [errors-client-accept-32002-from-legacy](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [errors-local-errors-not-mistaken-for-peer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | should (lowercase) | both | **MISSING** | n/a: catalogue marks it n/a |
-| [errors-new-codes-outside-jsonrpc-range](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | SHOULD | both | **MISSING** | n/a: catalogue marks it n/a |
-| [errors-method-not-found-for-unadvertised-capability](https://modelcontextprotocol.io/specification/2026-07-28/schema#methodnotfounderror) | (schema guidance) | server | **MISSING** | n/a: addresses the other side |
+| [messages-error-response-same-id-unless-unreadable](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/messages-error-response-same-id-unless-unreadable` | tested: `conformance.TestMessagesClient/2026-07-28/errors/messages-error-response-same-id-unless-unreadable` |
+| [errors-error-has-code-and-message](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-error-has-code-and-message` | tested: `conformance.TestMessagesClient/2026-07-28/errors/errors-error-has-code-and-message` |
+| [errors-codes-integers](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-codes-integers` | tested: `conformance.TestMessagesClient/2026-07-28/errors/errors-codes-integers` |
+| [errors-message-concise-single-sentence](https://modelcontextprotocol.io/specification/2026-07-28/schema#error) | SHOULD | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-message-concise-single-sentence` | n/a: sends no errors except to server requests |
+| [errors-data-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-responses) | MAY | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-data-may` | n/a: catalogue marks it n/a |
+| [errors-standard-jsonrpc-codes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | (definitional) | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-standard-jsonrpc-codes` | n/a: catalogue marks it n/a |
+| [errors-legacy-subrange-no-new-codes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT / SHOULD NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-legacy-subrange-no-new-codes` | tested: `conformance.TestMessagesClient/2026-07-28/errors/errors-legacy-subrange-no-new-codes` |
+| [errors-receivers-no-meaning-for-legacy-subrange](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-receivers-no-meaning-for-legacy-subrange` | tested: `conformance.TestMessagesClient/2026-07-28/errors/errors-receivers-no-meaning-for-legacy-subrange` |
+| [errors-reserved-subrange-only-spec-codes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT / MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-reserved-subrange-only-spec-codes` | n/a: catalogue marks it n/a |
+| [errors-do-not-emit-32002-and-32042](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | MUST NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-do-not-emit-32002-and-32042` | n/a: catalogue marks it n/a |
+| [errors-client-accept-32002-from-legacy](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestMessagesClient/2026-07-28/errors/errors-client-accept-32002-from-legacy` |
+| [errors-local-errors-not-mistaken-for-peer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | should (lowercase) | both | **gap** #206: an upstream server's failure reaches the client as mcpx's own isError text or -32603, indistinguishable from mcpx failing | n/a: catalogue marks it n/a |
+| [errors-new-codes-outside-jsonrpc-range](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#error-codes) | SHOULD | both | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-new-codes-outside-jsonrpc-range` | n/a: catalogue marks it n/a |
+| [errors-method-not-found-for-unadvertised-capability](https://modelcontextprotocol.io/specification/2026-07-28/schema#methodnotfounderror) | (schema guidance) | server | **gap** pending:accept-unadvertised: mcpx answers methods whatever was negotiated (accept liberally, revisions.go); the schema guidance asks for -32601 | n/a: addresses the other side |
 | [errors-missing-required-client-capability](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | n/a: in practice: mcpx never requires a client capability; questions a client cannot answer go to the broker | n/a: addresses the other side |
-| [versioning-unsupported-version-http-400](https://modelcontextprotocol.io/specification/2026-07-28/schema#unsupportedprotocolversionerror) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [errors-header-mismatch-http-400](https://modelcontextprotocol.io/specification/2026-07-28/schema#headermismatcherror) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [versioning-unsupported-version-http-400](https://modelcontextprotocol.io/specification/2026-07-28/schema#unsupportedprotocolversionerror) | MUST | server | tested: `conformance.TestMessagesServer/2026-07-28/errors/versioning-unsupported-version-http-400` | n/a: addresses the other side |
+| [errors-header-mismatch-http-400](https://modelcontextprotocol.io/specification/2026-07-28/schema#headermismatcherror) | MUST | server | tested: `conformance.TestMessagesServer/2026-07-28/errors/errors-header-mismatch-http-400` | n/a: addresses the other side |
 
 ### errors (roots/sampling/elicitation)
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [mrtr-missing-capability-error-32021](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [mrtr-missing-capability-error-32021](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | **gap** pending:32021-broker-fallback: a call that needs input from a client that declared none goes to the broker instead of failing with -32021; the specification contradicts itself here (docs/spec/revision-conflicts.md) | n/a: addresses the other side |
 
 ### json-schema
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [json-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | (definitional) | both | **MISSING** | n/a: catalogue marks it n/a |
-| [json-schema-may-declare-dialect](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | MAY | both | **MISSING** | **MISSING** |
-| [json-schema-support-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **MISSING** | n/a: passes through |
-| [json-schema-validate-per-dialect-and-error-on-unsupported](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **MISSING** | **MISSING** |
-| [json-schema-document-dialects](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | SHOULD | both | **MISSING** | **MISSING** |
-| [json-schema-recommend-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | RECOMMENDED | both | **MISSING** | n/a: catalogue marks it n/a |
-| [json-schema-schemas-valid](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-validation) | MUST | both | **MISSING** | n/a: catalogue marks it n/a |
-| [json-schema-no-network-ref](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#ref-resolution) | MUST NOT | both | **MISSING** | **MISSING** |
+| [json-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | (definitional) | both | tested: `conformance.TestMessagesServer/2026-07-28/json-schema/json-schema-default-2020-12` | n/a: catalogue marks it n/a |
+| [json-schema-may-declare-dialect](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | MAY | both | tested: `conformance.TestMessagesServer/2026-07-28/json-schema/json-schema-may-declare-dialect` | tested: `conformance.TestMessagesClient/2026-07-28/json-schema/json-schema-may-declare-dialect` |
+| [json-schema-support-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **gap** pending:json-schema-validation: mcpx never validates arguments against a tool's inputSchema; schemas pass through | n/a: passes through |
+| [json-schema-validate-per-dialect-and-error-on-unsupported](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | MUST | both | **gap** pending:json-schema-validation: no validator in the binary, so an unsupported $schema is forwarded, not refused | **gap** pending:json-schema-validation: no validator in the binary, so an unsupported $schema is accepted |
+| [json-schema-document-dialects](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#implementation-requirements) | SHOULD | both | **gap** pending:json-schema-validation: no document states which dialects mcpx supports | **gap** pending:json-schema-validation: no document states which dialects mcpx supports |
+| [json-schema-recommend-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-dialect) | RECOMMENDED | both | tested: `conformance.TestMessagesServer/2026-07-28/json-schema/json-schema-recommend-2020-12` | n/a: catalogue marks it n/a |
+| [json-schema-schemas-valid](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#schema-validation) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/json-schema/json-schema-schemas-valid` | n/a: catalogue marks it n/a |
+| [json-schema-no-network-ref](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#ref-resolution) | MUST NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/json-schema/json-schema-no-network-ref` | tested: `conformance.TestMessagesClient/2026-07-28/json-schema/json-schema-no-network-ref` |
 | [json-schema-remote-ref-opt-in-off-by-default](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#ref-resolution) | MAY / MUST / SHOULD | both | n/a: catalogue marks it n/a | n/a: catalogue marks it n/a |
-| [json-schema-reject-unresolved-ref](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#ref-resolution) | SHOULD | both | **MISSING** | **MISSING** |
+| [json-schema-reject-unresolved-ref](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#ref-resolution) | SHOULD | both | **gap** pending:json-schema-validation: an unresolvable $ref is rendered permissively (codegen) rather than rejected | **gap** pending:json-schema-validation: an unresolvable $ref is rendered permissively (codegen) rather than rejected |
 | [json-schema-bound-composition-cost](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#composition-keyword-resource-use) | SHOULD | both | n/a: no validator | n/a: catalogue marks it n/a |
-| [tools-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | (definition) | both | **MISSING** | **MISSING** |
+| [tools-schema-default-2020-12](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#tool) | (definition) | both | tested: `conformance.TestMessagesServer/2026-07-28/json-schema/tools-schema-default-2020-12` | tested: `conformance.TestMessagesClient/2026-07-28/json-schema/tools-schema-default-2020-12` |
 
 ### lifecycle
 
@@ -2105,54 +2105,54 @@ Every normative requirement of every revision (catalogue: `docs/spec/requirement
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2026-07-28/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2026-07-28/messages/all-messages-follow-jsonrpc-2-server-stdio` | tested: `conformance.TestJSONRPCFramesEveryRevision/2026-07-28/messages/all-messages-follow-jsonrpc-2-client` |
-| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | **MISSING** | **MISSING** |
-| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | **MISSING** | **MISSING** |
-| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-request-id-unique-among-in-flight](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | n/a: modern server sends no requests | **MISSING** |
-| [messages-requests-client-to-server-only](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | (definitional) | both | n/a: on modern path; on legacy path mcpx still sends elicitation/sampling requests (allowed there | **MISSING** |
-| [messages-servers-must-not-initiate-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/index) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [messages-result-response-same-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | **MISSING** | **MISSING** |
-| [messages-result-response-has-result](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | **MISSING** | **MISSING** |
-| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | **MISSING** | **MISSING** |
-| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | **MISSING** | **MISSING** |
-| [messages-patterns-notifications-scoped-to-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/index#request-and-response) | MAY | server | **MISSING** | n/a: addresses the other side |
-| [messages-resulttype-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [messages-resulttype-extension-values](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#resulttype) | MAY / MUST | both | **MISSING** | **MISSING** |
-| [messages-resulttype-unknown-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#resulttype) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [messages-resulttype-absent-means-complete](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#resulttype) | MUST | client | n/a: addresses the other side | **MISSING** |
-| [messages-resulttype-server-must-include](https://modelcontextprotocol.io/specification/2026-07-28/schema#result) | MUST | server | **MISSING** | n/a: addresses the other side |
-| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | **MISSING** | **MISSING** |
-| [transport-binding-message-directions](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | **MISSING** | **MISSING** |
-| [transport-binding-may-mirror-metadata](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#request-metadata) | MAY | both | **MISSING** | **MISSING** |
+| [messages-all-messages-follow-jsonrpc-2](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#messages) | MUST | both | tested: `conformance.TestJSONRPCFramesEveryRevision/2026-07-28/messages/all-messages-follow-jsonrpc-2-server-http`<br>`conformance.TestJSONRPCFramesEveryRevision/2026-07-28/messages/all-messages-follow-jsonrpc-2-server-stdio`<br>`conformance.TestMessagesServer/2026-07-28/messages/messages-all-messages-follow-jsonrpc-2` | tested: `conformance.TestJSONRPCFramesEveryRevision/2026-07-28/messages/all-messages-follow-jsonrpc-2-client` |
+| [messages-other-components-may](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) | MAY | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-other-components-may` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-other-components-may` |
+| [messages-request-id-string-or-integer](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-request-id-string-or-integer` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-request-id-string-or-integer` |
+| [messages-request-id-not-null](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-request-id-not-null` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-request-id-not-null` |
+| [messages-request-id-unique-among-in-flight](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | MUST NOT | both | n/a: modern server sends no requests | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-request-id-unique-among-in-flight` |
+| [messages-requests-client-to-server-only](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#requests) | (definitional) | both | n/a: on modern path; on legacy path mcpx still sends elicitation/sampling requests (allowed there | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-requests-client-to-server-only` |
+| [messages-servers-must-not-initiate-requests](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/index) | MUST NOT | server | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-servers-must-not-initiate-requests` | n/a: addresses the other side |
+| [messages-result-response-same-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-result-response-same-id` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-result-response-same-id` |
+| [messages-result-response-has-result](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-result-response-has-result` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-result-response-has-result` |
+| [messages-result-any-object](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MAY | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-result-any-object` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-result-any-object` |
+| [messages-notification-no-response](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-notification-no-response` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-notification-no-response` |
+| [messages-notification-no-id](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#notifications) | MUST NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-notification-no-id` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-notification-no-id` |
+| [messages-patterns-notifications-scoped-to-request](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/index#request-and-response) | MAY | server | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-patterns-notifications-scoped-to-request` | n/a: addresses the other side |
+| [messages-resulttype-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#result-responses) | MUST | server | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-resulttype-required` | n/a: addresses the other side |
+| [messages-resulttype-extension-values](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#resulttype) | MAY / MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-resulttype-extension-values` | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-resulttype-extension-values` |
+| [messages-resulttype-unknown-invalid](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#resulttype) | MUST | client | n/a: addresses the other side | **gap** #200: any resultType other than input_required is read as complete |
+| [messages-resulttype-absent-means-complete](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#resulttype) | MUST | client | n/a: addresses the other side | tested: `conformance.TestMessagesClient/2026-07-28/messages/messages-resulttype-absent-means-complete` |
+| [messages-resulttype-server-must-include](https://modelcontextprotocol.io/specification/2026-07-28/schema#result) | MUST | server | tested: `conformance.TestMessagesServer/2026-07-28/messages/messages-resulttype-server-must-include` | n/a: addresses the other side |
+| [transport-jsonrpc-utf8](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/transport-jsonrpc-utf8` | tested: `conformance.TestMessagesClient/2026-07-28/messages/transport-jsonrpc-utf8` |
+| [transport-binding-message-directions](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#messages) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/transport-binding-message-directions` | tested: `conformance.TestMessagesClient/2026-07-28/messages/transport-binding-message-directions` |
+| [transport-binding-may-mirror-metadata](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports#request-metadata) | MAY | both | tested: `conformance.TestMessagesServer/2026-07-28/messages/transport-binding-may-mirror-metadata` | tested: `conformance.TestMessagesClient/2026-07-28/messages/transport-binding-may-mirror-metadata` |
 
 ### meta
 
 | requirement | level | side | mcpx as server | mcpx as client |
 |---|---|---|---|---|
-| [meta-no-assumptions-on-reserved-keys](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | both | **MISSING** | **MISSING** |
-| [meta-prefix-label-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | both | **MISSING** | **MISSING** |
-| [meta-reverse-dns-should](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | both | **MISSING** | **MISSING** |
-| [meta-reserved-prefix-second-label](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | **MISSING** | **MISSING** |
-| [meta-name-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / MAY | both | **MISSING** | **MISSING** |
-| [meta-schema-may-reserve-names](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | **MISSING** | **MISSING** |
-| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | **MISSING** | **MISSING** |
-| [meta-request-params-meta-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / REQUIRED | client | n/a: addresses the other side | **MISSING** |
+| [meta-no-assumptions-on-reserved-keys](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-no-assumptions-on-reserved-keys` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-no-assumptions-on-reserved-keys` |
+| [meta-prefix-label-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-prefix-label-format` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-prefix-label-format` |
+| [meta-reverse-dns-should](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-reverse-dns-should` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-reverse-dns-should` |
+| [meta-reserved-prefix-second-label](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-reserved-prefix-second-label` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-reserved-prefix-second-label` |
+| [meta-name-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / MAY | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-name-format` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-name-format` |
+| [meta-schema-may-reserve-names](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | (reservation) | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-schema-may-reserve-names` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-schema-may-reserve-names` |
+| [meta-progress-token-receiver-not-obligated](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | (definitional) | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-progress-token-receiver-not-obligated` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-progress-token-receiver-not-obligated` |
+| [meta-request-params-meta-required](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST / REQUIRED | client | n/a: addresses the other side | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-request-params-meta-required` |
 | [meta-server-rejects-missing-required-field](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | n/a: optional feature mcpx does not implement | n/a: addresses the other side |
-| [meta-client-should-send-clientinfo](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | client | n/a: addresses the other side | **MISSING** |
-| [meta-server-no-undeclared-client-capabilities](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [meta-server-no-infer-caps-from-prior](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | MUST NOT | server | **MISSING** | n/a: addresses the other side |
-| [meta-server-should-send-serverinfo](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | server | **MISSING** | n/a: addresses the other side |
-| [meta-info-not-for-behavior-or-security](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD NOT | both | **MISSING** | **MISSING** |
-| [meta-subscription-id-on-listen-notifications](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | **MISSING** | n/a: addresses the other side |
+| [meta-client-should-send-clientinfo](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | client | n/a: addresses the other side | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-client-should-send-clientinfo` |
+| [meta-server-no-undeclared-client-capabilities](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST NOT | server | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-server-no-undeclared-client-capabilities` | n/a: addresses the other side |
+| [meta-server-no-infer-caps-from-prior](https://modelcontextprotocol.io/specification/2026-07-28/schema#requestmetaobject) | MUST NOT | server | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-server-no-infer-caps-from-prior` | n/a: addresses the other side |
+| [meta-server-should-send-serverinfo](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD | server | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-server-should-send-serverinfo` | n/a: addresses the other side |
+| [meta-info-not-for-behavior-or-security](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | SHOULD NOT | both | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-info-not-for-behavior-or-security` | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-info-not-for-behavior-or-security` |
+| [meta-subscription-id-on-listen-notifications](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | server | tested: `conformance.TestMessagesServer/2026-07-28/meta/meta-subscription-id-on-listen-notifications` | n/a: addresses the other side |
 | [meta-otel-keys-w3c-format](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) | MUST | both | n/a: does not emit); passes through? not verified | n/a: catalogue marks it n/a |
 | [meta-icons-client-mime-support](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#icons) | MUST / SHOULD | client | n/a: addresses the other side | n/a: renders no icons |
 | [meta-icons-consumer-security](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#icons) | MUST | client | n/a: addresses the other side | n/a: never fetches icons; passes metadata through |
 | [meta-icons-reject-unsafe-schemes](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#icons) | MUST | client | n/a: addresses the other side | n/a: does not dereference). Downstream host must do it |
 | [meta-icons-may-limit-size](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#icons) | MAY | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
 | [meta-icons-same-origin](https://modelcontextprotocol.io/specification/2026-07-28/schema#icon) | SHOULD | client | n/a: addresses the other side | n/a: catalogue marks it n/a |
-| [meta-request-required-fields](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) | MUST | client | n/a: addresses the other side | **MISSING** |
+| [meta-request-required-fields](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) | MUST | client | n/a: addresses the other side | tested: `conformance.TestMessagesClient/2026-07-28/meta/meta-request-required-fields` |
 
 ### mrtr
 

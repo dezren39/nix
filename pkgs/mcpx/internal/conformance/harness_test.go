@@ -439,6 +439,18 @@ func (ss *stdioSrv) initialize(t *testing.T, rev string) map[string]any {
 // request sends a request and returns its response, validated.
 func (ss *stdioSrv) request(t *testing.T, rev, method string, p map[string]any) map[string]any {
 	t.Helper()
+	return ss.requestOpt(t, rev, method, p, true)
+}
+
+// requestInvalid sends a request the test knows is malformed; only the
+// response is validated.
+func (ss *stdioSrv) requestInvalid(t *testing.T, rev, method string, p map[string]any) map[string]any {
+	t.Helper()
+	return ss.requestOpt(t, rev, method, p, false)
+}
+
+func (ss *stdioSrv) requestOpt(t *testing.T, rev, method string, p map[string]any, check bool) map[string]any {
+	t.Helper()
 	id := ss.nextID.Add(1)
 	ss.mu.Lock()
 	ss.methods[fmt.Sprint(id)] = method
@@ -447,7 +459,7 @@ func (ss *stdioSrv) request(t *testing.T, rev, method string, p map[string]any) 
 		p = params(rev, p)
 	}
 	b := frame(id, method, p)
-	if len(methodsOf(rev, method)) == 1 {
+	if check && len(methodsOf(rev, method)) == 1 {
 		checkClientFrame(t, rev, b, "")
 	}
 	ss.send(t, b)
@@ -688,7 +700,8 @@ func (p *peer) Send(_ context.Context, msg []byte) error {
 		}
 		return nil
 	}
-	if p.validate {
+	// A vendor method is an extension, not a schema violation.
+	if p.validate && len(methodsOf(p.rev, method)) == 1 {
 		checkClientFrame(p.t, p.rev, msg, "")
 	}
 	if !hasID {
