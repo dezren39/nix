@@ -372,6 +372,18 @@ that `--help` denies exists is worse than a long list.
 | `plumbing.strictUnknownKeys` | bool | `false` | client | no | `--plumbing-strict-unknown-keys` | `MCPX_PLUMBING_STRICT_UNKNOWN_KEYS` | *(plumbing)* fail on a configuration key no setting claims |
 | `plumbing.validatePaths` | bool | `true` | client | no | `--plumbing-validate-paths` | `MCPX_PLUMBING_VALIDATE_PATHS` | *(plumbing)* resolve and verify every referenced path before doing any work |
 
+`plumbing.strictUnknownKeys` governs keys **no setting claims**, and keys a
+server entry declares that mcpx does not know — `type`, `alwaysAllow` and the
+rest, which belong to the other hosts that read the same file. Those are
+recorded, reported by `mcpx doctor`, and refused only when this is on.
+
+A key inside a server's `"mcpx"` block is not governed by it and is always
+refused. That block is mcpx's alone — nothing else writes into it — so a key
+it does not know is a typo or a name that no longer exists, not another host's
+field. This is deliberately not a setting: it is how `mcpx init` wrote
+`"mode": "session"` into every new config for months without anyone noticing,
+and a switch to turn the report off would have kept it quiet.
+
 
 ### pool
 
