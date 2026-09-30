@@ -541,8 +541,16 @@ func SearchPath() []string {
 // user-level and system files.
 func SearchPathFrom(wd string) []string {
 	var out []string
+	seen := map[string]bool{}
 	add := func(p string) {
-		if p != "" {
+		// Dedupe: the upward walk passes through $HOME, so the user-level
+		// config would otherwise appear twice (once from the walk, once
+		// from the home fallback below). A duplicated source changes the
+		// daemon key in FingerprintConfig, making a daemon started from one
+		// cwd invisible to a CLI run from another. First occurrence wins,
+		// preserving nearest-first precedence.
+		if p != "" && !seen[p] {
+			seen[p] = true
 			out = append(out, p)
 		}
 	}

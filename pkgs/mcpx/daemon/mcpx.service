@@ -1,0 +1,22 @@
+[Unit]
+Description=mcpx MCP gateway daemon
+Documentation=https://github.com/dezren39/nix/tree/main/pkgs/mcpx/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as the user the service is enabled for. mcpx keeps its config/state
+# under $HOME, so a user unit is the normal deployment -- no HOME override
+# needed the way a system unit running as root would.
+ExecStart=mcpx daemon
+# Uncomment and adapt if mcpx is not on the default PATH:
+# ExecStart=/home/USER/.nix-profile/bin/mcpx daemon
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+# Daemon defaults: unix socket + HTTP on 127.0.0.1:41001. It starts its own
+# MCP server processes on demand from ~/.config/mcpx/config.json.
+
+[Install]
+WantedBy=default.target

@@ -134,6 +134,9 @@ type Server struct {
 	// OnCancel is called when a client cancels a request.
 	OnCancel func(id, reason string)
 
+	// Origins decides which browser origins the HTTP transport serves.
+	Origins OriginPolicy
+
 	mu sync.Mutex
 
 	// Notify is where pushed notifications come from. Nil means mcpx never
@@ -185,7 +188,7 @@ func (s *Server) WithExtras(extras []Extra) *Server {
 	return &Server{
 		backend: s.backend, name: s.name, version: s.version,
 		PageSize: s.PageSize, MaxCompletions: s.MaxCompletions,
-		Timing: s.Timing, OnCancel: s.OnCancel,
+		Timing: s.Timing, OnCancel: s.OnCancel, Origins: s.Origins,
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
@@ -1004,9 +1007,10 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 // question without any session machinery: the pipe is the session, and it
 // stays open for as long as the process does.
 func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) error {
-	// One writer, guarded, because notifications now arrive from another
-	// goroutine and two frames interleaved mid-line is a corrupt stream the
-	// client cannot recover from.
+	// One writer, guarded, because replies and notifications come from many
+	// goroutines and two frames interleaved mid-line is a corrupt stream the
+	// client cannot recover from. json.Encoder escapes every newline inside
+	// a string, so each frame is exactly one line.
 	var wmu sync.Mutex
 	rawEnc := json.NewEncoder(out)
 	enc := lockedEncoder{mu: &wmu, enc: rawEnc}
@@ -1018,11 +1022,16 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 	}
 	c.mu.Unlock()
 	defer c.stopListen()
-	// Requests that may stop to ask the client something run concurrently,
-	// and their answers arrive on this same loop; the wait group is what
-	// stops the stream closing under one of them.
+	defer s.stopListChanged(c)
+
+	// Every request runs on its own goroutine under its own context. In
+	// line, a notifications/cancelled for a running request could not even
+	// be read until that request had finished, so cancellation did nothing;
+	// and a request waiting on the client's answer to a question would be
+	// waiting for a frame that arrives on this very loop.
+	base, cancelAll := context.WithCancel(ctx)
+	defer cancelAll()
 	var inflight sync.WaitGroup
-	defer inflight.Wait()
 
 	sc := bufio.NewScanner(in)
 	// Tool results carry whole documents, so the default 64KB line limit is
@@ -1033,6 +1042,16 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
+			continue
+		}
+		if isBatch([]byte(line)) {
+			inflight.Add(1)
+			go func(line string) {
+				defer inflight.Done()
+				if resp := s.stdioBatch(base, c, []byte(line)); resp != nil {
+					_ = enc.Encode(resp)
+				}
+			}(line)
 			continue
 		}
 		// A frame with an id and no method is the client answering something
@@ -1054,28 +1073,81 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer) er
 				Error: &rpcError{Code: codeInvalidRequest, Message: "unsupported jsonrpc version"}})
 			continue
 		}
-		// In line by default, so replies keep the order a reader expects.
-		// A request that may stop to ask the client something cannot be:
-		// it would be waiting for a frame that arrives on this very loop,
-		// which is a deadlock rather than a slow answer.
-		if s.mayBlockOnClient(c, req) {
-			inflight.Add(1)
-			go func(req request) {
-				defer inflight.Done()
-				if resp := s.HandleOn(ctx, c, req); resp != nil {
-					_ = enc.Encode(resp)
-				}
-			}(req)
-		} else if resp := s.HandleOn(ctx, c, req); resp != nil {
-			if err := enc.Encode(resp); err != nil {
-				return err
+		if len(req.ID) == 0 || req.Method == "initialize" {
+			// In line. A notification is ordered by nature -- a cancellation
+			// has to land before whatever the client sends next -- and
+			// initialize has to be answered before anything that follows
+			// it, because what it settles governs every later reply.
+			resp := s.HandleOn(base, c, req)
+			if req.Method == "initialize" && resp != nil && resp.Error == nil {
+				s.startListChanged(c)
 			}
+			// Never a reply to a notification, not even an error: JSON-RPC
+			// forbids it, and a client would have nothing to match it to.
+			if resp != nil && len(req.ID) > 0 {
+				_ = enc.Encode(resp)
+			}
+			continue
 		}
+		rctx, done, cancelled := c.track(base, req.ID)
+		inflight.Add(1)
+		go func(req request) {
+			defer inflight.Done()
+			defer done()
+			resp := s.HandleOn(rctx, c, req)
+			if resp != nil && !cancelled() {
+				_ = enc.Encode(resp)
+			}
+		}(req)
 		if ctx.Err() != nil {
-			return ctx.Err()
+			break
 		}
 	}
+
+	// The input is closed, which is how a host asks a server to stop. What
+	// is already running gets a bounded chance to answer, then is cancelled,
+	// so a hung call cannot keep the process alive.
+	drained := make(chan struct{})
+	go func() { inflight.Wait(); close(drained) }()
+	drain := s.Timing.resolved().StdioDrain
+	select {
+	case <-drained:
+	case <-time.After(drain):
+		cancelAll()
+		select {
+		case <-drained:
+		case <-time.After(drain):
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return sc.Err()
+}
+
+// stdioBatch answers one batch line. nil means nothing is sent back, which is
+// the answer to a batch of notifications and responses only.
+func (s *Server) stdioBatch(ctx context.Context, c *Conn, line []byte) any {
+	var elems []json.RawMessage
+	if err := json.Unmarshal(line, &elems); err != nil {
+		return response{JSONRPC: "2.0", Error: &rpcError{Code: codeParse, Message: err.Error()}}
+	}
+	if len(elems) == 0 {
+		return response{JSONRPC: "2.0", Error: &rpcError{Code: codeInvalidRequest,
+			Message: "an empty batch is not a request"}}
+	}
+	v := c.Version()
+	if v == "" {
+		v = Oldest
+	}
+	if !Defines(v, FeatBatch) {
+		return batchRefused(v)
+	}
+	replies := s.runBatch(ctx, c, elems, true)
+	if len(replies) == 0 {
+		return nil
+	}
+	return replies
 }
 
 // RESTHandler exposes one tool as a plain POST.
@@ -1113,27 +1185,30 @@ func (s *Server) RESTHandler(tool string) http.HandlerFunc {
 // ServeHTTP answers a Streamable HTTP request, which is how a remote host
 // reaches a server it did not start.
 //
-// Three things arrive on this one endpoint, and telling them apart is the
-// whole of the transport:
-//
-//   - a request, answered with JSON, or with an event stream when mcpx has
-//     to ask the client something before it can finish;
-//   - a response to something mcpx asked, which belongs to a request still
-//     in flight on another connection and is acknowledged with 202;
-//   - a DELETE, which ends the session.
+// Both eras share the endpoint. A request carrying
+// io.modelcontextprotocol/protocolVersion in _meta (or a modern
+// MCP-Protocol-Version header) is a 2026-07-28 request: its mirrored headers
+// are validated, its status follows its error code, and it has no session.
+// Anything else is legacy (2025-03-26 .. 2025-11-25): sessions minted at
+// initialize, a GET notification stream, batches for 2025-03-26, and
+// responses to questions mcpx asked.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodDelete {
-		s.dropSession(r.Header.Get(sessionHeader))
-		w.WriteHeader(http.StatusNoContent)
+	if !s.originAllowed(r.Header.Get("Origin")) {
+		writeJSON(w, http.StatusForbidden, response{JSONRPC: "2.0", Error: &rpcError{
+			Code: codeInvalidRequest, Message: "Origin " + r.Header.Get("Origin") + " is not allowed"}})
 		return
 	}
-	if r.Method != http.MethodPost {
-		// GET is where a client opens the server-sent event stream. mcpx
-		// pushes only within a request it is already answering, so saying so
-		// immediately is kinder than holding a connection open that will
-		// never carry anything.
-		w.Header().Set("Allow", "POST, DELETE")
-		http.Error(w, "mcpx sends no unsolicited messages; POST a request", http.StatusMethodNotAllowed)
+	switch r.Method {
+	case http.MethodPost:
+	case http.MethodGet:
+		s.serveGET(w, r)
+		return
+	case http.MethodDelete:
+		s.serveDELETE(w, r)
+		return
+	default:
+		w.Header().Set("Allow", "GET, POST, DELETE")
+		http.Error(w, "POST a JSON-RPC message", http.StatusMethodNotAllowed)
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
@@ -1141,15 +1216,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	hv := r.Header.Get("MCP-Protocol-Version")
+
+	if isBatch(body) {
+		s.serveBatch(w, r, body, hv)
+		return
+	}
 
 	// A response to something mcpx asked. It carries the session header, and
 	// the request that is waiting for it is being answered on another
 	// goroutine with its stream still open.
 	if id, result, rerr, ok := replyOf(body); ok {
+		if modernHeaderVersion(hv) {
+			writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0", Error: &rpcError{
+				Code: codeInvalidRequest, Message: "2026-07-28 clients send no responses"}})
+			return
+		}
 		c, found := s.session(r.Header.Get(sessionHeader))
 		if !found || !c.deliver(id, result, rerr) {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "no request is waiting for that id on this session"})
+			writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0", Error: &rpcError{
+				Code: codeInvalidRequest, Message: "no request is waiting for that id on this session"}})
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -1162,26 +1248,100 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Error: &rpcError{Code: codeParse, Message: err.Error()}})
 		return
 	}
-	// The header MUST agree with the version in _meta, or the request is
-	// ambiguous about which protocol it is written in.
-	if h := r.Header.Get("MCP-Protocol-Version"); h != "" {
-		if v := requestVersion(req.Params); v != "" && v != h {
-			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "MCP-Protocol-Version " + h + " does not match the " +
-					v + " in _meta"})
-			return
-		}
+	if requestVersion(req.Params) != "" || modernHeaderVersion(hv) {
+		s.serveModern(w, r, req)
+		return
 	}
+	s.serveLegacy(w, r, req, hv)
+}
 
+// serveModern answers one 2026-07-28 POST.
+func (s *Server) serveModern(w http.ResponseWriter, r *http.Request, req request) {
+	if bad := checkModernHeaders(r, req); bad != nil {
+		writeJSON(w, http.StatusBadRequest, bad)
+		return
+	}
 	c, issued := s.sessionFor(r, req)
 	if issued != "" {
 		w.Header().Set(sessionHeader, issued)
 	}
-
 	ex := &httpExchange{w: w, flusher: asFlusher(w)}
+	// The request's own context: closing the response stream is this
+	// revision's cancellation, and it has to reach the upstream call.
 	ctx := withSender(r.Context(), ex.send)
 	resp := s.HandleOn(ctx, c, req)
+	if r.Context().Err() != nil {
+		// Cancelled. 2026-07-28: the server MUST NOT send any further
+		// messages for it.
+		return
+	}
+	s.finish(w, ex, req, resp, modernStatus(resp))
+}
 
+// serveLegacy answers one 2025-03-26 .. 2025-11-25 POST.
+func (s *Server) serveLegacy(w http.ResponseWriter, r *http.Request, req request, hv string) {
+	// 2025-06-18+: an invalid or unsupported MCP-Protocol-Version MUST get
+	// 400. Absent means 2025-03-26, or whatever the session negotiated.
+	if hv != "" && (!supports(hv) || Modern(hv)) {
+		bad := unsupportedVersion(req.ID, nil, true)
+		bad.Error.Data = map[string]any{"supported": LegacySupported(), "requested": hv}
+		writeJSON(w, http.StatusBadRequest, bad)
+		return
+	}
+	if id := r.Header.Get(sessionHeader); id != "" {
+		if _, ok := s.session(id); !ok {
+			// Unknown, expired or DELETEd. The client MUST then start a new
+			// session with an initialize that carries no session id.
+			writeJSON(w, http.StatusNotFound, response{JSONRPC: "2.0", ID: req.ID,
+				Error: &rpcError{Code: codeInvalidRequest,
+					Message: "no such session; send initialize without " + sessionHeader + " to start one"}})
+			return
+		}
+	}
+	c, issued := s.sessionFor(r, req)
+	if issued != "" {
+		w.Header().Set(sessionHeader, issued)
+	}
+	ex := &httpExchange{w: w, flusher: asFlusher(w)}
+	ctx := r.Context()
+	cancelled := func() bool { return false }
+	if c.id != "" && len(req.ID) > 0 {
+		// In a session, a dropped connection is not a cancellation: the
+		// legacy revisions say disconnection SHOULD NOT be read as one, and
+		// the client cancels with notifications/cancelled on the session.
+		// Without a session no such notification could ever reach this
+		// request, so the disconnect stays the only signal there is.
+		var done func()
+		ctx, done, cancelled = c.track(context.WithoutCancel(ctx), req.ID)
+		defer done()
+	}
+	resp := s.HandleOn(withSender(ctx, ex.send), c, req)
+	if cancelled() {
+		// Withheld, as the legacy cancellation page asks. The POST still
+		// needs an answer, and an event stream that ends without one is the
+		// only shape that carries none.
+		ex.open()
+		return
+	}
+	s.finish(w, ex, req, resp, http.StatusOK)
+}
+
+// finish writes the answer to one POSTed message.
+func (s *Server) finish(w http.ResponseWriter, ex *httpExchange, req request, resp *response, status int) {
+	if len(req.ID) == 0 {
+		// A notification: accepted is 202 with no body; not accepted is an
+		// error status with an id-less JSON-RPC error.
+		// An unknown notification is ignored rather than refused: JSON-RPC
+		// gives a notification no reply, and every revision says to ignore
+		// what is not understood. Any other error means it was not accepted.
+		if resp != nil && resp.Error != nil && resp.Error.Code != codeMethodNotFound {
+			resp.ID = nil
+			writeJSON(w, http.StatusBadRequest, resp)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	if ex.streaming {
 		// The stream carried the questions; it carries the answer too, and
 		// then ends. A client reading SSE has no other signal that the
@@ -1192,10 +1352,88 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if resp == nil {
+		// A request whose answer is withheld -- a listen stream, over a
+		// transport that has nowhere to hold it open.
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, status, resp)
+}
+
+// serveBatch answers a POSTed JSON-RPC batch, which only 2025-03-26 defines.
+func (s *Server) serveBatch(w http.ResponseWriter, r *http.Request, body []byte, hv string) {
+	if modernHeaderVersion(hv) {
+		writeJSON(w, http.StatusBadRequest, batchRefused(hv))
+		return
+	}
+	var elems []json.RawMessage
+	if err := json.Unmarshal(body, &elems); err != nil {
+		writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0",
+			Error: &rpcError{Code: codeParse, Message: err.Error()}})
+		return
+	}
+	if len(elems) == 0 {
+		writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0",
+			Error: &rpcError{Code: codeInvalidRequest, Message: "an empty batch is not a request"}})
+		return
+	}
+	var c *Conn
+	version := hv
+	ctx := r.Context()
+	tracked := false
+	if id := r.Header.Get(sessionHeader); id != "" {
+		sc, ok := s.session(id)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, response{JSONRPC: "2.0",
+				Error: &rpcError{Code: codeInvalidRequest, Message: "no such session"}})
+			return
+		}
+		c, tracked, ctx = sc, true, context.WithoutCancel(ctx)
+		if v := sc.Version(); v != "" {
+			version = v
+		}
+	} else {
+		c = s.newConn("", nil)
+	}
+	if version == "" {
+		version = Oldest
+	}
+	if !Defines(version, FeatBatch) {
+		writeJSON(w, http.StatusBadRequest, batchRefused(version))
+		return
+	}
+	if c.Version() == "" {
+		c.SetCapabilities(nil, version)
+	}
+	ex := &httpExchange{w: w, flusher: asFlusher(w)}
+	replies := s.runBatch(withSender(ctx, ex.send), c, elems, tracked)
+	switch {
+	case ex.streaming:
+		for _, resp := range replies {
+			_ = ex.send(resp)
+		}
+	case len(replies) == 0:
+		w.WriteHeader(http.StatusAccepted)
+	default:
+		writeJSON(w, http.StatusOK, replies)
+	}
+}
+
+// serveDELETE ends a legacy session, and the streams open on it.
+func (s *Server) serveDELETE(w http.ResponseWriter, r *http.Request) {
+	id := r.Header.Get(sessionHeader)
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, response{JSONRPC: "2.0", Error: &rpcError{
+			Code: codeInvalidRequest, Message: "DELETE ends a session; name it in " + sessionHeader}})
+		return
+	}
+	if _, ok := s.session(id); !ok {
+		writeJSON(w, http.StatusNotFound, response{JSONRPC: "2.0", Error: &rpcError{
+			Code: codeInvalidRequest, Message: "no such session"}})
+		return
+	}
+	s.dropSession(id)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // sessionHeader is what the Streamable HTTP transport keys a session by.
@@ -1212,8 +1450,12 @@ const sessionHeader = "Mcp-Session-Id"
 // modern client never needs one, because it is never asked anything
 // mid-request; it gets an input_required result and retries.
 func (s *Server) sessionFor(r *http.Request, req request) (*Conn, string) {
+	modern := requestVersion(req.Params) != ""
 	if id := r.Header.Get(sessionHeader); id != "" {
-		if c, ok := s.session(id); ok {
+		// A modern request is never bound to a legacy session: 2026-07-28
+		// has no sessions and says to ignore the header, and binding it
+		// would hand it that client's pending questions and version.
+		if c, ok := s.session(id); ok && !(modern && c.legacy) {
 			return c, ""
 		}
 	}
@@ -1221,10 +1463,27 @@ func (s *Server) sessionFor(r *http.Request, req request) (*Conn, string) {
 		// Stateless. Correct for every modern request and for a legacy one
 		// that will never be asked anything, and the alternative -- minting
 		// a session per request -- is a map that only grows.
-		return s.newConn("", nil), ""
+		c := s.newConn("", nil)
+		if !modern {
+			// No handshake on this connection, so the header is the version:
+			// 2025-06-18 on send it, and absent means 2025-03-26.
+			v := r.Header.Get("MCP-Protocol-Version")
+			if v == "" {
+				v = Oldest
+			}
+			c.SetCapabilities(nil, v)
+		}
+		return c, ""
 	}
 	id := newSessionID()
 	c := s.newConn(id, nil)
+	if req.Method == "initialize" {
+		c.legacy = true
+		// Notifications reach a legacy session through its GET stream, when
+		// the client has one open. Installed now so a subscription made
+		// before the stream opens still delivers once it does.
+		c.pushFn = c.streamPush
+	}
 	s.sessMu.Lock()
 	if s.sessions == nil {
 		s.sessions = map[string]*Conn{}
@@ -1259,7 +1518,7 @@ func (s *Server) dropSession(id string) {
 	delete(s.sessions, id)
 	s.sessMu.Unlock()
 	if c != nil {
-		c.stopListen()
+		c.end()
 	}
 }
 
@@ -1276,7 +1535,7 @@ func (s *Server) reapSessionsLocked() {
 		c.mu.Unlock()
 		if idle {
 			delete(s.sessions, id)
-			c.stopListen()
+			c.end()
 		}
 	}
 }
@@ -1327,6 +1586,20 @@ func (e *httpExchange) send(frame any) error {
 	}
 	e.flusher.Flush()
 	return nil
+}
+
+// open starts the event stream with nothing on it yet.
+func (e *httpExchange) open() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.streaming {
+		return
+	}
+	e.w.Header().Set("Content-Type", "text/event-stream")
+	e.w.Header().Set("Cache-Control", "no-cache")
+	e.w.Header().Set("X-Accel-Buffering", "no")
+	e.w.WriteHeader(http.StatusOK)
+	e.streaming = true
 }
 
 func asFlusher(w http.ResponseWriter) http.Flusher {
@@ -1518,12 +1791,8 @@ func decodeCursor(c string) (int, error) {
 	return strconv.Atoi(s[2:])
 }
 
-// cancel records a client's cancellation.
-//
-// mcpx cannot interrupt an in-flight upstream call from here -- that is the
-// pool's business and needs the request id plumbed through it -- but a
-// cancellation that is silently dropped leaves a client unable to tell
-// whether the message arrived at all.
+// cancel records a client's cancellation and cancels the request it names,
+// if this connection is still answering it.
 func (c *Conn) cancel(params json.RawMessage) {
 	var p struct {
 		RequestID any    `json:"requestId"`
@@ -1541,6 +1810,9 @@ func (c *Conn) cancel(params json.RawMessage) {
 	if c.s.OnCancel != nil {
 		c.s.OnCancel(fmt.Sprint(p.RequestID), p.Reason)
 	}
+	// And acted on: the request's context is cancelled, which is what
+	// reaches the upstream call, and its response is withheld.
+	c.cancelInflight(p.RequestID)
 }
 
 // Cancelled reports whether a request was cancelled on the default
