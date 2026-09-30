@@ -502,8 +502,7 @@ func writeLauncher(workDir, scriptPath, export string, ph Phases, captureConsole
 	}
 	dir := filepath.Dir(scriptPath)
 	base := filepath.Base(scriptPath)
-	name := "." + strings.TrimSuffix(base, filepath.Ext(base)) + ".mcpx-entry.ts"
-	launcher := filepath.Join(dir, name)
+	stem := "." + strings.TrimSuffix(base, filepath.Ext(base))
 
 	argsJSON, _ := json.Marshal([]string{})
 	_ = argsJSON
@@ -609,9 +608,22 @@ try {
 		}
 	}
 
+	// Named for what it contains, not for the script it runs.
+	//
+	// One name per script meant every concurrent run of that script wrote
+	// the same file: six runs of one script with six different launchers all
+	// executed the fourth. Placeholders make the same mistake quieter --
+	// two runs of one script with different @values are two different
+	// programs sharing a path.
+	//
+	// The hash also keeps the runtime's type-check cache: the same launcher
+	// again is the same file, so it is not re-checked.
+	sum := sha256.Sum256([]byte(body))
+	launcher := filepath.Join(dir, stem+"."+hex.EncodeToString(sum[:])[:12]+".mcpx-entry.ts")
 	if err := writeIfChanged(launcher, body); err != nil {
 		return "", err
 	}
+	pruneEntries(dir, stem, launcher)
 	return launcher, nil
 }
 
@@ -823,5 +835,45 @@ func pruneWorkDirs(root, keep string) {
 	sort.Slice(dirs, func(i, j int) bool { return dirs[i].at.After(dirs[j].at) })
 	for _, d := range dirs[defaults.ExecWorkDirs-1:] {
 		_ = os.RemoveAll(d.path)
+	}
+}
+
+// pruneEntries bounds how many generated entry points one script leaves
+// beside itself.
+//
+// They live next to the user's file so that a relative import of the client
+// resolves, which means they are visible and must not accumulate. The newest
+// survive, because those are the ones still being run.
+func pruneEntries(dir, stem, keep string) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type aged struct {
+		path string
+		at   time.Time
+	}
+	var found []aged
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, stem+".") || !strings.HasSuffix(name, ".mcpx-entry.ts") {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if p == keep {
+			continue
+		}
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		found = append(found, aged{p, info.ModTime()})
+	}
+	if len(found) < defaults.ExecEntries {
+		return
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].at.After(found[j].at) })
+	for _, f := range found[defaults.ExecEntries-1:] {
+		_ = os.Remove(f.path)
 	}
 }
