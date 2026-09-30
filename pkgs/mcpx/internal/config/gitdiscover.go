@@ -77,7 +77,10 @@ const (
 	// sha1Hex is the shortest object name a detached HEAD can hold. A
 	// SHA-256 one is longer and begins with 40 hex digits too.
 	sha1Hex = 40
-	// dotGit, and the names inside a git directory that discovery reads.
+	// dotGit is the name discovery looks for while walking up. The names
+	// read *inside* a git directory -- HEAD, config, objects, refs,
+	// commondir, config.worktree -- are spelled at their single use sites,
+	// where the format they belong to is in view.
 	dotGit = ".git"
 )
 

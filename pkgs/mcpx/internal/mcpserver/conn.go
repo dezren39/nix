@@ -51,6 +51,7 @@ type Conn struct {
 	pending   map[int64]chan *clientReply
 	nextID    atomic.Int64
 	subs      map[string]bool
+	subMu     sync.Mutex
 	listens   map[string]*listenStream
 	cancelled map[string]string
 	lastUsed  time.Time

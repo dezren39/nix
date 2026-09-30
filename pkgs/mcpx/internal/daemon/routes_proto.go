@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -303,7 +304,7 @@ func (r *Registry) ReadResourceAsk(ctx context.Context, id, server, uri string, 
 	key := r.keyFor(p, cc)
 	r.beginAsk(id, server, key, cc.SessionID)
 	defer r.endAsk(id)
-	return p.ReadResource(ctx, key, uri)
+	return p.ReadResource(ctx, key, upstreamResourceURI(ctx, p, uri))
 }
 
 // GetPromptAsk is prompts/get, interruptibly.
@@ -841,4 +842,105 @@ func (r *Registry) upstreamHooks(h *pool.Hooks) {
 	if cache && r.paths.State != "" {
 		h.Eras = pool.OpenEraFile(filepath.Join(r.paths.State, defaults.UpstreamEraFile))
 	}
+}
+
+// ---- resource subscriptions ----
+//
+// A /v1/events stream that names resources is also a subscription to them
+// upstream, held exactly as long as the stream is open. Tying the two
+// together is what makes the reference count honest: a client that crashes
+// or disconnects releases its subscriptions without having to say so, and
+// one that reconnects -- to a restarted daemon, say -- subscribes again by
+// reconnecting. `mcpx serve` is such a client for everything its own MCP
+// clients subscribe to.
+
+// resourceWatch is what one event stream subscribed.
+type resourceWatch struct {
+	// Watching are the URIs, as the stream named them, whose updates will
+	// be delivered; Refused says why each other named one will not.
+	Watching []string          `json:"watching"`
+	Refused  map[string]string `json:"refused,omitempty"`
+	releases []func()
+}
+
+func (w *resourceWatch) release() {
+	for _, r := range w.releases {
+		r()
+	}
+}
+
+// announce tells the stream what it subscribed, before any event. A client
+// that must say what it agreed to -- a subscriptions/listen
+// acknowledgement, a resources/subscribe reply -- waits for this.
+func (w *resourceWatch) announce(out io.Writer) {
+	data, _ := json.Marshal(w)
+	b, _ := json.Marshal(events.Event{Kind: events.ResourceWatching, At: time.Now(), Data: data})
+	fmt.Fprintf(out, "event: %s\ndata: %s\n\n", events.ResourceWatching, b)
+}
+
+// watchResources subscribes upstream to the resources a stream names and
+// returns the URIs to match its events against.
+//
+// A URI of the form mcpx://<namespace>/<uri> -- how mcpx's own listings
+// name resources -- identifies its server. A bare URI does with server=,
+// and without it names no server and is matched but not subscribed.
+func (s *Server) watchResources(ctx context.Context, server string, uris []string) ([]string, *resourceWatch) {
+	w := &resourceWatch{Watching: []string{}}
+	match := make([]string, 0, len(uris))
+	for _, u := range uris {
+		owner, upstream := server, u
+		if rest, ok := strings.CutPrefix(u, "mcpx://"); ok {
+			if ns, inner, ok := strings.Cut(rest, "/"); ok && ns != "" {
+				owner, upstream = ns, inner
+			}
+		}
+		if owner == "" {
+			match = append(match, u)
+			continue
+		}
+		p, ok := s.reg.Pool(owner)
+		if !ok {
+			w.refuse(u, UnknownServer{Name: owner}.Error())
+			continue
+		}
+		upstream = upstreamResourceURI(ctx, p, upstream)
+		match = append(match, upstream)
+		release, err := p.Watch(ctx, s.reg.keyFor(p, config.CallContext{}), upstream)
+		if err != nil {
+			w.refuse(u, err.Error())
+			continue
+		}
+		w.Watching = append(w.Watching, u)
+		w.releases = append(w.releases, release)
+	}
+	return match, w
+}
+
+func (w *resourceWatch) refuse(uri, reason string) {
+	if w.Refused == nil {
+		w.Refused = map[string]string{}
+	}
+	w.Refused[uri] = reason
+}
+
+// upstreamResourceURI undoes the namespacing of a listed resource. The
+// listing drops a leading "/" so that mcpx://ns//abs does not appear, which
+// leaves "abs" ambiguous between a relative URI and the absolute "/abs"; the
+// server's own list says which it published.
+func upstreamResourceURI(ctx context.Context, p *pool.Pool, inner string) string {
+	_, resources, err := p.Schemas(ctx)
+	if err != nil {
+		return inner
+	}
+	for _, r := range resources {
+		if r.URI == inner {
+			return inner
+		}
+	}
+	for _, r := range resources {
+		if strings.TrimPrefix(r.URI, "/") == inner {
+			return r.URI
+		}
+	}
+	return inner
 }
