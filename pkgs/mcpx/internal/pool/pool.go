@@ -368,6 +368,7 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
 	}
+	source := ""
 
 	// The server-request handler and roots go in before the handshake, not
 	// after it: the handshake is where capabilities are declared, and a
@@ -397,10 +398,36 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 			opts.Cached = rec.Era
 		}
 	}
-	cl, err := mcpclient.NewWithOptions(sctx, tr, opts)
-	source := ""
-	if err == nil {
-		source = cl.Source
+	var cl *mcpclient.Client
+	if cached.Transport == TransportHTTPSSE && !p.cfg.Stdio() {
+		// Last time this endpoint spoke only the deprecated HTTP+SSE
+		// transport; going straight there saves the two refused POSTs.
+		if cl, tr, err = p.connectSSE(sctx, tr, opts); err == nil {
+			source = mcpclient.SourceCache
+		} else if tr, err = p.dial(); err != nil {
+			return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
+		}
+	}
+	if cl == nil {
+		cl, err = mcpclient.NewWithOptions(sctx, tr, opts)
+		if err == nil {
+			source = cl.Source
+		}
+	}
+	var refused *mcpclient.LegacyHTTPRefusedError
+	if errors.As(err, &refused) && !p.cfg.Stdio() {
+		// Both a modern POST and a legacy initialize were refused with a
+		// bare 400, 404 or 405: the signature of a server that speaks only
+		// HTTP+SSE (2024-11-05). The fallback every later revision
+		// describes is to GET the URL and expect an endpoint event.
+		if cl, tr, err = p.connectSSE(sctx, tr, opts); err == nil {
+			source = mcpclient.SourceProbe
+			if cached.Era != "" && cached.Transport != TransportHTTPSSE {
+				cl.CachedEraWrong = true
+			}
+		} else {
+			err = fmt.Errorf("%v; http+sse fallback: %w", refused, err)
+		}
 	}
 	if errors.Is(err, mcpclient.ErrClosedDuringProbe) {
 		// A legacy server that exits on any first message but initialize.
@@ -429,7 +456,11 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		})
 	}
 	if eras != nil && !forced && source != mcpclient.SourceCache {
-		_ = eras.Put(eraKey, EraRecord{Era: cl.Era, Version: cl.Negotiated, At: time.Now(), Source: source})
+		rec := EraRecord{Era: cl.Era, Version: cl.Negotiated, At: time.Now(), Source: source}
+		if _, ok := tr.(*mcpclient.LegacySSETransport); ok {
+			rec.Transport = TransportHTTPSSE
+		}
+		_ = eras.Put(eraKey, rec)
 	}
 	// Everything the server volunteers flows to whoever installed hooks: log
 	// lines, progress, list changes, resource updates. Installed before the
@@ -470,6 +501,23 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 		"readyMs": float64(time.Since(launched).Microseconds()) / 1000,
 	})
 	return in, nil
+}
+
+// connectSSE closes tr and connects over the HTTP+SSE transport instead,
+// legacy-only: that transport predates the modern era.
+func (p *Pool) connectSSE(ctx context.Context, tr mcpclient.Transport, opts mcpclient.Options) (*mcpclient.Client, mcpclient.Transport, error) {
+	_ = tr.Close()
+	sse, err := mcpclient.NewLegacySSE(ctx, mcpclient.HTTPOptions{URL: p.cfg.URL, Headers: p.cfg.Headers})
+	if err != nil {
+		return nil, tr, err
+	}
+	opts.Preference, opts.Cached = mcpclient.ForceLegacy, ""
+	cl, err := mcpclient.NewWithOptions(ctx, sse, opts)
+	if err != nil {
+		_ = sse.Close()
+		return nil, tr, err
+	}
+	return cl, sse, nil
 }
 
 // dial creates the transport for one instance.
@@ -684,6 +732,11 @@ func (h *Hooks) notifications(server string) mcpclient.Notifications {
 	}
 	if h.OnElicitationComplete != nil {
 		n.OnElicitationComplete = func(id string) { h.OnElicitationComplete(server, id) }
+	}
+	// Warnings go where every other server event goes, so a tool that
+	// vanished from the catalogue for invalid annotations says why.
+	n.OnWarning = func(w mcpclient.Warning) {
+		lifecycle("server.warning", map[string]any{"server": server, "tool": w.Tool, "reason": w.Reason})
 	}
 	return n
 }
