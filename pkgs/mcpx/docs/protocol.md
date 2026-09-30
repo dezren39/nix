@@ -345,6 +345,51 @@ All of them from any era. `notifications/tasks/status` (2025-11-25) is
 received and dropped — mcpx polls task state rather than tracking it, so
 nothing would act on it. That is a gap, named rather than hidden.
 
+### 4.2.1 Resource subscriptions, end to end (#241)
+
+mcpx declared `resources.subscribe` to its own clients and never subscribed
+upstream, so `notifications/resources/updated` never flowed: a capability
+declared and not delivered. Now a client subscribing to
+`mcpx://<namespace>/<uri>` -- by legacy `resources/subscribe` (stdio, or
+Streamable HTTP with the update on the GET stream) or by `resourceSubscriptions`
+on a 2026-07-28 `subscriptions/listen` -- makes the daemon subscribe `<uri>`
+on the server that owns the namespace, with whichever mechanism that server's
+era has.
+
+- **The lifetime is a `/v1/events` stream.** `mcpx serve` hears the daemon's
+  events over `GET /v1/events?uri=mcpx://...`; a stream naming a resource in
+  mcpx:// form (or bare with `server=`) *is* a subscription to it, held until
+  the stream closes. So a listen stream ending, a connection ending, a legacy
+  unsubscribe (which replaces the connection's stream), or `mcpx serve`
+  crashing all release it without a separate call that could be missed, and a
+  stream that reconnects to a restarted daemon subscribes again by
+  reconnecting. The stream's first event, `resource.watching`, says what was
+  subscribed and why anything was not.
+- **Counted per URI across every client.** The upstream sees one connection,
+  mcpx's, and one `resources/unsubscribe` from it would end the updates for
+  everyone. The first watcher subscribes; the last one unsubscribes
+  (`internal/pool/watch.go`).
+- **Instances.** One holding a subscription is not idle and is not reaped. A
+  newly started instance is given every subscription still wanted, and one
+  that ends while its subscriptions are wanted -- `mcpx restart`, a crash -- is
+  replaced at once, since nobody else would start it and the updates would
+  stop without a word. A replacement that fails to start is the pool's ordinary
+  start failure; the next call to that server retries and resubscribes.
+- **A server that does not declare `resources.subscribe`** is never sent a
+  subscription (that would be asking for an undeclared capability). mcpx keeps
+  declaring `resources.subscribe` itself -- it is one capability over many
+  servers, and it does support the mechanism -- and is honest per resource
+  instead: the listen acknowledgement's `resourceSubscriptions` lists only the
+  URIs whose updates will arrive, which is what the acknowledgement exists to
+  report, and a legacy `resources/subscribe` for such a URI is refused with
+  `-32602` naming the reason, rather than succeeding and then staying silent.
+  Only agreed URIs' updates are ever sent on a stream.
+- **Absolute-path URIs.** A listing drops a leading `/` when it namespaces
+  (`/abs/doc` is listed as `mcpx://demo/abs/doc`). The daemon resolves the
+  inner part against the server's own resource list to recover `/abs/doc`,
+  and `events.Filter` compares URIs without a leading `/`; before, the two
+  forms never matched.
+
 ### 4.3 Generic requests
 
 `Client.Request` and `Pool.Request` send any method. Before them the typed

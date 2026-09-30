@@ -74,6 +74,23 @@ type Notifier interface {
 	Listen(ctx context.Context, f ListenFilter, send func(method string, params any))
 }
 
+// ResourceNotifier is a Notifier that must arrange for resource updates
+// before it can deliver them -- by subscribing upstream -- and so can only
+// say which of the requested resources it will deliver once it has tried.
+//
+// A server MUST NOT agree to what it cannot deliver: the subscriptions/listen
+// acknowledgement exists to report what was honoured, and a legacy
+// resources/subscribe that succeeds is a promise. Both wait for ready.
+type ResourceNotifier interface {
+	Notifier
+	// ListenResources is Listen for a filter that names resources. ready
+	// is called at most once, before any send, with the requested URIs
+	// whose updates will be delivered and a reason for each other one.
+	ListenResources(ctx context.Context, f ListenFilter,
+		ready func(watching []string, refused map[string]string),
+		send func(method string, params any))
+}
+
 // ListenFilter is what a client opted in to.
 //
 // Exactly the fields the 2026-07-28 SubscriptionFilter defines, and no
@@ -730,6 +747,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil || p.URI == "" {
 			return fail(codeInvalidParams, "uri is required")
 		}
+		// Serialised per connection: each change replaces the stream, and
+		// two racing replacements could leave the older set in force.
+		c.subMu.Lock()
+		defer c.subMu.Unlock()
 		c.mu.Lock()
 		if c.subs == nil {
 			c.subs = map[string]bool{}
@@ -745,7 +766,17 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		}
 		c.mu.Unlock()
 		sort.Strings(uris)
-		s.restartListen(c, ListenFilter{ResourceSubscriptions: uris})
+		refused := s.restartListen(ctx, c, ListenFilter{ResourceSubscriptions: uris})
+		if reason, no := refused[p.URI]; no && req.Method == "resources/subscribe" {
+			// A subscription that succeeds is a promise of updates. When
+			// the resource's server cannot make them -- it does not declare
+			// resources.subscribe, or is not there -- the honest answer is
+			// a refusal, not an empty result followed by silence.
+			c.mu.Lock()
+			delete(c.subs, p.URI)
+			c.mu.Unlock()
+			return fail(codeInvalidParams, "cannot subscribe to "+p.URI+": "+reason)
+		}
 		return reply(map[string]any{})
 
 	case "subscriptions/listen":
