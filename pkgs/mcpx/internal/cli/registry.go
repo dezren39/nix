@@ -236,9 +236,11 @@ func (a *App) addServerToConfig(explicit, name string, entry map[string]any) (st
 }
 
 // registryServers is what the TUI and scripts read.
-func (a *App) registrySearch(ctx context.Context, query string, limit int) ([]registry.Server, error) {
-	res, err := registry.New(a.Settings().String("registry.url"), a.registryOptions()).Search(ctx, query, limit)
-	return res.Servers, err
+// registrySearch returns the whole result, truncation included. A caller that
+// drops it cannot tell a complete answer from a cut one, which is the only
+// thing that makes "raise --limit" the right advice.
+func (a *App) registrySearch(ctx context.Context, query string, limit int) (registry.Results, error) {
+	return registry.New(a.Settings().String("registry.url"), a.registryOptions()).Search(ctx, query, limit)
 }
 
 // hoistFlags moves flags ahead of positional arguments.

@@ -79,7 +79,11 @@
   "transport": {
     "sseKeepAlive": "15s",
     "stdioDrain": "30s",
-    "loopbackHosts": ["localhost", "127.0.0.1", "::1"],
+    "loopbackHosts": [
+      "localhost",
+      "127.0.0.1",
+      "::1"
+    ],
     "allowedOrigins": []
   },
   "consumer": {
@@ -153,6 +157,7 @@
     "elicitPending": 100,
     "registryPageSize": 30,
     "registryMaxPages": 10,
+    "registryNameFallback": 10,
     "leaseTTL": "30m",
     "socketProbeTimeout": "500ms",
     "warmTimeout": "3m",

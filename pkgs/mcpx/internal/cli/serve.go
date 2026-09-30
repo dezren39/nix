@@ -271,12 +271,16 @@ func (b mcpBackend) Status(ctx context.Context) (string, error) {
 
 func (b mcpBackend) RegistrySearch(ctx context.Context, query string, limit int) (string, error) {
 	if limit <= 0 {
-		limit = 20
+		// The setting, not a literal: the CLI and /v1 both read registry.limit,
+		// and a number here meant the MCP tool was the one surface where
+		// config = env = cli = /v1 did not hold.
+		limit = b.app.Settings().Int("registry.limit")
 	}
-	servers, err := b.app.registrySearch(ctx, query, limit)
+	res, err := b.app.registrySearch(ctx, query, limit)
 	if err != nil {
 		return "", err
 	}
+	servers := res.Servers
 	if len(servers) == 0 {
 		return "Nothing matched. The registry matches server names as a substring, " +
 			"so try one word rather than a phrase.", nil
@@ -290,6 +294,11 @@ func (b mcpBackend) RegistrySearch(ctx context.Context, query string, limit int)
 		}
 		fmt.Fprintf(&sb, "%s\n    %s\n    %s\n    add with: mcpx registry add %s --write\n",
 			s.Name, firstLine(s.Description), how, s.Name)
+	}
+	if res.Truncated {
+		// Every other surface says this. Without it a model reads a cut list
+		// as the whole answer and stops looking.
+		fmt.Fprintf(&sb, "\n%d shown; more matched. Ask again with a higher limit.\n", len(servers))
 	}
 	return sb.String(), nil
 }

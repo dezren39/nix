@@ -29,6 +29,9 @@ type fakeRegistry struct {
 	// endless answers every request with no rows and a fresh cursor, which
 	// is the registry that would hold a naive loop forever.
 	endless bool
+	// frozen answers every request with the same rows and the same cursor:
+	// a registry whose paging is broken, or a proxy dropping the parameter.
+	frozen bool
 	// delay is spent before each answer.
 	delay time.Duration
 
@@ -56,6 +59,16 @@ func (f *fakeRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	off, _ := strconv.Atoi(q.Get("cursor"))
 	if f.endless {
 		writePage(w, nil, strconv.Itoa(n))
+		return
+	}
+	if f.frozen {
+		var rows []any
+		for i := 0; i < f.serve && i < f.total; i++ {
+			rows = append(rows, map[string]any{"server": map[string]any{
+				"name": name(i), "description": "d", "version": "1",
+			}})
+		}
+		writePage(w, rows, "ALWAYS")
 		return
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -255,5 +268,37 @@ func TestTheTimeoutBoundsTheWholeSearchNotEachPage(t *testing.T) {
 	}
 	if took := time.Since(start); took > 5*time.Second {
 		t.Errorf("took %v; the timeout was 200ms", took)
+	}
+}
+
+// A registry that keeps handing back the same cursor is not an infinite
+// supply of results.
+//
+// Before the cursor was tracked, this produced `limit` rows that were the
+// first page repeated -- five copies of the same two servers -- and set
+// Truncated, so `mcpx registry search` printed the duplicates and then said
+// "more exist". Get() takes hits[0] from such a search, so it resolved a name
+// against a row that had been counted five times.
+func TestARegistryThatRepeatsACursorIsNotPagedForever(t *testing.T) {
+	f := &fakeRegistry{total: 100, serve: 2, frozen: true}
+	res := search(t, f, registry.Options{PageSize: 2, MaxPages: 50}, 10)
+
+	if n := len(f.requests); n > 2 {
+		t.Errorf("made %d requests to a registry that repeats itself; "+
+			"one page then one confirmation is all the evidence there is", n)
+	}
+	seen := map[string]bool{}
+	for _, s := range res.Servers {
+		if seen[s.Name] {
+			t.Errorf("%s was returned twice; a name is one server", s.Name)
+		}
+		seen[s.Name] = true
+	}
+	if res.Truncated {
+		t.Error("a registry repeating itself is no evidence that more exist, " +
+			"and Truncated sends the caller looking for them")
+	}
+	if len(res.Servers) != 2 {
+		t.Errorf("got %d servers, want the 2 distinct ones the registry has", len(res.Servers))
 	}
 }

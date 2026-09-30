@@ -193,6 +193,15 @@ func (c *Client) Search(ctx context.Context, query string, limit int) (Results, 
 	// Empty rather than nil, so "nothing matched" is [] in JSON and not null.
 	res := Results{Servers: []Server{}}
 	cursor := ""
+	// Every cursor already followed. A registry that hands back one it has
+	// already given -- a constant cursor, or a cycle -- would otherwise be
+	// paged until maxPages, and each page appends the same rows again: the
+	// caller gets `limit` results that are the first page repeated, and
+	// Truncated says more exist. Cheap to hold, since maxPages bounds it.
+	seen := map[string]bool{}
+	// Server names already collected, so a repeated page cannot deliver the
+	// same server twice.
+	have := map[string]bool{}
 	for page := 1; ; page++ {
 		q := url.Values{}
 		q.Set("version", "latest")
@@ -215,12 +224,29 @@ func (c *Client) Search(ctx context.Context, query string, limit int) (Results, 
 				res.Truncated = true
 				break
 			}
+			// A name is one server, so the same name twice is the registry
+			// repeating itself across pages, not two results. Dropping it
+			// here rather than trusting the cursor check alone: a frozen
+			// cursor can only be recognised after it has been followed once,
+			// and that one extra page would otherwise reach the caller as
+			// duplicate rows.
+			if have[e.Server.Name] {
+				continue
+			}
+			have[e.Server.Name] = true
 			res.Servers = append(res.Servers, e.Server)
 		}
 		cursor = doc.Metadata.NextCursor
 		if cursor == "" {
 			return res, nil
 		}
+		if seen[cursor] {
+			// Not Truncated: the registry is repeating itself, so there is no
+			// evidence of anything beyond what has already been collected,
+			// and saying "more exist" would send the caller looking for it.
+			return res, nil
+		}
+		seen[cursor] = true
 		if len(res.Servers) >= limit || page >= c.maxPages {
 			res.Truncated = true
 			return res, nil
@@ -237,7 +263,7 @@ func (c *Client) Get(ctx context.Context, name string) (*Server, error) {
 	if err := c.get(ctx, path, &doc); err != nil {
 		// Falling back to a search means a partial name still resolves, which
 		// is what somebody typing from memory will give.
-		found, serr := c.Search(ctx, name, 10)
+		found, serr := c.Search(ctx, name, defaults.RegistryNameFallback)
 		hits := found.Servers
 		if serr != nil || len(hits) == 0 {
 			return nil, err
