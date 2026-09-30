@@ -136,15 +136,7 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
 		return "", err
 	}
-	session := b.app.mcpSession()
-	opts := execsvc.Options{
-		Session:      session,
-		Output:       execsvc.OutputStructured,
-		Capabilities: []string{execsvc.CapabilityArtifacts},
-	}
-	if timeoutSec > 0 {
-		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
-	}
+	opts := b.execOptions(timeoutSec)
 	body, err := c.do(ctx, http.MethodPost, "/v1/exec",
 		map[string]any{"source": source, "options": opts})
 	if err != nil {
@@ -154,6 +146,26 @@ func (b mcpBackend) Exec(ctx context.Context, source string, timeoutSec int) (st
 	if err := json.Unmarshal(body, &res); err != nil {
 		return "", err
 	}
+	return renderExec(res)
+}
+
+// execOptions is what mcpx_exec asks /v1/exec for, whichever path runs it.
+func (b mcpBackend) execOptions(timeoutSec int) execsvc.Options {
+	opts := execsvc.Options{
+		Session:      b.app.mcpSession(),
+		Output:       execsvc.OutputStructured,
+		Capabilities: []string{execsvc.CapabilityArtifacts},
+	}
+	if timeoutSec > 0 {
+		opts.Timeout = (time.Duration(timeoutSec) * time.Second).String()
+	}
+	return opts
+}
+
+// renderExec turns a script's result into mcpx_exec's tool result. Shared by
+// the direct path and the interruptible one (serve_ask.go), so a script
+// answered inline renders exactly like one that was never asked anything.
+func renderExec(res execsvc.Result) (string, error) {
 
 	var sb strings.Builder
 	for _, e := range res.Emits {

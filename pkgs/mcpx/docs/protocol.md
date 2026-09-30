@@ -243,6 +243,29 @@ is genuinely ambiguous. mcpx makes none, and the question goes to the broker.
 Guessing would hand one client's credential prompt to another client, and that
 is not a trade worth making for a convenience.
 
+**Every** `/v1/call` in flight is registered on its key, not only the
+interruptible ones. Until #77 plain calls were invisible here, so an
+interruptible call sharing a key with somebody's ordinary `mcpx call` was
+handed that caller's question. A plain call can own nothing; its presence is
+what makes the key ambiguous.
+
+**A script** (`mcpx_exec`) is one call that makes many. It runs as an
+interruptible call too (`/v1/ask` kind `exec`), and its run id is chosen and
+registered *before* the script starts. The generated client sends that id as
+`X-Mcpx-Run` on every `/v1/call`, so each upstream call the script makes joins
+the table as a member of the run. A question on a key whose in-flight calls all
+belong to one run is that run's — including calls the script makes in
+parallel. Two runs, or a run and anyone else, on one key: ambiguous, broker.
+When the run ends (finished, timed out, abandoned) its membership is removed
+everywhere, so a straggling upstream call killed with the script cannot pin a
+question to a call nobody polls; that question stays with the broker.
+
+A script that asks more than `proto.askRounds` questions in one legacy request
+is abandoned like any other call — scripts that elicit in a loop hit it first.
+The script's own `exec.timeout` (120s) is usually shorter than
+`proto.askTimeout` and a person answering eats into it; set `timeoutSec` on
+the tool call for a script that expects to ask.
+
 ### 3.5 Bounds
 
 - `proto.askTimeout` (10m) — how long one client request may be held. A legacy
@@ -376,9 +399,5 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
 - **url-mode elicitation raised by mcpx itself.** The pass-through works; mcpx
   never starts one of its own.
 - **OAuth for remote servers.** Declared and not performed, unchanged.
-- **A modern client cannot answer a question raised by `mcpx_exec`.** A script
-  makes many upstream calls and the question belongs to one of them; the
-  correlation in §3.4 identifies a *call*, and a script is not one. Those
-  questions go to the broker.
 
 2026-09-29T20:00:00-05:00

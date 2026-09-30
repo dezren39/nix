@@ -286,8 +286,14 @@ func askResult(req request, out Outcome) map[string]any {
 			"uri": p.URI, "mimeType": mime, "text": out.Text,
 		}}}
 	default:
-		res := map[string]any{"content": []any{
-			map[string]any{"type": "text", "text": out.Text}}}
+		// Decoded as the direct path decodes it, so an mcpx_exec answered
+		// inline keeps its resource_link blocks.
+		text, blocks := decodeResult(out.Text)
+		content := []any{map[string]any{"type": "text", "text": text}}
+		for _, b := range blocks {
+			content = append(content, b)
+		}
+		res := map[string]any{"content": content}
 		if out.IsError {
 			res["isError"] = true
 		}

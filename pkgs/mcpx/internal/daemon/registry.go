@@ -594,6 +594,7 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 	if err := r.confirmDestructive(ctx, p, tool, cc); err != nil {
 		return nil, err
 	}
+	defer r.joinAsk(ctx, server, key)()
 	return p.Call(ctx, key, tool, args)
 }
 
