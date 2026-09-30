@@ -55,6 +55,23 @@ type Conn struct {
 	listening context.CancelFunc
 	cancelled map[string]string
 	lastUsed  time.Time
+
+	// inflight are the requests this connection is still answering, keyed
+	// by canonical id, so notifications/cancelled can reach the context the
+	// work runs under rather than only being written down.
+	inflight map[string]*inflightReq
+	// legacy marks a Streamable HTTP session minted by initialize. A modern
+	// request presenting its id is not bound to it: that revision has no
+	// sessions, and a legacy client's pending questions are not its business.
+	legacy bool
+	// stream is that GET stream while one is open.
+	stream *eventStream
+	// ended is closed when the session is terminated.
+	ended     chan struct{}
+	endedOnce sync.Once
+	// listChanged forwards list_changed to a legacy client, which declared
+	// nothing to opt in with: the capability mcpx declared is the promise.
+	listChanged context.CancelFunc
 }
 
 // clientReply is a JSON-RPC response from the client to a request we sent it.
@@ -65,7 +82,8 @@ type clientReply struct {
 
 func (s *Server) newConn(id string, send func(any) error) *Conn {
 	c := &Conn{s: s, id: id, bind: id, send: send,
-		pending: map[int64]chan *clientReply{}, lastUsed: time.Now()}
+		pending: map[int64]chan *clientReply{}, lastUsed: time.Now(),
+		ended: make(chan struct{})}
 	if send != nil {
 		c.pushFn = func(method string, params any) {
 			_ = send(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
