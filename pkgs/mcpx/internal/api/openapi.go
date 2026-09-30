@@ -12,9 +12,9 @@ import (
 // two releases, and a wrong specification is worse than none because people
 // trust it.
 //
-// This is not the same document `mcpx serve --http` publishes at
-// /openapi.json. That one describes the MCP tools; this one describes the
-// daemon API those tools proxy.
+// This is the /v1 half of the document `mcpx openapi` prints. That one adds
+// the MCP endpoint, a REST path per mcpx tool and the settings index; the
+// paths here are the same bytes in both, because there is one table.
 func OpenAPI(version string) map[string]any {
 	paths := map[string]any{}
 	for _, op := range Ops() {

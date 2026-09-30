@@ -94,12 +94,15 @@ func consumerSettings() []Setting {
 			Name: "Recipe candidates", Short: "how many ranked recipes are returned",
 		},
 		{
-			Path: "prompt.mode", Scope: ScopeCall, Hot: true, Kind: KindEnum, Default: defaults.PromptMode,
-			Enum: []string{"script", "run"},
-			Name: "Prompt mode", Short: "whether a request returns the script or runs it",
-			Long: "Returning the script is the default and the safe direction: " +
-				"generated code runs with your credentials, and review before " +
-				"execution needs no new trust decision.",
+			Path: "prompt.autonomy", Scope: ScopeCall, Hot: true, Kind: KindEnum, Default: defaults.PromptAutonomy,
+			Enum: []string{"propose", "run"},
+			Name: "Prompt autonomy", Short: "whether a request returns the script (propose) or runs it (run)",
+			Long: "Proposing is the default and the safe direction: generated " +
+				"code runs with your credentials, and review before execution " +
+				"needs no new trust decision. The two levels are the ones this " +
+				"feature has on the one autonomy dial " +
+				"(docs/decisions/0002-autonomy-dial.md): off < advise < ask < " +
+				"propose < apply < run.",
 		},
 		{
 			Path: "prompt.sample", Scope: ScopeDaemon, Kind: KindEnum, Default: defaults.PromptSample,

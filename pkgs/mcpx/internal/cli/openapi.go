@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
+
+	"github.com/dezren39/mcpx/internal/api"
+	"github.com/dezren39/mcpx/internal/defaults"
 
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/settings"
@@ -13,47 +15,56 @@ import (
 
 // OpenAPI describes mcpx's HTTP surface.
 //
-// Generated from the same declarations everything else is -- the command
-// table, the setting registry, the MCP tool list -- so it cannot describe an
-// endpoint that does not exist or omit a parameter that does. A specification
-// maintained by hand is wrong within two releases, and a wrong specification
-// is worse than none because people trust it.
+// Generated from the same declarations everything else is -- the /v1
+// operation table, the setting registry, the MCP tool list -- so it cannot
+// describe an endpoint that does not exist or omit a parameter that does. A
+// specification maintained by hand is wrong within two releases, and a wrong
+// specification is worse than none because people trust it.
+//
+// This function used to prove that. It was written by hand beside the
+// generated one and described the surface as it had been before #61: a
+// `servers` block naming `mcpx serve --transport http`, which now refuses to
+// run, and bare /health and /openapi.json paths that 404. It listed none of
+// the 53 /v1 operations. So `mcpx openapi` and the daemon's
+// /v1/openapi.json were two different documents under one name, and the one
+// a person reaches for from the command line was the stale one.
+//
+// Now there is one document. The /v1 half is api.OpenAPI, the same bytes the
+// daemon serves; this adds the two things that are not /v1 operations -- the
+// MCP endpoint and a REST path per MCP tool -- and the settings index.
+//
+// It is the publishable form: every path comes from a declaration compiled
+// into the binary, so the document is the same on every machine. Nothing here
+// reads a running daemon's configured servers, and the per-tool paths are
+// mcpx's own tools, not the upstream ones it proxies -- those are reached
+// through /v1/tools/{tool}, which is a template for exactly that reason.
 func OpenAPI(version string) map[string]any {
-	paths := map[string]any{
-		"/mcp": map[string]any{
-			"post": map[string]any{
-				"summary": "Model Context Protocol endpoint",
-				"description": "JSON-RPC 2.0. Supports initialize, tools/list, " +
-					"tools/call and ping. Point any MCP host at this URL.",
-				"operationId": "mcp",
-				"requestBody": jsonBody(map[string]any{
-					"type":     "object",
-					"required": []string{"jsonrpc", "method"},
-					"properties": map[string]any{
-						"jsonrpc": map[string]any{"type": "string", "enum": []string{"2.0"}},
-						"id":      map[string]any{"description": "absent for a notification"},
-						"method":  map[string]any{"type": "string"},
-						"params":  map[string]any{"type": "object"},
-					},
-				}),
-				"responses": map[string]any{
-					"200": jsonResponse("a JSON-RPC result or error"),
-					"202": map[string]any{"description": "a notification was accepted"},
+	doc := api.OpenAPI(version)
+	paths, _ := doc["paths"].(map[string]any)
+	if paths == nil {
+		paths = map[string]any{}
+		doc["paths"] = paths
+	}
+
+	paths[defaults.ProtoMCPPath] = map[string]any{
+		"post": map[string]any{
+			"summary": "Model Context Protocol endpoint",
+			"description": "JSON-RPC 2.0. Supports initialize, tools/list, " +
+				"tools/call and ping. Point any MCP host at this URL.",
+			"operationId": "mcp",
+			"requestBody": jsonBody(map[string]any{
+				"type":     "object",
+				"required": []string{"jsonrpc", "method"},
+				"properties": map[string]any{
+					"jsonrpc": map[string]any{"type": "string", "enum": []string{"2.0"}},
+					"id":      map[string]any{"description": "absent for a notification"},
+					"method":  map[string]any{"type": "string"},
+					"params":  map[string]any{"type": "object"},
 				},
-			},
-		},
-		"/health": map[string]any{
-			"get": map[string]any{
-				"summary":     "Liveness",
-				"operationId": "health",
-				"responses":   map[string]any{"200": jsonResponse("the server is up")},
-			},
-		},
-		"/openapi.json": map[string]any{
-			"get": map[string]any{
-				"summary":     "This document",
-				"operationId": "openapi",
-				"responses":   map[string]any{"200": jsonResponse("the specification")},
+			}),
+			"responses": map[string]any{
+				"200": jsonResponse("a JSON-RPC result or error"),
+				"202": map[string]any{"description": "a notification was accepted"},
 			},
 		},
 	}
@@ -80,31 +91,11 @@ func OpenAPI(version string) map[string]any {
 		}
 	}
 
-	return map[string]any{
-		"openapi": "3.1.0",
-		"info": map[string]any{
-			"title":   "mcpx",
-			"version": version,
-			"summary": "Run TypeScript against your MCP servers.",
-			"description": "mcpx keeps a local daemon that owns every MCP server " +
-				"process and exposes them through a few tools rather than many, so " +
-				"tool schemas never enter a model's context.\n\n" +
-				"Every endpoint here is unauthenticated. mcpx binds to loopback by " +
-				"default; exposing it further is a deliberate act and the " +
-				"responsibility of whatever does it.",
-			"license": map[string]any{"name": "MIT"},
-		},
-		"servers": []any{
-			map[string]any{"url": "http://127.0.0.1:8787", "description": "mcpx serve --transport http"},
-		},
-		"paths": paths,
-		"components": map[string]any{
-			"schemas": map[string]any{
-				"Setting": settingSchema(),
-			},
-		},
-		"x-mcpx-settings": settingsIndex(),
+	doc["components"] = map[string]any{
+		"schemas": map[string]any{"Setting": settingSchema()},
 	}
+	doc["x-mcpx-settings"] = settingsIndex()
+	return doc
 }
 
 func jsonBody(schema any) map[string]any {

@@ -201,7 +201,7 @@ stay out of a model's context; a generation request has to send some, so it
 sends as few as it can.
 
 The generated script is validated with the step-1 diagnostics before anything
-runs, and returned rather than run unless `mode: run` is asked for.
+runs, and returned rather than run unless `autonomy: run` is asked for.
 
 ## Running a script from the daemon
 
@@ -224,7 +224,8 @@ the one that makes mcpx an agent. Sampling through the caller is the opposite
 specification is for.
 
 **Trust — "generated code runs with the user's credentials."** Return the
-script by default (`prompt.mode: script`); run only on explicit request.
+script by default (`prompt.autonomy: propose`, one level of the dial in
+[decisions/0002](decisions/0002-autonomy-dial.md)); run only on explicit request.
 Recipe values are JSON-encoded, so a recipe cannot be turned into an injection
 site by its arguments. A recipe name that would become a path is refused.
 

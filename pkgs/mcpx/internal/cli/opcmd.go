@@ -545,8 +545,10 @@ func (c *Client) streamOp(ctx context.Context, method, path string, body []byte,
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, c.set.Bytes("http.streamBufferInit")),
 		int(c.set.Bytes("http.streamBufferMax")))
+	var frames int
 	for sc.Scan() {
 		if data, ok := strings.CutPrefix(sc.Text(), "data: "); ok {
+			frames++
 			if _, err := fmt.Fprintln(w, data); err != nil {
 				return err
 			}
@@ -555,7 +557,24 @@ func (c *Client) streamOp(ctx context.Context, method, path string, body []byte,
 	if ctx.Err() != nil {
 		return nil
 	}
-	return sc.Err()
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	// A clean EOF is not success here. api.Op.Streams marks "an endpoint
+	// whose response never ends", so the far end hanging up is the far end
+	// having a problem -- and this returned nil for it, which meant the
+	// command exited 0 having printed nothing and written nothing. That is
+	// byte-for-byte what a healthy stream nobody has published to yet looks
+	// like from the outside, so there was no way to tell a dead `mcpx
+	// events` from a quiet one. A CI failure was read as the first for a day
+	// when it was the second; the cost of the ambiguity is why this is an
+	// error rather than a log line.
+	//
+	// The count is in the message because the two cases want different
+	// answers: nothing at all usually means the subscription never took,
+	// and some-then-stop means the daemon went away mid-stream.
+	return fmt.Errorf("the event stream ended after %d event(s): the daemon closed %s "+
+		"without being asked to", frames, path)
 }
 
 // printOp shows an operation's answer: the bytes to a file with -o, the

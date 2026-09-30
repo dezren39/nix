@@ -47,6 +47,7 @@ func (s *Server) handleDiagnose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("source is required"))
 		return
 	}
+	s.warmIfCold(r.Context())
 	ds := diagnose.Script(req.Source, s.reg.DiagnoseCatalog())
 	// The session was decoded and discarded, so the parameter's own
 	// description -- "for the record" -- described a record nothing wrote.
@@ -138,7 +139,7 @@ func (s *Server) handleRecipesList(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
-		limit = s.consumer.policy.RecipeLimit
+		limit = consumerPolicyFrom(s.callSettings(r)).RecipeLimit
 	}
 	cands := recipes.Match(all, q, limit)
 	for i := range cands {
@@ -222,7 +223,7 @@ func (s *Server) handleRecipeSave(w http.ResponseWriter, r *http.Request) {
 // distances: intent picks the recipe, recipe_run is told which. A caller that
 // handles one handles the other.
 type resolution struct {
-	Mode         string                `json:"mode"`
+	Autonomy     string                `json:"autonomy"`
 	Recipe       string                `json:"recipe,omitempty"`
 	Source       string                `json:"source,omitempty"`
 	Placeholders map[string]any        `json:"placeholders,omitempty"`
@@ -248,7 +249,7 @@ type saveOffer struct {
 func (s *Server) handleRecipeRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Placeholders map[string]any `json:"placeholders"`
-		Mode         string         `json:"mode"`
+		Autonomy     string         `json:"autonomy"`
 		Session      string         `json:"session"`
 	}
 	// Every field here is optional, so an empty body is a legal request for
@@ -262,23 +263,26 @@ func (s *Server) handleRecipeRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("no recipe named %q", r.PathValue("name")))
 		return
 	}
-	// A route named run runs. The script mode is here so a caller can see
-	// what would happen first, which is the same courtesy intent extends by
+	// A route named run runs. propose is here so a caller can see what
+	// would happen first, which is the same courtesy intent extends by
 	// default.
-	mode := req.Mode
-	if mode == "" {
-		mode = "run"
+	level, err := promptAutonomy(req.Autonomy, "run")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
 	}
-	out, code := s.resolveRecipe(r, rec, req.Placeholders, mode, req.Session)
+	r = r.WithContext(withPolicy(r.Context(), consumerPolicyFrom(s.callSettings(r))))
+	out, code := s.resolveRecipe(r, rec, req.Placeholders, level, req.Session)
 	writeJSON(w, code, out)
 }
 
 // resolveRecipe fills a recipe's holes, checks the result and, if asked,
 // runs it.
 func (s *Server) resolveRecipe(r *http.Request, rec recipes.Recipe,
-	values map[string]any, mode, session string) (resolution, int) {
+	values map[string]any, level, session string) (resolution, int) {
+	s.warmIfCold(r.Context())
 
-	out := resolution{Mode: mode, Recipe: rec.Name, Model: "recipe"}
+	out := resolution{Autonomy: level, Recipe: rec.Name, Model: "recipe"}
 	if values == nil {
 		values = map[string]any{}
 	}
@@ -312,7 +316,7 @@ func (s *Server) resolveRecipe(r *http.Request, rec recipes.Recipe,
 		out.Message = "the recipe does not match the tools as they are now"
 		return out, http.StatusUnprocessableEntity
 	}
-	if mode != "run" {
+	if level != "run" {
 		return out, 200
 	}
 	res, rerr := s.execScript(r.Context(), source, session)
@@ -329,7 +333,7 @@ func (s *Server) resolveRecipe(r *http.Request, rec recipes.Recipe,
 func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Prompt       string         `json:"prompt"`
-		Mode         string         `json:"mode"`
+		Autonomy     string         `json:"autonomy"`
 		Placeholders map[string]any `json:"placeholders"`
 		Session      string         `json:"session"`
 	}
@@ -341,26 +345,33 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("prompt is required"))
 		return
 	}
-	mode := req.Mode
-	if mode == "" {
-		mode = s.consumer.policy.PromptMode
+	// The caller's own policy, per request: its prompt.autonomy from the
+	// environment, a flag or PUT /v1/settings arrives on this request, not
+	// in the files the daemon read when it started. Reading the startup
+	// copy ignored all three while PUT answered "applied".
+	pol := consumerPolicyFrom(s.callSettings(r))
+	r = r.WithContext(withPolicy(r.Context(), pol))
+	level, err := promptAutonomy(req.Autonomy, pol.PromptAutonomy)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
 	}
 
 	all := s.loadRecipes()
-	cands := recipes.Match(all, req.Prompt, s.consumer.policy.RecipeLimit)
+	cands := recipes.Match(all, req.Prompt, pol.RecipeLimit)
 	if best, ok := recipes.Decide(cands,
-		s.consumer.policy.RecipeMinScore, s.consumer.policy.RecipeMatchMargin); ok {
-		out, code := s.resolveRecipe(r, best.Recipe, req.Placeholders, mode, req.Session)
+		pol.RecipeMinScore, pol.RecipeMatchMargin); ok {
+		out, code := s.resolveRecipe(r, best.Recipe, req.Placeholders, level, req.Session)
 		out.Candidates = stripSources(cands)
 		writeJSON(w, code, out)
 		return
 	}
 
-	out := resolution{Mode: mode, Candidates: stripSources(cands)}
-	if s.consumer.policy.PromptSample != "ask" || s.reg.broker == nil {
+	out := resolution{Autonomy: level, Candidates: stripSources(cands)}
+	if pol.PromptSample != "ask" || s.reg.broker == nil {
 		out.Model = "none"
 		out.Message = "no recipe matched, and generating one is off " +
-			"(prompt.sample is " + s.consumer.policy.PromptSample + "). " +
+			"(prompt.sample is " + pol.PromptSample + "). " +
 			"The ranked recipes above are everything mcpx can offer deterministically."
 		writeJSON(w, 200, out)
 		return
@@ -375,7 +386,7 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 				"whatever drives it -- the agent, the opencode plugin, or an MCP "+
 				"client that declared sampling -- to answer. The ranked recipes "+
 				"above are everything mcpx can offer without one.",
-			s.consumer.policy.PromptSampleTimeout, id)
+			pol.PromptSampleTimeout, id)
 		writeJSON(w, 200, out)
 		return
 	}
@@ -390,7 +401,7 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, out)
 		return
 	}
-	if mode == "run" {
+	if level == "run" {
 		res, rerr := s.execScript(r.Context(), source, req.Session)
 		if rerr != nil {
 			out.Message = rerr.Error()
@@ -429,4 +440,19 @@ func suggestName(prompt string) string {
 		return "recipe"
 	}
 	return strings.Join(terms, "-")
+}
+
+// promptAutonomy validates a requested level for the prompt routes, which
+// have two of the dial's six: propose returns the script, run executes it.
+// An unknown value is refused -- "plan" used to be read as the default
+// without a word, which is the silent downgrade the dial exists to end.
+func promptAutonomy(requested, fallback string) (string, error) {
+	switch requested {
+	case "":
+		return fallback, nil
+	case "propose", "run":
+		return requested, nil
+	}
+	return "", fmt.Errorf("autonomy %q: the prompt routes take propose or run "+
+		"(docs/decisions/0002-autonomy-dial.md)", requested)
 }

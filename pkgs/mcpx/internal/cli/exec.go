@@ -497,8 +497,13 @@ func (a *App) execOnDaemon(ctx context.Context, c *Client, fs *flag.FlagSet, inl
 			opts.Stdin = string(b)
 		}
 	}
-	if opts.Output == "" {
-		opts.Output = execsvc.OutputText
+	// Text is how the answer is shown here, not what crosses the wire: the
+	// daemon's text answer is the script's bare stdout, which execRemote
+	// then tried to decode as a Result -- so plain output failed with "invalid
+	// character" and JSON-looking output decoded into an empty Result and
+	// printed nothing. The structured answer is rendered as text locally.
+	if opts.Output != execsvc.OutputStream {
+		opts.Output = execsvc.OutputStructured
 	}
 	return a.execRemote(ctx, c, map[string]any{"source": source, "options": opts}, eo)
 }

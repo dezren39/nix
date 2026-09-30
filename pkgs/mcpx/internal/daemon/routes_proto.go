@@ -896,11 +896,13 @@ func (s *Server) watchResources(ctx context.Context, server string, uris []strin
 		}
 		if owner == "" {
 			match = append(match, u)
+			s.warnUnwatched(owner, u, "no configured server owns it; name it mcpx://<server>/<uri>")
 			continue
 		}
 		p, ok := s.reg.Pool(owner)
 		if !ok {
 			w.refuse(u, UnknownServer{Name: owner}.Error())
+			s.warnUnwatched(owner, u, w.Refused[u])
 			continue
 		}
 		upstream = upstreamResourceURI(ctx, p, upstream)
@@ -908,12 +910,23 @@ func (s *Server) watchResources(ctx context.Context, server string, uris []strin
 		release, err := p.Watch(ctx, s.reg.keyFor(p, config.CallContext{}), upstream)
 		if err != nil {
 			w.refuse(u, err.Error())
+			s.warnUnwatched(owner, u, err.Error())
 			continue
 		}
 		w.Watching = append(w.Watching, u)
 		w.releases = append(w.releases, release)
 	}
 	return match, w
+}
+
+// warnUnwatched records, as a warning on the bus, a resource a stream named
+// that will get no updates. A legacy resources/subscribe for it still
+// succeeds (#251: the legacy revisions have no way to say "agreed, but
+// nothing will come"), so this record is the only place the reason survives.
+func (s *Server) warnUnwatched(server, uri, reason string) {
+	s.reg.publish(events.Event{Kind: events.ServerLog, Server: server, URI: uri,
+		Data: mustJSON(mcpclient.ServerMessage{Level: "warning", Logger: "mcpx",
+			Data: mustJSON("no updates will be delivered for " + uri + ": " + reason)})})
 }
 
 func (w *resourceWatch) refuse(uri, reason string) {

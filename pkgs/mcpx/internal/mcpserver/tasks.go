@@ -210,6 +210,20 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 	missing := func() *response {
 		return fail(codeInvalidParams, tasks.ErrNoTask{ID: p.TaskID}.Error())
 	}
+	if peer.Modern && req.Method != "tasks/list" && req.Method != "tasks/result" &&
+		!peer.DeclaredExtension(ExtTasks) {
+		// The extension's methods belong to clients that declared it:
+		// "Servers MUST return this error for non-declaring clients issuing
+		// tasks/get, tasks/update, and tasks/cancel requests" (SEP-2663),
+		// the error being 2026-07-28's -32021 with requiredCapabilities.
+		// Checked before the id, so a non-declaring client learns nothing
+		// about which tasks exist. tasks/list and tasks/result are removed
+		// methods and keep their -32601.
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{
+			Code: codeMissingCapability, Message: "Missing required client capability",
+			Data: map[string]any{"requiredCapabilities": map[string]any{
+				"extensions": map[string]any{ExtTasks: map[string]any{}}}}}}
+	}
 	if req.Method != "tasks/list" && !s.visible(p.TaskID, c) {
 		// Said exactly as for a task that does not exist. Anything else
 		// confirms to a stranger that the id is live.
@@ -236,7 +250,10 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 		if mine == nil {
 			mine = []Task{}
 		}
-		items, next := page(mine, req.Params, s.pageSize())
+		items, next, perr := page(mine, req.Params, s.pageSize())
+		if perr != nil {
+			return fail(codeInvalidParams, perr.Error())
+		}
 		out := map[string]any{"tasks": items}
 		if next != "" {
 			out["nextCursor"] = next
@@ -266,6 +283,11 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 		return reply(result)
 
 	case "tasks/cancel":
+		// 2025-11-25: cancelling a task already in a terminal status is
+		// an invalid request (-32602), not a success that changes nothing.
+		if cur, ok := st.Get(p.TaskID); ok && tasks.Terminal(cur.Status) {
+			return fail(codeInvalidParams, "task "+p.TaskID+" is already "+cur.Status)
+		}
 		snap, ok := st.Cancel(p.TaskID)
 		if !ok {
 			return missing()

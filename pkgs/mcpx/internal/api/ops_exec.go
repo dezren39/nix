@@ -77,7 +77,8 @@ func execOps() []Op {
 		},
 		{
 			Name: "artifact_delete", Method: "DELETE", Path: "/v1/artifacts/{id}",
-			Summary: "Forget one artifact",
+			Idempotent: true,
+			Summary:    "Forget one artifact",
 			Description: "The registration goes, and the body with it once no other " +
 				"registration shares that content.",
 			Admin: true, Mutating: true, Destructive: true,

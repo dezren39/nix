@@ -167,6 +167,25 @@ carry instead is a description that says so and MCP annotations
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", t.Name, cov, strings.ReplaceAll(firstSentenceOf(t.Description), "|", "\\|"))
 	}
+
+	bounds := api.Boundaries()
+	fmt.Fprintf(&b, "\n## Boundaries (%d)\n\n", len(bounds))
+	b.WriteString("Every restriction mcpx declares, and whether anything enforces it\n" +
+		"([decisions/0003](decisions/0003-declared-vs-enforced-capabilities.md)). An enforced\n" +
+		"one names the tests that try to get round it; an advisory one names the issue\n" +
+		"that will enforce it. `TestEveryEnforcedBoundaryNamesItsRefusal` holds both.\n\n")
+	b.WriteString("| Restriction | Declares | State | Evidence |\n| --- | --- | --- | --- |\n")
+	for _, bd := range bounds {
+		evidence := bd.Until
+		if bd.State == api.Enforced {
+			var names []string
+			for _, r := range bd.Refusals {
+				names = append(names, "`"+r+"`")
+			}
+			evidence = strings.Join(names, ", ")
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | **%s** | %s |\n", bd.Name, bd.Declares, bd.State, evidence)
+	}
 	return b.String()
 }
 

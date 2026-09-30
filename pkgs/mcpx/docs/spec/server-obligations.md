@@ -2,8 +2,8 @@
 
 ```
 created:      2026-09-30T08:00:00-05:00
-last-updated: 2026-09-30T12:00:00-05:00
-increment:    2
+last-updated: 2026-09-30T16:00:00-05:00
+increment:    3
 status:       standard
 tags:         area:protocol, area:spec
 description:  per revision, what an MCP server MUST, SHOULD and MAY do,
@@ -304,9 +304,17 @@ matters in §4.4 and §5.
   - The `CancelledNotification` doc comment: the server-sent cancel happens
     *on stdio*.
 
-  The reading that satisfies all three: on stdio, send the cancel, preceded by
-  the result for a graceful end; on HTTP, send the result and close the
-  stream. The quotes are in
+  Only one of the three is a MUST, and only one ordering satisfies it:
+  a cancellation may name only a request that is still in progress, so the
+  notification has to go **first** and the result after it. That also
+  satisfies the SHOULD, and it costs nothing — a client that acted on the
+  cancellation ignores a late response, exactly as the cancellation page
+  tells it to, and a client that waits for the result still gets it. The
+  schema's "on stdio" then reads as the case it was written for rather than
+  as a restriction, because on HTTP closing the SSE stream is a second,
+  redundant signal, not a substitute for the one the MUST names. mcpx sends
+  both on both transports (`internal/mcpserver/listen.go`, `announceEnd`).
+  The quotes are in
   [conflicts C-21](../compare/conflicts.md#b-one-revision-against-itself).
 - **A proxy has to propagate cancellation.** When the downstream cancels, the
   proxy cancels upstream:
@@ -388,8 +396,16 @@ method under a new id with `inputResponses` and the `requestState`.
     `tasks/get`.
   - A task **must be durably created before the response is sent**.
   - A server **must never** return a task to a client that did not declare
-    the extension. The changelog's "unsolicited" contradicts this; see
-    [conflicts C-29](../compare/conflicts.md#b-one-revision-against-itself).
+    the extension. `resultType: "task"` is the only thing that distinguishes a
+    task handle from a real result, and a client that did not negotiate the
+    extension has no schema for it — so returning one unasked hands it a
+    result it cannot parse. The changelog's "unsolicited" reads otherwise;
+    see [conflicts C-29](../compare/conflicts.md#b-one-revision-against-itself).
+    This is also why `tasks/list` is absent from the extension: polling a
+    client-hosted task would itself be the server→client request 2026-07-28
+    forbids ([`../compare/register/capabilities.md`](../compare/register/capabilities.md)).
+  - The extension's methods from a client that did not declare it are
+    `-32021` with `data.requiredCapabilities`.
 - **What the prose implies.** A task handle outlives the request that created
   it, and the connection. Task state cannot live in connection or session
   state, and `tasks/list` visibility cannot be keyed by connection.
@@ -521,3 +537,10 @@ them: a modern request without the required `_meta` is `-32602`, not `-32020`
 (a missing body field is not a header disagreeing with a body), and the five
 methods 2026-07-28 removed are `-32601` (404 on HTTP) to a 2026-07-28 peer
 (#250; [`../protocol.md`](../protocol.md) §2.1).
+
+Two readings on this page are mcpx decisions, recorded with their reasons in
+[`../protocol.md`](../protocol.md): a tool whose upstream may ask a question
+the request cannot receive does not get `-32021`, because the broker answers
+instead (§3.1); and a legacy `resources/subscribe` for a URI whose updates
+cannot be delivered succeeds, with a warning event, because the legacy
+revisions have no way to say "agreed, but nothing will come" (§4.3, #251).

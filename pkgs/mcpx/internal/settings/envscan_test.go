@@ -97,7 +97,10 @@ func scanGoEnv(t *testing.T, root string) goEnvScan {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "testdata":
+			// vendor/ exists in the nix build (buildGoModule copies the
+			// vendored modules into the source), and parsing it is minutes
+			// of work on third-party code that reads no MCPX_ variable.
+			case ".git", "node_modules", "testdata", "vendor":
 				return fs.SkipDir
 			// Harnesses that run the mcpx binary rather than being part of
 			// it. They set MCPX_* for a daemon under test, which is the

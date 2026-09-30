@@ -109,8 +109,8 @@ func isBatch(body []byte) bool {
 // message. An id cannot be named because there are several.
 func batchRefused(version string) *response {
 	return &response{JSONRPC: "2.0", Error: &rpcError{Code: codeInvalidRequest,
-		Message: "JSON-RPC batching is not part of protocol version " + version +
-			"; it exists only in 2025-03-26. Send one message at a time."}}
+		Message: "JSON-RPC batches exist only in 2025-03-26, not in protocol version " + version +
+			", so send one message at a time"}}
 }
 
 // runBatch answers every element of a 2025-03-26 batch.
@@ -192,16 +192,21 @@ type OriginPolicy struct {
 	Origins []string
 }
 
-func (s *Server) originAllowed(origin string) bool {
+func (s *Server) originAllowed(origin string) bool { return s.Origins.Allows(origin) }
+
+// Allows reports whether a request carrying this Origin may be served.
+// Exported so the daemon's /v1 routes, which share its listeners, apply the
+// same rule rather than a second copy of it.
+func (p OriginPolicy) Allows(origin string) bool {
 	if origin == "" {
 		return true
 	}
-	hosts := s.Origins.Hosts
+	hosts := p.Hosts
 	if hosts == nil {
 		hosts = defaults.TransportLoopbackHosts
 	}
 	trimmed := strings.TrimSuffix(origin, "/")
-	for _, o := range s.Origins.Origins {
+	for _, o := range p.Origins {
 		if strings.EqualFold(strings.TrimSuffix(o, "/"), trimmed) {
 			return true
 		}

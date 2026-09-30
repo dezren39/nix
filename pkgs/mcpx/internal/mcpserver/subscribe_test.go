@@ -94,17 +94,32 @@ func TestResourceSubscriptionsAgreeOnlyToWhatCanBeDelivered(t *testing.T) {
 		}
 	})
 
-	t.Run("2025-11-25/resources/subscribe-is-refused-when-updates-cannot-be-delivered", func(t *testing.T) {
-		s, _, _, c := setup()
-		resp := protoJSON(t, s.HandleOn(context.Background(), c,
-			mcpserver.Request(1, "resources/subscribe", map[string]any{"uri": "mcpx://no/b"})))
-		if !strings.Contains(resp, "-32602") || !strings.Contains(resp, "resources.subscribe") {
-			t.Errorf("got %s", resp)
+	// A subscription is a standing interest: the legacy revisions neither
+	// require the resource to exist nor give a way to say "agreed, but
+	// nothing will come", so subscribe succeeds -- and delivers nothing (#251).
+	t.Run("2025-11-25/resources/subscribe-succeeds-and-delivers-nothing-when-updates-cannot-be-arranged", func(t *testing.T) {
+		s, n, rec, c := setup()
+		for i, u := range []string{"mcpx://no/b", "test://unowned", "mcpx://yes/a"} {
+			resp := protoJSON(t, s.HandleOn(context.Background(), c,
+				mcpserver.Request(i+1, "resources/subscribe", map[string]any{"uri": u})))
+			if strings.Contains(resp, "error") {
+				t.Errorf("subscribe %s: %s", u, resp)
+			}
 		}
-		resp = protoJSON(t, s.HandleOn(context.Background(), c,
-			mcpserver.Request(2, "resources/subscribe", map[string]any{"uri": "mcpx://yes/a"})))
-		if strings.Contains(resp, "error") {
-			t.Errorf("got %s", resp)
+		// Replaced streams end asynchronously; only the last may hear fire.
+		deadline := time.Now().Add(2 * time.Second)
+		for n.streams() != 1 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		n.fire <- struct{}{}
+		rec.wait(t, 1)
+		time.Sleep(50 * time.Millisecond)
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		for _, f := range rec.frames {
+			if got := protoJSON(t, f); strings.Contains(got, "mcpx://no/b") || strings.Contains(got, "test://unowned") {
+				t.Errorf("delivered an update that cannot have been arranged: %s", got)
+			}
 		}
 	})
 

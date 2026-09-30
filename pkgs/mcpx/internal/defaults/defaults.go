@@ -55,6 +55,7 @@ type Defaults struct {
 	// rebuild, and so that every constant in the program has one home.
 	Plumbing struct {
 		ShutdownGrace        string `json:"shutdownGrace"`
+		StdioExitGrace       string `json:"stdioExitGrace"`
 		StdioDrainGrace      string `json:"stdioDrainGrace"`
 		StdioMaxLine         string `json:"stdioMaxLine"`
 		DaemonConnectTimeout string `json:"daemonConnectTimeout"`
@@ -68,6 +69,7 @@ type Defaults struct {
 		RestartBackoffMax    string `json:"restartBackoffMax"`
 		RegistryTimeout      string `json:"registryTimeout"`
 		EventHistory         int    `json:"eventHistory"`
+		EventSubscriberBuf   int    `json:"eventSubscriberBuffer"`
 		StreamReconnect      string `json:"streamReconnect"`
 		TaskTTL              string `json:"taskTTL"`
 		TaskResultWait       string `json:"taskResultWait"`
@@ -139,7 +141,7 @@ type Defaults struct {
 		RecipeMinScore      int    `json:"recipeMinScore"`
 		RecipeMatchMargin   int    `json:"recipeMatchMargin"`
 		RecipeLimit         int    `json:"recipeLimit"`
-		PromptMode          string `json:"promptMode"`
+		PromptAutonomy      string `json:"promptAutonomy"`
 		PromptSample        string `json:"promptSample"`
 		PromptCatalogBudget int    `json:"promptCatalogBudget"`
 		PromptSampleTimeout string `json:"promptSampleTimeout"`
@@ -277,6 +279,15 @@ type Defaults struct {
 	ProtoTasks struct {
 		PollInterval string `json:"pollInterval"`
 	} `json:"protoTasks"`
+	// StdioShutdown is how mcpx ends a stdio server, per every revision's
+	// stdio shutdown SHOULD: close stdin and wait StdinGrace for it to exit
+	// by itself, then SIGTERM and wait TermGrace, then SIGKILL and wait at
+	// most KillWait for the reaper.
+	StdioShutdown struct {
+		StdinGrace string `json:"stdinGrace"`
+		TermGrace  string `json:"termGrace"`
+		KillWait   string `json:"killWait"`
+	} `json:"stdioShutdown"`
 	// Upstream governs how mcpx connects to the servers it fronts: which
 	// protocol era it tries first, how long it waits to find out, and where
 	// it remembers the answer.
@@ -443,6 +454,7 @@ var (
 	SaveInterval = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
 
 	ShutdownGrace        = mustDur(builtin.Plumbing.ShutdownGrace, "plumbing.shutdownGrace")
+	StdioExitGrace       = mustDur(builtin.Plumbing.StdioExitGrace, "plumbing.stdioExitGrace")
 	StdioDrainGrace      = mustDur(builtin.Plumbing.StdioDrainGrace, "plumbing.stdioDrainGrace")
 	StdioMaxLine         = mustBytes(builtin.Plumbing.StdioMaxLine, "plumbing.stdioMaxLine")
 	DaemonConnectTimeout = mustDur(builtin.Plumbing.DaemonConnectTimeout, "plumbing.daemonConnectTimeout")
@@ -456,11 +468,14 @@ var (
 	RestartBackoffMax    = mustDur(builtin.Plumbing.RestartBackoffMax, "plumbing.restartBackoffMax")
 	RegistryTimeout      = mustDur(builtin.Plumbing.RegistryTimeout, "plumbing.registryTimeout")
 	EventHistory         = builtin.Plumbing.EventHistory
-	StreamReconnect      = mustDur(builtin.Plumbing.StreamReconnect, "plumbing.streamReconnect")
-	TaskTTL              = mustDur(builtin.Plumbing.TaskTTL, "plumbing.taskTTL")
-	TaskResultWait       = mustDur(builtin.Plumbing.TaskResultWait, "plumbing.taskResultWait")
-	StatsTop             = builtin.Plumbing.StatsTop
-	RegistryLimit        = builtin.Plumbing.RegistryLimit
+	// EventSubscriberBuf is how many events one subscriber may fall behind
+	// before it is dropped as slow.
+	EventSubscriberBuf = builtin.Plumbing.EventSubscriberBuf
+	StreamReconnect    = mustDur(builtin.Plumbing.StreamReconnect, "plumbing.streamReconnect")
+	TaskTTL            = mustDur(builtin.Plumbing.TaskTTL, "plumbing.taskTTL")
+	TaskResultWait     = mustDur(builtin.Plumbing.TaskResultWait, "plumbing.taskResultWait")
+	StatsTop           = builtin.Plumbing.StatsTop
+	RegistryLimit      = builtin.Plumbing.RegistryLimit
 
 	// ResolveDialTimeout bounds the liveness check /v1/resolve makes against
 	// the socket it is about to name. It is a local connect on a unix
@@ -518,6 +533,11 @@ var (
 	// TaskPollInterval is the pollInterval every task carries: how often a
 	// client is told it may usefully ask after one.
 	TaskPollInterval = mustDur(builtin.ProtoTasks.PollInterval, "protoTasks.pollInterval")
+
+	StdioStdinGrace = mustDur(builtin.StdioShutdown.StdinGrace, "stdioShutdown.stdinGrace")
+	StdioTermGrace  = mustDur(builtin.StdioShutdown.TermGrace, "stdioShutdown.termGrace")
+	StdioKillWait   = mustDur(builtin.StdioShutdown.KillWait, "stdioShutdown.killWait")
+
 	// TransportSSEKeepAlive is how often an otherwise quiet event stream
 	// carries a comment line, so an intermediary or a client idle timeout
 	// does not close a stream that is merely waiting.
@@ -552,7 +572,7 @@ var (
 	RecipeMinScore      = builtin.Consumer.RecipeMinScore
 	RecipeMatchMargin   = builtin.Consumer.RecipeMatchMargin
 	RecipeLimit         = builtin.Consumer.RecipeLimit
-	PromptMode          = builtin.Consumer.PromptMode
+	PromptAutonomy      = builtin.Consumer.PromptAutonomy
 	PromptSample        = builtin.Consumer.PromptSample
 	PromptCatalogBudget = builtin.Consumer.PromptCatalogBudget
 	PromptSampleTimeout = mustDur(builtin.Consumer.PromptSampleTimeout, "consumer.promptSampleTimeout")

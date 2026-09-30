@@ -2,8 +2,8 @@
 
 ```
 created:      2026-09-29T20:00:00-05:00
-last-updated: 2026-09-30T12:00:00-05:00
-increment:    2
+last-updated: 2026-09-30T16:00:00-05:00
+increment:    3
 status:       standard
 tags:         area:protocol
 description:  what each revision defines, what mcpx accepts, what it sends,
@@ -40,7 +40,7 @@ Since the first version of this page, every sentence in it has been checked
 against a schema validator (`internal/mcpspec`, the five official schemas,
 strict mode) and the official conformance suite
 ([`spec/official-suite.md`](spec/official-suite.md)). Several were wrong, and
-the corrections are why this is increment 2.
+the corrections are why this is increment 3.
 
 ---
 
@@ -99,15 +99,15 @@ What a host connected to mcpx gets, over `mcpx serve` (stdio) or the daemon's
 | `server/discover` | 2026-07-28 | always | `supportedVersions` (newest first), `capabilities`, `instructions`; `serverInfo` in `_meta`; `ttlMs`/`cacheScope` |
 | `ping` | legacy | legacy peers | `{}` |
 | `tools/list` | all | always | paginated (`mcp.pageSize`), opaque cursor, a deterministic order |
-| `tools/call` | all | always | §2.3 and §3 |
+| `tools/call` | all | always | §2.3 and §3; an unknown tool is `-32602` |
 | `prompts/list`, `prompts/get` | all | always | not found is `-32602`; an upstream failure `-32603` |
 | `resources/list`, `resources/read`, `resources/templates/list` | all | always | binary contents as `blob`; not found is `-32002` (legacy) or `-32602` (2026), both with `data.uri` |
-| `resources/subscribe`, `resources/unsubscribe` | legacy | legacy peers | subscribes upstream (§4.3); `-32602` naming the reason when the owning server cannot deliver updates |
+| `resources/subscribe`, `resources/unsubscribe` | legacy | legacy peers | `{}`, always; subscribes upstream where the owning server can deliver, and otherwise publishes a warning event (§4.3) |
 | `subscriptions/listen` | 2026-07-28 | **any** era | an acknowledgement, then only the notifications the filter asked for, each tagged with the subscription id |
 | `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
 | `logging/setLevel` | legacy | legacy peers | `{}`; mcpx emits no `notifications/message` (§2.2) |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core | **any** legacy peer | the core shapes; a task is visible only to the connection that started it |
-| `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
+| `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers that declared `io.modelcontextprotocol/tasks` on the request; `-32021` with `data.requiredCapabilities` (HTTP 400) otherwise | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
 | `notifications/cancelled` | all | always | cancels the request it names — its context, and so its upstream call — and withholds the reply |
 
 Two rows are the "accept liberally" rule doing visible work:
@@ -127,10 +127,7 @@ tells a modern server from a legacy endpoint that simply is not there. So
 every older one.
 `internal/mcpserver/revisions.go` holds the list as `removedIn`, keyed to the
 same feature ceilings the rest of the matrix uses. mcpx answered all of them to
-everyone until the official suite scored it (#250). Two code comments still
-say the old thing — the `ping` and `logging/setLevel` cases in
-`internal/mcpserver/server.go` describe answering a 2026-07-28 client, which
-the `Removed` check above them no longer lets through.
+everyone until the official suite scored it (#250).
 
 **Tasks, per era.** 2025-11-25 core tasks are client-directed: a `task` field
 on `tools/call`, `{task}` back at once, `tasks/result` blocks. mcpx honours the
@@ -146,10 +143,10 @@ request, which the extension asks be resolved first. A legacy task shows
 the related-task `_meta`. [`spec/messages.md`](spec/messages.md#tasks) has the
 rest.
 
-**Unknown tools are a defect.** `tools/call` naming a tool mcpx does not have
-is answered `isError: true` with "no tool named …". Every revision lists
-unknown tools among the *protocol* errors (`-32602`). Found while classifying
-the official suite's results; not yet fixed.
+**Unknown tools are a protocol error.** `tools/call` naming a tool mcpx does
+not have is `-32602` ("no tool named …"), as every revision's tools page lists
+it. It used to be an `isError` result, which told the model to retry a call
+that could never work (#284).
 
 ### 2.2 Capabilities mcpx declares
 
@@ -288,6 +285,28 @@ narrowness — it just does not get to answer. Two gates are coarser than they
 should be (#210): any `elicitation` declaration counts as form mode, though a
 2025-11-25 client that declared only `url` has not offered forms; and
 `sampling` is not checked for `sampling.tools` or `sampling.context`.
+
+**Why a non-declaring 2026-07-28 client never gets `-32021` for a tool that
+asks.** 2026-07-28 `basic/index` says a server "MUST NOT rely on capabilities
+the client has not declared" and "if processing a request requires a
+capability the client did not include ... MUST return" `-32021`
+(`MissingRequiredClientCapabilityError`). The error is conditional on
+*requiring* the capability, and mcpx never does: a question it may not send
+the client goes to the broker, which is a durable queue answerable by any
+consumer (`mcpx elicit`, `/v1`, the plugin, a human) whether or not one is
+listening when it is asked -- there is no state in which the broker has no
+audience, only one in which nobody has answered yet, which ends in the
+question's own timeout. mcpx also cannot know in advance: whether an upstream
+tool elicits is decided by the upstream mid-call, so a pre-dispatch `-32021`
+would be a guess. The official suite's
+`sep-2575-server-rejects-undeclared-capability` assumes a fixture tool
+(`test_missing_capability`) that mcpx does not publish, and so does not test
+this path (#252 item 1). The extension's own methods are different:
+`tasks/get`, `tasks/update` and `tasks/cancel` from a client that did not
+declare `io.modelcontextprotocol/tasks` answer `-32021` with
+`data.requiredCapabilities` (HTTP 400), because there the capability is the
+whole request; so does a `subscriptions/listen` asking for task notifications
+without it.
 
 The message is rewritten to name the originator: *"github (via mcpx) asks:
 which repository?"*. A client asked "are you sure?" with no idea who is asking
@@ -441,6 +460,7 @@ What mcpx sends upstream, and what it will accept from a server.
 | modern version | `2026-07-28` |
 | declared to servers | `elicitation.form` and `roots` always; `elicitation.url` and `sampling` when a handler is installed — which in the daemon is always (#210) |
 | transports | stdio, Streamable HTTP, and HTTP+SSE (2024-11-05) as the last fallback of the HTTP probe, remembered in the era record |
+| stdio shutdown | close stdin, wait `stdioShutdown.stdinGrace` (2s, a built-in default) for the server to exit, then `SIGTERM` the process group, wait `stdioShutdown.termGrace` (3s), then `SIGKILL` — every revision's stdio SHOULD (#203 LV-39; it used to `SIGTERM` at once) |
 | headers | legacy: `MCP-Protocol-Version` is the negotiated version, omitted on `initialize` and up to 2025-03-26; modern: `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*` for `x-mcp-header` parameters, never a session id |
 
 The per-revision rules — headers, `x-mcp-header`, `resultType`, cancellation,
@@ -518,9 +538,18 @@ era has.
   servers, and it does support the mechanism -- and is honest per resource
   instead: the listen acknowledgement's `resourceSubscriptions` lists only the
   URIs whose updates will arrive, which is what the acknowledgement exists to
-  report, and a legacy `resources/subscribe` for such a URI is refused with
-  `-32602` naming the reason, rather than succeeding and then staying silent.
-  Only agreed URIs' updates are ever sent on a stream.
+  report. A legacy `resources/subscribe` for such a URI -- or for one no
+  configured server owns, like a bare `test://x` -- **succeeds** and delivers
+  nothing (#251). A subscription is a standing interest, not a lookup: the
+  spec does not require the resource to exist or its updates to be
+  deliverable, and the legacy revisions have no way to say "agreed, but
+  nothing will come". Refusing with `-32602`, as #247 first did, broke clients
+  that subscribe before they know (the official suite's
+  `server-resources-subscribe` and `-unsubscribe` among them). The reason is
+  not lost: the daemon publishes a `server.log` event at level `warning`
+  ("no updates will be delivered for <uri>: <reason>"), visible on
+  `/v1/events`. Honesty stays where the protocol has a mechanism for it, the
+  listen acknowledgement. Only agreed URIs' updates are ever sent on a stream.
 - **Absolute-path URIs.** A listing drops a leading `/` when it namespaces
   (`/abs/doc` is listed as `mcpx://demo/abs/doc`). The daemon resolves the
   inner part against the server's own resource list to recover `/abs/doc`,
@@ -598,8 +627,6 @@ access-control decision.
 
 Named, because a gap nobody wrote down is a gap somebody rediscovers.
 
-- **An unknown tool is `isError`, not `-32602`** (§2.1). Found while writing
-  this; not yet filed.
 - **Cancelling an interruptible call does not stop it.** On a direct call,
   `notifications/cancelled` (stdio, legacy HTTP session) and a closed stream
   (2026-07-28 HTTP, sessionless legacy) cancel the upstream request. A call on
@@ -607,16 +634,14 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
 - **Progress and log messages are not relayed** to a host, in either
   direction, and no `progressToken` is sent upstream, so progress cannot
   extend anyone's timeout (#212).
-- **`-32021` is never raised**, and the tasks extension answers a client that
-  did not declare it `-32602` rather than `-32021` (#252).
+- **`-32021` for a tool that asks** is deliberately not raised (§3.1); whether
+  the broker fallback discharges the MUST is #252 item 1.
 - **Tasks.** `notifications/tasks/status` is dropped; mcpx never
   task-augments a call upstream, so a tool with `taskSupport: "required"`
   cannot be called; an extension task never reaches `input_required` (#209).
 - **Capabilities declared upstream that nothing answers**: `sampling` and
   `elicitation.url` whenever a handler exists, `roots` with an empty list
   (#210).
-- **An unowned `resources/subscribe` URI is refused**, which cost two official
-  scenarios; whether it should be accepted is a decision (#251).
 - **Authorization.** No OAuth client and no OAuth on `/mcp` (#253); the
   per-server `auth` block is parsed and never applied (#240).
 - **Validation.** Tool inputs and outputs and elicitation answers are not
@@ -631,4 +656,4 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
 - **One attribution window** (§3.4): an entry is registered an instant before
   its request is counted.
 
-2026-09-30T12:00:00-05:00
+2026-09-30T16:00:00-05:00

@@ -2,8 +2,8 @@
 
 ```
 created:      2026-09-30T12:00:00-05:00
-last-updated: 2026-09-30T12:00:00-05:00
-increment:    1
+last-updated: 2026-09-30T16:00:00-05:00
+increment:    2
 status:       standard
 tags:         area:protocol, area:spec
 description:  what modelcontextprotocol/conformance says about mcpx as a
@@ -38,17 +38,32 @@ Every daemon the script starts is stopped on exit.
 
 ## Results
 
-Run on `main` at `408bc2b`. Raw output is per leg in the out-dir
-(`<leg>/out.txt`, `<leg>/results/**/checks.json`), and `failures.txt` has one
-line per failed check.
+Run on `main` at `a93be43` (after #283 and #284), merged into this branch.
+Raw output is per leg in the out-dir (`<leg>/out.txt`,
+`<leg>/results/**/checks.json`), and `failures.txt` has one line per failed
+check.
 
-| leg | at `05c78b2` (first run) | now |
-| --- | --- | --- |
-| server `--requirements 2025-11-25` | 47 passed, 19 failed | **45 / 21** |
-| server `--requirements 2026-07-28` | 60 / 104 | **117 / 54** |
-| server `--suite all` | 84 / 106 | **136 / 61** |
-| client `--requirements 2025-11-25` | 5 / 64 | **20 / 56** |
-| client `--requirements 2026-07-28` | 23 / 84 | **63 / 68** (62 / 69 in two of three runs; see below) |
+| leg | at `05c78b2` (first run) | at `408bc2b` | at `a93be43` |
+| --- | --- | --- | --- |
+| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | **45 / 21** |
+| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | **110 / 62** |
+| server `--suite all` | 84 / 106 | 136 / 61 | **131 / 67** |
+| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | **20 / 56** |
+| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | **63 / 68** |
+
+**The server numbers went down because two passes were false.** The suite's
+`tools-call-simple-text` and `tools-call-error` call fixture tools
+(`test_simple_text`, `test_error_handling`) and accept any text or any
+`isError` result. mcpx answered an unknown tool with an `isError` result, so
+both "passed" against tools that do not exist. #284 made an unknown tool the
+`-32602` every revision's tools page asks for, and both now fail honestly, as
+fixture failures, in both sets. The same change turned the tasks scenarios'
+"did not create a task" into "no tool named …", which splits some of them
+into more failed checks. In the other direction, `resources-subscribe` and
+`-unsubscribe` pass again (#251: a legacy subscription always succeeds), and
+`tasks-methods-non-declaring` passes (`-32021`). The #284 PR body reports
+2025-11-25 47/19 and 2026-07-28 118/53; this run, on the merged tree, does not
+reproduce them, and the scenario lists above are why.
 
 The first run found, among others: mcpx could not reach any real modern
 server, because both halves read and wrote `protocolVersions` where the
@@ -64,73 +79,35 @@ fixed, and the suite no longer reports it.
 mcpx is a gateway. It publishes its own small tool set (`mcpx_call`,
 `mcpx_exec`, discovery) and namespaces every upstream resource as
 `mcpx://<namespace>/<uri>`. Most server scenarios assume the suite's own
-fixture surface -- tools called `slow_compute`, `confirm_delete`,
-`test_missing_capability`, `json_schema_2020_12_tool`; prompts called
+fixture surface -- tools called `test_simple_text`, `slow_compute`, `greet`,
+`confirm_delete`, `test_missing_capability`; prompts called
 `test_simple_prompt`; resources under `test://` -- and fail before they reach
-a protocol assertion. Those failures say nothing about conformance. Reading
-them as defects would be weeks of work for two fixes.
+a protocol assertion. Those failures say nothing about conformance.
 
-### Server, 2026-07-28 (54)
+**Every remaining server failure, in both sets, is of that kind.** Each
+message names the missing fixture: `no tool named "…"`, `no prompt named "…"`,
+`a resource URI looks like mcpx://<namespace>/<uri>, got "test://…"`, or the
+suite's own "Not testable: server does not list the diagnostic tool …". One
+2026-07-28 warning is fixture-bound too: the suite mutates its own prompt list
+and waits for `notifications/prompts/list_changed` on a listen stream, and
+mcpx's prompt list is its upstreams'.
 
-| class | checks | scenarios |
-| --- | --- | --- |
-| fixture absent | 52 | `tools-call-{image,audio,embedded-resource,mixed-content,with-progress}`, `prompts-get-*`, `resources-read-{text,binary}`, `resources-templates-read`, `completion-complete` (no such prompt: `-32602`, which is the correct answer), `json-schema-2020-12`, every `input-required-result-*` that needs a fixture tool to elicit, `http-custom-header-server-validation` (no tool carries `x-mcp-header`), and most `tasks-*` ("slow_compute did not create a task") |
-| **defect** | 2, and one found reading them | below |
-
-#252 names four. Read against the code and the scenario sources, two hold:
-
-1. **`-32021` is never raised.** mcpx never refuses a call for a capability
-   the request did not declare: a question the client cannot receive goes to
-   the broker instead (the `32021-broker-fallback` row of #257). Whether that
-   fallback discharges the MUST is the open question; the suite's
-   `sep-2575-server-rejects-undeclared-capability` cannot settle it, because
-   it calls a fixture tool mcpx does not have.
-2. **The tasks extension does not gate on its own capability.**
-   `sep-2663-tasks-methods-non-declaring`: `tasks/get`, `tasks/update` and
-   `tasks/cancel` from a client that did not declare
-   `io.modelcontextprotocol/tasks` get `-32602` (no such task) where the SEP
-   says `-32021`. This one needs no fixture.
-
-The other two are fixture-bound. "No server-directed task creation" is not
-missing: `maybeTask` in `internal/mcpserver/tasks.go` answers a declaring
-client's `tools/call` with `resultType: "task"` once it has run longer than
-`protoMessages.taskAfter`, and the scenarios name `slow_compute`, which is not
-there to run long. "`Mcp-Method` changes the result content"
+Of the four defects #252 named, one was fixed (the tasks extension's methods
+answer `-32021` to a client that did not declare it, #284), one is a decision
+(`-32021` for a tool that might ask: mcpx sends the question to the broker
+instead, [`../protocol.md`](../protocol.md) §3.1), and two were fixture-bound
+all along: "no server-directed task creation" is not missing -- `maybeTask` in
+`internal/mcpserver/tasks.go` answers a declaring client's `tools/call` with
+`resultType: "task"` once it has run longer than `protoMessages.taskAfter` --
+and "`Mcp-Method` changes the result content"
 (`tasks-headers-tolerate-mcp-method-on-tools-call`) compares the text against
 `Hello, sep-2243!` from the fixture tool `greet`
-(`src/scenarios/server/tasks/headers.ts` in the suite); the header is not
-involved.
+(`src/scenarios/server/tasks/headers.ts` in the suite).
 
-**Found while checking them: an unknown tool is a result, not an error.**
-`tools/call` naming a tool mcpx does not have is answered
-`{isError: true, content: [{text: "no tool named …"}]}`
-(`internal/mcpserver/server.go`, the `tools/call` case, via `dispatch`). Every
-revision's tools page lists "Unknown tools" among the *protocol* errors, with a
-`-32602` example
-([2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling),
-[2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling)).
-It is also why several fixture scenarios fail as "the server executed it"
-rather than "the server refused it".
-
-One warning is fixture-bound too: the suite mutates its own prompt list and
-waits for `notifications/prompts/list_changed` on a listen stream, and mcpx's
-prompt list is its upstreams'.
-
-### Server, 2025-11-25 (21)
-
-19 are the fixture tools, prompts and resources above, and two carry a second,
-real cause behind the fixture one: `tools-call-with-logging` and
-`tools-call-with-progress` could not pass with the fixture either, because
-mcpx relays neither `notifications/message` nor `notifications/progress` to a
-host (#212).
-
-The other two are `resources-subscribe` and `resources-unsubscribe`, which
-passed before #247 and fail since: the scenario subscribes to
-`test://watched-resource`, which no configured upstream owns, and mcpx now
-refuses a subscription it cannot deliver instead of acknowledging it and
-staying silent. That is the honest answer replacing a dishonest pass, and
-whether an unowned URI should be refused or accepted is the open decision in
-#251.
+A few failures carry a second, real cause behind the fixture one:
+`tools-call-with-logging` and `tools-call-with-progress` could not pass with
+the fixture either, because mcpx relays neither `notifications/message` nor
+`notifications/progress` to a host (#212).
 
 ### Client, both sets
 
@@ -145,9 +122,9 @@ the upstream connected, and tools/list sent",
 `internal/conformance/officialclient/main.go`). It does not: `CmdLs` is
 answered from the schema cache and starts no server (`internal/cli/commands.go`,
 `CmdLs` doc comment). The scenario passes only when the daemon's background
-warm-up happens to list before the adapter stops it -- one run in three here.
-The fix is for the adapter to force a listing (`mcpx search ""`, as it does
-for every other scenario).
+warm-up happens to list before the adapter stops it -- one run in three at
+`408bc2b`, and this run. The fix is for the adapter to force a listing
+(`mcpx search ""`, as it does for every other scenario).
 
 ## What the suite does not see
 
@@ -160,7 +137,7 @@ for every other scenario).
   (`internal/e2e/execask_test.go`, `internal/mcpserver/requirements_test.go`,
   `internal/mcpserver/transport_test.go`) against real upstreams instead.
   A fixture upstream that exposes the suite's names through mcpx would move
-  most of those 52 into the passed column without changing a line of mcpx;
+  most of these into the passed column without changing a line of mcpx;
   it has not been built.
 
 The per-requirement status, with the test that verifies each row, is

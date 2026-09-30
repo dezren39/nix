@@ -404,6 +404,29 @@ func baseTools() []map[string]any {
 	}
 }
 
+var (
+	barrierMu      sync.Mutex
+	barrierArrived int
+	barrierMet     = make(chan struct{})
+)
+
+// barrierWait reports whether n callers arrived before limit elapsed.
+func barrierWait(n int, limit time.Duration) bool {
+	barrierMu.Lock()
+	barrierArrived++
+	if barrierArrived == n {
+		close(barrierMet)
+	}
+	met := barrierMet
+	barrierMu.Unlock()
+	select {
+	case <-met:
+		return true
+	case <-time.After(limit):
+		return false
+	}
+}
+
 func textResult(s string) map[string]any {
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": s}}}
 }
@@ -444,6 +467,16 @@ func callTool(r req) map[string]any {
 			ms = int(v)
 		case string:
 			ms, _ = strconv.Atoi(v)
+		}
+		if n, _ := p.Arguments["barrier"].(float64); n > 0 {
+			// Wait until n barrier calls are in this process at once, with
+			// ms only as the failure bound. Proves concurrency without a
+			// wall-clock assertion that fails on a loaded machine.
+			// Deliberately absent from the schema, so listings are unchanged.
+			if barrierWait(int(n), time.Duration(ms)*time.Millisecond) {
+				return ok(r.ID, textResult("barrier met"))
+			}
+			return ok(r.ID, textResult("barrier timeout"))
 		}
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 		return ok(r.ID, textResult(fmt.Sprintf("slept %dms on pid %d", ms, pid)))

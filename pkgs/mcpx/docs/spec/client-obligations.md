@@ -2,8 +2,8 @@
 
 ```
 created:      2026-09-30T08:00:00-05:00
-last-updated: 2026-09-30T08:00:00-05:00
-increment:    1
+last-updated: 2026-09-30T16:00:00-05:00
+increment:    2
 status:       standard
 tags:         area:protocol, area:spec
 description:  per revision, what an MCP client MUST, SHOULD and MAY do,
@@ -359,6 +359,5 @@ clients were fixed by #224, #232 and #239. What the rules above still expose:
 - No `progressToken` is sent upstream, so progress cannot extend a timeout
   (#212).
 - A legacy HTTP session answered `404` is an error, not a reason to send
-  `initialize` again; and stdio shutdown sends SIGTERM as soon as stdin is
-  closed, without the wait the lifecycle page asks for
-  (`StdioTransport.Close` in `internal/mcpclient/stdio.go`; #203).
+  `initialize` again (#203). (stdio shutdown now closes stdin, waits, then
+  SIGTERM, then SIGKILL, as the lifecycle page asks — #284.)
