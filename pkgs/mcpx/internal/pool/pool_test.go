@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -86,26 +85,27 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal}))
 	defer p.Close()
 
-	// Ten 200ms calls on one process must overlap, proving requests are
-	// multiplexed rather than serialised.
-	//
-	// The proof is the peak concurrency the server itself observed, not the
-	// elapsed time. Elapsed time cannot tell "the pool serialised these"
-	// from "the scheduler serialised these": under a nix build on a loaded
-	// host these ten took 2.9s and the old deadline called that a product
-	// bug (#280). The peak is a fact about what the server did.
+	// Ten calls on one process must all be in flight at once, proving
+	// requests are multiplexed rather than serialised. Each blocks in the
+	// fake until all ten have arrived; the bound is only how long to wait
+	// before calling it a failure, so a loaded machine cannot fail it.
 	const n = 10
-	start := time.Now()
+	barrier(t, p, "global", n)
+}
+
+// barrier makes n concurrent calls on key that each block in the fake until
+// all n are in flight at once, and fails unless every one saw the others.
+func barrier(t *testing.T, p *pool.Pool, key string, n int) {
+	t.Helper()
 	var wg sync.WaitGroup
+	res := make([]json.RawMessage, n)
 	errs := make([]error, n)
-	peaks := make([]int, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			var res any
-			res, errs[i] = p.Call(context.Background(), "global", "slow", map[string]any{"ms": 200})
-			peaks[i] = slowPeak(res)
+			res[i], errs[i] = p.Call(context.Background(), key, "slow",
+				map[string]any{"ms": 10000, "barrier": n})
 		}(i)
 	}
 	wg.Wait()
@@ -113,46 +113,10 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
-	}
-	best := 0
-	for _, p := range peaks {
-		if p > best {
-			best = p
+		if got := textOf(t, res[i]); got != "barrier met" {
+			t.Fatalf("call %d: %s -- the %d calls were never all in flight at once", i, got, n)
 		}
 	}
-	if best < 2 {
-		t.Fatalf("%d concurrent calls never overlapped on the server: peak %d, %s elapsed",
-			n, best, time.Since(start))
-	}
-}
-
-// slowPeak reads the "(peak N)" the fakemcp slow tool reports: how many slow
-// calls that process had running at once, at its busiest. 0 if absent.
-func slowPeak(res any) int {
-	var text string
-	switch v := res.(type) {
-	case string:
-		text = v
-	default:
-		b, err := json.Marshal(res)
-		if err != nil {
-			return 0
-		}
-		text = string(b)
-	}
-	_, after, ok := strings.Cut(text, "(peak ")
-	if !ok {
-		return 0
-	}
-	num, _, ok := strings.Cut(after, ")")
-	if !ok {
-		return 0
-	}
-	n, err := strconv.Atoi(num)
-	if err != nil {
-		return 0
-	}
-	return n
 }
 
 func TestSessionModeIsolatesState(t *testing.T) {
@@ -480,38 +444,9 @@ func TestSharedSharingAdmitsConcurrentHoldersOnOneKey(t *testing.T) {
 	defer p.Close()
 
 	// One key, four concurrent callers. Shared sharing must let them overlap
-	// on a single process rather than serialising or forking more. As above,
-	// the overlap is read from the server rather than timed (#280).
-	const n = 4
-	start := time.Now()
-	var wg sync.WaitGroup
-	errs := make([]error, n)
-	peaks := make([]int, n)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			var res any
-			res, errs[i] = p.Call(context.Background(), "session:one", "slow", map[string]any{"ms": 200})
-			peaks[i] = slowPeak(res)
-		}(i)
-	}
-	wg.Wait()
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("call %d: %v", i, err)
-		}
-	}
-	best := 0
-	for _, p := range peaks {
-		if p > best {
-			best = p
-		}
-	}
-	if best < 2 {
-		t.Fatalf("shared sharing serialised %d overlapping calls: peak %d, %s elapsed",
-			n, best, time.Since(start))
-	}
+	// on a single process rather than serialising or forking more: all four
+	// must be in that one process at once.
+	barrier(t, p, "session:one", 4)
 	if st := p.Status(); st.Live != 1 {
 		t.Fatalf("one key must mean one process, got %d", st.Live)
 	}

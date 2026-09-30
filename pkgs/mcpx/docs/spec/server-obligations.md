@@ -2,9 +2,9 @@
 
 ```
 created:      2026-09-30T08:00:00-05:00
-last-updated: 2026-09-30T08:00:00-05:00
-increment:    1
-status:       draft
+last-updated: 2026-09-30T16:00:00-05:00
+increment:    3
+status:       standard
 tags:         area:protocol, area:spec
 description:  per revision, what an MCP server MUST, SHOULD and MAY do,
               including the obligations the prose implies but never states.
@@ -15,13 +15,15 @@ the spec's MUSTs are scattered: across the lifecycle, transport, versioning and
 utility pages, and across the doc comments in `schema.ts`, which carry several
 rules the prose never repeats. A server written from the feature pages alone
 misses most of them. What mcpx does is summarised in a line where it matters
-and documented in [`../protocol.md`](../protocol.md). How other implementations
-behave is in [`../compare/`](../compare/README.md), a dated register that
-carries the per-requirement sources, mcpx's status at a commit, and the
-comparison with opencode v1/v2, lootbox and Cloudflare code mode. This
-document links to it rather than restating it. What mcpx sends *as* a client
-is [`client.md`](client.md). The matching document for what the specification
-asks of a *client* is not written yet (#249).
+and documented in [`../protocol.md`](../protocol.md); the per-requirement
+status, each with its test, is [`conformance-matrix.md`](conformance-matrix.md).
+The feature-by-revision table (which method, field, code and header exists
+where) is [`../compare/matrix-revisions.md`](../compare/matrix-revisions.md),
+the character of each revision is
+[`../compare/what-a-server-should-be.md`](../compare/what-a-server-should-be.md),
+and every place two sources disagree is
+[`../compare/conflicts.md`](../compare/conflicts.md); none of that is repeated
+here. The client side is [`client-obligations.md`](client-obligations.md).
 
 This document is the distilled form. The authority for what mcpx actually
 does is the code — `internal/mcpserver/revisions.go` holds the floors,
@@ -108,9 +110,9 @@ out:
   comparing it with the connection it arrived on. If a server needs to bind a
   handle to a caller, the binding has to be inside the handle (signed claims:
   principal, expiry, originating method and parameters) or come from the
-  authorization identity. mcpx binds `requestState` to its own connection, a
-  deliberate security trade-off against this SHOULD NOT
-  ([`../protocol.md`](../protocol.md) §3.3).
+  authorization identity. mcpx binds `requestState` to the method, a digest
+  of the parameters and an expiry, and to no connection
+  ([`messages.md`](messages.md#requeststate)).
 - A retry may reach a different process or instance. Any integrity key a
   handle depends on has to be shared by every process that might receive the
   retry. With a per-process key the retry still fails verification, which is
@@ -120,6 +122,9 @@ out:
   and may change from one request to the next. There is no symmetric
   restatement: a client acts on server capabilities that may be up to `ttlMs`
   stale, and a server acts on client capabilities that are exactly current.
+
+What "stateless" does and does not forbid, item by item, and where a proxy
+legitimately keeps state, is [`../compare/stateless.md`](../compare/stateless.md).
 
 ---
 
@@ -146,7 +151,7 @@ It faces three kinds of inbound request, and the spec defines two of them:
 | --- | --- | --- |
 | `_meta` carries a protocol version | modern semantics, stateless | ignore any legacy session state; use this request's capabilities |
 | `initialize`, or a request on a session that was initialised | legacy semantics, scoped to the process (stdio) or session (HTTP) | keep the version and capabilities from `initialize` |
-| neither | modern: MUST reject `-32602`; legacy: "not the first interaction" | unspecified. mcpx serves it as 2025-03-26 (a choice, not a rule) |
+| neither | modern: MUST reject `-32602`; legacy: "not the first interaction" | unspecified. mcpx serves it as 2025-03-26, a choice rather than a rule ([`../compare/stateless.md` §4](../compare/stateless.md#4-the-conflict-at-the-centre)) |
 
 A modern-only server that receives `initialize` **SHOULD** name its supported
 versions in the error. A dual-era server has to decide per request whether a
@@ -190,9 +195,7 @@ One endpoint answers POST and, in the legacy revisions, GET.
   DNS rebinding, and from 2025-11-25 an invalid origin gets 403. On a
   loopback, unauthenticated server this is the *only* defence the transport
   offers against any web page the user visits. Binding to loopback alone does
-  not stop DNS rebinding. mcpx validates `Origin` on `/mcp` — loopback plus
-  `transport.allowedOrigins`, 403 otherwise — and does not yet do so on the
-  `/v1` REST surface, which is the rest of #204.
+  not stop DNS rebinding. (mcpx checks it: [`transport.md`](transport.md#origin-every-revision-with-streamable-http).)
 - **Local binding.** A local server **SHOULD** bind to 127.0.0.1 and **SHOULD**
   authenticate.
 - **POST responses.** A POST carrying only responses or notifications gets
@@ -311,6 +314,8 @@ matters in §4.4 and §5.
   as a restriction, because on HTTP closing the SSE stream is a second,
   redundant signal, not a substitute for the one the MUST names. mcpx sends
   both on both transports (`internal/mcpserver/listen.go`, `announceEnd`).
+  The quotes are in
+  [conflicts C-21](../compare/conflicts.md#b-one-revision-against-itself).
 - **A proxy has to propagate cancellation.** When the downstream cancels, the
   proxy cancels upstream:
   - legacy upstream: `notifications/cancelled`;
@@ -394,10 +399,13 @@ method under a new id with `inputResponses` and the `requestState`.
     the extension. `resultType: "task"` is the only thing that distinguishes a
     task handle from a real result, and a client that did not negotiate the
     extension has no schema for it — so returning one unasked hands it a
-    result it cannot parse. Note that this is also why `tasks/list` is absent
-    from the extension: polling a client-hosted task would itself be the
-    server→client request 2026-07-28 forbids
-    ([`../compare/register/capabilities.md`](../compare/register/capabilities.md)).
+    result it cannot parse. The changelog's "unsolicited" reads otherwise;
+    see [conflicts C-29](../compare/conflicts.md#b-one-revision-against-itself).
+    This is also why `tasks/list` is absent from the extension: polling a
+    client-hosted task would itself be the server→client request 2026-07-28
+    forbids ([`../compare/register/capabilities.md`](../compare/register/capabilities.md)).
+  - The extension's methods from a client that did not declare it are
+    `-32021` with `data.requiredCapabilities`.
 - **What the prose implies.** A task handle outlives the request that created
   it, and the connection. Task state cannot live in connection or session
   state, and `tasks/list` visibility cannot be keyed by connection.
@@ -519,74 +527,20 @@ should expect exactly the methods 2026 defines.
 
 ---
 
-## 7. Where mcpx stands — measured, not asserted
+## 7. Where mcpx stands
 
-An official conformance suite exists: **`modelcontextprotocol/conformance`**
-(npm `@modelcontextprotocol/conformance`). It is not optional folklore —
-SEP-2484 ("Require Conformance Tests for Standards Track SEPs to Reach Final
-Status", Final) makes a merged conformance scenario a condition of a Standards
-Track SEP reaching Final, and SEP-1730 ties official SDK tiering to a
-percentage from it. Its `requirements/<revision>.yaml` files are **frozen**:
-"An implementation is measured against the suite as it stood when it was
-expected to conform, not against whatever the suite has accumulated since."
+Measured, not asserted: the official suite's results, and which of its
+failures are defects, are [`official-suite.md`](official-suite.md); the
+per-requirement status is [`conformance-matrix.md`](conformance-matrix.md).
+Two obligations on this page were corrected in mcpx because the suite found
+them: a modern request without the required `_meta` is `-32602`, not `-32020`
+(a missing body field is not a header disagreeing with a body), and the five
+methods 2026-07-28 removed are `-32601` (404 on HTTP) to a 2026-07-28 peer
+(#250; [`../protocol.md`](../protocol.md) §2.1).
 
-The 2026-07-28 work is on the alpha line (`0.2.0-alpha.11`); `latest` is a
-0.1.x that predates the revision. `scripts/conformance.sh` runs both legs —
-mcpx as a server, and, through `internal/conformance/officialclient`, mcpx as
-the client under test.
-
-Measured against the daemon's `/mcp` endpoint, at `408bc2b`:
-
-| requirement set | passed | failed |
-| --- | --- | --- |
-| `2026-07-28` | 116 | 54 |
-| `2025-11-25` | 45 | 21 |
-
-2025-11-25 was 47 / 19 until #247 taught mcpx to actually arrange an upstream
-resource subscription instead of acknowledging one blindly. The suite
-subscribes to `test://watched-resource`, which no upstream owns, and mcpx now
-says so — a correct refusal scored as a failure, and one more instance of the
-paragraph below rather than an exception to it (#251).
-
-**Most of those failures are not defects.** The suite's scenarios assume a
-server that implements its fixture surface — tools named `slow_compute` and
-`test_missing_capability`, prompts named `test_simple_prompt`, resources under
-`test://`. mcpx is a proxy: it publishes its own small tool set and namespaces
-every upstream resource as `mcpx://<namespace>/<uri>`. A scenario that cannot
-find its fixture reports a failure that says nothing about protocol
-conformance. **Do not read 54 as a defect count.** Every one of the 21 on
-2025-11-25 is a fixture failure — `no prompt named "test_simple_prompt"`,
-`a resource URI looks like mcpx://<namespace>/<uri>, got "test://static-text"`,
-`Tool 'json_schema_2020_12_tool' not found` — and on 2026-07-28 the 54 divide
-as:
-
-| category | count | meaning |
-| --- | --- | --- |
-| fixture not present on a proxy | ~50 | not applicable; the scenario never reached a protocol assertion |
-| genuine, remaining | ~4 | see below |
-
-The genuine remainder, all of which need a fixture tool to exercise properly
-and are therefore tracked rather than guessed at:
-
-- `-32021 MissingRequiredClientCapability` is not raised when a tool needs a
-  client capability the request did not declare (#199).
-- The tasks extension does not answer `-32021` to a client that did not
-  declare `io.modelcontextprotocol/tasks`, and mcpx creates no task for a
-  server-directed `CreateTaskResult` (#209).
-- `Mcp-Method` on a `tools/call` changes the result content, which it must
-  not (#199, row TR-37).
-
-Two obligations this document names were corrected as a direct result of
-running the suite, each with a test that fails without the fix:
-
-- A modern request whose body carries no `_meta` — or no
-  `io.modelcontextprotocol/protocolVersion` inside it — is `-32602` (invalid
-  params), not `-32020` (header mismatch). A missing body field is not a
-  header disagreeing with a body. `modernStatus` already documented `-32602`
-  as "what a request missing a required `_meta` field gets"; the code that
-  produced the error never agreed with it.
-- `initialize`, `ping`, `logging/setLevel`, `resources/subscribe` and
-  `resources/unsubscribe` are `-32601` to a 2026-07-28 peer, and 404 on HTTP.
-  mcpx answered all five to every peer under "accept liberally", and a test
-  asserted that as correct. The rule survives, with its limit now stated: see
-  [`../protocol.md`](../protocol.md) §2.1.
+Two readings on this page are mcpx decisions, recorded with their reasons in
+[`../protocol.md`](../protocol.md): a tool whose upstream may ask a question
+the request cannot receive does not get `-32021`, because the broker answers
+instead (§3.1); and a legacy `resources/subscribe` for a URI whose updates
+cannot be delivered succeeds, with a warning event, because the legacy
+revisions have no way to say "agreed, but nothing will come" (§4.3, #251).

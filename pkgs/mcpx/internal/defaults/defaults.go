@@ -279,6 +279,15 @@ type Defaults struct {
 	ProtoTasks struct {
 		PollInterval string `json:"pollInterval"`
 	} `json:"protoTasks"`
+	// StdioShutdown is how mcpx ends a stdio server, per every revision's
+	// stdio shutdown SHOULD: close stdin and wait StdinGrace for it to exit
+	// by itself, then SIGTERM and wait TermGrace, then SIGKILL and wait at
+	// most KillWait for the reaper.
+	StdioShutdown struct {
+		StdinGrace string `json:"stdinGrace"`
+		TermGrace  string `json:"termGrace"`
+		KillWait   string `json:"killWait"`
+	} `json:"stdioShutdown"`
 	// Upstream governs how mcpx connects to the servers it fronts: which
 	// protocol era it tries first, how long it waits to find out, and where
 	// it remembers the answer.
@@ -524,6 +533,11 @@ var (
 	// TaskPollInterval is the pollInterval every task carries: how often a
 	// client is told it may usefully ask after one.
 	TaskPollInterval = mustDur(builtin.ProtoTasks.PollInterval, "protoTasks.pollInterval")
+
+	StdioStdinGrace = mustDur(builtin.StdioShutdown.StdinGrace, "stdioShutdown.stdinGrace")
+	StdioTermGrace  = mustDur(builtin.StdioShutdown.TermGrace, "stdioShutdown.termGrace")
+	StdioKillWait   = mustDur(builtin.StdioShutdown.KillWait, "stdioShutdown.killWait")
+
 	// TransportSSEKeepAlive is how often an otherwise quiet event stream
 	// carries a comment line, so an intermediary or a client idle timeout
 	// does not close a stream that is merely waiting.

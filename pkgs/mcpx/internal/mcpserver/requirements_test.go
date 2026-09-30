@@ -825,6 +825,12 @@ func taskClient(extra map[string]any) map[string]any {
 		mergeMaps(map[string]any{"name": "mcpx_namespaces", "arguments": map[string]any{}}, extra))
 }
 
+// taskParams is a 2026-07-28 request from a client that declared the tasks
+// extension, which the extension's own methods require.
+func taskParams(extra map[string]any) map[string]any {
+	return modernWith(`{"extensions":{"io.modelcontextprotocol/tasks":{}}}`, extra)
+}
+
 func mergeMaps(a, b map[string]any) map[string]any {
 	for k, v := range b {
 		a[k] = v
@@ -842,7 +848,7 @@ func TestTasksPerEra(t *testing.T) {
 		t.Helper()
 		deadline := time.Now().Add(3 * time.Second)
 		for time.Now().Before(deadline) {
-			r := resultOf(t, handle(t, s, "tasks/get", modernParams(map[string]any{"taskId": id})))
+			r := resultOf(t, handle(t, s, "tasks/get", taskParams(map[string]any{"taskId": id})))
 			if st := r["status"]; st == "completed" || st == "failed" || st == "cancelled" {
 				return r
 			}
@@ -923,15 +929,39 @@ func TestTasksPerEra(t *testing.T) {
 		r := resultOf(t, handle(t, s, "tools/call", taskClient(nil)))
 		id := r["taskId"].(string)
 		for _, m := range []string{"tasks/update", "tasks/cancel"} {
-			got := resultOf(t, handle(t, s, m, modernParams(map[string]any{"taskId": id, "inputResponses": map[string]any{"x": map[string]any{}}})))
+			got := resultOf(t, handle(t, s, m, taskParams(map[string]any{"taskId": id, "inputResponses": map[string]any{"x": map[string]any{}}})))
 			delete(got, "_meta")
 			delete(got, "resultType")
 			if len(got) != 0 {
 				t.Errorf("%s: want an empty ack, got %v", m, got)
 			}
-			if code := errCode(handle(t, s, m, modernParams(map[string]any{"taskId": "tsk-none"}))); code != -32602 {
+			if code := errCode(handle(t, s, m, taskParams(map[string]any{"taskId": "tsk-none"}))); code != -32602 {
 				t.Errorf("%s unknown: %d", m, code)
 			}
+		}
+	})
+
+	// https://modelcontextprotocol.io/extensions/tasks/overview (SEP-2663
+	// "Servers MUST return this error for non-declaring clients issuing
+	// tasks/get, tasks/update, and tasks/cancel requests") and
+	// https://modelcontextprotocol.io/specification/2026-07-28/basic/index
+	// (-32021 with data.requiredCapabilities). Asked about a live task, so
+	// the answer cannot be the unknown-id -32602.
+	t.Run("2026-07-28/tasks/methods-from-a-non-declaring-client-are-32021", func(t *testing.T) {
+		s := slow(300*time.Millisecond, false)
+		id := resultOf(t, handle(t, s, "tools/call", taskClient(nil)))["taskId"].(string)
+		for _, m := range []string{"tasks/get", "tasks/update", "tasks/cancel"} {
+			for _, id := range []string{id, "tsk-none"} {
+				b := protoJSON(t, handle(t, s, m, modernParams(map[string]any{"taskId": id, "inputResponses": map[string]any{}})))
+				if !strings.Contains(b, `"code":-32021`) ||
+					!strings.Contains(b, `"requiredCapabilities":{"extensions":{"io.modelcontextprotocol/tasks":{}}}`) {
+					t.Errorf("%s %s: %s", m, id, b)
+				}
+			}
+		}
+		// Removed methods keep -32601 even for a non-declaring client.
+		if code := errCode(handle(t, s, "tasks/result", modernParams(map[string]any{"taskId": id}))); code != -32601 {
+			t.Errorf("tasks/result: %d", code)
 		}
 	})
 
@@ -1095,6 +1125,30 @@ func TestToolsListIsDeterministic(t *testing.T) {
 		b := mcpserver.New(newBackend(), "mcpx", "test").WithExtras(mk("c_z", "b_x", "a_y"))
 		if protoJSON(t, a.Tools()) != protoJSON(t, b.Tools()) {
 			t.Errorf("order depends on arrival:\n%v\n%v", a.Tools(), b.Tools())
+		}
+	})
+}
+
+// https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling
+// https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling
+// "Unknown tool" is listed under protocol errors, answered -32602; an
+// isError result would say the tool ran.
+func TestUnknownToolIsAProtocolError(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	for name, params := range map[string]map[string]any{
+		"2025-11-25/tools/unknown-tool-is-32602": {"name": "no_such_tool"},
+		"2026-07-28/tools/unknown-tool-is-32602": modernParams(map[string]any{"name": "no_such_tool"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := handle(t, s, "tools/call", params)
+			if errCode(m) != -32602 || m["result"] != nil {
+				t.Errorf("got %v", m)
+			}
+		})
+	}
+	t.Run("2026-07-28/tools/known-tool-still-runs", func(t *testing.T) {
+		if m := handle(t, s, "tools/call", modernParams(map[string]any{"name": "mcpx_namespaces"})); m["error"] != nil {
+			t.Errorf("got %v", m)
 		}
 	})
 }

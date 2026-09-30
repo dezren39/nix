@@ -424,25 +424,23 @@ func (s *Server) runNotifier(ctx, wait context.Context, f ListenFilter,
 }
 
 // restartListen replaces the legacy resources/subscribe stream with one for
-// f, and reports the subscriptions it could not honour. Legacy
+// f. What it could not honour is simply not agreed, so never delivered. Legacy
 // subscriptions are per connection, so there is only ever one, and its
 // notifications go out untagged on the connection's push.
 //
 // The new stream is running before the old one ends, so a resource both
 // name stays subscribed upstream throughout rather than being dropped and
 // taken again on every change to the set.
-func (s *Server) restartListen(wait context.Context, c *Conn, f ListenFilter) map[string]string {
+func (s *Server) restartListen(wait context.Context, c *Conn, f ListenFilter) {
 	c.mu.Lock()
 	push := c.pushFn
 	c.mu.Unlock()
 	notify := s.Notify
 	var l *listenStream
-	var refused map[string]string
 	if push != nil && notify != nil && !f.empty() {
 		lctx, cancel := context.WithCancel(context.Background())
 		l = &listenStream{cancel: cancel, done: make(chan struct{})}
-		var open func()
-		_, refused, open, _ = s.runNotifier(lctx, wait, f, push, nil)
+		_, _, open, _ := s.runNotifier(lctx, wait, f, push, nil)
 		open()
 	}
 	c.mu.Lock()
@@ -465,7 +463,6 @@ func (s *Server) restartListen(wait context.Context, c *Conn, f ListenFilter) ma
 		c.stopListen()
 	default:
 	}
-	return refused
 }
 
 // stopListen ends every stream this connection opened: the transport is

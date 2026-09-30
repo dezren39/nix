@@ -6,10 +6,9 @@ names are `<revision>/<area>/<requirement>` in
 `internal/mcpserver/transport_test.go` and `internal/e2e/transport_test.go`.
 
 mcpx serves both eras at once: 2024-11-05, 2025-03-26, 2025-06-18 and
-2025-11-25, which negotiate with `initialize`, and 2026-07-28, which carries
-its version in every request's `_meta`. 2024-11-05 reaches only `mcpx serve`:
-its HTTP transport is HTTP+SSE, which mcpx does not host, so nothing arriving
-on `/mcp` can be a 2024-11-05 request (`internal/mcpserver/revisions.go:22-24`). Over HTTP the two share one endpoint, so the first
+2025-11-25, which negotiate with `initialize` (2024-11-05 over stdio and
+Streamable HTTP; its own HTTP+SSE server transport is not hosted), and 2026-07-28, which carries its version in
+every request's `_meta`. Over HTTP the two share one endpoint, so the first
 thing the transport does with a POST is decide which era wrote it.
 
 ## Which era a POST belongs to
@@ -43,9 +42,10 @@ catch, and it should be refused as that rather than quietly served as legacy.
   which handler produced an invalid-params error would not be a function of
   the response, and every invalid-params error is a client error.
 - **No sessions.** An `Mcp-Session-Id` on a modern request never binds it to a
-  legacy session: an unknown one is ignored (no `404`), and none is echoed.
-  `server/discover` still mints one; that is the requestState binding and is
-  being removed separately.
+  legacy session: an unknown one is ignored (no `404`), and none is echoed or
+  minted -- `server/discover` used to mint one so a `requestState` had
+  something to bind to; it is now bound to the request instead
+  ([messages.md](messages.md#requeststate)).
 - **No batches.** An array body is `400 -32600`.
 - **Notifications** are `202` with no body; one that is not accepted is `400`
   with an id-less error. An unknown notification method is ignored (`202`):
