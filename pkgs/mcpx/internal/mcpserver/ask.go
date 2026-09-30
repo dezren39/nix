@@ -51,6 +51,10 @@ type Outcome struct {
 	Text string
 	// Contents is a finished resource read, in place of Text.
 	Contents []ResourceContents
+	// Err classifies a failed prompts/get or resources/read, the way a
+	// Backend does: wrapping ErrResourceNotFound or ErrInvalidParams when
+	// the upstream server said so. Text still carries the message.
+	Err error
 	// IsError marks a tool that failed, which is a result rather than a
 	// protocol error: a client that retries the wrong thing on a tool
 	// failure never converges.
@@ -179,7 +183,19 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			if out.IsError && req.Method != "tools/call" {
 				// Only a tool has a result that can say it failed. A read or
 				// a prompt that failed upstream is an error, and was being
-				// returned as contents whose text was the error message.
+				// returned as contents whose text was the error message --
+				// which is how a read of a URI that exists nowhere "passed"
+				// the official suite's resources-read-text.
+				switch {
+				case req.Method == "resources/read" && errors.Is(out.Err, ErrResourceNotFound):
+					var p struct {
+						URI string `json:"uri"`
+					}
+					_ = json.Unmarshal(req.Params, &p)
+					return notFound(req.ID, p.URI, peer, errors.New(out.Text))
+				case req.Method == "prompts/get" && errors.Is(out.Err, ErrInvalidParams):
+					return fail(codeInvalidParams, out.Text)
+				}
 				return fail(codeInternal, out.Text)
 			}
 			return reply(askResult(req, out))

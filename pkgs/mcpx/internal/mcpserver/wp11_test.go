@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -297,6 +298,25 @@ func TestBinaryResourcesStayBlobs(t *testing.T) {
 		check(t, blobOf(t, s.Handle(context.Background(), mcpserver.Request(1, "resources/read",
 			modernWith(`{"elicitation":{}}`, map[string]any{"uri": "demo://logo"})))))
 	})
+	// https://modelcontextprotocol.io/specification/2026-07-28/server/resources#error-handling
+	t.Run("2026-07-28/resources/not-found-via-ask-is-invalid-params-with-uri", func(t *testing.T) {
+		s := mcpserver.New(newBackend(), "mcpx", "test")
+		s.Ask = blobAsker{fail: true, err: fmt.Errorf("%w: gone", mcpserver.ErrResourceNotFound)}
+		resp := s.Handle(context.Background(), mcpserver.Request(1, "resources/read",
+			modernWith(`{"elicitation":{}}`, map[string]any{"uri": "demo://logo"})))
+		if c := rpcCode(t, resp); c != -32602 || !strings.Contains(protoJSON(t, resp), `"uri":"demo://logo"`) {
+			t.Fatalf("code %d: %s", c, protoJSON(t, resp))
+		}
+	})
+	// https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling
+	t.Run("2026-07-28/prompts/invalid-via-ask-is-invalid-params", func(t *testing.T) {
+		s := mcpserver.New(newBackend(), "mcpx", "test")
+		s.Ask = blobAsker{fail: true, err: fmt.Errorf("%w: missing text", mcpserver.ErrInvalidParams)}
+		if c := rpcCode(t, s.Handle(context.Background(), mcpserver.Request(1, "prompts/get",
+			modernWith(`{"elicitation":{}}`, map[string]any{"name": "demo_summarise"})))); c != -32602 {
+			t.Fatalf("code %d", c)
+		}
+	})
 	t.Run("2026-07-28/resources/failed-read-via-ask-is-an-error-not-contents", func(t *testing.T) {
 		s := mcpserver.New(newBackend(), "mcpx", "test")
 		s.Ask = blobAsker{fail: true}
@@ -307,12 +327,15 @@ func TestBinaryResourcesStayBlobs(t *testing.T) {
 	})
 }
 
-type blobAsker struct{ fail bool }
+type blobAsker struct {
+	fail bool
+	err  error
+}
 
 func (blobAsker) Begin(context.Context, string, json.RawMessage) (string, error) { return "c", nil }
 func (a blobAsker) Poll(context.Context, string, time.Duration) (mcpserver.Outcome, error) {
 	if a.fail {
-		return mcpserver.Outcome{Done: true, IsError: true, Text: "upstream timed out"}, nil
+		return mcpserver.Outcome{Done: true, IsError: true, Text: "upstream timed out", Err: a.err}, nil
 	}
 	return mcpserver.Outcome{Done: true, Contents: []mcpserver.ResourceContents{
 		{MimeType: "image/png", Blob: "iVBORw0KGgo="}}}, nil

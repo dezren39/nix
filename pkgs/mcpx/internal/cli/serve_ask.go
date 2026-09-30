@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -163,6 +164,17 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		// protocol error: a client that retries the wrong thing on a tool
 		// failure never converges.
 		out.Text, out.IsError = reply.Error, true
+		// Classified for the two methods whose failure is a protocol
+		// error; which one applies is the caller's to pick, since the
+		// same upstream -32602 means not-found for a read and a bad
+		// argument for a prompt.
+		failed := errors.New(reply.Error)
+		switch {
+		case upstreamNotFound(failed) && upstreamInvalid(failed):
+			out.Err = fmt.Errorf("%w, %w: %v", mcpserver.ErrResourceNotFound, mcpserver.ErrInvalidParams, failed)
+		case upstreamNotFound(failed):
+			out.Err = fmt.Errorf("%w: %v", mcpserver.ErrResourceNotFound, failed)
+		}
 		return out, nil
 	}
 	out.Text, out.Contents, out.IsError = renderAsk(reply.Result)

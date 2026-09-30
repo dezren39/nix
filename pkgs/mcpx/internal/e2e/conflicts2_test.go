@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -218,6 +219,26 @@ func TestMCPSurfaceAnswersLikeV1(t *testing.T) {
 			rpc(2, "prompts/get", map[string]any{"name": "nosuch"})})
 		if c := errCode(got["2"]); c != -32602 {
 			t.Fatalf("code %v: %s", c, dumpJSON(t, got["2"]))
+		}
+	})
+
+	// A client that can answer questions reads through the ask path, which
+	// turned an upstream not-found into contents whose text was the error.
+	// https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling
+	t.Run("2025-11-25/resources/not-found-via-ask-path-is-32002", func(t *testing.T) {
+		ep := e.endpoint(t)
+		sess := func() string {
+			r := mcpPost(t, ep, "", rpc(1, "initialize", map[string]any{"protocolVersion": "2025-11-25",
+				"capabilities": map[string]any{"elicitation": map[string]any{}},
+				"clientInfo":   map[string]any{"name": "wp11", "version": "0"}}))
+			r.Body.Close()
+			return r.Header.Get("Mcp-Session-Id")
+		}()
+		r := mcpPost(t, ep, sess, rpc(2, "resources/read", map[string]any{"uri": "mcpx://demo/demo://nope"}))
+		defer r.Body.Close()
+		raw, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(raw), `"code":-32002`) || !strings.Contains(string(raw), `"uri":"mcpx://demo/demo://nope"`) {
+			t.Fatalf("%s", raw)
 		}
 	})
 
