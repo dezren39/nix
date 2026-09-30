@@ -1,12 +1,15 @@
 package cli_test
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/dezren39/mcpx/internal/api"
 	"github.com/dezren39/mcpx/internal/cli"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // `mcpx openapi` and the daemon's /v1/openapi.json are one document.
@@ -66,27 +69,99 @@ func TestNoPathIsAdvertisedThatNothingServes(t *testing.T) {
 	}
 }
 
-// The document is the same on every machine.
+// The upstream-tool template is present.
 //
-// It is what a person publishes, so it must not depend on which servers
-// happen to be configured or which daemon happens to be running. Every path
-// comes from a declaration compiled into the binary; upstream tools are
-// reached through the /v1/tools/{tool} template rather than enumerated.
-func TestTheDocumentIsTheSameOnEveryMachine(t *testing.T) {
-	a, b := cli.OpenAPI("test"), cli.OpenAPI("test")
-	pa, _ := a["paths"].(map[string]any)
-	pb, _ := b["paths"].(map[string]any)
-	if len(pa) != len(pb) {
-		t.Fatalf("two calls disagreed: %d paths then %d", len(pa), len(pb))
+// Without it the only way to describe a configured server's tools is to
+// enumerate them, and the document stops being publishable -- which is the
+// property TestTheOpenAPIDocumentIsTheSameWhateverIsConfigured checks by
+// driving the binary under two configurations. This is the cheap half: the
+// template is the mechanism that makes that property hold, so losing it here
+// fails in one package rather than in an end-to-end run.
+//
+// It replaces a test that called cli.OpenAPI twice in one process and
+// asserted the two results agreed. cli.OpenAPI reads the operation table, a
+// nil-backed mcpserver and the settings registry -- all compiled in -- so
+// that comparison was true by construction and could not observe the thing
+// its name promised.
+func TestTheUpstreamToolTemplateIsPresent(t *testing.T) {
+	paths, _ := cli.OpenAPI("test")["paths"].(map[string]any)
+	if len(paths) == 0 {
+		t.Fatal("no paths; the document changed shape and this test checks nothing")
 	}
-	for p := range pa {
-		if _, ok := pb[p]; !ok {
-			t.Errorf("%q appeared in one call and not the other", p)
-		}
-	}
-	if _, ok := pa["/v1/tools/{tool}"]; !ok {
+	if _, ok := paths["/v1/tools/{tool}"]; !ok {
 		t.Error("the upstream-tool template is missing; without it the only way to " +
 			"describe a configured server's tools is to enumerate them, and the " +
 			"document stops being publishable")
 	}
+}
+
+// No `servers` entry is an address nothing can listen on.
+//
+// The document's first version named `mcpx serve --transport http`, a command
+// #61 had removed. Its replacement named `http://127.0.0.1:0` -- daemon.port
+// defaults to 0, which means "choose a free one at start-up", so that URL is
+// a port nothing ever binds. Both are the same defect the paths above are
+// guarded against, one level up: a destination handed to a client that cannot
+// receive a request. A port decided at run time has to be a server variable,
+// because any number written here is wrong on every machine.
+func TestNoServerIsAdvertisedThatNothingListensOn(t *testing.T) {
+	servers, _ := cli.OpenAPI("test")["servers"].([]any)
+	if len(servers) == 0 {
+		t.Fatal("no servers; the document changed shape and this test checks nothing")
+	}
+	placeholder := regexp.MustCompile(`\{([^}]+)\}`)
+	for _, entry := range servers {
+		m, _ := entry.(map[string]any)
+		url, _ := m["url"].(string)
+		if url == "" {
+			t.Errorf("a servers entry has no url: %v", m)
+			continue
+		}
+		if port := url[strings.LastIndex(url, ":")+1:]; port != "" {
+			if n, err := strconv.Atoi(port); err == nil && n == 0 {
+				t.Errorf("%q names port %d, which nothing listens on", url, n)
+			}
+		}
+		vars, _ := m["variables"].(map[string]any)
+		for _, match := range placeholder.FindAllStringSubmatch(url, -1) {
+			spec, ok := vars[match[1]].(map[string]any)
+			if !ok {
+				t.Errorf("%q uses {%s} and declares no such variable", url, match[1])
+				continue
+			}
+			if _, ok := spec["default"]; !ok {
+				t.Errorf("%q: variable %s has no default, which OpenAPI requires", url, match[1])
+			}
+		}
+	}
+}
+
+// The port the document offers is the port the setting declares. Two copies
+// of a default are one rename from disagreeing, and `mcpx settings` is what a
+// reader would check it against.
+func TestTheLoopbackPortIsTheDeclaredDefault(t *testing.T) {
+	var want string
+	found := false
+	for _, s := range settings.Registry() {
+		if s.Path == "daemon.port" {
+			want, found = s.Default, true
+		}
+	}
+	if !found {
+		t.Fatal("daemon.port is not in the registry; the document's fallback would be a second copy of its default")
+	}
+	servers, _ := cli.OpenAPI("test")["servers"].([]any)
+	for _, entry := range servers {
+		m, _ := entry.(map[string]any)
+		vars, _ := m["variables"].(map[string]any)
+		spec, ok := vars["port"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if got, _ := spec["default"].(string); got != want {
+			t.Errorf("the document offers port %q and daemon.port declares %q", got, want)
+		}
+		return
+	}
+	t.Error("no servers entry has a port variable; the loopback endpoint is either absent or a literal again")
 }

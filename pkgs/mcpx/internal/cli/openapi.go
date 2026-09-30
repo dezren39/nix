@@ -25,7 +25,7 @@ import (
 // generated one and described the surface as it had been before #61: a
 // `servers` block naming `mcpx serve --transport http`, which now refuses to
 // run, and bare /health and /openapi.json paths that 404. It listed none of
-// the 53 /v1 operations. So `mcpx openapi` and the daemon's
+// the /v1 operations. So `mcpx openapi` and the daemon's
 // /v1/openapi.json were two different documents under one name, and the one
 // a person reaches for from the command line was the stale one.
 //
