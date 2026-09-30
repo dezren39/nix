@@ -119,7 +119,43 @@ const (
 	// FeatBatch is JSON-RPC batching: a server MUST accept batches in
 	// 2025-03-26, and 2025-06-18 removed them.
 	FeatBatch Feature = "batch"
+	// FeatPing is the ping utility, present from 2024-11-05 and absent from
+	// the 2026-07-28 schema, which has no liveness probe: a modern request
+	// is answered or it is not, and there is no session to keep alive.
+	FeatPing Feature = "ping"
 )
+
+// removedIn names the methods a revision no longer defines, so a peer on
+// that revision is told method-not-found rather than served a method its own
+// schema does not contain.
+//
+// This is the one place "accept liberally" does not apply, and the exception
+// is the rule's own logic rather than a contradiction of it. Accepting more
+// than a revision requires withholds nothing; answering a method the revision
+// *removed* is different, because the removal is the specification telling
+// the client to use the replacement. 2026-07-28 makes it explicit: a method
+// the revision does not implement MUST be -32601 and, on HTTP, 404 -- and
+// the 404 is load-bearing, because it is how a dual-era client distinguishes
+// a modern server from a legacy one with no endpoint there.
+//
+// Legacy peers are unaffected: every one of these is still served to them.
+var removedIn = map[string]Feature{
+	"initialize":                         FeatInitialize,
+	"ping":                               FeatPing,
+	"logging/setLevel":                   FeatLoggingSetLevel,
+	"resources/subscribe":                FeatResourceSubscribe,
+	"resources/unsubscribe":              FeatResourceSubscribe,
+	"notifications/elicitation/complete": FeatElicitationComplete,
+}
+
+// Removed reports whether a revision has dropped a method it once defined.
+func Removed(version, method string) bool {
+	f, ok := removedIn[method]
+	if !ok {
+		return false
+	}
+	return !Defines(version, f)
+}
 
 // floors is the revision each feature arrived in. A feature with no floor is
 // in every revision mcpx serves, back to 2024-11-05.
@@ -152,6 +188,7 @@ var ceilings = map[Feature]string{
 	FeatResourceSubscribe:   "2026-07-28",
 	FeatLoggingSetLevel:     "2026-07-28",
 	FeatInitialize:          "2026-07-28",
+	FeatPing:                "2026-07-28",
 	FeatBatch:               "2025-06-18",
 }
 

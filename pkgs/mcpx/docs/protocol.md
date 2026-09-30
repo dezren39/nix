@@ -24,8 +24,8 @@ did not negotiate *and* did not declare is a lie about what was agreed, and
 the failure is silent. Either the peer ignores it, or it rejects the frame,
 and nothing says which.
 
-So mcpx accepts `tasks/*` from a 2025-06-18 client, `subscriptions/listen`
-from a legacy one and `resources/subscribe` from a modern one — and it will
+So mcpx accepts `tasks/*` from a 2025-06-18 client and `subscriptions/listen`
+from a legacy one — and it will
 not put `structuredContent` in front of a 2025-03-26 client, will not stamp
 `resultType` on a reply to anything but 2026-07-28, and will never send
 `elicitation/create` to a client that did not declare `elicitation`.
@@ -80,18 +80,33 @@ What a host connected to mcpx gets.
 | `tools/call` | all | always | see §3 |
 | `prompts/list`, `prompts/get` | all | always | §3 |
 | `resources/list`, `resources/read`, `resources/templates/list` | all | always | §3 |
-| `resources/subscribe`, `resources/unsubscribe` | legacy only | **any** era | forwards from the same bus `subscriptions/listen` reads |
+| `resources/subscribe`, `resources/unsubscribe` | legacy only | **legacy only** — `-32601` to a 2026-07-28 peer | forwards from the same bus `subscriptions/listen` reads |
 | `subscriptions/listen` | 2026-07-28 | **any** era | only the four notification kinds the filter names |
 | `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
-| `logging/setLevel` | legacy only | **any** era | accepted; mcpx emits no `notifications/message` of its own |
+| `logging/setLevel` | legacy only | **legacy only** — `-32601` to a 2026-07-28 peer | accepted; mcpx emits no `notifications/message` of its own |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core, 2026-07-28 extension | **any** era | handles and results |
 | `notifications/cancelled` | all | always | recorded; mcpx cannot yet interrupt an upstream call mid-flight |
 
-Three rows are the "accept liberally" rule doing visible work:
-`resources/subscribe` from a modern client, `subscriptions/listen` from a
-legacy one, and `tasks/*` from anything. mcpx answers all of them. It
-**declares** none of them outside the revision that defines them, because a
-declaration is a promise about the revision in force.
+Two rows are the "accept liberally" rule doing visible work:
+`subscriptions/listen` from a legacy client and `tasks/*` from anything. mcpx
+answers both. It **declares** neither outside the revision that defines it,
+because a declaration is a promise about the revision in force.
+
+**The rule stops at removal.** Offering a client a method its revision never
+had withholds nothing. Answering one its revision *removed* is different: the
+removal is the specification naming a replacement, and 2026-07-28 requires
+method-not-found — "If the server does not implement the requested RPC method,
+it MUST respond with `404 Not Found` and a JSON-RPC error with code `-32601`".
+The 404 is load-bearing rather than decorative: it is how a dual-era client
+tells a modern server from a legacy endpoint that simply is not there. So
+`initialize`, `ping`, `logging/setLevel`, `resources/subscribe` and
+`resources/unsubscribe` are `-32601` to a 2026-07-28 peer and unchanged for
+every older one. `internal/mcpserver/revisions.go` holds the list as
+`removedIn`, keyed to the same feature ceilings the rest of the matrix uses.
+
+mcpx answered all five to everyone until the official conformance suite scored
+it: `sep-2575-http-server-method-not-found-404-*`, five checks by name in the
+frozen 2026-07-28 requirement set.
 
 ### 2.2 Capabilities mcpx declares
 
