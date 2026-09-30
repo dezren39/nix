@@ -283,7 +283,18 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 	e.run("ls")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server")
+	// --since 0, for the reason spelled out at length in
+	// TestAStreamingCommandWritesToTheFileItWasGiven below: `restart` is
+	// lazy, so it stops what is running and starts nothing, and after the
+	// one instance `ls` leaves behind is gone every later restart reports
+	// "stopped 0 instance(s)" and publishes nothing. There is exactly one
+	// server event for this test to catch, the ticker below cannot
+	// manufacture a second, and a child that has not finished subscribing
+	// when it fires has lost it for good. That race took the other test down
+	// on five CI runs; this one has been winning it rather than avoiding it,
+	// on a budget a third the size. Asking for the retained history makes a
+	// missed event a late one instead of a lost one.
+	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "--since", "0")
 	cmd.Dir, cmd.Env = e.dir, e.envVars
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
