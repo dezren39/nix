@@ -16,8 +16,9 @@ utility pages, and across the doc comments in `schema.ts`, which carry several
 rules the prose never repeats. A server written from the feature pages alone
 misses most of them. What mcpx does is summarised in a line where it matters
 and documented in [`../protocol.md`](../protocol.md). How other implementations
-behave is in [`../compare/`](../compare/). The client side is
-[`client-obligations.md`](client-obligations.md).
+behave is in [`../compare/`](../compare/). There is no client-obligations
+counterpart yet; what mcpx *does* as a client, revision by revision, is
+[`client.md`](client.md).
 
 This document is the distilled form. The authority for what mcpx actually
 does is the code — `internal/mcpserver/revisions.go` holds the floors,

@@ -384,8 +384,9 @@ For porting to codex, claude, pi, manus, this is the part that matters.
 The shape that ports: **a small core that speaks the daemon API over a unix
 socket, plus a thin adapter per harness.** The core is
 `plugin/opencode/mcpx/daemon.ts` today, and it is already almost harness-free
-— it takes `$` only for the rung-4 spawn, which §3 removes. Renaming it to
-`plugin/core/` once a second harness exists would make the split explicit.
+— it takes `$` only for the rung-4 spawn, which §3 removes. Lifting it into a
+harness-free `core` directory beside `opencode` once a second harness exists
+would make the split explicit.
 
 What each harness needs to provide its adapter:
 
