@@ -14,13 +14,30 @@ import (
 // files it wrote. Without this the developer's own ~/.mcpx.json contributes
 // to every fingerprint, and the test passes or fails depending on whose
 // machine it runs on.
+//
+// The fake home is created under /tmp (not t.TempDir, and not os.TempDir):
+// the upward config walk checks $dir/.config/mcpx/config.json at EVERY
+// ancestor level, so a temp dir nested anywhere under the real $HOME —
+// including via TMPDIR — walks straight through the real home and picks up
+// the developer's own config, changing every daemon key. With the fake home
+// outside the real $HOME tree the walk can never reach it.
+//
+// GOTMPDIR (not TMPDIR) is what testing.TempDir consults, and it is read
+// once per test: every t.TempDir in the test then nests under the fake home,
+// keeping the whole test tree outside the real $HOME.
 func isolate(t *testing.T) string {
 	t.Helper()
-	home := t.TempDir()
+	home, err := os.MkdirTemp("/tmp", "mcpx-test-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 	t.Setenv("MCPX_CONFIG", "")
 	t.Setenv("MCPX_SOCKET", "")
+	t.Setenv("GOTMPDIR", home)
+	t.Setenv("TMPDIR", home)
 	return home
 }
 

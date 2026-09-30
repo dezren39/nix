@@ -354,7 +354,11 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "-o", out)
+	// No --kinds filter. Waiting for a *server* event meant provoking one with
+	// `restart demo`, and under a loaded runner that restart is itself what
+	// fails -- twice in CI, with the stream idle and nothing on stderr. Any
+	// event proves the same thing about -o, and a call emits several.
+	cmd := exec.CommandContext(ctx, e.mcpx, "events", "-o", out)
 	cmd.Dir, cmd.Env = e.dir, e.envVars
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -368,10 +372,12 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	// established when the first event fires. The budget is generous because
 	// a restart costs a process start, and a slow runner failed a 15s one.
 	deadline := time.Now().Add(60 * time.Second)
-	var got string
+	var got, provokeErr string
 	for time.Now().Before(deadline) {
-		_, _ = e.try("restart", "demo")
-		if b, err := os.ReadFile(out); err == nil && len(b) > 0 {
+		if _, err := e.try("call", "demo.echo", `{"message":"x"}`); err != nil {
+			provokeErr = err.Error()
+		}
+		if b, rerr := os.ReadFile(out); rerr == nil && len(b) > 0 {
 			got = string(b)
 			break
 		}
@@ -381,8 +387,9 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 		// stderr, because the interesting failure is the one where the
 		// command exited immediately and the loop then waited out its whole
 		// budget for a file that was never going to be written.
-		t.Fatalf("-o is in this command's usage but nothing was written to %s\nstderr: %s\nstdout: %s",
-			out, stderr.String(), stdout.String())
+		t.Fatalf("-o is in this command's usage but nothing was written to %s\n"+
+			"stderr: %s\nstdout: %s\nlast provoke error: %s",
+			out, stderr.String(), stdout.String(), provokeErr)
 	}
 	if !strings.Contains(got, `"kind"`) {
 		t.Errorf("the file should hold the event stream, got:\n%s", got)
