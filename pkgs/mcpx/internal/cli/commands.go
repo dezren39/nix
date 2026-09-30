@@ -371,6 +371,9 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	}
 	res, err := c.Call(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
 	if err != nil {
+		if a.JSON {
+			a.outCallFailure(err)
+		}
 		return err
 	}
 	text, failed := renderResult(res.Result)
@@ -387,6 +390,22 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 		return fmt.Errorf("%s.%s reported an error (isError)", ns, tool)
 	}
 	return nil
+}
+
+// outCallFailure writes a refused call to stdout as the daemon's error
+// document, so --json carries the diagnostics as data and not only as the
+// text on stderr. The error is still returned, because the exit status is
+// what a script checks first.
+func (a *App) outCallFailure(err error) {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return
+	}
+	var body daemon.CallErrorBody
+	if json.Unmarshal(he.Body, &body) != nil || body.Error == "" {
+		return
+	}
+	_ = a.out(body)
 }
 
 // renderResult unwraps a CallToolResult the same way the script client does,
@@ -657,6 +676,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		}
 	}
 
+	// script.permissions, from a file, MCPX_SCRIPT_PERMISSIONS, MCPX_PERMISSIONS
+	// or --script-permissions. Only this path read MCPX_PERMISSIONS, by name,
+	// so the other three were accepted here and ignored. Only when given: the
+	// default "all" would otherwise hide the config file's top-level
+	// "permissions" key.
+	setPerms := ""
+	if a.Settings().Given("script.permissions") {
+		setPerms = a.Settings().String("script.permissions")
+	}
 	opts := runner.Options{
 		// Set when something other than a terminal is collecting the output:
 		// the MCP server, which has to return it rather than print it.
@@ -668,7 +696,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		Timeout:        *timeout,
 		Prelude:        prelude,
 		Export:         *export,
-		Permissions:    firstNonEmpty(*perms, os.Getenv("MCPX_PERMISSIONS"), cfgPerms(cfg)),
+		Permissions:    firstNonEmpty(*perms, setPerms, cfgPerms(cfg)),
 		Log:            writer,
 		CollectLogs:    collect,
 		OnResult:       onResult,
@@ -1387,6 +1415,9 @@ func (a *App) CmdInit(ctx context.Context, args []string) error {
 	return nil
 }
 
+// starterConfig is what `mcpx init` writes. Every key in it must be one the
+// loader reads: TestStarterConfigMeansWhatItSays loads it strictly and checks
+// each server resolves to what its comment promises.
 const starterConfig = `{
   // mcpx reads the same "mcpServers" object other MCP hosts use, so an
   // existing config can be pasted in unchanged. The optional "mcpx" block on
@@ -1396,9 +1427,11 @@ const starterConfig = `{
       "command": "some-mcp-server",
       "args": [],
       "mcpx": {
-        // One process, unlimited concurrent callers. Right for search, docs
-        // and database servers, which hold no per-caller state.
-        "mode": "shared",
+        // One process for everything, any number of callers at once. Right
+        // for search, docs and database servers, which hold no per-caller
+        // state. These two are the defaults, written out to show the knobs.
+        "sharing": "shared",
+        "scope": "global",
         "description": "what this server is for, shown by mcpx ls"
       }
     },
@@ -1406,9 +1439,12 @@ const starterConfig = `{
       "command": "chrome-devtools-mcp",
       "args": ["--headless", "--isolated"],
       "mcpx": {
-        // One browser per script run, up to 4 at once. Concurrent agents get
-        // separate browsers instead of fighting over one.
-        "mode": "session",
+        // One browser per session, one caller at a time, up to 4 at once.
+        // A session is the host's MCPX_SESSION_ID, or a single script run
+        // when there is none. Concurrent agents get separate browsers
+        // instead of fighting over one.
+        "sharing": "exclusive",
+        "scope": "session",
         "max": 4,
         "idleTimeout": "5m",
         "description": "drive a headless Chrome"

@@ -76,6 +76,14 @@ func (a *App) Settings() *settings.Set {
 				a.settingsErr = uerr
 				return
 			}
+			// The same rule for the server entries, which the settings
+			// layer does not read: a key there that mcpx ignores is either
+			// another host's or a mistake, and strict mode is the request
+			// to be told which.
+			if cfg, cerr := config.Load(a.ConfigPath); cerr == nil && len(cfg.Ignored) > 0 {
+				a.settingsErr = ignoredKeysError(cfg.Ignored)
+				return
+			}
 		}
 		a.settings = set
 		a.settingsSchema = sch
@@ -135,6 +143,17 @@ func unknownKeysError(unknown []settings.UnknownKeys) error {
 	}
 	b.WriteString("\n(run `mcpx config --schema` for the list, or turn " +
 		"plumbing.strictUnknownKeys off)")
+	return errors.New(b.String())
+}
+
+func ignoredKeysError(ignored []config.IgnoredKey) error {
+	var b strings.Builder
+	b.WriteString("server keys mcpx does not read")
+	for _, k := range ignored {
+		fmt.Fprintf(&b, "\n  %s: %s.%s", k.File, k.Server, k.Key)
+	}
+	b.WriteString("\n(mcpx-specific options go in each server's \"mcpx\" block; " +
+		"or turn plumbing.strictUnknownKeys off)")
 	return errors.New(b.String())
 }
 

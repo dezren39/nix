@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/dezren39/mcpx/internal/defaults"
 )
 
 // The era probe.
@@ -69,7 +71,12 @@ func legacyHTTPRefusal(err error) error {
 // whole round trip -- and the probe needs to be able to give up on a reply
 // without giving up on the request.
 func (c *Client) begin(ctx context.Context, method string, params json.RawMessage) (int64, <-chan *rpcResponse) {
-	id := c.nextID.Add(1)
+	return c.beginID(ctx, c.nextID.Add(1), method, params)
+}
+
+// beginID is begin with an id the caller allocated, for a caller that must
+// know the id before any reply to it can arrive.
+func (c *Client) beginID(ctx context.Context, id int64, method string, params json.RawMessage) (int64, <-chan *rpcResponse) {
 	ch := make(chan *rpcResponse, 1)
 	c.mu.Lock()
 	if c.closed {
@@ -124,7 +131,7 @@ const (
 )
 
 // judge reads one reply to server/discover.
-func (c *Client) judge(resp *rpcResponse, tried map[string]bool) (verdict, string, error) {
+func (c *Client) judge(resp *rpcResponse, tried map[string]int) (verdict, string, error) {
 	if resp.sendErr != nil {
 		var he *HTTPStatusError
 		if errors.As(resp.sendErr, &he) {
@@ -180,9 +187,14 @@ func (c *Client) judge(resp *rpcResponse, tried map[string]bool) (verdict, strin
 
 // judgeModernError handles a recognised modern error. Only
 // UnsupportedProtocolVersionError can be recovered from, by retrying with a
-// version from its supported list -- each version at most once, so a server
-// that lists a version and then rejects it cannot loop us.
-func (c *Client) judgeModernError(e *rpcError, tried map[string]bool) (verdict, string, error) {
+// version from its supported list: the newest one not yet tried, else --
+// once -- one already tried that the server nonetheless lists. The versioning
+// page says to "select a mutually supported version from the supported list
+// and retry", and a server that rejects a version it lists may be failing
+// transiently (the official suite simulates exactly that). Each version is
+// sent at most twice, so a server that keeps doing it cannot loop us.
+// https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation
+func (c *Client) judgeModernError(e *rpcError, tried map[string]int) (verdict, string, error) {
 	if e.Code != codeUnsupportedVersion {
 		return isModernError, "", fmt.Errorf("server/discover: %w", e)
 	}
@@ -190,13 +202,15 @@ func (c *Client) judgeModernError(e *rpcError, tried map[string]bool) (verdict, 
 		Supported []string `json:"supported"`
 	}
 	_ = json.Unmarshal(e.Data, &d)
-	for _, want := range c.modernVersions {
-		if tried[want] {
-			continue
-		}
-		for _, have := range d.Supported {
-			if want == have {
-				return retryVersion, want, nil
+	for round := 0; round < defaults.UpstreamVersionAttempts; round++ {
+		for _, want := range c.modernVersions {
+			if tried[want] != round {
+				continue
+			}
+			for _, have := range d.Supported {
+				if want == have {
+					return retryVersion, want, nil
+				}
 			}
 		}
 	}
@@ -235,7 +249,7 @@ func (c *Client) probe(ctx context.Context, allowLegacy bool) error {
 		timer = t.C
 	}
 
-	tried := map[string]bool{}
+	tried := map[string]int{}
 	version := c.modernVersions[0]
 	var (
 		initID  int64
@@ -249,7 +263,7 @@ func (c *Client) probe(ctx context.Context, allowLegacy bool) error {
 		}
 	}
 	for {
-		tried[version] = true
+		tried[version]++
 		params, err := c.withMeta(json.RawMessage(`{}`), version)
 		if err != nil {
 			return err

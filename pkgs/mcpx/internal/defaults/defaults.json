@@ -21,7 +21,8 @@
       "user",
       "process",
       "version"
-    ]
+    ],
+    "trace": false
   },
   "daemon": {
     "reapInterval": "30s",
@@ -189,7 +190,9 @@
     "instructions": false,
     "tools": false,
     "remember": "session",
-    "annotate": true
+    "annotate": true,
+    "headless": "auto",
+    "daemonTools": "auto"
   },
   "protoMessages": {
     "listMaxAge": "1m",
@@ -202,6 +205,15 @@
     "eraCache": true,
     "eraFile": "upstream-eras.json",
     "eraFileVersion": 1,
-    "errorBodyLimit": "4KB"
+    "errorBodyLimit": "4KB",
+    "sseReconnectDelay": "1s",
+    "sseReconnectAttempts": 5,
+    "listenReopenDelay": "1s",
+    "legacyStreamEndpointTimeout": "10s",
+    "cancelSendTimeout": "5s",
+    "elicitReplyTimeout": "30s",
+    "sessionDeleteTimeout": "5s",
+    "listPageLimit": 100,
+    "versionAttempts": 2
   }
 }

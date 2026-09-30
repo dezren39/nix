@@ -189,6 +189,10 @@ type Config struct {
 	Sources []string `json:"-"`
 	// Origin maps a server name to the file that defined the winning entry.
 	Origin map[string]string `json:"-"`
+	// Ignored lists keys on server entries that mcpx does not read, with
+	// the file each came from. See checkKeys for why these are recorded
+	// rather than refused.
+	Ignored []IgnoredKey `json:"-"`
 
 	// scriptLayers holds each contributing file's Script block, nearest first.
 	scriptLayers []ScriptConfig
@@ -554,6 +558,8 @@ func SearchPathFrom(wd string) []string {
 			out = append(out, p)
 		}
 	}
+	// paths.configFile. Read by name because it decides which files the
+	// settings are resolved from, so no resolved setting can exist yet.
 	if p := os.Getenv("MCPX_CONFIG"); p != "" {
 		return []string{p}
 	}
@@ -618,6 +624,7 @@ func LoadFrom(explicit, wd string) (*Config, error) {
 		}
 		c.Path = explicit
 		c.Sources = []string{explicit}
+		c.ignoredIn(explicit)
 		c.Origin = originsOf(c, explicit)
 		return c, nil
 	}
@@ -636,6 +643,8 @@ func LoadFrom(explicit, wd string) (*Config, error) {
 			merged.Path = p
 		}
 		merged.Sources = append(merged.Sources, p)
+		c.ignoredIn(p)
+		merged.Ignored = append(merged.Ignored, c.Ignored...)
 		mergeInto(merged, c, p)
 	}
 	return merged, nil
@@ -700,7 +709,11 @@ func originsOf(c *Config, path string) map[string]string {
 
 func parse(b []byte) (*Config, error) {
 	c := &Config{}
-	if err := json.Unmarshal(stripComments(b), c); err != nil {
+	stripped := stripComments(b)
+	if err := json.Unmarshal(stripped, c); err != nil {
+		return nil, err
+	}
+	if err := checkKeys(stripped, c); err != nil {
 		return nil, err
 	}
 	if c.MCPServers == nil {

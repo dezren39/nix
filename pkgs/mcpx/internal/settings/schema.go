@@ -186,6 +186,29 @@ type Setting struct {
 	// and changing it at runtime would be recorded and then do nothing, so
 	// the runtime API refuses it and says a restart is needed instead.
 	Hot bool
+
+	// Bootstrap marks a setting that is needed before there is anything to
+	// resolve it from: which configuration file to read cannot come from a
+	// configuration file. Only the environment and an explicit Flag reach
+	// one. A configuration file naming it is refused rather than obeyed or
+	// ignored, no per-command flag is generated for it, and the settings API
+	// will not change it -- each of those would be accepted and then do
+	// nothing, which is the failure this package exists to prevent.
+	Bootstrap bool
+}
+
+// Writable reports whether a configuration file or the runtime API may set
+// this, and says why not when they may not.
+func (s Setting) Writable() error {
+	if !s.Bootstrap {
+		return nil
+	}
+	how := s.EnvName()
+	if s.Flag != "" {
+		how += " or --" + s.Flag
+	}
+	return fmt.Errorf("%s is read before any configuration exists, so neither a "+
+		"configuration file nor a running daemon can change it; set %s", s.Path, how)
 }
 
 // Requirement is a cross-field condition.
@@ -224,23 +247,39 @@ func (s Setting) EnvName() string {
 	return "MCPX_" + strings.ToUpper(strings.ReplaceAll(dashed(s.Path), "-", "_"))
 }
 
+// dashed splits a dotted camelCase path into lower-case dash-separated words.
+//
+// A run of capitals is one word, because it is an acronym: `askTTL` is
+// ask-ttl, not ask-t-t-l. The one exception is the last capital of a run that
+// is followed by a lower-case letter, which starts the next word -- the P in
+// `HTTPTimeout` ends HTTP, the T begins Timeout. Treating every capital as a
+// word of its own derived MCPX_PROTO_ASK_T_T_L, which nobody would ever type.
 func dashed(path string) string {
+	rs := []rune(path)
 	var b strings.Builder
-	for i, r := range path {
-		switch {
-		case r == '.':
+	for i, r := range rs {
+		if r == '.' {
 			b.WriteByte('-')
-		case r >= 'A' && r <= 'Z':
-			if i > 0 {
+			continue
+		}
+		if !isUpper(r) {
+			b.WriteRune(r)
+			continue
+		}
+		if i > 0 && rs[i-1] != '.' {
+			prev := rs[i-1]
+			nextLower := i+1 < len(rs) && isLower(rs[i+1])
+			if !isUpper(prev) || nextLower {
 				b.WriteByte('-')
 			}
-			b.WriteRune(r - 'A' + 'a')
-		default:
-			b.WriteRune(r)
 		}
+		b.WriteRune(r - 'A' + 'a')
 	}
 	return b.String()
 }
+
+func isUpper(r rune) bool { return r >= 'A' && r <= 'Z' }
+func isLower(r rune) bool { return r >= 'a' && r <= 'z' }
 
 // Schema is the whole set.
 type Schema struct {
@@ -314,9 +353,16 @@ func (s *Schema) ByEnv(name string) (*Setting, bool) {
 }
 
 // ForCommand returns the settings a given subcommand accepts.
+//
+// A bootstrap setting is never one of them. By the time a subcommand parses
+// its flags the configuration has been read, so a flag generated for one
+// would be accepted and inert.
 func (s *Schema) ForCommand(cmd string) []Setting {
 	var out []Setting
 	for _, set := range s.settings {
+		if set.Bootstrap {
+			continue
+		}
 		if len(set.Commands) == 0 {
 			out = append(out, set)
 			continue
