@@ -828,11 +828,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
 		return derr
 	}
-	for _, raw := range envVars.Values() {
-		kv, ok := raw.(string)
-		if !ok {
-			continue
-		}
+	// envPairs is the same list the preflight above checked: --env, plus
+	// whatever script.env resolved to from a file, MCPX_SCRIPT_ENV or
+	// --script-env. Iterating envVars here instead was how the three other
+	// spellings were validated and then dropped.
+	for _, kv := range envPairs {
 		k, v, found := strings.Cut(kv, "=")
 		if !found {
 			return fmt.Errorf("--env expects KEY=VALUE, got %q", kv)
