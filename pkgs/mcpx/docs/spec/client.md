@@ -95,7 +95,10 @@ the client MUST mirror them into `Mcp-Param-{Name}` headers.
   it; a timed-out `initialize` used to send `notifications/cancelled`.
 - **Modern HTTP:** closing the response stream *is* the cancellation; no
   `notifications/cancelled` is POSTed. **Modern stdio:** the notification MUST
-  be sent, and is. **Legacy:** sent, as before.
+  be sent, and is. **Legacy:** sent -- including for an HTTP request timed out
+  while its POST still waited for response headers, which was never cancelled:
+  `Send` lasts until the headers arrive, so that timeout surfaced as a send
+  error, before the code that sends `notifications/cancelled`.
 - **`ping` and `logging/setLevel` are not sent to a modern server** — 2026-07-28
   removed both. `Ping` becomes `server/discover`, which every modern server MUST
   implement and which likewise only answers. A log level becomes
@@ -201,11 +204,6 @@ it; it used to call every tool with `{}`.
   applied: nothing calls `mcpauth.Resolve`, so no auth type, `query` included,
   reaches a request. The spec forbids tokens in a query string; today that
   cannot happen only because no auth is sent at all.
-- **Legacy HTTP cancellation before headers.** A legacy request whose POST was
-  still waiting for response headers when it timed out was never cancelled
-  (Send is synchronous until headers arrive, so the timeout surfaced as a send
-  error, before the code that sends `notifications/cancelled`). Fixed: it is
-  now cancelled on either path.
 - **The daemon never calls `SubscribeResource`.** mcpx's own clients subscribe
   to `mcpx://` URIs, and the daemon filters its event stream by URI, but it
   never subscribes upstream — so a legacy server (which sends updates only for
