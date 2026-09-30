@@ -208,10 +208,10 @@ runs, and returned rather than run unless `autonomy: run` is asked for.
 `recipe_run` and `intent` in run mode need to execute something, and the
 daemon has never run scripts. `Server.execScript` calls `internal/runner`
 directly, against the daemon's own endpoint. **This is a seam, not a design.**
-Another agent is building `POST /v1/exec` with its own options and permission
-model; when it lands, `execScript` becomes a call into it. It is one function,
-marked, for exactly that reason. Until then a recipe that cannot be run is
-half a feature.
+`POST /v1/exec` has since landed, with its own options and permission model
+(`internal/api/ops_exec.go`, `internal/daemon/routes_exec.go`), but
+`execScript` (`internal/daemon/consumer.go:517`) has not yet been rerouted
+through it. It is one function, marked, for exactly that reason.
 
 ## The concerns from the issue, and what was decided
 

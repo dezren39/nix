@@ -281,9 +281,9 @@ best first. After choosing, a second question offers: this session only /
 until it goes away / permanently in config / and optionally stop the others.
 
 **d. The guided-skill variant.** Instead of a coded walkthrough, a skill
-tells the agent to call `mcpx_status --detailed`, reason about which daemon
-fits, and then call `mcpx_daemon_select`, which is what actually sets the
-socket. The agent proposes; the *tool* decides. This is worth doing because
+tells the agent to call `mcpx_daemon_status`, reason about which daemon
+fits, and then call `mcpx_daemon_select` with that candidate's index, which is
+what actually sets the socket. The agent proposes; the *tool* decides. This is worth doing because
 it degrades correctly: the agent cannot set the wrong socket by typing a path
 wrong, because it does not type the path.
 
@@ -320,14 +320,14 @@ its opt-in tools (`mcpx_discover`, `mcpx_exec`, `mcpx_observe`) each spawn
 
 | plugin feature | today | needs |
 | --- | --- | --- |
-| tool timing | `POST /v1/log` ✅, spawn fallback | drop the spawn fallback once discovery is binary-free |
+| tool timing | `POST /v1/log` ✅, no fallback | nothing; with no daemon the record is dropped |
 | `mcpx_discover` | `mcpx types` / `mcpx ls` | `GET /v1/types`, `GET /v1/namespaces` ✅ (exist) |
-| `mcpx_exec` | `mcpx exec <src>` | a `/v1` exec route — **not yet present** |
-| `mcpx_observe` | `mcpx log` / `mcpx stats` | `GET /v1/log`, `GET /v1/stats` — in progress |
+| `mcpx_exec` | `mcpx exec <src>` | `POST /v1/exec` ✅ (exists) |
+| `mcpx_observe` | `mcpx log` / `mcpx stats` | `GET /v1/log`, `GET /v1/stats` ✅ (exist) |
 
-`exec` over `/v1` is the one real gap, and it is the interesting one: it
-needs streaming output, which is what the artifacts/`ExecOptions` issue is
-about.
+`exec` over `/v1` was the one real gap, and it has since landed as
+`POST /v1/exec`; the streaming-output question it raised is answered by the
+frames `exec.output` selects (`docs/exec.md`).
 
 ---
 
@@ -384,8 +384,9 @@ For porting to codex, claude, pi, manus, this is the part that matters.
 The shape that ports: **a small core that speaks the daemon API over a unix
 socket, plus a thin adapter per harness.** The core is
 `plugin/opencode/mcpx/daemon.ts` today, and it is already almost harness-free
-— it takes `$` only for the rung-4 spawn, which §3 removes. Renaming it to
-`plugin/core/` once a second harness exists would make the split explicit.
+— it takes `$` only for the rung-4 spawn, which §3 removes. Lifting it into a
+harness-free `core` directory beside `opencode` once a second harness exists
+would make the split explicit.
 
 What each harness needs to provide its adapter:
 
@@ -437,9 +438,10 @@ Only (1) and (2) are required. Everything else degrades.
 ### The timing hook
 - **What.** One log record per opencode tool call, into mcpx's log.
 - **Why.** One `mcpx stats` then covers the harness and mcpx on one timeline.
-- **How.** `POST /v1/log` over the socket, 0.09 ms. Falls back to spawning.
-- **When it degrades.** No daemon: it spawns, or with no binary, drops the
-  record. Dropping is correct — a timing is not worth failing a tool call.
+- **How.** `POST /v1/log` over the socket, 0.09 ms. No spawn fallback.
+- **When it degrades.** No daemon: the record is dropped
+  (`plugin/opencode/mcpx-session.ts:783`). Dropping is correct — a timing is
+  not worth 23 ms on every tool call, and certainly not worth failing one.
 
 ### The socket client
 - **What.** `plugin/opencode/mcpx/daemon.ts`: find a daemon, then speak

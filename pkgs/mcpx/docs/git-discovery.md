@@ -183,7 +183,7 @@ built inside a real repository so that skipping would be caught.
 | --- | --- | --- |
 | `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY` and the rest of git's local list | **Not honoured**, and removed from the fallback's environment. The key is computed in the daemon, for many callers, and the daemon's environment belongs to whoever started it -- honouring it is §1.3. The *caller's* variables never reach the daemon (`CallContext` carries the cwd, not the environment), and they do not need to: everywhere git itself sets `GIT_DIR` -- hooks, aliases, `submodule foreach` -- it also puts the cwd inside that repository, so discovery from the cwd reaches the same answer | `TestGitEnvironmentThatNamesARepositoryIsIgnored`; `TestGitLocalEnvCoversWhatGitCallsLocal` checks the list against the installed git; e2e `TestTheDaemonsOwnGitDirDoesNotPinEveryCaller` |
 | `GIT_CEILING_DIRECTORIES` | **Honoured**, with git's exact rules: relative entries ignored, entries symlink-resolved unless they follow an empty entry, a ceiling never examined from below it but honoured-as-absent when the walk starts there. It can only make keys narrower, and it lives in shell profiles, so a user who set it expects mcpx to agree with their shell | parity: `TestGitParityCeilingDirectories`, eight cases |
-| `GIT_DISCOVERY_ACROSS_FILESYSTEM`, and mount points | **Honoured**: discovery stops where the device changes, as git's does. A value that is not a boolean is unsure | `TestDiscoveryStopsAtAFilesystemBoundary` (a boundary cannot be mounted without privileges, so the device lookup is substituted); verified with a real tmpfs in the image, §4 |
+| `GIT_DISCOVERY_ACROSS_FILESYSTEM`, and mount points | **Honoured**: discovery stops where the device changes, as git's does. A value that is not a boolean is unsure | `TestDiscoveryStopsAtAFilesystemBoundary` (a boundary cannot be mounted without privileges, so the device lookup is substituted); verified with a real tmpfs in the image, `docs/container.md` §3 |
 
 ### Deliberate differences from git
 
@@ -208,7 +208,7 @@ rev-parse` for both questions. A case that expects git to refuse first checks
 that it does, so a fixture that accidentally built a valid repository cannot
 pass as a refusal. They skip only when git is absent (the Nix sandbox) or
 older than a feature they need. With git 2.55 on macOS none skip; with
-Debian's git 2.39 on Linux (the `golang:1.26-bookworm` image, as a non-root
+Debian's git 2.39 on Linux (the `golang:*-bookworm` builder image, as a non-root
 user) 52 pass and the two needing 2.45 and 2.48 skip. That run found the one
 portability gap so far: git 2.39 counts `GIT_INTERNAL_SUPER_PREFIX` as
 repository-local and newer git does not, so the scrub list is the union.
@@ -242,7 +242,7 @@ without it:
   section whose *subsection* is `core`, `HEAD` values that are almost valid,
   a `.git` that cannot be stat'd, and a `.git` file over the size ceiling.
 
-**In the image.** §4 of `docs/container.md`.
+**In the image.** §3 of `docs/container.md`, "No git".
 
 ## 5. Found along the way
 
