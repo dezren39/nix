@@ -116,50 +116,9 @@ func main() {
 	}
 
 	cmd, rest := args[0], args[1:]
-	handlers := map[string]func(context.Context, []string) error{
-		"ls":         app.CmdLs,
-		"list":       app.CmdLs,
-		"namespaces": app.CmdLs,
-		"types":      app.CmdTypes,
-		"catalog":    app.CmdCatalog,
-		"search":     app.CmdSearch,
-		"call":       app.CmdCall,
-		"run":        app.CmdRun,
-		"exec":       app.CmdExec,
-		"client":     app.CmdClient,
-		"status":     app.CmdStatus,
-		"refresh":    app.CmdRefresh,
-		"restart":    app.CmdRestart,
-		"stop":       app.CmdStop,
-		"daemons":    app.CmdDaemons,
-		"scripts":    app.CmdScripts,
-		"log":        app.CmdLog,
-		"logs":       app.CmdLog,
-		"stats":      app.CmdStats,
-		"daemon":     app.CmdDaemon,
-		"config":     app.CmdConfig,
-		"init":       app.CmdInit,
-		"help":       app.CmdHelp,
-		"man":        app.CmdMan,
-		"completion": app.CmdCompletion,
-		"explore":    app.CmdExplore,
-		"tui":        app.CmdTUI,
-		"serve":      app.CmdServe,
-		"openapi":    app.CmdOpenAPI,
-		"adapter":    app.CmdAdapter,
-		"registry":   app.CmdRegistry,
-		"api":        app.CmdAPI,
-		"prompts":    app.CmdPrompts,
-		"resources":  app.CmdResources,
-		"doctor":     app.CmdDoctor,
-		"schema":     app.CmdSchema,
-		"elicit":     app.CmdElicit,
-		"diagnose":   app.CmdDiagnose,
-		"recipes":    app.CmdRecipes,
-		"prompt":     app.CmdPrompt,
-		"settings":   app.CmdSettings,
-		"servers":    app.CmdServers,
-	}
+	// The table lives in the cli package, beside Commands(), so a test can
+	// hold the two together; here it drifted from the declared list by seven.
+	handlers := app.Handlers()
 
 	h, ok := handlers[cmd]
 	if !ok {

@@ -13,6 +13,7 @@ func consumerOps() []Op {
 	return []Op{
 		{
 			Name: "diagnose", Method: "POST", Path: "/v1/diagnose",
+			Command: "diagnose",
 			Summary: "Explain what is wrong with a script, deterministically",
 			Description: "Compares every tool call in the source against the schemas the " +
 				"configured servers publish now, and against what those schemas " +
@@ -29,6 +30,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "catalog_history", Method: "GET", Path: "/v1/catalog/history",
+			CLI:     "history",
 			Summary: "What changed in the tool schemas, and when",
 			Description: "mcpx records every tool's schema each time it reads one, so a " +
 				"diagnostic can say `options became required on the twentieth` " +
@@ -40,6 +42,7 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "recipes_list", Method: "GET", Path: "/v1/recipes",
+			Command: "recipes list",
 			Summary: "Saved scripts, with the placeholders each takes",
 			Description: "A recipe is a saved script that declares its own holes with " +
 				"`// @param name:type = default`. With q set, the list is ranked " +
@@ -53,28 +56,31 @@ func consumerOps() []Op {
 		},
 		{
 			Name: "recipe_get", Method: "GET", Path: "/v1/recipes/{name}",
+			Command:     "recipes show",
 			Summary:     "One recipe, with its source",
 			Description: "Everything the listing carries, plus the script itself.",
 			Params: []Param{
-				{Name: "name", In: InPath, Type: "string", Required: true},
+				{Name: "name", In: InPath, Type: "string", Required: true, Desc: "the recipe's name"},
 			},
 		},
 		{
 			Name: "recipe_save", Method: "POST", Path: "/v1/recipes/{name}",
+			Command: "recipes save",
 			Summary: "Save a script as a recipe",
 			Description: "Writes the source into the nearest project scripts directory, " +
 				"where `mcpx run <name>` and every recipe route will find it. This " +
 				"is how a generated script that worked stops being generated.",
 			Mutating: true,
 			Params: []Param{
-				{Name: "name", In: InPath, Type: "string", Required: true},
-				{Name: "source", In: InBody, Type: "string", Required: true},
+				{Name: "name", In: InPath, Type: "string", Required: true, Desc: "the recipe's name; saving over an existing one replaces it"},
+				{Name: "source", In: InBody, Type: "string", Required: true, Desc: "the recipe's source, as TypeScript"},
 				{Name: "overwrite", In: InBody, Type: "boolean",
 					Desc: "replace an existing recipe of this name"},
 			},
 		},
 		{
 			Name: "recipe_run", Method: "POST", Path: "/v1/recipes/{name}/run",
+			Command: "recipes run",
 			Summary: "Run a recipe with its placeholders filled in",
 			Description: "Placeholders that are not supplied and have no default are " +
 				"asked for as one form through the question broker, with a " +
@@ -82,17 +88,18 @@ func consumerOps() []Op {
 				"without running, which is the safer thing to do first.",
 			Mutating: true,
 			Params: []Param{
-				{Name: "name", In: InPath, Type: "string", Required: true},
+				{Name: "name", In: InPath, Type: "string", Required: true, Desc: "the recipe to run"},
 				{Name: "placeholders", In: InBody, Type: "object",
 					Desc:   "values by placeholder name",
 					Schema: `{"type":"object","additionalProperties":true}`},
 				{Name: "mode", In: InBody, Type: "string", Enum: []string{"script", "run"},
 					Desc: "script renders and returns; run executes (the default here)"},
-				{Name: "session", In: InBody, Type: "string"},
+				{Name: "session", In: InBody, Type: "string", Desc: "the session to run it in, so it reaches that session's servers"},
 			},
 		},
 		{
 			Name: "intent", Method: "POST", Path: "/v1/intent",
+			Command: "prompt",
 			Summary: "A request in words, a script back",
 			Description: "Matches a recipe first, deterministically and for nothing. Only " +
 				"when nothing matches does it ask for a script to be written, and " +
@@ -113,7 +120,7 @@ func consumerOps() []Op {
 				{Name: "placeholders", In: InBody, Type: "object",
 					Desc:   "values for a matched recipe's placeholders",
 					Schema: `{"type":"object","additionalProperties":true}`},
-				{Name: "session", In: InBody, Type: "string"},
+				{Name: "session", In: InBody, Type: "string", Desc: "the session the intent belongs to, so its servers and history are the session's"},
 			},
 		},
 	}

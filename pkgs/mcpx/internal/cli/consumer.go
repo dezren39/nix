@@ -142,15 +142,6 @@ func (c *Client) resolution(ctx context.Context, path string, body any) (*Resolu
 	return &out, nil
 }
 
-// CatalogHistory reads what mcpx remembers about schemas that changed.
-func (c *Client) CatalogHistory(ctx context.Context, tool string) (json.RawMessage, error) {
-	path := "/v1/catalog/history"
-	if tool != "" {
-		path += "?tool=" + url.QueryEscape(tool)
-	}
-	return c.do(ctx, "GET", path, nil)
-}
-
 // ---- mcpx diagnose ----
 
 // CmdDiagnose explains what is wrong with a script without running it.
@@ -169,6 +160,13 @@ func (a *App) CmdDiagnose(ctx context.Context, args []string) error {
 	}
 	c, err := a.ensure(ctx)
 	if err != nil {
+		return err
+	}
+	// A daemon that has just started reads its schemas in the background.
+	// Diagnosing against the catalog before that finishes compared the
+	// script with nothing and reported "nothing to report" -- a false all
+	// clear, and a flaky test, found by running the suite three times.
+	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
 	res, err := c.Diagnose(ctx, source, *session)

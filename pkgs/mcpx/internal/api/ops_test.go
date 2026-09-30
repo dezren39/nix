@@ -144,3 +144,26 @@ func TestOpenAPIDescribesEveryOperation(t *testing.T) {
 		t.Error("the version should reach the document")
 	}
 }
+
+// Every parameter says what it is.
+//
+// A generated CLI command prints one usage line per parameter, so an empty
+// Desc is a flag followed by a blank line -- and the same blank reaches the
+// MCP tool's input schema, the OpenAPI document and the generated TypeScript,
+// because all four are built from this table. 32 of them shipped that way
+// before the table generated a command for each.
+func TestEveryParameterIsDescribed(t *testing.T) {
+	n := 0
+	for _, op := range api.Ops() {
+		for _, p := range op.Params {
+			n++
+			if strings.TrimSpace(p.Desc) == "" {
+				t.Errorf("%s: parameter %q has no description; it would print as a "+
+					"usage line with nothing after it", op.Name, p.Name)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no parameters found; the table changed shape and this test checks nothing")
+	}
+}
