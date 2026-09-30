@@ -68,6 +68,7 @@ func (r *Registry) InstallHooks(bus *events.Bus, broker *elicit.Broker, roots []
 		},
 		Elicit: r.answerServer,
 	}
+	r.upstreamHooks(hooks)
 	r.hooks = hooks
 	seen := map[*pool.Pool]bool{}
 	for _, p := range r.pools {

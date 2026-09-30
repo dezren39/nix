@@ -99,6 +99,14 @@ type Defaults struct {
 		AbandonGrace string `json:"abandonGrace"`
 		MCPPath      string `json:"mcpPath"`
 	} `json:"proto"`
+	// Transport governs how mcpx's own MCP server behaves on the wire, as
+	// opposed to what it says: keep-alives, shutdown, who may connect.
+	Transport struct {
+		SSEKeepAlive   string   `json:"sseKeepAlive"`
+		StdioDrain     string   `json:"stdioDrain"`
+		LoopbackHosts  []string `json:"loopbackHosts"`
+		AllowedOrigins []string `json:"allowedOrigins"`
+	} `json:"transport"`
 	Catalog struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
@@ -231,7 +239,37 @@ type Defaults struct {
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
 	} `json:"plugin"`
+	// Upstream governs how mcpx connects to the servers it fronts: which
+	// protocol era it tries first, how long it waits to find out, and where
+	// it remembers the answer.
+	Upstream struct {
+		Protocol       string `json:"protocol"`
+		ProbeTimeout   string `json:"probeTimeout"`
+		EraCache       bool   `json:"eraCache"`
+		EraFile        string `json:"eraFile"`
+		EraFileVersion int    `json:"eraFileVersion"`
+		ErrorBodyLimit string `json:"errorBodyLimit"`
+	} `json:"upstream"`
 }
+
+// Upstream connection defaults.
+var (
+	// UpstreamProtocol is the era preference for a server that names none.
+	UpstreamProtocol = builtin.Upstream.Protocol
+	// UpstreamProbeTimeout is how long a stdio server/discover may go
+	// unanswered before initialize is sent alongside it.
+	UpstreamProbeTimeout = mustDur(builtin.Upstream.ProbeTimeout, "upstream.probeTimeout")
+	// UpstreamEraCache remembers each server configuration's era.
+	UpstreamEraCache = builtin.Upstream.EraCache
+	// UpstreamEraFile is the era cache's name inside the state directory.
+	UpstreamEraFile = builtin.Upstream.EraFile
+	// UpstreamEraFileVersion is bumped when the file's shape changes; a file
+	// of any other version is ignored and rewritten.
+	UpstreamEraFileVersion = builtin.Upstream.EraFileVersion
+	// HTTPErrorBodyLimit bounds how much of a non-2xx body is read: enough
+	// for a JSON-RPC error, not enough for an HTML error page to matter.
+	HTTPErrorBodyLimit = mustBytes(builtin.Upstream.ErrorBodyLimit, "upstream.errorBodyLimit")
+)
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
 // package variables before it runs init(), so the exported values below would
@@ -382,6 +420,20 @@ var (
 	ProtoAbandonGrace = mustDur(builtin.Proto.AbandonGrace, "proto.abandonGrace")
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
+
+	// TransportSSEKeepAlive is how often an otherwise quiet event stream
+	// carries a comment line, so an intermediary or a client idle timeout
+	// does not close a stream that is merely waiting.
+	TransportSSEKeepAlive = mustDur(builtin.Transport.SSEKeepAlive, "transport.sseKeepAlive")
+	// TransportStdioDrain bounds how long `mcpx serve` keeps answering
+	// requests already in flight after its input closes, before it cancels
+	// them and exits.
+	TransportStdioDrain = mustDur(builtin.Transport.StdioDrain, "transport.stdioDrain")
+	// TransportLoopbackHosts are the Origin hosts a browser page on this
+	// machine presents; any port, http or https.
+	TransportLoopbackHosts = builtin.Transport.LoopbackHosts
+	// TransportAllowedOrigins are further Origins allowed to reach /mcp.
+	TransportAllowedOrigins = builtin.Transport.AllowedOrigins
 
 	CatalogBudget = builtin.Catalog.Budget
 

@@ -247,7 +247,10 @@ func TestExtraToolsAppearAndAreCallable(t *testing.T) {
 	}
 }
 
-func TestStdioAnswersFramesInOrder(t *testing.T) {
+// Every request gets one reply, matched by id. Not by position: requests run
+// concurrently so a cancellation can reach one, and JSON-RPC does not order
+// replies.
+func TestStdioAnswersEveryRequestByID(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n" +
@@ -260,8 +263,21 @@ func TestStdioAnswersFramesInOrder(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected one reply per request, got %d:\n%s", len(lines), out.String())
 	}
-	if !strings.Contains(lines[1], "mcpx_exec") {
-		t.Errorf("the second reply should be the tool list: %s", lines[1])
+	byID := map[float64]string{}
+	for _, l := range lines {
+		var f struct {
+			ID float64 `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(l), &f); err != nil {
+			t.Fatal(err)
+		}
+		byID[f.ID] = l
+	}
+	if !strings.Contains(byID[2], "mcpx_exec") {
+		t.Errorf("the reply to id 2 should be the tool list: %s", byID[2])
+	}
+	if _, ok := byID[1]; !ok {
+		t.Errorf("ping was not answered:\n%s", out.String())
 	}
 }
 
@@ -390,11 +406,36 @@ func TestServerDiscoverAnswersForModernClients(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "server/discover", nil))
 	b, _ := json.Marshal(resp)
-	for _, want := range []string{"protocolVersions", "2026-07-28", "capabilities"} {
-		if !strings.Contains(string(b), want) {
-			t.Errorf("%q missing: %s", want, b)
+	// https://modelcontextprotocol.io/specification/2026-07-28/schema#discoverresult
+	t.Run("2026-07-28/discover/result-has-supportedVersions-and-serverInfo-in-meta", func(t *testing.T) {
+		var doc struct {
+			Result map[string]json.RawMessage `json:"result"`
 		}
-	}
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatal(err)
+		}
+		var versions []string
+		if err := json.Unmarshal(doc.Result["supportedVersions"], &versions); err != nil || len(versions) == 0 {
+			t.Errorf("supportedVersions must be a non-empty array: %s", b)
+		}
+		var meta struct {
+			ServerInfo struct {
+				Name string `json:"name"`
+			} `json:"io.modelcontextprotocol/serverInfo"`
+		}
+		_ = json.Unmarshal(doc.Result["_meta"], &meta)
+		if meta.ServerInfo.Name != "mcpx" {
+			t.Errorf("serverInfo belongs in _meta: %s", b)
+		}
+		for _, stale := range []string{"protocolVersions", "serverInfo"} {
+			if _, ok := doc.Result[stale]; ok {
+				t.Errorf("%q is not a DiscoverResult field: %s", stale, b)
+			}
+		}
+		if _, ok := doc.Result["capabilities"]; !ok {
+			t.Errorf("capabilities missing: %s", b)
+		}
+	})
 }
 
 func TestAPerRequestVersionIsHonouredAndChecked(t *testing.T) {

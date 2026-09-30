@@ -134,9 +134,20 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 		return nil // notification acknowledged, no body
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, defaults.HTTPErrorBodyLimit))
 		resp.Body.Close()
-		return fmt.Errorf("post %s: http %d: %s", t.url, resp.StatusCode, strings.TrimSpace(string(b)))
+		he := &HTTPStatusError{URL: t.url, Status: resp.StatusCode, Body: bytes.TrimSpace(b)}
+		he.rpc, he.id = parseRPCError(he.Body)
+		// A modern server answers a bad request with 400 and a JSON-RPC
+		// error naming the request. That is the reply, not a transport
+		// failure, and the caller waiting on that id should receive it as
+		// one -- which is how an UnsupportedProtocolVersionError reaches the
+		// code that knows to retry.
+		if he.rpc != nil && he.id != nil && sameID(he.id, msg) {
+			t.push(he.Body)
+			return nil
+		}
+		return he
 	}
 
 	ct := resp.Header.Get("Content-Type")
@@ -272,4 +283,58 @@ func frameVersion(msg []byte) string {
 	}
 	v, _ := f.Params.Meta[MetaProtocolVersion].(string)
 	return v
+}
+
+// HTTPStatusError is a POST answered with a status outside 2xx.
+//
+// Structured rather than a string because the status and the body are what
+// the era probe decides on: a 4xx with a recognised modern JSON-RPC error is
+// a modern server, a 4xx with anything else is a legacy one, and a failure
+// to connect is neither.
+type HTTPStatusError struct {
+	URL    string
+	Status int
+	Body   []byte
+	// rpc is the JSON-RPC error in Body, if Body is one; id is its id.
+	rpc *rpcError
+	id  json.RawMessage
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("post %s: http %d: %s", e.URL, e.Status, string(e.Body))
+}
+
+// RPCCode returns the JSON-RPC error code carried in the body, if any.
+func (e *HTTPStatusError) RPCCode() (int, bool) {
+	if e.rpc == nil {
+		return 0, false
+	}
+	return e.rpc.Code, true
+}
+
+// parseRPCError reads a JSON-RPC error response out of a body.
+func parseRPCError(body []byte) (*rpcError, json.RawMessage) {
+	var r struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   *rpcError       `json:"error"`
+	}
+	if json.Unmarshal(body, &r) != nil || r.JSONRPC != "2.0" || r.Error == nil {
+		return nil, nil
+	}
+	if len(r.ID) == 0 || string(r.ID) == "null" {
+		return r.Error, nil
+	}
+	return r.Error, r.ID
+}
+
+// sameID reports whether a response id matches the id of the frame sent.
+func sameID(id json.RawMessage, msg []byte) bool {
+	var f struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if json.Unmarshal(msg, &f) != nil || len(f.ID) == 0 {
+		return false
+	}
+	return bytes.Equal(bytes.TrimSpace(f.ID), bytes.TrimSpace(id))
 }

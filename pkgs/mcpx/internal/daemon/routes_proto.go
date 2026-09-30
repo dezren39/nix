@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
+	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/tasks"
 )
 
@@ -524,12 +526,17 @@ func (s *Server) handleAskAbandon(w http.ResponseWriter, r *http.Request) {
 // This is the same table the code consults, so the two cannot disagree.
 func (s *Server) handleProtocol(w http.ResponseWriter, r *http.Request) {
 	type serverRow struct {
-		Server     string   `json:"server"`
-		Namespace  string   `json:"namespace"`
-		Preference string   `json:"preference,omitempty"`
-		Era        string   `json:"era,omitempty"`
-		Negotiated string   `json:"negotiated,omitempty"`
-		Declared   []string `json:"declared,omitempty"`
+		Server     string `json:"server"`
+		Namespace  string `json:"namespace"`
+		Preference string `json:"preference,omitempty"`
+		Era        string `json:"era,omitempty"`
+		Negotiated string `json:"negotiated,omitempty"`
+		// EraSource is how the live instance's era was settled: probe,
+		// cache or forced.
+		EraSource string `json:"eraSource,omitempty"`
+		// Cached is what the era cache remembers, live instance or not.
+		Cached   *pool.EraRecord `json:"cached,omitempty"`
+		Declared []string        `json:"declared,omitempty"`
 	}
 	var upstream []serverRow
 	for _, name := range s.reg.Names() {
@@ -539,7 +546,11 @@ func (s *Server) handleProtocol(w http.ResponseWriter, r *http.Request) {
 		}
 		era, negotiated := p.Era()
 		row := serverRow{Server: name, Namespace: p.Namespace(),
-			Preference: p.Config().Protocol, Era: string(era), Negotiated: negotiated}
+			Preference: string(p.Preference()), Era: string(era), Negotiated: negotiated,
+			EraSource: p.EraSource()}
+		if rec, ok := p.CachedEra(); ok {
+			row.Cached = &rec
+		}
 		for cap := range p.Capabilities() {
 			row.Declared = append(row.Declared, cap)
 		}
@@ -660,4 +671,22 @@ func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, erro
 		return []byte("{}"), nil
 	}
 	return b, nil
+}
+
+// upstreamHooks sets how pools connect to their servers: the era preference
+// for a server that names none, the probe timeout, and the era cache. Read
+// once, when hooks are installed, because a pool's era is settled per start
+// and the cache file is opened once.
+func (r *Registry) upstreamHooks(h *pool.Hooks) {
+	h.Protocol = mcpclient.Preference(defaults.UpstreamProtocol)
+	h.ProbeTimeout = defaults.UpstreamProbeTimeout
+	cache := defaults.UpstreamEraCache
+	if r.set != nil {
+		h.Protocol = mcpclient.Preference(r.set.String("upstream.protocol"))
+		h.ProbeTimeout = r.set.Duration("upstream.probeTimeout")
+		cache = r.set.Bool("upstream.eraCache")
+	}
+	if cache && r.paths.State != "" {
+		h.Eras = pool.OpenEraFile(filepath.Join(r.paths.State, defaults.UpstreamEraFile))
+	}
 }
