@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,9 +69,31 @@ func TestEveryToolInToolsListIsReachableFromAScript(t *testing.T) {
 		t.Fatal("the generated client is empty; this test checks nothing")
 	}
 
+	// Reachable from a script means the generated client names the tool.
+	// tools/list joins an adapter's namespace and tool with "_"; the client
+	// reaches a tool as ns.tool, which compiles to __call("ns", "tool", ...)
+	// -- so either spelling counts, and only the name being absent
+	// altogether is the gap #102 describes.
+	reachable := func(listed string) bool {
+		ns, tool, _ := strings.Cut(listed, "_")
+		return strings.Contains(client, listed) ||
+			strings.Contains(client, fmt.Sprintf("%q, %q", ns, tool))
+	}
+
+	// A control for the predicate itself. `demo.echo` is configured by
+	// oneServer and is in the client, so if `reachable` ever stops finding
+	// anything the skip below would look like the bug rather than like a
+	// broken test. The earlier version of this loop tested a constant --
+	// strings.Contains(client, "greet") -- so it ignored the tool it was
+	// iterating and could only ever answer all or nothing.
+	if !reachable("demo_echo") {
+		t.Fatal("the reachability check cannot find demo.echo, which is in the " +
+			"generated client; the check is wrong and this test proves nothing")
+	}
+
 	var missing []string
 	for _, name := range adapted {
-		if !strings.Contains(client, "greet") {
+		if !reachable(name) {
 			missing = append(missing, name)
 		}
 	}

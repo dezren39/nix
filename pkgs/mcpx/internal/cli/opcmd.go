@@ -283,8 +283,18 @@ func (a *App) runOp(ctx context.Context, cmd string, op api.Op, args []string) e
 			fmt.Fprintf(os.Stderr, "  --%s%s\n      %s\n", paramFlag(p.Name), kind, desc)
 		}
 		fmt.Fprintf(os.Stderr, "  -o <file>\n      write the response body to this file instead of printing it\n")
-		fmt.Fprintf(os.Stderr, "\n  --json for the response as JSON; `mcpx help %s` for the settings it reads.\n",
-			strings.Fields(cmd)[0])
+		// --json is claimed only where it is honoured. printOp writes a Text
+		// operation's bytes as they came and returns before it reads a.JSON,
+		// and a streaming operation returns from runOp without reaching
+		// printOp at all -- so on those two shapes the flag parses and does
+		// nothing. Advertising it there is the same defect as the -o flag
+		// this block advertised and ignored: the response has no JSON form
+		// on /v1 either, so the honest fix is to stop promising one.
+		hint := fmt.Sprintf("`mcpx help %s` for the settings it reads.", strings.Fields(cmd)[0])
+		if !op.Text && !op.Streams {
+			hint = "--json for the response as JSON; " + hint
+		}
+		fmt.Fprintf(os.Stderr, "\n  %s\n", hint)
 	}
 	if err := parseFlags(a, fs, hoistOpFlags(args, valued)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

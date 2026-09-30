@@ -127,9 +127,15 @@ func TestEveryCommandIsInAListedGroup(t *testing.T) {
 			t.Errorf("%s has no summary", c.Name)
 		}
 	}
-	usage := Usage()
+	// The generated listing only. Usage() ends with usageFooter, whose
+	// EXAMPLES block spells out `mcpx ls`, `mcpx types ...`, `mcpx exec ...`
+	// and `mcpx call ...` in prose, and the `mcpx help <command>` line is
+	// written unconditionally -- so searching the whole of Usage() reports
+	// those five as listed however badly the listing breaks. Cutting at the
+	// footer is what makes the check cover them.
+	listing, _, _ := strings.Cut(Usage(), usageFooter)
 	for _, c := range Commands() {
-		if !strings.Contains(usage, "mcpx "+c.Name+" ") && !strings.Contains(usage, "mcpx "+c.Name+"\n") {
+		if !strings.Contains(listing, "mcpx "+c.Name+" ") && !strings.Contains(listing, "mcpx "+c.Name+"\n") {
 			t.Errorf("`mcpx help` does not list %s", c.Name)
 		}
 	}

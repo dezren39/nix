@@ -25,7 +25,7 @@ import (
 // generated one and described the surface as it had been before #61: a
 // `servers` block naming `mcpx serve --transport http`, which now refuses to
 // run, and bare /health and /openapi.json paths that 404. It listed none of
-// the 53 /v1 operations. So `mcpx openapi` and the daemon's
+// the /v1 operations. So `mcpx openapi` and the daemon's
 // /v1/openapi.json were two different documents under one name, and the one
 // a person reaches for from the command line was the stale one.
 //
@@ -35,9 +35,23 @@ import (
 //
 // It is the publishable form: every path comes from a declaration compiled
 // into the binary, so the document is the same on every machine. Nothing here
-// reads a running daemon's configured servers, and the per-tool paths are
-// mcpx's own tools, not the upstream ones it proxies -- those are reached
-// through /v1/tools/{tool}, which is a template for exactly that reason.
+// reads a running daemon's configured servers. The per-tool paths below are
+// mcpx's own tools; an upstream tool is covered by the declared
+// /v1/call/{server}/{tool} template, which is a template for exactly that
+// reason.
+//
+// The daemon's /v1/openapi.json is not this document. It starts from the same
+// api.OpenAPI, and every path the two share is identical, but handleOpenAPI
+// then adds one path per tool in the live catalogue -- deliberately, so a
+// server that appears after startup is described without a restart. Driven
+// against a live daemon, configuring one server with eight tools takes it
+// from 53 paths to 61:
+//
+//	/v1/call/demo/echo, /v1/call/demo/boom, ... (8 paths)
+//
+// So the daemon's document describes this machine and this one describes the
+// product. That is the difference worth keeping, and it is why `mcpx openapi`
+// does not simply proxy the daemon.
 func OpenAPI(version string) map[string]any {
 	doc := api.OpenAPI(version)
 	paths, _ := doc["paths"].(map[string]any)
