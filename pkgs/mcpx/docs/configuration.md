@@ -225,6 +225,14 @@ that `--help` denies exists is worse than a long list.
 | `daemon.watchConfig` | bool | `true` | daemon | yes | `--daemon-watch-config` | `MCPX_DAEMON_WATCH_CONFIG` | re-read the configuration files when they change on disk |
 
 
+### diagnose
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `diagnose.history` | int | `8` | daemon | no | `--diagnose-history` | `MCPX_DIAGNOSE_HISTORY` | *(plumbing)* how many changes are kept per tool |
+| `diagnose.preflight` | bool | `true` | call | yes | `--diagnose-preflight` | `MCPX_DIAGNOSE_PREFLIGHT` | check a script's tool calls against the live schemas first |
+
+
 ### doctor
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -237,6 +245,10 @@ that `--help` denies exists is worse than a long list.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `elicit.pendingLimit` | int | `100` | daemon | yes | `--elicit-pending-limit` | `MCPX_ELICIT_PENDING_LIMIT` | *(plumbing)* how many unanswered questions one listing returns |
+| `elicit.askTimeout` | duration | `45s` | daemon | no | `--elicit-ask-timeout` | `MCPX_ELICIT_ASK_TIMEOUT` | how long mcpx waits for an answer to a question it raised itself |
+| `elicit.confirmDestructive` | bool | `false` | daemon | no | `--elicit-confirm-destructive` | `MCPX_ELICIT_CONFIRM_DESTRUCTIVE` | ask before a call to a tool annotated destructiveHint |
+| `elicit.disambiguate` | enum | `never` | daemon | no | `--elicit-disambiguate` | `MCPX_ELICIT_DISAMBIGUATE` | ask which instance of a stateful server to use when several are live and the script did not choose |
+| `elicit.disambiguateDefault` | enum | `new` | daemon | no | `--elicit-disambiguate-default` | `MCPX_ELICIT_DISAMBIGUATE_DEFAULT` | which instance is used when nobody answers in time: the one the scope would have chosen, or the most recently used |
 
 
 ### events
@@ -368,6 +380,27 @@ that `--help` denies exists is worse than a long list.
 | `pool.scope` | enum | `global` | daemon | no | `--pool-scope` | `MCPX_POOL_SCOPE` | what counts as the same caller for sharing purposes |
 | `pool.sharing` | enum | `shared` | daemon | no | `--pool-sharing` | `MCPX_POOL_SHARING` | whether callers reuse one instance or each get their own |
 | `pool.startTimeout` | duration | `60s` | daemon | yes | `--pool-start-timeout` | `MCPX_POOL_START_TIMEOUT` | how long a server has to become ready |
+
+
+### prompt
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `prompt.catalogBudget` | int | `1200` | call | yes | `--prompt-catalog-budget` | `MCPX_PROMPT_CATALOG_BUDGET` | approximate token ceiling for the slice of catalog sent with a sampling request |
+| `prompt.maxTokens` | int | `1500` | call | yes | `--prompt-max-tokens` | `MCPX_PROMPT_MAX_TOKENS` | *(plumbing)* maxTokens on the sampling request |
+| `prompt.mode` | enum | `script` | call | yes | `--prompt-mode` | `MCPX_PROMPT_MODE` | whether a request returns the script or runs it |
+| `prompt.runTimeout` | duration | `5m0s` | call | yes | `--prompt-run-timeout` | `MCPX_PROMPT_RUN_TIMEOUT` | how long a recipe or generated script may run |
+| `prompt.sample` | enum | `never` | daemon | no | `--prompt-sample` | `MCPX_PROMPT_SAMPLE` | whether a request with no matching recipe may ask the caller's model to write one |
+| `prompt.sampleTimeout` | duration | `1m30s` | daemon | no | `--prompt-sample-timeout` | `MCPX_PROMPT_SAMPLE_TIMEOUT` | how long a generation request waits for a model |
+
+
+### recipes
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `recipes.limit` | int | `5` | call | yes | `--recipes-limit` | `MCPX_RECIPES_LIMIT` | how many ranked recipes are returned |
+| `recipes.matchMargin` | int | `150` | call | yes | `--recipes-match-margin` | `MCPX_RECIPES_MATCH_MARGIN` | how far ahead the best recipe must be, as a percentage of the next one |
+| `recipes.minScore` | int | `30` | call | yes | `--recipes-min-score` | `MCPX_RECIPES_MIN_SCORE` | the score below which a request is not considered a match for any recipe |
 
 
 ### registry

@@ -778,6 +778,18 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		opts.File = file
 		opts.Args = fs.Args()[1:]
 	}
+
+	// Deterministic diagnostics, before anything starts. What this catches is
+	// a tool whose schema moved under a script that used to work; left to the
+	// runtime it surfaces as an error from the server, halfway through, after
+	// the side effects of every call before it.
+	diagSource := opts.Source
+	if diagSource == "" {
+		diagSource = sourceOfScript(opts.File)
+	}
+	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
+		return derr
+	}
 	for _, raw := range envVars.Values() {
 		kv, ok := raw.(string)
 		if !ok {

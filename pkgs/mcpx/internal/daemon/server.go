@@ -89,6 +89,9 @@ type Server struct {
 	taskOnce sync.Once
 	tasks    *tasks.Store
 
+	// consumer holds the policy and the schema history behind the things
+	// mcpx asks for itself. See internal/daemon/consumer.go.
+	consumer *consumerState
 	artifactState
 }
 
@@ -158,6 +161,7 @@ func NewServer(opts Options) (*Server, error) {
 	}
 	reg.UseSettings(opts.Settings)
 	reg.InstallHooks(srv.Events, broker, nil)
+	srv.initConsumer()
 	if opts.Config != nil {
 		srv.contentHash = ContentFingerprint(opts.Config.Sources)
 		srv.stamp = stampConfig(opts.Config.Sources)
@@ -459,6 +463,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	// Everything declared in internal/api that is not above. A parity test
 	// fails if the two ever disagree.
 	s.routesV1Ops(mux)
+	s.routesConsumer(mux)
 	s.routesResolve(mux)
 }
 

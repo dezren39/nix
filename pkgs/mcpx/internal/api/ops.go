@@ -466,6 +466,7 @@ func Ops() []Op {
 			Description: "Generated from the same table the routes and the MCP tools are.",
 		},
 	}
+	ops = append(ops, consumerOps()...)
 	ops = append(ops, execOps()...)
 	ops = append(ops, settingsOps()...)
 	ops = append(ops, resolveOps()...)

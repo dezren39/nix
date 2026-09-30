@@ -231,6 +231,16 @@ func toolDefs() []map[string]any {
 			},
 		},
 		{
+			// Annotated destructive so the confirmation policy has something
+			// to fire on. Nothing here actually destroys anything.
+			"name":        "wipe",
+			"description": "Forget everything this process recorded.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+			"annotations": map[string]any{
+				"title": "Wipe state", "destructiveHint": true, "readOnlyHint": false,
+			},
+		},
+		{
 			"name":        "fancy-name",
 			"description": "Tool whose name is not a TypeScript identifier.",
 			"inputSchema": map[string]any{
@@ -278,6 +288,11 @@ func callTool(r req) map[string]any {
 		mu.Unlock()
 		b, _ := json.Marshal(map[string]any{"pid": pid, "seen": s})
 		return ok(r.ID, textResult(string(b)))
+	case "wipe":
+		mu.Lock()
+		state = nil
+		mu.Unlock()
+		return ok(r.ID, textResult("wiped"))
 	case "slow":
 		ms := 0
 		switch v := p.Arguments["ms"].(type) {

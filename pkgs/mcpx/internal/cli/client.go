@@ -206,13 +206,27 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 		var e struct {
 			Error string `json:"error"`
 		}
+		msg := fmt.Sprintf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 		if json.Unmarshal(b, &e) == nil && e.Error != "" {
-			return nil, errors.New(e.Error)
+			msg = e.Error
 		}
-		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, &HTTPError{Status: resp.StatusCode, Body: b, Msg: msg}
 	}
 	return b, nil
 }
+
+// HTTPError is a refusal from the daemon, with the body kept.
+//
+// The body matters for the routes whose failure is itself an answer: a
+// recipe that could not be filled in is telling the caller what it needed,
+// and collapsing that to a string would throw the useful half away.
+type HTTPError struct {
+	Status int
+	Body   []byte
+	Msg    string
+}
+
+func (e *HTTPError) Error() string { return e.Msg }
 
 func isDialErr(err error) bool {
 	var oe *net.OpError
