@@ -1,0 +1,8 @@
+# Keep the build context to the source. `result` is a symlink into the Nix
+# store, which does not exist inside the build; .git is megabytes of history
+# the compiler has no use for.
+result
+result-*
+bin
+.git
+node_modules
