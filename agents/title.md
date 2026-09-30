@@ -1,7 +1,7 @@
 ---
 mode: primary
 hidden: true
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 ---
 

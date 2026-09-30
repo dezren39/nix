@@ -1,7 +1,7 @@
 ---
 description: A research question with many separable parts; splits into parallel sweeps and traces.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   edit: deny

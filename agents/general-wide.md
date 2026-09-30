@@ -1,7 +1,7 @@
 ---
 description: A defined batch of related units - a known set of call sites, or one pattern across a directory.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   task:

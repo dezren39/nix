@@ -1,7 +1,7 @@
 ---
 description: 'A large divisible workload: a long list of related units. Splits it into batches.'
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   task:

@@ -1,7 +1,7 @@
 ---
 description: 'Finds, reads, and explains code. Default for any search or "how does X work" question. Specify thoroughness: quick, medium, or very thorough.'
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   # `"*": allow` clears the built-in read-only ruleset (agent/agent.ts:196-207),

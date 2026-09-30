@@ -1,7 +1,7 @@
 ---
 description: Multi-step work needing judgment. The default for anything that is not pure search.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   task:

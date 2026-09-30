@@ -88,18 +88,18 @@
   // topology is what keeps agents from discovering the limit by hitting it.
   "subagent_depth": 10,
   // Last-resort default, read only at provider.ts:2010 (`if (cfg.model)`).
-  // Unreachable today: every agent in agents/*.md pins claude-opus-5 except the
+  // Unreachable today: every agent in agents/*.md pins claude-opus-5.5 except the
   // custom family, which inherits the caller's model by design
   // (task.ts:181-184), and default_agent is build, which pins. Set anyway so an
   // agent added later without a `model:` can't fall through to the
   // family-priority picker.
-  "model": "github-copilot/claude-opus-5",
+  "model": "github-copilot/claude-opus-5.5",
   // "small_model": "github-copilot/gpt-5.6-terra",
   // Fallback for `small: true` calls (title generation). Unused in practice —
   // agent.title sets its own model, which takes precedence at prompt.ts:216.
   // Set anyway so a future small-call path can't silently fall through to the
   // family-priority picker: ["gemini-flash", "gpt-nano", "claude-haiku"].
-  "small_model": "github-copilot/claude-opus-5",
+  "small_model": "github-copilot/claude-opus-5.5",
   // "provider": {
   //   "github-copilot": {
       // Disable models per policy: any gpt < 5.6, any claude < 4.8, and all Gemini,
