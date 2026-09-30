@@ -31,6 +31,15 @@ func isolate(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Through the symlink, because /tmp is one on macOS and the code under
+	// test resolves paths before keying on them -- deliberately, so that a
+	// process holding the unresolved spelling does not compute a second key
+	// for the same file (#56, daemon/paths.go). Without this the daemon
+	// answers /private/tmp/... and the test compares it against the /tmp/...
+	// it built, which fails on every macOS machine and on no Linux one.
+	if real, rerr := filepath.EvalSymlinks(home); rerr == nil {
+		home = real
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
