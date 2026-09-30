@@ -62,7 +62,7 @@ func checkKeys(stripped []byte, c *Config) error {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			if !serverKeys[k] {
+			if !knows(serverKeys, k) {
 				c.Ignored = append(c.Ignored, IgnoredKey{Server: name, Key: k})
 			}
 		}
@@ -86,27 +86,64 @@ func checkKeys(stripped []byte, c *Config) error {
 
 // jsonKeys is every key a struct decodes, read from its tags so the list
 // cannot drift from the struct it describes.
-func jsonKeys(t reflect.Type) map[string]bool {
-	out := map[string]bool{}
+//
+// Keyed by the lower-cased name and valued by the canonical spelling, because
+// encoding/json matches a field case-insensitively when no exact match exists
+// (encoding/json.Unmarshal: "to match ... prefers an exact match but also
+// accepts a case-insensitive match"). A set of canonical names alone reported
+// {"Command": "echo"} as an unknown key while json had already decoded it into
+// Server.Command -- which meant doctor warned about a working config and
+// plumbing.strictUnknownKeys refused one.
+//
+// Anonymous fields are recursed into rather than taken by name: json promotes
+// an embedded struct's fields to the outer object, so its type name is never a
+// key. Neither Server nor Extras embeds anything today; doing it here means the
+// day one does, the keys it promotes are known rather than silently refused.
+func jsonKeys(t reflect.Type) map[string]string {
+	out := map[string]string{}
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		tag := f.Tag.Get("json")
 		name, _, _ := strings.Cut(tag, ",")
-		if name == "-" || !f.IsExported() {
+		if name == "-" {
+			continue
+		}
+		// Checked before IsExported: an anonymous field's name is its type's
+		// name, so an embedded unexported struct type reads as unexported
+		// while json still promotes the exported fields inside it.
+		if f.Anonymous && name == "" {
+			et := f.Type
+			for et.Kind() == reflect.Pointer {
+				et = et.Elem()
+			}
+			if et.Kind() == reflect.Struct {
+				for k, v := range jsonKeys(et) {
+					out[k] = v
+				}
+				continue
+			}
+		}
+		if !f.IsExported() {
 			continue
 		}
 		if name == "" {
 			name = f.Name
 		}
-		out[name] = true
+		out[strings.ToLower(name)] = name
 	}
 	return out
 }
 
-func sortedKeys(m map[string]bool) []string {
+// knows reports whether a document key names a field the struct decodes.
+func knows(keys map[string]string, k string) bool {
+	_, ok := keys[strings.ToLower(k)]
+	return ok
+}
+
+func sortedKeys(m map[string]string) []string {
 	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
+	for _, v := range m {
+		out = append(out, v)
 	}
 	sort.Strings(out)
 	return out

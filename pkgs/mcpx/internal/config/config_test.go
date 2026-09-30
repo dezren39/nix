@@ -187,6 +187,15 @@ func TestServerKeysAnotherHostWritesAreRecordedNotRefused(t *testing.T) {
 	}
 
 	// The same through the search path, which merges several files.
+	//
+	// SearchPathFrom walks up to / and then consults $XDG_CONFIG_HOME, $HOME
+	// and /etc, so without this the test reads whatever the developer running
+	// it happens to have configured. That was harmless while unknown keys were
+	// ignored; now that an unknown key in an "mcpx" block is an error, one
+	// stale key in a real ~/.mcpx.json would fail this test on that machine
+	// and nowhere else.
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
 	sub := filepath.Join(dir, "proj")
 	write(t, sub, ".mcpx.json", `{"mcpServers":{"b":{"command":"y","trust":true}}}`)
 	merged, err := config.LoadFrom("", sub)
@@ -433,5 +442,28 @@ func TestSearchPathDedupesUserConfig(t *testing.T) {
 	projCfg := write(t, proj, filepath.Join(".config", "mcpx", "config.json"), `{}`)
 	if paths := config.SearchPathFrom(proj); len(paths) == 0 || paths[0] != projCfg {
 		t.Fatalf("project config should come first, got %v", paths)
+	}
+}
+
+// A key encoding/json reads is never reported as one mcpx ignored.
+//
+// json prefers an exact field match and otherwise accepts a case-insensitive
+// one, so {"Command": "echo"} populates Server.Command. Checking document keys
+// against the tag spellings alone put those in Config.Ignored anyway: doctor
+// warned about a config that works, and plumbing.strictUnknownKeys refused it.
+func TestAKeyJSONReadsIsNotReportedIgnored(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	p := write(t, dir, "c.json", `{"mcpServers":{"s":{"Command":"echo","Args":["hi"]}}}`)
+	c, err := config.Load(p)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := c.MCPServers["s"].Command; got != "echo" {
+		t.Fatalf(`"Command" did not decode (got %q); the premise of this test is gone`, got)
+	}
+	if len(c.Ignored) != 0 {
+		t.Errorf("keys json decoded were reported ignored: %+v", c.Ignored)
 	}
 }
