@@ -101,7 +101,7 @@
     "recipeMinScore": 30,
     "recipeMatchMargin": 150,
     "recipeLimit": 5,
-    "promptMode": "script",
+    "promptAutonomy": "propose",
     "promptSample": "never",
     "promptCatalogBudget": 1200,
     "promptSampleTimeout": "90s",
