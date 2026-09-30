@@ -11,6 +11,7 @@ package runner
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -234,7 +235,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	} else if err := os.MkdirAll(workDir, 0o700); err != nil {
 		return nil, err
 	}
-	defer cleanup()
+	// Called through the variable, not captured by value: the script block
+	// below extends cleanup, and `defer cleanup()` would have deferred the
+	// function as it stood here -- which is why every generated program was
+	// left behind in a shared working directory.
+	defer func() { cleanup() }()
 
 	clientPath := filepath.Join(workDir, clientFileName)
 	if err := writeIfChanged(clientPath, opts.ClientSource); err != nil {
@@ -247,11 +252,25 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	scriptPath := opts.File
 	if scriptPath == "" {
-		scriptPath = filepath.Join(workDir, "script.ts")
+		// A unique name, because the working directory is shared whenever
+		// the caller named one -- which is how the generated client keeps a
+		// stable path for the runtime's type-check cache. A fixed
+		// "script.ts" there means two concurrent runs overwrite each
+		// other's program.
+		name, nerr := uniqueScriptName()
+		if nerr != nil {
+			return nil, nerr
+		}
+		scriptPath = filepath.Join(workDir, name)
 		src := opts.Prelude + opts.Source
 		if err := os.WriteFile(scriptPath, []byte(src), 0o600); err != nil {
 			return nil, err
 		}
+		// Only the program: the client and its declarations are what the
+		// directory exists to keep.
+		prev := cleanup
+		path := scriptPath
+		cleanup = func() { _ = os.Remove(path); prev() }
 	} else {
 		abs, err := filepath.Abs(scriptPath)
 		if err != nil {
@@ -710,4 +729,13 @@ func allowsRead(perms []string) bool {
 		}
 	}
 	return false
+}
+
+// uniqueScriptName names one run's program.
+func uniqueScriptName() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return "script-" + hex.EncodeToString(b[:]) + ".ts", nil
 }
