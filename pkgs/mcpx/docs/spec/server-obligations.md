@@ -535,12 +535,18 @@ The 2026-07-28 work is on the alpha line (`0.2.0-alpha.11`); `latest` is a
 mcpx as a server, and, through `internal/conformance/officialclient`, mcpx as
 the client under test.
 
-Measured against the daemon's `/mcp` endpoint:
+Measured against the daemon's `/mcp` endpoint, at `408bc2b`:
 
 | requirement set | passed | failed |
 | --- | --- | --- |
-| `2026-07-28` | 115 | 54 |
-| `2025-11-25` | 47 | 19 |
+| `2026-07-28` | 116 | 54 |
+| `2025-11-25` | 45 | 21 |
+
+2025-11-25 was 47 / 19 until #247 taught mcpx to actually arrange an upstream
+resource subscription instead of acknowledging one blindly. The suite
+subscribes to `test://watched-resource`, which no upstream owns, and mcpx now
+says so — a correct refusal scored as a failure, and one more instance of the
+paragraph below rather than an exception to it (#251).
 
 **Most of those failures are not defects.** The suite's scenarios assume a
 server that implements its fixture surface — tools named `slow_compute` and
@@ -548,7 +554,11 @@ server that implements its fixture surface — tools named `slow_compute` and
 `test://`. mcpx is a proxy: it publishes its own small tool set and namespaces
 every upstream resource as `mcpx://<namespace>/<uri>`. A scenario that cannot
 find its fixture reports a failure that says nothing about protocol
-conformance. Read that way, the 54 divide as:
+conformance. **Do not read 54 as a defect count.** Every one of the 21 on
+2025-11-25 is a fixture failure — `no prompt named "test_simple_prompt"`,
+`a resource URI looks like mcpx://<namespace>/<uri>, got "test://static-text"`,
+`Tool 'json_schema_2020_12_tool' not found` — and on 2026-07-28 the 54 divide
+as:
 
 | category | count | meaning |
 | --- | --- | --- |
