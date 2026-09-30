@@ -174,3 +174,17 @@ covers an operation, no second tool is generated for it.
 | `mcpx_stats` | – | Aggregate the log: calls, servers, errors, sessions, slowest, volume. |
 | `mcpx_status` | `status` | The daemon, its pools and live instances. |
 | `mcpx_types` | `types` | Full TypeScript signatures for named namespaces, including each server's own guidance. |
+
+## Boundaries (4)
+
+Every restriction mcpx declares, and whether anything enforces it
+([decisions/0003](decisions/0003-declared-vs-enforced-capabilities.md)). An enforced
+one names the tests that try to get round it; an advisory one names the issue
+that will enforce it. `TestEveryEnforcedBoundaryNamesItsRefusal` holds both.
+
+| Restriction | Declares | State | Evidence |
+| --- | --- | --- | --- |
+| `transport.allowedOrigins` | a web page on an origin that is not loopback, the daemon's own address or listed in transport.allowedOrigins cannot use /v1 or /mcp | **enforced** | `TestAWebPageCannotRunCodeThroughTheDaemon`, `TestV1AndMCPAgreeOnOrigins` |
+| `script.permissions` | a script runs with no more than the permission profile named; a runtime with no permission model refuses a narrowed profile | **enforced** | `TestScriptPermissionsIsReachableFromEverySurface`, `TestAStrictScriptCannotReadFilesOnARuntimeWithoutPermissions`, `TestARestrictedProfileIsRefusedByARuntimeThatCannotEnforceIt` |
+| `elicit.confirmDestructive` | with it on, a call to a tool annotated destructiveHint does not run unless somebody confirms it | **enforced** | `TestADestructiveCallIsRefusedWhenNobodyConfirms`, `TestConfirmDestructiveHoldsOnAColdDaemon` |
+| `privileged operations (Admin)` | operations marked privileged change the daemon rather than read it; nothing checks who calls them, and every tool description and the OpenAPI document say so | **advisory** | #253 |

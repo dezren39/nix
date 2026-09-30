@@ -64,7 +64,7 @@ func TestAReconnectingSubscriberMissesNothing(t *testing.T) {
 	// rather than merely resumable.
 	b := events.New(0)
 	first, _ := b.Subscribe(events.Filter{}, 0)
-	e1 := b.Publish(events.Event{Kind: events.CallStarted})
+	e1 := b.Publish(events.Event{Kind: events.ServerStarted})
 	recv(t, first)
 	first.Close() // the connection drops
 

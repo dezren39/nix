@@ -192,16 +192,21 @@ type OriginPolicy struct {
 	Origins []string
 }
 
-func (s *Server) originAllowed(origin string) bool {
+func (s *Server) originAllowed(origin string) bool { return s.Origins.Allows(origin) }
+
+// Allows reports whether a request carrying this Origin may be served.
+// Exported so the daemon's /v1 routes, which share its listeners, apply the
+// same rule rather than a second copy of it.
+func (p OriginPolicy) Allows(origin string) bool {
 	if origin == "" {
 		return true
 	}
-	hosts := s.Origins.Hosts
+	hosts := p.Hosts
 	if hosts == nil {
 		hosts = defaults.TransportLoopbackHosts
 	}
 	trimmed := strings.TrimSuffix(origin, "/")
-	for _, o := range s.Origins.Origins {
+	for _, o := range p.Origins {
 		if strings.EqualFold(strings.TrimSuffix(o, "/"), trimmed) {
 			return true
 		}

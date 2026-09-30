@@ -836,6 +836,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			body.WriteString(line)
 		}
 		opts.Source = body.String()
+		// The three phases that are not spliced into the snippet run in the
+		// launcher around it, as they do around a file. They were set only
+		// for a file, so `mcpx exec --before/--on-success/--on-error` and
+		// script.before/onSuccess/onError were accepted and dropped.
+		opts.Phases = runner.Phases{
+			Before:    cfg.ScriptPhase("before", a.phaseValues("script.before", before)),
+			OnSuccess: cfg.ScriptPhase("onSuccess", a.phaseValues("script.onSuccess", onSuccess)),
+			OnError:   cfg.ScriptPhase("onError", a.phaseValues("script.onError", onError)),
+		}
 	} else {
 		// A file keeps its own module scope, so its prefix and suffix run in
 		// the launcher around it: before the import and after the entry point.
