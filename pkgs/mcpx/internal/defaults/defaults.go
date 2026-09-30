@@ -250,6 +250,13 @@ type Defaults struct {
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
 	} `json:"plugin"`
+	// ProtoMessages governs the per-message fields mcpx's own MCP server
+	// attaches: cache hints on results and keep-alives on listen streams.
+	ProtoMessages struct {
+		ListMaxAge string `json:"listMaxAge"`
+		ReadMaxAge string `json:"readMaxAge"`
+		TaskAfter  string `json:"taskAfter"`
+	} `json:"protoMessages"`
 	// Upstream governs how mcpx connects to the servers it fronts: which
 	// protocol era it tries first, how long it waits to find out, and where
 	// it remembers the answer.
@@ -432,6 +439,17 @@ var (
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
 
+	// ProtoListMaxAge is the ttlMs a 2026-07-28 client is given on
+	// server/discover and every list result. Short, because the lists follow
+	// configuration and a list_changed only reaches a client that listens.
+	ProtoListMaxAge = mustDur(builtin.ProtoMessages.ListMaxAge, "protoMessages.listMaxAge")
+	// ProtoReadMaxAge is the ttlMs on resources/read. Zero: a resource is
+	// whatever an upstream server says it is now.
+	ProtoReadMaxAge = mustDur(builtin.ProtoMessages.ReadMaxAge, "protoMessages.readMaxAge")
+	// ProtoTaskAfter is how long a tools/call from a client that declared
+	// the tasks extension runs in line before mcpx hands back a task
+	// instead of the result.
+	ProtoTaskAfter = mustDur(builtin.ProtoMessages.TaskAfter, "protoMessages.taskAfter")
 	// TransportSSEKeepAlive is how often an otherwise quiet event stream
 	// carries a comment line, so an intermediary or a client idle timeout
 	// does not close a stream that is merely waiting.

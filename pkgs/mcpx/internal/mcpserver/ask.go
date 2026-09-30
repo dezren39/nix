@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,7 +131,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 
 	var callID string
 	if state, answers, resuming := resumeOf(req.Params); resuming {
-		id, err := s.states().verify(state, c.binding())
+		id, err := s.states().verify(state, requestBinding(req))
 		if err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
@@ -199,14 +201,14 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 
 		if peer.Modern {
-			state, err := s.states().mint(callID, c.binding())
+			state, err := s.states().mint(callID, requestBinding(req))
 			if err != nil {
 				// No verifiable state means no safe resume, so the question
 				// goes back to the broker rather than out on a token
 				// anybody could replay.
 				continue
 			}
-			return reply(inputRequired(sendable, state))
+			return reply(inputRequired(sendable, state, peer))
 		}
 
 		answers := map[string]json.RawMessage{}
@@ -253,10 +255,18 @@ func sendableTo(qs []Question, p Peer) []Question {
 // A modern server has no connection to send a request on, so it answers
 // "not yet, first tell me these" and expects the same request again with the
 // answers attached.
-func inputRequired(qs []Question, state string) map[string]any {
+func inputRequired(qs []Question, state string, p Peer) map[string]any {
 	requests := map[string]any{}
 	for _, q := range qs {
-		requests[q.ID] = map[string]any{"method": q.Method, "params": json.RawMessage(q.Params)}
+		// Rendered for the client's revision exactly as a wire request
+		// would be. It used to be the upstream server's params verbatim,
+		// which carried a 2025-11-25 elicitationId to a 2026-07-28 client
+		// whose schema has none.
+		params, err := q.paramsFor(p)
+		if err != nil {
+			params = q.Params
+		}
+		requests[q.ID] = map[string]any{"method": q.Method, "params": params}
 	}
 	return map[string]any{
 		"resultType":    "input_required",
@@ -301,15 +311,32 @@ func askResult(req request, out Outcome) map[string]any {
 	}
 }
 
-// binding is the identity a requestState is tied to.
+// requestBinding is what a requestState is tied to: the request itself.
 //
-// Empty means this connection has no identity that survives the request, so
-// no resumable state can be issued for it: a token bound to nothing is a
-// token anyone may present.
-func (c *Conn) binding() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.bind
+// The MRTR page asks a server to put, inside the integrity-protected state,
+// an identifier for the originating request -- the method and a digest of
+// its salient parameters -- and the authenticated principal, and to reject
+// state presented on a request that does not match. It used to be bound to
+// an Mcp-Session-Id instead, which 2026-07-28 does not have: mcpx minted one
+// on server/discover just so there was something to bind to, and a client
+// that skipped discover could never resume at all.
+//
+// The salient parameters are everything except how the request travelled
+// (_meta) and the two fields a retry adds (inputResponses, requestState).
+// Re-marshalling through a generic value sorts every object's keys, so the digest does not
+// depend on the order a client happened to write them in. mcpx has no
+// authenticated principal of its own to add: whoever can reach its socket
+// or port is, as far as mcpx can tell, the same caller.
+func requestBinding(req request) string {
+	var v any
+	canonical := forAsk(req.Params)
+	if json.Unmarshal(canonical, &v) == nil {
+		if b, err := json.Marshal(v); err == nil {
+			canonical = b
+		}
+	}
+	sum := sha256.Sum256(canonical)
+	return req.Method + ":" + hex.EncodeToString(sum[:])
 }
 
 // states returns the signer, built once per server.

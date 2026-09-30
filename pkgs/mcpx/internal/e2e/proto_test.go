@@ -217,11 +217,15 @@ func TestAModernClientIsHandedTheQuestionInTheResult(t *testing.T) {
 	}
 	disc := mcpPost(t, ep, "", map[string]any{"jsonrpc": "2.0", "id": 1,
 		"method": "server/discover", "params": map[string]any{"_meta": meta}})
-	session := disc.Header.Get("Mcp-Session-Id")
+	issued := disc.Header.Get("Mcp-Session-Id")
 	disc.Body.Close()
-	if session == "" {
-		t.Fatal("a modern client never sends initialize, so the session has to be issued on discover")
+	if issued != "" {
+		// 2026-07-28 has no sessions. One used to be minted here only so a
+		// requestState had something to be bound to; it is bound to the
+		// request now, and the retry below works without any.
+		t.Errorf("server/discover issued a session: %s", issued)
 	}
+	session := ""
 
 	params := map[string]any{"name": "mcpx_call",
 		"arguments": map[string]any{"namespace": "ask", "tool": "need_repo"},
@@ -269,9 +273,12 @@ func TestAModernClientIsHandedTheQuestionInTheResult(t *testing.T) {
 }
 
 // A requestState is opaque to the client, and has to be more than a handle:
-// a valid one presented by a different session is somebody reading another
-// caller's tool results.
-func TestARequestStateFromAnotherSessionIsRefused(t *testing.T) {
+// the MRTR page says a server SHOULD bind it to the originating request -- the
+// method and its salient parameters -- and reject it on any other. A valid
+// one presented on a different call is somebody steering a call they did not
+// start. It used to be bound to an Mcp-Session-Id, which 2026-07-28 does not
+// have.
+func TestARequestStateOnAnotherRequestIsRefused(t *testing.T) {
 	e := askEnv(t)
 	e.run("refresh")
 	ep := e.endpoint(t)
@@ -280,18 +287,10 @@ func TestARequestStateFromAnotherSessionIsRefused(t *testing.T) {
 		"io.modelcontextprotocol/clientCapabilities": map[string]any{
 			"elicitation": map[string]any{}},
 	}
-	newSession := func() string {
-		r := mcpPost(t, ep, "", map[string]any{"jsonrpc": "2.0", "id": 1,
-			"method": "server/discover", "params": map[string]any{"_meta": meta}})
-		defer r.Body.Close()
-		return r.Header.Get("Mcp-Session-Id")
-	}
-	mine, theirs := newSession(), newSession()
-
 	params := map[string]any{"name": "mcpx_call",
 		"arguments": map[string]any{"namespace": "ask", "tool": "need_repo"},
 		"_meta":     meta}
-	r := mcpPost(t, ep, mine, map[string]any{"jsonrpc": "2.0", "id": 2,
+	r := mcpPost(t, ep, "", map[string]any{"jsonrpc": "2.0", "id": 2,
 		"method": "tools/call", "params": params})
 	first := decodeJSON(t, r.Body)
 	r.Body.Close()
@@ -301,14 +300,15 @@ func TestARequestStateFromAnotherSessionIsRefused(t *testing.T) {
 		t.Fatalf("expected an input_required:\n%s", dumpJSON(t, first))
 	}
 
-	params["requestState"] = state
-	params["inputResponses"] = map[string]any{}
-	r = mcpPost(t, ep, theirs, map[string]any{"jsonrpc": "2.0", "id": 3,
-		"method": "tools/call", "params": params})
+	other := map[string]any{"name": "mcpx_call",
+		"arguments": map[string]any{"namespace": "ask", "tool": "need_repo", "arguments": map[string]any{"x": 1}},
+		"_meta":     meta, "requestState": state, "inputResponses": map[string]any{}}
+	r = mcpPost(t, ep, "", map[string]any{"jsonrpc": "2.0", "id": 3,
+		"method": "tools/call", "params": other})
 	stolen := decodeJSON(t, r.Body)
 	r.Body.Close()
 	if stolen["error"] == nil {
-		t.Fatalf("another session resumed a call it did not start:\n%s", dumpJSON(t, stolen))
+		t.Fatalf("a requestState was accepted on a request it was not issued for:\n%s", dumpJSON(t, stolen))
 	}
 }
 
