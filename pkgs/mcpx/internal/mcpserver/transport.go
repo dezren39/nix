@@ -28,9 +28,6 @@ import (
 // that mirror the body are missing, malformed, or disagree with it.
 const codeHeaderMismatch = -32020
 
-// codeMissingCapability is 2026-07-28's MissingRequiredClientCapabilityError.
-const codeMissingCapability = -32021
-
 // ---- cancellation ----
 
 // inflightReq is one request a connection is still answering.

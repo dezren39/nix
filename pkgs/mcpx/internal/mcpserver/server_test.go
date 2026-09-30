@@ -11,11 +11,27 @@ import (
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
-type fakeBackend struct{ calls map[string]int }
+// fakeBackend counts calls under a lock: stdio requests run concurrently, so
+// an unguarded map here is a fatal "concurrent map writes" waiting for a run
+// where two requests land at once.
+type fakeBackend struct {
+	mu    sync.Mutex
+	calls map[string]int
+}
 
 func newBackend() *fakeBackend { return &fakeBackend{calls: map[string]int{}} }
 
-func (f *fakeBackend) hit(n string) { f.calls[n]++ }
+func (f *fakeBackend) hit(n string) {
+	f.mu.Lock()
+	f.calls[n]++
+	f.mu.Unlock()
+}
+
+func (f *fakeBackend) count(n string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[n]
+}
 
 func (f *fakeBackend) Namespaces(context.Context) (string, error) {
 	f.hit("namespaces")
@@ -166,7 +182,7 @@ func TestEveryToolReachesItsBackend(t *testing.T) {
 		if _, isErr := call(t, s, c.tool, c.args); isErr {
 			t.Errorf("%s reported an error", c.tool)
 		}
-		if f.calls[c.want] == 0 {
+		if f.count(c.want) == 0 {
 			t.Errorf("%s never reached the backend", c.tool)
 		}
 	}
@@ -350,53 +366,19 @@ func TestCapabilitiesMatchWhatIsAnswered(t *testing.T) {
 	}
 }
 
-func TestAnUnsupportedVersionIsRefusedWithTheListThatWouldWork(t *testing.T) {
-	// Echoing whatever was asked for was the bug: a client requesting a
-	// version mcpx cannot serve was told yes, and discovered otherwise only
-	// when a method was missing.
-	s := mcpserver.New(newBackend(), "mcpx", "test")
-	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
-		map[string]any{"protocolVersion": "1999-01-01"}))
-	b, _ := json.Marshal(resp)
-	if !strings.Contains(string(b), "-32022") {
-		t.Errorf("expected UnsupportedProtocolVersionError: %s", b)
-	}
-	if !strings.Contains(string(b), "2025-11-25") {
-		t.Errorf("the supported list is a client's only way forward: %s", b)
-	}
-}
-
 func TestAModernVersionCannotBeAgreedOverInitialize(t *testing.T) {
 	// A client sending initialize is legacy by definition; the modern
 	// revisions have no handshake. Agreeing would promise a protocol neither
-	// side is speaking.
+	// side is speaking, so it is answered with the latest legacy revision,
+	// as for any other version mcpx cannot agree to.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
 		map[string]any{"protocolVersion": "2026-07-28"}))
-	b, _ := json.Marshal(resp)
-	if !strings.Contains(string(b), "-32022") {
-		t.Errorf("expected a refusal: %s", b)
+	if resp.Error != nil {
+		t.Fatalf("initialize is answered with a version, not refused: %v", resp.Error)
 	}
-	// Checked against the supported list rather than the whole body, which
-	// also echoes what was requested.
-	var doc struct {
-		Error struct {
-			Data struct {
-				Supported []string `json:"supported"`
-			} `json:"data"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(b, &doc); err != nil {
-		t.Fatal(err)
-	}
-	for _, v := range doc.Error.Data.Supported {
-		if v == "2026-07-28" {
-			t.Errorf("a modern version must not be offered as a legacy option: %v",
-				doc.Error.Data.Supported)
-		}
-	}
-	if len(doc.Error.Data.Supported) == 0 {
-		t.Error("the legacy options should still be listed")
+	if got := protoJSON(t, resp.Result); !strings.Contains(got, `"protocolVersion":"`+mcpserver.Latest+`"`) {
+		t.Errorf("want %s:\n%s", mcpserver.Latest, got)
 	}
 }
 
@@ -441,9 +423,7 @@ func TestServerDiscoverAnswersForModernClients(t *testing.T) {
 func TestAPerRequestVersionIsHonouredAndChecked(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 
-	ok := s.Handle(context.Background(), mcpserver.Request(1, "tools/list",
-		map[string]any{"_meta": map[string]any{
-			"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}))
+	ok := s.Handle(context.Background(), mcpserver.Request(1, "tools/list", modernParams(nil)))
 	b, _ := json.Marshal(ok)
 	if !strings.Contains(string(b), "mcpx_exec") {
 		t.Errorf("a modern request should be served without a handshake: %s", b)
@@ -816,15 +796,24 @@ func TestATaskCanBeListedAndCancelled(t *testing.T) {
 }
 
 func TestTasksAreDeclaredForBothEras(t *testing.T) {
-	// Core in 2025-11-25, an extension in 2026-07-28. Declared both ways so
-	// a client of either era finds them where it looks.
+	// Core in 2025-11-25, an extension in 2026-07-28 -- each where its own
+	// revision defines it, and never the other's way.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	b, _ := json.Marshal(s.Handle(context.Background(),
 		mcpserver.Request(1, "server/discover", nil)))
-	for _, want := range []string{`"tasks"`, "io.modelcontextprotocol/tasks"} {
-		if !strings.Contains(string(b), want) {
-			t.Errorf("%s should be declared: %s", want, b)
-		}
+	if !strings.Contains(string(b), "io.modelcontextprotocol/tasks") {
+		t.Errorf("the extension should be declared to a modern client: %s", b)
+	}
+	if strings.Contains(string(b), `"tasks":{`) {
+		t.Errorf("core tasks must not be declared under 2026-07-28: %s", b)
+	}
+	b, _ = json.Marshal(s.Handle(context.Background(),
+		mcpserver.Request(2, "initialize", map[string]any{"protocolVersion": "2025-11-25"})))
+	if !strings.Contains(string(b), `"tasks":{`) {
+		t.Errorf("core tasks should be declared to 2025-11-25: %s", b)
+	}
+	if strings.Contains(string(b), "extensions") {
+		t.Errorf("2025-11-25 has no extensions capability: %s", b)
 	}
 }
 
@@ -833,8 +822,7 @@ func TestModernResultsSayTheyAreComplete(t *testing.T) {
 	// client tells a finished result from an input_required one. mcpx sent
 	// none, so a strict modern client could not parse any of its replies.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
-	modern := map[string]any{"_meta": map[string]any{
-		"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}
+	modern := modernParams(nil)
 	for i, method := range []string{"server/discover", "tools/list", "prompts/list"} {
 		b, _ := json.Marshal(s.Handle(context.Background(), mcpserver.Request(i+1, method, modern)))
 		if !strings.Contains(string(b), `"resultType":"complete"`) {
@@ -846,4 +834,23 @@ func TestModernResultsSayTheyAreComplete(t *testing.T) {
 	if strings.Contains(string(b), "resultType") {
 		t.Errorf("a legacy result should not grow a field it never asked for: %s", b)
 	}
+}
+
+// modernParams is a well-formed 2026-07-28 request's params: the two
+// per-request fields the specification makes mandatory, plus whatever the
+// method needs.
+func modernParams(extra map[string]any) map[string]any {
+	return modernWith(`{}`, extra)
+}
+
+// modernWith is modernParams with declared client capabilities.
+func modernWith(caps string, extra map[string]any) map[string]any {
+	p := map[string]any{"_meta": map[string]any{
+		mcpserver.MetaProtocolVersion:    "2026-07-28",
+		mcpserver.MetaClientCapabilities: json.RawMessage(caps),
+	}}
+	for k, v := range extra {
+		p[k] = v
+	}
+	return p
 }

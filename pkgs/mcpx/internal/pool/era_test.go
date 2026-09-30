@@ -149,16 +149,13 @@ func TestEraCacheAcrossStarts(t *testing.T) {
 		// A new pool and a fresh read of the file: a daemon restart.
 		p2 := newEraPool(s, pool.OpenEraFile(file))
 		defer p2.Close()
-		began := time.Now()
 		startOnce(t, p2)
 		if got := strings.Join(s.frames(t), ","); got != "initialize" {
 			t.Errorf("frames after restart = %s", got)
 		}
-		// A silent legacy server costs the probe timeout cold; warm it
-		// must not.
-		if d := time.Since(began); d >= 150*time.Millisecond {
-			t.Errorf("warm start took %v, which is the probe timeout", d)
-		}
+		// No discover frame is the proof the cache was used: a silent legacy
+		// server only costs the probe timeout when discover is sent. A
+		// wall-clock bound said the same thing and failed under load.
 	})
 
 	t.Run("2026-07-28/era-cache/stale-cache-reprobes-and-rewrites", func(t *testing.T) {

@@ -34,11 +34,9 @@ type Conn struct {
 	version string
 	// id is the Mcp-Session-Id this connection is reachable by, for the
 	// transports that need to correlate a later POST with this connection.
+	// It is also who owns a legacy task started here: empty for a
+	// connection that does not outlive one request.
 	id string
-	// bind is the identity a requestState is tied to. Empty for a
-	// connection that does not outlive one request, which is precisely the
-	// case where no resumable token may be issued.
-	bind string
 
 	// send writes one frame to this client, or is nil when the transport
 	// cannot carry an unsolicited frame.
@@ -52,7 +50,7 @@ type Conn struct {
 	pending   map[int64]chan *clientReply
 	nextID    atomic.Int64
 	subs      map[string]bool
-	listening context.CancelFunc
+	listens   map[string]*listenStream
 	cancelled map[string]string
 	lastUsed  time.Time
 
@@ -81,7 +79,7 @@ type clientReply struct {
 }
 
 func (s *Server) newConn(id string, send func(any) error) *Conn {
-	c := &Conn{s: s, id: id, bind: id, send: send,
+	c := &Conn{s: s, id: id, send: send,
 		pending: map[int64]chan *clientReply{}, lastUsed: time.Now(),
 		ended: make(chan struct{})}
 	if send != nil {
@@ -191,6 +189,22 @@ const (
 	MetaClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
 	MetaClientInfo         = "io.modelcontextprotocol/clientInfo"
 )
+
+// DeclaredExtension reports whether the client declared an extension in its
+// capabilities -- which only a 2026-07-28 client can do, because no earlier
+// ClientCapabilities has an extensions field. The tasks SEP says so
+// directly: under 2025-11-25 the extension must be treated as undeclared.
+func (p Peer) DeclaredExtension(name string) bool {
+	if !Defines(p.Version, FeatExtensions) {
+		return false
+	}
+	var ext map[string]json.RawMessage
+	if json.Unmarshal(p.Caps["extensions"], &ext) != nil {
+		return false
+	}
+	_, ok := ext[name]
+	return ok
+}
 
 // Declared reports whether the client declared a capability.
 func (p Peer) Declared(name string) bool {
@@ -413,12 +427,29 @@ func (q Question) paramsFor(p Peer) (json.RawMessage, error) {
 				m["message"] = q.Server + " (via mcpx) asks: " + msg
 			}
 		}
-		if !AtLeast(p.Version, "2025-11-25") {
+		switch {
+		case !AtLeast(p.Version, "2025-11-25"):
 			// Neither field exists before 2025-11-25, and url mode itself
 			// does not; a url question never reaches here, because Sendable
 			// refused it.
 			delete(m, "mode")
 			delete(m, "elicitationId")
+		case p.Modern:
+			// 2026-07-28 dropped elicitationId along with the
+			// notifications/elicitation/complete it correlated: a url
+			// question is complete when the client retries.
+			delete(m, "elicitationId")
+		default:
+			// 2025-11-25 makes elicitationId REQUIRED on a url-mode
+			// request. An upstream server of another revision may not have
+			// sent one, and relaying the question without it is sending a
+			// request the client's schema rejects. The question's own id is
+			// unique per call, which is what the field needs to be.
+			if mode, _ := m["mode"].(string); mode == "url" {
+				if id, _ := m["elicitationId"].(string); id == "" {
+					m["elicitationId"] = "mcpx-" + q.ID
+				}
+			}
 		}
 	}
 	return json.Marshal(m)

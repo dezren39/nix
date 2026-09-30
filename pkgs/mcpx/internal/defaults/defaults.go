@@ -250,6 +250,13 @@ type Defaults struct {
 		Annotate       bool     `json:"annotate"`
 		Tools          bool     `json:"tools"`
 	} `json:"plugin"`
+	// ProtoMessages governs the per-message fields mcpx's own MCP server
+	// attaches: cache hints on results and keep-alives on listen streams.
+	ProtoMessages struct {
+		ListMaxAge string `json:"listMaxAge"`
+		ReadMaxAge string `json:"readMaxAge"`
+		TaskAfter  string `json:"taskAfter"`
+	} `json:"protoMessages"`
 	// Upstream governs how mcpx connects to the servers it fronts: which
 	// protocol era it tries first, how long it waits to find out, and where
 	// it remembers the answer.
@@ -260,6 +267,28 @@ type Defaults struct {
 		EraFile        string `json:"eraFile"`
 		EraFileVersion int    `json:"eraFileVersion"`
 		ErrorBodyLimit string `json:"errorBodyLimit"`
+		// SSEReconnectDelay is the wait before resuming a Streamable HTTP
+		// stream the server closed without saying how long to wait (no
+		// retry field).
+		SSEReconnectDelay string `json:"sseReconnectDelay"`
+		// SSEReconnectAttempts bounds consecutive resumptions of one stream.
+		SSEReconnectAttempts int `json:"sseReconnectAttempts"`
+		// ListenReopenDelay is the wait before reopening a
+		// subscriptions/listen stream that ended without a response.
+		ListenReopenDelay string `json:"listenReopenDelay"`
+		// LegacyStreamEndpointTimeout bounds the wait for an HTTP+SSE
+		// (2024-11-05) server's endpoint event.
+		LegacyStreamEndpointTimeout string `json:"legacyStreamEndpointTimeout"`
+		// CancelSendTimeout bounds sending notifications/cancelled.
+		CancelSendTimeout string `json:"cancelSendTimeout"`
+		// ElicitReplyTimeout bounds sending the reply to a server's request.
+		ElicitReplyTimeout string `json:"elicitReplyTimeout"`
+		// SessionDeleteTimeout bounds the DELETE that ends an HTTP session.
+		SessionDeleteTimeout string `json:"sessionDeleteTimeout"`
+		// ListPageLimit bounds the pages one list request follows.
+		ListPageLimit int `json:"listPageLimit"`
+		// VersionAttempts bounds how often a probe offers one version.
+		VersionAttempts int `json:"versionAttempts"`
 	} `json:"upstream"`
 }
 
@@ -280,6 +309,28 @@ var (
 	// HTTPErrorBodyLimit bounds how much of a non-2xx body is read: enough
 	// for a JSON-RPC error, not enough for an HTML error page to matter.
 	HTTPErrorBodyLimit = mustBytes(builtin.Upstream.ErrorBodyLimit, "upstream.errorBodyLimit")
+	// UpstreamSSEReconnectDelay is the resume wait when a server sent no
+	// retry field.
+	UpstreamSSEReconnectDelay = mustDur(builtin.Upstream.SSEReconnectDelay, "upstream.sseReconnectDelay")
+	// UpstreamSSEReconnectAttempts bounds consecutive resumptions.
+	UpstreamSSEReconnectAttempts = builtin.Upstream.SSEReconnectAttempts
+	// UpstreamListenReopenDelay is the wait before reopening a listen stream.
+	UpstreamListenReopenDelay = mustDur(builtin.Upstream.ListenReopenDelay, "upstream.listenReopenDelay")
+	// UpstreamLegacyStreamEndpointTimeout bounds the HTTP+SSE endpoint event.
+	UpstreamLegacyStreamEndpointTimeout = mustDur(builtin.Upstream.LegacyStreamEndpointTimeout,
+		"upstream.legacyStreamEndpointTimeout")
+	// UpstreamCancelSendTimeout bounds sending notifications/cancelled.
+	UpstreamCancelSendTimeout = mustDur(builtin.Upstream.CancelSendTimeout, "upstream.cancelSendTimeout")
+	// UpstreamElicitReplyTimeout bounds sending a reply to a server request.
+	UpstreamElicitReplyTimeout = mustDur(builtin.Upstream.ElicitReplyTimeout, "upstream.elicitReplyTimeout")
+	// UpstreamSessionDeleteTimeout bounds the session DELETE on close.
+	UpstreamSessionDeleteTimeout = mustDur(builtin.Upstream.SessionDeleteTimeout, "upstream.sessionDeleteTimeout")
+	// ListPageLimit bounds the pages one list request follows, so a server
+	// whose cursors never end cannot hold a listing forever.
+	ListPageLimit = builtin.Upstream.ListPageLimit
+	// UpstreamVersionAttempts bounds how often server/discover offers one
+	// version, so a server that rejects what it lists cannot loop a probe.
+	UpstreamVersionAttempts = builtin.Upstream.VersionAttempts
 )
 
 // Parsed in a variable initialiser rather than in init(). Go evaluates
@@ -432,6 +483,17 @@ var (
 	// ProtoMCPPath is where the daemon serves MCP itself.
 	ProtoMCPPath = builtin.Proto.MCPPath
 
+	// ProtoListMaxAge is the ttlMs a 2026-07-28 client is given on
+	// server/discover and every list result. Short, because the lists follow
+	// configuration and a list_changed only reaches a client that listens.
+	ProtoListMaxAge = mustDur(builtin.ProtoMessages.ListMaxAge, "protoMessages.listMaxAge")
+	// ProtoReadMaxAge is the ttlMs on resources/read. Zero: a resource is
+	// whatever an upstream server says it is now.
+	ProtoReadMaxAge = mustDur(builtin.ProtoMessages.ReadMaxAge, "protoMessages.readMaxAge")
+	// ProtoTaskAfter is how long a tools/call from a client that declared
+	// the tasks extension runs in line before mcpx hands back a task
+	// instead of the result.
+	ProtoTaskAfter = mustDur(builtin.ProtoMessages.TaskAfter, "protoMessages.taskAfter")
 	// TransportSSEKeepAlive is how often an otherwise quiet event stream
 	// carries a comment line, so an intermediary or a client idle timeout
 	// does not close a stream that is merely waiting.

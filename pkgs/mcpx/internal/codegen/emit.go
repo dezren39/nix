@@ -531,6 +531,7 @@ async function __call(server: string, tool: string, args: unknown): Promise<Tool
         "x-mcpx-pid": env("MCPX_PID"),
         "x-mcpx-parent-session": env("MCPX_PARENT_SESSION_ID"),
         "x-mcpx-ephemeral": env("MCPX_EPHEMERAL"),
+        "x-mcpx-run": env("MCPX_RUN"),
       },
       body: JSON.stringify({ server, tool, args: args ?? {} }),
     });

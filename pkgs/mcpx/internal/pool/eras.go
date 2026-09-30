@@ -21,7 +21,13 @@ type EraRecord struct {
 	At      time.Time     `json:"at"`
 	// Source is how the era was learned: probe, cache or forced.
 	Source string `json:"source"`
+	// Transport is TransportHTTPSSE for an endpoint that speaks only the
+	// 2024-11-05 HTTP+SSE transport; empty for the configured one.
+	Transport string `json:"transport,omitempty"`
 }
+
+// TransportHTTPSSE marks an era record for an HTTP+SSE-only endpoint.
+const TransportHTTPSSE = "http+sse"
 
 // EraStore remembers which era each server configuration speaks.
 //
