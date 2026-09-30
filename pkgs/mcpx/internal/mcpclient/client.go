@@ -6,15 +6,16 @@
 package mcpclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/dezren39/mcpx/internal/defaults"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/dezren39/mcpx/internal/defaults"
 )
 
 // ProtocolVersion is the MCP revision mcpx negotiates.
@@ -107,6 +108,16 @@ type Client struct {
 	// probeTimeout is how long server/discover may go unanswered on stdio
 	// before initialize is sent alongside it.
 	probeTimeout time.Duration
+	// logLevel is the level stamped into each modern request's _meta; empty
+	// means none, and a modern server then sends no log messages.
+	logLevel string
+	// toolHeaders are each tool's x-mcp-header annotations, learned from
+	// tools/list, for a modern connection over HTTP.
+	toolHeaders map[string][]headerParam
+	// invalidTools are tools excluded for invalid annotations, with why.
+	invalidTools map[string]string
+	// listen is the subscriptions/listen stream of a modern connection.
+	listen *listener
 	// Instructions is the free-text guidance a server returns from
 	// initialize. Servers use it to explain conventions their schemas cannot:
 	// chrome-devtools-mcp, for instance, describes how page ids are obtained.
@@ -143,8 +154,8 @@ type Tool struct {
 }
 
 type toolsListResult struct {
-	Tools      []Tool `json:"tools"`
-	NextCursor string `json:"nextCursor,omitempty"`
+	Tools      []Tool  `json:"tools"`
+	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
 // Resource is one entry from resources/list.
@@ -158,7 +169,7 @@ type Resource struct {
 
 type resourcesListResult struct {
 	Resources  []Resource `json:"resources"`
-	NextCursor string     `json:"nextCursor,omitempty"`
+	NextCursor *string    `json:"nextCursor,omitempty"`
 }
 
 type resourceTemplatesListResult struct {
@@ -274,6 +285,9 @@ func newClient(ctx context.Context, t Transport, o Options) (*Client, error) {
 		c.Close()
 		return nil, err
 	}
+	if c.Era == EraModern {
+		c.startListen()
+	}
 	switch {
 	case o.Preference == ForceLegacy || o.Preference == ForceModern:
 		c.Source = SourceForced
@@ -298,7 +312,7 @@ func (c *Client) initializeParams() json.RawMessage {
 	params, _ := json.Marshal(map[string]any{
 		"protocolVersion": ProtocolVersion,
 		// Declared only where mcpx can actually deliver; see capabilities.
-		"capabilities": c.capabilities(),
+		"capabilities": c.capabilities(false),
 		"clientInfo":   map[string]any{"name": c.clientName, "version": c.clientVersion},
 	})
 	return params
@@ -306,6 +320,13 @@ func (c *Client) initializeParams() json.RawMessage {
 
 // finishLegacy records an initialize result and completes the handshake.
 func (c *Client) finishLegacy(ctx context.Context, ir initResult) error {
+	// Every legacy revision: if the client does not support the version
+	// the server answered with, it SHOULD disconnect. Carrying on would mean
+	// speaking a revision nobody agreed to.
+	// https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation
+	if !legacyVersion(ir.ProtocolVersion) {
+		return &UnsupportedVersionError{Version: ir.ProtocolVersion, Supported: LegacyVersions}
+	}
 	c.metaVersion = ""
 	c.ServerInfo = ir.ServerInfo
 	c.Capabilities = ir.Capabilities
@@ -313,10 +334,42 @@ func (c *Client) finishLegacy(ctx context.Context, ir initResult) error {
 	c.Negotiated = ir.ProtocolVersion
 	c.Era = EraLegacy
 
+	if h, ok := c.t.(interface{ setNegotiated(string) }); ok {
+		h.setNegotiated(ir.ProtocolVersion)
+	}
 	if err := c.notify(ctx, "notifications/initialized", json.RawMessage(`{}`)); err != nil {
 		return fmt.Errorf("initialized notification: %w", err)
 	}
+	// The standalone GET stream arrived with Streamable HTTP (2025-03-26).
+	if h, ok := c.t.(interface{ listen() }); ok && ir.ProtocolVersion >= "2025-03-26" {
+		h.listen()
+	}
 	return nil
+}
+
+// LegacyVersions are the initialize-era revisions mcpx speaks as a client,
+// oldest first.
+var LegacyVersions = []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
+
+func legacyVersion(v string) bool {
+	for _, s := range LegacyVersions {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
+// UnsupportedVersionError is an initialize answered with a version mcpx
+// does not speak.
+type UnsupportedVersionError struct {
+	Version   string
+	Supported []string
+}
+
+func (e *UnsupportedVersionError) Error() string {
+	return fmt.Sprintf("the server chose protocol version %q, which mcpx does not speak (it speaks %v); disconnecting",
+		e.Version, e.Supported)
 }
 
 // Supports reports whether the server advertised a capability.
@@ -332,41 +385,56 @@ func (c *Client) recvLoop() {
 			c.fail(err)
 			return
 		}
-		// A server-initiated request has an id AND a method. Matching only
-		// on the id -- which is what this did -- made such a frame look like
-		// a reply to nothing and dropped it, so the server waited until the
-		// call timed out and mcpx reported a timeout. True, useless, and
-		// pointing at the wrong thing.
-		var probe struct {
-			ID     *int64          `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-		}
-		if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
-			if probe.ID != nil {
-				c.handleServerRequest(*probe.ID, probe.Method, probe.Params)
-			} else {
-				c.handleNotification(probe.Method, probe.Params)
+		// A 2025-03-26 server may batch; stdio hands the array over as one
+		// line, and a line starting with '[' used to be dropped whole.
+		if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 && trimmed[0] == '[' {
+			var batch []json.RawMessage
+			if json.Unmarshal(trimmed, &batch) == nil {
+				for _, m := range batch {
+					c.dispatch(m)
+				}
 			}
 			continue
 		}
+		c.dispatch(raw)
+	}
+}
 
-		var resp rpcResponse
-		if err := json.Unmarshal(raw, &resp); err != nil {
-			continue // ignore malformed frames rather than killing the session
+// dispatch routes one received message.
+func (c *Client) dispatch(raw []byte) {
+	// A server-initiated request has an id AND a method. Matching only on
+	// the id made such a frame look like a reply to nothing and dropped it,
+	// so the server waited until the call timed out. The id is kept raw:
+	// a server's ids are its own, and a string id is as valid as a number.
+	var probe struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
+		if len(probe.ID) > 0 && string(probe.ID) != "null" {
+			c.handleServerRequest(probe.ID, probe.Method, probe.Params)
+		} else {
+			c.handleNotification(probe.Method, probe.Params)
 		}
-		if resp.ID == nil {
-			continue // server notification; mcpx does not subscribe to any
-		}
-		c.mu.Lock()
-		ch, ok := c.pending[*resp.ID]
-		if ok {
-			delete(c.pending, *resp.ID)
-		}
-		c.mu.Unlock()
-		if ok {
-			ch <- &resp
-		}
+		return
+	}
+
+	var resp rpcResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return // ignore malformed frames rather than killing the session
+	}
+	if resp.ID == nil {
+		return
+	}
+	c.mu.Lock()
+	ch, ok := c.pending[*resp.ID]
+	if ok {
+		delete(c.pending, *resp.ID)
+	}
+	c.mu.Unlock()
+	if ok {
+		ch <- &resp
 	}
 }
 
@@ -387,7 +455,7 @@ func (c *Client) SetElicitHandler(h ElicitHandler) {
 // Always answers. The alternative -- dropping what we do not understand --
 // is what the old code did by accident, and it is indistinguishable from a
 // hung server.
-func (c *Client) handleServerRequest(id int64, method string, params json.RawMessage) {
+func (c *Client) handleServerRequest(id json.RawMessage, method string, params json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), defaults.ElicitHandlerTimeout)
 		defer cancel()
@@ -404,7 +472,7 @@ func (c *Client) handleServerRequest(id int64, method string, params json.RawMes
 		if err != nil {
 			return
 		}
-		sctx, scancel := context.WithTimeout(context.Background(), 30*time.Second)
+		sctx, scancel := context.WithTimeout(context.Background(), defaults.UpstreamElicitReplyTimeout)
 		defer scancel()
 		_ = c.t.Send(sctx, b)
 	}()
@@ -445,6 +513,10 @@ type Notifications struct {
 	// of band -- the person came back from the browser. Without it the
 	// caller waits for the deadline to find out something already happened.
 	OnElicitationComplete func(id string)
+	// OnWarning receives what mcpx noticed about a server that is not an
+	// error: a tool excluded for invalid annotations, a listen stream the
+	// server narrowed.
+	OnWarning func(Warning)
 }
 
 // Subscribe installs notification handlers.
@@ -462,7 +534,11 @@ func (c *Client) Subscribe(n Notifications) {
 func (c *Client) handleNotification(method string, params json.RawMessage) {
 	c.mu.Lock()
 	n := c.notif
+	l := c.listen
 	c.mu.Unlock()
+	if l != nil && !l.accepts(method, params) {
+		return
+	}
 
 	switch method {
 	case "notifications/message":
@@ -516,14 +592,20 @@ func (c *Client) invalidate(kind string, n Notifications) {
 	}
 }
 
-// Subscribe asks for notifications when a resource changes.
+// SubscribeResource asks for notifications when a resource changes.
 //
 // The legacy revisions do this with resources/subscribe per URI. The modern
-// one replaced it with a filter on subscriptions/listen; that is handled by
-// the listening stream rather than here, so this is a no-op against a modern
-// server rather than a method-not-found.
+// one replaced it with the resourceSubscriptions filter of
+// subscriptions/listen, so against a modern server this adds the URI to the
+// connection's listen stream, which is reopened with the new filter.
 func (c *Client) SubscribeResource(ctx context.Context, uri string) error {
 	if c.Era == EraModern {
+		c.mu.Lock()
+		l := c.listen
+		c.mu.Unlock()
+		if l != nil {
+			l.set(uri, true)
+		}
 		return nil
 	}
 	params, _ := json.Marshal(map[string]string{"uri": uri})
@@ -534,6 +616,12 @@ func (c *Client) SubscribeResource(ctx context.Context, uri string) error {
 // UnsubscribeResource stops notifications for a resource.
 func (c *Client) UnsubscribeResource(ctx context.Context, uri string) error {
 	if c.Era == EraModern {
+		c.mu.Lock()
+		l := c.listen
+		c.mu.Unlock()
+		if l != nil {
+			l.set(uri, false)
+		}
 		return nil
 	}
 	params, _ := json.Marshal(map[string]string{"uri": uri})
@@ -554,7 +642,18 @@ func (c *Client) ListResourceTemplates(ctx context.Context) ([]Resource, error) 
 //
 // Servers send nothing until asked, so a client that never calls this sees
 // no log messages and concludes the server does not emit any.
+//
+// 2026-07-28 removed logging/setLevel: the level travels in each request's
+// _meta, and a server MUST NOT log for a request that did not ask. So against
+// a modern server this only records the level, and every later request
+// carries it.
 func (c *Client) SetLogLevel(ctx context.Context, level string) error {
+	if c.Era == EraModern {
+		c.mu.Lock()
+		c.logLevel = level
+		c.mu.Unlock()
+		return nil
+	}
 	if !c.Supports("logging") {
 		return nil
 	}
@@ -651,11 +750,21 @@ func (c *Client) call(ctx context.Context, method string, params json.RawMessage
 		}
 		var ir inputRequired
 		_ = json.Unmarshal(raw, &ir)
-		if ir.ResultType != "input_required" {
+		switch ir.ResultType {
+		case "", "complete":
+			// Absent means complete: an earlier revision's result, or a
+			// server that left it out.
 			if out == nil {
 				return nil
 			}
 			return json.Unmarshal(raw, out)
+		case "input_required":
+		default:
+			// "A resultType of any value unrecognized by the client MUST
+			// be considered invalid." Treating it as complete would hand a
+			// caller a result that means something mcpx does not know.
+			// https://modelcontextprotocol.io/specification/2026-07-28/basic/index#resulttype
+			return &InvalidResultError{Method: method, ResultType: ir.ResultType}
 		}
 		if round+1 >= maxInputRounds {
 			return fmt.Errorf("%s: the server was still asking for input after %d rounds", method, maxInputRounds)
@@ -691,6 +800,12 @@ func (c *Client) roundTrip(ctx context.Context, method string, params json.RawMe
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
+		if ctx.Err() != nil {
+			// The HTTP transport's Send lasts until the response headers
+			// arrive, so a server that is slow to start answering is timed
+			// out here, not below -- and was never told.
+			c.cancelled(method, id)
+		}
 		return nil, err
 	}
 
@@ -699,9 +814,7 @@ func (c *Client) roundTrip(ctx context.Context, method string, params json.RawMe
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
-		// Best-effort cancellation so the server can stop work.
-		cp, _ := json.Marshal(map[string]any{"requestId": id, "reason": "timeout"})
-		_ = c.notify(context.Background(), "notifications/cancelled", cp)
+		c.cancelled(method, id)
 		return nil, ctx.Err()
 	case resp := <-ch:
 		if resp.Error != nil {
@@ -712,50 +825,88 @@ func (c *Client) roundTrip(ctx context.Context, method string, params json.RawMe
 }
 
 // Ping issues an MCP ping, used as a liveness probe.
+//
+// 2026-07-28 removed ping. Against a modern server the probe is
+// server/discover instead, which every modern server MUST implement and
+// which, like ping, does nothing but answer.
 func (c *Client) Ping(ctx context.Context) error {
+	if c.Era == EraModern {
+		return c.call(ctx, "server/discover", json.RawMessage(`{}`), nil)
+	}
 	return c.call(ctx, "ping", json.RawMessage(`{}`), nil)
 }
 
+// nextPage decides whether a list continues, and with which cursor.
+//
+// Every revision says a missing nextCursor is the end. 2026-07-28 adds that
+// an empty string is a valid cursor -- "don't make any determination based
+// on cursor value other than whether a non-null value was provided" -- so a
+// modern server's "" means "ask again with ”". The legacy pages never said
+// so, and a legacy server that serialises an unset cursor as "" means the
+// end; asking again would loop until the page bound. A cursor that repeats
+// the one just sent is also the end: following it is a loop by definition.
+//
+// https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination#implementation-guidelines
+func (c *Client) nextPage(next *string, sent *string) (string, bool) {
+	if next == nil {
+		return "", false
+	}
+	if *next == "" && c.Era != EraModern {
+		return "", false
+	}
+	if sent != nil && *sent == *next {
+		return "", false
+	}
+	return *next, true
+}
+
+func pageParams(cursor *string) json.RawMessage {
+	if cursor == nil {
+		return json.RawMessage(`{}`)
+	}
+	b, _ := json.Marshal(map[string]string{"cursor": *cursor})
+	return b
+}
+
 // ListTools returns every tool, following pagination cursors.
+//
+// On a modern connection over HTTP, a tool whose x-mcp-header annotations
+// are invalid is left out: the transport page says a client MUST exclude it
+// and SHOULD warn, so one bad definition cannot make its headers -- and so
+// every call to it -- wrong.
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	var all []Tool
-	cursor := ""
-	for i := 0; i < 100; i++ {
-		params := json.RawMessage(`{}`)
-		if cursor != "" {
-			params, _ = json.Marshal(map[string]string{"cursor": cursor})
-		}
+	var cursor *string
+	for i := 0; i < defaults.ListPageLimit; i++ {
 		var res toolsListResult
-		if err := c.call(ctx, "tools/list", params, &res); err != nil {
+		if err := c.call(ctx, "tools/list", pageParams(cursor), &res); err != nil {
 			return all, err
 		}
 		all = append(all, res.Tools...)
-		if res.NextCursor == "" {
+		next, more := c.nextPage(res.NextCursor, cursor)
+		if !more {
 			break
 		}
-		cursor = res.NextCursor
+		cursor = &next
 	}
-	return all, nil
+	return c.checkToolHeaders(all), nil
 }
 
 // ListResources returns static resources plus resource templates.
 func (c *Client) ListResources(ctx context.Context) ([]Resource, error) {
 	var all []Resource
-	cursor := ""
-	for i := 0; i < 100; i++ {
-		params := json.RawMessage(`{}`)
-		if cursor != "" {
-			params, _ = json.Marshal(map[string]string{"cursor": cursor})
-		}
+	var cursor *string
+	for i := 0; i < defaults.ListPageLimit; i++ {
 		var res resourcesListResult
-		if err := c.call(ctx, "resources/list", params, &res); err != nil {
+		if err := c.call(ctx, "resources/list", pageParams(cursor), &res); err != nil {
 			return all, err
 		}
 		all = append(all, res.Resources...)
-		if res.NextCursor == "" {
+		next, more := c.nextPage(res.NextCursor, cursor)
+		if !more {
 			break
 		}
-		cursor = res.NextCursor
+		cursor = &next
 	}
 	var tres resourceTemplatesListResult
 	if err := c.call(ctx, "resources/templates/list", json.RawMessage(`{}`), &tres); err == nil {
@@ -786,30 +937,27 @@ type PromptArgument struct {
 
 type promptsListResult struct {
 	Prompts    []Prompt `json:"prompts"`
-	NextCursor string   `json:"nextCursor"`
+	NextCursor *string  `json:"nextCursor"`
 }
 
 // ListPrompts returns every prompt a server offers.
 func (c *Client) ListPrompts(ctx context.Context) ([]Prompt, error) {
 	var all []Prompt
-	cursor := ""
-	for i := 0; i < 100; i++ {
-		params := json.RawMessage(`{}`)
-		if cursor != "" {
-			params, _ = json.Marshal(map[string]string{"cursor": cursor})
-		}
+	var cursor *string
+	for i := 0; i < defaults.ListPageLimit; i++ {
 		var res promptsListResult
-		if err := c.call(ctx, "prompts/list", params, &res); err != nil {
+		if err := c.call(ctx, "prompts/list", pageParams(cursor), &res); err != nil {
 			// A server without prompts answers method-not-found, which is an
 			// absence rather than a failure. Treating it as an error would
 			// make every listing fail on the majority of servers.
 			return all, nil
 		}
 		all = append(all, res.Prompts...)
-		if res.NextCursor == "" {
+		next, more := c.nextPage(res.NextCursor, cursor)
+		if !more {
 			break
 		}
-		cursor = res.NextCursor
+		cursor = &next
 	}
 	return all, nil
 }
@@ -831,6 +979,11 @@ func (c *Client) GetPrompt(ctx context.Context, name string, args map[string]str
 }
 
 // CallTool invokes a tool and returns the raw CallToolResult.
+//
+// On a modern HTTP connection the tool's x-mcp-header parameters are
+// mirrored into Mcp-Param-* headers. A -32020 HeaderMismatch then most
+// likely means the tool's schema changed since it was listed, so the list is
+// read again and the call retried once -- the transport page's SHOULD.
 func (c *Client) CallTool(ctx context.Context, name string, args any) (json.RawMessage, error) {
 	if args == nil {
 		args = map[string]any{}
@@ -840,20 +993,69 @@ func (c *Client) CallTool(ctx context.Context, name string, args any) (json.RawM
 		return nil, err
 	}
 	var raw json.RawMessage
-	if err := c.call(ctx, "tools/call", params, &raw); err != nil {
+	for attempt := 0; ; attempt++ {
+		hctx, err := c.toolCallHeaders(ctx, name, args, attempt > 0)
+		if err != nil {
+			return nil, err
+		}
+		err = c.call(hctx, "tools/call", params, &raw)
+		var re *rpcError
+		if attempt == 0 && errors.As(err, &re) && re.Code == codeHeaderMismatch && c.mirrorsHeaders() {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return raw, nil
+	}
+}
+
+// ReadResource reads a resource URI.
+//
+// A missing resource is -32002 in the legacy revisions and -32602 in
+// 2026-07-28, where clients SHOULD also accept -32002. Either is returned as
+// a ResourceNotFoundError so a caller can tell "no such thing"
+// from "the server failed".
+func (c *Client) ReadResource(ctx context.Context, uri string) (json.RawMessage, error) {
+	params, _ := json.Marshal(map[string]string{"uri": uri})
+	var raw json.RawMessage
+	if err := c.call(ctx, "resources/read", params, &raw); err != nil {
+		var re *rpcError
+		if errors.As(err, &re) && (re.Code == codeResourceNotFound || (re.Code == codeInvalidParams && c.Era == EraModern)) {
+			return nil, &ResourceNotFoundError{URI: uri, err: re}
+		}
 		return nil, err
 	}
 	return raw, nil
 }
 
-// ReadResource reads a resource URI.
-func (c *Client) ReadResource(ctx context.Context, uri string) (json.RawMessage, error) {
-	params, _ := json.Marshal(map[string]string{"uri": uri})
-	var raw json.RawMessage
-	if err := c.call(ctx, "resources/read", params, &raw); err != nil {
-		return nil, err
-	}
-	return raw, nil
+const (
+	codeResourceNotFound = -32002
+	codeInvalidParams    = -32602
+)
+
+// ResourceNotFoundError is a resources/read of a URI the server does not
+// have.
+type ResourceNotFoundError struct {
+	URI string
+	err *rpcError
+}
+
+func (e *ResourceNotFoundError) Error() string {
+	return fmt.Sprintf("resource not found: %s (%v)", e.URI, e.err)
+}
+
+func (e *ResourceNotFoundError) Unwrap() error { return e.err }
+
+// InvalidResultError is a modern result whose resultType mcpx does not
+// recognise.
+type InvalidResultError struct {
+	Method, ResultType string
+}
+
+func (e *InvalidResultError) Error() string {
+	return fmt.Sprintf("%s: the server returned resultType %q, which mcpx does not recognise; the result is invalid",
+		e.Method, e.ResultType)
 }
 
 // Close terminates the session.

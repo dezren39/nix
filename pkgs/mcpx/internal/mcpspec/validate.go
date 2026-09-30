@@ -148,6 +148,19 @@ func Validate(rev, defName string, v []byte) error {
 	return s.ValidateValue(defName, doc)
 }
 
+// ValidateStrict is Validate that also rejects properties the definition does not define.
+func ValidateStrict(rev, defName string, v []byte) error {
+	s, err := Get(rev)
+	if err != nil {
+		return err
+	}
+	doc, err := decode(v)
+	if err != nil {
+		return &Error{Path: "$", Msg: "invalid JSON: " + err.Error()}
+	}
+	return s.validateAt(defName, doc, "$", true)
+}
+
 // ValidateValue checks an already-decoded value (numbers as json.Number or float64).
 func (s *Schema) ValidateValue(defName string, doc any) error {
 	return s.validateAt(defName, doc, "$", false)

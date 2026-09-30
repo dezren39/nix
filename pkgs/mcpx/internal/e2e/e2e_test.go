@@ -49,7 +49,7 @@ func newEnv(t *testing.T, cfgBody string) *env {
 		dir:  dir,
 		mcpx: mcpx,
 		fake: fake,
-		envVars: append(os.Environ(),
+		envVars: append(withoutMCPXVars(os.Environ()),
 			// Never the real registry. A test that reaches the internet
 			// fails wherever the internet is slow, which is every CI runner
 			// -- `/v1/registry/search` timed out there while passing on a
@@ -2986,4 +2986,26 @@ func TestConcurrentRunsOfOneScriptKeepTheirOwnLauncher(t *testing.T) {
 			t.Errorf("a run executed another run's launcher: wanted %s, got:\n%s", r.want, r.out)
 		}
 	}
+}
+
+// withoutMCPXVars drops every MCPX_ variable the developer running the suite
+// happens to have exported.
+//
+// The harness sets the ones it needs a line below, and last-wins in exec's
+// environment would cover those. It does not cover the ones it deliberately
+// leaves unset: a test that asserts a knob is off reads the default only if
+// nothing in the ambient environment turned it on, and MCPX_TRACE=1 in the
+// shell of somebody debugging mcpx is exactly the case. That fails on one
+// machine and nowhere else, which is the worst kind.
+//
+// PATH and everything else is kept, because the child needs a runtime.
+func withoutMCPXVars(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "MCPX_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }

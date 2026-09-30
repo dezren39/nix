@@ -42,9 +42,10 @@ import (
 // and a hand-written flag variable has seen one. Requiring the accessor is
 // requiring the whole promise.
 //
-// TestNoHandRolledSettingEnv below closes the other half: reading a variable
+// TestNoUndeclaredEnvRead below closes the other half: reading a variable
 // the registry owns with os.Getenv is how a setting becomes env-only, which
-// is the same bug facing the other way.
+// is the same bug facing the other way, and reading one nothing declares is
+// how a knob becomes undiscoverable.
 
 // accessorRead matches a read through a resolved Set: set.Bool("x.y"),
 // a.Settings().Duration("x.y"), cs.Int("x.y"), s.set.String("x.y").
@@ -64,10 +65,16 @@ var readViaHelper = regexp.MustCompile(
 // the reason. An entry here is a claim somebody has to defend in review;
 // there is deliberately no way to silence this test in bulk.
 var unreadAllowed = map[string]string{
+	// This entry used to say the setting was "read by config.SearchPath from
+	// MCPX_PATHS_CONFIG directly". Nothing reads MCPX_PATHS_CONFIG; the
+	// search path honours MCPX_CONFIG, which is paths.configFile below.
 	"paths.config": "circular by construction (#5): the config search path is " +
 		"what produces the settings, so the settings cannot decide it. It is " +
-		"declared so that `mcpx config --schema` names the thing, and read by " +
-		"config.SearchPath from MCPX_PATHS_CONFIG directly.",
+		"declared so that `mcpx config --schema` names the thing. Nothing reads " +
+		"it yet -- not MCPX_PATHS_CONFIG, not --paths-config -- which #5 owns.",
+	"paths.configFile": "a bootstrap setting: it names the file the settings are " +
+		"read from, so config.SearchPathFrom reads MCPX_CONFIG before any Set " +
+		"exists, and the global --config reaches App.ConfigPath the same way.",
 }
 
 func TestEverySettingIsReadSomewhere(t *testing.T) {
@@ -127,76 +134,93 @@ func TestEverySettingIsReadSomewhere(t *testing.T) {
 	}
 }
 
-// envReadDirectly matches os.Getenv("MCPX_...") -- the spelling that makes a
-// setting reachable from the environment and nowhere else.
-var envReadDirectly = regexp.MustCompile(`os\.Getenv\("(MCPX_[A-Z0-9_]+)"\)`)
-
-// envAllowed lists the variables the program may read by hand, with reasons.
-var envAllowed = map[string]string{
+// rawReadAllowed lists the variables Go code outside internal/settings may
+// look up by name even though they are not a script-environment contract
+// variable, with the reason. Every one is a bootstrap: the lookup happens
+// before there is a resolved Set to ask. An entry nothing needs any more
+// fails the test, so the list can only shrink by being wrong.
+var rawReadAllowed = map[string]string{
 	"MCPX_STATE_DIR": "daemon.ResolvePaths runs before any config file has " +
 		"been found, so there is no Set to read. The setting paths.state is " +
-		"folded in afterwards, in parseFlags.",
+		"folded in afterwards, in adoptSettings.",
 	"MCPX_CACHE_DIR": "as MCPX_STATE_DIR.",
 	"MCPX_PATHS_SCRIPTS": "script resolution is reached from the daemon, " +
 		"which has no App; the Set is preferred when there is one (see " +
 		"cli/scripts.go scriptPath).",
+	"MCPX_CONFIG": "paths.configFile names the file the settings are read " +
+		"from, so config.SearchPathFrom cannot ask them.",
 }
 
-func TestNoHandRolledSettingEnv(t *testing.T) {
+// TestNoUndeclaredEnvRead is the guard facing inward, and the reason #172
+// existed: TestNoHandRolledSettingEnv, which this replaces, only objected to
+// a lookup of a variable the registry owned. Forty-four the registry had
+// never heard of were read by hand and invisible to it -- a user could find
+// MCPX_CONFIG, MCPX_TRACE or MCPX_PERMISSIONS only by reading the source.
+//
+// Now every lookup outside internal/settings must be one of:
+//   - a variable in ScriptEnv, which a parent process -- mcpx itself, or the
+//     plugin -- sets for this one. Reading it is the other half of that
+//     contract, and the contract documents it;
+//   - a bootstrap variable on rawReadAllowed, with the reason.
+//
+// A registry-owned variable is refused even when it is also in ScriptEnv:
+// reading MCPX_LOG_LEVEL by name would ignore the file and the flag.
+func TestNoUndeclaredEnvRead(t *testing.T) {
 	root := repoRoot(t)
 	sch, err := settings.New(settings.Registry())
 	if err != nil {
 		t.Fatal(err)
 	}
+	table := contract()
+	scan := scanGoEnv(t, root)
+
+	used := map[string]bool{}
 	var bad []string
-	walkGo(t, root, func(path, body string) {
-		rel, _ := filepath.Rel(root, path)
-		if strings.HasPrefix(rel, "internal/settings/") {
-			return
+	for _, r := range scan.reads {
+		if strings.HasPrefix(r.file, "internal/settings/") {
+			continue
 		}
-		for i, line := range strings.Split(body, "\n") {
-			for _, m := range envReadDirectly.FindAllStringSubmatch(line, -1) {
-				name := m[1]
-				if _, ok := envAllowed[name]; ok {
-					continue
-				}
-				decl, owned := sch.ByEnv(name)
-				if !owned {
-					continue
-				}
-				bad = append(bad, rel+":"+itoa(i+1)+" reads "+name+
-					" directly; it is "+decl.Path+
-					", so this ignores the config file and --"+decl.FlagName())
-			}
+		_, allowed := rawReadAllowed[r.name]
+		decl, owned := sch.ByEnv(r.name)
+		_, contracted := table[r.name]
+		switch {
+		case owned && allowed:
+			used[r.name] = true
+		case owned:
+			bad = append(bad, r.at()+" reads "+r.name+" by name ("+r.how+"); it is "+
+				decl.Path+", so this ignores the config file and --"+decl.FlagName())
+		case contracted:
+		case allowed:
+			used[r.name] = true
+		default:
+			bad = append(bad, r.at()+" reads "+r.name+" ("+r.how+"), which no setting "+
+				"and no ScriptEnv entry declares")
 		}
-	})
+	}
+	for _, d := range scan.dynamic {
+		bad = append(bad, d.at()+" looks up a variable whose name is built at run "+
+			"time from MCPX_ ("+d.how+"); no table can be checked against that")
+	}
 	sort.Strings(bad)
 	if len(bad) > 0 {
-		t.Errorf("a registry-owned variable is read by hand:\n  %s\n\n"+
-			"Read it from the resolved Set instead, which folds the file, the "+
-			"variable and the flag. If the read genuinely happens before a Set "+
-			"exists, add the variable to envAllowed with the reason.",
+		t.Errorf("environment read by hand:\n  %s\n\n"+
+			"Declare it: a knob belongs in the registry, read from the resolved "+
+			"Set; a value a parent process hands this one belongs in ScriptEnv. "+
+			"If the read genuinely happens before a Set exists, add it to "+
+			"rawReadAllowed with the reason.",
 			strings.Join(bad, "\n  "))
 	}
-}
 
-// pluginEnvRead matches env.MCPX_FOO and process.env.MCPX_FOO in TypeScript.
-var pluginEnvRead = regexp.MustCompile(`env\.(MCPX_[A-Z0-9_]+)`)
-
-// pluginEnvAllowed lists variables the plugin reads that are deliberately not
-// settings, with the reason.
-var pluginEnvAllowed = map[string]string{
-	"MCPX_DAEMON_ENDPOINT": "daemon.endpoint, whose name the plugin shares " +
-		"with the binary rather than owning a plugin-scoped copy.",
-	"MCPX_ENDPOINT":  "written by mcpx itself into a script's environment, not a knob.",
-	"MCPX_SOCKET":    "the socket override, read by daemon.socketPath before any Set exists.",
-	"MCPX_STATE_DIR": "paths.state, shared with the binary for the same reason as the endpoint.",
-	"MCPX_PLUGIN_HEADLESS": "the default is computed from whether the plugin is " +
-		"on the main thread, so a declared default would be a number that is " +
-		"right in one of the two realms the plugin runs in.",
-	"MCPX_PLUGIN_DAEMON_TOOLS": "the default is whether tools are on *or* the " +
-		"discovery was ambiguous, which is a decision made at boot from what " +
-		"was found. Same objection as MCPX_PLUGIN_HEADLESS.",
+	var stale []string
+	for name, reason := range rawReadAllowed {
+		if !used[name] {
+			stale = append(stale, name+" ("+reason+")")
+		}
+	}
+	sort.Strings(stale)
+	for _, s := range stale {
+		t.Errorf("rawReadAllowed excuses %s, and no read needs it; delete the entry", s)
+	}
 }
 
 // TestThePluginReadsNoUndeclaredSetting is the guard facing the other way.
@@ -205,33 +229,41 @@ var pluginEnvAllowed = map[string]string{
 // do without anybody reading TypeScript. A variable the plugin honours and
 // the registry has never heard of breaks that promise silently: it works, so
 // nobody notices, and the inventory is quietly incomplete. Four were found
-// this way.
+// this way, and two more (MCPX_PLUGIN_HEADLESS, MCPX_PLUGIN_DAEMON_TOOLS)
+// sat on an allowlist until they were declared with an "auto" default.
+//
+// The only other thing the plugin may read is a ScriptEnv variable -- the
+// endpoint or socket mcpx gives a script -- which the contract documents.
 func TestThePluginReadsNoUndeclaredSetting(t *testing.T) {
 	root := repoRoot(t)
 	sch, err := settings.New(settings.Registry())
 	if err != nil {
 		t.Fatal(err)
 	}
+	table := contract()
+	_, reads := scanPluginEnv(t, root)
+	if len(reads) == 0 {
+		t.Fatal("the scan found no environment reads in the plugin at all; it is broken")
+	}
 	seen := map[string]bool{}
 	var undeclared []string
-	for _, m := range pluginEnvRead.FindAllStringSubmatch(pluginSources(t, root), -1) {
-		name := m[1]
-		if seen[name] {
+	for _, r := range reads {
+		if seen[r.name] {
 			continue
 		}
-		seen[name] = true
-		if _, ok := pluginEnvAllowed[name]; ok {
+		seen[r.name] = true
+		if _, ok := sch.ByEnv(r.name); ok {
 			continue
 		}
-		if _, ok := sch.ByEnv(name); !ok {
-			undeclared = append(undeclared, name)
+		if _, ok := table[r.name]; ok {
+			continue
 		}
+		undeclared = append(undeclared, r.name+" ("+r.at()+")")
 	}
 	sort.Strings(undeclared)
 	if len(undeclared) > 0 {
-		t.Errorf("the plugin honours variables no setting declares:\n  %s\n\n"+
-			"Add them to pluginSettings() so `mcpx settings` can report them, "+
-			"or to pluginEnvAllowed with the reason they cannot be declared.",
+		t.Errorf("the plugin honours variables nothing declares:\n  %s\n\n"+
+			"Add them to pluginSettings() so `mcpx settings` can report them.",
 			strings.Join(undeclared, "\n  "))
 	}
 }

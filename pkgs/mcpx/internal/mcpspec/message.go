@@ -95,6 +95,16 @@ func ValidateClientMessage(rev string, frame []byte, requestMethod ...string) er
 	return validateMessage(rev, frame, m, false)
 }
 
+// ValidateClientMessageStrict is ValidateClientMessage that also rejects properties the revision does not
+// define: the check that a client sends a server only what the negotiated revision has.
+func ValidateClientMessageStrict(rev string, frame []byte, requestMethod ...string) error {
+	m := ""
+	if len(requestMethod) > 0 {
+		m = requestMethod[0]
+	}
+	return validateMessage(rev, frame, m, true)
+}
+
 func validateMessage(rev string, frame []byte, requestMethod string, strict bool) error {
 	s, err := Get(rev)
 	if err != nil {
