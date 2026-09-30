@@ -21,7 +21,7 @@ Three stages:
 
 | stage | image | why |
 | --- | --- | --- |
-| `build` | `golang:1.26-bookworm` | `go.mod` asks for 1.26.7; the image ships 1.26.8 |
+| `build` | `golang:1.27-bookworm` | `go.mod` asks for 1.26.7; the image is ahead of it |
 | `bun` | `oven/bun:1-debian` | a pinned bun, so the build does not depend on a release URL |
 | runtime | `debian:bookworm-slim` | ordinary, and has the glibc the builder linked against |
 

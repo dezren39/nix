@@ -50,7 +50,7 @@ A child gets the parent's environment entire, and then these on top:
 - `internal/runner/runner.go:359` — `cmd.Env = append(os.Environ(), …)`, every
   script the runner starts
 - `internal/adapter/adapter.go:239` — `cmd.Env = os.Environ()`
-- `internal/mcpclient/stdio.go:61` — `env = append(env, os.Environ()...)`,
+- `internal/mcpclient/stdio.go:66` — `env = append(env, os.Environ()...)`,
   under `InheritEnv`, for every stdio MCP server the pool starts
 
 So a script also sees `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `AWS_*`, and whatever

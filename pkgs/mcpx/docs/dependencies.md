@@ -5,7 +5,21 @@ something breaks without it.
 
 ## Go libraries
 
-**One.** `modernc.org/sqlite`, which backs the log index.
+**Five**, and `pkgs/mcpx/package.nix` states the trade for each one beside
+the `vendorHash` that pays for them.
+
+| module | what it is for |
+| --- | --- |
+| `modernc.org/sqlite` | the log index |
+| `github.com/charmbracelet/bubbletea` | the full-screen browser, `mcpx tui` |
+| `github.com/charmbracelet/bubbles` | its widgets |
+| `github.com/charmbracelet/lipgloss` | its layout |
+| `gopkg.in/yaml.v3` | OpenAPI documents, which are published as YAML as often as JSON, and which one you get is not the caller's choice |
+
+The three `charmbracelet` modules are one decision, not three: they cost about
+1.2 MB in the stripped binary and replace raw terminal handling -- escape
+sequences, resize, a redraw loop -- which is the kind of code that is never
+finished and never correct on every terminal.
 
 Everything else -- the MCP client, the JSON-RPC framing, the process pools,
 the JSON Schema to TypeScript compiler, the HTTP API and the CLI -- is

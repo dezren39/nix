@@ -10,7 +10,7 @@ description:  what each revision defines, what mcpx accepts, what it sends,
               and why there is one HTTP server rather than two.
 ```
 
-mcpx speaks four revisions of MCP and sits in the middle of two of everything:
+mcpx speaks five revisions of MCP and sits in the middle of two of everything:
 two eras, two directions, two mechanisms for the same question. The rules that
 hold it together are short, and this document is mostly the table that falls
 out of them.
@@ -36,6 +36,7 @@ not put `structuredContent` in front of a 2025-03-26 client, will not stamp
 
 | | era | handshake | version carried | mcpx serves | mcpx speaks upstream |
 | --- | --- | --- | --- | --- | --- |
+| `2024-11-05` | legacy | `initialize` | once | yes | accepted, never offered |
 | `2025-03-26` | legacy | `initialize` | once | yes | on request (`protocol: force-legacy`) |
 | `2025-06-18` | legacy | `initialize` | once | yes | on request |
 | `2025-11-25` | legacy | `initialize` | once | yes | **default** |
@@ -49,14 +50,24 @@ of its own. The matrix is unforgiving: modern against legacy fails, legacy
 against modern fails, only a dual-era implementation bridges them.
 
 The schemas for `2025-06-18`, `2025-11-25` and `2026-07-28` were read
-directly. **`2025-03-26` was not among them**, and what this document says
-about it is from the specification's own change notes: it added audio
-content, tool annotations and the `completions` capability, and it has none of
-`structuredContent`, `resource_link`, `elicitation` or `tasks`. mcpx treats it
-as the floor — the oldest revision it serves, and what a request that declared
-nothing at all is assumed to be, because every shape that revision defines is
-understood by everything newer. Guessing downward is recoverable; guessing
-upward hands a peer a frame it cannot parse.
+directly. **`2024-11-05` and `2025-03-26` were not among them**, and what this
+document says about them is from the specification's own change notes:
+`2025-03-26` added audio content, tool annotations and the `completions`
+capability, and it has none of `structuredContent`, `resource_link`,
+`elicitation` or `tasks`; `2024-11-05` has none of those either.
+
+Two different "defaults" fall out of that, and they are not the same
+revision. `2024-11-05` is the **floor** (`mcpserver.Oldest`,
+`internal/mcpserver/revisions.go:14`): the oldest revision mcpx serves, and
+how a result is *spelled* for a client that declared nothing, because every
+shape that revision defines is understood by everything newer. Guessing
+downward is recoverable; guessing upward hands a peer a frame it cannot parse.
+`2025-03-26` is the **transport** default (`mcpserver.Headerless`,
+`revisions.go:32`): what a legacy message is taken to speak when the transport
+said nothing — a Streamable HTTP request with no `MCP-Protocol-Version` and no
+session, or a stdio batch before `initialize`. It is not the floor because
+`2024-11-05` has no Streamable HTTP and no JSON-RPC batch at all, so neither
+of those frames can have come from it.
 
 `internal/mcpserver/revisions.go` holds the floors and ceilings as data, and
 `GET /v1/protocol` serves them. A matrix in a document and a matrix in code
@@ -110,15 +121,26 @@ frozen 2026-07-28 requirement set.
 
 ### 2.2 Capabilities mcpx declares
 
-| capability | 2025-03-26 | 2025-06-18 | 2025-11-25 | 2026-07-28 |
-| --- | --- | --- | --- | --- |
-| `tools.listChanged` | — | — | — | — (mcpx's own tool list is fixed while it runs) |
-| `resources.subscribe` / `.listChanged` | ✓ | ✓ | ✓ | ✓ |
-| `prompts.listChanged` | ✓ | ✓ | ✓ | ✓ |
-| `completions` | ✓ | ✓ | ✓ | ✓ |
-| `logging` | — | — | — | — (mcpx sends no `notifications/message`; `logging/setLevel` is still accepted) |
-| `tasks` (core shape) | — | — | ✓ | ✓ |
-| `extensions["io.modelcontextprotocol/tasks"]` | — | — | ✓ | ✓ |
+| capability | 2024-11-05 | 2025-03-26 | 2025-06-18 | 2025-11-25 | 2026-07-28 |
+| --- | --- | --- | --- | --- | --- |
+| `tools.listChanged` | — | — | — | — | — (mcpx's own tool list is fixed while it runs) |
+| `resources.subscribe` / `.listChanged` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `prompts.listChanged` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `completions` | — | ✓ | ✓ | ✓ | ✓ |
+| `logging` | — | — | — | — | — (mcpx sends no `notifications/message`; `logging/setLevel` is still accepted) |
+| `tasks` (core shape) | — | — | — | ✓ | — |
+| `extensions["io.modelcontextprotocol/tasks"]` | — | — | — | — | ✓ |
+
+`completions` is blank for `2024-11-05` because that revision has no
+capability to declare it with; `completion/complete` itself is older than the
+capability (`internal/mcpserver/revisions.go:69-71`).
+
+The last two rows are exclusive, and this table used to say they overlapped.
+`FeatTasks` is `2025-11-25` alone and `FeatExtensions` is `2026-07-28` alone
+(`internal/mcpserver/server.go:1935-1948`): 2026-07-28 removed the core
+`tasks` capability, and its SEP says a server MUST NOT keep advertising it
+under a revision that has the extension, while 2025-11-25's schema has no
+`extensions` field to put one in. mcpx did send both to both, and stopped.
 
 The push-dependent ones are declared only when a notifier is behind them.
 Claiming `listChanged` with nothing to push invites a client to wait for
@@ -134,7 +156,7 @@ shapes drift apart.
 | --- | --- | --- |
 | `structuredContent` | 2025-06-18 | removed, and rendered into the `content` array as text — the data survives, in a vocabulary the client has |
 | `resource_link` block | 2025-06-18 | becomes an embedded `resource`, which keeps the URI machine-readable where text would not |
-| `audio` block | 2025-03-26 | always available; mcpx serves nothing older |
+| `audio` block | 2025-03-26 | to a 2024-11-05 client, replaced by a text block describing it (`revisions.go:63-65`, `:363`) |
 | `resultType` | 2026-07-28 | removed — sending it says mcpx is speaking a revision it is not |
 | `inputRequests` / `requestState` | 2026-07-28 | never sent; a legacy client is asked on the wire instead |
 

@@ -31,6 +31,13 @@ func isolate(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// On macOS /tmp is a symlink to /private/tmp, and the config walk
+	// resolves the directory it is given. Without this the test compares the
+	// path it wrote (/tmp/...) against the path resolution found
+	// (/private/tmp/...) and fails on every Mac while passing in CI.
+	if resolved, err := filepath.EvalSymlinks(home); err == nil {
+		home = resolved
+	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
