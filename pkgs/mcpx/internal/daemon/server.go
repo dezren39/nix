@@ -24,6 +24,7 @@ import (
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/settings"
@@ -654,6 +655,9 @@ type callReq struct {
 	Task *struct {
 		TTL int64 `json:"ttl"`
 	} `json:"task"`
+	// Relay, when present, asks for the upstream's progress and log
+	// messages during the call; see CallRelay.
+	Relay *CallRelay `json:"relay,omitempty"`
 }
 
 // callContext merges the JSON body with the header shorthands, so a plain
@@ -724,15 +728,22 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := withRun(withCallSettings(r.Context(), s.callSettings(r)), r.Header.Get("X-Mcpx-Run"))
+	reply := writeJSON
+	if req.Relay != nil {
+		rw := &relayWriter{w: w}
+		ctx = mcpclient.WithRelay(ctx, rw.relay(req.Relay))
+		reply = func(_ http.ResponseWriter, code int, v any) { rw.finish(code, v) }
+	}
 	start := time.Now()
-	res, err := s.reg.Call(withRun(withCallSettings(r.Context(), s.callSettings(r)), r.Header.Get("X-Mcpx-Run")), req.Server, req.Tool, cc, args)
+	res, err := s.reg.Call(ctx, req.Server, req.Tool, cc, args)
 	dur := time.Since(start).Truncate(time.Millisecond)
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
-		writeJSON(w, failureStatus(err), callErrorBody(err))
+		reply(w, failureStatus(err), callErrorBody(err))
 		return
 	}
-	writeJSON(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})
+	reply(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})
 }
 
 type resourceReq struct {

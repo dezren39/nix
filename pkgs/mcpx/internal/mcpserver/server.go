@@ -763,22 +763,23 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(map[string]any{"completion": completion})
 
 	case "logging/setLevel":
-		// Accepted, but no longer declared. The capability means "this server
-		// sends log messages to the client", and mcpx sends none: there is no
-		// notifications/message anywhere in this package. Declaring it was a
-		// promise of a stream that does not exist. The method still answers
-		// a legacy client, because refusing would make a well-behaved client
-		// that asked anyway treat the whole connection as degraded. A
-		// 2026-07-28 client, whose revision removed it (changelog item 5),
-		// is answered -32601 by the Removed check above and never gets here.
-		// A level that is not one of the eight is a different matter: that
-		// request is malformed, and every revision's setLevel asks for -32602.
+		// The level governs which upstream log messages are relayed to this
+		// client during its calls (see CallRelay). A 2026-07-28 client, whose
+		// revision removed the method (changelog item 5), is answered -32601
+		// by the Removed check above and names a level per request instead.
+		// A level that is not one of the eight is malformed, and every
+		// revision's setLevel asks for -32602.
 		var lv struct {
 			Level string `json:"level"`
 		}
 		_ = json.Unmarshal(req.Params, &lv)
 		if lv.Level != "" && !logLevels[lv.Level] {
 			return fail(codeInvalidParams, fmt.Sprintf("%q is not a log level", lv.Level))
+		}
+		if c != nil {
+			c.mu.Lock()
+			c.logLevel = lv.Level
+			c.mu.Unlock()
 		}
 		return reply(map[string]any{})
 
@@ -861,7 +862,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// it can be interrupted, and resumed, across. One that cannot gets
 		// the direct path and the broker's own routing, exactly as before.
 		if s.canAsk(ctx, c, peer) {
-			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
+			if resp := s.viaAsk(s.withRelay(ctx, c, req, peer), c, req, peer); resp != nil {
 				return resp
 			}
 		}
@@ -872,7 +873,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
-		text, err := s.invoke(ctx, p.Name, p.Arguments)
+		text, err := s.invoke(s.withRelay(ctx, c, req, peer), p.Name, p.Arguments)
 		if err != nil {
 			// A tool that fails is a result with isError, not a protocol
 			// error. The distinction matters: a protocol error means the
@@ -2055,6 +2056,12 @@ func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[
 		"tools":     map[string]any{"listChanged": false},
 		"resources": map[string]any{"subscribe": push, "listChanged": push},
 		"prompts":   map[string]any{"listChanged": push},
+	}
+	if Defines(version, FeatLoggingSetLevel) && !Modern(version) {
+		// mcpx relays its upstreams' log messages to a client that set a
+		// level, during that client's calls. 2026-07-28 has no capability
+		// for it: the client names a level on each request.
+		caps["logging"] = map[string]any{}
 	}
 	if Defines(version, FeatCompletions) {
 		// completion/complete is answered for every revision; only the

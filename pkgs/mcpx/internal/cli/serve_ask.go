@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/mcpserver"
@@ -163,6 +164,9 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 			return "", mcpserver.ErrNotInterruptible
 		}
 	}
+	if r := mcpserver.RelayFrom(ctx); r != nil && kind == "tools/call" {
+		body["relay"] = daemon.CallRelay{ProgressToken: r.ProgressToken, LogLevel: r.LogLevel, Meta: r.Meta}
+	}
 	raw, err := c.do(ctx, http.MethodPost, "/v1/ask", body)
 	if err != nil {
 		return "", err
@@ -185,6 +189,8 @@ type askPollReply struct {
 	Error     string                     `json:"error"`
 	Questions []mcpserver.Question       `json:"questions"`
 	Result    map[string]json.RawMessage `json:"result"`
+	// Notifications are what the call relayed since the last poll.
+	Notifications []mcpserver.Notification `json:"notifications"`
 }
 
 func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration) (mcpserver.Outcome, error) {
@@ -205,7 +211,7 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 	if err := json.Unmarshal(raw, &reply); err != nil {
 		return mcpserver.Outcome{}, err
 	}
-	out := mcpserver.Outcome{Done: reply.Done, Questions: reply.Questions}
+	out := mcpserver.Outcome{Done: reply.Done, Questions: reply.Questions, Notifications: reply.Notifications}
 	if !reply.Done {
 		return out, nil
 	}

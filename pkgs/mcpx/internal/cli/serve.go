@@ -130,7 +130,17 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if !visible(ns) {
 		return "", unknownNamespace(ns)
 	}
-	res, err := c.Call(ctx, ns, tool, b.app.mcpCaller(ctx), args)
+	var res *CallResult
+	if r := mcpserver.RelayFrom(ctx); r != nil {
+		notify := r.Notify
+		if notify == nil {
+			notify = func(string, json.RawMessage) {}
+		}
+		res, err = c.CallRelayed(ctx, ns, tool, b.app.mcpCaller(ctx), args,
+			daemon.CallRelay{ProgressToken: r.ProgressToken, LogLevel: r.LogLevel, Meta: r.Meta}, notify)
+	} else {
+		res, err = c.Call(ctx, ns, tool, b.app.mcpCaller(ctx), args)
+	}
 	if err != nil {
 		return "", err
 	}
