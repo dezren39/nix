@@ -156,14 +156,13 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
 	}
 
-	callID, upfront, failed := s.beginAsk(ctx, req, peer)
+	callID, upfront, rounds, failed := s.beginAsk(ctx, req, peer)
 	if failed != nil || callID == "" {
 		return failed
 	}
 
 	tm := s.Timing.resolved()
 	deadline := time.Now().Add(tm.AskTimeout)
-	rounds := 0
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			// The client gave up, or the transport did. The call itself
@@ -240,7 +239,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			if m, ok := s.awaitRound(ctx, callID, sendable, peer); ok {
 				sendable = m
 			}
-			state, err := s.states().mint(callID, requestBinding(req))
+			state, err := s.states().mintRound(callID, requestBinding(req), rounds)
 			if err != nil {
 				// No verifiable state means no safe resume, so the question
 				// goes back to the broker rather than out on a token
@@ -300,15 +299,17 @@ func relayNotes(ctx context.Context, out Outcome) {
 // way; a non-nil response is the error to answer with.
 //
 // upfront is the inputResponses a new request carried with nothing to resume:
-// answers given before the question, held until the upstream asks.
-func (s *Server) beginAsk(ctx context.Context, req request, peer Peer) (id string, upfront map[string]json.RawMessage, failed *response) {
+// answers given before the question, held until the upstream asks. rounds is
+// how many rounds the call has already asked, from a resumed requestState,
+// so AskRounds bounds the whole exchange rather than each retry of it.
+func (s *Server) beginAsk(ctx context.Context, req request, peer Peer) (id string, upfront map[string]json.RawMessage, rounds int, failed *response) {
 	fail := func(code int, msg string) *response {
 		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
 	}
 	if state, answers, resuming := resumeOf(req.Params); resuming {
-		id, err := s.states().verify(state, requestBinding(req))
+		id, rounds, err := s.states().verifyRound(state, requestBinding(req))
 		if err != nil {
-			return "", nil, fail(codeInvalidParams, err.Error())
+			return "", nil, 0, fail(codeInvalidParams, err.Error())
 		}
 		if len(answers) > 0 {
 			// The questions still open, to undo wireKey's renaming.
@@ -317,21 +318,21 @@ func (s *Server) beginAsk(ctx context.Context, req request, peer Peer) (id strin
 				answers = answersByID(answers, sendableTo(open.Questions, peer))
 			}
 			if err := s.Ask.Reply(ctx, id, answers); err != nil {
-				return "", nil, fail(codeInvalidParams, err.Error())
+				return "", nil, 0, fail(codeInvalidParams, err.Error())
 			}
 		}
-		return id, nil, nil
+		return id, nil, rounds, nil
 	}
 	id, err := s.Ask.Begin(ctx, req.Method, forAsk(req.Params))
 	switch {
 	case errors.Is(err, ErrNotInterruptible):
-		return "", nil, nil
+		return "", nil, 0, nil
 	case errors.Is(err, ErrInvalidParams):
-		return "", nil, fail(codeInvalidParams, err.Error())
+		return "", nil, 0, fail(codeInvalidParams, err.Error())
 	case err != nil:
-		return "", nil, fail(codeInternal, err.Error())
+		return "", nil, 0, fail(codeInternal, err.Error())
 	}
-	return id, inputResponsesOf(req.Params), nil
+	return id, inputResponsesOf(req.Params), 0, nil
 }
 
 // finishedAsk is the answer to a request whose asked call has finished.

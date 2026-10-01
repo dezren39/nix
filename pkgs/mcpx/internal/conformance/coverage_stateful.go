@@ -12,7 +12,7 @@ func init() {
 		S("ext-tasks-createtaskresult-shape", "mcpserver.TestTasksPerEra/2026-07-28/tasks/server-directed-CreateTaskResult-is-flat"),
 		S("ext-tasks-get-carries-result", "mcpserver.TestTasksPerEra/2026-07-28/tasks/server-directed-CreateTaskResult-is-flat", "mcpserver.TestTasksPerEra/2026-07-28/tasks/tool-isError-is-completed-not-failed"),
 		S("ext-tasks-update", "mcpserver.TestTasksPerEra/2026-07-28/tasks/update-and-cancel-ack-empty-unknown-is-32602", "mcpserver.TestATaskAskingAQuestionIsInputRequiredAndTasksUpdateAnswersIt@2026-07-28"),
-		S("ext-tasks-notifications-via-listen", "mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/taskIds-without-the-extension-is-32021"),
+		S("ext-tasks-notifications-via-listen", "mcpserver.TestSubscriptionsListen/2026-07-28/subscriptions/taskIds-without-the-extension-is-32021", "mcpserver.TestListenDeliversTaskStatusNotifications@2026-07-28", "mcpserver.TestListenReportsATaskThatAlreadyFinished@2026-07-28"),
 		S("tasks-unidentified-no-list", "mcpserver.TestTasksPerEra/2025-11-25/tasks/another-connection-cannot-list-or-read-it"),
 		S("caching-server-must-hint", "mcpserver.TestModernEnvelope/2026-07-28/caching/tools-list-has-ttlMs-and-cacheScope", "mcpserver.TestModernEnvelope/2026-07-28/caching/resources-read-has-ttlMs-and-cacheScope", "mcpserver.TestModernEnvelope/2026-07-28/caching/server-discover-has-ttlMs-and-cacheScope"),
 		S("cache-ttl-scope-required",
@@ -102,9 +102,6 @@ func init() {
 		),
 	)
 	registerGaps(
-		Gap{ID: "tasks-tool-forbidden-default", Side: Server, Issue: "#209", Why: "no mcpx tool declares execution.taskSupport, yet every task-augmented tools/call is accepted", Test: "conformance.TestStatefulServer"},
-		Gap{ID: "tasks-related-task-all-messages", Side: Server, Issue: "#209", Why: "tasks/result carries no related-task _meta (the questions a task raises now do, #245)", Test: "conformance.TestStatefulServer"},
-		Gap{ID: "tasks-result-response-related-task", Side: Server, Issue: "#209", Why: "tasks/result carries no related-task _meta (the questions a task raises now do, #245)", Test: "conformance.TestStatefulServer"},
 		Gap{ID: "tasks-get-implies-list", Side: Server, Issue: "#209", Why: "a task started on a connection without an identity can be read by tasks/get and is never listed"},
 		Gap{ID: "tasks-failed-status-message", Side: Server, Issue: "#209", Why: "a task failed by an isError tool result carries no statusMessage"},
 		Gap{ID: "tasks-document-unbound", Side: Server, Issue: "#209", Why: "nothing user-facing documents that an unowned task is reachable by anyone holding its id"},

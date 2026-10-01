@@ -9649,7 +9649,7 @@
     },
     "notes": {
       "client": "not-implemented",
-      "server": "not-implemented"
+      "server": "yes — `taskIds` agreed for known visible tasks; `notifications/tasks` carries the DetailedTask (`mcpserver/listen.go` watchTasks)"
     }
   },
   {

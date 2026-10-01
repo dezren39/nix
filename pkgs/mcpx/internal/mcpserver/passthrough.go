@@ -45,6 +45,11 @@ type passLookup struct {
 	err   error
 }
 
+// toolsVary reports whether tools/list can change while the server runs:
+// only in pass-through mode, where it is the upstreams' list. That is what
+// decides tools.listChanged and whether a listen agrees to toolsListChanged.
+func (s *Server) toolsVary() bool { return len(s.Passthrough) > 0 }
+
 // withPass resolves the pass-through list for the rest of this request.
 func (s *Server) withPass(ctx context.Context) context.Context {
 	if len(s.Passthrough) == 0 {

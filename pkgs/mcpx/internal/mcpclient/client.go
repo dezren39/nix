@@ -84,6 +84,9 @@ type Client struct {
 	Capabilities map[string]json.RawMessage
 	// Era is which protocol generation this connection settled on.
 	Era Era
+	// modern mirrors Era == EraModern for the read loop, which runs while
+	// connect is still deciding and so cannot read Era without a race.
+	modern atomic.Bool
 	// Negotiated is the version actually in use.
 	Negotiated string
 	// onElicit answers server-initiated requests.
@@ -454,6 +457,13 @@ func (c *Client) dispatch(origin context.Context, raw []byte) {
 	}
 	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 		if len(probe.ID) > 0 && string(probe.ID) != "null" {
+			if c.modern.Load() {
+				// 2026-07-28 has no server-to-client requests: a server
+				// asks through input_required results instead (SEP-2260,
+				// SEP-2322). The stdio transport page says the client
+				// MUST NOT answer one, so it is dropped unanswered.
+				return
+			}
 			c.handleServerRequest(origin, probe.ID, probe.Method, probe.Params)
 		} else {
 			c.handleNotification(probe.Method, probe.Params)
@@ -493,7 +503,8 @@ func (c *Client) SetElicitHandler(h ElicitHandler) {
 
 // handleServerRequest answers a request the server sent to us.
 //
-// Always answers. The alternative -- dropping what we do not understand --
+// Always answers a legacy server; a 2026-07-28 one has no business sending
+// requests and is never answered (see dispatch). The alternative -- dropping what we do not understand --
 // is what the old code did by accident, and it is indistinguishable from a
 // hung server.
 //

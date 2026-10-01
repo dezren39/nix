@@ -144,7 +144,15 @@ original request, before any task exists; ones it asks later park the task in
 `input_required` with `inputRequests`, answered through `tasks/update`.
 A legacy task shows
 `input_required` while one of its questions is out, and the question carries
-the related-task `_meta`. [`spec/messages.md`](spec/messages.md#tasks) has the
+the related-task `_meta`, as does the `tasks/result` response. A legacy
+task-augmented call to a tool that declares no `execution.taskSupport` is
+refused `-32601`, as 2025-11-25 asks: of mcpx's own tools only `mcpx_call` and
+`mcpx_exec` declare `"optional"` (to 2025-11-25 clients only; 2026-07-28's
+`Tool` has no `execution`). A 2026-07-28 client that names tasks in a
+`subscriptions/listen`'s `taskIds` gets the ones it can see back in the
+acknowledgement, then `notifications/tasks` on that stream -- the task's
+current state at once, then every change, each the `DetailedTask` `tasks/get`
+would answer. [`spec/messages.md`](spec/messages.md#tasks) has the
 rest.
 
 **Unknown tools are a protocol error.** `tools/call` naming a tool mcpx does
@@ -156,7 +164,7 @@ that could never work (#284).
 
 | capability | 2024-11-05 | 2025-03-26 | 2025-06-18 | 2025-11-25 | 2026-07-28 |
 | --- | --- | --- | --- | --- | --- |
-| `tools` | `listChanged: false` | same | same | same | same |
+| `tools.listChanged` | true in pass-through mode when the connection can push, else false | same | same | same | same |
 | `resources.subscribe`, `.listChanged` | when the connection can push | same | same | same | same |
 | `prompts.listChanged` | when the connection can push | same | same | same | same |
 | `completions` | — (the revision has no such capability; the method is answered anyway) | ✓ | ✓ | ✓ | ✓ |
@@ -164,10 +172,13 @@ that could never work (#284).
 | `tasks` (core) | — | — | — | ✓ | — |
 | `extensions["io.modelcontextprotocol/tasks"]` | — | — | — | — | ✓ |
 
-- **`tools.listChanged` is false.** mcpx's own tool list is fixed when its
-  server is built. It used to be declared and fed by upstream tool changes,
-  which are not changes to *this* list: a client re-listed on every one and
-  got the same tools back.
+- **`tools.listChanged` is false unless mcpx passes tools through.** mcpx's
+  own tool list is fixed when its server is built. It used to be declared and
+  fed by upstream tool changes, which are not changes to *this* list: a client
+  re-listed on every one and got the same tools back. In pass-through mode
+  (`--passthrough`) the list *is* the upstreams', so an upstream's
+  `tools/list_changed` is relayed -- unsolicited to a legacy client, and on a
+  `subscriptions/listen` that asked for `toolsListChanged` to a modern one.
 - **`logging` is declared to legacy clients.** The capability means "this
   server sends log messages": mcpx relays its upstreams' `notifications/message`
   to a client that set a level, during that client's calls (§4.4, #212).
@@ -505,8 +516,11 @@ the tool call for a script that expects to ask.
 - `proto.askTimeout` (10m) — how long one client request may be held. A legacy
   client is blocked for all of it, so it has to sit inside whatever that
   client's own timeout is. A modern one is not blocked at all.
-- `proto.askRounds` (8) — how many times one request may come back asking. A
-  server that never stops asking is broken or adversarial.
+- `proto.askRounds` (8) — how many times one call may come back asking. A
+  server that never stops asking is broken or adversarial. For a 2026-07-28
+  client each round is a new request, so the count rides in the signed
+  `requestState` and holds across the retries; it used to restart at zero on
+  every one (#201).
 - `proto.stateTTL` (30m) — how long a `requestState` may be resumed with.
 - `proto.askTTL` (15m) — how long the daemon keeps the call and its result.
 - `pool.callTimeout` pauses while a question is pending on the instance
@@ -577,7 +591,10 @@ stream, so mcpx opens one per upstream connection, with a filter built from
 what the server declared and the URIs somebody subscribed to, and reopens it
 when it ends. Messages and progress go to `/v1/events`; a list change drops
 the cached schema. `notifications/tasks/status` (2025-11-25) is received and
-dropped — mcpx polls task state rather than tracking it.
+dropped — mcpx polls task state rather than tracking it. A request from a
+2026-07-28 server is not answered: that revision has no server-to-client
+requests (a server asks through `input_required` results), and the stdio
+transport page says the client MUST NOT respond (#200).
 
 ### 4.4 Progress, log messages and trace context, relayed (#212)
 
