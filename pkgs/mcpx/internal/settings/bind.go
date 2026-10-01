@@ -82,12 +82,29 @@ func (f *flagValue) IsBoolFlag() bool {
 // duplicate. The effect is that the registry fills in everything the command
 // did not already provide, which is what makes `mcpx config --schema` true
 // rather than aspirational.
+//
+// Skipping the registration must not mean skipping the setting. A hand-written
+// flag with a setting's spelling is wrapped so that whatever it is given also
+// reaches the resolved set; before that, `mcpx exec --runtime deno` reached the
+// local variable and left script.runtime at auto for everything that read the
+// set instead (#231). except names hand-written flags that share a spelling
+// but mean something else -- `--keep` on exec keeps temp files, not log files --
+// and are left alone.
 func (s *Schema) Bind(fs *flag.FlagSet, cmd string) *Binding {
+	return s.BindExcept(fs, cmd, nil)
+}
+
+// BindExcept is Bind with a list of hand-written spellings that are not the
+// setting they collide with.
+func (s *Schema) BindExcept(fs *flag.FlagSet, cmd string, except map[string]bool) *Binding {
 	b := &Binding{schema: s, fs: fs, seen: map[string][]spelling{}}
 	for _, set := range s.ForCommand(cmd) {
 		p := set
 		for _, name := range append([]string{p.FlagName()}, p.FlagAliases...) {
-			if fs.Lookup(name) != nil {
+			if f := fs.Lookup(name); f != nil {
+				if _, already := f.Value.(*teeValue); !already && !except[name] {
+					f.Value = &teeValue{Value: f.Value, also: &flagValue{set: &p, name: name, b: b}}
+				}
 				continue
 			}
 			usage := p.Short
@@ -101,6 +118,37 @@ func (s *Schema) Bind(fs *flag.FlagSet, cmd string) *Binding {
 		}
 	}
 	return b
+}
+
+// teeValue keeps a hand-written flag's own behaviour and also records the
+// value against the setting it shares a name with.
+type teeValue struct {
+	flag.Value
+	also *flagValue
+}
+
+func (t *teeValue) Set(v string) error {
+	if err := t.Value.Set(v); err != nil {
+		return err
+	}
+	return t.also.Set(v)
+}
+
+// String tolerates the zero value, which the flag package builds by
+// reflection to decide whether a default is worth printing.
+func (t *teeValue) String() string {
+	if t == nil || t.Value == nil {
+		return ""
+	}
+	return t.Value.String()
+}
+
+func (t *teeValue) IsBoolFlag() bool {
+	if t == nil || t.Value == nil {
+		return false
+	}
+	bf, ok := t.Value.(interface{ IsBoolFlag() bool })
+	return ok && bf.IsBoolFlag()
 }
 
 // ApplyTo folds everything the command line gave into a set.

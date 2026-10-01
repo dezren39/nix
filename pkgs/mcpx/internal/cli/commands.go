@@ -369,9 +369,19 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.Call(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
+	res, err := c.CallReporting(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
 	if err != nil {
-		if a.JSON {
+		var ir *InputRequiredError
+		if errors.As(err, &ir) && a.inlineStop != nil {
+			// The daemon lives inside this command, so the call cannot
+			// outlive it and "answer it later" would be untrue.
+			ir.Doc.Text = strings.TrimRight(ir.Doc.Text, "\n") + "\n\nThis daemon runs " +
+				"inside this command (daemon.inline) and stops with it, taking the call " +
+				"with it. Start a daemon (`mcpx daemon`) to answer and collect it.\n"
+		}
+		if errors.As(err, &ir) && a.JSON {
+			_ = a.out(map[string]any{"inputRequired": ir.Doc})
+		} else if a.JSON {
 			a.outCallFailure(err)
 		}
 		return err
@@ -585,10 +595,23 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		_ = c.ReleaseCaller(rctx, sessionKey)
 	}()
 
+	// Everything that decides which program is built is resolved here, once,
+	// before the paths split. The remote path used to be handed five of
+	// these and silently drop the rest (#192).
+	cfg, _ := config.Load(a.ConfigPath)
+	shape, serr := a.resolveScriptShape(cfg, scriptFlags{
+		prefix: prefix, suffix: suffix, before: before, onSuccess: onSuccess,
+		onError: onError, launcher: *launcherFlag, noLauncher: *noLauncher,
+		typecheck: *typecheck, allowRepeat: allowRepeat, noConsole: *noConsole,
+	})
+	if serr != nil {
+		return serr
+	}
+
 	if elsewhere {
 		return a.execOnDaemon(ctx, c, fs, inline, ns, sessionKey, eo,
 			execRemoteFlags{timeout: *timeout, runtime: *rt, permissions: *perms,
-				export: *export, session: sessionKey})
+				export: *export, session: sessionKey, shape: shape})
 	}
 
 	// The session is deliberately not baked into the generated module: several
@@ -602,7 +625,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	if err != nil {
 		return err
 	}
-	prelude, err := a.buildPrelude(ctx, c, ns, !*noConsole)
+	prelude, err := a.buildPrelude(ctx, c, ns, shape.captureConsole)
 	if err != nil {
 		return err
 	}
@@ -612,7 +635,6 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		globalsSrc = ""
 	}
 
-	cfg, _ := config.Load(a.ConfigPath)
 	// --runtime is hand-written, so the registry's script.runtime only
 	// reaches here through the resolved set; reading cfg.Runtime alone left
 	// MCPX_SCRIPT_RUNTIME and script.runtime in a file ignored.
@@ -703,7 +725,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		Stdout:         a.stdoutOverride,
 		ClientSource:   clientSrc,
 		GlobalsSource:  globalsSrc,
-		CaptureConsole: !*noConsole,
+		CaptureConsole: shape.captureConsole,
 		Runtime:        runtimePref,
 		Setup:          rtSetup,
 		Timeout:        *timeout,
@@ -746,131 +768,28 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			"MCPX_EPHEMERAL":         boolFlag(ephemeral),
 			"MCPX_SCRIPT_DIRS":       strings.Join(scriptSearchDirs(), ":"),
 			"MCPX_CONFIG_PATH":       configPathOf(cfg),
+			// Nothing in this run can answer a server's question, so the
+			// generated client asks the daemon to report one and exits
+			// ExitInputRequired instead of waiting for it to expire.
+			"MCPX_INPUT": inputReport(a.stdoutOverride == nil),
 		},
 	}
-	// Everything knowable is checked before any server starts. A bad --env
-	// pair or an unreadable hook is cheap to find now and expensive to find
-	// as a syntax error in generated code.
-	var envPairs []string
-	for _, e := range envVars.Values() {
-		if str, ok := e.(string); ok {
-			envPairs = append(envPairs, str)
-		}
-	}
-	// script.env is the same list from a config file, MCPX_SCRIPT_ENV or
-	// --script-env. --env is a hand-written alias that Bind skips, so before
-	// this the other three spellings were accepted and had no effect.
-	envPairs = append(envPairs, a.Settings().List("script.env")...)
-	pre := preflight.Merge(preflight.CheckEnvPairs(envPairs, "--env"))
-	// plumbing.validatePaths is the switch this block exists behind. It read
-	// MCPX_LOGGING_DIR by name, so the same directory given in a config file
-	// or as --log-dir went unchecked; the resolved value is the one that will
-	// actually be written to.
-	if a.Settings().Bool("plumbing.validatePaths") {
-		if logDir := a.Settings().String("logging.dir"); logDir != "" {
-			pre = preflight.Merge(pre, preflight.CheckPaths([]preflight.PathCheck{
-				{Path: logDir, Where: "logging.dir", WantDir: true, Writable: true},
-			}))
-		}
-	}
-	if err := pre.Err(); err != nil {
-		return err
-	}
-	for _, w := range pre.Warnings() {
-		fmt.Fprintln(os.Stderr, "mcpx:", w.String())
-	}
-
-	// Each phase takes its command-line values and then whatever the
-	// registry resolved from a variable or the generated --script-<phase>
-	// flag. Only those two layers: the configuration file reaches these
-	// through cfg.ScriptPhase below, and counting it twice would run the
-	// line twice. Before this, --script-prefix and MCPX_SCRIPT_PREFIX were
-	// accepted, recorded and dropped.
-	hk := a.newHookGate(cfg)
-	prefixLines := cfgScriptLines(hk.cfg, hk.phaseValues("script.prefix", prefix), true)
-	suffixLines := cfgScriptLines(hk.cfg, hk.phaseValues("script.suffix", suffix), false)
-
-	// Both paths, not only the file one. This lived in the `else` branch, so
-	// `mcpx exec --typecheck=on` accepted the flag and ignored it -- on the
-	// command an agent reaches for most.
-	//
-	// Read from the resolved set, so the value is whichever layer won: the
-	// short --typecheck spelling, the generated --script-typecheck, a
-	// variable, or the config file. Reading the flag variable directly would
-	// silently ignore the other three.
-	opts.TypeCheck = firstNonEmpty(*typecheck, a.Settings().String("script.typecheck"))
-	// Both paths. These were set only for a file, so `mcpx exec --launcher`,
-	// --no-launcher, --export and --allow-repeat were accepted and dropped:
-	// the flags existed, the help described them, and nothing read them.
-	//
-	// Phases stay where they are, because there the difference is real: a
-	// snippet splices them into its own scope so they can declare bindings
-	// it uses, while a file gets them wrapped around its import.
-	if *noLauncher && *launcherFlag != "" {
-		return errors.New("--launcher and --no-launcher contradict each other; " +
-			"--no-launcher means there is nothing to replace")
-	}
-	// --launcher is the short spelling; script.launcher carries the same
-	// choice from a config file, MCPX_SCRIPT_LAUNCHER or --script-launcher,
-	// all three of which were previously parsed and ignored. The bare form of
-	// the generated flag resolves to "none", which resolveLauncher
-	// understands, so --no-launcher and --script-launcher mean the same thing.
-	launcherWanted := firstNonEmpty(*launcherFlag, a.Settings().String("script.launcher"))
-	if *noLauncher {
-		opts.Launcher, opts.LauncherName = runner.LauncherNone, "none"
-	} else if launcherWanted != "" {
-		text, name, lerr := a.resolveLauncher(launcherWanted)
-		if lerr != nil {
-			return lerr
-		}
-		opts.Launcher, opts.LauncherName = text, name
-	}
+	opts.TypeCheck = shape.typecheck
+	opts.Launcher, opts.LauncherName = shape.launcher, shape.launcherName
 	opts.PlaceholderFiles = PlaceholderFiles()
-	for _, r := range allowRepeat.Values() {
-		if str, ok := r.(string); ok {
-			opts.AllowRepeat = append(opts.AllowRepeat, str)
-		}
-	}
-	// The plumbing setting is the durable form of --allow-repeat: a launcher
-	// template kept in a config file wants its repeats declared beside it,
-	// not retyped on every command line.
-	opts.AllowRepeat = append(opts.AllowRepeat,
-		a.Settings().List("plumbing.launcherPlaceholderRepeat")...)
+	opts.AllowRepeat = shape.allowRepeat
 	if inline {
-		// A snippet is generated wholesale, so prefix lines share its scope
-		// and can declare bindings the snippet uses.
-		var body strings.Builder
-		for _, line := range prefixLines {
-			body.WriteString(line)
-			body.WriteString("\n")
-		}
-		body.WriteString(strings.Join(fs.Args(), " "))
-		for _, line := range suffixLines {
-			body.WriteString("\n")
-			body.WriteString(line)
-		}
-		opts.Source = body.String()
+		opts.Source = shape.inlineSource(fs.Args())
 		// The three phases that are not spliced into the snippet run in the
-		// launcher around it, as they do around a file. They were set only
-		// for a file, so `mcpx exec --before/--on-success/--on-error` and
-		// script.before/onSuccess/onError were accepted and dropped.
-		opts.Phases = runner.Phases{
-			Before:    hk.cfg.ScriptPhase("before", hk.phaseValues("script.before", before)),
-			OnSuccess: hk.cfg.ScriptPhase("onSuccess", hk.phaseValues("script.onSuccess", onSuccess)),
-			OnError:   hk.cfg.ScriptPhase("onError", hk.phaseValues("script.onError", onError)),
-		}
+		// launcher around it, as they do around a file.
+		opts.Phases = runner.Phases{Before: shape.before, OnSuccess: shape.onSuccess,
+			OnError: shape.onError}
 	} else {
 		// A file keeps its own module scope, so its prefix and suffix run in
 		// the launcher around it: before the import and after the entry point.
 		// They can act -- set globals, log, time, clean up -- but cannot
 		// declare bindings the script will see.
-		opts.Phases = runner.Phases{
-			Before:    hk.cfg.ScriptPhase("before", hk.phaseValues("script.before", before)),
-			Prefix:    prefixLines,
-			OnSuccess: hk.cfg.ScriptPhase("onSuccess", hk.phaseValues("script.onSuccess", onSuccess)),
-			OnError:   hk.cfg.ScriptPhase("onError", hk.phaseValues("script.onError", onError)),
-			Suffix:    suffixLines,
-		}
+		opts.Phases = shape.phases()
 		file, rerr := resolveScript(fs.Arg(0))
 		if rerr != nil {
 			return rerr
@@ -879,7 +798,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		opts.Args = fs.Args()[1:]
 	}
 
-	hk.report(prefixLines, suffixLines, opts.Phases)
+	shape.hooks.report(shape.prefix, shape.suffix, opts.Phases)
 
 	// Deterministic diagnostics, before anything starts. What this catches is
 	// a tool whose schema moved under a script that used to work; left to the
@@ -892,15 +811,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
 		return derr
 	}
-	// envPairs is the same list the preflight above checked: --env, plus
-	// whatever script.env resolved to from a file, MCPX_SCRIPT_ENV or
-	// --script-env. Iterating envVars here instead was how the three other
-	// spellings were validated and then dropped.
-	for _, kv := range envPairs {
-		k, v, found := strings.Cut(kv, "=")
-		if !found {
-			return fmt.Errorf("--env expects KEY=VALUE, got %q", kv)
-		}
+	for k, v := range shape.env {
 		opts.Env[k] = v
 	}
 
@@ -1797,4 +1708,149 @@ func resolvePhase(lines []string) []string {
 		out = append(out, strings.Split(strings.TrimRight(r.Text, "\n"), "\n")...)
 	}
 	return out
+}
+
+// scriptFlags are the command-line values that shape the program a run builds.
+type scriptFlags struct {
+	prefix, suffix, before, onSuccess, onError, allowRepeat *repeatable
+	launcher, typecheck                                     string
+	noLauncher, noConsole                                   bool
+}
+
+// scriptShape is everything about a run that decides what program is built.
+// Resolved once, before the local and remote paths split, so that the two
+// cannot disagree about which flags count.
+type scriptShape struct {
+	// hooks carries the autonomy gate so the caller can report which
+	// configured phases were withheld, and why.
+	hooks                      *hookGate
+	env                        map[string]string
+	typecheck                  string
+	launcher, launcherName     string
+	allowRepeat                []string
+	captureConsole             bool
+	prefix, suffix             []string
+	before, onSuccess, onError []string
+}
+
+// inlineSource splices prefix and suffix lines around a snippet. A snippet is
+// generated wholesale, so prefix lines share its scope and can declare
+// bindings the snippet uses.
+func (sh scriptShape) inlineSource(args []string) string {
+	var body strings.Builder
+	for _, line := range sh.prefix {
+		body.WriteString(line)
+		body.WriteString("\n")
+	}
+	body.WriteString(strings.Join(args, " "))
+	for _, line := range sh.suffix {
+		body.WriteString("\n")
+		body.WriteString(line)
+	}
+	return body.String()
+}
+
+// phases is the full set of launcher phases, as a file run uses them.
+func (sh scriptShape) phases() runner.Phases {
+	return runner.Phases{Before: sh.before, Prefix: sh.prefix, OnSuccess: sh.onSuccess,
+		OnError: sh.onError, Suffix: sh.suffix}
+}
+
+func (a *App) resolveScriptShape(cfg *config.Config, f scriptFlags) (scriptShape, error) {
+	sh := scriptShape{captureConsole: !f.noConsole, env: map[string]string{}}
+	// hooks.autonomy, lowered to autonomy.max, governs phases that came from a
+	// configuration file or the environment: they are code this command did not
+	// send. Phases given as flags are the caller's own and are never gated.
+	sh.hooks = a.newHookGate(cfg)
+	cfg = sh.hooks.cfg
+	// Everything knowable is checked before any server starts. A bad --env
+	// pair or an unreadable hook is cheap to find now and expensive to find
+	// as a syntax error in generated code.
+	//
+	// --env is a hand-written spelling of script.env, and parseFlags folds it
+	// into the set together with a file, MCPX_SCRIPT_ENV and --script-env, so
+	// the resolved list is the whole of it.
+	envPairs := a.Settings().List("script.env")
+	pre := preflight.Merge(preflight.CheckEnvPairs(envPairs, "--env"))
+	// plumbing.validatePaths is the switch this block exists behind. It read
+	// MCPX_LOGGING_DIR by name, so the same directory given in a config file
+	// or as --log-dir went unchecked; the resolved value is the one that will
+	// actually be written to.
+	if a.Settings().Bool("plumbing.validatePaths") {
+		if logDir := a.Settings().String("logging.dir"); logDir != "" {
+			pre = preflight.Merge(pre, preflight.CheckPaths([]preflight.PathCheck{
+				{Path: logDir, Where: "logging.dir", WantDir: true, Writable: true},
+			}))
+		}
+	}
+	if err := pre.Err(); err != nil {
+		return sh, err
+	}
+	for _, w := range pre.Warnings() {
+		fmt.Fprintln(os.Stderr, "mcpx:", w.String())
+	}
+	for _, kv := range envPairs {
+		k, v, found := strings.Cut(kv, "=")
+		if !found {
+			return sh, fmt.Errorf("--env expects KEY=VALUE, got %q", kv)
+		}
+		sh.env[k] = v
+	}
+
+	// Each phase takes its command-line values and then whatever the
+	// registry resolved from a variable or the generated --script-<phase>
+	// flag. Only those two layers: the configuration file reaches these
+	// through cfg.ScriptPhase, and counting it twice would run the line
+	// twice.
+	sh.prefix = cfgScriptLines(cfg, sh.hooks.phaseValues("script.prefix", f.prefix), true)
+	sh.suffix = cfgScriptLines(cfg, sh.hooks.phaseValues("script.suffix", f.suffix), false)
+	sh.before = cfg.ScriptPhase("before", sh.hooks.phaseValues("script.before", f.before))
+	sh.onSuccess = cfg.ScriptPhase("onSuccess", sh.hooks.phaseValues("script.onSuccess", f.onSuccess))
+	sh.onError = cfg.ScriptPhase("onError", sh.hooks.phaseValues("script.onError", f.onError))
+
+	// Read from the resolved set, so the value is whichever layer won: the
+	// short --typecheck spelling, the generated --script-typecheck, a
+	// variable, or the config file.
+	sh.typecheck = firstNonEmpty(f.typecheck, a.Settings().String("script.typecheck"))
+
+	if f.noLauncher && f.launcher != "" {
+		return sh, errors.New("--launcher and --no-launcher contradict each other; " +
+			"--no-launcher means there is nothing to replace")
+	}
+	// --launcher is the short spelling; script.launcher carries the same
+	// choice from a config file, MCPX_SCRIPT_LAUNCHER or --script-launcher.
+	// The bare form of the generated flag resolves to "none", which
+	// resolveLauncher understands, so --no-launcher and --script-launcher
+	// mean the same thing.
+	launcherWanted := firstNonEmpty(f.launcher, a.Settings().String("script.launcher"))
+	if f.noLauncher {
+		sh.launcher, sh.launcherName = runner.LauncherNone, "none"
+	} else if launcherWanted != "" {
+		text, name, lerr := a.resolveLauncher(launcherWanted)
+		if lerr != nil {
+			return sh, lerr
+		}
+		sh.launcher, sh.launcherName = text, name
+	}
+	for _, r := range f.allowRepeat.Values() {
+		if str, ok := r.(string); ok {
+			sh.allowRepeat = append(sh.allowRepeat, str)
+		}
+	}
+	// The plumbing setting is the durable form of --allow-repeat: a launcher
+	// template kept in a config file wants its repeats declared beside it,
+	// not retyped on every command line.
+	sh.allowRepeat = append(sh.allowRepeat,
+		a.Settings().List("plumbing.launcherPlaceholderRepeat")...)
+	return sh, nil
+}
+
+// inputReport is MCPX_INPUT for a run: "report" when nothing in it can
+// answer a question mid-call. A run whose output is collected by the MCP
+// server is the exception -- its client can be asked -- so it stays empty.
+func inputReport(report bool) string {
+	if report {
+		return "report"
+	}
+	return ""
 }
