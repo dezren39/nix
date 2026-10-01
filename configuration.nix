@@ -433,6 +433,31 @@ lib.recursiveUpdate {
   # system.checks.verifyNixPath = false;
   system.primaryUser = "drewry.pope";
 
+  # Authenticate sudo with Touch ID (and the Watch), instead of typing a
+  # password.
+  #
+  # There is no macOS *group* that grants passwordless root. Membership of
+  # `admin` is what lets you sudo at all; it does not remove the prompt, and
+  # macOS has no equivalent of a NOPASSWD group. The prompt is a PAM decision,
+  # so PAM is where it is changed.
+  #
+  # What this does and does not buy:
+  #   - interactive `sudo` / `just switch`: touch the sensor, no typing.
+  #   - unattended `sudo`: still blocked. Touch ID needs a physical touch, so
+  #     an agent running `just switch` with nobody at the machine will sit on
+  #     the prompt until something kills it -- which is exactly what happened
+  #     on 2026-10-01, for 40 minutes, reported as exit 0. Use `just build`
+  #     for unattended verification; only activation needs root at all.
+  #
+  # `reattach` is required for Touch ID to work inside tmux/screen, where the
+  # session is detached from the GUI and pam_tid otherwise fails silently.
+  security.pam.services.sudo_local = {
+    enable = true;
+    touchIdAuth = true;
+    watchIdAuth = true;
+    reattach = true;
+  };
+
   # Restart skhd after rebuild so config changes take effect
   # Fix Spotlight indexing and exclude noisy directories
   # Clean up stale Caskroom artifacts before homebrew runs (e.g. after cask renames)
