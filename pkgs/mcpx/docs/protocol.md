@@ -105,7 +105,7 @@ What a host connected to mcpx gets, over `mcpx serve` (stdio) or the daemon's
 | `resources/subscribe`, `resources/unsubscribe` | legacy | legacy peers | `{}`, always; subscribes upstream where the owning server can deliver, and otherwise publishes a warning event (§4.3) |
 | `subscriptions/listen` | 2026-07-28 | **any** era | an acknowledgement, then only the notifications the filter asked for, each tagged with the subscription id |
 | `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
-| `logging/setLevel` | legacy | legacy peers | `{}`; mcpx emits no `notifications/message` (§2.2) |
+| `logging/setLevel` | legacy | legacy peers | `{}`; sets the level of upstream log messages relayed to this connection (§4.4) |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core | **any** legacy peer | the core shapes; a task is visible only to the connection that started it |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers that declared `io.modelcontextprotocol/tasks` on the request; `-32021` with `data.requiredCapabilities` (HTTP 400) otherwise | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
 | `notifications/cancelled` | all | always | cancels the request it names — its context, and so its upstream call — and withholds the reply |
@@ -156,7 +156,7 @@ that could never work (#284).
 | `resources.subscribe`, `.listChanged` | when the connection can push | same | same | same | same |
 | `prompts.listChanged` | when the connection can push | same | same | same | same |
 | `completions` | — (the revision has no such capability; the method is answered anyway) | ✓ | ✓ | ✓ | ✓ |
-| `logging` | — | — | — | — | — |
+| `logging` | ✓ | ✓ | ✓ | ✓ | — (the level travels in each request's `_meta`) |
 | `tasks` (core) | — | — | — | ✓ | — |
 | `extensions["io.modelcontextprotocol/tasks"]` | — | — | — | — | ✓ |
 
@@ -164,11 +164,10 @@ that could never work (#284).
   server is built. It used to be declared and fed by upstream tool changes,
   which are not changes to *this* list: a client re-listed on every one and
   got the same tools back.
-- **`logging` is never declared.** The capability means "this server sends log
-  messages", and there is no `notifications/message` anywhere in the server
-  package. Upstream log messages reach `/v1/events`, not an MCP host (#212).
-  An earlier version of this page said `logging` was declared to legacy
-  clients; the code never did.
+- **`logging` is declared to legacy clients.** The capability means "this
+  server sends log messages": mcpx relays its upstreams' `notifications/message`
+  to a client that set a level, during that client's calls (§4.4, #212).
+  2026-07-28 has no such capability.
 - **"Can push"** is a property of the connection, not of the server. A stdio
   connection can. A legacy HTTP session can, through its GET stream (which
   used to be missing, so both were declared and never delivered). A legacy
@@ -277,8 +276,8 @@ server whose surface is offered **as itself** instead:
 
 Every other server stays reachable through the gateway tools. Not carried
 over: a pass-through tool's `outputSchema`, `title` and `annotations` (the
-daemon's catalogue keeps name, description and input schema only), and the
-upstream's `notifications/message` and `notifications/progress` (§2.2, #212).
+daemon's catalogue keeps name, description and input schema only). The
+upstream's progress and log messages during a call are relayed (§4.4).
 `scripts/conformance.sh` runs the official suite's own fixture server this way.
 
 ## 3. A server asks a question
@@ -531,6 +530,36 @@ when it ends. Messages and progress go to `/v1/events`; a list change drops
 the cached schema. `notifications/tasks/status` (2025-11-25) is received and
 dropped — mcpx polls task state rather than tracking it.
 
+### 4.4 Progress, log messages and trace context, relayed (#212)
+
+During a `tools/call` that reaches an upstream, mcpx carries what the host
+asked for through to the server doing the work, and what that server sends
+back to the host:
+
+- **Progress.** A host's `_meta.progressToken` is replaced upstream by a token
+  of mcpx's own (`mcpx-<n>`, unique on that upstream connection, which two
+  hosts' tokens are not), and each `notifications/progress` for it is sent to
+  the host with the host's token restored.
+- **Log messages.** A 2026-07-28 host's `_meta` `logLevel` is sent upstream
+  (or the daemon's own level, if more verbose); a legacy host's level is the one
+  it set with `logging/setLevel`. Upstream `notifications/message` at or above
+  that level are sent to the host. No level, no messages. A log message names
+  no request, so one arriving while a host has several calls in flight on the
+  same upstream connection goes to each of them.
+- **Trace context.** `traceparent`, `tracestate` and `baggage` in `_meta` are
+  passed upstream unchanged.
+
+Over Streamable HTTP these go on the call's own response stream, which
+becomes `text/event-stream` only when something is relayed; over stdio, as
+notifications. Between `mcpx serve` and the daemon the call carries a `relay`
+object on `/v1/call` (answered as `application/x-ndjson` when anything was
+relayed, plain JSON otherwise) or `/v1/ask` (collected by the polls as
+`notifications`). `mcpx call` and `mcpx exec` send no relay and print only the
+result. Messages and progress still reach `/v1/events` as before.
+
+Not yet: progress does not extend mcpx's own call timeout (CODE-13), and
+prompts/get and resources/read relay nothing.
+
 ### 4.3 Resource subscriptions, end to end (#241, #247)
 
 mcpx declared `resources.subscribe` to its own clients and never subscribed
@@ -660,9 +689,9 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
   `notifications/cancelled` (stdio, legacy HTTP session) and a closed stream
   (2026-07-28 HTTP, sessionless legacy) cancel the upstream request. A call on
   the ask path runs as a daemon task and keeps running (§3.5).
-- **Progress and log messages are not relayed** to a host, in either
-  direction, and no `progressToken` is sent upstream, so progress cannot
-  extend anyone's timeout (#212).
+- **Progress does not extend mcpx's own call timeout.** It is relayed to the
+  host (§4.4), so a host's timeout can reset on it; the daemon's
+  per-server `callTimeout` still cannot.
 - **`-32021` for a tool that asks** is deliberately not raised (§3.1); whether
   the broker fallback discharges the MUST is #252 item 1.
 - **Tasks.** `notifications/tasks/status` is dropped; mcpx never

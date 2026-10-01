@@ -111,6 +111,10 @@ type Client struct {
 	// logLevel is the level stamped into each modern request's _meta; empty
 	// means none, and a modern server then sends no log messages.
 	logLevel string
+	// relays are the calls in flight whose host asked for progress or log
+	// messages, each with the progress token mcpx sent upstream for it.
+	relays   map[*Relay]string
+	relaySeq atomic.Int64
 	// toolHeaders are each tool's x-mcp-header annotations, learned from
 	// tools/list, for a modern connection over HTTP.
 	toolHeaders map[string][]headerParam
@@ -539,6 +543,7 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 	if l != nil && !l.accepts(method, params) {
 		return
 	}
+	c.relayNotification(method, params)
 
 	switch method {
 	case "notifications/message":
@@ -1011,6 +1016,11 @@ func (c *Client) CallTool(ctx context.Context, name string, args any) (json.RawM
 	if err != nil {
 		return nil, err
 	}
+	params, done, err := c.beginRelay(relayFrom(ctx), params)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	var raw json.RawMessage
 	for attempt := 0; ; attempt++ {
 		hctx, err := c.toolCallHeaders(ctx, name, args, attempt > 0)

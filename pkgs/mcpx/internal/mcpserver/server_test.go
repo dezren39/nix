@@ -598,11 +598,13 @@ func TestCapabilitiesMatchWhatIsActuallyAnswered(t *testing.T) {
 		} `json:"result"`
 	}
 	_ = json.Unmarshal(b, &doc)
-	for _, absent := range []string{"sampling", "logging"} {
-		if _, declared := doc.Result.Capabilities[absent]; declared {
-			t.Errorf("%s is not implemented and must not be declared: %v",
-				absent, doc.Result.Capabilities)
-		}
+	if _, declared := doc.Result.Capabilities["sampling"]; declared {
+		t.Errorf("sampling is not implemented and must not be declared: %v", doc.Result.Capabilities)
+	}
+	// logging is: upstream log messages are relayed to a client that set a
+	// level, during its calls.
+	if _, declared := doc.Result.Capabilities["logging"]; !declared {
+		t.Errorf("mcpx relays upstream log messages, so logging must be declared: %v", doc.Result.Capabilities)
 	}
 }
 

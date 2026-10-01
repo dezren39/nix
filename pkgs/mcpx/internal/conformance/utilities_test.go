@@ -233,7 +233,7 @@ func TestUtilitiesServer(t *testing.T) {
 		}
 	})
 
-	// ---- logging: mcpx sends none, declares none ----
+	// ---- logging: mcpx's own tools send none; upstream messages are relayed (e2e relay_test) ----
 
 	// https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging
 	for _, id := range []string{"logging-declare-capability", "logging-setlevel-at-or-above", "logging-unset-server-chooses",
@@ -249,8 +249,10 @@ func TestUtilitiesServer(t *testing.T) {
 				caps = asMap(resultOf(t, ss.initialize(t, rev))["capabilities"])
 				ss.request(t, rev, "logging/setLevel", map[string]any{"level": "debug"})
 			}
-			if _, ok := caps["logging"]; ok {
-				t.Error("declares logging and sends none")
+			// Legacy: declared, because upstream log messages are relayed to
+			// a client that set a level. 2026-07-28 has no such capability.
+			if _, ok := caps["logging"]; ok == isModern(rev) {
+				t.Errorf("logging declared=%v under %s", ok, rev)
 			}
 			ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_status", "arguments": map[string]any{}})
 			if f, quiet := ss.quiet(200 * time.Millisecond); !quiet {

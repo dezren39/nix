@@ -350,6 +350,11 @@ func baseTools() []map[string]any {
 			},
 		},
 		{
+			"name":        "chatty",
+			"description": "Report progress and log messages, then echo the request's _meta.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
 			"name":        "state",
 			"description": "Report this process's pid and everything it has recorded.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
@@ -495,6 +500,26 @@ func callTool(r req) map[string]any {
 		})
 	case "fancy-name":
 		b, _ := json.Marshal(p.Arguments)
+		return ok(r.ID, textResult(string(b)))
+	case "chatty":
+		// Reports progress for the token it was given, logs at two levels,
+		// and answers with the _meta it received, so a test can see both
+		// what a proxy relayed back and what it passed on.
+		var m struct {
+			Meta map[string]json.RawMessage `json:"_meta"`
+		}
+		_ = json.Unmarshal(r.Params, &m)
+		if tok, ok := m.Meta["progressToken"]; ok {
+			for i := 1; i <= 2; i++ {
+				notify(map[string]any{"jsonrpc": "2.0", "method": "notifications/progress",
+					"params": map[string]any{"progressToken": tok, "progress": i, "total": 2}})
+			}
+		}
+		for _, lvl := range []string{"debug", "warning"} {
+			notify(map[string]any{"jsonrpc": "2.0", "method": "notifications/message",
+				"params": map[string]any{"level": lvl, "data": "chatty " + lvl}})
+		}
+		b, _ := json.Marshal(m.Meta)
 		return ok(r.ID, textResult(string(b)))
 	}
 	if v := schemaVersion(); v != "" {

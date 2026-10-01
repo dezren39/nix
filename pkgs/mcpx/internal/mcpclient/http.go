@@ -208,8 +208,21 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 		if readErr != nil {
 			return readErr
 		}
-		if len(bytes.TrimSpace(b)) > 0 {
-			t.push(b)
+		// Usually one JSON value. Some servers -- the official conformance
+		// fixture among them -- stream several under application/json, a
+		// notification and then the response, one per line. Read as one
+		// value that is not JSON, the response was dropped and the call
+		// hung until its deadline; read as a sequence, each is delivered.
+		dec := json.NewDecoder(bytes.NewReader(b))
+		for n := 0; ; n++ {
+			var v json.RawMessage
+			if err := dec.Decode(&v); err != nil {
+				if n == 0 && len(bytes.TrimSpace(b)) > 0 {
+					t.push(b) // not JSON at all: delivered as before
+				}
+				break
+			}
+			t.push(v)
 		}
 	}
 	return nil

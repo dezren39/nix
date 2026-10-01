@@ -7348,11 +7348,11 @@
     "quote": "\"Progress tokens **MUST** be a string or integer value\"",
     "applicability": {
       "client": "applies",
-      "server": "n/a:sends no progressTokens"
+      "server": "n/a:as a server mcpx never requests progress; a host's token is relayed back verbatim"
     },
     "notes": {
-      "client": "yes (vacuous — mcpx never sends a progressToken upstream)",
-      "server": "n/a (sends no progressTokens)"
+      "client": "yes — the token mcpx sends upstream is a string, `mcpx-\u003cn\u003e` (#212)",
+      "server": "n/a (as a server mcpx never requests progress; a host's token is relayed back verbatim)"
     }
   },
   {

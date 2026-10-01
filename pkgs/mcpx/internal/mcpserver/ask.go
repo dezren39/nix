@@ -61,6 +61,16 @@ type Outcome struct {
 	IsError bool
 	// Questions are what the call is waiting on, oldest first.
 	Questions []Question
+	// Notifications are what the upstream sent for the client since the
+	// last poll -- progress and log messages, already in the client's
+	// terms (see CallRelay) -- to be delivered before anything else.
+	Notifications []Notification
+}
+
+// Notification is one MCP notification to pass on to the client.
+type Notification struct {
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
 }
 
 // canAsk reports whether this request should go through the Asker at all.
@@ -143,6 +153,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		if len(answers) > 0 {
 			// The questions still open, to undo wireKey's renaming.
 			if open, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil {
+				relayNotes(ctx, open)
 				answers = answersByID(answers, sendableTo(open.Questions, peer))
 			}
 			if err := s.Ask.Reply(ctx, callID, answers); err != nil {
@@ -183,6 +194,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		if err != nil {
 			return fail(codeInternal, err.Error())
 		}
+		relayNotes(ctx, out)
 		if out.Done {
 			if out.IsError && req.Method != "tools/call" {
 				// Only a tool has a result that can say it failed. A read or
@@ -206,6 +218,9 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 
 		sendable := sendableTo(out.Questions, peer)
+		if len(sendable) == 0 && len(out.Notifications) > 0 {
+			continue // Poll returned to deliver these; go straight back
+		}
 		if len(sendable) == 0 {
 			// Either nothing was asked yet, or what was asked is something
 			// this client cannot answer -- a url flow to a form-only
@@ -239,7 +254,11 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			case <-ctx.Done():
 			case <-time.After(askSettle):
 			}
-			if more, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil && !more.Done {
+			more, perr := s.Ask.Poll(ctx, callID, time.Millisecond)
+			if perr == nil {
+				relayNotes(ctx, more)
+			}
+			if perr == nil && !more.Done {
 				if m := sendableTo(more.Questions, peer); len(m) > len(sendable) {
 					sendable = m
 				}
@@ -275,6 +294,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		if len(answers) > 0 {
 			// The questions still open, to undo wireKey's renaming.
 			if open, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil {
+				relayNotes(ctx, open)
 				answers = answersByID(answers, sendableTo(open.Questions, peer))
 			}
 			if err := s.Ask.Reply(ctx, callID, answers); err != nil {
@@ -284,6 +304,17 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 	}
 	s.Ask.Abandon(callID)
 	return fail(codeInternal, req.Method+": the call did not finish before mcpx stopped waiting for it")
+}
+
+// relayNotes delivers what a poll collected to the client whose call it is.
+func relayNotes(ctx context.Context, out Outcome) {
+	r := RelayFrom(ctx)
+	if r == nil || r.Notify == nil {
+		return
+	}
+	for _, n := range out.Notifications {
+		r.Notify(n.Method, n.Params)
+	}
 }
 
 // sendableTo picks the questions this client may be sent.

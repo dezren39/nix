@@ -388,6 +388,9 @@ type askReq struct {
 	// many upstream calls are correlated through its run id.
 	Source  string          `json:"source"`
 	Options execsvc.Options `json:"options"`
+	// Relay is what the client asked of a tools/call; see CallRelay. What
+	// comes back is collected by the polls, as "notifications".
+	Relay *CallRelay `json:"relay,omitempty"`
 }
 
 func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
@@ -441,6 +444,11 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 				if uerr := json.Unmarshal(req.Args, &args); uerr != nil {
 					return nil, &tasks.Fault{Code: http.StatusBadRequest, Message: "args: " + uerr.Error()}
 				}
+			}
+			if req.Relay != nil {
+				buf := newRelayBuffer()
+				askRelays.Store(id, buf)
+				ctx = mcpclient.WithRelay(ctx, buf.relay(req.Relay))
 			}
 			raw, err = s.reg.CallAsk(ctx, id, req.Server, req.Tool, cc, args)
 		case "prompts/get":
@@ -503,6 +511,10 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var notes *relayBuffer
+	if v, ok := askRelays.Load(id); ok {
+		notes = v.(*relayBuffer)
+	}
 	call, live := s.reg.Asks().get(id)
 	if !tasks.Terminal(t.Status) && live {
 		before, changed := call.snapshot()
@@ -510,12 +522,17 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 		// nothing having been asked. After a question is answered the call
 		// keeps running, and returning immediately because it once asked
 		// something would turn the caller's long poll into a spin.
-		if len(s.openQuestions(before)) == 0 {
+		if len(s.openQuestions(before)) == 0 && (notes == nil || !notes.pending()) {
+			var wake chan struct{}
+			if notes != nil {
+				wake = notes.wake
+			}
 			ctx, cancel := context.WithTimeout(r.Context(), wait)
 			done := s.taskDone(ctx, id)
 			select {
 			case <-changed:
 			case <-done:
+			case <-wake:
 			case <-ctx.Done():
 			}
 			cancel()
@@ -540,6 +557,16 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 			out["result"] = result
 		}
 		out["done"] = true
+	}
+	if notes != nil {
+		// Drained after the status is read, so a call that finished has
+		// already relayed everything it will: none is left behind.
+		if n := notes.drain(); len(n) > 0 {
+			out["notifications"] = n
+		}
+		if out["done"] == true {
+			askRelays.Delete(id)
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -668,6 +695,7 @@ func answerFromResult(id, method string, raw json.RawMessage) (elicit.Answer, er
 
 func (s *Server) handleAskAbandon(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	askRelays.Delete(id)
 	t, ok := s.taskStore().Cancel(id)
 	if !ok {
 		writeErr(w, http.StatusNotFound, tasks.ErrNoTask{ID: id})
