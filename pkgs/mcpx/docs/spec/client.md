@@ -203,7 +203,9 @@ it; it used to call every tool with `{}`.
 
 ## Not done
 
-- **OAuth.** The `auth` config key is parsed (`internal/mcpauth`) and never
-  applied: nothing calls `mcpauth.Resolve`, so no auth type, `query` included,
-  reaches a request. The spec forbids tokens in a query string; today that
-  cannot happen only because no auth is sent at all.
+- **OAuth.** The `auth` config key is applied to every upstream connection
+  (`internal/pool` `resolveAuth`, #240): bearer, basic and header become
+  headers, env becomes the child's environment, `query` is added to the URL.
+  `type: oauth` is refused before connecting. The spec forbids access tokens in
+  a query string; `query` exists for services that require it and sends one
+  only when you declare it.

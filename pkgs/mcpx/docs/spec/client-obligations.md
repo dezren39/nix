@@ -167,8 +167,8 @@ A client that authenticates:
 
 On stdio the client passes credentials through the environment. A client
 that sends static configured headers meets "never in the query" only if none
-of its auth modes puts a token in the URL. mcpx's `query` auth type would:
-today it is harmless only because no `auth` block is applied at all (#240).
+of its auth modes puts a token in the URL. mcpx's `query` auth type does,
+and since #240 an `auth` block is applied, so `query` sends one when declared.
 
 ---
 
@@ -350,7 +350,8 @@ HTTP+SSE fallback, the cancelled `initialize`, paging that stopped at an empty
 cursor, undeclared url-mode elicitation and `elicitationId` reaching 2026
 clients were fixed by #224, #232 and #239. What the rules above still expose:
 
-- No OAuth, and the per-server `auth` block is never applied (#240, #253).
+- No OAuth (#253). The per-server `auth` block is applied (#240); `type: oauth`
+  is refused before connecting.
 - `sampling` and `elicitation.url` are declared whenever a handler is
   installed, and the daemon always installs one; `roots` is declared and
   always answered with an empty list (#210).
