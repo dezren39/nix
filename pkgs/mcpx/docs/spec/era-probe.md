@@ -17,6 +17,42 @@ round trip. The spec prescribes the opposite order for a dual-era client, and
 the era cache turns the probe into a one-time cost per server configuration,
 so the argument no longer holds.
 
+## Follow
+
+`protocol: follow` (per server, or `upstream.protocol=follow`) is `modern`
+for the server's own session, plus a second, legacy-only session (`force-legacy`
+-- `initialize`, no probe) used for any call whose caller reached mcpx in a
+revision before 2026-07-28. The point is server-to-client requests: a dual-era
+server can push `elicitation/create` or `sampling/createMessage` only on a
+legacy session, and a legacy caller can only be asked by a request. Over the
+modern session such a server answers its legacy-only tools -32601 (the
+official suite's `test_elicitation`, `test_sampling`).
+
+- **Who is legacy.** The caller's revision travels with the call: mcpx's MCP
+  server records it per request, `mcpx serve` sends it to the daemon as
+  `X-Mcpx-Caller-Protocol` on `/v1/call` and `/v1/ask`, and the pool reads it.
+  A call with no caller revision (the CLI, `/v1` direct, schema refresh) is
+  modern.
+- **Pool.** The two sessions are two instances under the same scope key; the
+  key is still the caller's identity, and the era is a second axis. Each lane
+  has its own `max`, so a global scope (max 1) holds one of each, and a legacy
+  call the server never finishes cannot stall modern callers. A legacy caller
+  also takes a modern-lane instance that settled legacy (a legacy-only server
+  needs no second session). Eviction stays within a lane.
+- **Fallback.** If the legacy-only start fails (a modern-only server refuses
+  `initialize`), the pool remembers it for its lifetime and legacy callers
+  share the modern session, as under `modern`.
+- **Era cache.** The legacy session is forced, so it neither reads nor writes
+  the cache; the cache keeps describing the server's own era.
+- **Attribution.** A legacy HTTP server's request on a POST's response stream
+  is handed to the answer handler with that request's context, so the daemon
+  attributes it to the call that provoked it rather than inferring it from who
+  else shares the session (it could not when two calls were in flight).
+- **Why not the default.** For a stdio server the second session is a second
+  process for the same key -- a second browser, a second index -- which the
+  pool otherwise never does. Opt in where the server is cheap to run twice or
+  where legacy callers need its questions.
+
 ## stdio
 
 `server/discover` is sent with the full `_meta` (newest version mcpx offers,

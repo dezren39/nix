@@ -35,7 +35,7 @@ type HTTPTransport struct {
 	// getStream is set once the standalone GET stream has been started.
 	getStream bool
 
-	incoming chan []byte
+	incoming chan inbound
 	errOnce  sync.Once
 	errCh    chan error
 	err      error
@@ -65,7 +65,7 @@ func NewHTTP(opts HTTPOptions) (*HTTPTransport, error) {
 		url:      opts.URL,
 		headers:  opts.Headers,
 		hc:       &http.Client{Timeout: timeout},
-		incoming: make(chan []byte, 64),
+		incoming: make(chan inbound, 64),
 		errCh:    make(chan error, 1),
 		closed:   make(chan struct{}),
 	}, nil
@@ -188,7 +188,7 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 		t.wg.Add(1)
 		go func() {
 			defer t.wg.Done()
-			st := t.readSSE(resp.Body, reqID)
+			st := t.readSSE(ctx, resp.Body, reqID)
 			resp.Body.Close()
 			if reqID == nil || st.answered || ctx.Err() != nil {
 				return
@@ -270,7 +270,13 @@ type sseState struct {
 
 // readSSE delivers every message on a stream. reqID, when set, is the
 // request whose response the stream is expected to carry.
-func (t *HTTPTransport) readSSE(r io.Reader, reqID json.RawMessage) sseState {
+//
+// origin is the context of the request whose POST opened the stream, or nil
+// for the standalone GET stream. A server request on a POST's stream is
+// related to that request (2025-11-25 transports), and RecvContext hands
+// origin on with it so the answer can be attributed to the call that
+// provoked it rather than inferred from whoever else shares the session.
+func (t *HTTPTransport) readSSE(origin context.Context, r io.Reader, reqID json.RawMessage) sseState {
 	var st sseState
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
@@ -287,7 +293,7 @@ func (t *HTTPTransport) readSSE(r io.Reader, reqID json.RawMessage) sseState {
 		if reqID != nil && answers([]byte(payload), reqID) {
 			st.answered = true
 		}
-		t.push([]byte(payload))
+		t.pushFrom(origin, []byte(payload))
 	}
 	for sc.Scan() {
 		line := sc.Text()
@@ -349,7 +355,7 @@ func (t *HTTPTransport) resume(ctx context.Context, reqID json.RawMessage, st ss
 		if err != nil {
 			break
 		}
-		next := t.readSSE(body, reqID)
+		next := t.readSSE(ctx, body, reqID)
 		body.Close()
 		if next.answered {
 			return
@@ -446,7 +452,7 @@ func (t *HTTPTransport) listen() {
 				failures++
 			} else {
 				failures = 0
-				next := t.readSSE(body, nil)
+				next := t.readSSE(nil, body, nil)
 				body.Close()
 				if next.lastID != "" {
 					st.lastID = next.lastID
@@ -503,40 +509,56 @@ func answers(payload []byte, id json.RawMessage) bool {
 		bytes.Equal(bytes.TrimSpace(one.ID), bytes.TrimSpace(id))
 }
 
-func (t *HTTPTransport) push(b []byte) {
+// inbound is one received frame and the context of the request it arrived
+// in answer to, when there is one.
+type inbound struct {
+	b      []byte
+	origin context.Context
+}
+
+func (t *HTTPTransport) push(b []byte) { t.pushFrom(nil, b) }
+
+func (t *HTTPTransport) pushFrom(origin context.Context, b []byte) {
 	// A frame may be a single object or a batch array.
 	trimmed := bytes.TrimSpace(b)
 	if len(trimmed) > 0 && trimmed[0] == '[' {
 		var batch []json.RawMessage
 		if err := json.Unmarshal(trimmed, &batch); err == nil {
 			for _, m := range batch {
-				t.deliver(m)
+				t.deliver(origin, m)
 			}
 			return
 		}
 	}
-	t.deliver(trimmed)
+	t.deliver(origin, trimmed)
 }
 
-func (t *HTTPTransport) deliver(b []byte) {
+func (t *HTTPTransport) deliver(origin context.Context, b []byte) {
 	select {
-	case t.incoming <- b:
+	case t.incoming <- inbound{b: b, origin: origin}:
 	case <-t.closed:
 	}
 }
 
 // Recv returns the next queued frame.
 func (t *HTTPTransport) Recv() ([]byte, error) {
+	b, _, err := t.RecvContext()
+	return b, err
+}
+
+// RecvContext is Recv, plus the context of the request on whose response
+// stream the frame arrived (nil when none).
+func (t *HTTPTransport) RecvContext() ([]byte, context.Context, error) {
 	select {
-	case b := <-t.incoming:
-		return b, nil
+	case in := <-t.incoming:
+		return in.b, in.origin, nil
 	case err := <-t.errCh:
-		return nil, err
+		return nil, nil, err
 	case <-t.closed:
 		if t.err != nil {
-			return nil, t.err
+			return nil, nil, t.err
 		}
-		return nil, io.EOF
+		return nil, nil, io.EOF
 	}
 }
 

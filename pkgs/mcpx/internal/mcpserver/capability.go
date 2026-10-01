@@ -7,6 +7,23 @@ import (
 
 type peerCapsKey struct{}
 
+type peerVersionKey struct{}
+
+func withPeerVersion(ctx context.Context, p Peer) context.Context {
+	if p.Version == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, peerVersionKey{}, p.Version)
+}
+
+// PeerVersion is the protocol revision this request's client speaks, or ""
+// outside a request. A pass-through Backend relays it so a pool configured
+// protocol: follow can serve a legacy caller from a legacy upstream session.
+func PeerVersion(ctx context.Context) string {
+	v, _ := ctx.Value(peerVersionKey{}).(string)
+	return v
+}
+
 // withPeerCaps records, for the rest of a 2026-07-28 request, the
 // clientCapabilities it declared. A legacy request declared its capabilities
 // once at initialize, for the whole session, and has nothing to record here.

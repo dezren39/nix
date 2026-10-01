@@ -238,6 +238,9 @@ func (c *Client) open(ctx context.Context, method, path string, body []byte, con
 	if caps := mcpclient.ClientCapabilitiesFrom(ctx); len(caps) > 0 {
 		req.Header.Set(daemon.ClientCapsHeader, string(caps))
 	}
+	if v := mcpclient.CallerVersionFrom(ctx); v != "" {
+		req.Header.Set(daemon.CallerVersionHeader, v)
+	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		if isDialErr(err) {

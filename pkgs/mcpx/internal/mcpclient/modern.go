@@ -171,6 +171,34 @@ func ClientCapabilitiesFrom(ctx context.Context) json.RawMessage {
 	return caps
 }
 
+type callerVersionKey struct{}
+
+// WithCallerVersion says which protocol revision the client mcpx is relaying
+// for speaks. The pool reads it under protocol: follow, to pick an upstream
+// session of the same era; see pool.Acquire.
+func WithCallerVersion(ctx context.Context, version string) context.Context {
+	if version == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, callerVersionKey{}, version)
+}
+
+// CallerVersionFrom is what WithCallerVersion stored, or "".
+func CallerVersionFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	v, _ := ctx.Value(callerVersionKey{}).(string)
+	return v
+}
+
+// CallerLegacy reports whether ctx carries a caller revision from before
+// 2026-07-28 -- one that has a session a server can send requests on.
+func CallerLegacy(ctx context.Context) bool {
+	v := CallerVersionFrom(ctx)
+	return v != "" && v < "2026-07-28"
+}
+
 // ErrNotRelayed is a handler declining a request it could not pass on, so
 // the client answers it itself.
 var ErrNotRelayed = errors.New("not relayed")
