@@ -66,9 +66,39 @@
     updateRefs = true; # 2.38+: keep stacked branches pointing correctly
   };
 
-  # Migrated from the former unmanaged ~/.gitconfig, which set this and won by
-  # precedence. Preserving observed behaviour; flip to false for merge-default.
-  pull.rebase = true;
+  # Never guess how to reconcile a divergent pull -- refuse, and make the
+  # caller choose.
+  #
+  # The former setting here was `pull.rebase = true`, migrated from the old
+  # unmanaged ~/.gitconfig. Measured against it on 2026-09-30, with local main
+  # diverged 6/53 from origin and carrying a merge commit that resolved 38
+  # add/add conflicts under pkgs/mcpx:
+  #
+  #   merge  origin/main -> main :  0 conflicts
+  #   rebase main -> origin/main : 35 conflicts on the 1st of 6 commits
+  #
+  # Rebase flattens merge commits by default, so it discarded the commit that
+  # *recorded* that resolution and replayed the raw pre-merge snapshots against
+  # a newer upstream. rerere did not help and cannot: it keys on a hash of the
+  # conflict preimage, and the upstream side of every hunk had moved, so 154
+  # cached resolutions produced 0 replays.
+  #
+  # The generalisation is that merge is never worse than rebase on conflict
+  # count -- it resolves once against the final state of both sides, where
+  # rebase re-resolves per replayed commit -- so `pull.rebase = true` was a
+  # history-aesthetics preference, not a measured one. But defaulting to merge
+  # instead just swaps one silent guess for another, and the only thing a
+  # divergent pull reliably means is that something happened you did not
+  # expect.
+  #
+  # So: ff-only. Verified both branches of the behaviour --
+  #   no divergence  -> fast-forwards silently, as always
+  #   divergence     -> "fatal: Not possible to fast-forward, aborting."
+  # and verified that ff-only takes precedence over pull.rebase, which is why
+  # that key and branch.<name>.rebase are not set at all: under ff-only they
+  # are dead config. `git merge` or `git rebase` is then an explicit decision,
+  # made with the divergence in front of you.
+  pull.ff = "only";
 
   # GitHub credential helpers, migrated from ~/.gitconfig. The leading empty
   # string resets any inherited helper list before appending gh's.
