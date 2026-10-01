@@ -46,6 +46,30 @@ same rule, through the repository variable `MCPX_GO_TESTS` written by
 quirks and two macOS-only tests). Both kinds of record keep the **names** of
 what is skipped, so a rise reports exactly which test or check is new.
 
+### Skipped, and why
+
+The aim is zero failed and zero skipped. Every skip still standing is listed
+here with its reason; anything not listed is a regression the records catch.
+
+| where | what | why it stays |
+| --- | --- | --- |
+| client 2026-07-28 | `http-standard-headers` for `initialize` and `notifications/initialized` (2) | A 2026-07-28 client never sends either: the revision removed the handshake. The suite checks the header on every method it knows and has no way to mark these not applicable. Permanent. |
+| server 2026-07-28, `--suite all` | `tasks-status-notifications` (1 each) | The suite skips it unconditionally: `src/scenarios/server/tasks/notifications.ts` returns SKIPPED with "pending subscriptions/listen rewrite". mcpx does deliver task status on a `subscriptions/listen` stream; `TestListenDeliversTaskStatusNotifications` covers it. Until the suite is rewritten. |
+| server `--suite all` | `sep-2640-skills-directory` (6) | `resources/directory/read` is optional, and the scenario needs a skill folder with a subfolder. Every mcpx skill is one `SKILL.md`, so declaring it would fail rather than pass. Recorded in `../in-name-only.md`. |
+
+Skipped checks: 10 of 1,014, all above. Skipped Go tests: 0.
+
+Exceptions that were skips and are not any more: every conformance gap
+(#200, #201, #203, #209, #212, #77) whose test was skipped while the gap
+stood, 36 of the 42 skills checks, the 2026-07-28 header checks
+for `resources/read` and `prompts/get` (the conformance adapter now reads
+every resource and gets every prompt in that scenario); one Go subtest for a
+method that was never applicable (`initialize` on a legacy connection, now not
+created); the spec example the schema rejects (now asserted rejected, so the
+day the spec fixes it the test fails and says to remove the entry); and two
+macOS-only filesystem tests, now compiled only on macOS rather than counted
+as skipped on Linux.
+
 Each leg's total is every check the suite recorded, from its `checks.json`
 files, warnings included: the summary line's passed + failed leaves warnings
 out, so a failure that became a warning looked like a smaller run.

@@ -43,6 +43,12 @@ Skills are separate again:
 cp -R skills/mcpx-daemon ~/.config/opencode/skills/
 ```
 
+The same skill directories are embedded in the mcpx binary (`skills/skills.go`)
+and served over MCP through the `io.modelcontextprotocol/skills` extension, so
+any MCP host connected to mcpx can list and load them as
+`skill://mcpx/<name>/SKILL.md` without copying anything. Copy only the
+directories; `skills.go` is not a skill.
+
 ### Passing options
 
 A plugin dropped into `plugin/` gets no options — opencode only passes them for

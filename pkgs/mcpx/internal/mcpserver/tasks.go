@@ -155,6 +155,37 @@ func (s *Server) taskSupportOf(ctx context.Context, params json.RawMessage) stri
 	return ex.TaskSupport
 }
 
+// legacyTaskSupport is the taskSupport of the tool a 2025-11-25 tools/call
+// names, from wherever tools/list got it: the pass-through upstream's
+// declaration, or mcpx's own. Absent is "forbidden".
+//
+// The 2026-07-28 path keeps taskSupportOf, which reads pass-through tools
+// only: there the server decides, and mcpx's own tools stay on TaskAfter.
+func (s *Server) legacyTaskSupport(ctx context.Context, params json.RawMessage) string {
+	if sup := s.taskSupportOf(ctx, params); sup != "" {
+		return sup
+	}
+	var call struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(params, &call) != nil {
+		return supportForbidden
+	}
+	if _, isPass := s.passTool(ctx, call.Name); isPass {
+		return supportForbidden
+	}
+	for _, t := range s.Tools() {
+		if t.Name == call.Name && len(t.Execution) > 0 {
+			var ex struct {
+				TaskSupport string `json:"taskSupport"`
+			}
+			_ = json.Unmarshal(t.Execution, &ex)
+			return ex.TaskSupport
+		}
+	}
+	return supportForbidden
+}
+
 // missingTasks is -32021 naming the tasks extension: what a client that did
 // not declare it gets when the only answer is a task.
 func missingTasks(id json.RawMessage) *response {
@@ -200,6 +231,13 @@ func (s *Server) maybeTask(ctx context.Context, c *Conn, req request, peer Peer)
 		want, ttl := wantsTask(req.Params)
 		if !want {
 			return nil
+		}
+		if sup := s.legacyTaskSupport(ctx, req.Params); sup != supportOptional && sup != supportRequired {
+			// 2025-11-25: a tool without taskSupport is "forbidden", the
+			// client MUST NOT augment a call to it, and the server SHOULD
+			// refuse one that does with -32601.
+			return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: codeMethodNotFound,
+				Message: "this tool does not support task-augmented execution (execution.taskSupport is forbidden)"}}
 		}
 		t := s.startTask(c.id, ttl, s.runInner(c, req))
 		return &response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"task": t}}
@@ -267,7 +305,7 @@ type askedTask struct {
 // false when the call turns out not to be interruptible, and the caller
 // runs it as an ordinary task instead.
 func (s *Server) askTask(ctx context.Context, req request, peer Peer) (*response, bool) {
-	callID, _, failed := s.beginAsk(ctx, req, peer)
+	callID, _, _, failed := s.beginAsk(ctx, req, peer)
 	if failed != nil {
 		return failed, true
 	}
@@ -411,6 +449,41 @@ func detailedTask(t Task) map[string]any {
 	return out
 }
 
+// detailedNow is the extension's DetailedTask for a task as it stands: what
+// tasks/get answers and what notifications/tasks carries, which the SEP says
+// are identical. A terminal task inlines its result or error.
+func (s *Server) detailedNow(ctx context.Context, id string) (map[string]any, bool) {
+	st := s.tasks()
+	snap, ok := st.Get(id)
+	if !ok {
+		return nil, false
+	}
+	out := detailedTask(snap)
+	if !tasks.Terminal(snap.Status) {
+		return out, true
+	}
+	// Terminal, so this does not block.
+	result, fault, err := st.Result(ctx, id)
+	switch {
+	case err != nil:
+		return nil, false
+	case snap.Status == tasks.Cancelled:
+		// Nothing inlined: a cancelled task carries neither result
+		// nor error.
+	case fault != nil:
+		out["status"] = tasks.Failed
+		out["error"] = map[string]any{"code": fault.Code, "message": fault.Message, "data": fault.Data}
+	default:
+		// The store calls a tool result with isError a failed task,
+		// which is 2025-11-25's rule. The extension says the opposite:
+		// failed is for JSON-RPC errors only, and a tool that ran and
+		// reported an error is completed with that result.
+		out["status"] = tasks.Completed
+		out["result"] = result
+	}
+	return out, true
+}
+
 func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer) *response {
 	reply := func(result any) *response {
 		return &response{JSONRPC: "2.0", ID: req.ID, Result: result}
@@ -493,7 +566,19 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 			return &response{JSONRPC: "2.0", ID: req.ID,
 				Error: &rpcError{Code: fault.Code, Message: fault.Message, Data: fault.Data}}
 		}
-		return reply(result)
+		// 2025-11-25: the tasks/result response MUST carry the
+		// related-task _meta naming its task, since the result itself is
+		// the underlying request's and does not say which task it was.
+		raw, err := json.Marshal(result)
+		if err == nil {
+			raw, err = withRelatedTask(raw, p.TaskID)
+		}
+		var named map[string]any
+		if err != nil || json.Unmarshal(raw, &named) != nil {
+			// Not an object, so there is nowhere to put _meta.
+			return reply(result)
+		}
+		return reply(named)
 
 	case "tasks/cancel":
 		// 2025-11-25: cancelling a task already in a terminal status is
@@ -523,32 +608,9 @@ func (s *Server) handleModernTask(ctx context.Context, req request, id string, m
 	st := s.tasks()
 	switch req.Method {
 	case "tasks/get":
-		snap, ok := st.Get(id)
+		out, ok := s.detailedNow(ctx, id)
 		if !ok {
 			return missing()
-		}
-		out := detailedTask(snap)
-		if !tasks.Terminal(snap.Status) {
-			return reply(out)
-		}
-		// Terminal, so this does not block.
-		result, fault, err := st.Result(ctx, id)
-		switch {
-		case err != nil:
-			return missing()
-		case snap.Status == tasks.Cancelled:
-			// Nothing inlined: a cancelled task carries neither result
-			// nor error.
-		case fault != nil:
-			out["status"] = tasks.Failed
-			out["error"] = map[string]any{"code": fault.Code, "message": fault.Message, "data": fault.Data}
-		default:
-			// The store calls a tool result with isError a failed task,
-			// which is 2025-11-25's rule. The extension says the opposite:
-			// failed is for JSON-RPC errors only, and a tool that ran and
-			// reported an error is completed with that result.
-			out["status"] = tasks.Completed
-			out["result"] = result
 		}
 		return reply(out)
 

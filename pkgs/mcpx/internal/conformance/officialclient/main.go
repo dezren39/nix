@@ -159,7 +159,58 @@ func run(url, scenario string) error {
 	if len(failed) > 0 {
 		return fmt.Errorf("calls failed: %s", strings.Join(failed, ", "))
 	}
+	if exercisesEverything[scenario] {
+		m.readEverything(ctx)
+	}
 	return nil
+}
+
+// exercisesEverything names the scenarios that check what a client sends on
+// each kind of request, not what it does with a tool. http-standard-headers
+// checks Mcp-Method and Mcp-Name on resources/read and prompts/get as well as
+// tools; a client that only called tools left those checks SKIPPED, passing
+// nothing. Only these scenarios get the extra requests, so no other one sees
+// traffic it did not ask for.
+var exercisesEverything = map[string]bool{"http-standard-headers": true}
+
+// readEverything reads every resource and gets every prompt the upstream
+// lists. Failures are logged and not fatal: what the scenario checks is the
+// request mcpx sent, which exists whether or not the answer was useful.
+func (m *mcpx) readEverything(ctx context.Context) {
+	if out, err := m.run(ctx, "--json", "resources", "--ns", *namespace); err == nil {
+		var list []struct {
+			URI string `json:"uri"`
+		}
+		_ = json.Unmarshal(out, &list)
+		for _, r := range list {
+			out, err := m.run(ctx, "--json", "resources", *namespace+"/"+r.URI)
+			fmt.Fprintf(os.Stderr, "read %s -> err=%v\n%s\n", r.URI, err, out)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "resources: %v\n%s\n", err, out)
+	}
+	if out, err := m.run(ctx, "--json", "prompts", "--ns", *namespace); err == nil {
+		var list []struct {
+			Name      string `json:"name"`
+			Arguments []struct {
+				Name     string `json:"name"`
+				Required bool   `json:"required"`
+			} `json:"arguments"`
+		}
+		_ = json.Unmarshal(out, &list)
+		for _, p := range list {
+			args := []string{"--json", "prompts", *namespace + "." + p.Name}
+			for _, a := range p.Arguments {
+				if a.Required {
+					args = append(args, a.Name+"=x")
+				}
+			}
+			out, err := m.run(ctx, args...)
+			fmt.Fprintf(os.Stderr, "prompt %s -> err=%v\n%s\n", p.Name, err, out)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "prompts: %v\n%s\n", err, out)
+	}
 }
 
 // callsFor picks the tool calls: the scenario's context when it supplies toolCalls, else the table, else

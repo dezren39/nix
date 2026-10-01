@@ -168,16 +168,16 @@ func (s *Server) listen(ctx context.Context, c *Conn, req request, peer Peer) *r
 
 	// The agreed subset. Without a notifier mcpx can deliver nothing, and
 	// says so by agreeing to nothing rather than by refusing the stream: the
-	// acknowledgement exists precisely to report what was honoured. taskIds
-	// is never agreed -- mcpx sends no notifications/tasks -- and so is
-	// omitted, which is how the acknowledgement says "not supported".
+	// acknowledgement exists precisely to report what was honoured.
 	agreed := f
 	if s.Notify == nil {
 		agreed = ListenFilter{}
 	}
-	// Never agreed, for the reason capabilities() never declares it: this
-	// server's tool list does not change while it runs.
-	agreed.ToolsListChanged = false
+	// Agreed only where capabilities() declares it: in pass-through mode,
+	// where the list is the upstreams' and changes with theirs.
+	if !s.toolsVary() {
+		agreed.ToolsListChanged = false
+	}
 
 	lctx, cancel := context.WithCancel(context.Background())
 	l := &listenStream{id: req.ID, send: send, cancel: cancel, done: make(chan struct{})}
@@ -220,21 +220,47 @@ func (s *Server) listen(ctx context.Context, c *Conn, req request, peer Peer) *r
 		close(stopped)
 	}
 
+	// taskIds: the tasks this client can see that still exist. They come
+	// from the task store, not the notifier, so they are agreed with or
+	// without one. An id mcpx does not hold is left out, which is how the
+	// acknowledgement says it will hear nothing about it.
+	var taskIDs []string
+	for _, id := range ext.TaskIDs {
+		if _, ok := s.tasks().Get(id); ok && s.visible(id, c) {
+			taskIDs = append(taskIDs, id)
+		}
+	}
+	ackFilter := map[string]any{}
+	if b, err := json.Marshal(agreed); err == nil {
+		_ = json.Unmarshal(b, &ackFilter)
+	}
+	if len(taskIDs) > 0 {
+		ackFilter["taskIds"] = taskIDs
+	}
+
 	if err := send(map[string]any{"jsonrpc": "2.0",
 		"method": "notifications/subscriptions/acknowledged",
 		"params": map[string]any{
 			"_meta":         map[string]any{MetaSubscriptionID: req.ID},
-			"notifications": agreed,
+			"notifications": ackFilter,
 		}}); err != nil {
 		c.dropListen(key, l)
 		<-stopped
 		return nil
 	}
 	open()
+	stopTasks := func() {}
+	if len(taskIDs) > 0 {
+		stopTasks = s.watchTasks(req.ID, taskIDs, send)
+		go func() { <-l.done; stopTasks() }()
+	}
 
 	if !overHTTP {
 		return nil
 	}
+	// Stopped before returning, for the same reason as the notifier: the
+	// response writer must not be used after the handler returns.
+	defer stopTasks()
 	keepAlive := keepAliveFrom(ctx)
 	tick := time.NewTicker(s.Timing.resolved().SSEKeepAlive)
 	defer tick.Stop()
@@ -256,6 +282,49 @@ func (s *Server) listen(ctx context.Context, c *Conn, req request, peer Peer) *r
 				return nil
 			}
 		}
+	}
+}
+
+// watchTasks sends notifications/tasks on a listen stream for each agreed
+// task: its current state at once, so a task that changed between its
+// creation and this listen is not missed, then every change after. Each
+// carries the DetailedTask tasks/get would answer at that moment, tagged
+// with the subscription id. stop ends it; nothing is sent after stop
+// returns.
+func (s *Server) watchTasks(sub json.RawMessage, ids []string, send func(frame any) error) (stop func()) {
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	var mu sync.Mutex
+	closed := false
+	deliver := func(id string) {
+		if !want[id] {
+			return
+		}
+		// Read and sent under one lock, so two changes in quick
+		// succession cannot reach the client in the wrong order.
+		mu.Lock()
+		defer mu.Unlock()
+		if closed {
+			return
+		}
+		d, ok := s.detailedNow(context.Background(), id)
+		if !ok {
+			return
+		}
+		_ = send(map[string]any{"jsonrpc": "2.0", "method": "notifications/tasks",
+			"params": tagged(d, sub)})
+	}
+	unwatch := s.tasks().Watch(deliver)
+	for _, id := range ids {
+		deliver(id)
+	}
+	return func() {
+		unwatch()
+		mu.Lock()
+		closed = true
+		mu.Unlock()
 	}
 }
 

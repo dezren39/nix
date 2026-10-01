@@ -4,7 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
+
+// ProgressMinInterval is the least time between two progress notifications
+// passed on for one token. An upstream may report as often as it likes; the
+// spec has receivers rate-limit so a flood does not reach the host. The last
+// report (progress reaching total) is never held back.
+const ProgressMinInterval = 20 * time.Millisecond
+
+// ProgressBurst is how many of a call's progress notifications are passed on
+// before ProgressMinInterval starts to apply.
+//
+// A plain interval drops progress a host asked for: a server reporting three
+// steps as fast as it does them is not flooding, and the official suite's
+// tools-call-with-progress sends exactly that and expects all three
+// ("Expected at least 3 progress notifications, got 2", 3 runs of 3). The
+// burst lets ordinary reporting through and still bounds a server that sends
+// thousands.
+const ProgressBurst = 5
+
+// relayState is one call in flight: the token mcpx sent upstream for it, and
+// the last progress passed on, which the next must exceed.
+type relayState struct {
+	token string
+	last  float64
+	seen  bool
+	done  bool // progress reached total: nothing more is passed on
+	at    time.Time
+	n     int // passed on so far, against ProgressBurst
+}
 
 // Relay carries what a downstream client asked of one call through to the
 // upstream server, and what the upstream sends back during it.
@@ -119,9 +148,9 @@ func (c *Client) beginRelay(r *Relay, params json.RawMessage) (json.RawMessage, 
 	}
 	c.mu.Lock()
 	if c.relays == nil {
-		c.relays = map[*Relay]string{}
+		c.relays = map[*Relay]*relayState{}
 	}
-	c.relays[r] = token
+	c.relays[r] = &relayState{token: token}
 	c.mu.Unlock()
 	return out, func() {
 		c.mu.Lock()
@@ -130,57 +159,88 @@ func (c *Client) beginRelay(r *Relay, params json.RawMessage) (json.RawMessage, 
 	}, nil
 }
 
+// acceptProgress decides whether one notifications/progress is passed on,
+// and to which relay. Progress is accepted only for the token of a call
+// still in flight -- once the response is in, the relay is gone and so is
+// its token -- only when it exceeds the last value passed on (the spec has
+// it increase with every notification, and a host must not see it go
+// backwards from mcpx), and -- after ProgressBurst of them -- no more often
+// than ProgressMinInterval.
+func (c *Client) acceptProgress(params json.RawMessage) (*Relay, map[string]json.RawMessage, bool) {
+	var p map[string]json.RawMessage
+	if json.Unmarshal(params, &p) != nil {
+		return nil, nil, false
+	}
+	var tok string
+	if json.Unmarshal(p["progressToken"], &tok) != nil || tok == "" {
+		return nil, nil, false
+	}
+	var v struct {
+		Progress *float64 `json:"progress"`
+		Total    *float64 `json:"total"`
+	}
+	if json.Unmarshal(params, &v) != nil || v.Progress == nil {
+		return nil, nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for r, st := range c.relays {
+		if st.token == "" || st.token != tok {
+			continue
+		}
+		if st.done || (st.seen && *v.Progress <= st.last) {
+			return nil, nil, false
+		}
+		final := v.Total != nil && *v.Progress >= *v.Total
+		now := time.Now()
+		if st.n >= ProgressBurst && !final && now.Sub(st.at) < ProgressMinInterval {
+			return nil, nil, false
+		}
+		st.last, st.seen, st.done, st.at = *v.Progress, true, final, now
+		st.n++
+		return r, p, true
+	}
+	return nil, nil, false
+}
+
 // relayNotification hands a notification to the calls that asked for it.
 //
 // Progress goes to the one call whose token it carries, with the host's own
-// token put back. A log message names no request, so it goes to every call
-// in flight on this connection whose host asked for that level: on a legacy
-// session logging is session-wide anyway, and that is the only association
-// the protocol offers.
-func (c *Client) relayNotification(method string, params json.RawMessage) {
-	c.mu.Lock()
-	if len(c.relays) == 0 {
-		c.mu.Unlock()
-		return
-	}
-	type target struct {
-		r     *Relay
-		token string
-	}
-	targets := make([]target, 0, len(c.relays))
-	for r, tok := range c.relays {
-		targets = append(targets, target{r, tok})
-	}
-	c.mu.Unlock()
-
+// token put back, if acceptProgress lets it through; it reports whether it
+// did. A log message names no request, so it goes to every call in flight on
+// this connection whose host asked for that level: on a legacy session
+// logging is session-wide anyway, and that is the only association the
+// protocol offers.
+func (c *Client) relayNotification(method string, params json.RawMessage) bool {
 	switch method {
 	case "notifications/progress":
-		var p map[string]json.RawMessage
-		if json.Unmarshal(params, &p) != nil {
-			return
+		r, p, ok := c.acceptProgress(params)
+		if !ok {
+			return false
 		}
-		var tok string
-		if json.Unmarshal(p["progressToken"], &tok) != nil || tok == "" {
-			return
-		}
-		for _, t := range targets {
-			if t.token == tok {
-				p["progressToken"] = t.r.ProgressToken
-				if b, err := json.Marshal(p); err == nil {
-					t.r.OnProgress(b)
-				}
-				return
+		if r.OnProgress != nil {
+			p["progressToken"] = r.ProgressToken
+			if b, err := json.Marshal(p); err == nil {
+				r.OnProgress(b)
 			}
 		}
+		return true
 	case "notifications/message":
 		var m struct {
 			Level string `json:"level"`
 		}
 		_ = json.Unmarshal(params, &m)
-		for _, t := range targets {
-			if t.r.OnMessage != nil && t.r.LogLevel != "" && LogAtLeast(m.Level, t.r.LogLevel) {
-				t.r.OnMessage(params)
+		c.mu.Lock()
+		targets := make([]*Relay, 0, len(c.relays))
+		for r := range c.relays {
+			targets = append(targets, r)
+		}
+		c.mu.Unlock()
+		for _, r := range targets {
+			if r.OnMessage != nil && r.LogLevel != "" && LogAtLeast(m.Level, r.LogLevel) {
+				r.OnMessage(params)
 			}
 		}
 	}
+	return true
 }

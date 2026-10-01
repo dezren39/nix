@@ -83,7 +83,7 @@ jobs:
           - leg: client-2025-11-25
             expect: "20 56"
           - leg: client-2026-07-28
-            expect: "63 68"
+            expect: "67 68"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

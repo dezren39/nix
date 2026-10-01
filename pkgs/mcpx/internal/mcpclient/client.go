@@ -84,6 +84,9 @@ type Client struct {
 	Capabilities map[string]json.RawMessage
 	// Era is which protocol generation this connection settled on.
 	Era Era
+	// modern mirrors Era == EraModern for the read loop, which runs while
+	// connect is still deciding and so cannot read Era without a race.
+	modern atomic.Bool
 	// Negotiated is the version actually in use.
 	Negotiated string
 	// onElicit answers server-initiated requests.
@@ -114,7 +117,10 @@ type Client struct {
 	logLevel string
 	// relays are the calls in flight whose host asked for progress or log
 	// messages, each with the progress token mcpx sent upstream for it.
-	relays   map[*Relay]string
+	relays map[*Relay]*relayState
+	// asked are the server's requests to us still being answered, by id
+	// (compact JSON), so an inbound notifications/cancelled can stop one.
+	asked    map[string]*askedReq
 	relaySeq atomic.Int64
 	// toolHeaders are each tool's x-mcp-header annotations, learned from
 	// tools/list, for a modern connection over HTTP.
@@ -454,6 +460,13 @@ func (c *Client) dispatch(origin context.Context, raw []byte) {
 	}
 	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 		if len(probe.ID) > 0 && string(probe.ID) != "null" {
+			if c.modern.Load() {
+				// 2026-07-28 has no server-to-client requests: a server
+				// asks through input_required results instead (SEP-2260,
+				// SEP-2322). The stdio transport page says the client
+				// MUST NOT answer one, so it is dropped unanswered.
+				return
+			}
 			c.handleServerRequest(origin, probe.ID, probe.Method, probe.Params)
 		} else {
 			c.handleNotification(probe.Method, probe.Params)
@@ -493,7 +506,8 @@ func (c *Client) SetElicitHandler(h ElicitHandler) {
 
 // handleServerRequest answers a request the server sent to us.
 //
-// Always answers. The alternative -- dropping what we do not understand --
+// Always answers a legacy server; a 2026-07-28 one has no business sending
+// requests and is never answered (see dispatch). The alternative -- dropping what we do not understand --
 // is what the old code did by accident, and it is indistinguishable from a
 // hung server.
 //
@@ -505,11 +519,30 @@ func (c *Client) handleServerRequest(origin context.Context, id json.RawMessage,
 	if origin != nil {
 		base = context.WithoutCancel(origin)
 	}
+	key := idKey(id)
+	ctx, cancel := context.WithTimeout(base, defaults.ElicitHandlerTimeout)
+	q := &askedReq{cancel: cancel}
+	c.mu.Lock()
+	if c.asked == nil {
+		c.asked = map[string]*askedReq{}
+	}
+	c.asked[key] = q
+	c.mu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(base, defaults.ElicitHandlerTimeout)
 		defer cancel()
 
 		result, rpcErr := c.answer(ctx, method, params)
+
+		c.mu.Lock()
+		if c.asked[key] == q {
+			delete(c.asked, key)
+		}
+		cancelled := q.cancelled
+		c.mu.Unlock()
+		if cancelled {
+			// The server withdrew the question: it expects no answer.
+			return
+		}
 
 		reply := map[string]any{"jsonrpc": "2.0", "id": id}
 		if rpcErr != nil {
@@ -525,6 +558,54 @@ func (c *Client) handleServerRequest(origin context.Context, id json.RawMessage,
 		defer scancel()
 		_ = c.t.Send(sctx, b)
 	}()
+}
+
+// askedReq is one server request being answered.
+type askedReq struct {
+	cancel    context.CancelFunc
+	cancelled bool
+}
+
+// idKey is a JSON-RPC id in a form two spellings of the same id share.
+func idKey(id json.RawMessage) string {
+	var v any
+	if json.Unmarshal(id, &v) != nil {
+		return string(id)
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// cancelAsked stops the answer to a server request the server cancelled:
+// the handler's context ends, and no response is sent. A cancellation for
+// no request being answered -- unknown, already answered, or malformed -- is
+// ignored, as the spec allows. The reason, if any, goes to OnWarning so it
+// is logged.
+func (c *Client) cancelAsked(params json.RawMessage) {
+	var p struct {
+		RequestID json.RawMessage `json:"requestId"`
+		Reason    string          `json:"reason"`
+	}
+	if json.Unmarshal(params, &p) != nil || len(p.RequestID) == 0 {
+		return
+	}
+	key := idKey(p.RequestID)
+	c.mu.Lock()
+	q := c.asked[key]
+	if q != nil {
+		q.cancelled = true
+		delete(c.asked, key)
+	}
+	c.mu.Unlock()
+	if q == nil {
+		return
+	}
+	q.cancel()
+	reason := "the server cancelled its request " + key
+	if p.Reason != "" {
+		reason += ": " + p.Reason
+	}
+	c.warn(Warning{Reason: reason})
 }
 
 // ServerMessage is a log line a server sent us.
@@ -588,9 +669,14 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 	if l != nil && !l.accepts(method, params) {
 		return
 	}
-	c.relayNotification(method, params)
+	if !c.relayNotification(method, params) {
+		// Progress for no request in flight, or out of order, or too soon.
+		return
+	}
 
 	switch method {
+	case "notifications/cancelled":
+		c.cancelAsked(params)
 	case "notifications/message":
 		if n.OnMessage == nil {
 			return

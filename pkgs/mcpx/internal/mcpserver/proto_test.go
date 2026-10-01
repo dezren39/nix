@@ -510,11 +510,13 @@ func TestARemovedMethodIsNotFoundForTheRevisionThatRemovedIt(t *testing.T) {
 				t.Errorf("%s: code %d, want -32601", m, resp.Error.Code)
 			}
 		})
+		if m == "initialize" {
+			// Not applicable rather than skipped: initialize is the legacy
+			// handshake itself, which every legacy subtest already sends.
+			continue
+		}
 		t.Run("legacy-still-served/"+m, func(t *testing.T) {
 			// The same method on a legacy connection is untouched.
-			if m == "initialize" {
-				t.Skip("initialize is the legacy handshake itself")
-			}
 			srv := mcpserver.New(newBackend(), "mcpx", "test")
 			srv.Notify = quietNotifier{}
 			srv.SetPush(func(string, any) {})

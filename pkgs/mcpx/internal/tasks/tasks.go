@@ -80,6 +80,44 @@ type Store struct {
 	// PollInterval is the pollInterval each new task carries. Zero means
 	// the built-in default. Set before the store is shared.
 	PollInterval time.Duration
+
+	// watchers hear the id of every task whose state changed, after the
+	// change and outside the lock, so a watcher may read the store.
+	watchers map[int]func(id string)
+	nextW    int
+}
+
+// Watch calls fn with a task's id each time its status, input requests or
+// status message change -- which is what notifications/tasks reports. The
+// call comes after the change is visible to Get, and for a finished task
+// after Result has stopped blocking. stop ends the watch.
+func (s *Store) Watch(fn func(id string)) (stop func()) {
+	s.mu.Lock()
+	if s.watchers == nil {
+		s.watchers = map[int]func(string){}
+	}
+	n := s.nextW
+	s.nextW++
+	s.watchers[n] = fn
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.watchers, n)
+		s.mu.Unlock()
+	}
+}
+
+// changed tells the watchers. Called without the lock held.
+func (s *Store) changed(id string) {
+	s.mu.Lock()
+	fns := make([]func(string), 0, len(s.watchers))
+	for _, fn := range s.watchers {
+		fns = append(fns, fn)
+	}
+	s.mu.Unlock()
+	for _, fn := range fns {
+		fn(id)
+	}
 }
 
 type idKey struct{}
@@ -142,27 +180,11 @@ func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Tas
 	s.mu.Unlock()
 
 	go func() {
-		defer close(t.done)
 		result, fault := fn(ctx)
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if t.Status == Cancelled {
-			return // cancelled while running; the cancellation stands
-		}
-		t.LastUpdatedAt = time.Now()
-		t.InputRequests = nil
-		if fault != nil {
-			t.Status, t.fault = Failed, fault
-			t.StatusMessage = fault.Message
-			return
-		}
-		t.Status, t.result = Completed, result
-		// A tool result that is itself an error is a failed task, per the
-		// specification's own note on TaskStatus.
-		if m, ok := result.(map[string]any); ok {
-			if isErr, _ := m["isError"].(bool); isErr {
-				t.Status = Failed
-			}
+		moved := s.finish(t, result, fault)
+		close(t.done)
+		if moved {
+			s.changed(t.TaskID)
 		}
 	}()
 
@@ -179,6 +201,32 @@ func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Tas
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return *t
+}
+
+// finish records what a task's body produced, and reports whether that
+// changed its status: a task cancelled while running keeps its cancellation.
+func (s *Store) finish(t *Task, result any, fault *Fault) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t.Status == Cancelled {
+		return false // cancelled while running; the cancellation stands
+	}
+	t.LastUpdatedAt = time.Now()
+	t.InputRequests = nil
+	if fault != nil {
+		t.Status, t.fault = Failed, fault
+		t.StatusMessage = fault.Message
+		return true
+	}
+	t.Status, t.result = Completed, result
+	// A tool result that is itself an error is a failed task, per the
+	// specification's own note on TaskStatus.
+	if m, ok := result.(map[string]any); ok {
+		if isErr, _ := m["isError"].(bool); isErr {
+			t.Status = Failed
+		}
+	}
+	return true
 }
 
 // List returns a snapshot, oldest first.
@@ -208,9 +256,14 @@ func (s *Store) Get(id string) (Task, bool) {
 // on an elicitation shows input_required.
 func (s *Store) SetStatus(id, status, message string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if t, ok := s.tasks[id]; ok && !Terminal(t.Status) {
+	t, ok := s.tasks[id]
+	moved := ok && !Terminal(t.Status) && (t.Status != status || t.StatusMessage != message)
+	if moved {
 		t.Status, t.StatusMessage, t.LastUpdatedAt = status, message, time.Now()
+	}
+	s.mu.Unlock()
+	if moved {
+		s.changed(id)
 	}
 }
 
@@ -218,11 +271,17 @@ func (s *Store) SetStatus(id, status, message string) {
 // set makes it input_required, an empty one working again. Called with the
 // same set it changes nothing, lastUpdatedAt included.
 func (s *Store) SetInput(id string, requests map[string]any) {
+	if s.setInput(id, requests) {
+		s.changed(id)
+	}
+}
+
+func (s *Store) setInput(id string, requests map[string]any) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
 	if !ok || Terminal(t.Status) {
-		return
+		return false
 	}
 	status := Working
 	if len(requests) > 0 {
@@ -231,9 +290,10 @@ func (s *Store) SetInput(id string, requests map[string]any) {
 		requests = nil
 	}
 	if status == t.Status && sameKeys(requests, t.InputRequests) {
-		return
+		return false
 	}
 	t.Status, t.InputRequests, t.LastUpdatedAt = status, requests, time.Now()
+	return true
 }
 
 func sameKeys(a, b map[string]any) bool {
@@ -251,16 +311,22 @@ func sameKeys(a, b map[string]any) bool {
 // Cancel stops a task and returns its final state.
 func (s *Store) Cancel(id string) (Task, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
 	if !ok {
+		s.mu.Unlock()
 		return Task{}, false
 	}
-	if !Terminal(t.Status) {
+	moved := !Terminal(t.Status)
+	if moved {
 		t.Status, t.LastUpdatedAt = Cancelled, time.Now()
 		t.cancel()
 	}
-	return *t, true
+	snap := *t
+	s.mu.Unlock()
+	if moved {
+		s.changed(id)
+	}
+	return snap, true
 }
 
 // ErrNoTask is returned for a handle the store does not hold, which usually
