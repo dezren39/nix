@@ -1262,9 +1262,11 @@ func (a *App) CmdRefresh(ctx context.Context, args []string) error {
 	return a.CmdLs(ctx, nil)
 }
 
-// CmdRestart stops running instances so the next call starts fresh ones.
+// CmdRestart restarts running instances and waits for the replacements, or
+// with --lazy only stops them.
 func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	fs := newFlagSet("restart")
+	lazy := fs.Bool("lazy", false, "stop only; the next call starts a fresh instance")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
@@ -1276,7 +1278,7 @@ func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	if fs.NArg() > 0 {
 		target = fs.Arg(0)
 	}
-	n, err := c.Restart(ctx, target)
+	res, err := c.Restart(ctx, target, *lazy)
 	if err != nil {
 		return err
 	}
@@ -1284,7 +1286,25 @@ func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	if target != "" {
 		label = target
 	}
-	fmt.Printf("stopped %d instance(s) for %s\n", n, label)
+	if *lazy {
+		fmt.Printf("stopped %d instance(s) for %s\n", res.Stopped, label)
+		return nil
+	}
+	fmt.Printf("restarted %d instance(s) for %s (stopped %d)\n", res.Started, label, res.Stopped)
+	for _, s := range res.Servers {
+		for _, k := range s.Skipped {
+			fmt.Printf("  %s %s: not replaced: %s\n", s.Server, k.Key, k.Error)
+		}
+		if s.Note != "" && target != "" {
+			fmt.Printf("  %s: %s\n", s.Server, s.Note)
+		}
+		for _, f := range s.Failed {
+			fmt.Fprintf(os.Stderr, "  %s %s: failed to start: %s\n", s.Server, f.Key, f.Error)
+		}
+	}
+	if res.Failed > 0 {
+		return fmt.Errorf("%d instance(s) failed to come back", res.Failed)
+	}
 	return nil
 }
 

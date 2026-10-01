@@ -69,7 +69,7 @@ func startOnce(t *testing.T, p *pool.Pool) {
 		t.Fatal(err)
 	}
 	lease.Release()
-	p.Restart()
+	p.Restart(context.Background(), true)
 }
 
 func newEraPool(s *eraServer, eras pool.EraStore) *pool.Pool {
@@ -245,7 +245,7 @@ func TestPoolProbe(t *testing.T) {
 		if rec := readEraFile(t, file)[pool.Identity(s.cfg)]; rec.Era != mcpclient.EraLegacy {
 			t.Errorf("record = %+v", rec)
 		}
-		p.Restart()
+		p.Restart(context.Background(), true)
 		startOnce(t, p)
 		if got := strings.Join(s.frames(t), ","); got != "initialize" {
 			t.Errorf("second start = %s", got)

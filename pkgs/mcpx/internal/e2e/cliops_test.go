@@ -283,17 +283,9 @@ func TestEventsStreamAsNDJSON(t *testing.T) {
 	e.run("ls")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	// --since 0, for the reason spelled out at length in
-	// TestAStreamingCommandWritesToTheFileItWasGiven below: `restart` is
-	// lazy, so it stops what is running and starts nothing, and after the
-	// one instance `ls` leaves behind is gone every later restart reports
-	// "stopped 0 instance(s)" and publishes nothing. There is exactly one
-	// server event for this test to catch, the ticker below cannot
-	// manufacture a second, and a child that has not finished subscribing
-	// when it fires has lost it for good. That race took the other test down
-	// on five CI runs; this one has been winning it rather than avoiding it,
-	// on a budget a third the size. Asking for the retained history makes a
-	// missed event a late one instead of a lost one.
+	// --since 0 so a child that has not finished subscribing when the
+	// first restart fires gets that event late rather than never; see
+	// TestAStreamingCommandWritesToTheFileItWasGiven below.
 	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "--since", "0")
 	cmd.Dir, cmd.Env = e.dir, e.envVars
 	stdout, err := cmd.StdoutPipe()
@@ -369,14 +361,14 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	// --since 0 is not decoration; without it this test cannot pass reliably
 	// and it failed in CI every single run while passing on a laptop.
 	//
-	// A subscription with no position is live only, and `restart` is lazy:
-	// it stops what is running and starts nothing, so the first restart
-	// publishes server.stopped and every restart after it reports "stopped 0
-	// instance(s)" and publishes nothing at all. There is therefore exactly
-	// one event to catch, the retry loop cannot manufacture a second, and a
-	// freshly exec'd child that has not finished subscribing when it fires
-	// has lost it for good. Locally the child wins that race in a few
-	// milliseconds; under a loaded runner it loses it, deterministically.
+	// A subscription with no position is live only, and a freshly exec'd
+	// child that has not finished subscribing when an event fires has lost
+	// it for good. Locally the child wins that race in a few milliseconds;
+	// under a loaded runner it loses it. When `restart` was stop-only it
+	// lost deterministically: only the first restart had anything to stop,
+	// so there was exactly one event to catch. Restart now publishes
+	// server.stopped and server.started every time, but the position is
+	// still what makes the test independent of the race.
 	//
 	// The daemon already answers that: /v1/events takes since= (and
 	// Last-Event-ID), and present-but-zero means "everything still
@@ -443,9 +435,9 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	}
 
 	// Replay alone would not prove the stream is still live afterwards, and
-	// -o has to keep appending, not write once. A call publishes call.* and
-	// server.* both; only the server ones may appear, since --kinds is in
-	// force.
+	// -o has to keep appending, not write once. A restart publishes
+	// server.stopped and server.started; a call against the warm instance it
+	// leaves publishes call.* only, which --kinds must keep out.
 	before := len(got)
 	live := false
 	liveDeadline := time.Now().Add(30 * time.Second)
@@ -457,6 +449,9 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 		default:
 		}
 		if _, err := e.try("call", "demo.echo", `{"message":"x"}`); err != nil {
+			provokeErr = err.Error()
+		}
+		if _, err := e.try("restart", "demo"); err != nil {
 			provokeErr = err.Error()
 		}
 		if b, rerr := os.ReadFile(out); rerr == nil && len(b) > before {
@@ -483,13 +478,12 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 //
 // Every event here is published before `mcpx events` is even spawned, so a
 // live-only subscription can never see one. That is the deterministic form
-// of what CI hit: `restart` publishes once and then has nothing left to
-// stop, so the single event a filtered stream would ever get had already
-// fired by the time the child subscribed.
+// of what CI hit: the events a filtered stream would get had already fired
+// by the time the child subscribed.
 func TestAStreamPositionMakesAMissedEventALateOneNotALostOne(t *testing.T) {
 	e := newEnv(t, oneServer)
 	e.run("call", "demo.echo", `{"message":"x"}`) // server.started
-	e.run("restart", "demo")                      // server.stopped
+	e.run("restart", "demo")                      // server.stopped, server.started
 
 	n := 0
 	read := func(t *testing.T, window time.Duration, args ...string) string {
@@ -533,4 +527,62 @@ func TestAStreamPositionMakesAMissedEventALateOneNotALostOne(t *testing.T) {
 			t.Fatalf("a positionless subscription is live only; it should not have replayed:\n%s", got)
 		}
 	})
+}
+
+// restart is a restart: every time it stops the running instance and brings
+// a fresh one up, publishing server.stopped then server.started. It used to
+// stop only, so the second restart reported "stopped 0" and published nothing.
+func TestRestartRestartsEveryTime(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.run("ls")
+	for i := 0; i < 2; i++ {
+		out := e.run("restart", "demo")
+		if !strings.Contains(out, "restarted 1 instance(s) for demo") {
+			t.Fatalf("restart %d: %s", i+1, out)
+		}
+	}
+	if st := e.run("status"); !strings.Contains(st, "demo#") {
+		t.Fatalf("no live instance after restart:\n%s", st)
+	}
+
+	out := filepath.Join(e.dir, "events.ndjson")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "--since", "0", "-o", out)
+	cmd.Dir, cmd.Env = e.dir, e.envVars
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	// After the last restart's stop, a start must follow.
+	startedAfterStop := func(s string) bool {
+		i := strings.LastIndex(s, `"kind":"server.stopped"`)
+		return i >= 0 && strings.Contains(s[i:], `"kind":"server.started"`)
+	}
+	var got string
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		b, _ := os.ReadFile(out)
+		if got = string(b); strings.Count(got, `"kind":"server.stopped"`) >= 2 && startedAfterStop(got) {
+			return
+		}
+	}
+	t.Fatalf("want two server.stopped each followed by server.started, got:\n%s", got)
+}
+
+// A replacement that does not come up fails the restart now, with the
+// server's own stderr and a non-zero exit, instead of on the next call.
+func TestRestartReportsAServerThatDoesNotComeBack(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.setenv("FAKEMCP_FAIL_START=1")
+	out, err := e.try("restart", "demo")
+	if err == nil {
+		t.Fatalf("restart of a server that cannot start exited 0:\n%s", out)
+	}
+	if !strings.Contains(out, "refusing to start") {
+		t.Fatalf("the failure should carry the server's stderr:\n%s", out)
+	}
+	// --lazy is the old stop-only behaviour and starts nothing to fail.
+	if out := e.run("restart", "--lazy", "demo"); !strings.Contains(out, "stopped 0 instance(s) for demo") {
+		t.Fatalf("restart --lazy: %s", out)
+	}
 }

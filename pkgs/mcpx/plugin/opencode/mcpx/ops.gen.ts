@@ -425,6 +425,7 @@ export const OPS: Record<string, OpSpec> = {
     path: "/v1/restart",
     params: {
       server: { in: "body" },
+      lazy: { in: "body" },
     },
     response: "json",
   },
@@ -983,11 +984,11 @@ export class DaemonOps {
   }
 
   /**
-   * Stop a server's instances, or every server's. `POST /v1/restart`.
+   * Restart a server's instances, or every server's. `POST /v1/restart`.
    * Privileged: it changes the daemon rather than reading it.
    * Destructive: it cannot be undone, and other callers are affected.
    */
-  restart(args: { server?: string } = {}, opts: CallOptions = {}): Promise<unknown> {
+  restart(args: { server?: string; lazy?: boolean } = {}, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("restart", args, opts) as Promise<unknown>
   }
 

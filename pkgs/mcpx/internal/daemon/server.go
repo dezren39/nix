@@ -775,14 +775,25 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Server string `json:"server"`
+		Lazy   bool   `json:"lazy"`
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, s.set.Bytes("http.controlBodyLimit"))).Decode(&req)
-	n, err := s.reg.Restart(req.Server)
+	res, err := s.reg.Restart(r.Context(), req.Server, req.Lazy)
 	if err != nil {
 		writeErr(w, 400, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"stopped": n})
+	stopped, started, failed := 0, 0, 0
+	for _, x := range res {
+		stopped += x.Stopped
+		started += len(x.Started)
+		failed += len(x.Failed)
+	}
+	// 200 even when a replacement failed: the restart ran and the body says
+	// what came back. The CLI turns failed > 0 into a non-zero exit.
+	writeJSON(w, 200, map[string]any{
+		"stopped": stopped, "started": started, "failed": failed,
+		"lazy": req.Lazy, "servers": res})
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {

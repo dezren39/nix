@@ -26,6 +26,7 @@ import (
 	"github.com/dezren39/mcpx/internal/defaults"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -936,8 +937,30 @@ func (p *Pool) Status() Status {
 	return st
 }
 
-// Restart stops every instance. The next Acquire starts fresh ones.
-func (p *Pool) Restart() int {
+// RestartResult says what a restart did, instance by instance.
+type RestartResult struct {
+	Stopped int `json:"stopped"`
+	// Started names the replacement instances that came up and answered
+	// initialize.
+	Started []string `json:"started,omitempty"`
+	// Failed lists keys whose replacement did not come up, with why --
+	// including the server's own stderr when it printed one.
+	Failed []RestartFailure `json:"failed,omitempty"`
+	// Skipped lists keys deliberately not replaced: a pid-scoped owner that
+	// has exited, a per-call instance whose call is over.
+	Skipped []RestartFailure `json:"skipped,omitempty"`
+	// Note explains a restart that started nothing on purpose.
+	Note string `json:"note,omitempty"`
+}
+
+// Restart stops every instance and, unless lazy, starts a replacement for
+// each under the same scope key and waits for it to initialize. With nothing
+// running, a global-scope pool starts one instance so a restart verifies the
+// server comes up. A scoped pool with nothing running has no caller identity
+// to start one for, so it starts nothing and says so in Note.
+//
+// Lazy is the old behaviour: drop everything now, start on demand.
+func (p *Pool) Restart(ctx context.Context, lazy bool) RestartResult {
 	p.mu.Lock()
 	stop := p.instances
 	p.instances = nil
@@ -946,11 +969,63 @@ func (p *Pool) Restart() int {
 	p.cooldownUntil = time.Time{}
 	p.cond.Broadcast()
 	p.mu.Unlock()
+	var keys []string
+	seen := map[string]bool{}
 	for _, in := range stop {
 		p.stopped(in, "restart")
 		_ = in.Client.Close()
+		if !seen[in.key] {
+			seen[in.key] = true
+			keys = append(keys, in.key)
+		}
 	}
-	return len(stop)
+	res := RestartResult{Stopped: len(stop)}
+	if lazy {
+		return res
+	}
+	if len(keys) == 0 {
+		if p.cfg.Scope != config.ScopeGlobal {
+			res.Note = fmt.Sprintf("no instance running; scope %q starts one per caller on its next call", p.cfg.Scope)
+			return res
+		}
+		keys = []string{"global"}
+	}
+	for _, key := range keys {
+		switch {
+		case strings.HasPrefix(key, "call:"):
+			res.Skipped = append(res.Skipped, RestartFailure{Key: key, Error: "per-call instance; its call is over"})
+			continue
+		case p.cfg.Scope.WatchesPID() && !keyPIDAlive(key):
+			res.Skipped = append(res.Skipped, RestartFailure{Key: key, Error: "owning process has exited"})
+			continue
+		}
+		id, err := p.startFor(ctx, key)
+		if err != nil {
+			res.Failed = append(res.Failed, RestartFailure{Key: key, Error: err.Error()})
+			continue
+		}
+		res.Started = append(res.Started, id)
+	}
+	return res
+}
+
+// RestartFailure is one key a restart did not bring back.
+type RestartFailure struct {
+	Key   string `json:"key"`
+	Error string `json:"error"`
+}
+
+// startFor brings up the instance for key and lets it go idle. Acquire, not
+// start, so capacity, a concurrent caller and a subscription monitor
+// replacing the same key all converge on one process.
+func (p *Pool) startFor(ctx context.Context, key string) (string, error) {
+	lease, err := p.Acquire(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	id := lease.inst.ID
+	lease.Release()
+	return id, nil
 }
 
 // Close shuts the pool down permanently.

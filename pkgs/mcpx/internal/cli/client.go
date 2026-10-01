@@ -494,16 +494,36 @@ func (c *Client) Refresh(ctx context.Context) (map[string]any, error) {
 	return out, json.Unmarshal(b, &out)
 }
 
-// Restart stops instances for a server (or all when empty).
-func (c *Client) Restart(ctx context.Context, server string) (int, error) {
-	b, err := c.do(ctx, http.MethodPost, "/v1/restart", map[string]string{"server": server})
+// RestartReply is what POST /v1/restart answers.
+type RestartReply struct {
+	Stopped int  `json:"stopped"`
+	Started int  `json:"started"`
+	Failed  int  `json:"failed"`
+	Lazy    bool `json:"lazy"`
+	Servers []struct {
+		Server  string   `json:"server"`
+		Stopped int      `json:"stopped"`
+		Started []string `json:"started"`
+		Failed  []struct {
+			Key   string `json:"key"`
+			Error string `json:"error"`
+		} `json:"failed"`
+		Skipped []struct {
+			Key   string `json:"key"`
+			Error string `json:"error"`
+		} `json:"skipped"`
+		Note string `json:"note"`
+	} `json:"servers"`
+}
+
+// Restart restarts a server (or all when empty); lazy only stops.
+func (c *Client) Restart(ctx context.Context, server string, lazy bool) (RestartReply, error) {
+	var out RestartReply
+	b, err := c.do(ctx, http.MethodPost, "/v1/restart", map[string]any{"server": server, "lazy": lazy})
 	if err != nil {
-		return 0, err
+		return out, err
 	}
-	var out struct {
-		Stopped int `json:"stopped"`
-	}
-	return out.Stopped, json.Unmarshal(b, &out)
+	return out, json.Unmarshal(b, &out)
 }
 
 // Shutdown asks the daemon to exit.

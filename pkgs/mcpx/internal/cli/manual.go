@@ -220,7 +220,16 @@ func handCommands() []Command {
 		},
 		{
 			Name: "restart", Group: "daemon",
-			Usage: "[server...]", Summary: "restart servers, or all of them",
+			Usage: "[--lazy] [server]", Summary: "restart servers, or all of them",
+			Detail: "Stops every running instance and starts a replacement under the " +
+				"same scope key, waiting until it has initialized, so a server with a " +
+				"slow start comes back warm and a broken configuration fails now, " +
+				"with the server's stderr, and a non-zero exit. With nothing running " +
+				"a global-scope server starts one instance; a scoped server " +
+				"(session, pid, cwd, ...) with nothing running has no caller to start " +
+				"one for and starts nothing. A pid-scoped instance whose owner has " +
+				"exited, and a per-call instance, are reported and not replaced. " +
+				"--lazy only stops: the next call starts a fresh instance.",
 		},
 		{
 			Name: "stop", Group: "daemon",
