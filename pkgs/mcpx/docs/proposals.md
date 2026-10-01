@@ -967,8 +967,8 @@ implements most of it. Meeting parity means, roughly in order of value:
   can currently see.
 - **Progress notifications.** A long tool call is opaque today. The protocol
   has `notifications/progress`; surfacing it would let a script show progress.
-- **Cancellation.** `notifications/cancelled` is sent on timeout but incoming
-  cancellation is not handled.
+- **Cancellation.** `notifications/cancelled` is sent on timeout, and an
+  incoming one stops the question it names (docs/protocol.md §4.1).
 - **`tools/list_changed`.** Servers announce catalogue changes; mcpx caches
   schemas until told to refresh, so it can be wrong until `mcpx refresh`.
 - **Sampling.** Servers can ask the client to run a model. Requires a model

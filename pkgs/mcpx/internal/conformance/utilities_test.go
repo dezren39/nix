@@ -45,6 +45,173 @@ func unanswered(t *testing.T, rev string) (question map[string]any, after []map[
 	}
 }
 
+// relayedProgress makes one call that asked for progress against a peer
+// that reports badly -- a stray token, a repeat, a decrease, a burst, a
+// report after completion and one after the response -- and returns the
+// progress values mcpx passed on to the call's relay, and how many reached
+// a Subscribe-d OnProgress.
+func relayedProgress(t *testing.T, rev string) (got []float64, subscribed int) {
+	t.Helper()
+	p := newPeer(t, rev)
+	var tok any
+	p.on("tools/call", func(pm map[string]any) (any, *rpcError) {
+		tok = asMap(pm["_meta"])["progressToken"]
+		if tok == nil {
+			t.Error("the call asked for no progress")
+		}
+		send := func(v float64, total ...float64) {
+			n := map[string]any{"progressToken": tok, "progress": v}
+			if len(total) > 0 {
+				n["total"] = total[0]
+			}
+			p.notify("notifications/progress", n)
+		}
+		p.notify("notifications/progress", map[string]any{"progressToken": "stray", "progress": 0.25})
+		send(1)
+		time.Sleep(3 * mcpclient.ProgressMinInterval / 2)
+		send(1)
+		send(0.5)
+		send(2)
+		time.Sleep(3 * mcpclient.ProgressMinInterval / 2)
+		for i := 3; i < 53; i++ {
+			send(float64(i))
+		}
+		send(100, 100)
+		send(101, 100)
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}, nil
+	})
+	var mu sync.Mutex
+	c := dialClient(t, p, clientOpts())
+	c.Subscribe(mcpclient.Notifications{OnProgress: func(mcpclient.Progress) { mu.Lock(); subscribed++; mu.Unlock() }})
+	ctx := mcpclient.WithRelay(ctxT(t), &mcpclient.Relay{ProgressToken: json.RawMessage(`"host-tok"`),
+		OnProgress: func(raw json.RawMessage) {
+			var n struct {
+				Token    any     `json:"progressToken"`
+				Progress float64 `json:"progress"`
+			}
+			_ = json.Unmarshal(raw, &n)
+			if n.Token != "host-tok" {
+				t.Errorf("progress under token %v, not the host's", n.Token)
+			}
+			mu.Lock()
+			got = append(got, n.Progress)
+			mu.Unlock()
+		}})
+	if _, err := c.CallTool(ctx, "echo", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	// A second call reports once and never completes; progress for its
+	// token after its response must still be dropped -- the first call's
+	// final report cannot be what stops it.
+	p.on("tools/call", func(pm map[string]any) (any, *rpcError) {
+		tok = asMap(pm["_meta"])["progressToken"]
+		p.notify("notifications/progress", map[string]any{"progressToken": tok, "progress": 1000})
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}, nil
+	})
+	if _, err := c.CallTool(ctx, "echo", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * mcpclient.ProgressMinInterval / 2)
+	p.notify("notifications/progress", map[string]any{"progressToken": tok, "progress": 2000})
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	return append([]float64(nil), got...), subscribed
+}
+
+// relayBackend answers mcpx_call by calling an upstream through a real
+// mcpclient, relaying what the client asked for -- what the daemon does.
+type relayBackend struct {
+	*backend
+	up *mcpclient.Client
+}
+
+func (b relayBackend) Call(ctx context.Context, _, tool string, _ json.RawMessage) (string, error) {
+	if r := mcpserver.RelayFrom(ctx); r != nil && r.Notify != nil {
+		ctx = mcpclient.WithRelay(ctx, &mcpclient.Relay{ProgressToken: r.ProgressToken, LogLevel: r.LogLevel, Meta: r.Meta,
+			OnProgress: func(p json.RawMessage) { r.Notify("notifications/progress", p) }})
+	}
+	if _, err := b.up.CallTool(ctx, tool, map[string]any{}); err != nil {
+		return "", err
+	}
+	return "called", nil
+}
+
+// serverRelayedProgress has a client call mcpx with a progressToken, mcpx
+// call an upstream that reports badly (as relayedProgress's does), and
+// returns the progress values mcpx sent the client, each frame validated
+// against rev and checked to carry the client's own token.
+func serverRelayedProgress(t *testing.T, rev string) []float64 {
+	t.Helper()
+	p := newPeer(t, rev)
+	var tok any
+	p.on("tools/call", func(pm map[string]any) (any, *rpcError) {
+		tok = asMap(pm["_meta"])["progressToken"]
+		send := func(v float64, total ...float64) {
+			n := map[string]any{"progressToken": tok, "progress": v, "message": fmt.Sprintf("step %v", v)}
+			if len(total) > 0 {
+				n["total"] = total[0]
+			}
+			p.notify("notifications/progress", n)
+		}
+		p.notify("notifications/progress", map[string]any{"progressToken": "stray", "progress": 0.25})
+		send(1)
+		time.Sleep(3 * mcpclient.ProgressMinInterval / 2)
+		send(1)
+		send(0.5)
+		send(2)
+		time.Sleep(3 * mcpclient.ProgressMinInterval / 2)
+		for i := 3; i < 53; i++ {
+			send(float64(i))
+		}
+		send(100, 100)
+		send(101, 100)
+		return map[string]any{"content": []any{map[string]any{"type": "text", "text": "ok"}}}, nil
+	})
+	b := newBackend()
+	srv := mcpserver.New(relayBackend{b, dialClient(t, p, clientOpts())}, "mcpx", "test")
+	ss := stdioServer(t, srv)
+	ss.initialize(t, rev)
+	r := ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_call",
+		"arguments": map[string]any{"namespace": "up", "tool": "echo"}, "_meta": map[string]any{"progressToken": "p1"}})
+	if errorCode(r) != 0 || asMap(r["result"])["isError"] == true {
+		t.Fatalf("call failed: %v", r)
+	}
+	// After the response: the upstream reports again; nothing may follow.
+	p.notify("notifications/progress", map[string]any{"progressToken": tok, "progress": 200})
+	var got []float64
+	frames := append([][]byte(nil), ss.pending...)
+	ss.pending = nil
+	for {
+		f, quiet := ss.quiet(200 * time.Millisecond)
+		if quiet {
+			break
+		}
+		ss.pending = nil
+		frames = append(frames, f)
+	}
+	for _, f := range frames {
+		m := decode(t, f)
+		if m["method"] != "notifications/progress" {
+			t.Errorf("unexpected: %s", f)
+			continue
+		}
+		checkServerFrame(t, rev, f, "")
+		pm := asMap(m["params"])
+		if pm["progressToken"] != "p1" {
+			t.Errorf("progress for %v, not the client's token", pm["progressToken"])
+		}
+		// The message is the upstream's, carried where the client's
+		// revision defines it and dropped where it does not.
+		if msg, _ := pm["message"].(string); (msg == "") == mcpserver.Defines(rev, mcpserver.FeatProgressMessage) {
+			t.Errorf("progress message %q for a %s client", msg, rev)
+		}
+		v, _ := pm["progress"].(float64)
+		got = append(got, v)
+	}
+	return got
+}
+
 // Cancellation, progress, pagination, logging, completion: mcpx as a server.
 func TestUtilitiesServer(t *testing.T) {
 	srvSide := func(id string, fn func(t *testing.T, rev string)) { forReq(t, "server", id, fn) }
@@ -163,7 +330,7 @@ func TestUtilitiesServer(t *testing.T) {
 		})
 	}
 
-	// ---- progress: mcpx sends none ----
+	// ---- progress: what mcpx relays from upstream ----
 
 	// https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress
 	for _, id := range []string{"progress-must-increase", "progress-message-human-readable", "progress-only-active-tokens",
@@ -171,15 +338,21 @@ func TestUtilitiesServer(t *testing.T) {
 		"progress-task-token-lives-with-task", "progress-task-same-token", "progress-task-stop-at-terminal",
 		"progress-http-notifications-relate-to-request"} {
 		srvSide(id, func(t *testing.T, rev string) {
-			// A client asks for progress on a call; mcpx sends none, so
-			// none can be out of order, stray, excessive, or late.
-			srv, _ := newServer(t)
-			ss := stdioServer(t, srv)
-			ss.initialize(t, rev)
-			ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_status", "arguments": map[string]any{},
-				"_meta": map[string]any{"progressToken": "p1"}})
-			if f, quiet := ss.quiet(200 * time.Millisecond); !quiet {
-				t.Errorf("unexpected: %s", f)
+			// The only progress mcpx sends is an upstream's, relayed. The
+			// upstream here reports badly; what reaches the client must
+			// still be in order, for its own token, throttled, and over
+			// by the call's response.
+			got := serverRelayedProgress(t, rev)
+			if len(got) < 4 || got[0] != 1 || got[1] != 2 || got[2] != 3 || got[len(got)-1] != 100 {
+				t.Fatalf("sent %v", got)
+			}
+			for i := 1; i < len(got); i++ {
+				if got[i] <= got[i-1] {
+					t.Errorf("sent out of order: %v", got)
+				}
+			}
+			if len(got) > 10 {
+				t.Errorf("a burst of 50 was not throttled: %d sent", len(got))
 			}
 		})
 	}
@@ -448,6 +621,41 @@ func TestUtilitiesClient(t *testing.T) {
 			}
 		})
 	}
+	cli("cancellation-log-reasons", func(t *testing.T, rev string) {
+		// The reason a server gives for withdrawing its question reaches
+		// OnWarning, which the pool writes to the lifecycle log.
+		p := newPeer(t, rev)
+		o := clientOpts()
+		o.OnServerRequest = func(ctx context.Context, _ string, _ json.RawMessage) (any, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		c := dialClient(t, p, o)
+		warned := make(chan string, 4)
+		c.Subscribe(mcpclient.Notifications{OnWarning: func(w mcpclient.Warning) { warned <- w.Reason }})
+		if isModern(rev) {
+			// A 2026-07-28 server asks nothing it could cancel; a
+			// cancellation naming nothing is dropped without a word.
+			p.notify("notifications/cancelled", map[string]any{"requestId": 4242, "reason": "user gave up"})
+			select {
+			case w := <-warned:
+				t.Errorf("warned about a cancellation of nothing: %s", w)
+			case <-time.After(100 * time.Millisecond):
+			}
+			return
+		}
+		p.push(frame(4242, "elicitation/create", map[string]any{"message": "?", "requestedSchema": map[string]any{"type": "object"}}))
+		time.Sleep(50 * time.Millisecond)
+		p.notify("notifications/cancelled", map[string]any{"requestId": 4242, "reason": "user gave up"})
+		select {
+		case w := <-warned:
+			if !strings.Contains(w, "user gave up") || !strings.Contains(w, "4242") {
+				t.Errorf("warning %q lacks the reason or the request", w)
+			}
+		case <-time.After(time.Second):
+			t.Error("the cancellation reason was not reported")
+		}
+	})
 	for _, id := range []string{"cancellation-receiver-may-ignore", "cancellation-ignore-invalid", "cancellation-handle-races"} {
 		cli(id, func(t *testing.T, rev string) {
 			p := newPeer(t, rev)
@@ -486,20 +694,26 @@ func TestUtilitiesClient(t *testing.T) {
 	}
 	for _, id := range []string{"progress-track-tokens", "progress-rate-limit"} {
 		cli(id, func(t *testing.T, rev string) {
-			// Progress for a token nobody asked for must not be passed on.
-			p := newPeer(t, rev)
-			var got int
-			var mu sync.Mutex
-			c := dialClient(t, p, clientOpts())
-			c.Subscribe(mcpclient.Notifications{OnProgress: func(mcpclient.Progress) { mu.Lock(); got++; mu.Unlock() }})
-			for i := 0; i < 50; i++ {
-				p.notify("notifications/progress", map[string]any{"progressToken": "stray", "progress": i})
+			got, subscribed := relayedProgress(t, rev)
+			// Passed on: 1, 2 and the first of the burst, each after a
+			// pause; then the final report, which is never held back; then
+			// the second call's one report (1000).
+			// Dropped: the stray token, a repeat and a decrease, most of a
+			// burst inside the rate limit, anything after completion, and
+			// anything after the response.
+			if len(got) < 5 || got[0] != 1 || got[1] != 2 || got[2] != 3 || got[len(got)-2] != 100 || got[len(got)-1] != 1000 {
+				t.Fatalf("relayed %v", got)
 			}
-			time.Sleep(100 * time.Millisecond)
-			mu.Lock()
-			defer mu.Unlock()
-			if got != 0 {
-				t.Errorf("%d stray progress notifications passed on", got)
+			for i := 1; i < len(got)-1; i++ {
+				if got[i] <= got[i-1] {
+					t.Errorf("relayed out of order: %v", got)
+				}
+			}
+			if len(got) > 10 {
+				t.Errorf("a burst of 50 was not throttled: %d relayed", len(got))
+			}
+			if subscribed != len(got) {
+				t.Errorf("the subscriber saw %d progress notifications, the relay %d", subscribed, len(got))
 			}
 		})
 	}

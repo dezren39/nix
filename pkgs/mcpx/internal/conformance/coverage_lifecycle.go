@@ -94,9 +94,4 @@ func init() {
 			"lifecycle-stateless-client-process-lifetime",
 			"deprecated-should-not-adopt"),
 	)
-	registerGaps(
-		Gap{ID: "lifecycle-stdio-client-shutdown-sequence", Side: Client, Issue: "#203",
-			Why:  "StdioTransport.Close sends SIGTERM at the same moment it closes stdin instead of waiting for the child to exit",
-			Test: "conformance.TestLifecycleClient"},
-	)
 }
