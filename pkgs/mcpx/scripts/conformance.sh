@@ -99,11 +99,14 @@ start_fixture() {
 }
 
 # start_daemon <era> <port>: a daemon fronting the fixture over one protocol era, end to end. The
+# modern daemon uses protocol: follow, so a caller on a pre-2026 revision gets a legacy upstream
+# session and the fixture's server-to-client requests (elicitation, sampling) reach it. Without it
+# the --suite all leg fails four scenarios that pass in the 2025-11-25 leg. The
 # 2025-11-25 leg gets a daemon that speaks 2025-11-25 to the fixture too: the fixture's legacy tools
 # (test_elicitation, test_sampling, ...) push requests to their client, which only a legacy session can
 # carry -- over 2026-07-28 the fixture itself answers them -32601 -- and mcpx relays what arrives.
 start_daemon() {
-  local era=$1 port=$2 protocol=modern
+  local era=$1 port=$2 protocol=follow
   [ "$era" = legacy ] && protocol=force-legacy
   [ -n "${FIXTURE_PID:-}" ] || start_fixture
   mkdir -p "$WORK/$era"
