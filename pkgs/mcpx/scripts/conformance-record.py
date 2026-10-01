@@ -4,6 +4,13 @@
 Usage:
   conformance-record.py <leg> <passed> <failed> <run-id/attempt> <now-iso>
                         <stored-json-or-empty> <summary-file> <new-value-file>
+                        [<total-checks> <warnings>]
+
+<total-checks> is every check the suite recorded in checks.json, whatever its
+status -- SUCCESS, FAILURE, WARNING, INFO, SKIPPED. The summary line's
+"N passed, M failed" leaves warnings out, so a failure that becomes a
+warning shrank passed+failed, and a run with fewer failures read as one where
+fewer checks ran. When it is not given, passed+failed is used.
 
 Two records per leg, both kept in one variable as JSON:
 
@@ -25,26 +32,32 @@ import json
 import sys
 
 
-def record(passed, failed, run, now):
-    return {"first_timestamp": now, "latest_timestamp": now, "run": run,
-            "passed_count": passed, "failed_count": failed}
+def record(passed, failed, run, now, checks=None, warnings=0):
+    r = {"first_timestamp": now, "latest_timestamp": now, "run": run,
+         "passed_count": passed, "failed_count": failed}
+    if checks is not None:
+        r["total_count"] = checks
+        r["warning_count"] = warnings
+    return r
 
 
 def total(r):
-    return r["passed_count"] + r["failed_count"]
+    # Records written before total_count existed counted passed+failed.
+    return r.get("total_count", r["passed_count"] + r["failed_count"])
 
 
 def describe(r):
     t = total(r)
     pct = (100.0 * r["failed_count"] / t) if t else 0.0
-    return (f"{r['passed_count']} passed, {r['failed_count']} failed of {t} checks "
+    return (f"{r['passed_count']} passed, {r['failed_count']} failed, "
+            f"{r.get('warning_count', 0)} warnings, of {t} checks "
             f"({pct:.1f}% failed) -- run {r['run']}, first {r['first_timestamp']}, "
             f"latest {r['latest_timestamp']}")
 
 
-def compare(leg, passed, failed, run, now, stored):
+def compare(leg, passed, failed, run, now, stored, checks=None, warnings_count=0):
     """Returns (new_state, lines, warnings)."""
-    cur = record(passed, failed, run, now)
+    cur = record(passed, failed, run, now, checks, warnings_count)
     state = json.loads(json.dumps(stored)) if stored else {}
     lines, warnings = [], []
 
@@ -90,8 +103,10 @@ def compare(leg, passed, failed, run, now, stored):
 def main(argv):
     leg, passed, failed, run, now, stored_raw, summary, out = argv[1:9]
     passed, failed = int(passed), int(failed)
+    checks = int(argv[9]) if len(argv) > 9 and argv[9] else None
+    warn_n = int(argv[10]) if len(argv) > 10 and argv[10] else 0
     stored = json.loads(stored_raw) if stored_raw.strip() else None
-    state, lines, warnings = compare(leg, passed, failed, run, now, stored)
+    state, lines, warnings = compare(leg, passed, failed, run, now, stored, checks, warn_n)
 
     with open(summary, "a") as f:
         f.write(f"\n### Records for `{leg}`\n\n")

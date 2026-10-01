@@ -24,6 +24,18 @@ carries its schema. Client legs run for all four: frozen sets for the two newest
 check fails, lists the failures on the run's summary page, and uploads them as an artifact.
 **It is not a merge block**: no branch protection requires it.
 
+A **spec parity** job compares the revisions mcpx supports (`mcpx protocol
+--json`, `.asServer.supported`) with those the suite knows (its error for an
+unknown `--spec-version` names them all). Neither list is written in this
+repository. A mismatch warns, with a deadline counted from the last match on
+`main` -- 840 hours when only one side has extra revisions, 360 when both do --
+and after it the job fails. Today mcpx has `2024-11-05` and the suite does not,
+so the job warns. See `scripts/spec-parity.py`.
+
+Each leg's total is every check the suite recorded, from its `checks.json`
+files, warnings included: the summary line's passed + failed leaves warnings
+out, so a failure that became a warning looked like a smaller run.
+
 On `main` each leg's counts are compared with two records kept in the repository variable
 `MCPX_CONFORMANCE_<LEG>` -- the best failed/total ratio and the largest total -- and a run that
 goes backwards on either gets a large warning on its summary. The rules are in

@@ -151,19 +151,28 @@ jobs:
                 printf "| %s | %s | %s | %s |\n", $2, $3, $4, substr(msg,1,300)}' "$f"
             fi
           } >>"$GITHUB_STEP_SUMMARY"
-          # Failures outside the suite's auth/ scenarios, for the client legs.
-          nonauth=$(python3 - "$OUT/$LEG/results" <<'EOF'
+          # Counted from every checks.json rather than the summary line, which
+          # leaves warnings out: every check whatever its status, the
+          # warnings, and the failures outside the suite's auth/ scenarios.
+          read -r checks warnings nonauth < <(python3 - "$OUT/$LEG/results" <<'EOF'
           import json, glob, os, sys
           root = sys.argv[1]
-          n = 0
+          checks = warnings = nonauth = 0
           for f in glob.glob(os.path.join(root, '**', 'checks.json'), recursive=True):
-              if os.path.relpath(f, root).split(os.sep)[0] == 'auth':
-                  continue
-              n += sum(c.get('status') == 'FAILURE' for c in json.load(open(f)))
-          print(n)
+              cs = json.load(open(f))
+              checks += len(cs)
+              warnings += sum(c.get('status') == 'WARNING' for c in cs)
+              if os.path.relpath(f, root).split(os.sep)[0] != 'auth':
+                  nonauth += sum(c.get('status') == 'FAILURE' for c in cs)
+          print(checks, warnings, nonauth)
           EOF
           )
-          echo "nonauth=$nonauth" >>"$GITHUB_OUTPUT"
+          {
+            echo "nonauth=$nonauth"
+            echo "checks=$checks"
+            echo "warnings=$warnings"
+          } >>"$GITHUB_OUTPUT"
+          echo "Every check the suite recorded: **$checks** ($warnings warnings)." >>"$GITHUB_STEP_SUMMARY"
           if [ -n "$EXPECT" ]; then
             {
               echo
@@ -172,8 +181,9 @@ jobs:
             } >>"$GITHUB_STEP_SUMMARY"
           fi
           mkdir -p "$RUNNER_TEMP/counts"
-          printf '{"leg":"%s","parsed":%s,"passed":%s,"failed":%s}\n' \
-            "$LEG" "${PARSED:-false}" "${PASSED:-0}" "${FAILED:-0}" >"$RUNNER_TEMP/counts/$LEG.json"
+          printf '{"leg":"%s","parsed":%s,"passed":%s,"failed":%s,"checks":%s,"warnings":%s}\n' \
+            "$LEG" "${PARSED:-false}" "${PASSED:-0}" "${FAILED:-0}" "${checks:-0}" "${warnings:-0}" \
+            >"$RUNNER_TEMP/counts/$LEG.json"
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -208,6 +218,87 @@ jobs:
             echo "::error::${{ steps.run.outputs.failed }} conformance check(s) failed in ${{ matrix.leg }} (informational; not a merge block)"
             exit 1
           fi
+
+  spec-parity:
+    name: spec parity
+    # Which MCP revisions mcpx supports against which the conformance suite
+    # knows, read from each tool itself. See scripts/spec-parity.py for the
+    # deadlines; the variables are written on main only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: pkgs/mcpx/go.mod
+          cache-dependency-path: pkgs/mcpx/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.CONFORMANCE_REPO }}
+          ref: ${{ env.CONFORMANCE_REF }}
+          path: .conformance
+
+      - name: Read both lists
+        id: lists
+        run: |
+          (cd .conformance && npm install --no-audit --no-fund >/dev/null && npm run build >/dev/null)
+          (cd pkgs/mcpx && go build -o "$RUNNER_TEMP/mcpx" ./cmd/mcpx)
+          # The suite has no command that lists revisions; its error for an
+          # unknown one names every valid version.
+          suite=$(node .conformance/dist/index.js list --spec-version x 2>&1 \
+            | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | sort -u | jq -R . | jq -sc .)
+          scratch=$(mktemp -d)
+          mcpx=$(MCPX_STATE_DIR=$scratch/state MCPX_CACHE_DIR=$scratch/cache HOME=$scratch \
+            "$RUNNER_TEMP/mcpx" protocol --json | jq -c '.asServer.supported | sort')
+          MCPX_STATE_DIR=$scratch/state MCPX_CACHE_DIR=$scratch/cache HOME=$scratch \
+            "$RUNNER_TEMP/mcpx" stop --all >/dev/null 2>&1 || true
+          echo "mcpx:  $mcpx"
+          echo "suite: $suite"
+          {
+            echo "mcpx=$mcpx"
+            echo "suite=$suite"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Compare
+        env:
+          VARS: ${{ toJSON(vars) }}
+          GH_TOKEN: ${{ secrets.MCPX_CONFORMANCE_VARS_TOKEN }}
+          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          RUN: ${{ github.run_id }}/${{ github.run_attempt }}
+          MCPX: ${{ steps.lists.outputs.mcpx }}
+          SUITE: ${{ steps.lists.outputs.suite }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          out=$RUNNER_TEMP/parity
+          python3 pkgs/mcpx/scripts/spec-parity.py "$MCPX" "$SUITE" "$now" "$RUN" \
+            "$(jq -r '.MCPX_SPEC_PARITY_SUCCESS // ""' <<<"$VARS")" \
+            "$(jq -r '.MCPX_SPEC_PARITY_FAILURE // ""' <<<"$VARS")" \
+            "$ON_MAIN" "$GITHUB_STEP_SUMMARY" "$out"
+          status=$(cat "$out/status")
+          if [ "$ON_MAIN" = true ]; then
+            if [ -z "$GH_TOKEN" ]; then
+              echo "> [!CAUTION]" >>"$GITHUB_STEP_SUMMARY"
+              echo "> Spec parity was not saved: MCPX_CONFORMANCE_VARS_TOKEN is not set." >>"$GITHUB_STEP_SUMMARY"
+            else
+              for name in SUCCESS FAILURE; do
+                f="$out/${name,,}.json"
+                [ -f "$f" ] && gh variable set "MCPX_SPEC_PARITY_$name" --repo "$GITHUB_REPOSITORY" --body "$(cat "$f")"
+              done
+            fi
+          fi
+          wait=$(cat "$out/sleep")
+          if [ "$status" != ok ]; then
+            echo "::warning::spec parity: $status, sleeping ${wait}s"
+            sleep "$wait"
+          fi
+          case $status in
+          ok) echo "spec parity: match" ;;
+          warn) echo "::warning::mcpx and the conformance suite disagree on MCP revisions; see the summary for the deadline" ;;
+          *) echo "::error::spec parity deadline passed, or the lists could not be read; see the summary"; exit 1 ;;
+          esac
 
   records:
     name: compare with the records
@@ -258,7 +349,8 @@ jobs:
             stored=$(jq -r --arg n "$name" '.[$n] // ""' <<<"$VARS")
             rm -f new.json
             python3 pkgs/mcpx/scripts/conformance-record.py "$leg" "$(jq -r .passed "$f")" "$(jq -r .failed "$f")" \
-              "$RUN" "$now" "$stored" "$GITHUB_STEP_SUMMARY" new.json
+              "$RUN" "$now" "$stored" "$GITHUB_STEP_SUMMARY" new.json \
+              "$(jq -r '.checks // empty' "$f")" "$(jq -r '.warnings // 0' "$f")"
             if [ -f new.json ] && [ "$ON_MAIN" = true ] && [ -n "$GH_TOKEN" ]; then
               gh variable set "$name" --repo "$GITHUB_REPOSITORY" --body "$(cat new.json)"
               echo "- saved \`$name\`" >>"$GITHUB_STEP_SUMMARY"
