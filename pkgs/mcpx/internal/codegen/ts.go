@@ -414,5 +414,29 @@ func ToolFuncName(name string) string {
 	if out[0] >= '0' && out[0] <= '9' {
 		out = "_" + out
 	}
+	// A reserved word is legal as a property and not as a declared
+	// function, which is what `mcpx types` emits: `function delete(...)`.
+	// Suffixed everywhere, so the catalog, the types and the client agree.
+	if jsReserved[out] {
+		out += "_"
+	}
 	return out
+}
+
+// funcCollisions groups a namespace's tools by the identifier each becomes,
+// returning only the identifiers more than one tool maps to. Two tools that
+// normalise alike (`get-item`, `get_item`) became duplicate keys, and the
+// last silently won, so a script called the wrong tool (#215).
+func funcCollisions(tools []Tool) map[string][]string {
+	by := map[string][]string{}
+	for _, t := range tools {
+		fn := ToolFuncName(t.Name)
+		by[fn] = append(by[fn], t.Name)
+	}
+	for fn, names := range by {
+		if len(names) < 2 {
+			delete(by, fn)
+		}
+	}
+	return by
 }

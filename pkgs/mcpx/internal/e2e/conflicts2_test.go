@@ -194,6 +194,25 @@ func TestMCPSurfaceAnswersLikeV1(t *testing.T) {
 		}
 	})
 
+	// context.arguments was dropped on both surfaces, so an upstream that
+	// narrows by the arguments already chosen never saw them (#213, CMP-05).
+	t.Run("2025-11-25/completion/context-arguments-reach-the-server", func(t *testing.T) {
+		e := askEnv(t)
+		e.run("refresh")
+		got := stdioReplies(t, e, []map[string]any{stdioInit,
+			rpc(2, "completion/complete", map[string]any{
+				"ref":      map[string]any{"type": "ref/prompt", "name": "ask_confirmed"},
+				"argument": map[string]any{"name": "x", "value": ""},
+				"context":  map[string]any{"arguments": map[string]any{"owner": "me"}}})})
+		s := dumpJSON(t, got["2"])
+		if !strings.Contains(s, "from-upstream-a") {
+			t.Fatalf("premise: upstream was not asked:\n%s", s)
+		}
+		if !strings.Contains(s, "ctx:owner=me") {
+			t.Fatalf("context.arguments never reached the server:\n%s", s)
+		}
+	})
+
 	e := newEnv(t, oneServer)
 	e.run("refresh")
 	// https://modelcontextprotocol.io/specification/2025-11-25/server/resources#binary-content
@@ -208,6 +227,10 @@ func TestMCPSurfaceAnswersLikeV1(t *testing.T) {
 		c, _ := contents[0].(map[string]any)
 		if c["blob"] != "iVBORw0KGgo=" || c["mimeType"] != "image/png" || c["text"] != nil {
 			t.Fatalf("not a blob: %s", dumpJSON(t, c))
+		}
+		// _meta on a read entry was dropped (#207, RES-06).
+		if m, _ := c["_meta"].(map[string]any); m["example.com/k"] != "contents" {
+			t.Errorf("the entry's _meta should survive: %s", dumpJSON(t, c))
 		}
 		if c["uri"] != "mcpx://demo/demo://logo" {
 			t.Errorf("the entry's uri should be readable back through mcpx: %v", c["uri"])

@@ -627,8 +627,12 @@ func TestUtilitiesClient(t *testing.T) {
 		if _, ok, err := c.Complete(ctxT(t), json.RawMessage(`{"ref":{"type":"ref/prompt","name":"p"},"argument":{"name":"b","value":""}}`)); ok || err != nil {
 			t.Errorf("ok=%v err=%v", ok, err)
 		}
-		if strings.Contains(fmt.Sprint(p.sent()), "completion/complete") {
-			t.Error("asked anyway")
+		// 2024-11-05 has the method and no capability to declare it, so
+		// there the server is asked and its method-not-found is the same
+		// absence (#213, CMP-01).
+		asked := strings.Contains(fmt.Sprint(p.sent()), "completion/complete")
+		if asked != (rev == "2024-11-05") {
+			t.Errorf("asked=%v on %s", asked, rev)
 		}
 	})
 }

@@ -3,6 +3,7 @@ package mcpclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -47,11 +48,19 @@ func (c *Client) Notify(ctx context.Context, method string, params json.RawMessa
 // earn a method-not-found from a well-behaved server and an unpredictable
 // answer from the rest.
 func (c *Client) Complete(ctx context.Context, params json.RawMessage) (json.RawMessage, bool, error) {
-	if !c.Supports("completions") {
+	// 2024-11-05 defined completion/complete with no capability to gate
+	// it, so a server of that era is asked, and its method-not-found read
+	// as the same absence a later server signals by not declaring.
+	legacy := c.Negotiated == "2024-11-05"
+	if !legacy && !c.Supports("completions") {
 		return nil, false, nil
 	}
 	raw, err := c.Request(ctx, "completion/complete", params)
 	if err != nil {
+		var re *rpcError
+		if legacy && !c.Supports("completions") && errors.As(err, &re) && re.Code == -32601 {
+			return nil, false, nil
+		}
 		return nil, true, err
 	}
 	return raw, true, nil

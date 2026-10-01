@@ -685,8 +685,11 @@ func TestLifecycleClient(t *testing.T) {
 			if err != nil || ok {
 				t.Errorf("ok=%v err=%v", ok, err)
 			}
-			if len(p.sentMethod("completion/complete")) != 0 {
-				t.Error("asked for completion without the capability")
+			// Except on 2024-11-05, which has no completions capability
+			// to declare: there the method is asked and method-not-found
+			// read as the same absence (#213, CMP-01).
+			if asked := len(p.sentMethod("completion/complete")) != 0; asked != (rev == "2024-11-05") {
+				t.Errorf("asked=%v on %s", asked, rev)
 			}
 		})
 	}

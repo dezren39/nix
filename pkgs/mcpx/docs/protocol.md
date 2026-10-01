@@ -104,7 +104,7 @@ What a host connected to mcpx gets, over `mcpx serve` (stdio) or the daemon's
 | `resources/list`, `resources/read`, `resources/templates/list` | all | always | binary contents as `blob`; not found is `-32002` (legacy) or `-32602` (2026), both with `data.uri` |
 | `resources/subscribe`, `resources/unsubscribe` | legacy | legacy peers | `{}`, always; subscribes upstream where the owning server can deliver, and otherwise publishes a warning event (§4.3) |
 | `subscriptions/listen` | 2026-07-28 | **any** era | an acknowledgement, then only the notifications the filter asked for, each tagged with the subscription id |
-| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
+| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does, with `context.arguments`; a 2024-11-05 upstream is asked without a capability (that revision had none); unknown ref `-32602`, upstream failure `-32603` |
 | `logging/setLevel` | legacy | legacy peers | `{}`; sets the level of upstream log messages relayed to this connection (§4.4) |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core | **any** legacy peer | the core shapes; a task is visible only to the connection that started it |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers that declared `io.modelcontextprotocol/tasks` on the request; `-32021` with `data.requiredCapabilities` (HTTP 400) otherwise | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
@@ -186,14 +186,19 @@ that could never work (#284).
 ### 2.3 Result shapes, and what is downgraded
 
 Everything is built in the newest shape and spelled down once, at the edge, in
-`downgrade()`. Building several shapes and choosing between them is how the
+`downgrade()`. An upstream's `tools/call` result (through `mcpx_call` or a
+pass-through tool) and `prompts/get` result are carried as the upstream sent
+them -- `isError`, every content block, `structuredContent` and `_meta` -- with
+resource URIs rewritten to ones `/mcp` can read; listed tools, resources,
+templates and prompts keep their optional fields. Building several shapes and choosing between them is how the
 shapes drift apart.
 
 | carried | defined from | to an older client |
 | --- | --- | --- |
 | `structuredContent` | 2025-06-18 | removed, and rendered into the `content` array as text — the data survives, in a vocabulary the client has |
-| `resource_link` block | 2025-06-18 | becomes an embedded `resource`, which keeps the URI machine-readable where text would not |
+| `resource_link` block | 2025-06-18 | becomes an embedded `resource` with a `text/plain` label naming the URI, which keeps the URI machine-readable where text would not |
 | `audio` block | 2025-03-26 | a text block describing it, for 2024-11-05 |
+| `_meta` on listed tools, resources, templates, prompts and read contents; `annotations.lastModified` | 2025-06-18 | stripped |
 | tool `annotations`, the `completions` capability | 2025-03-26 | stripped for 2024-11-05 |
 | `title` | 2025-06-18 | stripped |
 | `icons` | 2025-11-25 | stripped |

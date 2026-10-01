@@ -183,6 +183,19 @@ func TestOutboundShapesAreDowngradedToTheNegotiatedRevision(t *testing.T) {
 	}
 }
 
+// ResourceContents._meta is 2025-06-18; below it, it is removed.
+func TestReadContentsMetaIsDowngraded(t *testing.T) {
+	srv := mcpserver.New(nil, "mcpx", "test")
+	result := map[string]any{"contents": []any{
+		map[string]any{"uri": "a://b", "text": "x", "_meta": map[string]any{"k": "v"}}}}
+	if got := protoJSON(t, srv.Downgrade(result, "2025-03-26")); strings.Contains(got, "_meta") {
+		t.Errorf("2025-03-26 has no _meta on contents:\n%s", got)
+	}
+	if got := protoJSON(t, srv.Downgrade(result, "2025-06-18")); !strings.Contains(got, "_meta") {
+		t.Errorf("2025-06-18 defines it:\n%s", got)
+	}
+}
+
 func TestResultTypeGoesOnlyToARevisionThatDefinesIt(t *testing.T) {
 	srv := mcpserver.New(newBackend(), "mcpx", "test")
 	modern := modernParams(nil)

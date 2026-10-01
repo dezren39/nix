@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
 // Conflict #3 (WP7): the ask path rendered a failed tool as plain text.
@@ -13,9 +15,18 @@ func TestRenderKeepsIsError(t *testing.T) {
 			"kind":   json.RawMessage(`"tools/call"`),
 			"result": json.RawMessage(`{"isError":true,"content":[{"type":"text","text":"boom"}]}`),
 		}
-		text, _, failed := daemonAsker{app: &App{}}.renderAsk(result)
-		if !failed || text != "boom" {
-			t.Fatalf("renderAsk = %q, failed=%v", text, failed)
+		// Carried verbatim since #206, so isError is in the result itself
+		// rather than reconstructed from a flag.
+		text, _, _ := daemonAsker{app: &App{}}.renderAsk(result)
+		raw, ok := mcpserver.DecodeRaw(text)
+		if !ok {
+			t.Fatalf("renderAsk should carry the upstream result verbatim: %q", text)
+		}
+		var got struct {
+			IsError bool `json:"isError"`
+		}
+		if json.Unmarshal(raw, &got) != nil || !got.IsError {
+			t.Fatalf("isError lost: %s", raw)
 		}
 	})
 }
