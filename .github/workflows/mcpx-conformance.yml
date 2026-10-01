@@ -163,25 +163,36 @@ jobs:
           # Counted from every checks.json rather than the summary line, which
           # leaves warnings out: every check whatever its status, the
           # warnings, and the failures outside the suite's auth/ scenarios.
-          read -r checks warnings nonauth < <(python3 - "$OUT/$LEG/results" <<'EOF'
+          read -r checks warnings nonauth skipped info < <(python3 - "$OUT/$LEG/results" <<'EOF'
           import json, glob, os, sys
           root = sys.argv[1]
-          checks = warnings = nonauth = 0
+          checks = warnings = nonauth = skipped = info = 0
           for f in glob.glob(os.path.join(root, '**', 'checks.json'), recursive=True):
               cs = json.load(open(f))
               checks += len(cs)
               warnings += sum(c.get('status') == 'WARNING' for c in cs)
+              skipped += sum(c.get('status') == 'SKIPPED' for c in cs)
+              info += sum(c.get('status') == 'INFO' for c in cs)
               if os.path.relpath(f, root).split(os.sep)[0] != 'auth':
                   nonauth += sum(c.get('status') == 'FAILURE' for c in cs)
-          print(checks, warnings, nonauth)
+          print(checks, warnings, nonauth, skipped, info)
           EOF
           )
           {
             echo "nonauth=$nonauth"
             echo "checks=$checks"
             echo "warnings=$warnings"
+            echo "skipped=$skipped"
+            echo "info=$info"
           } >>"$GITHUB_OUTPUT"
-          echo "Every check the suite recorded: **$checks** ($warnings warnings)." >>"$GITHUB_STEP_SUMMARY"
+          {
+            echo
+            echo "| every check | passed | failed | skipped | warning | info |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            echo "| **$checks** | ${PASSED:-0} | ${FAILED:-0} | **$skipped** | $warnings | $info |"
+            echo
+            echo "Skipped checks pass nothing. A run with more than the record on \`main\` fails the records job."
+          } >>"$GITHUB_STEP_SUMMARY"
           if [ -n "$EXPECT" ]; then
             {
               echo
@@ -190,9 +201,9 @@ jobs:
             } >>"$GITHUB_STEP_SUMMARY"
           fi
           mkdir -p "$RUNNER_TEMP/counts"
-          printf '{"leg":"%s","parsed":%s,"passed":%s,"failed":%s,"checks":%s,"warnings":%s}\n' \
+          printf '{"leg":"%s","parsed":%s,"passed":%s,"failed":%s,"checks":%s,"warnings":%s,"skipped":%s,"info":%s}\n' \
             "$LEG" "${PARSED:-false}" "${PASSED:-0}" "${FAILED:-0}" "${checks:-0}" "${warnings:-0}" \
-            >"$RUNNER_TEMP/counts/$LEG.json"
+            "${skipped:-0}" "${info:-0}" >"$RUNNER_TEMP/counts/$LEG.json"
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -348,6 +359,7 @@ jobs:
             } >>"$GITHUB_STEP_SUMMARY"
           fi
           shopt -s nullglob
+          skips_rose=""
           for f in counts/*.json; do
             leg=$(jq -r .leg "$f")
             name="MCPX_CONFORMANCE_$(tr 'a-z-' 'A-Z_' <<<"$leg")"
@@ -358,11 +370,21 @@ jobs:
             fi
             stored=$(jq -r --arg n "$name" '.[$n] // ""' <<<"$VARS")
             rm -f new.json
+            rc=0
             python3 pkgs/mcpx/scripts/conformance-record.py "$leg" "$(jq -r .passed "$f")" "$(jq -r .failed "$f")" \
               "$RUN" "$now" "$stored" "$GITHUB_STEP_SUMMARY" new.json \
-              "$(jq -r '.checks // empty' "$f")" "$(jq -r '.warnings // 0' "$f")"
+              "$(jq -r '.checks // empty' "$f")" "$(jq -r '.warnings // 0' "$f")" \
+              "$(jq -r '.skipped // empty' "$f")" "$(jq -r '.info // 0' "$f")" || rc=$?
+            # 3: more checks skipped than the record. Everything is still
+            # compared and saved; the job fails once all legs are done.
+            [ "$rc" = 3 ] && skips_rose="$skips_rose $leg"
+            [ "$rc" != 0 ] && [ "$rc" != 3 ] && { echo "::error::record script failed for $leg ($rc)"; exit "$rc"; }
             if [ -f new.json ] && [ "$ON_MAIN" = true ] && [ -n "$GH_TOKEN" ]; then
               gh variable set "$name" --repo "$GITHUB_REPOSITORY" --body "$(cat new.json)"
               echo "- saved \`$name\`" >>"$GITHUB_STEP_SUMMARY"
             fi
           done
+          if [ -n "$skips_rose" ]; then
+            echo "::error::more conformance checks skipped than the record on main:$skips_rose"
+            exit 1
+          fi
