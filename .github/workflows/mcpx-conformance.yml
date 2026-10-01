@@ -2,8 +2,9 @@ name: mcpx conformance
 
 # The official MCP conformance suite (github.com/modelcontextprotocol/conformance) against mcpx,
 # one job per leg. A leg is one side of the protocol (mcpx as a server, or as a client) checked
-# against one set of rules: the suite ships rule sets for spec revisions 2025-11-25 and 2026-07-28
-# only, plus "all", every server scenario it has.
+# against one spec revision. The suite has frozen requirement sets for 2025-11-25 and 2026-07-28;
+# for 2025-03-26 and 2025-06-18 it has only the scenarios tagged for each, run with
+# --spec-version. "server-all" is every server scenario it has. It does not know 2024-11-05.
 #
 # NOT A BLOCK. A leg fails when any check fails, so the failures are visible, but no branch
 # protection requires this workflow. The suite expects fixtures and behaviour a gateway does not
@@ -48,7 +49,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        leg: [server-2025-11-25, server-2026-07-28, server-all, client-2025-11-25, client-2026-07-28]
+        leg:
+          - server-2025-03-26
+          - server-2025-06-18
+          - server-2025-11-25
+          - server-2026-07-28
+          - server-all
+          - client-2025-11-25
+          - client-2026-07-28
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

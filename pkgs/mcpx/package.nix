@@ -61,6 +61,18 @@ buildGoModule {
   # docs/container.md measured a CGO_ENABLED=0 build working end-to-end.
   env.CGO_ENABLED = "0";
 
+  # No VCS stamping. git is on PATH during the build because the check phase
+  # needs it (nativeCheckInputs is on PATH in every phase), and with git found
+  # `go install` stamps VCS info by walking up from the build directory with
+  # plain stat. Where the sandbox build directory sits under an unrelated git
+  # checkout, it finds that repo, runs `git status` there as the build user,
+  # and dies with "error obtaining VCS status: exit status 128" (#304). Where
+  # it does not die it would embed the wrong repository's state. The source is
+  # a store path, not a checkout, so there is nothing true to stamp.
+  preBuild = ''
+    export GOFLAGS="$GOFLAGS -buildvcs=false"
+  '';
+
   ldflags = [
     "-s"
     "-w"

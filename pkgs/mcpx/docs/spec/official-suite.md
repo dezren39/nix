@@ -16,8 +16,11 @@ description:  what modelcontextprotocol/conformance says about mcpx as a
 
 `.github/workflows/mcpx-conformance.yml` runs every leg on each pull request and push to `main`
 that touches mcpx -- one job per leg, about a minute each. A leg is one side of the protocol (mcpx
-as a server, or as a client) checked against one rule set; the suite has rule sets for 2025-11-25
-and 2026-07-28 only, plus `server-all`, every server scenario it has. A leg's job fails when any
+as a server, or as a client) checked against one spec revision. The suite has frozen requirement
+sets for 2025-11-25 and 2026-07-28; for 2025-03-26 and 2025-06-18 it has only the scenarios tagged
+for each, selected with `--spec-version`, so those legs are smaller (about 3 and 56 checks).
+`server-all` is every server scenario it has. The suite does not know 2024-11-05, although mcpx
+carries its schema. Client legs exist only for the two frozen sets. A leg's job fails when any
 check fails, lists the failures on the run's summary page, and uploads them as an artifact.
 **It is not a merge block**: no branch protection requires it.
 
