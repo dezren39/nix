@@ -870,7 +870,9 @@ func (b mcpBackend) Complete(ctx context.Context, params json.RawMessage) ([]str
 			URI  string `json:"uri"`
 		} `json:"ref"`
 		Argument json.RawMessage `json:"argument"`
-		Context  json.RawMessage `json:"context"`
+		Context  struct {
+			Arguments map[string]string `json:"arguments"`
+		} `json:"context"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("%w: %v", mcpserver.ErrInvalidParams, err)
@@ -904,8 +906,14 @@ func (b mcpBackend) Complete(ctx context.Context, params json.RawMessage) ([]str
 		}
 		server, ref["uri"] = ns, inner
 	}
+	// The request's own context (arguments already resolved) travels as
+	// `arguments`: /v1's `context` is the caller's identity, not the
+	// protocol's CompleteRequest.context.
 	body := map[string]any{"server": server, "ref": ref, "argument": p.Argument,
 		"context": b.app.mcpCaller(ctx)}
+	if len(p.Context.Arguments) > 0 {
+		body["arguments"] = p.Context.Arguments
+	}
 	raw, err := c.do(ctx, http.MethodPost, "/v1/complete", body)
 	if err != nil {
 		return nil, err

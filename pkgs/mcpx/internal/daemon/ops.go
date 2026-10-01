@@ -322,8 +322,12 @@ type completeReq struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"argument"`
-	Context config.CallContext `json:"context"`
-	Session string             `json:"session"`
+	// Arguments is CompleteRequest.context.arguments: the values already
+	// chosen for the prompt's other arguments, which an upstream may use to
+	// narrow its answer. Named apart from Context, the caller's identity.
+	Arguments map[string]string  `json:"arguments"`
+	Context   config.CallContext `json:"context"`
+	Session   string             `json:"session"`
 }
 
 func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +358,11 @@ func (s *Server) handleComplete(w http.ResponseWriter, r *http.Request) {
 	// Upstream first, always. The server knows the *values* an argument may
 	// take; mcpx knows only the names it has cached, which is a floor
 	// rather than a substitute.
-	params, _ := json.Marshal(map[string]any{"ref": req.Ref, "argument": req.Argument})
+	fwd := map[string]any{"ref": req.Ref, "argument": req.Argument}
+	if len(req.Arguments) > 0 {
+		fwd["context"] = map[string]any{"arguments": req.Arguments}
+	}
+	params, _ := json.Marshal(fwd)
 	cc := callContext(r, req.Context, req.Session)
 	raw, upstream, err := p.Complete(r.Context(), s.reg.keyFor(p, cc), params)
 	if err != nil {

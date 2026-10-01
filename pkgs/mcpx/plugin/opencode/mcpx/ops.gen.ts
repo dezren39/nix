@@ -169,6 +169,7 @@ export const OPS: Record<string, OpSpec> = {
       server: { in: "body", required: true },
       ref: { in: "body", required: true },
       argument: { in: "body", required: true },
+      arguments: { in: "body" },
       session: { in: "body" },
       context: { in: "body" },
     },
@@ -792,7 +793,7 @@ export class DaemonOps {
   /**
    * Argument autocomplete from an upstream server. `POST /v1/complete`.
    */
-  complete(args: { server: string; ref: Record<string, unknown>; argument: Record<string, unknown>; session?: string; context?: Record<string, unknown> }, opts: CallOptions = {}): Promise<unknown> {
+  complete(args: { server: string; ref: Record<string, unknown>; argument: Record<string, unknown>; arguments?: Record<string, unknown>; session?: string; context?: Record<string, unknown> }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("complete", args, opts) as Promise<unknown>
   }
 

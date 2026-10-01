@@ -194,6 +194,25 @@ func TestMCPSurfaceAnswersLikeV1(t *testing.T) {
 		}
 	})
 
+	// context.arguments was dropped on both surfaces, so an upstream that
+	// narrows by the arguments already chosen never saw them (#213, CMP-05).
+	t.Run("2025-11-25/completion/context-arguments-reach-the-server", func(t *testing.T) {
+		e := askEnv(t)
+		e.run("refresh")
+		got := stdioReplies(t, e, []map[string]any{stdioInit,
+			rpc(2, "completion/complete", map[string]any{
+				"ref":      map[string]any{"type": "ref/prompt", "name": "ask_confirmed"},
+				"argument": map[string]any{"name": "x", "value": ""},
+				"context":  map[string]any{"arguments": map[string]any{"owner": "me"}}})})
+		s := dumpJSON(t, got["2"])
+		if !strings.Contains(s, "from-upstream-a") {
+			t.Fatalf("premise: upstream was not asked:\n%s", s)
+		}
+		if !strings.Contains(s, "ctx:owner=me") {
+			t.Fatalf("context.arguments never reached the server:\n%s", s)
+		}
+	})
+
 	e := newEnv(t, oneServer)
 	e.run("refresh")
 	// https://modelcontextprotocol.io/specification/2025-11-25/server/resources#binary-content

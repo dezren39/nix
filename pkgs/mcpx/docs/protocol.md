@@ -104,7 +104,7 @@ What a host connected to mcpx gets, over `mcpx serve` (stdio) or the daemon's
 | `resources/list`, `resources/read`, `resources/templates/list` | all | always | binary contents as `blob`; not found is `-32002` (legacy) or `-32602` (2026), both with `data.uri` |
 | `resources/subscribe`, `resources/unsubscribe` | legacy | legacy peers | `{}`, always; subscribes upstream where the owning server can deliver, and otherwise publishes a warning event (§4.3) |
 | `subscriptions/listen` | 2026-07-28 | **any** era | an acknowledgement, then only the notifications the filter asked for, each tagged with the subscription id |
-| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
+| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does, with `context.arguments`; a 2024-11-05 upstream is asked without a capability (that revision had none); unknown ref `-32602`, upstream failure `-32603` |
 | `logging/setLevel` | legacy | legacy peers | `{}`; mcpx emits no `notifications/message` (§2.2) |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core | **any** legacy peer | the core shapes; a task is visible only to the connection that started it |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers that declared `io.modelcontextprotocol/tasks` on the request; `-32021` with `data.requiredCapabilities` (HTTP 400) otherwise | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
