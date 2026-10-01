@@ -284,15 +284,10 @@ func (s *Server) askTask(ctx context.Context, req request, peer Peer) (*response
 	}
 	if sendable := sendableTo(out.Questions, peer); len(sendable) > 0 {
 		// Asked before the call became a task: answered inline, on this
-		// request, as any other modern request is.
-		select {
-		case <-ctx.Done():
-		case <-time.After(askSettle):
-		}
-		if more, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil && !more.Done {
-			if m := sendableTo(more.Questions, peer); len(m) > len(sendable) {
-				sendable = m
-			}
+		// request, as any other modern request is. The whole round, not
+		// the first of it to arrive (awaitRound).
+		if m, ok := s.awaitRound(ctx, callID, sendable, peer); ok {
+			sendable = m
 		}
 		if state, err := s.states().mint(callID, requestBinding(req)); err == nil {
 			return &response{JSONRPC: "2.0", ID: req.ID, Result: inputRequired(sendable, state, peer)}, true
