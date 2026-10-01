@@ -37,6 +37,15 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
+  # Spec revisions one side is expected to have and the other not, as JSON
+  # arrays, read by the spec parity job. An entry here is left out of that
+  # comparison. If both sides come to have an entry, or its side drops it, the
+  # job fails at once: the entry is dead and must be removed, or it would
+  # hide a real mismatch on that revision later.
+  #
+  # 2024-11-05: mcpx serves it; the conformance suite has never tested it.
+  SPEC_PARITY_ALLOW_ONLY_MCPX: '["2024-11-05"]'
+  SPEC_PARITY_ALLOW_ONLY_SUITE: '[]'
   # The suite commit these results are measured against. Bump deliberately: a new suite commit can
   # add checks, which moves every number.
   CONFORMANCE_REPO: modelcontextprotocol/conformance
@@ -276,7 +285,8 @@ jobs:
           python3 pkgs/mcpx/scripts/spec-parity.py "$MCPX" "$SUITE" "$now" "$RUN" \
             "$(jq -r '.MCPX_SPEC_PARITY_SUCCESS // ""' <<<"$VARS")" \
             "$(jq -r '.MCPX_SPEC_PARITY_FAILURE // ""' <<<"$VARS")" \
-            "$ON_MAIN" "$GITHUB_STEP_SUMMARY" "$out"
+            "$ON_MAIN" "$GITHUB_STEP_SUMMARY" "$out" \
+            "$SPEC_PARITY_ALLOW_ONLY_MCPX" "$SPEC_PARITY_ALLOW_ONLY_SUITE"
           status=$(cat "$out/status")
           if [ "$ON_MAIN" = true ]; then
             if [ -z "$GH_TOKEN" ]; then

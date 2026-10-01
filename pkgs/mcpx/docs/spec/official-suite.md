@@ -29,8 +29,12 @@ A **spec parity** job compares the revisions mcpx supports (`mcpx protocol
 unknown `--spec-version` names them all). Neither list is written in this
 repository. A mismatch warns, with a deadline counted from the last match on
 `main` -- 840 hours when only one side has extra revisions, 360 when both do --
-and after it the job fails. Today mcpx has `2024-11-05` and the suite does not,
-so the job warns. See `scripts/spec-parity.py`.
+and after it the job fails. Revisions one side is expected to have alone are
+listed at the top of the workflow (`SPEC_PARITY_ALLOW_ONLY_MCPX`,
+`SPEC_PARITY_ALLOW_ONLY_SUITE`); today that is `2024-11-05`, which mcpx serves
+and the suite has never tested. An entry both sides come to have, or that its
+side drops, fails the job at once until it is removed. See
+`scripts/spec-parity.py`.
 
 Each leg's total is every check the suite recorded, from its `checks.json`
 files, warnings included: the summary line's passed + failed leaves warnings
