@@ -57,6 +57,17 @@ jobs:
           - server-all
           - client-2025-11-25
           - client-2026-07-28
+        # mcpx has no OAuth client (docs/in-name-only.md), so every client
+        # scenario under the suite's auth/ directory fails, and nothing else
+        # should. These legs pass only at exactly these counts with every
+        # failure in auth/: a new failure elsewhere, a lost pass, or an auth
+        # check that starts passing all fail the job, so the numbers here
+        # are updated deliberately rather than drifting.
+        include:
+          - leg: client-2025-11-25
+            expect: "20 56"
+          - leg: client-2026-07-28
+            expect: "63 68"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -94,9 +105,11 @@ jobs:
           } >>"$GITHUB_OUTPUT"
 
       - name: Summary
+        id: summary
         if: always()
         env:
           LEG: ${{ matrix.leg }}
+          EXPECT: ${{ matrix.expect }}
           PARSED: ${{ steps.run.outputs.parsed }}
           PASSED: ${{ steps.run.outputs.passed }}
           FAILED: ${{ steps.run.outputs.failed }}
@@ -131,6 +144,26 @@ jobs:
                 printf "| %s | %s | %s | %s |\n", $2, $3, $4, substr(msg,1,300)}' "$f"
             fi
           } >>"$GITHUB_STEP_SUMMARY"
+          # Failures outside the suite's auth/ scenarios, for the client legs.
+          nonauth=$(python3 - "$OUT/$LEG/results" <<'EOF'
+          import json, glob, os, sys
+          root = sys.argv[1]
+          n = 0
+          for f in glob.glob(os.path.join(root, '**', 'checks.json'), recursive=True):
+              if os.path.relpath(f, root).split(os.sep)[0] == 'auth':
+                  continue
+              n += sum(c.get('status') == 'FAILURE' for c in json.load(open(f)))
+          print(n)
+          EOF
+          )
+          echo "nonauth=$nonauth" >>"$GITHUB_OUTPUT"
+          if [ -n "$EXPECT" ]; then
+            {
+              echo
+              echo "Expected for this leg: \`$EXPECT\` (passed failed), every failure an OAuth scenario."
+              echo "Failures outside \`auth/\`: **$nonauth**."
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
           mkdir -p "$RUNNER_TEMP/counts"
           printf '{"leg":"%s","parsed":%s,"passed":%s,"failed":%s}\n' \
             "$LEG" "${PARSED:-false}" "${PASSED:-0}" "${FAILED:-0}" >"$RUNNER_TEMP/counts/$LEG.json"
@@ -154,6 +187,15 @@ jobs:
         run: |
           if [ "${{ steps.run.outputs.parsed }}" != true ]; then
             echo "::error::the suite did not produce a summary for ${{ matrix.leg }}"; exit 1
+          fi
+          got="${{ steps.run.outputs.passed }} ${{ steps.run.outputs.failed }}"
+          if [ -n "${{ matrix.expect }}" ]; then
+            if [ "$got" != "${{ matrix.expect }}" ] || [ "${{ steps.summary.outputs.nonauth }}" != 0 ]; then
+              echo "::error::${{ matrix.leg }}: got '$got' (passed failed) with ${{ steps.summary.outputs.nonauth }} non-OAuth failure(s); expected '${{ matrix.expect }}' with none. Update matrix.expect in this workflow if the change is intended."
+              exit 1
+            fi
+            echo "${{ matrix.leg }}: exactly the expected '$got', every failure OAuth"
+            exit 0
           fi
           if [ "${{ steps.run.outputs.failed }}" != 0 ]; then
             echo "::error::${{ steps.run.outputs.failed }} conformance check(s) failed in ${{ matrix.leg }} (informational; not a merge block)"

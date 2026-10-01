@@ -22,6 +22,14 @@ found while doing other work. The full audit -- every command, flag, setting,
 environment variable and surface checked for whether it changes behaviour --
 has not been done yet.
 
+**When the audit is done, read the specifications, not only the conformance
+suite.** The suite tests what it has scenarios for: nothing for 2024-11-05,
+three scenarios for 2025-03-26, and it measures zero for features no fixture
+exposes. Passing it is not conformance. The per-revision requirements are
+catalogued in `docs/spec/requirements.md` and `docs/compare/matrix-revisions.md`;
+check each against the code, and check each conformance pass against what the
+spec actually asks.
+
 Legend: **absent** -- declared, nothing behind it. **minimal** -- does the
 least that lets a test or a doc say it exists. **partial** -- works on some
 paths and silently not on others.
