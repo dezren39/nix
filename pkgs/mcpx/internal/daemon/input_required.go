@@ -171,7 +171,12 @@ func (s *Server) unattributedSince(server string, since time.Time) []mcpserver.Q
 	}
 	var out []mcpserver.Question
 	for _, rq := range pending {
-		if rq.Server != server || rq.Trace != "" || rq.Created.Before(since) {
+		// mcpx's own policy questions (a destructive confirmation, a
+		// disambiguation, a recipe form) carry the caller's session and have
+		// their own timeout and fallback; a question a server raised through
+		// elicitViaBroker carries neither a session nor a tool. Only those.
+		if rq.Server != server || rq.Trace != "" || rq.Tool != "" || rq.Session != "" ||
+			rq.Created.Before(since) {
 			continue
 		}
 		method := "elicitation/create"
