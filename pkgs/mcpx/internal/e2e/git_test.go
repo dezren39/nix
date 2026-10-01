@@ -90,7 +90,7 @@ func (e *env) tryIn(dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	cmd.Env = e.envVars
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return string(out), harnessTimeout(ctx, err)
 }
 
 func (e *env) runIn(dir string, args ...string) string {

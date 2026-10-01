@@ -16,6 +16,10 @@
 //	modern         answers server/discover; rejects initialize naming its versions
 //	dual           answers both
 //
+// Tools: hello says which era its session is ("hello from <mode> over
+// legacy|modern"); ask, on a modern session, answers input_required with an
+// elicitation and then "answered <the response>".
+//
 // ERAMCP_DISCOVER_DELAY delays the discover answer (a slow-starting server).
 // ERAMCP_SUPPORTED overrides the versions a modern server supports
 // (comma-separated); a discover asking for another gets -32022.
@@ -28,6 +32,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -42,6 +47,9 @@ var (
 	writeMu   sync.Mutex
 	out       = bufio.NewWriter(os.Stdout)
 	supported = []string{"2026-07-28"}
+	// initialized is set once this process has answered initialize: the
+	// session is legacy from then on.
+	initialized atomic.Bool
 )
 
 func main() {
@@ -111,6 +119,7 @@ func handle(f frame) {
 			fail(f.ID, -32601, "initialize is not supported; this server speaks "+strings.Join(supported, ", "), nil)
 			return
 		}
+		initialized.Store(true)
 		ok(f.ID, map[string]any{
 			"protocolVersion": "2025-06-18",
 			"serverInfo":      map[string]any{"name": "eramcp", "version": "1"},
@@ -151,10 +160,40 @@ func handle(f frame) {
 		ok(f.ID, map[string]any{"tools": []any{map[string]any{
 			"name": "hello", "description": "says hello",
 			"inputSchema": map[string]any{"type": "object"},
+		}, map[string]any{
+			"name": "ask", "description": "asks a question, the 2026-07-28 way",
+			"inputSchema": map[string]any{"type": "object"},
 		}}})
 		return
 	case "tools/call":
-		ok(f.ID, map[string]any{"content": []any{map[string]any{"type": "text", "text": "hello from " + mode}}})
+		var call struct {
+			Name           string                     `json:"name"`
+			InputResponses map[string]json.RawMessage `json:"inputResponses"`
+		}
+		_ = json.Unmarshal(f.Params, &call)
+		if call.Name == "ask" && !initialized.Load() {
+			// The 2026-07-28 way to ask: answer input_required and expect
+			// the same request again with the answer attached.
+			if a, has := call.InputResponses["q"]; has {
+				ok(f.ID, map[string]any{"content": []any{map[string]any{"type": "text", "text": "answered " + string(a)}}})
+				return
+			}
+			ok(f.ID, map[string]any{"resultType": "input_required", "inputRequests": map[string]any{
+				"q": map[string]any{"method": "elicitation/create", "params": map[string]any{
+					"mode": "form", "message": "which colour?",
+					"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{
+						"colour": map[string]any{"type": "string"}}},
+				}},
+			}})
+			return
+		}
+		// Which era this session is, so a test can tell which of a dual
+		// server's sessions answered.
+		over := "modern"
+		if initialized.Load() {
+			over = "legacy"
+		}
+		ok(f.ID, map[string]any{"content": []any{map[string]any{"type": "text", "text": "hello from " + mode + " over " + over}}})
 		return
 	}
 	// Unknown here, or discover to a server that does not speak it.

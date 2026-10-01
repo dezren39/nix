@@ -77,6 +77,10 @@ type Instance struct {
 	// eraSource is how this instance's era was settled: probe, cache or
 	// forced.
 	eraSource string
+	// legacyLane marks an instance started legacy-only for legacy callers
+	// under protocol: follow. Such an instance never serves a modern
+	// caller, who would lose the modern session for nothing.
+	legacyLane bool
 	// subscribed are the resource URIs this instance has been asked to
 	// report updates for. See watch.go.
 	subMu      sync.Mutex
@@ -128,8 +132,10 @@ type Pool struct {
 	cond      *sync.Cond
 	instances []*Instance
 	starting  int
-	seq       int
-	closed    bool
+	// startingLegacy is how many of starting are legacy-lane starts.
+	startingLegacy int
+	seq            int
+	closed         bool
 
 	flightMu sync.Mutex
 	inflight map[string]int
@@ -148,6 +154,10 @@ type Pool struct {
 	watchMu  sync.Mutex
 	watched  map[string]int
 	watchKey string
+
+	// noLegacy is set once a legacy-only start failed under protocol:
+	// follow; legacy callers then share the modern session.
+	noLegacy bool
 
 	lastErr   error
 	failCount int
@@ -180,6 +190,7 @@ var errClosed = errors.New("pool closed")
 // are separate config axes.
 func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 	exclusive := p.cfg.Sharing == config.SharingExclusive
+	legacy := p.followLegacy(ctx)
 
 	p.mu.Lock()
 	for {
@@ -192,7 +203,7 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 		// An instance already serving this key is the only correct choice:
 		// the key is the caller's identity, and a second process would mean a
 		// second browser, a second index, a second anything.
-		if in := p.findLocked(key); in != nil {
+		if in := p.findLaneLocked(key, legacy); in != nil {
 			if !exclusive || in.holders == 0 {
 				in.holders++
 				in.lastUsed = time.Now()
@@ -207,7 +218,7 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 			continue
 		}
 
-		if len(p.instances)+p.starting < p.cfg.Max {
+		if p.laneSizeLocked(legacy) < p.cfg.Max {
 			if cd := p.cooldownUntil; time.Now().Before(cd) {
 				err := p.lastErr
 				p.mu.Unlock()
@@ -215,12 +226,26 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 					p.cfg.Name, time.Until(cd).Truncate(time.Millisecond), err)
 			}
 			p.starting++
+			if legacy {
+				p.startingLegacy++
+			}
 			p.mu.Unlock()
 
-			in, err := p.start(ctx)
+			in, err := p.startLane(ctx, legacy)
 
 			p.mu.Lock()
 			p.starting--
+			if legacy {
+				p.startingLegacy--
+			}
+			if err != nil && legacy {
+				// The server has no legacy session to offer. Remember that,
+				// and serve this caller from the modern one as before.
+				p.noLegacy = true
+				legacy = false
+				p.cond.Broadcast()
+				continue
+			}
 			if err != nil {
 				p.failCount++
 				p.lastErr = err
@@ -238,7 +263,7 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 			p.cooldownUntil = time.Time{}
 			// Another caller may have created this key while the lock was
 			// released; keep theirs and retire the duplicate.
-			if dup := p.findLocked(key); dup != nil {
+			if dup := p.findLaneLocked(key, legacy); dup != nil {
 				p.cond.Broadcast()
 				p.mu.Unlock()
 				go in.Client.Close()
@@ -257,7 +282,7 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 		// At capacity. An idle instance serving a key nobody is using can be
 		// retired to make room, which is what keeps a per-call scope from
 		// deadlocking at Max.
-		if in := p.evictableLocked(); in != nil {
+		if in := p.evictableLocked(legacy); in != nil {
 			p.removeLocked(in)
 			p.mu.Unlock()
 			_ = in.Client.Close()
@@ -272,6 +297,34 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 	}
 }
 
+// followLegacy reports whether this acquisition should get a legacy-only
+// session: the server is configured protocol: follow, the caller speaks a
+// legacy revision, and the server has not already refused initialize.
+func (p *Pool) followLegacy(ctx context.Context) bool {
+	if p.Preference() != mcpclient.PreferFollow || !mcpclient.CallerLegacy(ctx) {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.noLegacy
+}
+
+// findLaneLocked returns the instance serving key for a caller of the given
+// era. A legacy caller takes any legacy session, including the default one
+// of a server that only speaks legacy; a modern caller never takes one
+// started legacy-only for somebody else.
+func (p *Pool) findLaneLocked(key string, legacy bool) *Instance {
+	for _, in := range p.instances {
+		if in.key != key {
+			continue
+		}
+		if legacy && (in.legacyLane || in.Client.Era == mcpclient.EraLegacy) || !legacy && !in.legacyLane {
+			return in
+		}
+	}
+	return nil
+}
+
 // findLocked returns the instance serving key, if any.
 func (p *Pool) findLocked(key string) *Instance {
 	for _, in := range p.instances {
@@ -282,11 +335,31 @@ func (p *Pool) findLocked(key string) *Instance {
 	return nil
 }
 
-// evictableLocked picks the least recently used instance with no holders.
-func (p *Pool) evictableLocked() *Instance {
+// laneSizeLocked counts the instances, running and starting, in one lane.
+//
+// Max bounds each lane separately. A legacy-lane instance is a second
+// session kind for the same callers, not a rival for their slot: with a
+// global scope (Max 1) a shared lane would mean a legacy call in progress
+// stalls every modern call, and the reverse.
+func (p *Pool) laneSizeLocked(legacy bool) int {
+	n := 0
+	for _, in := range p.instances {
+		if in.legacyLane == legacy {
+			n++
+		}
+	}
+	if legacy {
+		return n + p.startingLegacy
+	}
+	return n + p.starting - p.startingLegacy
+}
+
+// evictableLocked picks the least recently used instance with no holders
+// in the given lane.
+func (p *Pool) evictableLocked(legacy bool) *Instance {
 	var best *Instance
 	for _, in := range p.instances {
-		if in.holders > 0 {
+		if in.holders > 0 || in.legacyLane != legacy {
 			continue
 		}
 		if best == nil || in.lastUsed.Before(best.lastUsed) {
@@ -378,7 +451,11 @@ func (p *Pool) reapDeadLocked() {
 	p.instances = kept
 }
 
-func (p *Pool) start(ctx context.Context) (*Instance, error) {
+func (p *Pool) start(ctx context.Context) (*Instance, error) { return p.startLane(ctx, false) }
+
+// startLane starts an instance; legacy starts it legacy-only, for a legacy
+// caller under protocol: follow.
+func (p *Pool) startLane(ctx context.Context, legacy bool) (*Instance, error) {
 	sctx, cancel := context.WithTimeout(ctx, p.cfg.StartTimeout)
 	defer cancel()
 	launched := time.Now()
@@ -395,6 +472,12 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	// never be declared and the first roots/list could arrive before any
 	// roots were set.
 	pref := p.Preference()
+	switch {
+	case legacy:
+		pref = mcpclient.ForceLegacy
+	case pref == mcpclient.PreferFollow:
+		pref = mcpclient.PreferModern
+	}
 	opts := mcpclient.Options{ClientName: "mcpx", ClientVersion: Version, Preference: pref}
 	ref := &instanceRef{p: p}
 	eraKey := Identity(p.cfg)
@@ -505,13 +588,14 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 	p.mu.Unlock()
 
 	in := &Instance{
-		ID:        id,
-		Client:    cl,
-		transport: tr,
-		trace:     newTraceID("srv"),
-		startedAt: time.Now(),
-		lastUsed:  time.Now(),
-		eraSource: source,
+		ID:         id,
+		Client:     cl,
+		transport:  tr,
+		trace:      newTraceID("srv"),
+		startedAt:  time.Now(),
+		lastUsed:   time.Now(),
+		eraSource:  source,
+		legacyLane: legacy,
 	}
 	ref.set(in)
 	// A replacement instance -- after a restart, a crash, an eviction --

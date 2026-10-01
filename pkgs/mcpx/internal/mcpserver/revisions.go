@@ -242,6 +242,17 @@ func downgrade(result any, version string) any {
 	if c, present := m["content"]; present {
 		m["content"] = downgradeContent(c, version)
 	}
+	if !Defines(version, FeatTitle) {
+		// ResourceContents._meta arrived with the rest of _meta, in
+		// 2025-06-18.
+		if list, ok := m["contents"].([]any); ok {
+			for _, c := range list {
+				if cm, ok := c.(map[string]any); ok {
+					delete(cm, "_meta")
+				}
+			}
+		}
+	}
 	if msgs, present := m["messages"]; present {
 		m["messages"] = downgradeMessages(msgs, version)
 	}
@@ -279,6 +290,12 @@ func downgradeItems(list []any, version string) []any {
 			continue
 		}
 		if !Defines(version, FeatTitle) {
+			// _meta on a listed item and Annotations.lastModified arrived
+			// with title, in 2025-06-18.
+			delete(it, "_meta")
+			if an, ok := it["annotations"].(map[string]any); ok {
+				delete(an, "lastModified")
+			}
 			delete(it, "title")
 			if args, ok := it["arguments"].([]any); ok {
 				for _, a := range args {
@@ -399,10 +416,10 @@ func downgradeMessages(v any, version string) any {
 func linkAsResource(block map[string]any) map[string]any {
 	uri, _ := block["uri"].(string)
 	name, _ := block["name"].(string)
-	mime, _ := block["mimeType"].(string)
-	if mime == "" {
-		mime = "text/plain"
-	}
+	// The body is a text label, so its type is text/plain whatever the
+	// link points at: an image/png resource whose text is a name and a URI
+	// is a broken image (#206, CT-06).
+	mime := "text/plain"
 	text := uri
 	if name != "" {
 		text = name + " — " + uri

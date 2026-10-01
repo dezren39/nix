@@ -75,6 +75,10 @@ type Conn struct {
 	// listChanged forwards list_changed to a legacy client, which declared
 	// nothing to opt in with: the capability mcpx declared is the promise.
 	listChanged context.CancelFunc
+	// logLevel is what a legacy client set with logging/setLevel: the least
+	// severe upstream log message relayed to it during a call. Empty until
+	// it asks, and nothing is relayed until then.
+	logLevel string
 }
 
 // clientReply is a JSON-RPC response from the client to a request we sent it.
@@ -443,6 +447,8 @@ func (q Question) Sendable(p Peer) bool {
 		return p.CanElicit(q.Mode)
 	case "sampling/createMessage":
 		return p.CanSample()
+	case "roots/list":
+		return p.Declared("roots")
 	}
 	return false
 }

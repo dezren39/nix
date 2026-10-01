@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -205,7 +206,9 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		mcp := &lazyMCP{app: a}
 		srv.MCP = mcp
 		srv.MCPPath = a.Settings().String("proto.mcpPath")
-		srv.MCPTool = mcp.InvokeTool
+		srv.MCPTool = func(ctx context.Context, tool string, args json.RawMessage) (string, error) {
+			return invokeToolText(mcp.InvokeTool(ctx, tool, args))
+		}
 	}
 	srv.Address = a.Settings().String("daemon.address")
 	srv.Origins = a.originPolicy()

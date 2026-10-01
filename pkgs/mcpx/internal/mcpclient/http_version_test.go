@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/dezren39/mcpx/internal/mcpheaders"
 )
 
 func TestTheVersionHeaderFollowsTheFrame(t *testing.T) {
@@ -98,7 +100,7 @@ func TestHeaderValueEncoding(t *testing.T) {
 			"\tindented":         "=?base64?CWluZGVudGVk?=",
 			"":                   "",
 		} {
-			if got := encodeHeaderValue(in); got != want {
+			if got := mcpheaders.Encode(in); got != want {
 				t.Errorf("encode(%q) = %q, want %q", in, got, want)
 			}
 		}
@@ -128,13 +130,13 @@ func TestToolHeaderAnnotations(t *testing.T) {
 			"not a string":     `{"type":"object","properties":{"v":{"type":"string","x-mcp-header":7}}}`,
 			"under properties": `{"type":"object","properties":{"o":{"type":"object","properties":{"v":{"type":"string"}},"not":{"properties":{"v":{"x-mcp-header":"V","type":"string"}}}}}}`,
 		} {
-			if _, err := toolHeaders(json.RawMessage(schema)); err == nil {
+			if _, err := mcpheaders.ToolParams(json.RawMessage(schema)); err == nil {
 				t.Errorf("%s: accepted %s", name, schema)
 			}
 		}
 	})
 	t.Run("2026-07-28/transport/x-mcp-header-statically-reachable-accepted", func(t *testing.T) {
-		hp, err := toolHeaders(json.RawMessage(`{"type":"object","properties":{
+		hp, err := mcpheaders.ToolParams(json.RawMessage(`{"type":"object","properties":{
 			"region":{"type":"string","x-mcp-header":"Region"},
 			"o":{"type":"object","properties":{"n":{"type":"integer","x-mcp-header":"Nested"}}},
 			"flag":{"type":"boolean","x-mcp-header":"Flag"},
@@ -160,13 +162,13 @@ func TestToolHeaderAnnotations(t *testing.T) {
 
 // https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#client-behavior
 func TestParamHeaders(t *testing.T) {
-	params := []headerParam{
+	params := []mcpheaders.Param{
 		{Name: "Region", Path: []string{"region"}}, {Name: "Priority", Path: []string{"priority"}},
 		{Name: "Verbose", Path: []string{"verbose"}}, {Name: "Nested", Path: []string{"o", "n"}},
 		{Name: "Missing", Path: []string{"missing"}}, {Name: "Empty", Path: []string{"empty"}},
 	}
 	t.Run("2026-07-28/transport/param-headers-mirror-and-omit-null", func(t *testing.T) {
-		h, err := paramHeaders(params, map[string]any{
+		h, err := mcpheaders.Values(params, map[string]any{
 			"region": "Hello, 世界", "priority": 42, "verbose": nil, "o": map[string]any{"n": -7}, "empty": "",
 		})
 		if err != nil {
@@ -184,16 +186,16 @@ func TestParamHeaders(t *testing.T) {
 				t.Errorf("%s = %q (present %v), want %q", k, got, ok, v)
 			}
 		}
-		h, _ = paramHeaders(params, map[string]any{"verbose": false})
+		h, _ = mcpheaders.Values(params, map[string]any{"verbose": false})
 		if h["Mcp-Param-Verbose"] != "false" {
 			t.Errorf("boolean false: %q", h["Mcp-Param-Verbose"])
 		}
 	})
 	t.Run("2026-07-28/transport/param-integer-within-safe-range", func(t *testing.T) {
-		if _, err := paramHeaders(params, map[string]any{"priority": int64(1) << 53}); err == nil {
+		if _, err := mcpheaders.Values(params, map[string]any{"priority": int64(1) << 53}); err == nil {
 			t.Error("2^53 accepted")
 		}
-		if _, err := paramHeaders(params, map[string]any{"priority": 1.5}); err == nil {
+		if _, err := mcpheaders.Values(params, map[string]any{"priority": 1.5}); err == nil {
 			t.Error("1.5 accepted for an integer header")
 		}
 	})

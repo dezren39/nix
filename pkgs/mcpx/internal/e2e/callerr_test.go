@@ -99,7 +99,7 @@ func (e *env) split(args ...string) (string, string, error) {
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err := cmd.Run()
-	return out.String(), errOut.String(), err
+	return out.String(), errOut.String(), harnessTimeout(ctx, err)
 }
 
 func postCall(t *testing.T, c *http.Client, path, body string) (int, []byte) {

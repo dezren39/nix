@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/mcpauth"
 	"os"
 	"path/filepath"
@@ -140,9 +141,10 @@ type Server struct {
 	// most need nothing at all.
 	Auth *mcpauth.Auth `json:"auth,omitempty"`
 	// Protocol chooses which era to probe first: modern, legacy,
-	// force-modern or force-legacy. Empty means upstream.protocol, which
-	// defaults to modern. The force forms skip the fallback, for a server
-	// known to be one or the other, or to find out which it is.
+	// force-modern, force-legacy or follow. Empty means upstream.protocol,
+	// which defaults to modern. The force forms skip the fallback, for a
+	// server known to be one or the other, or to find out which it is.
+	// follow is modern plus a legacy session for legacy callers.
 	Protocol string `json:"protocol,omitempty"`
 	Cwd      string `json:"cwd,omitempty"`
 	// AliasOf names another server whose process definition this entry reuses.
@@ -416,7 +418,9 @@ func SanitizeNamespace(s string) string {
 	if out[0] >= '0' && out[0] <= '9' {
 		out = "_" + out
 	}
-	return out
+	// A server named `log`, `default` or `console` would redeclare or
+	// shadow something the generated client needs, and break every script.
+	return codegen.SafeNamespace(out)
 }
 
 // Resolve folds file defaults and built-in defaults into a server definition.
@@ -472,6 +476,10 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 		max = 1
 	}
 
+	if ex.Namespace != "" && codegen.ReservedNamespace(ex.Namespace) {
+		return nil, fmt.Errorf("server %q: namespace %q is a reserved word or a name the generated client already uses; pick another",
+			name, ex.Namespace)
+	}
 	r := &Resolved{
 		Server:       s,
 		Sharing:      sharing,

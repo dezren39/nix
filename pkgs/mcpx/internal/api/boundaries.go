@@ -65,8 +65,8 @@ func Boundaries() []Boundary {
 		},
 		{
 			Name: "elicit.confirmDestructive",
-			Declares: "with it on, a call to a tool annotated destructiveHint does not " +
-				"run unless somebody confirms it",
+			Declares: "with it on, a call to a tool that may be destructive (annotated " +
+				"destructiveHint, or unannotated) does not run unless somebody confirms it",
 			State: Enforced,
 			Refusals: []string{
 				"TestADestructiveCallIsRefusedWhenNobodyConfirms",

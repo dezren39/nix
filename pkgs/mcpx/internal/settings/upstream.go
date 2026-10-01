@@ -10,14 +10,18 @@ func upstreamSettings() []Setting {
 	return []Setting{
 		{
 			Path: "upstream.protocol", Scope: ScopeDaemon, Kind: KindEnum, Default: "modern",
-			Enum:     []string{"modern", "legacy", "force-modern", "force-legacy"},
+			Enum:     []string{"modern", "legacy", "force-modern", "force-legacy", "follow"},
 			Commands: []string{"daemon"},
 			Name:     "Upstream protocol",
 			Short:    "which protocol era to try first against a server that names none",
 			Long: "modern sends server/discover first and falls back to initialize, " +
 				"which is what the 2026-07-28 transport pages prescribe. legacy sends " +
 				"initialize first and probes only if it fails. The force forms skip " +
-				"the fallback. A server's own protocol key overrides this.",
+				"the fallback. follow is modern, plus a second, legacy-only session " +
+				"for callers that reach mcpx in a legacy revision, so a dual-era " +
+				"server can still send them elicitation and sampling requests; a " +
+				"server that refuses initialize serves them from the modern one. " +
+				"A server's own protocol key overrides this.",
 		},
 		{
 			Path: "upstream.probeTimeout", Scope: ScopeDaemon, Kind: KindDuration, Default: "2s",

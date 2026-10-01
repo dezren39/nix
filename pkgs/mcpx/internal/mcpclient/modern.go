@@ -3,11 +3,13 @@ package mcpclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/mcpheaders"
 )
 
 // The reserved _meta keys a 2026-07-28 request carries.
@@ -108,7 +110,7 @@ func (c *Client) elicitModeDeclared(mode string) bool {
 // NOT infer capabilities from earlier ones -- and client info is a SHOULD.
 // Keys the caller already set are kept, so a progress token or a deliberate
 // override survives.
-func (c *Client) withMeta(params json.RawMessage, version string) (json.RawMessage, error) {
+func (c *Client) withMeta(ctx context.Context, params json.RawMessage, version string) (json.RawMessage, error) {
 	m := map[string]json.RawMessage{}
 	if len(params) > 0 && string(params) != "null" {
 		if err := json.Unmarshal(params, &m); err != nil {
@@ -125,7 +127,7 @@ func (c *Client) withMeta(params json.RawMessage, version string) (json.RawMessa
 		}
 	}
 	set(MetaProtocolVersion, version)
-	set(MetaClientCapabilities, c.capabilities(true))
+	set(MetaClientCapabilities, narrowCapabilities(c.capabilities(true), ClientCapabilitiesFrom(ctx)))
 	set(MetaClientInfo, map[string]any{"name": c.clientName, "version": c.clientVersion})
 	c.mu.Lock()
 	level := c.logLevel
@@ -139,6 +141,96 @@ func (c *Client) withMeta(params json.RawMessage, version string) (json.RawMessa
 	}
 	m["_meta"] = b
 	return json.Marshal(m)
+}
+
+type capsKey struct{}
+
+// WithClientCapabilities says whose capabilities a request is made on behalf
+// of: the client mcpx is relaying for, as it declared them on its own
+// 2026-07-28 request.
+//
+// A modern request declares capabilities per request, and the server decides
+// from that one declaration whether it may proceed. When mcpx fronts an
+// upstream as a pass-through, the declaration that matters is its client's:
+// mcpx declaring sampling on behalf of a client that declared nothing made
+// the upstream run a tool that requires sampling, where it should have
+// answered -32021 MissingRequiredClientCapability for the client to see.
+func WithClientCapabilities(ctx context.Context, caps json.RawMessage) context.Context {
+	if len(caps) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, capsKey{}, caps)
+}
+
+// ClientCapabilitiesFrom is what WithClientCapabilities stored, or nil.
+func ClientCapabilitiesFrom(ctx context.Context) json.RawMessage {
+	if ctx == nil {
+		return nil
+	}
+	caps, _ := ctx.Value(capsKey{}).(json.RawMessage)
+	return caps
+}
+
+type callerVersionKey struct{}
+
+// WithCallerVersion says which protocol revision the client mcpx is relaying
+// for speaks. The pool reads it under protocol: follow, to pick an upstream
+// session of the same era; see pool.Acquire.
+func WithCallerVersion(ctx context.Context, version string) context.Context {
+	if version == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, callerVersionKey{}, version)
+}
+
+// CallerVersionFrom is what WithCallerVersion stored, or "".
+func CallerVersionFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	v, _ := ctx.Value(callerVersionKey{}).(string)
+	return v
+}
+
+// CallerLegacy reports whether ctx carries a caller revision from before
+// 2026-07-28 -- one that has a session a server can send requests on.
+func CallerLegacy(ctx context.Context) bool {
+	v := CallerVersionFrom(ctx)
+	return v != "" && v < "2026-07-28"
+}
+
+// ErrNotRelayed is a handler declining a request it could not pass on, so
+// the client answers it itself.
+var ErrNotRelayed = errors.New("not relayed")
+
+// declaresCapability reports whether a clientCapabilities object names capability.
+func declaresCapability(caps json.RawMessage, capability string) bool {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(caps, &m) != nil {
+		return false
+	}
+	_, ok := m[capability]
+	return ok
+}
+
+// narrowCapabilities is mcpx's own declaration less every capability the
+// relayed client did not declare. Never wider than mcpx's own: mcpx must not
+// declare something it cannot answer just because its client can.
+func narrowCapabilities(own map[string]any, relayed json.RawMessage) map[string]any {
+	if len(relayed) == 0 {
+		return own
+	}
+	var theirs map[string]json.RawMessage
+	if json.Unmarshal(relayed, &theirs) != nil {
+		return own
+	}
+	out := map[string]any{}
+	for k, v := range own {
+		if _, ok := theirs[k]; ok {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // answer resolves one server-initiated request.
@@ -165,6 +257,19 @@ func (c *Client) answer(ctx context.Context, method string, params json.RawMessa
 		// the truth.
 		return map[string]any{}, nil
 	case "roots/list":
+		if h != nil && declaresCapability(ClientCapabilitiesFrom(ctx), "roots") {
+			// The client mcpx relays for has roots of its own, and they are
+			// what the server means. The handler relays the question when
+			// it can tie it to that client's call; otherwise mcpx answers
+			// with its own.
+			out, err := h(ctx, method, params)
+			if err == nil {
+				return out, nil
+			}
+			if !errors.Is(err, ErrNotRelayed) {
+				return nil, &rpcError{Code: -32603, Message: err.Error()}
+			}
+		}
 		if roots == nil {
 			roots = []Root{}
 		}
@@ -391,11 +496,11 @@ func (c *Client) checkToolHeaders(tools []Tool) []Tool {
 	if !c.mirrorsHeaders() {
 		return tools
 	}
-	headers := map[string][]headerParam{}
+	headers := map[string][]mcpheaders.Param{}
 	invalid := map[string]string{}
 	kept := tools[:0:0]
 	for _, t := range tools {
-		hp, err := toolHeaders(t.InputSchema)
+		hp, err := mcpheaders.ToolParams(t.InputSchema)
 		if err != nil {
 			invalid[t.Name] = err.Error()
 			c.warn(Warning{Tool: t.Name, Reason: "excluded: invalid x-mcp-header: " + err.Error()})
@@ -432,7 +537,7 @@ func (c *Client) toolCallHeaders(ctx context.Context, name string, args any, ref
 	if bad {
 		return nil, fmt.Errorf("tool %q was excluded because its x-mcp-header annotations are invalid: %s", name, why)
 	}
-	h, err := paramHeaders(hp, args)
+	h, err := mcpheaders.Values(hp, args)
 	if err != nil {
 		return nil, fmt.Errorf("tool %q: %w", name, err)
 	}

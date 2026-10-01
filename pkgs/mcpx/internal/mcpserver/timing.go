@@ -34,6 +34,12 @@ type Timing struct {
 	// TaskAfter is how long a tools/call from a tasks-extension client runs
 	// in line before it is handed a task instead.
 	TaskAfter time.Duration
+	// TaskEager is how long a call to a task-supporting tool -- one whose
+	// execution.taskSupport is optional or required -- runs in line before
+	// it is handed a task. Short, because the tool said it is the kind that
+	// takes a while; long enough for a fast call to be answered directly
+	// and for a question the tool asks up front to be asked inline.
+	TaskEager time.Duration
 	// SSEKeepAlive is how often a quiet GET event stream carries a comment.
 	SSEKeepAlive time.Duration
 	// StdioDrain is how long in-flight stdio requests may finish after the
@@ -62,6 +68,9 @@ func (t Timing) resolved() Timing {
 	if t.TaskAfter <= 0 {
 		t.TaskAfter = defaults.ProtoTaskAfter
 	}
+	if t.TaskEager <= 0 {
+		t.TaskEager = taskEager
+	}
 	if t.SSEKeepAlive <= 0 {
 		t.SSEKeepAlive = defaults.TransportSSEKeepAlive
 	}
@@ -73,3 +82,8 @@ func (t Timing) resolved() Timing {
 	}
 	return t
 }
+
+// taskEager is Timing.TaskEager's default. Not a setting: it is the window in
+// which a tool's up-front questions are told from its later ones, which is a
+// property of the protocol rather than of a deployment.
+const taskEager = 250 * time.Millisecond

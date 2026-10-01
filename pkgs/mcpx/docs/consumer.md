@@ -112,7 +112,7 @@ of the live keys plus "new", each with what it is doing — holders, calls,
 idle time, pid — because a choice without that is not a choice.
 
 **Destructive confirmation** (`elicit.confirmDestructive`, off). Before a call
-to a tool the server annotated `destructiveHint: true`. This is the step a
+to a tool that may be destructive: annotated `destructiveHint: true`, or (the specification's default) not annotated `readOnlyHint: true` or `destructiveHint: false`. This is the step a
 human-driven client has and a script does not.
 
 The two disagree about what a silent deadline means, deliberately. An

@@ -349,7 +349,7 @@ type ErrNotConfirmed struct {
 }
 
 func (e ErrNotConfirmed) Error() string {
-	return fmt.Sprintf("%s is annotated destructive and was not confirmed: %s", e.Tool, e.Reason)
+	return fmt.Sprintf("%s may be destructive and was not confirmed: %s", e.Tool, e.Reason)
 }
 
 // confirmDestructive asks before a call the server says cannot be undone.
@@ -396,7 +396,7 @@ func (r *Registry) confirmDestructive(ctx context.Context, p *pool.Pool, tool st
 		Server:  p.Name(),
 		Tool:    tool,
 		Session: cc.SessionID,
-		Message: fmt.Sprintf("%s says %s cannot be undone. Let this call proceed?",
+		Message: fmt.Sprintf("%s.%s may be destructive: its server does not mark it read-only or non-destructive. Let this call proceed?",
 			p.Namespace(), tool),
 		Default: "false",
 		TTL:     r.consumer.AskTimeout,
@@ -420,18 +420,24 @@ func (r *Registry) confirmDestructive(ctx context.Context, p *pool.Pool, tool st
 	return nil
 }
 
-// destructiveHint reads the one annotation mcpx acts on.
+// destructiveHint reads the one annotation mcpx acts on, with the
+// specification's defaults: destructiveHint is true when absent, and means
+// something only when readOnlyHint is not true. An absent hint was read as
+// false, so an unannotated tool -- which the schema says may destroy -- ran
+// unconfirmed (#207, TOOL-17).
 func destructiveHint(raw json.RawMessage) bool {
-	if len(raw) == 0 {
-		return false
-	}
 	var doc struct {
+		ReadOnly    *bool `json:"readOnlyHint"`
 		Destructive *bool `json:"destructiveHint"`
 	}
-	if json.Unmarshal(raw, &doc) != nil || doc.Destructive == nil {
+	if len(raw) > 0 && json.Unmarshal(raw, &doc) != nil {
+		// Unreadable annotations say nothing, so the default stands.
+		return true
+	}
+	if doc.ReadOnly != nil && *doc.ReadOnly {
 		return false
 	}
-	return *doc.Destructive
+	return doc.Destructive == nil || *doc.Destructive
 }
 
 // ---- recipes ----

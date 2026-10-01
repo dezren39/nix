@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/artifacts"
@@ -452,8 +453,15 @@ func (s *Service) RunWith(ctx context.Context, ropts runner.Options, opts Option
 	// wherever the write happened to fail.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	//
+	// Serialised: the runner calls the stdout writer and the stderr record
+	// hooks from separate goroutines, and an HTTP sink writing two frames at
+	// once interleaves them on the wire (#270).
 	var sinkErr error
+	var sinkMu sync.Mutex
 	emitFrame := func(f Frame) {
+		sinkMu.Lock()
+		defer sinkMu.Unlock()
 		if sinkErr != nil {
 			return
 		}

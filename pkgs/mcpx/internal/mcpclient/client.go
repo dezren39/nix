@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/mcpheaders"
 )
 
 // ProtocolVersion is the MCP revision mcpx negotiates.
@@ -111,9 +112,13 @@ type Client struct {
 	// logLevel is the level stamped into each modern request's _meta; empty
 	// means none, and a modern server then sends no log messages.
 	logLevel string
+	// relays are the calls in flight whose host asked for progress or log
+	// messages, each with the progress token mcpx sent upstream for it.
+	relays   map[*Relay]string
+	relaySeq atomic.Int64
 	// toolHeaders are each tool's x-mcp-header annotations, learned from
 	// tools/list, for a modern connection over HTTP.
-	toolHeaders map[string][]headerParam
+	toolHeaders map[string][]mcpheaders.Param
 	// invalidTools are tools excluded for invalid annotations, with why.
 	invalidTools map[string]string
 	// listen is the subscriptions/listen stream of a modern connection.
@@ -151,6 +156,14 @@ type Tool struct {
 	// it acts on. Without them a client has nothing but the description to
 	// decide whether a call is worth confirming.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// Execution carries taskSupport ("forbidden", "optional", "required"):
+	// whether the tool may be run as a task. Kept raw and forwarded, so a
+	// pass-through client sees what the upstream declared.
+	Execution json.RawMessage `json:"execution,omitempty"`
+	// Icons and Meta are carried, not read, so a host listing an upstream
+	// through mcpx sees what the server published (#207).
+	Icons json.RawMessage `json:"icons,omitempty"`
+	Meta  json.RawMessage `json:"_meta,omitempty"`
 }
 
 type toolsListResult struct {
@@ -165,6 +178,13 @@ type Resource struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mimeType,omitempty"`
+	// The optional fields, carried rather than read: they were dropped on
+	// parse, so no later layer could pass them on (#207).
+	Title       string          `json:"title,omitempty"`
+	Size        *int64          `json:"size,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 type resourcesListResult struct {
@@ -205,6 +225,11 @@ const (
 	// be one or the other, or to diagnose which it is.
 	ForceLegacy Preference = "force-legacy"
 	ForceModern Preference = "force-modern"
+	// PreferFollow is PreferModern for the server's own session, plus a
+	// separate legacy session for callers that speak a legacy revision, so
+	// a server that can only push requests to a legacy client still can.
+	// The pool implements it; to NewWithOptions it means PreferModern.
+	PreferFollow Preference = "follow"
 )
 
 // Where an era determination came from, as reported on Client.Source.
@@ -378,9 +403,25 @@ func (c *Client) Supports(cap string) bool {
 	return ok
 }
 
+// contextReceiver is a transport that knows which request a frame arrived
+// in answer to; see HTTPTransport.RecvContext.
+type contextReceiver interface {
+	RecvContext() ([]byte, context.Context, error)
+}
+
 func (c *Client) recvLoop() {
+	cr, _ := c.t.(contextReceiver)
 	for {
-		raw, err := c.t.Recv()
+		var (
+			raw    []byte
+			origin context.Context
+			err    error
+		)
+		if cr != nil {
+			raw, origin, err = cr.RecvContext()
+		} else {
+			raw, err = c.t.Recv()
+		}
 		if err != nil {
 			c.fail(err)
 			return
@@ -391,17 +432,17 @@ func (c *Client) recvLoop() {
 			var batch []json.RawMessage
 			if json.Unmarshal(trimmed, &batch) == nil {
 				for _, m := range batch {
-					c.dispatch(m)
+					c.dispatch(origin, m)
 				}
 			}
 			continue
 		}
-		c.dispatch(raw)
+		c.dispatch(origin, raw)
 	}
 }
 
 // dispatch routes one received message.
-func (c *Client) dispatch(raw []byte) {
+func (c *Client) dispatch(origin context.Context, raw []byte) {
 	// A server-initiated request has an id AND a method. Matching only on
 	// the id made such a frame look like a reply to nothing and dropped it,
 	// so the server waited until the call timed out. The id is kept raw:
@@ -413,7 +454,7 @@ func (c *Client) dispatch(raw []byte) {
 	}
 	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 		if len(probe.ID) > 0 && string(probe.ID) != "null" {
-			c.handleServerRequest(probe.ID, probe.Method, probe.Params)
+			c.handleServerRequest(origin, probe.ID, probe.Method, probe.Params)
 		} else {
 			c.handleNotification(probe.Method, probe.Params)
 		}
@@ -455,9 +496,17 @@ func (c *Client) SetElicitHandler(h ElicitHandler) {
 // Always answers. The alternative -- dropping what we do not understand --
 // is what the old code did by accident, and it is indistinguishable from a
 // hung server.
-func (c *Client) handleServerRequest(id json.RawMessage, method string, params json.RawMessage) {
+//
+// origin is the context of the request the server asked in the course of,
+// when the transport knows it; the handler sees its values (which call this
+// is), not its deadline -- the answer has its own.
+func (c *Client) handleServerRequest(origin context.Context, id json.RawMessage, method string, params json.RawMessage) {
+	base := context.Background()
+	if origin != nil {
+		base = context.WithoutCancel(origin)
+	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), defaults.ElicitHandlerTimeout)
+		ctx, cancel := context.WithTimeout(base, defaults.ElicitHandlerTimeout)
 		defer cancel()
 
 		result, rpcErr := c.answer(ctx, method, params)
@@ -539,6 +588,7 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 	if l != nil && !l.accepts(method, params) {
 		return
 	}
+	c.relayNotification(method, params)
 
 	switch method {
 	case "notifications/message":
@@ -759,7 +809,7 @@ func (c *Client) call(ctx context.Context, method string, params json.RawMessage
 	// callers see only the final result, exactly as they would from a
 	// legacy server that asked its questions on the wire.
 	for round := 0; ; round++ {
-		withMeta, err := c.withMeta(params, version)
+		withMeta, err := c.withMeta(ctx, params, version)
 		if err != nil {
 			return err
 		}
@@ -945,11 +995,14 @@ type Prompt struct {
 	Title       string           `json:"title,omitempty"`
 	Description string           `json:"description,omitempty"`
 	Arguments   []PromptArgument `json:"arguments,omitempty"`
+	Icons       json.RawMessage  `json:"icons,omitempty"`
+	Meta        json.RawMessage  `json:"_meta,omitempty"`
 }
 
 // PromptArgument is one substitution a prompt takes.
 type PromptArgument struct {
 	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 }
@@ -1011,6 +1064,11 @@ func (c *Client) CallTool(ctx context.Context, name string, args any) (json.RawM
 	if err != nil {
 		return nil, err
 	}
+	params, done, err := c.beginRelay(relayFrom(ctx), params)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
 	var raw json.RawMessage
 	for attempt := 0; ; attempt++ {
 		hctx, err := c.toolCallHeaders(ctx, name, args, attempt > 0)

@@ -35,6 +35,12 @@ type Task struct {
 	// because a result nobody collects is memory nobody frees.
 	TTL          int64 `json:"ttl"`
 	PollInterval int64 `json:"pollInterval,omitempty"`
+	// InputRequests are the questions an input_required task is waiting
+	// on, keyed as the client answers them. The tasks extension carries them
+	// on tasks/get; 2025-11-25 has no field for them, so they are not part
+	// of this shape. Replaced whole, never mutated, so a snapshot may share
+	// it.
+	InputRequests map[string]any `json:"-"`
 
 	result any
 	fault  *Fault
@@ -144,6 +150,7 @@ func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Tas
 			return // cancelled while running; the cancellation stands
 		}
 		t.LastUpdatedAt = time.Now()
+		t.InputRequests = nil
 		if fault != nil {
 			t.Status, t.fault = Failed, fault
 			t.StatusMessage = fault.Message
@@ -205,6 +212,40 @@ func (s *Store) SetStatus(id, status, message string) {
 	if t, ok := s.tasks[id]; ok && !Terminal(t.Status) {
 		t.Status, t.StatusMessage, t.LastUpdatedAt = status, message, time.Now()
 	}
+}
+
+// SetInput records the questions a running task is waiting on. A non-empty
+// set makes it input_required, an empty one working again. Called with the
+// same set it changes nothing, lastUpdatedAt included.
+func (s *Store) SetInput(id string, requests map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok || Terminal(t.Status) {
+		return
+	}
+	status := Working
+	if len(requests) > 0 {
+		status = InputRequired
+	} else {
+		requests = nil
+	}
+	if status == t.Status && sameKeys(requests, t.InputRequests) {
+		return
+	}
+	t.Status, t.InputRequests, t.LastUpdatedAt = status, requests, time.Now()
+}
+
+func sameKeys(a, b map[string]any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // Cancel stops a task and returns its final state.

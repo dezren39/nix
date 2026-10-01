@@ -125,18 +125,37 @@ range; a test sweeps both eras.
 
 The 2026-07-28 extension is server-directed, and forbids the other way: a
 server MUST ignore the `task` field and MUST NOT return a task to a client that
-did not declare `io.modelcontextprotocol/tasks` on that request. mcpx runs a
-`tools/call` from such a client and, if it has not finished within
-`protoMessages.taskAfter`, answers with a flat `CreateTaskResult`
-(`resultType: "task"`, `ttlMs`, `pollIntervalMs`). `tasks/get` inlines the
-result or error; a tool result with `isError` is `completed`, not `failed`
-(the store's 2025-11-25 rule is the opposite and is translated).
-`tasks/update` and `tasks/cancel` acknowledge with an empty result.
-`tasks/list` and `tasks/result` are `-32601` to a modern client: the SEP says
-so, which overrides accepting liberally. A client that can answer questions
-inline is never handed a task -- its questions go as `input_required` on the
-original request, which the SEP asks be resolved first -- so an extension task
-never reaches `input_required` and no `inputRequests` are ever outstanding.
+did not declare `io.modelcontextprotocol/tasks` on that request. Whether a
+call becomes a task follows the tool's `execution.taskSupport`, which a
+pass-through upstream declares and mcpx forwards on `tools/list`:
+
+- `required`, from a client that did not declare the extension: `-32021`
+  with `data.requiredCapabilities.extensions["io.modelcontextprotocol/tasks"]`,
+  before anything runs.
+- `optional` or `required`: the call gets 250 ms (`Timing.TaskEager`) to
+  finish or to ask its first question. Finished, it is answered directly; a
+  question is put to the client inline (`input_required` on the request, no
+  task yet), and the retry carrying the answer goes through the same window.
+  Past it, the call is a task. A question the call asks after that parks
+  the task in `input_required`, with the question in `inputRequests` on
+  `tasks/get`; `tasks/update` answers it key by key -- answered keys leave
+  `inputRequests` at once, keys not outstanding are ignored -- and the task
+  goes back to `working`. `tasks/cancel` abandons the call behind it.
+- anything else: run in line, and answered with a task only if it has not
+  finished within `protoMessages.taskAfter`. A client that can answer
+  questions inline is never handed one of these.
+- `forbidden`: never a task.
+
+The `CreateTaskResult` is flat (`resultType: "task"`, `ttlMs`,
+`pollIntervalMs`). `tasks/get` inlines the result or error; a tool result with
+`isError` is `completed`, not `failed` (the store's 2025-11-25 rule is the
+opposite and is translated), and an upstream's JSON-RPC error is `failed` with
+that `error`. `tasks/update` and `tasks/cancel` acknowledge with an empty
+result, `tasks/cancel` also on a task already finished. `Mcp-Name` on
+`tasks/get`, `tasks/update` and `tasks/cancel` mirrors the `taskId`; one that
+contradicts it is `-32020`, one left out is tolerated. `tasks/list` and
+`tasks/result` are `-32601` to a modern client: the SEP says so, which
+overrides accepting liberally.
 
 A task started on a legacy connection with an identity belongs to it:
 another connection cannot list it, and gets not-found for its id. Before, one

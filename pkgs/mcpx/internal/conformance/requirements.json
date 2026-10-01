@@ -5203,7 +5203,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "yes (`encodeHeaderValue`, `internal/mcpclient/headers.go`); tested, see `conformance-matrix.md`",
+      "client": "yes (`mcpheaders.Encode`, `internal/mcpheaders`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5241,7 +5241,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "yes (`paramHeaders`, `internal/mcpclient/headers.go`); tested, see `conformance-matrix.md`",
+      "client": "yes (`mcpheaders.Values`, `internal/mcpheaders`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5298,7 +5298,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "yes (`encodeHeaderValue`); tested, see `conformance-matrix.md`",
+      "client": "yes (`mcpheaders.Encode`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5336,7 +5336,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "yes (`paramHeaders`); tested, see `conformance-matrix.md`",
+      "client": "yes (`mcpheaders.Values`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5390,14 +5390,11 @@
     "quote": "\"Any server that processes the message body **MUST** validate that encoded header values ... match ... Servers **MUST** reject requests with a `400 Bad Request` HTTP status and JSON-RPC error code `-32020`\"",
     "applicability": {
       "client": "n/a:addresses the other side",
-      "server": "n/a:no tool mcpx serves declares an x-mcp-header parameter, so no Mcp-Param header can be owed"
+      "server": "applies"
     },
     "notes": {
       "client": "n/a",
-      "server": "gap"
-    },
-    "claims": {
-      "server": "gap"
+      "server": "yes — `Mcp-Param-*` headers are checked against the x-mcp-header annotations of the tool named (`checkParamHeaders`, `internal/mcpserver/transport.go`, via `mcpheaders.Check`); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -7348,11 +7345,11 @@
     "quote": "\"Progress tokens **MUST** be a string or integer value\"",
     "applicability": {
       "client": "applies",
-      "server": "n/a:sends no progressTokens"
+      "server": "n/a:as a server mcpx never requests progress; a host's token is relayed back verbatim"
     },
     "notes": {
-      "client": "yes (vacuous — mcpx never sends a progressToken upstream)",
-      "server": "n/a (sends no progressTokens)"
+      "client": "yes — the token mcpx sends upstream is a string, `mcpx-\u003cn\u003e` (#212)",
+      "server": "n/a (as a server mcpx never requests progress; a host's token is relayed back verbatim)"
     }
   },
   {
@@ -8450,11 +8447,11 @@
     "url": "https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation",
     "quote": "\"If `execution.taskSupport` is `\"required\"`, clients **MUST** invoke the tool as a task. Servers **MUST** return a `-32601` (Method not found) error if a client does not attempt to do so.\"",
     "applicability": {
-      "client": "n/a:mcpx ignores upstream `execution.taskSupport`; a `required` upstream tool would be called plainly and fail",
+      "client": "n/a:mcpx reads upstream `execution.taskSupport` to serve its own clients, but never task-augments the upstream call; a `required` upstream tool that enforces it would fail",
       "server": "n/a:never required"
     },
     "notes": {
-      "client": "n/a — mcpx ignores upstream `execution.taskSupport`; a `required` upstream tool would be called plainly and fail",
+      "client": "n/a — mcpx reads upstream `execution.taskSupport` to serve its own clients, but never task-augments the upstream call; a `required` upstream tool that enforces it would fail",
       "server": "n/a (never required)"
     }
   },
