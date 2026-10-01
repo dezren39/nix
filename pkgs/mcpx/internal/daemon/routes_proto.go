@@ -283,6 +283,7 @@ func (r *Registry) attach(ctx context.Context, server, key string, req elicit.Re
 	a.add(mcpserver.Question{
 		ID: req.ID, Method: method, Params: params,
 		Mode: string(req.Mode), Server: server, Key: mcpclient.InputKey(ctx),
+		Round: mcpclient.InputRound(ctx),
 	})
 	return a.ID, true
 }

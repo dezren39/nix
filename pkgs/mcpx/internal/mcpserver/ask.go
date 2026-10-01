@@ -230,22 +230,15 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 
 		if peer.Modern {
 			// An upstream that asks several things at once raises them
-			// together but not in the same instant; a moment's wait lets
-			// the round carry all of them rather than the first to land.
-			// Slept rather than long-polled: Poll returns at once while
-			// any question is open, so it cannot wait for a second one.
-			select {
-			case <-ctx.Done():
-			case <-time.After(askSettle):
-			}
-			more, perr := s.Ask.Poll(ctx, callID, time.Millisecond)
-			if perr == nil {
-				relayNotes(ctx, more)
-			}
-			if perr == nil && !more.Done {
-				if m := sendableTo(more.Questions, peer); len(m) > len(sendable) {
-					sendable = m
-				}
+			// together but not in the same instant: the gateway answers
+			// them concurrently and they arrive one at a time. Each
+			// question says how many its round holds, so the wait ends the
+			// moment they are all here rather than after a fixed pause --
+			// which was too short on a loaded machine (the official
+			// suite's sep-2322-multiple-inputs-incomplete, 2 of 3) and
+			// wasted time on an idle one.
+			if m, ok := s.awaitRound(ctx, callID, sendable, peer); ok {
+				sendable = m
 			}
 			state, err := s.states().mint(callID, requestBinding(req))
 			if err != nil {
@@ -551,5 +544,70 @@ func answersByID(answers map[string]json.RawMessage, qs []Question) map[string]j
 	return out
 }
 
-// askSettle is how long a round waits for sibling questions; see viaAsk.
-const askSettle = 50 * time.Millisecond
+// awaitRound waits for the rest of a round's questions and returns them.
+//
+// have is what is already open. The questions name the round's size, so this
+// returns as soon as they are all here; a round that never completes -- an
+// upstream whose later question fails, or a size that never arrives -- costs
+// askRoundWait once. ok is false when nothing more came.
+func (s *Server) awaitRound(ctx context.Context, callID string, have []Question, peer Peer) ([]Question, bool) {
+	want := 0
+	for _, q := range have {
+		if q.Round > want {
+			want = q.Round
+		}
+	}
+	if want > 0 && len(have) >= want {
+		return nil, false // already complete
+	}
+	// Without a round size there is nothing to wait for, so the wait is the
+	// short grace that lets a sibling question raised in the same instant
+	// land. A known size extends it: those questions are known to be coming.
+	deadline := time.Now().Add(askSettle)
+	if want > 0 {
+		deadline = time.Now().Add(askRoundWait)
+	}
+	best, found := have, false
+	for {
+		out, err := s.Ask.Poll(ctx, callID, askRoundPoll)
+		if err != nil {
+			return best, found
+		}
+		relayNotes(ctx, out)
+		if out.Done {
+			return best, found
+		}
+		if m := sendableTo(out.Questions, peer); len(m) > len(best) {
+			best, found = m, true
+			for _, q := range m {
+				if q.Round > want {
+					want = q.Round
+					deadline = time.Now().Add(askRoundWait)
+				}
+			}
+		}
+		if want > 0 && len(best) >= want {
+			return best, found
+		}
+		if time.Now().After(deadline) {
+			return best, found
+		}
+		select {
+		case <-ctx.Done():
+			return best, found
+		case <-time.After(askRoundPoll):
+		}
+	}
+}
+
+// askRoundWait bounds the wait for a round that never completes, and
+// askRoundPoll is how often it looks; see awaitRound.
+const (
+	askRoundWait = 5 * time.Second
+	askRoundPoll = 5 * time.Millisecond
+	// askSettle is the wait when no question names a round size: a legacy
+	// question, or one raised as a request of its own. Long enough for a
+	// sibling raised in the same instant, short enough that a call with one
+	// question is not held up.
+	askSettle = 50 * time.Millisecond
+)
