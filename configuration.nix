@@ -458,6 +458,24 @@ lib.recursiveUpdate {
     reattach = true;
   };
 
+  # How long sudo remembers you, in minutes. macOS compiles in 5.
+  #
+  # Scope is unchanged: macOS defaults to tty_tickets, so the credential is
+  # per-terminal. That is why one `just switch` authenticates once for its four
+  # sudo calls, while `just build` in one window and `just activate` in another
+  # authenticate twice. Raising the timeout does not merge those -- only
+  # `timestamp_type=global` would, and that lets any terminal, including one a
+  # background process opens, inherit the credential. Not set.
+  #
+  # Lands in /etc/sudoers.d/10-nix-darwin-extra-config, beside the terminfo
+  # env_keep lines security.sudo.keepTerminfo generates. sudoers.d is read in
+  # lexical order and later Defaults win; the only other file here is Rancher's
+  # zzzzz-rancher-desktop-lima, which defines command rules rather than
+  # Defaults, so nothing contends.
+  security.sudo.extraConfig = ''
+    Defaults timestamp_timeout=15
+  '';
+
   # Restart skhd after rebuild so config changes take effect
   # Fix Spotlight indexing and exclude noisy directories
   # Clean up stale Caskroom artifacts before homebrew runs (e.g. after cask renames)
