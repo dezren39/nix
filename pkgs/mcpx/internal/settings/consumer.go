@@ -64,9 +64,12 @@ func consumerSettings() []Setting {
 		{
 			Path: "elicit.confirmDestructive", Scope: ScopeDaemon, Kind: KindBool, Default: boolDefault(defaults.ConfirmDestructive),
 			Name:  "Confirm destructive calls",
-			Short: "ask before a call to a tool annotated destructiveHint",
+			Short: "ask before a call to a tool that may be destructive",
 			Long: "MCP tool annotations carry destructiveHint, and a human-driven " +
-				"client uses it to ask before acting. A script has no such step. " +
+				"client uses it to ask before acting. The specification's " +
+				"defaults apply: a tool not annotated readOnlyHint, and not " +
+				"annotated destructiveHint false, may be destructive, so an " +
+				"unannotated tool is asked about too. A script has no such step. " +
 				"Turning this on gives it one. Off by default: it puts a question " +
 				"on the path of every destructive call, and a caller that cannot " +
 				"answer waits out the deadline before the call proceeds.",

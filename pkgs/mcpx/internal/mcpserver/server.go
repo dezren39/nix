@@ -110,6 +110,13 @@ type ResourceRef struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mimeType,omitempty"`
+	// Carried from the upstream as published; downgrade() removes what an
+	// older revision does not define.
+	Title       string          `json:"title,omitempty"`
+	Size        *int64          `json:"size,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ResourceContents is one entry of a resources/read result.
@@ -151,15 +158,18 @@ func readResult(uri string, contents []ResourceContents) map[string]any {
 
 // PromptRef is one prompt a server offers.
 type PromptRef struct {
-	Name        string      `json:"name"`
-	Title       string      `json:"title,omitempty"`
-	Description string      `json:"description,omitempty"`
-	Arguments   []PromptArg `json:"arguments,omitempty"`
+	Name        string          `json:"name"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Arguments   []PromptArg     `json:"arguments,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 // PromptArg is one substitution a prompt takes.
 type PromptArg struct {
 	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 }
@@ -391,6 +401,12 @@ type Tool struct {
 	// destructiveHint -- which is how a client decides whether a tool may be
 	// run without asking. Omitted where mcpx has nothing to declare.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// The rest of an upstream tool, for pass-through listings. mcpx's own
+	// tools leave them empty.
+	Title        string          `json:"title,omitempty"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	Icons        json.RawMessage `json:"icons,omitempty"`
+	Meta         json.RawMessage `json:"_meta,omitempty"`
 }
 
 // Tools is the surface.
@@ -1039,6 +1055,16 @@ func asTemplates(ts []ResourceRef) []map[string]any {
 		}
 		if t.MimeType != "" {
 			m["mimeType"] = t.MimeType
+		}
+		// size is a Resource field; a template has none.
+		if t.Title != "" {
+			m["title"] = t.Title
+		}
+		for k, v := range map[string]json.RawMessage{
+			"annotations": t.Annotations, "icons": t.Icons, "_meta": t.Meta} {
+			if len(v) > 0 {
+				m[k] = v
+			}
 		}
 		out = append(out, m)
 	}

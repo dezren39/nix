@@ -112,6 +112,80 @@ func TestPassthroughExposesOneUpstreamUnrenamed(t *testing.T) {
 	}
 }
 
+// The optional fields an upstream publishes on its tools, resources,
+// templates and prompts were dropped when mcpx parsed the list, so no host
+// ever saw a title, size, annotation, icon or _meta (#207). And a 2025-03-26
+// host must not be sent the ones its revision lacks.
+func TestUpstreamListMetadataSurvives(t *testing.T) {
+	e := newEnv(t, oneServer)
+	lists := func(version string, args ...string) map[int]map[string]any {
+		return replies(t, e.runStdin(strings.Join([]string{
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"` + version + `","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+			`{"jsonrpc":"2.0","id":3,"method":"resources/list"}`,
+			`{"jsonrpc":"2.0","id":4,"method":"resources/templates/list"}`,
+			`{"jsonrpc":"2.0","id":5,"method":"prompts/list"}`,
+		}, "\n")+"\n", append([]string{"serve"}, args...)...))
+	}
+	find := func(f map[string]any, key, field, want string) map[string]any {
+		list, _ := f[key].([]any)
+		for _, x := range list {
+			m, _ := x.(map[string]any)
+			if m[field] == want {
+				return m
+			}
+		}
+		t.Fatalf("%s has no %s=%s: %s", key, field, want, toJSON(f))
+		return nil
+	}
+
+	f := lists("2025-11-25", "--passthrough", "demo")
+	tool := find(f[2], "tools", "name", "structured")
+	res := find(f[3], "resources", "uri", "demo://greeting")
+	tmpl := find(f[4], "resourceTemplates", "uriTemplate", "demo://items/{id}")
+	pr := find(f[5], "prompts", "name", "summarise")
+	for name, item := range map[string]map[string]any{"tool": tool, "resource": res, "template": tmpl, "prompt": pr} {
+		if item["title"] == nil || item["icons"] == nil || item["_meta"] == nil {
+			t.Errorf("%s lost title, icons or _meta: %s", name, toJSON(item))
+		}
+	}
+	if tool["outputSchema"] == nil {
+		t.Errorf("tool lost outputSchema: %s", toJSON(tool))
+	}
+	if res["size"] != float64(21) || !strings.Contains(toJSON(res["annotations"]), "lastModified") {
+		t.Errorf("resource lost size or annotations: %s", toJSON(res))
+	}
+	if !strings.Contains(toJSON(pr["arguments"]), `"title":"Text"`) {
+		t.Errorf("prompt argument lost its title: %s", toJSON(pr))
+	}
+
+	// Namespaced, not pass-through: the same fields under mcpx's names.
+	f = lists("2025-11-25")
+	if r := find(f[3], "resources", "uri", "mcpx://demo/demo://greeting"); r["title"] != "Greeting" {
+		t.Errorf("namespaced resource lost its title: %s", toJSON(r))
+	}
+
+	// 2025-03-26 defines none of title, icons or _meta on these, nor
+	// lastModified; size and resource annotations are older and stay.
+	f = lists("2025-03-26", "--passthrough", "demo")
+	for name, item := range map[string]map[string]any{
+		"tool":     find(f[2], "tools", "name", "structured"),
+		"resource": find(f[3], "resources", "uri", "demo://greeting"),
+		"template": find(f[4], "resourceTemplates", "uriTemplate", "demo://items/{id}"),
+		"prompt":   find(f[5], "prompts", "name", "summarise"),
+	} {
+		s := toJSON(item)
+		for _, k := range []string{`"title"`, `"icons"`, `"_meta"`, `"lastModified"`} {
+			if strings.Contains(s, k) {
+				t.Errorf("2025-03-26 %s carries %s: %s", name, k, s)
+			}
+		}
+	}
+	if r := find(f[3], "resources", "uri", "demo://greeting"); r["size"] != float64(21) || r["annotations"] == nil {
+		t.Errorf("2025-03-26 defines size and resource annotations: %s", toJSON(r))
+	}
+}
+
 func toJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 // A pass-through tool that asks a question puts it to the client that called

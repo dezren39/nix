@@ -204,6 +204,12 @@ func handle(r req) map[string]any {
 			map[string]any{
 				"uri": "demo://greeting", "name": "greeting",
 				"description": "a fixed greeting", "mimeType": "text/plain",
+				// The optional fields, so a test can see they survive.
+				"title": "Greeting", "size": 21,
+				"annotations": map[string]any{"audience": []any{"user"}, "priority": 0.5,
+					"lastModified": "2025-01-01T00:00:00Z"},
+				"icons": []any{map[string]any{"src": "https://example.com/g.png"}},
+				"_meta": map[string]any{"example.com/k": "resource"},
 			},
 		}
 		if subscribeMode {
@@ -238,8 +244,11 @@ func handle(r req) map[string]any {
 		return ok(r.ID, map[string]any{"prompts": []any{
 			map[string]any{
 				"name": "summarise", "description": "summarise some text",
+				"title": "Summarise",
+				"icons": []any{map[string]any{"src": "https://example.com/p.png"}},
+				"_meta": map[string]any{"example.com/k": "prompt"},
 				"arguments": []any{
-					map[string]any{"name": "text", "description": "what to summarise", "required": true},
+					map[string]any{"name": "text", "title": "Text", "description": "what to summarise", "required": true},
 					map[string]any{"name": "style", "description": "how"},
 				},
 			},
@@ -271,6 +280,8 @@ func handle(r req) map[string]any {
 		return ok(r.ID, map[string]any{"resourceTemplates": []any{map[string]any{
 			"uriTemplate": "demo://items/{id}", "name": "item",
 			"description": "one item by id", "mimeType": "text/plain",
+			"title": "Item", "icons": []any{map[string]any{"src": "https://example.com/t.png"}},
+			"_meta": map[string]any{"example.com/k": "template"},
 		}}})
 	case "tools/call":
 		return callTool(r)
@@ -339,6 +350,9 @@ func baseTools() []map[string]any {
 				"properties": map[string]any{"message": map[string]any{"type": "string", "description": "text to echo"}},
 				"required":   []string{"message"},
 			},
+			// Read-only, so the destructive-confirmation policy has a tool
+			// it must leave alone: an unannotated one may be destructive.
+			"annotations": map[string]any{"readOnlyHint": true},
 		},
 		{
 			"name":        "open",
@@ -370,6 +384,9 @@ func baseTools() []map[string]any {
 		},
 		{
 			"name":        "structured",
+			"title":       "Structured",
+			"icons":       []any{map[string]any{"src": "https://example.com/s.png"}},
+			"_meta":       map[string]any{"example.com/k": "tool"},
 			"description": "Return structuredContent.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			"outputSchema": map[string]any{

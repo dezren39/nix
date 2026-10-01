@@ -151,6 +151,10 @@ type Tool struct {
 	// it acts on. Without them a client has nothing but the description to
 	// decide whether a call is worth confirming.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// Icons and Meta are carried, not read, so a host listing an upstream
+	// through mcpx sees what the server published (#207).
+	Icons json.RawMessage `json:"icons,omitempty"`
+	Meta  json.RawMessage `json:"_meta,omitempty"`
 }
 
 type toolsListResult struct {
@@ -165,6 +169,13 @@ type Resource struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mimeType,omitempty"`
+	// The optional fields, carried rather than read: they were dropped on
+	// parse, so no later layer could pass them on (#207).
+	Title       string          `json:"title,omitempty"`
+	Size        *int64          `json:"size,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 type resourcesListResult struct {
@@ -945,11 +956,14 @@ type Prompt struct {
 	Title       string           `json:"title,omitempty"`
 	Description string           `json:"description,omitempty"`
 	Arguments   []PromptArgument `json:"arguments,omitempty"`
+	Icons       json.RawMessage  `json:"icons,omitempty"`
+	Meta        json.RawMessage  `json:"_meta,omitempty"`
 }
 
 // PromptArgument is one substitution a prompt takes.
 type PromptArgument struct {
 	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 }

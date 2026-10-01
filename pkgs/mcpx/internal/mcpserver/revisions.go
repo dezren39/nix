@@ -279,6 +279,12 @@ func downgradeItems(list []any, version string) []any {
 			continue
 		}
 		if !Defines(version, FeatTitle) {
+			// _meta on a listed item and Annotations.lastModified arrived
+			// with title, in 2025-06-18.
+			delete(it, "_meta")
+			if an, ok := it["annotations"].(map[string]any); ok {
+				delete(an, "lastModified")
+			}
 			delete(it, "title")
 			if args, ok := it["arguments"].([]any); ok {
 				for _, a := range args {

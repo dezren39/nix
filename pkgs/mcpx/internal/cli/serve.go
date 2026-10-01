@@ -686,7 +686,7 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 		args := make([]mcpserver.PromptArg, 0, len(p.Arguments))
 		for _, a := range p.Arguments {
 			args = append(args, mcpserver.PromptArg{
-				Name: a.Name, Description: a.Description, Required: a.Required,
+				Name: a.Name, Title: a.Title, Description: a.Description, Required: a.Required,
 			})
 		}
 		name := p.Namespace + "_" + p.Name
@@ -698,6 +698,8 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 			Title:       p.Title,
 			Description: p.Description,
 			Arguments:   args,
+			Icons:       p.Icons,
+			Meta:        p.Meta,
 		})
 	}
 	return out, nil
@@ -1247,15 +1249,15 @@ func (a *App) exposedURI(ns, uri string) string {
 
 // exposedResource is one upstream resource (or template) as /mcp lists it.
 func (a *App) exposedResource(r daemon.ResourceInfo) mcpserver.ResourceRef {
+	ref := mcpserver.ResourceRef{URI: r.URI, Name: r.Name, Description: r.Description,
+		MimeType: r.MimeType, Title: r.Title, Size: r.Size, Annotations: r.Annotations,
+		Icons: r.Icons, Meta: r.Meta}
 	if a.isPass(r.Namespace) {
-		return mcpserver.ResourceRef{URI: r.URI, Name: r.Name, Description: r.Description, MimeType: r.MimeType}
+		return ref
 	}
-	return mcpserver.ResourceRef{
-		URI:         mcpxURI(r.Namespace, r.URI),
-		Name:        r.Name,
-		Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
-		MimeType:    r.MimeType,
-	}
+	ref.URI = mcpxURI(r.Namespace, r.URI)
+	ref.Description = strings.TrimSpace(r.Description + " (" + r.Namespace + ")")
+	return ref
 }
 
 // exposedTemplate is exposedResource for a resource template. The template's
@@ -1327,7 +1329,9 @@ func (b mcpBackend) UpstreamTools(ctx context.Context, ns string) ([]mcpserver.T
 		if len(schema) == 0 {
 			schema = json.RawMessage(`{"type":"object"}`)
 		}
-		out = append(out, mcpserver.Tool{Name: t.Tool, Description: t.Description, InputSchema: schema})
+		out = append(out, mcpserver.Tool{Name: t.Tool, Description: t.Description, InputSchema: schema,
+			Title: t.Title, OutputSchema: t.OutputSchema, Annotations: t.Annotations,
+			Icons: t.Icons, Meta: t.Meta})
 	}
 	return out, nil
 }
