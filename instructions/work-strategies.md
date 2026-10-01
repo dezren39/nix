@@ -21,6 +21,13 @@ schema, the spec, or a reference implementation.
 **Check your own state before citing it.** "I'm nearly out of context" was asserted a dozen times at
 20% remaining, and was used to justify delegating work that would have been faster inline.
 
+**Enumerate; do not sample.** A document's item numbers were checked with `grep | tail -9`, which
+showed them ending at 68, so the next section was numbered from 69 — but 69–77 already existed in
+the middle of the same file, and the duplicates were one command from being committed. The full set
+was a single `grep | awk` away. Inspecting one end of a thing and generalising to the whole is the
+same error as relaying someone else's claim, with the same cause: a cheap check standing in for the
+real one.
+
 **Every number carries its commit and the command that produced it.** Conformance figures were
 reported as 117/54, 116/54, 109/62 and 110/62 in one session; one of them had no source at all.
 
@@ -87,6 +94,63 @@ an hour of re-derived work another time).
 agent's worktree, and never in the session's default checkout.
 
 **Do small things inline.** Delegation costs a full model turn before any work happens.
+
+## Recommendations
+
+**Never present a preference as a measurement.** Asked which merge strategy produced fewer
+conflicts, the measured answer was merge — and the recommendation attached to it was "rebase the
+small branches, merge the large ones", which is a history-cleanliness preference wearing the
+conflict question's clothes. One step later the same substitution happened again, setting
+`pull.rebase = true` for topic branches immediately after measuring that merge is never worse. Both
+were caught by the user, not by the author. If a reason is taste, say it is taste and keep it out of
+the table of findings.
+
+**A dependency claim needs the same evidence as any other claim.** An issue was filed asserting that
+authorisation was "a precondition" for three unrelated surfaces and "blocks all of this". Nothing
+blocked anything, and the user had to say so. "X blocks Y" is a factual statement about the code, not
+a way of signalling that X feels important.
+
+**One issue, one subject.** Auth reasoning was threaded through a transport issue and a sandboxing
+issue, so neither could be scheduled without dragging in a security design. Cross-reference instead,
+and when a reference is *not* a dependency, write that down in the issue.
+
+**Split the interface from the behaviour.** When a spec requires something unbuilt, building the
+interface and having it answer permissively is usually shippable at once, carries no risk, and
+clears every conformance row that only asserts the interface exists and accepts a valid input. Only
+the rows requiring *refusal* change behaviour, and those are the ones that can lock a user out.
+Splitting there turned a blocked security design into two issues, one of them nearly trivial. The
+one obligation it creates: a permissive interface must say so loudly, or someone will ship it
+believing otherwise.
+
+**Offer the third option before picking a side.** Asked to choose between rebase and merge for
+pulls, both answers were defended in turn before `pull.ff = only` — refuse to guess, make the caller
+choose — was considered at all. It is better than either, and it would have prevented the original
+hazard outright. When a question arrives shaped as A-or-B, check whether the real answer is to stop
+doing the thing that forces the choice.
+
+## Git
+
+**Read the config that changes what a verb means, before using the verb.** `git pull` under
+`pull.rebase = true` is `git rebase`, and rebase flattens merge commits: on a branch carrying a merge
+that resolved 38 add/add conflicts, a bare `git pull` would have discarded the commit recording that
+resolution and replayed the raw pre-merge snapshots against a newer upstream. Check `pull.rebase`,
+`pull.ff` and `branch.<name>.rebase` before pulling any branch that carries merges. This machine now
+sets `pull.ff = only` so a divergent pull refuses rather than guessing — see `gitSettings.nix`, which
+carries the measurements.
+
+**rerere does not rescue a rebase.** It keys on a hash of the conflict preimage and replays only a
+byte-identical match, so once the upstream side has moved, a full cache produces nothing: 154 entries,
+0 replays, measured. It pays off when you redo the *same* merge, not when the base has changed.
+
+**Stage by explicit path; never `git add .`** Two unrelated edits from other sessions were sitting in
+the shared checkout during this one.
+
+**Use git's own vocabulary.** "Back-merge" means merging the integration branch *into* a topic
+branch; it was used here for the opposite direction and cost a round-trip to correct.
+
+**Prove the merge preserved both sides before committing it.** Resolving a whole directory to one
+side is defensible when `comm -23` shows the other side contributes no unique file and the diff is a
+superset — and is a guess without that. Say which check you ran.
 
 ## Writing to the user
 
