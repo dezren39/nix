@@ -31,7 +31,7 @@
     "npm:tailwindcss@4": "4.3.3",
     "npm:typescript@^5.7.2": "5.9.2",
     "npm:vite@8": "8.3.1",
-    "npm:zustand@^4.5.2": "4.5.7_@types+react@18.3.24_react@18.3.1"
+    "npm:zustand@5": "5.0.15_@types+react@18.3.24_react@18.3.1"
   },
   "npm": {
     "@babel/runtime@7.29.7": {
@@ -1233,12 +1233,6 @@
         "@types/react"
       ]
     },
-    "use-sync-external-store@1.6.0_react@18.3.1": {
-      "integrity": "sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==",
-      "dependencies": [
-        "react"
-      ]
-    },
     "vite@8.3.1": {
       "integrity": "sha512-/bvH9E9tmCXRGp2uXY3WbOldqpTwFkbha/8ANaEQ6VkxhH60KyqLwgZq6lG2y+4uT55x9+9eUHMpQ7uGnOCKjA==",
       "dependencies": [
@@ -1253,12 +1247,11 @@
       ],
       "bin": true
     },
-    "zustand@4.5.7_@types+react@18.3.24_react@18.3.1": {
-      "integrity": "sha512-CHOUy7mu3lbD6o6LJLfllpjkzhHXSBlX8B9+qPddUsIfeF5S/UZ5q0kmCsnRqT1UHFQZchNFDDzMbQsuesHWlw==",
+    "zustand@5.0.15_@types+react@18.3.24_react@18.3.1": {
+      "integrity": "sha512-MpSEjRiBkA9crSYeOUH32rJC7SVqAbm0Fqcqge/bUi2PPoLcBWKOsG+C8mevmpr8TwXHBVkChbbJiyvkE+i/3A==",
       "dependencies": [
         "@types/react",
-        "react",
-        "use-sync-external-store"
+        "react"
       ],
       "optionalPeers": [
         "@types/react",
@@ -1299,7 +1292,7 @@
         "npm:tailwindcss@4",
         "npm:typescript@^5.7.2",
         "npm:vite@8",
-        "npm:zustand@^4.5.2"
+        "npm:zustand@5"
       ]
     }
   }
