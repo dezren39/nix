@@ -121,9 +121,11 @@ type Defaults struct {
 		Budget int `json:"budget"`
 	} `json:"catalog"`
 	Script struct {
-		Permissions      string `json:"permissions"`
-		CaptureConsole   bool   `json:"captureConsole"`
-		TypecheckTimeout string `json:"typecheckTimeout"`
+		Permissions      string          `json:"permissions"`
+		RuntimeOrder     []string        `json:"runtimeOrder"`
+		Profiles         json.RawMessage `json:"profiles"`
+		CaptureConsole   bool            `json:"captureConsole"`
+		TypecheckTimeout string          `json:"typecheckTimeout"`
 	} `json:"script"`
 	// Consumer governs the things mcpx asks for on its own behalf: which
 	// instance to lease, whether to confirm a destructive call, how a
@@ -559,7 +561,13 @@ var (
 	OpCellWidth = builtin.CLI.CellWidth
 	UsageColumn = builtin.CLI.UsageColumn
 
-	Permissions      = builtin.Script.Permissions
+	Permissions = builtin.Script.Permissions
+	// RuntimeOrder is the order auto tries runtimes in.
+	RuntimeOrder = builtin.Script.RuntimeOrder
+	// ProfilesJSON are the built-in permission profiles, parsed by the
+	// runner with the same reader as a user's script.profiles so the two
+	// cannot disagree about the shape.
+	ProfilesJSON     = builtin.Script.Profiles
 	CaptureConsole   = builtin.Script.CaptureConsole
 	TypecheckTimeout = mustDur(builtin.Script.TypecheckTimeout, "script.typecheckTimeout")
 

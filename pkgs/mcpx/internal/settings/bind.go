@@ -17,11 +17,26 @@ type Binding struct {
 	// setting can be reported as the conflict they are rather than silently
 	// racing.
 	seen map[string][]spelling
+	// preset names the preset whose flags are being parsed, or "", and
+	// presets counts them so a later preset ranks above an earlier one.
+	preset  string
+	presets int
 }
 
 type spelling struct {
 	flagName string
 	raw      string
+	preset   string
+	rank     int
+}
+
+// FromPreset marks the flags parsed from now on as coming from the named
+// preset; "" returns to the command line.
+func (b *Binding) FromPreset(name string) {
+	b.preset = name
+	if name != "" {
+		b.presets++
+	}
 }
 
 // flagValue adapts one setting to flag.Value.
@@ -48,7 +63,8 @@ func (f *flagValue) Set(v string) error {
 	if f.set.Bare != "" && strings.EqualFold(v, "true") {
 		v = f.set.Bare
 	}
-	f.b.seen[f.set.Path] = append(f.b.seen[f.set.Path], spelling{flagName: f.name, raw: v})
+	f.b.seen[f.set.Path] = append(f.b.seen[f.set.Path], spelling{flagName: f.name, raw: v,
+		preset: f.b.preset, rank: f.b.presets})
 	return nil
 }
 
@@ -96,51 +112,78 @@ func (b *Binding) ApplyTo(s *Set) error {
 	sort.Strings(paths)
 
 	for _, path := range paths {
-		given := b.seen[path]
-		set, _ := b.schema.Lookup(path)
-		// Two different spellings of one setting on one command line is the
-		// conflict worth refusing. The same spelling twice is not -- that is
-		// a person editing their own command, and the last one is what they
-		// meant.
-		if len(given) > 1 && !set.Repeatable {
-			distinct := map[string]bool{}
-			for _, g := range given {
-				distinct[g.flagName] = true
-			}
-			if len(distinct) > 1 {
-				names := make([]string, 0, len(distinct))
-				for n := range distinct {
-					names = append(names, "--"+n)
-				}
-				sort.Strings(names)
-				return fmt.Errorf("%s given as both %s; they are the same setting, "+
-					"so there is no order to pick", path, strings.Join(names, " and "))
+		var presetGiven, flagGiven []spelling
+		for _, g := range b.seen[path] {
+			if g.preset != "" {
+				presetGiven = append(presetGiven, g)
+			} else {
+				flagGiven = append(flagGiven, g)
 			}
 		}
-		if set.Repeatable {
-			parts := make([]string, 0, len(given))
-			for _, g := range given {
-				if g.raw == "-" {
-					parts = append(parts, NullMarker)
-					continue
-				}
-				parts = append(parts, g.raw)
+		// Presets first, so the command line lands above them and records
+		// them as what it overrode.
+		// One preset at a time, ranked by order, so a later preset wins and
+		// the earlier one is recorded as what it overrode.
+		for len(presetGiven) > 0 {
+			n := 1
+			for n < len(presetGiven) && presetGiven[n].rank == presetGiven[0].rank {
+				n++
 			}
-			if err := s.Apply(path, encodeList(parts), Origin{
-				Layer: LayerFlag, Detail: "--" + given[0].flagName,
-			}); err != nil {
+			if err := b.apply(s, path, presetGiven[:n], LayerPreset); err != nil {
 				return err
 			}
-			continue
+			presetGiven = presetGiven[n:]
 		}
-		last := given[len(given)-1]
-		if err := s.Apply(path, last.raw, Origin{
-			Layer: LayerFlag, Detail: "--" + last.flagName,
-		}); err != nil {
-			return err
+		if len(flagGiven) > 0 {
+			if err := b.apply(s, path, flagGiven, LayerFlag); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (b *Binding) apply(s *Set, path string, given []spelling, layer Layer) error {
+	set, _ := b.schema.Lookup(path)
+	detail := func(g spelling) string {
+		if g.preset != "" {
+			return g.preset + " (--" + g.flagName + ")"
+		}
+		return "--" + g.flagName
+	}
+	// Two different spellings of one setting on one command line is the
+	// conflict worth refusing. The same spelling twice is not -- that is
+	// a person editing their own command, and the last one is what they
+	// meant. Presets compose by order, so among them the later one wins
+	// whatever it was spelled.
+	if len(given) > 1 && !set.Repeatable && layer == LayerFlag {
+		distinct := map[string]bool{}
+		for _, g := range given {
+			distinct[g.flagName] = true
+		}
+		if len(distinct) > 1 {
+			names := make([]string, 0, len(distinct))
+			for n := range distinct {
+				names = append(names, "--"+n)
+			}
+			sort.Strings(names)
+			return fmt.Errorf("%s given as both %s; they are the same setting, "+
+				"so there is no order to pick", path, strings.Join(names, " and "))
+		}
+	}
+	if set.Repeatable {
+		parts := make([]string, 0, len(given))
+		for _, g := range given {
+			if g.raw == "-" {
+				parts = append(parts, NullMarker)
+				continue
+			}
+			parts = append(parts, g.raw)
+		}
+		return s.Apply(path, encodeList(parts), Origin{Layer: layer, Detail: detail(given[0]), Rank: given[0].rank})
+	}
+	last := given[len(given)-1]
+	return s.Apply(path, last.raw, Origin{Layer: layer, Detail: detail(last), Rank: last.rank})
 }
 
 func encodeList(parts []string) string {

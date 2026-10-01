@@ -39,7 +39,7 @@ func service(t *testing.T, st *artifacts.Store) *execsvc.Service {
 // a missing deno is not a bug in it.
 func needRuntime(t *testing.T) {
 	t.Helper()
-	if _, err := runner.Detect("auto", nil); err != nil {
+	if _, err := runner.Resolve("auto", "", runner.Setup{}); err != nil {
 		t.Skip("no JavaScript runtime:", err)
 	}
 }

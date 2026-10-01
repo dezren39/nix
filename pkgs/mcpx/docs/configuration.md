@@ -393,6 +393,18 @@ and a switch to turn the report off would have kept it quiet.
 | `pool.sharing` | enum | `shared` | daemon | no | `--pool-sharing` | `MCPX_POOL_SHARING` | whether callers reuse one instance or each get their own |
 | `pool.startTimeout` | duration | `60s` | daemon | yes | `--pool-start-timeout` | `MCPX_POOL_START_TIMEOUT` | how long a server has to become ready |
 
+### preset
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `preset` | list | *(empty)* | client | no | `--preset` | `MCPX_PRESET` | which presets to apply, in order |
+
+### presets
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `presets` | string | *(empty)* | client | no | `--presets` | `MCPX_PRESETS` | named flag bundles: {name: ["--json", "--timeout=30s"]} |
+
 ### prompt
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -460,9 +472,12 @@ and a switch to turn the report off would have kept it quiet.
 | `script.launcher` | source | *(empty)* | client | no | `--script-launcher` | `MCPX_SCRIPT_LAUNCHER` | replace the generated launcher entirely |
 | `script.onError` | source | *(empty)* | client | no | `--script-on-error` | `MCPX_SCRIPT_ON_ERROR` | runs when the script throws; the error still propagates |
 | `script.onSuccess` | source | *(empty)* | client | no | `--script-on-success` | `MCPX_SCRIPT_ON_SUCCESS` | runs when the script returns without throwing |
-| `script.permissions` | string | `all` | client | no | `--script-permissions`, `--permissions` | `MCPX_SCRIPT_PERMISSIONS`, `MCPX_PERMISSIONS` | the sandbox profile, or raw runtime flags |
+| `script.permissions` | string | `all` | client | no | `--script-permissions`, `--permissions` | `MCPX_SCRIPT_PERMISSIONS`, `MCPX_PERMISSIONS` | permission profiles, composed in order, or raw: flags |
 | `script.prefix` | source | *(empty)* | client | no | `--script-prefix` | `MCPX_SCRIPT_PREFIX` | runs after globals are installed, before the script |
-| `script.runtime` | enum | `auto` | client | no | `--script-runtime`, `--runtime` | `MCPX_SCRIPT_RUNTIME` | which JavaScript runtime executes the script |
+| `script.profiles` | string | *(empty)* | client | no | `--script-profiles` | `MCPX_SCRIPT_PROFILES` | user profiles: {name: {deno: [flags], node: [flags]}} or {name: "raw flags"} |
+| `script.runtime` | string | `auto` | client | no | `--script-runtime`, `--runtime` | `MCPX_SCRIPT_RUNTIME` | which JavaScript runtime executes the script |
+| `script.runtimeOrder` | list | `deno,bun,node` | client | no | `--script-runtime-order` | `MCPX_SCRIPT_RUNTIME_ORDER` | the runtimes auto tries, in order |
+| `script.runtimes` | string | *(empty)* | client | no | `--script-runtimes` | `MCPX_SCRIPT_RUNTIMES` | named runtime binaries: {name: {kind, bin, args}} |
 | `script.suffix` | source | *(empty)* | client | no | `--script-suffix` | `MCPX_SCRIPT_SUFFIX` | runs last on both paths, like a finally |
 | `script.typecheck` | enum | `off` | client | no | `--script-typecheck` | `MCPX_SCRIPT_TYPECHECK` | check the generated program before running it |
 
