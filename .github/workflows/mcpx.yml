@@ -28,6 +28,16 @@ permissions:
   contents: write
   pull-requests: read
 
+env:
+  # The most Go tests that may be skipped. A skipped test passes nothing, so
+  # more than this fails the build; fewer warns until it is lowered to match.
+  # The run's summary and log list every skip with its reason. Counted on
+  # this workflow's runner (ubuntu): 32. That is 30 on macOS plus two tests
+  # that only mean anything there -- TestGitCaseOfAWrongCaseCwdIsKept needs a
+  # case-insensitive filesystem, TestGitParityTmpAndPrivateTmp needs /tmp to
+  # be a symlink.
+  GO_TEST_MAX_SKIPPED: 32
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -62,7 +72,23 @@ jobs:
 
       - name: Unit and end-to-end tests
         working-directory: pkgs/mcpx
-        run: go test ./... -count=1
+        run: |
+          rc=0
+          go test ./... -count=1 -json >"$RUNNER_TEMP/gotest.json" || rc=$?
+          # Readable output for the log, from the same run.
+          python3 - "$RUNNER_TEMP/gotest.json" <<'EOF'
+          import json, sys
+          for line in open(sys.argv[1], errors="replace"):
+              try:
+                  e = json.loads(line)
+              except ValueError:
+                  continue
+              if e.get("Action") == "output" and not e.get("Test"):
+                  print(e.get("Output", ""), end="")
+          EOF
+          python3 scripts/gotest-report.py "$RUNNER_TEMP/gotest.json" "$GO_TEST_MAX_SKIPPED" \
+            "$GITHUB_STEP_SUMMARY" || rc=1
+          exit "$rc"
 
       - name: Repair vendorHash on a dependency bump
         # Only on bot branches. A human changing dependencies should see the
