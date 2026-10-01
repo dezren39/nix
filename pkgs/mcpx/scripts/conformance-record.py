@@ -4,7 +4,7 @@
 Usage:
   conformance-record.py <leg> <passed> <failed> <run-id/attempt> <now-iso>
                         <stored-json-or-empty> <summary-file> <new-value-file>
-                        [<total-checks> <warnings> <skipped> <info>]
+                        [<total-checks> <warnings> <skipped> <info> <skipped-names-json>]
 
 <total-checks> is every check the suite recorded in checks.json, whatever its
 status -- SUCCESS, FAILURE, WARNING, INFO, SKIPPED. The summary line's
@@ -38,7 +38,7 @@ import json
 import sys
 
 
-def record(passed, failed, run, now, checks=None, warnings=0, skipped=None, info=0):
+def record(passed, failed, run, now, checks=None, warnings=0, skipped=None, info=0, names=None):
     r = {"first_timestamp": now, "latest_timestamp": now, "run": run,
          "passed_count": passed, "failed_count": failed}
     if checks is not None:
@@ -47,6 +47,8 @@ def record(passed, failed, run, now, checks=None, warnings=0, skipped=None, info
     if skipped is not None:
         r["skipped_count"] = skipped
         r["info_count"] = info
+    if names is not None:
+        r["skipped"] = sorted(names)
     return r
 
 
@@ -66,16 +68,18 @@ def describe(r):
 
 
 def compare(leg, passed, failed, run, now, stored, checks=None, warnings_count=0,
-            skipped=None, info=0):
+            skipped=None, info=0, names=None):
     """Returns (new_state, lines, warnings, errors)."""
-    cur = record(passed, failed, run, now, checks, warnings_count, skipped, info)
+    cur = record(passed, failed, run, now, checks, warnings_count, skipped, info, names)
     state = json.loads(json.dumps(stored)) if stored else {}
     lines, warnings, errors = [], [], []
 
     best0 = state.get("best")
     if skipped is not None and best0 and "skipped_count" in best0 and skipped > best0["skipped_count"]:
+        newly = sorted(set(names or []) - set(best0.get("skipped", []))) if "skipped" in best0 else []
         errors.append(f"skipped checks rose from {best0['skipped_count']} to {skipped}.\n"
-                      f"  this run: {describe(cur)}\n  record:   {describe(best0)}")
+                      f"  this run: {describe(cur)}\n  record:   {describe(best0)}"
+                      + (f"\n  newly skipped: {', '.join(newly)}" if newly else ""))
 
     best = state.get("best")
     if best is None:
@@ -120,12 +124,17 @@ def compare(leg, passed, failed, run, now, stored, checks=None, warnings_count=0
         lines.append(f"skipped checks: **down** from {state['best']['skipped_count']} to {skipped}; "
                      "that is the new ceiling")
         state["best"] = dict(state["best"], skipped_count=skipped)
+        if names is not None:
+            state["best"]["skipped"] = sorted(names)
     # A record that predates skipped_count learns it from the first run that
     # reports one, so the comparison starts from there.
     if skipped is not None and not errors:
         for k in ("best", "largest"):
             if k in state and "skipped_count" not in state[k]:
                 state[k] = dict(state[k], skipped_count=skipped, info_count=info)
+            if k in state and names is not None and "skipped" not in state[k] \
+                    and state[k].get("skipped_count") == skipped:
+                state[k] = dict(state[k], skipped=sorted(names))
     return state, lines, warnings, errors
 
 
@@ -136,9 +145,10 @@ def main(argv):
     warn_n = int(argv[10]) if len(argv) > 10 and argv[10] else 0
     skipped = int(argv[11]) if len(argv) > 11 and argv[11] else None
     info = int(argv[12]) if len(argv) > 12 and argv[12] else 0
+    names = json.loads(argv[13]) if len(argv) > 13 and argv[13].strip() else None
     stored = json.loads(stored_raw) if stored_raw.strip() else None
     state, lines, warnings, errors = compare(leg, passed, failed, run, now, stored, checks,
-                                             warn_n, skipped, info)
+                                             warn_n, skipped, info, names)
 
     with open(summary, "a") as f:
         f.write(f"\n### Records for `{leg}`\n\n")

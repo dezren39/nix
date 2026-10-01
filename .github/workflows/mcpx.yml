@@ -28,15 +28,6 @@ permissions:
   contents: write
   pull-requests: read
 
-env:
-  # The most Go tests that may be skipped. A skipped test passes nothing, so
-  # more than this fails the build; fewer warns until it is lowered to match.
-  # The run's summary and log list every skip with its reason. Counted on
-  # this workflow's runner (ubuntu): 32. That is 30 on macOS plus two tests
-  # that only mean anything there -- TestGitCaseOfAWrongCaseCwdIsKept needs a
-  # case-insensitive filesystem, TestGitParityTmpAndPrivateTmp needs /tmp to
-  # be a symlink.
-  GO_TEST_MAX_SKIPPED: 32
 
 jobs:
   build:
@@ -72,6 +63,11 @@ jobs:
 
       - name: Unit and end-to-end tests
         working-directory: pkgs/mcpx
+        env:
+          VARS: ${{ toJSON(vars) }}
+          GH_TOKEN: ${{ secrets.MCPX_CONFORMANCE_VARS_TOKEN }}
+          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          RUN: ${{ github.run_id }}/${{ github.run_attempt }}
         run: |
           rc=0
           go test ./... -count=1 -json >"$RUNNER_TEMP/gotest.json" || rc=$?
@@ -86,8 +82,23 @@ jobs:
               if e.get("Action") == "output" and not e.get("Test"):
                   print(e.get("Output", ""), end="")
           EOF
-          python3 scripts/gotest-report.py "$RUNNER_TEMP/gotest.json" "$GO_TEST_MAX_SKIPPED" \
-            "$GITHUB_STEP_SUMMARY" || rc=1
+          # Skipped tests are held to a record kept in the repository variable
+          # MCPX_GO_TESTS, like the conformance records: more than the record
+          # fails, naming the newly skipped tests; fewer becomes the new record
+          # on main. Which tests skip depends on the machine, so the record is
+          # this runner's.
+          python3 scripts/gotest-report.py "$RUNNER_TEMP/gotest.json" \
+            "$(jq -r '.MCPX_GO_TESTS // ""' <<<"$VARS")" "$RUN" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/gotest-record.json" || rc=1
+          if [ -f "$RUNNER_TEMP/gotest-record.json" ] && [ "$ON_MAIN" = true ]; then
+            if [ -n "$GH_TOKEN" ]; then
+              gh variable set MCPX_GO_TESTS --repo "$GITHUB_REPOSITORY" --body "$(cat "$RUNNER_TEMP/gotest-record.json")"
+              echo "- saved \`MCPX_GO_TESTS\`" >>"$GITHUB_STEP_SUMMARY"
+            else
+              echo "> [!CAUTION]" >>"$GITHUB_STEP_SUMMARY"
+              echo "> Go test record not saved: MCPX_CONFORMANCE_VARS_TOKEN is not set." >>"$GITHUB_STEP_SUMMARY"
+            fi
+          fi
           exit "$rc"
 
       - name: Repair vendorHash on a dependency bump

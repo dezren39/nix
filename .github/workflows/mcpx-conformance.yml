@@ -163,18 +163,22 @@ jobs:
           # Counted from every checks.json rather than the summary line, which
           # leaves warnings out: every check whatever its status, the
           # warnings, and the failures outside the suite's auth/ scenarios.
-          read -r checks warnings nonauth skipped info < <(python3 - "$OUT/$LEG/results" <<'EOF'
-          import json, glob, os, sys
+          read -r checks warnings nonauth skipped info < <(python3 - "$OUT/$LEG/results" "$RUNNER_TEMP/skipped-names.json" <<'EOF'
+          import json, glob, os, re, sys
           root = sys.argv[1]
           checks = warnings = nonauth = skipped = info = 0
+          names = []
           for f in glob.glob(os.path.join(root, '**', 'checks.json'), recursive=True):
               cs = json.load(open(f))
+              scen = re.sub(r'-20\d\d-\d\d-\d\dT[\d-]+Z$', '', os.path.basename(os.path.dirname(f)))
+              names += [f"{scen}/{c.get('id')}" for c in cs if c.get('status') == 'SKIPPED']
               checks += len(cs)
               warnings += sum(c.get('status') == 'WARNING' for c in cs)
               skipped += sum(c.get('status') == 'SKIPPED' for c in cs)
               info += sum(c.get('status') == 'INFO' for c in cs)
               if os.path.relpath(f, root).split(os.sep)[0] != 'auth':
                   nonauth += sum(c.get('status') == 'FAILURE' for c in cs)
+          json.dump(sorted(names), open(sys.argv[2], 'w'))
           print(checks, warnings, nonauth, skipped, info)
           EOF
           )
@@ -204,6 +208,10 @@ jobs:
           printf '{"leg":"%s","parsed":%s,"passed":%s,"failed":%s,"checks":%s,"warnings":%s,"skipped":%s,"info":%s}\n' \
             "$LEG" "${PARSED:-false}" "${PASSED:-0}" "${FAILED:-0}" "${checks:-0}" "${warnings:-0}" \
             "${skipped:-0}" "${info:-0}" >"$RUNNER_TEMP/counts/$LEG.json"
+          if [ -f "$RUNNER_TEMP/skipped-names.json" ]; then
+            jq --slurpfile n "$RUNNER_TEMP/skipped-names.json" '.skipped_names = $n[0]' \
+              "$RUNNER_TEMP/counts/$LEG.json" >"$RUNNER_TEMP/c.json" && mv "$RUNNER_TEMP/c.json" "$RUNNER_TEMP/counts/$LEG.json"
+          fi
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -374,7 +382,8 @@ jobs:
             python3 pkgs/mcpx/scripts/conformance-record.py "$leg" "$(jq -r .passed "$f")" "$(jq -r .failed "$f")" \
               "$RUN" "$now" "$stored" "$GITHUB_STEP_SUMMARY" new.json \
               "$(jq -r '.checks // empty' "$f")" "$(jq -r '.warnings // 0' "$f")" \
-              "$(jq -r '.skipped // empty' "$f")" "$(jq -r '.info // 0' "$f")" || rc=$?
+              "$(jq -r '.skipped // empty' "$f")" "$(jq -r '.info // 0' "$f")" \
+              "$(jq -c '.skipped_names // empty' "$f")" || rc=$?
             # 3: more checks skipped than the record. Everything is still
             # compared and saved; the job fails once all legs are done.
             [ "$rc" = 3 ] && skips_rose="$skips_rose $leg"
