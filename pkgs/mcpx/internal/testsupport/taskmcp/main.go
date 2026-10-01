@@ -206,6 +206,10 @@ func (s *server) handle(f frame) map[string]any {
 				map[string]any{"filename": str}),
 			tool("multi_input", "Asks two questions at once.", "optional", nil),
 			tool("test_tool_with_task", "Asks for a name, then works, then greets it.", "required", nil),
+			// SEP-2243: the suite's custom-header scenario needs a tool whose
+			// string parameter is mirrored into Mcp-Param-Region.
+			tool("echo_region", "Echoes `region`, which is mirrored into the Mcp-Param-Region header.", "",
+				map[string]any{"region": map[string]any{"type": "string", "x-mcp-header": "Region"}}),
 		}})
 	case "tools/call":
 		return s.call(f)
@@ -261,6 +265,7 @@ func (s *server) call(f frame) map[string]any {
 			Seconds  float64 `json:"seconds"`
 			Label    string  `json:"label"`
 			Filename string  `json:"filename"`
+			Region   string  `json:"region"`
 		} `json:"arguments"`
 	}
 	_ = json.Unmarshal(f.Params, &p)
@@ -268,6 +273,8 @@ func (s *server) call(f frame) map[string]any {
 	switch p.Name {
 	case "greet":
 		return ok(f.ID, text("Hello, "+a.Name+"!"))
+	case "echo_region":
+		return ok(f.ID, text("region "+a.Region))
 	case "slow_compute":
 		if !s.sleep(f.ID, time.Duration(a.Seconds*float64(time.Second))) {
 			return fail(f.ID, -32800, "cancelled")

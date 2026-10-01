@@ -1670,6 +1670,10 @@ func (s *Server) serveModern(w http.ResponseWriter, r *http.Request, req request
 		writeJSON(w, http.StatusBadRequest, bad)
 		return
 	}
+	if bad := s.checkParamHeaders(r, req); bad != nil {
+		writeJSON(w, http.StatusBadRequest, bad)
+		return
+	}
 	c, issued := s.sessionFor(r, req)
 	if issued != "" {
 		w.Header().Set(sessionHeader, issued)

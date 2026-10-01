@@ -1111,3 +1111,73 @@ func dump(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+// https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-behavior-for-custom-headers
+//
+// The cases are the official suite's http-custom-header-server-validation
+// scenario, plus the integer and null rows of the specification's table.
+func TestModernParamHeaders(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test").WithExtras([]mcpserver.Extra{{
+		Tool: mcpserver.Tool{Name: "echo_region", InputSchema: json.RawMessage(`{"type":"object","properties":{
+			"region":{"type":"string","x-mcp-header":"Region"},
+			"n":{"type":"integer","x-mcp-header":"N"}}}`)},
+		Call: func(context.Context, json.RawMessage) (string, error) { return "ok", nil },
+	}})
+	send := func(args map[string]any, params map[string]string) *httptest.ResponseRecorder {
+		h := modernHeaders("tools/call", "echo_region")
+		for k, v := range params {
+			h[k] = v
+		}
+		return post(s, frame(7, "tools/call", modernParams(map[string]any{"name": "echo_region", "arguments": args})), h)
+	}
+	accept := func(t *testing.T, w *httptest.ResponseRecorder) {
+		t.Helper()
+		if code, _ := rpcErr(t, w.Body.Bytes()); w.Code != http.StatusOK || code != 0 {
+			t.Fatalf("status %d code %d, want 200 and a result:\n%s", w.Code, code, w.Body)
+		}
+	}
+	reject := func(t *testing.T, w *httptest.ResponseRecorder) {
+		t.Helper()
+		if code, _ := rpcErr(t, w.Body.Bytes()); w.Code != http.StatusBadRequest || code != -32020 {
+			t.Fatalf("status %d code %d, want 400 -32020:\n%s", w.Code, code, w.Body)
+		}
+	}
+	hello := map[string]any{"region": "Hello"}
+	t.Run("2026-07-28/streamable-http/param-header-matching-body-accepted", func(t *testing.T) {
+		accept(t, send(hello, map[string]string{"Mcp-Param-Region": "Hello"}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-base64-decoded", func(t *testing.T) {
+		accept(t, send(hello, map[string]string{"Mcp-Param-Region": "=?base64?SGVsbG8=?="}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-invalid-base64-padding-rejected", func(t *testing.T) {
+		reject(t, send(hello, map[string]string{"Mcp-Param-Region": "=?base64?SGVsbG8?="}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-invalid-base64-chars-rejected", func(t *testing.T) {
+		reject(t, send(hello, map[string]string{"Mcp-Param-Region": "=?base64?SGVs!!!bG8=?="}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-without-sentinel-is-literal", func(t *testing.T) {
+		accept(t, send(map[string]any{"region": "SGVsbG8="}, map[string]string{"Mcp-Param-Region": "SGVsbG8="}))
+		accept(t, send(map[string]any{"region": "=?base64?SGVsbG8="}, map[string]string{"Mcp-Param-Region": "=?base64?SGVsbG8="}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-mismatch-rejected", func(t *testing.T) {
+		reject(t, send(hello, map[string]string{"Mcp-Param-Region": "Goodbye"}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-missing-with-body-value-rejected", func(t *testing.T) {
+		reject(t, send(hello, nil))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-invalid-characters-rejected", func(t *testing.T) {
+		reject(t, send(map[string]any{"region": "H\xe4llo"}, map[string]string{"Mcp-Param-Region": "H\xe4llo"}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-not-expected-for-null-or-absent", func(t *testing.T) {
+		accept(t, send(map[string]any{"region": nil}, nil))
+		accept(t, send(map[string]any{}, nil))
+		reject(t, send(map[string]any{}, map[string]string{"Mcp-Param-Region": "Hello"}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-integer-compared-numerically", func(t *testing.T) {
+		accept(t, send(map[string]any{"n": 42}, map[string]string{"Mcp-Param-N": "42.0"}))
+		reject(t, send(map[string]any{"n": 42}, map[string]string{"Mcp-Param-N": "43"}))
+	})
+	t.Run("2026-07-28/streamable-http/param-header-name-case-insensitive", func(t *testing.T) {
+		accept(t, send(hello, map[string]string{"mcp-param-region": "Hello"}))
+	})
+}

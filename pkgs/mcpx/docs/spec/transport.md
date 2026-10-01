@@ -30,11 +30,20 @@ catch, and it should be refused as that rather than quietly served as legacy.
   `resources/read`. Missing, different from the body, or carrying bytes a
   header may not carry (anything outside visible ASCII, space and tab) is
   `400` with `-32020 HeaderMismatch` and the request's id. `Mcp-Name` in the
-  `=?base64?…?=` sentinel is decoded before the comparison; unpadded Base64 is
-  accepted too. Header names are matched case-insensitively (Go canonicalises
+  `=?base64?…?=` sentinel is decoded before the comparison; the Base64 is
+  strict -- padding required, alphabet only -- as the specification's
+  test-case table requires. Header names are matched case-insensitively (Go canonicalises
   them), values case-sensitively. A notification POST has no header
   requirements in this revision, so none are demanded, but any it sends must
   still agree.
+- **`Mcp-Param-*` headers.** On `tools/call`, every `x-mcp-header`
+  annotation in the named tool's `inputSchema` -- mcpx re-lists upstream
+  schemas verbatim, so an upstream's annotation counts -- is checked: a
+  header that carries bytes a header may not, fails to decode, differs from
+  the body value, is missing while the body has a value, or is present while
+  the body has none, is `400` with `-32020`. Integers compare numerically.
+  The rules live in `internal/mcpheaders`, shared with the client side that
+  sends these headers.
 - **Status is a function of the response**, in one place (`modernStatus`):
   `-32022`, `-32021`, `-32020`, `-32602`, `-32600`, `-32700` are `400`;
   `-32601` is `404`; everything else `200`. Every `-32602` is `400`, not only

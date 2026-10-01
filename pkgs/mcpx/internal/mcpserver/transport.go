@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/mcpheaders"
 )
 
 // The transport rules of both eras, kept out of server.go so that the wire
@@ -228,44 +228,6 @@ func (p OriginPolicy) Allows(origin string) bool {
 
 // ---- modern request headers ----
 
-// headerSafe reports whether a header value is what 2026-07-28 allows:
-// visible ASCII, space and tab. Go's server already refuses control
-// characters; bytes above 0x7e it lets through as obs-text.
-func headerSafe(v string) bool {
-	for i := 0; i < len(v); i++ {
-		b := v[i]
-		if b == '\t' || (b >= 0x20 && b <= 0x7e) {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-const (
-	sentinelPrefix = "=?base64?"
-	sentinelSuffix = "?="
-)
-
-// decodeHeaderValue undoes the Base64 sentinel a client uses for a value
-// that is not header-safe. The markers are case-sensitive.
-func decodeHeaderValue(v string) (string, error) {
-	if !strings.HasPrefix(v, sentinelPrefix) || !strings.HasSuffix(v, sentinelSuffix) ||
-		len(v) < len(sentinelPrefix)+len(sentinelSuffix) {
-		return v, nil
-	}
-	enc := v[len(sentinelPrefix) : len(v)-len(sentinelSuffix)]
-	b, err := base64.StdEncoding.DecodeString(enc)
-	if err != nil {
-		// Accepted unpadded too: the specification says Base64 and shows
-		// padded examples, and refusing a client over padding helps nobody.
-		if b, err = base64.RawStdEncoding.DecodeString(enc); err != nil {
-			return "", err
-		}
-	}
-	return string(b), nil
-}
-
 // nameOf is the body value Mcp-Name mirrors, and whether the method has one.
 func nameOf(req request) (string, bool) {
 	var p struct {
@@ -323,7 +285,7 @@ func missingMeta(id json.RawMessage, key string) *response {
 func checkModernHeaders(r *http.Request, req request) *response {
 	isRequest := len(req.ID) > 0
 	for _, h := range []string{"MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"} {
-		if v := r.Header.Get(h); v != "" && !headerSafe(v) {
+		if v := r.Header.Get(h); v != "" && !mcpheaders.Safe(v) {
 			return headerMismatch(req.ID, "%s contains characters a header may not carry", h)
 		}
 	}
@@ -368,13 +330,59 @@ func checkModernHeaders(r *http.Request, req request) *response {
 		}
 		return nil
 	}
-	got, err := decodeHeaderValue(raw)
+	got, err := mcpheaders.Decode(raw)
 	if err != nil {
 		return headerMismatch(req.ID, "Mcp-Name header is not valid Base64: %v", err)
 	}
 	if got != body {
 		return headerMismatch(req.ID, "Mcp-Name header value '%s' does not match body value '%s'",
 			got, body)
+	}
+	return nil
+}
+
+// checkParamHeaders validates the Mcp-Param-* headers of a 2026-07-28
+// tools/call against the x-mcp-header annotations of the tool it names. It
+// shares mcpheaders with the client side, which is what sends these headers
+// upstream, so a value mcpx would send is a value mcpx accepts.
+//
+// A tool mcpx cannot find, or whose annotations are invalid, is left to the
+// dispatcher: there is nothing to check a header against.
+func (s *Server) checkParamHeaders(r *http.Request, req request) *response {
+	if req.Method != "tools/call" {
+		return nil
+	}
+	var p struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(req.Params, &p) != nil || p.Name == "" {
+		return nil
+	}
+	all, err := s.surface(s.withPass(r.Context()))
+	if err != nil {
+		return nil
+	}
+	for _, t := range all {
+		if t.Name != p.Name {
+			continue
+		}
+		params, err := mcpheaders.ToolParams(t.InputSchema)
+		if err != nil {
+			return nil
+		}
+		err = mcpheaders.Check(params, p.Arguments, func(name string) (string, bool) {
+			v := r.Header.Values(name)
+			if len(v) == 0 {
+				return "", false
+			}
+			// Repeated headers join, as HTTP combines them, and so cannot match.
+			return strings.Join(v, ","), true
+		})
+		if err != nil {
+			return headerMismatch(req.ID, "%v", err)
+		}
+		return nil
 	}
 	return nil
 }
