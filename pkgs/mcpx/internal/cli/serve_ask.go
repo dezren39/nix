@@ -329,6 +329,10 @@ func (l *lazyMCP) InvokeTool(ctx context.Context, tool string, args json.RawMess
 
 // passTool reports whether name is one of the pass-through upstream's tools.
 func (d daemonAsker) passTool(ctx context.Context, ns, name string) bool {
+	// The protocol layer has normally looked this up already for the request.
+	if isPass, known := mcpserver.PassToolOf(ctx, name); known {
+		return isPass
+	}
 	tools, err := mcpBackend{app: d.app}.UpstreamTools(ctx, ns)
 	if err != nil {
 		return false

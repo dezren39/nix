@@ -677,9 +677,19 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		var call struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" && !s.hasTool(ctx, call.Name) {
-			return &response{JSONRPC: "2.0", ID: req.ID,
-				Error: &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("no tool named %q", call.Name)}}
+		ctx = s.withPass(ctx)
+		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" {
+			found, err := s.hasTool(ctx, call.Name)
+			if err != nil {
+				// Not -32602: the name may well be right. The server that
+				// would know is the one not answering.
+				return &response{JSONRPC: "2.0", ID: req.ID,
+					Error: &rpcError{Code: codeInternal, Message: err.Error()}}
+			}
+			if !found {
+				return &response{JSONRPC: "2.0", ID: req.ID,
+					Error: &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("no tool named %q", call.Name)}}
+			}
 		}
 		if resp := s.maybeTask(ctx, c, req, peer); resp != nil {
 			return resp
@@ -730,7 +740,11 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// server and a client with a frame limit has no other way to read
 		// the list. Ignoring the cursor meant a large installation was
 		// simply unreadable by such a client.
-		tools, next, perr := page(s.surface(ctx), req.Params, s.pageSize())
+		all, serr := s.surface(ctx)
+		if serr != nil {
+			return fail(codeInternal, serr.Error())
+		}
+		tools, next, perr := page(all, req.Params, s.pageSize())
 		if perr != nil {
 			return fail(codeInvalidParams, perr.Error())
 		}
@@ -858,13 +872,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
-		var text string
-		var err error
-		if s.isPassTool(ctx, p.Name) {
-			text, err = s.backend.Call(ctx, s.Passthrough, p.Name, p.Arguments)
-		} else {
-			text, err = s.dispatch(ctx, p.Name, p.Arguments)
-		}
+		text, err := s.invoke(ctx, p.Name, p.Arguments)
 		if err != nil {
 			// A tool that fails is a result with isError, not a protocol
 			// error. The distinction matters: a protocol error means the
@@ -2264,13 +2272,31 @@ func (l lockedEncoder) Encode(v any) error {
 const specMaxCompletions = 100
 
 // hasTool reports whether tools/call can reach name.
-func (s *Server) hasTool(ctx context.Context, name string) bool {
-	for _, t := range s.surface(ctx) {
+func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
+	all, err := s.surface(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, t := range all {
 		if t.Name == name {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
+}
+
+// invoke runs a tool by name: the pass-through upstream's when the name is
+// its, otherwise the gateway's. Every route that calls a tool by name goes
+// through here, so pass-through cannot reach one route and miss another.
+func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	pass, err := s.isPassTool(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	if pass {
+		return s.backend.Call(ctx, s.Passthrough, name, args)
+	}
+	return s.dispatch(ctx, name, args)
 }
 
 // promptArgs finds a prompt by its exact name and reports the first
