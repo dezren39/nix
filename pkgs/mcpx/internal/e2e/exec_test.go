@@ -301,23 +301,34 @@ func TestAStreamConsumerCanCancelAfterTheResult(t *testing.T) {
 		},
 	})
 	sc := bufio.NewScanner(resp.Body)
+	// This failed once inside nix build on main (run 36821463044) and has not
+	// reproduced in 60 local runs. The test could only say it never saw the
+	// end frame, so it now reports every frame it did see and why the scan
+	// stopped. The larger line limit is a precaution, not the cause: forcing
+	// the default 64 KB back still passes.
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	saw := ""
+	var kinds []string
 	for sc.Scan() {
 		var f struct {
 			Type string `json:"type"`
 		}
 		if json.Unmarshal(sc.Bytes(), &f) != nil {
+			kinds = append(kinds, fmt.Sprintf("<unparsed %d bytes>", len(sc.Bytes())))
 			continue
 		}
+		kinds = append(kinds, f.Type)
 		if f.Type == "end" {
 			saw = f.Type
 			break
 		}
 	}
+	scanErr := sc.Err()
 	// Closed mid-stream, with bodies still to come.
 	resp.Body.Close()
 	if saw != "end" {
-		t.Fatal("the run should have reached its end frame")
+		t.Fatalf("the run should have reached its end frame; status %d, frames %v, scan error %v",
+			resp.StatusCode, kinds, scanErr)
 	}
 
 	// The daemon is still healthy and still serving, which is the thing a
