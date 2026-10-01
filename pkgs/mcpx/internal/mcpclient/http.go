@@ -203,29 +203,60 @@ func (t *HTTPTransport) Send(ctx context.Context, msg []byte) error {
 			t.resume(ctx, reqID, st)
 		}()
 	default:
-		b, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if readErr != nil {
-			return readErr
-		}
-		// Usually one JSON value. Some servers -- the official conformance
-		// fixture among them -- stream several under application/json, a
-		// notification and then the response, one per line. Read as one
-		// value that is not JSON, the response was dropped and the call
-		// hung until its deadline; read as a sequence, each is delivered.
-		dec := json.NewDecoder(bytes.NewReader(b))
-		for n := 0; ; n++ {
-			var v json.RawMessage
-			if err := dec.Decode(&v); err != nil {
-				if n == 0 && len(bytes.TrimSpace(b)) > 0 {
-					t.push(b) // not JSON at all: delivered as before
-				}
-				break
+		// Read value by value rather than to EOF. A body that carries more
+		// than one message -- newline-delimited JSON, which the official
+		// conformance suite's reference server streams on
+		// subscriptions/listen -- was read until the server closed it,
+		// which for a subscription is never: the acknowledgement and every
+		// list_changed after it sat unread, and the stream's caller hung.
+		head := &firstValue{}
+		dec := json.NewDecoder(io.TeeReader(resp.Body, head))
+		var first json.RawMessage
+		if err := dec.Decode(&first); err != nil {
+			// Empty, or not JSON: handed on whole as before, for push to
+			// judge.
+			rest, readErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if readErr != nil {
+				return readErr
 			}
-			t.push(v)
+			b := append(head.buf.Bytes(), rest...)
+			if len(bytes.TrimSpace(b)) > 0 {
+				t.push(b)
+			}
+			return nil
 		}
+		head.done = true
+		t.push(first)
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			defer resp.Body.Close()
+			for {
+				var next json.RawMessage
+				if dec.Decode(&next) != nil {
+					return
+				}
+				t.push(next)
+			}
+		}()
 	}
 	return nil
+}
+
+// firstValue keeps the bytes read while decoding a body's first JSON value,
+// so a body that turns out not to be JSON can still be handed on whole, and
+// stops keeping them once that value is decoded.
+type firstValue struct {
+	buf  bytes.Buffer
+	done bool
+}
+
+func (f *firstValue) Write(p []byte) (int, error) {
+	if !f.done {
+		f.buf.Write(p)
+	}
+	return len(p), nil
 }
 
 // sseState is what one SSE stream said about itself: the last event id,

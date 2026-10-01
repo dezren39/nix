@@ -728,7 +728,7 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := withRun(withCallSettings(r.Context(), s.callSettings(r)), r.Header.Get("X-Mcpx-Run"))
+	ctx := withRun(withCallSettings(withClientCaps(r.Context(), r), s.callSettings(r)), r.Header.Get("X-Mcpx-Run"))
 	reply := writeJSON
 	if req.Relay != nil {
 		rw := &relayWriter{w: w}

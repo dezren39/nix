@@ -447,6 +447,8 @@ func (q Question) Sendable(p Peer) bool {
 		return p.CanElicit(q.Mode)
 	case "sampling/createMessage":
 		return p.CanSample()
+	case "roots/list":
+		return p.Declared("roots")
 	}
 	return false
 }

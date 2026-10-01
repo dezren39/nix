@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -27,6 +29,7 @@ import (
 type scripted struct {
 	code    int
 	message string
+	data    json.RawMessage
 	hangUp  bool
 
 	in   chan []byte
@@ -51,12 +54,16 @@ func (s *scripted) Send(_ context.Context, msg []byte) error {
 			"serverInfo":      map[string]any{"name": "scripted", "version": "1"},
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 		}
-	case "tools/call":
+	case "tools/call", "resources/read":
 		if s.hangUp {
 			_ = s.Close()
 			return nil
 		}
-		frame["error"] = map[string]any{"code": s.code, "message": s.message}
+		e := map[string]any{"code": s.code, "message": s.message}
+		if len(s.data) > 0 {
+			e["data"] = s.data
+		}
+		frame["error"] = e
 	default:
 		return nil
 	}
@@ -216,5 +223,74 @@ func TestAFailureTheCatalogCannotExplainIsLeftAlone(t *testing.T) {
 		if body := callErrorBody(got); body.Diagnostics != nil {
 			t.Errorf("%s: no diagnostics expected, got %+v", name, body.Diagnostics)
 		}
+	}
+}
+
+// /v1's error body carries the server's JSON-RPC error whole, so a relay can
+// answer with it: a pass-through's -32021 reaches its client as -32021 with
+// the server's requiredCapabilities, not as a sentence.
+func TestAFailedCallsBodyCarriesTheServersError(t *testing.T) {
+	s := newScripted(-32021, "MissingRequiredClientCapabilityError")
+	s.data = json.RawMessage(`{"requiredCapabilities":{"sampling":{}}}`)
+	err := callThrough(t, s)
+	body := callErrorBody(fmt.Errorf("demo.create_issue: %w", err))
+	if body.Upstream == nil || body.Upstream.Code != -32021 ||
+		body.Upstream.Message != "MissingRequiredClientCapabilityError" ||
+		!strings.Contains(string(body.Upstream.Data), `"sampling"`) {
+		t.Fatalf("upstream = %+v", body.Upstream)
+	}
+	// A read of a missing resource is mcpclient's ResourceNotFoundError
+	// wrapping the server's error. Its own struct has no Data field, and
+	// reading one off it panicked the daemon on the first resources/read
+	// the official suite made.
+	nf := newScripted(-32002, "Resource not found")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	c, err := mcpclient.NewWithPreference(ctx, nf, "test", "0", mcpclient.ForceLegacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_, rerr := c.ReadResource(ctx, "file:///nope")
+	var missing *mcpclient.ResourceNotFoundError
+	if !errors.As(rerr, &missing) {
+		t.Fatalf("premise: want a ResourceNotFoundError, got %v", rerr)
+	}
+	if b := callErrorBody(rerr); b.Upstream == nil || b.Upstream.Code != -32002 {
+		t.Errorf("upstream = %+v", b.Upstream)
+	}
+}
+
+// A roots answer is the client's ListRootsResult, accepted as given.
+func TestARootsAnswerIsTheClientsResult(t *testing.T) {
+	ans, err := answerFromResult("r-1", "roots/list", json.RawMessage(`{"roots":[{"uri":"file:///c"}]}`))
+	if err != nil || ans.Action != "accept" || !strings.Contains(string(ans.Content), "file:///c") {
+		t.Fatalf("answer = %+v, %v", ans, err)
+	}
+	if _, err := answerFromResult("r-1", "roots/list", json.RawMessage(`null`)); err == nil {
+		t.Error("an empty roots answer should be refused")
+	}
+}
+
+// The relayed client's capabilities ride on a header and reach the call's
+// context; a malformed header is ignored rather than declared.
+func TestClientCapsHeaderReachesTheCall(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/v1/call", nil)
+	r.Header.Set(ClientCapsHeader, `{"roots":{}}`)
+	if got := mcpclient.ClientCapabilitiesFrom(withClientCaps(context.Background(), r)); string(got) != `{"roots":{}}` {
+		t.Errorf("caps = %s", got)
+	}
+	r.Header.Set(ClientCapsHeader, `{not json`)
+	if got := mcpclient.ClientCapabilitiesFrom(withClientCaps(context.Background(), r)); got != nil {
+		t.Errorf("malformed header declared %s", got)
+	}
+}
+
+// A roots/list no call of a relaying client raised has nobody to put it to,
+// and is handed back for mcpx to answer with its own roots.
+func TestARootsQuestionWithNoCallIsNotRelayed(t *testing.T) {
+	r := &Registry{}
+	if _, err := r.rootsViaBroker(context.Background(), "demo", "global", nil); !errors.Is(err, mcpclient.ErrNotRelayed) {
+		t.Fatalf("err = %v, want ErrNotRelayed", err)
 	}
 }

@@ -680,6 +680,12 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		ctx = s.withPass(ctx)
 		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" {
 			found, err := s.hasTool(ctx, call.Name)
+			if err == nil && !found {
+				// The upstream decides what names it answers to, listed or
+				// not; it says -32602 itself, relayed as such, for one it
+				// does not know.
+				found, err = s.routesToPass(ctx, call.Name)
+			}
 			if err != nil {
 				// Not -32602: the name may well be right. The server that
 				// would know is the one not answering.
@@ -861,6 +867,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// A client that can answer a question gets the call run as a task
 		// it can be interrupted, and resumed, across. One that cannot gets
 		// the direct path and the broker's own routing, exactly as before.
+		ctx = withPeerCaps(ctx, peer)
 		if s.canAsk(ctx, c, peer) {
 			if resp := s.viaAsk(s.withRelay(ctx, c, req, peer), c, req, peer); resp != nil {
 				return resp
@@ -874,6 +881,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 			return fail(codeInvalidParams, err.Error())
 		}
 		text, err := s.invoke(s.withRelay(ctx, c, req, peer), p.Name, p.Arguments)
+		if up := (*UpstreamError)(nil); errors.As(err, &up) {
+			return up.relay(req.ID)
+		}
 		if err != nil {
 			// A tool that fails is a result with isError, not a protocol
 			// error. The distinction matters: a protocol error means the
@@ -1675,7 +1685,9 @@ func (s *Server) serveLegacy(w http.ResponseWriter, r *http.Request, req request
 		ctx, done, cancelled = c.track(context.WithoutCancel(ctx), req.ID)
 		defer done()
 	}
+	stopQuiet := s.keepQuietAlive(r, ex, req)
 	resp := s.HandleOn(withSender(ctx, ex.send), c, req)
+	stopQuiet()
 	if cancelled() {
 		// Withheld, as the legacy cancellation page asks. The POST still
 		// needs an answer, and an event stream that ends without one is the
@@ -1963,6 +1975,50 @@ func (e *httpExchange) comment() error {
 	}
 	e.flusher.Flush()
 	return nil
+}
+
+// keepQuietAlive opens the event stream of a request that has gone quiet
+// for SSEKeepAlive, and from then on writes a comment every SSEKeepAlive
+// until the answer is ready. The returned func stops it, and returns only
+// once nothing more will be written.
+//
+// A legacy POST was answered with nothing at all -- not even headers --
+// until the upstream call behind it finished, which pool.callTimeout allows
+// to take two minutes. A client or a proxy with an idle timeout gave up on
+// a call that was still running: the official suite's server-sse-polling
+// scenario did, at 30 seconds, while an upstream that had lost the result
+// kept mcpx waiting for it. A client that offered text/event-stream accepts
+// either answer; one that did not keeps getting JSON.
+func (s *Server) keepQuietAlive(r *http.Request, ex *httpExchange, req request) func() {
+	if len(req.ID) == 0 || ex.flusher == nil ||
+		!strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	every := s.Timing.resolved().SSEKeepAlive
+	go func() {
+		defer close(done)
+		tick := time.NewTicker(every)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-r.Context().Done():
+				return
+			case <-tick.C:
+				ex.open()
+				if ex.comment() != nil {
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
+	}
 }
 
 // open starts the event stream with nothing on it yet.
@@ -2296,7 +2352,7 @@ func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
 // its, otherwise the gateway's. Every route that calls a tool by name goes
 // through here, so pass-through cannot reach one route and miss another.
 func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) (string, error) {
-	pass, err := s.isPassTool(ctx, name)
+	pass, err := s.routesToPass(ctx, name)
 	if err != nil {
 		return "", err
 	}

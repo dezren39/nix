@@ -20,6 +20,7 @@ import (
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/logstore"
+	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
@@ -130,6 +131,9 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if !visible(ns) {
 		return "", unknownNamespace(ns)
 	}
+	if b.app.isPass(ns) {
+		ctx = mcpclient.WithClientCapabilities(ctx, mcpserver.DeclaredCapabilities(ctx))
+	}
 	var res *CallResult
 	if r := mcpserver.RelayFrom(ctx); r != nil {
 		notify := r.Notify
@@ -142,6 +146,9 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 		res, err = c.Call(ctx, ns, tool, b.app.mcpCaller(ctx), args)
 	}
 	if err != nil {
+		if b.app.isPass(ns) {
+			return "", relayedFault(err)
+		}
 		return "", err
 	}
 	if b.app.isPass(ns) {
@@ -1332,4 +1339,20 @@ func (b mcpBackend) UpstreamTools(ctx context.Context, ns string) ([]mcpserver.T
 		out = append(out, mcpserver.Tool{Name: t.Tool, Description: t.Description, InputSchema: schema})
 	}
 	return out, nil
+}
+
+// relayedFault turns the JSON-RPC error a pass-through upstream answered
+// with, as the daemon reported it, into the error mcpserver relays verbatim.
+// Every other failure -- a timeout, a server that would not start -- stays
+// what it was.
+func relayedFault(err error) error {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return err
+	}
+	var body daemon.CallErrorBody
+	if json.Unmarshal(he.Body, &body) != nil || body.Upstream == nil {
+		return err
+	}
+	return &mcpserver.UpstreamError{Code: body.Upstream.Code, Message: body.Upstream.Message, Data: body.Upstream.Data}
 }

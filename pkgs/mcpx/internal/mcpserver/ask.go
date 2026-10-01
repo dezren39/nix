@@ -103,6 +103,16 @@ func resumeOf(params json.RawMessage) (state string, answers map[string]json.Raw
 	return p.RequestState, p.InputResponses, true
 }
 
+// inputResponsesOf reads a request's inputResponses, whether or not it
+// carries a requestState.
+func inputResponsesOf(params json.RawMessage) map[string]json.RawMessage {
+	var p struct {
+		InputResponses map[string]json.RawMessage `json:"inputResponses"`
+	}
+	_ = json.Unmarshal(params, &p)
+	return p.InputResponses
+}
+
 // forAsk strips the protocol's own fields, leaving what the method means.
 //
 // _meta, inputResponses and requestState are how the request travelled, not
@@ -144,6 +154,13 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 	}
 
 	var callID string
+	// Answers sent with a request that resumes nothing: a client that knows
+	// what the server will ask and answers up front, as the MRTR page lets
+	// it. Held until the upstream asks, then given to the questions they
+	// fit; keys that fit none are ignored, as unrecognised information
+	// SHOULD be. They were dropped with the rest of the protocol fields, so
+	// the client was asked again for what it had already said.
+	var upfront map[string]json.RawMessage
 	if state, answers, resuming := resumeOf(req.Params); resuming {
 		id, err := s.states().verify(state, requestBinding(req))
 		if err != nil {
@@ -172,6 +189,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			return fail(codeInternal, err.Error())
 		}
 		callID = id
+		upfront = inputResponsesOf(req.Params)
 	}
 
 	tm := s.Timing.resolved()
@@ -196,6 +214,9 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 		relayNotes(ctx, out)
 		if out.Done {
+			if up := (*UpstreamError)(nil); errors.As(out.Err, &up) {
+				return up.relay(req.ID)
+			}
 			if out.IsError && req.Method != "tools/call" {
 				// Only a tool has a result that can say it failed. A read or
 				// a prompt that failed upstream is an error, and was being
@@ -237,6 +258,21 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 				}
 			}
 			continue
+		}
+		if len(upfront) > 0 {
+			fit := map[string]json.RawMessage{}
+			for _, q := range sendable {
+				if v, ok := upfront[wireKey(q, sendable)]; ok {
+					fit[wireKey(q, sendable)] = v
+				}
+			}
+			upfront = nil
+			if len(fit) > 0 {
+				if err := s.Ask.Reply(ctx, callID, answersByID(fit, sendable)); err != nil {
+					return fail(codeInvalidParams, err.Error())
+				}
+				continue
+			}
 		}
 		if rounds++; rounds > tm.AskRounds {
 			s.Ask.Abandon(callID)

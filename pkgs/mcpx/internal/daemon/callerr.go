@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
 
 	"github.com/dezren39/mcpx/internal/diagnose"
@@ -49,6 +50,34 @@ func (r *Registry) repairAutonomy(ctx context.Context) string {
 type CallErrorBody struct {
 	Error       string                `json:"error"`
 	Diagnostics []diagnose.Diagnostic `json:"diagnostics,omitempty"`
+	// Upstream is the JSON-RPC error the server answered with, when the
+	// failure was one. A relay needs the code and data, not the sentence:
+	// a pass-through's -32021 has to reach its client as -32021 with the
+	// server's requiredCapabilities, or the client cannot tell what to
+	// declare.
+	Upstream *UpstreamError `json:"upstream,omitempty"`
+}
+
+// UpstreamError is a server's JSON-RPC error as it arrived.
+type UpstreamError struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+// ClientCapsHeader carries, on /v1/call and /v1/ask, the clientCapabilities
+// the MCP client mcpx is relaying for declared on its 2026-07-28 request.
+// The daemon narrows its own declaration to them on the upstream request;
+// see mcpclient.WithClientCapabilities.
+const ClientCapsHeader = "X-Mcpx-Client-Capabilities"
+
+// withClientCaps applies ClientCapsHeader to ctx.
+func withClientCaps(ctx context.Context, r *http.Request) context.Context {
+	raw := r.Header.Get(ClientCapsHeader)
+	if raw == "" || !json.Valid([]byte(raw)) {
+		return ctx
+	}
+	return mcpclient.WithClientCapabilities(ctx, json.RawMessage(raw))
 }
 
 // callFailure is an upstream refusal together with what mcpx worked out
@@ -124,7 +153,11 @@ func callDiagnostics(err error) []diagnose.Diagnostic {
 }
 
 func callErrorBody(err error) CallErrorBody {
-	return CallErrorBody{Error: err.Error(), Diagnostics: callDiagnostics(err)}
+	body := CallErrorBody{Error: err.Error(), Diagnostics: callDiagnostics(err)}
+	if code, msg, ok := upstreamFault(err); ok {
+		body.Upstream = &UpstreamError{Code: code, Message: msg, Data: upstreamData(err)}
+	}
+	return body
 }
 
 // mcpclientPkg identifies the package whose errors are a server's answer.
@@ -158,4 +191,24 @@ func upstreamFault(err error) (code int, message string, ok bool) {
 		return int(c.Int()), m.String(), true
 	}
 	return 0, "", false
+}
+
+// upstreamData is the data member of the error upstreamFault found.
+func upstreamData(err error) json.RawMessage {
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		v := reflect.ValueOf(e)
+		if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct ||
+			v.Elem().Type().PkgPath() != mcpclientPkg {
+			continue
+		}
+		// Only the type upstreamFault matched has a Data member; another
+		// mcpclient error (one with no Data field) is not the fault.
+		c, d := v.Elem().FieldByName("Code"), v.Elem().FieldByName("Data")
+		if c.Kind() != reflect.Int || !d.IsValid() {
+			continue
+		}
+		raw, _ := d.Interface().(json.RawMessage)
+		return raw
+	}
+	return nil
 }
