@@ -134,24 +134,20 @@ phase_activate() {
   echo "install/update pinned lootbox"
   nix run .#lootbox-update -- --if-needed
 
-  # Spotlight: mark .git and regenerable build-artifact dirs under ~/git as
-  # never-index. Runs as the invoking user (not root) so the markers are
-  # user-owned. Static paths are handled by configuration.nix activation.
-  # --system only: re-assert the static marker list for both accounts. The
-  # per-repo walk is deliberately NOT run here -- it rescans every repo under
-  # ~/git, which is wasted work on a switch. Use `just spotlight-walk` or ./clean.
-  echo "spotlight: static exclude markers (user + root)"
-  ./spotlight-exclude-artifacts --system || true       # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
-  sudo ./spotlight-exclude-artifacts --system || true  # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
-
-  # System-wide git setup only (scheduler + drift report). Touches no repos, so it
-  # stays fast. Per-repo maintenance is the scheduler's job, or ./git-maintain-repos.
-  # Run for both accounts: the scheduler is per-user, and root has its own global
-  # config via /var/root/.gitconfig.
-  echo "git: system-wide maintenance setup (user)"
-  ./git-maintain-repos --system || true                # ~80ms. Do NOT drop --system: default --auto walks every repo, ~3min
-  echo "git: system-wide maintenance setup (root)"
-  sudo ./git-maintain-repos --system || true           # ~80ms. Root: config only. No scheduler: macOS has only launchd, and git installs launchd *agents*, which need a GUI Aqua session root lacks
+  # The spotlight markers and the git system setup used to be re-run here, as
+  # the user and again under sudo. All four calls were redundant:
+  # configuration.nix's postActivation already runs both helpers, for root and
+  # for the primary user, and `darwin-rebuild switch` above has just executed
+  # it. See configuration.nix, `spotlight_exclude` / `git_maintain`.
+  #
+  # Removing them also closes a real hole rather than papering over it. Those
+  # two helpers live in this repo, user-writable (-rwxr-xr-x drewry.pope) in a
+  # user-writable directory, so `sudo ./git-maintain-repos` runs a file
+  # anything with your uid can rewrite first. Activation instead invokes them
+  # at their *store* paths -- ${./git-maintain-repos} -- which are root-owned
+  # and read-only. That is also why neither is a candidate for a NOPASSWD
+  # sudoers rule: a passwordless sudo on a user-writable script is a complete
+  # root escalation, strictly worse than the password prompt it removes.
 
   record_activation "switch"
 }
