@@ -519,6 +519,13 @@
     // a malformed line is a later normalisation pass, the cost of a rejected
     // line is the observation itself. See dezren39/nix for the tooling issue.
     "~/.config/opencode/instructions/recordings.md",
+    // Preferred and disfavoured ways of working, written from a long
+    // multi-agent session: verify rather than relay, measure in the
+    // environment that fails, every fix gets a test that fails without it,
+    // fix small things rather than filing them, fan out for breadth and never
+    // for depth, and one PR per batch rather than one per fix. Every rule in
+    // it cost time or produced a wrong answer first.
+    "~/.config/opencode/instructions/work-strategies.md",
     // subagents.md archived to instructions/archive/ — it named agents
     // (explore/general/plan) that the trimmed agent set no longer defines, so it
     // was describing a topology that does not exist. Re-add only if rewritten
