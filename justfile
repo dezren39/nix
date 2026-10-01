@@ -125,11 +125,20 @@ build:
 # without registering a generation -- it would not appear in
 # --list-generations and could not be rolled back to. The saving is one flake
 # evaluation; the cost is the undo button.
+#
+# With a generation number -- `just activate 283` -- it rolls back to that
+# generation instead, via -G, and skips the post-activation steps, which all
+# run things from the *current* flake.
 
-# Activate what `just build` already built, without compiling again
+# Activate what `just build` built, or roll back: `just activate [GENERATION]`
 [group('nix')]
-activate:
-    ./simple-rebuild.sh --activate-only
+activate *generation:
+    ./simple-rebuild.sh --activate-only {{ generation }}
+
+# List system generations you could `just activate N` back to
+[group('nix')]
+generations:
+    sudo ./result/sw/bin/darwin-rebuild --list-generations
 
 # Simple rebuild: build + activate (no flake update)
 [group('nix')]

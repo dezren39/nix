@@ -69,11 +69,12 @@ git add .
 #   --activate-only  activate + post + commit   sudo
 #   (no flag)        all of it
 mode="all"
+generation=""
 case "${1:-}" in
   --build-only)    mode="build" ;;
-  --activate-only) mode="activate" ;;
+  --activate-only) mode="activate"; generation="${2:-}" ;;
   "")              ;;
-  *) echo "usage: ${0:t} [--build-only|--activate-only]" >&2; exit 2 ;;
+  *) echo "usage: ${0:t} [--build-only|--activate-only [GENERATION]]" >&2; exit 2 ;;
 esac
 
 # Every commit here is --allow-empty: the point is to mark *when* a build or an
@@ -103,6 +104,20 @@ phase_build() {
 }
 
 phase_activate() {
+  # Rolling back to an existing generation is a different operation from
+  # activating a freshly built one, and deliberately does less: no rosetta
+  # check, no ./result, and none of the post-activation steps below. Those all
+  # run things *from the current flake* (lootbox-update, the spotlight and git
+  # helpers), which is precisely what you do not want when the point is to get
+  # back to how the system was. `-G` sets action=rollback inside darwin-rebuild,
+  # which reads $profile/systemConfig rather than building anything.
+  if [[ -n "$generation" ]]; then
+    echo "darwin-rebuild --switch-generation $generation (rollback, as root)"
+    sudo ./result/sw/bin/darwin-rebuild --switch-generation "$generation"
+    record_activation "rollback"
+    return
+  fi
+
   echo "softwareupdate --install-rosetta --agree-to-license"
   softwareupdate --install-rosetta --agree-to-license
 
@@ -138,14 +153,26 @@ phase_activate() {
   echo "git: system-wide maintenance setup (root)"
   sudo ./git-maintain-repos --system || true           # ~80ms. Root: config only. No scheduler: macOS has only launchd, and git installs launchd *agents*, which need a GUI Aqua session root lacks
 
-  # --list-generations needs root despite not matching darwin-rebuild's
-  # root-required action regex: it takes the /nix/var/nix/profiles/system lock.
-  current=$(sudo darwin-rebuild --list-generations | grep current)
-  echo "current: $current"
-  echo "hostname: $(hostname)"
+  record_activation "switch"
+}
+
+# What the system actually is now, read from the profile symlink rather than
+# from what we intended to do -- so a partial activation cannot be recorded as
+# a successful one.
+#
+# Both reads are unprivileged, unlike `darwin-rebuild --list-generations`,
+# which takes the profile lock and needs root:
+#   readlink    /nix/var/nix/profiles/system  -> system-283-link  (the number)
+#   readlink -f /nix/var/nix/profiles/system  -> /nix/store/...   (the closure)
+record_activation() {
+  local how="$1" gen store
+  gen=$(readlink /nix/var/nix/profiles/system 2>/dev/null || echo "system-?-link")
+  gen="${${gen#system-}%-link}"
+  store=$(basename "$(readlink -f /nix/var/nix/profiles/system 2>/dev/null || echo unknown)")
+  echo "now: generation $gen -> $store"
   reclaim_root_owned
   git add .
-  git commit --no-verify --allow-empty -m "$(hostname) $current"
+  git commit --no-verify --allow-empty -m "$(hostname) $how gen $gen $store"
 }
 
 case "$mode" in
