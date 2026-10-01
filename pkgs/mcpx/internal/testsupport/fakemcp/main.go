@@ -204,6 +204,12 @@ func handle(r req) map[string]any {
 			map[string]any{
 				"uri": "demo://greeting", "name": "greeting",
 				"description": "a fixed greeting", "mimeType": "text/plain",
+				// The optional fields, so a test can see they survive.
+				"title": "Greeting", "size": 21,
+				"annotations": map[string]any{"audience": []any{"user"}, "priority": 0.5,
+					"lastModified": "2025-01-01T00:00:00Z"},
+				"icons": []any{map[string]any{"src": "https://example.com/g.png"}},
+				"_meta": map[string]any{"example.com/k": "resource"},
 			},
 		}
 		if subscribeMode {
@@ -220,7 +226,8 @@ func handle(r req) map[string]any {
 			// Binary, and deliberately unlisted so no listing test moves:
 			// the eight bytes of a PNG signature, as a blob.
 			return ok(r.ID, map[string]any{"contents": []any{
-				map[string]any{"uri": p.URI, "mimeType": "image/png", "blob": "iVBORw0KGgo="},
+				map[string]any{"uri": p.URI, "mimeType": "image/png", "blob": "iVBORw0KGgo=",
+					"_meta": map[string]any{"example.com/k": "contents"}},
 			}})
 		}
 		if subscribeMode && p.URI == absResource {
@@ -238,8 +245,11 @@ func handle(r req) map[string]any {
 		return ok(r.ID, map[string]any{"prompts": []any{
 			map[string]any{
 				"name": "summarise", "description": "summarise some text",
+				"title": "Summarise",
+				"icons": []any{map[string]any{"src": "https://example.com/p.png"}},
+				"_meta": map[string]any{"example.com/k": "prompt"},
 				"arguments": []any{
-					map[string]any{"name": "text", "description": "what to summarise", "required": true},
+					map[string]any{"name": "text", "title": "Text", "description": "what to summarise", "required": true},
 					map[string]any{"name": "style", "description": "how"},
 				},
 			},
@@ -271,6 +281,8 @@ func handle(r req) map[string]any {
 		return ok(r.ID, map[string]any{"resourceTemplates": []any{map[string]any{
 			"uriTemplate": "demo://items/{id}", "name": "item",
 			"description": "one item by id", "mimeType": "text/plain",
+			"title": "Item", "icons": []any{map[string]any{"src": "https://example.com/t.png"}},
+			"_meta": map[string]any{"example.com/k": "template"},
 		}}})
 	case "tools/call":
 		return callTool(r)
@@ -339,6 +351,9 @@ func baseTools() []map[string]any {
 				"properties": map[string]any{"message": map[string]any{"type": "string", "description": "text to echo"}},
 				"required":   []string{"message"},
 			},
+			// Read-only, so the destructive-confirmation policy has a tool
+			// it must leave alone: an unannotated one may be destructive.
+			"annotations": map[string]any{"readOnlyHint": true},
 		},
 		{
 			"name":        "open",
@@ -348,6 +363,11 @@ func baseTools() []map[string]any {
 				"properties": map[string]any{"value": map[string]any{"type": "string"}},
 				"required":   []string{"value"},
 			},
+		},
+		{
+			"name":        "chatty",
+			"description": "Report progress and log messages, then echo the request's _meta.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
 			"name":        "state",
@@ -370,6 +390,9 @@ func baseTools() []map[string]any {
 		},
 		{
 			"name":        "structured",
+			"title":       "Structured",
+			"icons":       []any{map[string]any{"src": "https://example.com/s.png"}},
+			"_meta":       map[string]any{"example.com/k": "tool"},
 			"description": "Return structuredContent.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			"outputSchema": map[string]any{
@@ -489,12 +512,39 @@ func callTool(r req) map[string]any {
 			"content": []map[string]any{{"type": "text", "text": "boom: deliberate failure"}},
 		})
 	case "structured":
+		// Every kind of block a proxy could flatten, so a test can see
+		// which survive.
 		return ok(r.ID, map[string]any{
-			"content":           []map[string]any{{"type": "text", "text": `{"n":42}`}},
+			"content": []map[string]any{
+				{"type": "text", "text": `{"n":42}`},
+				{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
+				{"type": "resource_link", "uri": "demo://greeting", "name": "greeting", "mimeType": "image/png"},
+			},
 			"structuredContent": map[string]any{"n": 42},
+			"_meta":             map[string]any{"example.com/k": "result"},
 		})
 	case "fancy-name":
 		b, _ := json.Marshal(p.Arguments)
+		return ok(r.ID, textResult(string(b)))
+	case "chatty":
+		// Reports progress for the token it was given, logs at two levels,
+		// and answers with the _meta it received, so a test can see both
+		// what a proxy relayed back and what it passed on.
+		var m struct {
+			Meta map[string]json.RawMessage `json:"_meta"`
+		}
+		_ = json.Unmarshal(r.Params, &m)
+		if tok, ok := m.Meta["progressToken"]; ok {
+			for i := 1; i <= 2; i++ {
+				notify(map[string]any{"jsonrpc": "2.0", "method": "notifications/progress",
+					"params": map[string]any{"progressToken": tok, "progress": i, "total": 2}})
+			}
+		}
+		for _, lvl := range []string{"debug", "warning"} {
+			notify(map[string]any{"jsonrpc": "2.0", "method": "notifications/message",
+				"params": map[string]any{"level": lvl, "data": "chatty " + lvl}})
+		}
+		b, _ := json.Marshal(m.Meta)
 		return ok(r.ID, textResult(string(b)))
 	}
 	if v := schemaVersion(); v != "" {

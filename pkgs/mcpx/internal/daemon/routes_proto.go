@@ -388,6 +388,9 @@ type askReq struct {
 	// many upstream calls are correlated through its run id.
 	Source  string          `json:"source"`
 	Options execsvc.Options `json:"options"`
+	// Relay is what the client asked of a tools/call; see CallRelay. What
+	// comes back is collected by the polls, as "notifications".
+	Relay *CallRelay `json:"relay,omitempty"`
 }
 
 func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
@@ -425,9 +428,14 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 	// the body waits for it, so there is no window in which a question
 	// arrives for a call nothing has heard of.
 	ready := make(chan string, 1)
+	caps := withClientCaps(context.Background(), r)
 	t := s.taskStore().Start(ttl, func(ctx context.Context) (any, *tasks.Fault) {
 		id := <-ready
 		start := time.Now()
+		// The task outlives this request, so the header is carried over
+		// by value rather than through r.Context().
+		ctx = mcpclient.WithClientCapabilities(ctx, mcpclient.ClientCapabilitiesFrom(caps))
+		ctx = mcpclient.WithCallerVersion(ctx, mcpclient.CallerVersionFrom(caps))
 		var (
 			raw json.RawMessage
 			err error
@@ -442,6 +450,11 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 					return nil, &tasks.Fault{Code: http.StatusBadRequest, Message: "args: " + uerr.Error()}
 				}
 			}
+			if req.Relay != nil {
+				buf := newRelayBuffer()
+				askRelays.Store(id, buf)
+				ctx = mcpclient.WithRelay(ctx, buf.relay(req.Relay))
+			}
 			raw, err = s.reg.CallAsk(ctx, id, req.Server, req.Tool, cc, args)
 		case "prompts/get":
 			raw, err = s.reg.GetPromptAsk(ctx, id, req.Server, req.Name, req.Arguments, cc)
@@ -449,7 +462,11 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 			raw, err = s.reg.ReadResourceAsk(ctx, id, req.Server, req.URI, cc)
 		}
 		if err != nil {
-			return nil, &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			f := &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			if up := callErrorBody(err).Upstream; up != nil {
+				f.Data = up
+			}
+			return nil, f
 		}
 		return map[string]any{"result": raw, "kind": req.Kind, "server": req.Server,
 			"durationMs": time.Since(start).Milliseconds()}, nil
@@ -503,6 +520,10 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var notes *relayBuffer
+	if v, ok := askRelays.Load(id); ok {
+		notes = v.(*relayBuffer)
+	}
 	call, live := s.reg.Asks().get(id)
 	if !tasks.Terminal(t.Status) && live {
 		before, changed := call.snapshot()
@@ -510,12 +531,17 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 		// nothing having been asked. After a question is answered the call
 		// keeps running, and returning immediately because it once asked
 		// something would turn the caller's long poll into a spin.
-		if len(s.openQuestions(before)) == 0 {
+		if len(s.openQuestions(before)) == 0 && (notes == nil || !notes.pending()) {
+			var wake chan struct{}
+			if notes != nil {
+				wake = notes.wake
+			}
 			ctx, cancel := context.WithTimeout(r.Context(), wait)
 			done := s.taskDone(ctx, id)
 			select {
 			case <-changed:
 			case <-done:
+			case <-wake:
 			case <-ctx.Done():
 			}
 			cancel()
@@ -536,10 +562,23 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 			out["error"] = err.Error()
 		case fault != nil:
 			out["error"] = fault.Message
+			if up, ok := fault.Data.(*UpstreamError); ok {
+				out["upstream"] = up
+			}
 		default:
 			out["result"] = result
 		}
 		out["done"] = true
+	}
+	if notes != nil {
+		// Drained after the status is read, so a call that finished has
+		// already relayed everything it will: none is left behind.
+		if n := notes.drain(); len(n) > 0 {
+			out["notifications"] = n
+		}
+		if out["done"] == true {
+			askRelays.Delete(id)
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -638,11 +677,11 @@ func (s *Server) handleAskAnswers(w http.ResponseWriter, r *http.Request) {
 
 // answerFromResult converts an MCP result into the broker's answer.
 func answerFromResult(id, method string, raw json.RawMessage) (elicit.Answer, error) {
-	if method == "sampling/createMessage" {
+	if method == "sampling/createMessage" || method == "roots/list" {
 		// Sampling has no decline shape in the specification, so anything
 		// that arrives is an acceptance and a refusal has to be an error.
 		if len(raw) == 0 || string(raw) == "null" {
-			return elicit.Answer{}, errors.New("a sampling answer must be a CreateMessageResult")
+			return elicit.Answer{}, fmt.Errorf("a %s answer must be its result object", method)
 		}
 		return elicit.Answer{ID: id, Action: elicit.Accept, Content: raw}, nil
 	}
@@ -668,6 +707,7 @@ func answerFromResult(id, method string, raw json.RawMessage) (elicit.Answer, er
 
 func (s *Server) handleAskAbandon(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	askRelays.Delete(id)
 	t, ok := s.taskStore().Cancel(id)
 	if !ok {
 		writeErr(w, http.StatusNotFound, tasks.ErrNoTask{ID: id})

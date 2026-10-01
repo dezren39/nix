@@ -23,6 +23,11 @@ type capableTransport struct {
 	// tools/call.
 	asked  string
 	answer chan json.RawMessage
+	// version is the protocolVersion initialize answers; 2025-11-25 when
+	// empty.
+	version string
+	// noComplete makes completion/complete method-not-found.
+	noComplete bool
 }
 
 func newCapable(caps map[string]any) *capableTransport {
@@ -66,12 +71,21 @@ func (f *capableTransport) Send(_ context.Context, msg []byte) error {
 	case "notifications/initialized":
 		return nil
 	case "initialize":
+		v := f.version
+		if v == "" {
+			v = "2025-11-25"
+		}
 		reply(map[string]any{
-			"protocolVersion": "2025-11-25",
+			"protocolVersion": v,
 			"serverInfo":      map[string]any{"name": "fake", "version": "1"},
 			"capabilities":    f.caps,
 		})
 	case "completion/complete":
+		if f.noComplete {
+			send(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(req.ID),
+				"error": map[string]any{"code": -32601, "message": "no method"}})
+			return nil
+		}
 		reply(map[string]any{"completion": map[string]any{
 			"values": []string{"upstream-only"}, "total": 1, "hasMore": false}})
 	case "some/extension":
@@ -163,6 +177,34 @@ func TestCompletionIsNotAskedOfAServerThatDidNotDeclareIt(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "upstream-only") {
 		t.Errorf("result = %s", raw)
+	}
+}
+
+// 2024-11-05 had completion/complete and no capability to declare it, so
+// gating on the declaration meant a server of that era was never asked.
+func TestCompletionIsAskedOfA20241105Server(t *testing.T) {
+	old := newCapable(map[string]any{"tools": map[string]any{}})
+	old.version = "2024-11-05"
+	c := dial(t, old)
+	raw, ok, err := c.Complete(context.Background(), json.RawMessage(`{}`))
+	if err != nil || !ok || !strings.Contains(string(raw), "upstream-only") {
+		t.Fatalf("a 2024-11-05 server should be asked: ok=%v err=%v raw=%s", ok, err, raw)
+	}
+
+	// One that does not implement it is the same absence as an undeclared
+	// capability, not an error.
+	none := newCapable(map[string]any{"tools": map[string]any{}})
+	none.version, none.noComplete = "2024-11-05", true
+	c2 := dial(t, none)
+	raw, ok, err = c2.Complete(context.Background(), json.RawMessage(`{}`))
+	if err != nil || ok || raw != nil {
+		t.Fatalf("method-not-found from a 2024-11-05 server is an absence: ok=%v err=%v raw=%s", ok, err, raw)
+	}
+	none.mu.Lock()
+	seen := strings.Join(none.seen, ",")
+	none.mu.Unlock()
+	if !strings.Contains(seen, "completion/complete") {
+		t.Fatalf("premise: server was never asked: %s", seen)
 	}
 }
 

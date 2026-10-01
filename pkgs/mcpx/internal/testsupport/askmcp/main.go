@@ -207,9 +207,20 @@ func (s *server) handle(f frame) map[string]any {
 	case "completion/complete":
 		// Values mcpx could not have guessed, so a test can tell an
 		// upstream answer from the cached one.
+		// And context.arguments echoed back, so a test can see they arrived.
+		var cp struct {
+			Context struct {
+				Arguments map[string]string `json:"arguments"`
+			} `json:"context"`
+		}
+		_ = json.Unmarshal(f.Params, &cp)
+		values := []string{"from-upstream-a", "from-upstream-b"}
+		for k, v := range cp.Context.Arguments {
+			values = append(values, "ctx:"+k+"="+v)
+		}
 		return ok(f.ID, map[string]any{"completion": map[string]any{
-			"values":  []string{"from-upstream-a", "from-upstream-b"},
-			"total":   2,
+			"values":  values,
+			"total":   len(values),
 			"hasMore": false,
 		}})
 	case "tools/call":

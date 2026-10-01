@@ -110,6 +110,13 @@ type ResourceRef struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	MimeType    string `json:"mimeType,omitempty"`
+	// Carried from the upstream as published; downgrade() removes what an
+	// older revision does not define.
+	Title       string          `json:"title,omitempty"`
+	Size        *int64          `json:"size,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ResourceContents is one entry of a resources/read result.
@@ -123,6 +130,8 @@ type ResourceContents struct {
 	MimeType string
 	Text     string
 	Blob     string
+	// Meta is the entry's _meta, carried as the upstream sent it.
+	Meta json.RawMessage
 }
 
 // readResult renders contents in the schema's shape for a read of uri.
@@ -144,6 +153,9 @@ func readResult(uri string, contents []ResourceContents) map[string]any {
 			}
 			entry["text"] = c.Text
 		}
+		if len(c.Meta) > 0 {
+			entry["_meta"] = c.Meta
+		}
 		out = append(out, entry)
 	}
 	return map[string]any{"contents": out}
@@ -151,15 +163,18 @@ func readResult(uri string, contents []ResourceContents) map[string]any {
 
 // PromptRef is one prompt a server offers.
 type PromptRef struct {
-	Name        string      `json:"name"`
-	Title       string      `json:"title,omitempty"`
-	Description string      `json:"description,omitempty"`
-	Arguments   []PromptArg `json:"arguments,omitempty"`
+	Name        string          `json:"name"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Arguments   []PromptArg     `json:"arguments,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 // PromptArg is one substitution a prompt takes.
 type PromptArg struct {
 	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 }
@@ -213,9 +228,13 @@ type Server struct {
 	// Origins decides which browser origins the HTTP transport serves.
 	Origins OriginPolicy
 
-	// Passthrough names one upstream whose tools are offered under their
+	// askedTasks are the tasks whose body is a call through the Asker,
+	// by task id; see askTask.
+	askedTasks map[string]askedTask
+
+	// Passthrough names the upstreams whose tools are offered under their
 	// own names alongside, and ahead of, the gateway's; see passthrough.go.
-	Passthrough string
+	Passthrough []string
 
 	mu sync.Mutex
 
@@ -391,6 +410,16 @@ type Tool struct {
 	// destructiveHint -- which is how a client decides whether a tool may be
 	// run without asking. Omitted where mcpx has nothing to declare.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// Execution is a pass-through upstream's execution object, verbatim.
+	// Its taskSupport decides whether a call may, must or must not run as
+	// a task; see taskSupportOf.
+	Execution json.RawMessage `json:"execution,omitempty"`
+	// The rest of an upstream tool, for pass-through listings. mcpx's own
+	// tools leave them empty.
+	Title        string          `json:"title,omitempty"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	Icons        json.RawMessage `json:"icons,omitempty"`
+	Meta         json.RawMessage `json:"_meta,omitempty"`
 }
 
 // Tools is the surface.
@@ -658,6 +687,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return bad
 	}
 	peer := c.peerFor(req.Params)
+	ctx = withPeerVersion(ctx, peer)
 
 	// A method the peer's own revision removed is method-not-found for that
 	// peer, whatever mcpx is still willing to do for an older one. See
@@ -680,6 +710,12 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		ctx = s.withPass(ctx)
 		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" {
 			found, err := s.hasTool(ctx, call.Name)
+			if err == nil && !found {
+				// The upstream decides what names it answers to, listed or
+				// not; it says -32602 itself, relayed as such, for one it
+				// does not know.
+				found, err = s.routesToPass(ctx, call.Name)
+			}
 			if err != nil {
 				// Not -32602: the name may well be right. The server that
 				// would know is the one not answering.
@@ -763,22 +799,23 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(map[string]any{"completion": completion})
 
 	case "logging/setLevel":
-		// Accepted, but no longer declared. The capability means "this server
-		// sends log messages to the client", and mcpx sends none: there is no
-		// notifications/message anywhere in this package. Declaring it was a
-		// promise of a stream that does not exist. The method still answers
-		// a legacy client, because refusing would make a well-behaved client
-		// that asked anyway treat the whole connection as degraded. A
-		// 2026-07-28 client, whose revision removed it (changelog item 5),
-		// is answered -32601 by the Removed check above and never gets here.
-		// A level that is not one of the eight is a different matter: that
-		// request is malformed, and every revision's setLevel asks for -32602.
+		// The level governs which upstream log messages are relayed to this
+		// client during its calls (see CallRelay). A 2026-07-28 client, whose
+		// revision removed the method (changelog item 5), is answered -32601
+		// by the Removed check above and names a level per request instead.
+		// A level that is not one of the eight is malformed, and every
+		// revision's setLevel asks for -32602.
 		var lv struct {
 			Level string `json:"level"`
 		}
 		_ = json.Unmarshal(req.Params, &lv)
 		if lv.Level != "" && !logLevels[lv.Level] {
 			return fail(codeInvalidParams, fmt.Sprintf("%q is not a log level", lv.Level))
+		}
+		if c != nil {
+			c.mu.Lock()
+			c.logLevel = lv.Level
+			c.mu.Unlock()
 		}
 		return reply(map[string]any{})
 
@@ -860,8 +897,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// A client that can answer a question gets the call run as a task
 		// it can be interrupted, and resumed, across. One that cannot gets
 		// the direct path and the broker's own routing, exactly as before.
+		ctx = withPeerCaps(ctx, peer)
 		if s.canAsk(ctx, c, peer) {
-			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
+			if resp := s.viaAsk(s.withRelay(ctx, c, req, peer), c, req, peer); resp != nil {
 				return resp
 			}
 		}
@@ -872,7 +910,10 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
-		text, err := s.invoke(ctx, p.Name, p.Arguments)
+		text, err := s.invoke(s.withRelay(ctx, c, req, peer), p.Name, p.Arguments)
+		if up := (*UpstreamError)(nil); errors.As(err, &up) {
+			return up.relay(req.ID)
+		}
 		if err != nil {
 			// A tool that fails is a result with isError, not a protocol
 			// error. The distinction matters: a protocol error means the
@@ -1039,6 +1080,16 @@ func asTemplates(ts []ResourceRef) []map[string]any {
 		}
 		if t.MimeType != "" {
 			m["mimeType"] = t.MimeType
+		}
+		// size is a Resource field; a template has none.
+		if t.Title != "" {
+			m["title"] = t.Title
+		}
+		for k, v := range map[string]json.RawMessage{
+			"annotations": t.Annotations, "icons": t.Icons, "_meta": t.Meta} {
+			if len(v) > 0 {
+				m[k] = v
+			}
 		}
 		out = append(out, m)
 	}
@@ -1620,6 +1671,10 @@ func (s *Server) serveModern(w http.ResponseWriter, r *http.Request, req request
 		writeJSON(w, http.StatusBadRequest, bad)
 		return
 	}
+	if bad := s.checkParamHeaders(r, req); bad != nil {
+		writeJSON(w, http.StatusBadRequest, bad)
+		return
+	}
 	c, issued := s.sessionFor(r, req)
 	if issued != "" {
 		w.Header().Set(sessionHeader, issued)
@@ -1674,7 +1729,9 @@ func (s *Server) serveLegacy(w http.ResponseWriter, r *http.Request, req request
 		ctx, done, cancelled = c.track(context.WithoutCancel(ctx), req.ID)
 		defer done()
 	}
+	stopQuiet := s.keepQuietAlive(r, ex, req)
 	resp := s.HandleOn(withSender(ctx, ex.send), c, req)
+	stopQuiet()
 	if cancelled() {
 		// Withheld, as the legacy cancellation page asks. The POST still
 		// needs an answer, and an event stream that ends without one is the
@@ -1964,6 +2021,50 @@ func (e *httpExchange) comment() error {
 	return nil
 }
 
+// keepQuietAlive opens the event stream of a request that has gone quiet
+// for SSEKeepAlive, and from then on writes a comment every SSEKeepAlive
+// until the answer is ready. The returned func stops it, and returns only
+// once nothing more will be written.
+//
+// A legacy POST was answered with nothing at all -- not even headers --
+// until the upstream call behind it finished, which pool.callTimeout allows
+// to take two minutes. A client or a proxy with an idle timeout gave up on
+// a call that was still running: the official suite's server-sse-polling
+// scenario did, at 30 seconds, while an upstream that had lost the result
+// kept mcpx waiting for it. A client that offered text/event-stream accepts
+// either answer; one that did not keeps getting JSON.
+func (s *Server) keepQuietAlive(r *http.Request, ex *httpExchange, req request) func() {
+	if len(req.ID) == 0 || ex.flusher == nil ||
+		!strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return func() {}
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	every := s.Timing.resolved().SSEKeepAlive
+	go func() {
+		defer close(done)
+		tick := time.NewTicker(every)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-r.Context().Done():
+				return
+			case <-tick.C:
+				ex.open()
+				if ex.comment() != nil {
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
+	}
+}
+
 // open starts the event stream with nothing on it yet.
 func (e *httpExchange) open() {
 	e.mu.Lock()
@@ -2055,6 +2156,12 @@ func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[
 		"tools":     map[string]any{"listChanged": false},
 		"resources": map[string]any{"subscribe": push, "listChanged": push},
 		"prompts":   map[string]any{"listChanged": push},
+	}
+	if Defines(version, FeatLoggingSetLevel) && !Modern(version) {
+		// mcpx relays its upstreams' log messages to a client that set a
+		// level, during that client's calls. 2026-07-28 has no capability
+		// for it: the client names a level on each request.
+		caps["logging"] = map[string]any{}
 	}
 	if Defines(version, FeatCompletions) {
 		// completion/complete is answered for every revision; only the
@@ -2289,12 +2396,19 @@ func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
 // its, otherwise the gateway's. Every route that calls a tool by name goes
 // through here, so pass-through cannot reach one route and miss another.
 func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) (string, error) {
-	pass, err := s.isPassTool(ctx, name)
+	pass, err := s.routesToPass(ctx, name)
 	if err != nil {
 		return "", err
 	}
 	if pass {
-		return s.backend.Call(ctx, s.Passthrough, name, args)
+		ns, _ := s.passOwner(ctx, name)
+		if ns == "" {
+			// A name no upstream lists: the first upstream given decides
+			// whether it exists, as a bare resource URI nobody lists goes
+			// to the first (passthrough.go).
+			ns = s.Passthrough[0]
+		}
+		return s.backend.Call(ctx, ns, name, args)
 	}
 	return s.dispatch(ctx, name, args)
 }

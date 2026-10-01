@@ -14,10 +14,10 @@
 # Runs at /mcp for --requirements 2025-11-25, --requirements 2026-07-28 and --suite all. The suite has no stdio
 # server mode, so `mcpx serve` over stdio is not covered here.
 #
-# The tasks-extension scenarios (src/scenarios/server/tasks/*.ts) ask for slow_compute, failing_job, greet and
-# protocol_error_job. No fixture in this repository defines them -- everything-server.ts does not -- they come
-# from each SDK's own conformance server. They fail here as "no tool named", honestly: mcpx forwards a tool
-# call to its upstream and does not invent fixtures.
+# The tasks-extension scenarios (src/scenarios/server/tasks/*.ts) ask for slow_compute, failing_job, greet,
+# confirm_delete, multi_input, protocol_error_job and test_tool_with_task. The suite's everything-server does not
+# define them, so mcpx's own fixture, internal/testsupport/taskmcp, provides exactly those, and both upstreams are
+# offered through one /mcp: --passthrough takes a list and merges their surfaces.
 #
 # Client leg: builds internal/conformance/officialclient, the adapter that makes mcpx the client under test
 # (see its package doc), and runs the client scenarios for both requirement sets.
@@ -28,11 +28,30 @@ set -uo pipefail
 : "${CONFORMANCE_DIR:?set CONFORMANCE_DIR to a clone of modelcontextprotocol/conformance}"
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${1:-$PWD/conformance-results}
-PORT=${MCPX_CONFORMANCE_PORT:-18731}
+# Three consecutive free ports. A fixed default let two runs on one machine
+# collide: the second daemon failed to bind, and the suite tested the first
+# run's server without saying so, which invalidated a measurement before
+# anyone noticed. MCPX_CONFORMANCE_PORT still pins the base when you want it.
+free_port_base() {
+  local base
+  for base in $(seq 18731 20 19500); do
+    if ! { exec 3<>/dev/tcp/127.0.0.1/"$base"; } 2>/dev/null &&
+      ! { exec 3<>/dev/tcp/127.0.0.1/"$((base + 1))"; } 2>/dev/null &&
+      ! { exec 3<>/dev/tcp/127.0.0.1/"$((base + 2))"; } 2>/dev/null; then
+      echo "$base"
+      return 0
+    fi
+    exec 3>&- 2>/dev/null
+  done
+  echo "no free port triple in 18731..19500" >&2
+  return 1
+}
+PORT=${MCPX_CONFORMANCE_PORT:-$(free_port_base)} || exit 1
 FIXTURE_PORT=$((PORT + 1))
 LEGACY_PORT=$((PORT + 2))
+echo "ports: daemon $PORT, fixture $FIXTURE_PORT, legacy $LEGACY_PORT"
 FIXTURE_DIR=$CONFORMANCE_DIR/examples/servers/typescript
-LEGS=${LEGS:-"server-2025-03-26 server-2025-06-18 server-2025-11-25 server-2026-07-28 server-all client-2025-11-25 client-2026-07-28"}
+LEGS=${LEGS:-"server-2025-03-26 server-2025-06-18 server-2025-11-25 server-2026-07-28 server-all client-2025-03-26 client-2025-06-18 client-2025-11-25 client-2026-07-28"}
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/mcpx-conformance.XXXXXX")
@@ -64,7 +83,8 @@ fi
 SUITE=(node "$CONFORMANCE_DIR/dist/index.js")
 
 (cd "$HERE" && go build -o "$WORK/mcpx" ./cmd/mcpx &&
-  go build -o "$WORK/officialclient" ./internal/conformance/officialclient) || exit 1
+  go build -o "$WORK/officialclient" ./internal/conformance/officialclient &&
+  go build -o "$WORK/taskmcp" ./internal/testsupport/taskmcp) || exit 1
 
 start_fixture() {
   (cd "$FIXTURE_DIR" && PORT=$FIXTURE_PORT exec node_modules/.bin/tsx everything-server.ts) \
@@ -79,23 +99,35 @@ start_fixture() {
 }
 
 # start_daemon <era> <port>: a daemon fronting the fixture over one protocol era, end to end. The
+# modern daemon uses protocol: follow, so a caller on a pre-2026 revision gets a legacy upstream
+# session and the fixture's server-to-client requests (elicitation, sampling) reach it. Without it
+# the --suite all leg fails four scenarios that pass in the 2025-11-25 leg. The
 # 2025-11-25 leg gets a daemon that speaks 2025-11-25 to the fixture too: the fixture's legacy tools
 # (test_elicitation, test_sampling, ...) push requests to their client, which only a legacy session can
 # carry -- over 2026-07-28 the fixture itself answers them -32601 -- and mcpx relays what arrives.
 start_daemon() {
-  local era=$1 port=$2 protocol=modern
+  local era=$1 port=$2 protocol=follow
   [ "$era" = legacy ] && protocol=force-legacy
   [ -n "${FIXTURE_PID:-}" ] || start_fixture
   mkdir -p "$WORK/$era"
-  printf '{"mcpServers":{"demo":{"url":"http://127.0.0.1:%s/mcp","protocol":"%s","mcpx":{"sharing":"shared","scope":"global"}}}}\n' \
-    "$FIXTURE_PORT" "$protocol" >"$WORK/$era/.mcpx.json"
+  printf '{"mcpServers":{"demo":{"url":"http://127.0.0.1:%s/mcp","protocol":"%s","mcpx":{"sharing":"shared","scope":"global"}},"tasks":{"command":"%s","mcpx":{"sharing":"shared","scope":"global"}}}}\n' \
+    "$FIXTURE_PORT" "$protocol" "$WORK/taskmcp" >"$WORK/$era/.mcpx.json"
   MCPX_CONFIG=$WORK/$era/.mcpx.json MCPX_STATE_DIR=$WORK/$era/state MCPX_CACHE_DIR=$WORK/$era/cache \
     MCPX_REGISTRY_URL=http://127.0.0.1:1/ \
-    "$WORK/mcpx" daemon --port "$port" --passthrough demo >"$OUT/daemon-$era.log" 2>&1 &
+    "$WORK/mcpx" daemon --port "$port" --passthrough demo,tasks >"$OUT/daemon-$era.log" 2>&1 &
   DAEMON_PIDS+=($!)
+  local pid=${DAEMON_PIDS[-1]}
   for _ in $(seq 1 100); do
-    curl -sf "http://127.0.0.1:$port/v1/health" >/dev/null && return 0
-    sleep 0.1
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "daemon exited at once (port $port already in use?); see $OUT/daemon-$era.log" >&2
+      exit 1
+    fi
+    # Ours, not whatever else is listening: the health answer carries the pid.
+    got=$(curl -sf "http://127.0.0.1:$port/v1/health" 2>/dev/null) || { sleep 0.1; continue; }
+    case $got in
+    *"\"pid\":$pid"*) return 0 ;;
+    *) echo "port $port answers, but not our daemon (pid $pid): $got" >&2; exit 1 ;;
+    esac
   done
   echo "daemon did not come up; see $OUT/daemon-$era.log" >&2
   exit 1
@@ -124,6 +156,11 @@ for leg in $LEGS; do
   server-2025-06-18 | server-2025-03-26)
     run_leg "$leg" server --url "http://127.0.0.1:$LEGACY_PORT/mcp" --spec-version "${leg#server-}" ;;
   server-*) run_leg "$leg" server --url "http://127.0.0.1:$PORT/mcp" --requirements "${leg#server-}" ;;
+  # As on the server side, the suite has frozen requirement sets only for
+  # 2025-11-25 and 2026-07-28; the two older revisions run their tagged
+  # scenarios.
+  client-2025-06-18 | client-2025-03-26)
+    run_leg "$leg" client --command "$CLIENT" --suite all --spec-version "${leg#client-}" ;;
   client-*) run_leg "$leg" client --command "$CLIENT" --requirements "${leg#client-}" ;;
   *) echo "unknown leg $leg" >&2 ;;
   esac

@@ -259,9 +259,14 @@ func TestADestructiveCallIsRefusedWhenNobodyConfirms(t *testing.T) {
 	if !strings.Contains(out, "destructive") {
 		t.Fatalf("the refusal should say why:\n%s", out)
 	}
-	// A tool with no such annotation is untouched by the policy.
+	// A tool annotated read-only is untouched by the policy.
 	if out := e.run("call", "demo.echo", `{"message":"fine"}`); !strings.Contains(out, "fine") {
-		t.Fatalf("an ordinary call should not be confirmed:\n%s", out)
+		t.Fatalf("a read-only call should not be confirmed:\n%s", out)
+	}
+	// An unannotated one is not: the specification's destructiveHint
+	// defaults to true, and an absent hint was read as false (#207).
+	if out, err := e.try("call", "demo.structured", "{}"); err == nil || !strings.Contains(out, "destructive") {
+		t.Fatalf("an unannotated tool may be destructive and should be confirmed: err=%v\n%s", err, out)
 	}
 }
 

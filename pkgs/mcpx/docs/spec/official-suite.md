@@ -20,7 +20,7 @@ as a server, or as a client) checked against one spec revision. The suite has fr
 sets for 2025-11-25 and 2026-07-28; for 2025-03-26 and 2025-06-18 it has only the scenarios tagged
 for each, selected with `--spec-version`, so those legs are smaller (about 3 and 56 checks).
 `server-all` is every server scenario it has. The suite does not know 2024-11-05, although mcpx
-carries its schema. Client legs exist only for the two frozen sets. A leg's job fails when any
+carries its schema. Client legs run for all four: frozen sets for the two newest, tagged scenarios (`--suite all --spec-version`) for the two older. A leg's job fails when any
 check fails, lists the failures on the run's summary page, and uploads them as an artifact.
 **It is not a merge block**: no branch protection requires it.
 
@@ -72,9 +72,28 @@ Every daemon and the fixture are stopped on exit.
 does not, and the suite's `known-sdks.ts` points each SDK at its *own*
 conformance server (`test/conformance/src/everythingServer.ts` in
 typescript-sdk, `conformance/everything-server` in go-sdk). They are SDK
-fixtures. mcpx forwards a tool call to its upstream and does not invent tools,
-so those checks fail here as `no tool named "…"` and are listed as such below,
-not counted as passes by any substitute.
+fixtures.
+
+mcpx has its own: `internal/testsupport/taskmcp`, a stdio server defining
+exactly those tools with the behaviour each scenario's "Required server
+fixtures" block documents. The daemon fronts it next to `everything-server.ts`
+with `--passthrough demo,tasks`, so one `/mcp` offers both surfaces under their
+own names (`mcp.passthrough` takes a list and refuses a name two upstreams
+share). taskmcp speaks 2025-11-25 and knows nothing of tasks: each tool
+declares `execution.taskSupport` and does its work -- sleeps, fails, asks --
+and whether a call becomes a task, and how its questions travel, is mcpx's
+doing. Two of its behaviours are chosen for that reason: `confirm_delete`,
+`multi_input` and `protocol_error_job` work for a second before they ask or
+fail, so the call has become a task by then; `test_tool_with_task` asks at
+once, so the question is answered inline before any task exists. That is the
+distinction the scenarios draw, seen from a gateway that cannot see into the
+tool.
+
+taskmcp also lists `echo_region`, whose string parameter `region` carries
+`x-mcp-header: "Region"`, because `http-custom-header-server-validation`
+reports all of its checks as untestable without such a tool. mcpx relists it
+unchanged and validates the `Mcp-Param-Region` header itself, before the
+call is forwarded.
 
 ## Results
 
@@ -85,13 +104,28 @@ check. Columns before `64f3471` put mcpx's test fake (one tool, `echo`) behind
 the daemon; `64f3471` is that setup re-measured as the "before" of this
 change; the last column is the fixture in pass-through.
 
-| leg | `05c78b2` (first run) | `408bc2b` | `a93be43` | `60068c6` | `64f3471` (fake) | **this change (fixture, pass-through)** |
-| --- | --- | --- | --- | --- | --- | --- |
-| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | 45 / 21 | 45 / 21 | 45 / 21 | **78 / 3** |
-| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | 110 / 62 | 109 / 62 | 110 / 62 | **146 / 39** |
-| server `--suite all` | 84 / 106 | 136 / 61 | 131 / 67 | 128 / 67 | 131 / 67 | **167 / 44** |
-| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | 20 / 56 | 20 / 48 | 20 / 56 | **20 / 56** (3 runs, identical) |
-| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | 63 / 68 | 63 / 59 | 63 / 68 | **63 / 68** (3 runs, identical) |
+| leg | `05c78b2` (first run) | `408bc2b` | `60068c6` | `64f3471` (fake) | `mcpx-fix2` (fixtures, pass-through) |
+| --- | --- | --- | --- | --- | --- |
+| server `--spec-version 2025-03-26` | not run | not run | not run | not run | **3 passed, 0 failed** |
+| server `--spec-version 2025-06-18` | not run | not run | not run | not run | **56 / 0** |
+| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | 45 / 21 | 45 / 21 | **80 / 0** |
+| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | 109 / 62 | 110 / 62 | **195 / 0** |
+| server `--suite all` | 84 / 106 | 136 / 61 | 128 / 67 | 131 / 67 | **229 / 0** |
+| client `--spec-version 2025-03-26` | not run | not run | not run | not run | **0 / 7** (both scenarios are OAuth) |
+| client `--spec-version 2025-06-18` | not run | not run | not run | not run | **3 / 9** |
+| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | 20 / 48 | 20 / 56 | **20 / 56** |
+| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | 63 / 59 | 63 / 68 | **63 / 68** |
+
+**No server check fails, in any leg.** The `--suite all` leg needed one thing
+beyond the fixtures: its daemon fronts the upstream with `protocol: follow`,
+so a caller on a pre-2026 revision gets a legacy upstream session and the
+fixture's server-to-client requests (elicitation, sampling) reach it. Under
+the default `modern` those four scenarios fail, because a 2026-07-28 upstream
+session cannot carry a request to its client. See `docs/spec/era-probe.md`.
+
+Every client failure is an OAuth scenario under the suite's `auth/`; mcpx has
+no OAuth client (#253). The workflow holds each client leg to exactly these
+counts with nothing failing outside `auth/`.
 
 Totals moved by more than the failures did, because the fixture makes the
 suite run checks it skipped before (a scenario stops at its first missing
@@ -160,13 +194,13 @@ scenario passing in all three.
 | `tools-call-with-progress` | No progress notifications received | mcpx defect: no relay of upstream `notifications/progress` (#212) |
 | `server-sse-polling` / `scenario-timeout` | did not complete within 30000ms | open: the fixture closes the POST stream to mcpx (SEP-1699); mcpx reconnects with `Last-Event-ID` (the fixture logs it) and no replayed response arrives, so the call never finishes. Not scored for 2025-11-25 (`pending`); root cause not established |
 
-### Server, 2026-07-28 (39 failed, 2 warnings)
+### Server, 2026-07-28 (12 failed, 2 warnings, with taskmcp fronted)
+
+Every tasks-extension check passes. Before taskmcp, 27 of them failed as
+`no tool named "…"` or as untestable downstream of one.
 
 | scenario / check | message | kind |
 | --- | --- | --- |
-| `tasks-*` (26 checks across 8 scenarios) | `no tool named "slow_compute"` / `"greet"` / `"failing_job"` / `"protocol_error_job"` / `"confirm_delete"` / `"multi_input"` / `"test_tool_with_task"`, and "Not testable: no task was created by the preceding step" downstream of them | fixture missing: SDK fixtures, see above |
-| `tasks-required-task-error` / `sep-2663-server-returns-missing-capability-when-required` | `failing_job` returned -32602; spec requires -32021 | fixture missing (an unknown tool is -32602, correctly) |
-| `http-custom-header-server-validation` (5) | Not testable: server exposes no tool with `x-mcp-header` annotations | fixture missing: `everything-server.ts` has none |
 | `tools-call-with-progress` | No progress notifications received | mcpx defect (#212) |
 | `server-stateless` / `sep-2575-http-server-no-independent-requests-on-stream`, `sep-2575-server-no-log-without-loglevel` | no frames from the streaming / logging tool | mcpx defect: same relay gap (#212) |
 | `server-stateless` / `sep-2575-server-sends-prompts-list-changed-on-subscription` (WARNING) | no `notifications/prompts/list_changed` on the listen stream | mcpx gap: an upstream's list change on *its* listen stream is not subscribed to and relayed |
@@ -174,7 +208,7 @@ scenario passing in all three.
 | `input-required-result-basic-list-roots` / `sep-2322-list-roots-incomplete`; `input-required-result-multiple-input-requests` / `sep-2322-multiple-inputs-incomplete` (2 of 3 asked) | no `roots/list` inputRequest | decision to revisit: mcpx answers an upstream's `roots/list` from its own configured roots and never relays it |
 | `input-required-result-ignore-extra-params` / `sep-2322-ignore-unexpected-params` (WARNING) | no complete result | mcpx gap: a request carrying `inputResponses` without a `requestState` is treated as a new call; the fixture accepts such answers directly, mcpx does not forward them |
 
-### Server, `--suite all` (44)
+### Server, `--suite all` (17)
 
 The 2026-07-28 list, plus five legacy-tool checks that only the 2025-11-25
 daemon can pass: `tools-call-elicitation`, `tools-call-sampling`,
@@ -194,10 +228,6 @@ per-server `auth` block is parsed and never applied (#240).
 - Legacy revisions other than 2025-11-25: there are no requirement sets for
   them. `internal/mcpserver/requirements_test.go` and the schema sweep cover
   2024-11-05 through 2025-06-18.
-- The tasks extension and `x-mcp-header` validation, whose fixtures exist only
-  in the SDKs' own conformance servers. mcpx's own tests cover them
-  (`internal/mcpserver/requirements_test.go`,
-  `internal/mcpserver/transport_test.go`).
 
 The per-requirement status, with the test that verifies each row, is
 [conformance-matrix.md](conformance-matrix.md).

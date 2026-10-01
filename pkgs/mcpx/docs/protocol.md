@@ -104,8 +104,8 @@ What a host connected to mcpx gets, over `mcpx serve` (stdio) or the daemon's
 | `resources/list`, `resources/read`, `resources/templates/list` | all | always | binary contents as `blob`; not found is `-32002` (legacy) or `-32602` (2026), both with `data.uri` |
 | `resources/subscribe`, `resources/unsubscribe` | legacy | legacy peers | `{}`, always; subscribes upstream where the owning server can deliver, and otherwise publishes a warning event (§4.3) |
 | `subscriptions/listen` | 2026-07-28 | **any** era | an acknowledgement, then only the notifications the filter asked for, each tagged with the subscription id |
-| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does; unknown ref `-32602`, upstream failure `-32603` |
-| `logging/setLevel` | legacy | legacy peers | `{}`; mcpx emits no `notifications/message` (§2.2) |
+| `completion/complete` | all | always | forwarded to the server that owns the `ref`, as `/v1/complete` does, with `context.arguments`; a 2024-11-05 upstream is asked without a capability (that revision had none); unknown ref `-32602`, upstream failure `-32603` |
+| `logging/setLevel` | legacy | legacy peers | `{}`; sets the level of upstream log messages relayed to this connection (§4.4) |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core | **any** legacy peer | the core shapes; a task is visible only to the connection that started it |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers that declared `io.modelcontextprotocol/tasks` on the request; `-32021` with `data.requiredCapabilities` (HTTP 400) otherwise | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
 | `notifications/cancelled` | all | always | cancels the request it names — its context, and so its upstream call — and withholds the reply |
@@ -134,11 +134,15 @@ on `tools/call`, `{task}` back at once, `tasks/result` blocks. mcpx honours the
 field from any legacy client. The 2026-07-28 extension is server-directed and
 forbids the other way: the `task` field is ignored, and a client that declared
 `io.modelcontextprotocol/tasks` on the request gets a `CreateTaskResult`
-(`resultType: "task"`, `ttlMs`, `pollIntervalMs`) only if its call is still
-running after `protoMessages.taskAfter`; a fast call is answered directly.
-`tasks/get` inlines the result. A client that can answer questions inline is
-never handed a task — its questions travel as `input_required` on the original
-request, which the extension asks be resolved first. A legacy task shows
+(`resultType: "task"`, `ttlMs`, `pollIntervalMs`). Which calls become tasks
+follows the tool's `execution.taskSupport`: a task-supporting tool's call is a
+task once it has run 250 ms, one that declared nothing only after
+`protoMessages.taskAfter`, and a `required` one is `-32021` to a client
+without the extension. `tasks/get` inlines the result. Questions a
+task-supporting call asks at once go inline as `input_required` on the
+original request, before any task exists; ones it asks later park the task in
+`input_required` with `inputRequests`, answered through `tasks/update`.
+A legacy task shows
 `input_required` while one of its questions is out, and the question carries
 the related-task `_meta`. [`spec/messages.md`](spec/messages.md#tasks) has the
 rest.
@@ -156,7 +160,7 @@ that could never work (#284).
 | `resources.subscribe`, `.listChanged` | when the connection can push | same | same | same | same |
 | `prompts.listChanged` | when the connection can push | same | same | same | same |
 | `completions` | — (the revision has no such capability; the method is answered anyway) | ✓ | ✓ | ✓ | ✓ |
-| `logging` | — | — | — | — | — |
+| `logging` | ✓ | ✓ | ✓ | ✓ | — (the level travels in each request's `_meta`) |
 | `tasks` (core) | — | — | — | ✓ | — |
 | `extensions["io.modelcontextprotocol/tasks"]` | — | — | — | — | ✓ |
 
@@ -164,11 +168,10 @@ that could never work (#284).
   server is built. It used to be declared and fed by upstream tool changes,
   which are not changes to *this* list: a client re-listed on every one and
   got the same tools back.
-- **`logging` is never declared.** The capability means "this server sends log
-  messages", and there is no `notifications/message` anywhere in the server
-  package. Upstream log messages reach `/v1/events`, not an MCP host (#212).
-  An earlier version of this page said `logging` was declared to legacy
-  clients; the code never did.
+- **`logging` is declared to legacy clients.** The capability means "this
+  server sends log messages": mcpx relays its upstreams' `notifications/message`
+  to a client that set a level, during that client's calls (§4.4, #212).
+  2026-07-28 has no such capability.
 - **"Can push"** is a property of the connection, not of the server. A stdio
   connection can. A legacy HTTP session can, through its GET stream (which
   used to be missing, so both were declared and never delivered). A legacy
@@ -183,14 +186,19 @@ that could never work (#284).
 ### 2.3 Result shapes, and what is downgraded
 
 Everything is built in the newest shape and spelled down once, at the edge, in
-`downgrade()`. Building several shapes and choosing between them is how the
+`downgrade()`. An upstream's `tools/call` result (through `mcpx_call` or a
+pass-through tool) and `prompts/get` result are carried as the upstream sent
+them -- `isError`, every content block, `structuredContent` and `_meta` -- with
+resource URIs rewritten to ones `/mcp` can read; listed tools, resources,
+templates and prompts keep their optional fields. Building several shapes and choosing between them is how the
 shapes drift apart.
 
 | carried | defined from | to an older client |
 | --- | --- | --- |
 | `structuredContent` | 2025-06-18 | removed, and rendered into the `content` array as text — the data survives, in a vocabulary the client has |
-| `resource_link` block | 2025-06-18 | becomes an embedded `resource`, which keeps the URI machine-readable where text would not |
+| `resource_link` block | 2025-06-18 | becomes an embedded `resource` with a `text/plain` label naming the URI, which keeps the URI machine-readable where text would not |
 | `audio` block | 2025-03-26 | a text block describing it, for 2024-11-05 |
+| `_meta` on listed tools, resources, templates, prompts and read contents; `annotations.lastModified` | 2025-06-18 | stripped |
 | tool `annotations`, the `completions` capability | 2025-03-26 | stripped for 2024-11-05 |
 | `title` | 2025-06-18 | stripped |
 | `icons` | 2025-11-25 | stripped |
@@ -252,17 +260,21 @@ the rest of this page:
 
 ---
 
-### 2.5 Pass-through: one upstream under its own names
+### 2.5 Pass-through: upstreams under their own names
 
 By default mcpx is a gateway: a small tool set (`mcpx_call`, `mcpx_exec`,
 discovery), prompts as `<namespace>_<prompt>`, resources as
 `mcpx://<namespace>/<uri>`. `mcp.passthrough` (`--passthrough <server>` on
-`mcpx serve` and `mcpx daemon`, `MCPX_MCP_PASSTHROUGH`) names one configured
-server whose surface is offered **as itself** instead:
+`mcpx serve` and `mcpx daemon`, `MCPX_MCP_PASSTHROUGH`) names a configured
+server -- or several, comma-separated, `--passthrough demo,tasks` -- whose
+surface is offered **as itself** instead:
 
 - `tools/list` carries its tools under their own names, ahead of the gateway's;
   `tools/call` on one of them is forwarded and its result returned verbatim —
-  images, audio, embedded resources, `structuredContent` and `isError` intact.
+  images, audio, embedded resources, `structuredContent` and `isError` intact;
+  a JSON-RPC error the upstream answers with is relayed as that error, not
+  turned into an `isError` result. Its `execution.taskSupport` is carried on
+  `tools/list` and decides whether a call runs as a task ("Tasks, per era", §2.1).
   Its questions reach the calling client exactly as `mcpx_call`'s do (§3), with
   the upstream's own `inputRequests` keys where it asked in a 2026-07-28 result.
 - `prompts/list` names its prompts without the prefix; `prompts/get` returns
@@ -270,16 +282,38 @@ server whose surface is offered **as itself** instead:
 - `resources/list`, `resources/templates/list` and `resources/read` use its own
   URIs, as do subscriptions and `completion/complete` refs. An `mcpx://` URI
   still reaches every other server and mcpx's artifacts.
-- **Collisions:** the upstream wins. A gateway tool whose name the upstream
+- **Its declaration, not mcpx's.** A 2026-07-28 client's
+  `clientCapabilities` go to the upstream with the call, narrowed from mcpx's
+  own: mcpx never declares to the upstream a capability its client did not
+  (a tool that needs sampling is refused rather than run on mcpx's say-so).
+  An upstream JSON-RPC error — `-32021` with its `requiredCapabilities`,
+  `-32602` for a name it does not know — is returned as that error, HTTP 400
+  included, not as a tool result with `isError`.
+- **Names it does not list.** A `tools/call` for a name that is neither the
+  upstream's listed tool nor a gateway tool is forwarded; the upstream says
+  whether it exists. A server may answer to diagnostic or hidden tools it does
+  not list.
+- **Roots.** A `roots/list` the upstream asks in an `input_required` round is
+  put to a client that declared `roots`, as an elicitation is; for one that
+  did not, mcpx answers with its own configured roots.
+- **Several upstreams** are merged into one surface. A tool or prompt name two
+  of them offer is refused -- `tools/list` or `prompts/list` fails with an
+  error naming both -- rather than handed to either, since the loser would be
+  unreachable under the name the client was shown. A bare resource URI goes
+  to the first upstream, in the order given, that lists it as a resource or
+  offers a template it falls under; one none of them lists goes to the first.
+- **Collisions with the gateway:** the upstream wins. A gateway tool whose name the upstream
   also uses is neither listed nor callable over MCP (it stays on the CLI and
   `/v1`). The upstream is the server in this mode, and a client must be able to
   call every name `tools/list` shows and get that tool.
 
 Every other server stays reachable through the gateway tools. Not carried
 over: a pass-through tool's `outputSchema`, `title` and `annotations` (the
-daemon's catalogue keeps name, description and input schema only), and the
-upstream's `notifications/message` and `notifications/progress` (§2.2, #212).
-`scripts/conformance.sh` runs the official suite's own fixture server this way.
+daemon's catalogue keeps name, description, input schema and `execution`
+only). The upstream's progress and log messages during a call are relayed
+(§4.4). `scripts/conformance.sh` runs the official suite's own fixture server
+this way, merged with `internal/testsupport/taskmcp`, mcpx's fixture for the
+suite's tasks-extension scenarios, which the suite's server does not define.
 
 ## 3. A server asks a question
 
@@ -363,6 +397,15 @@ POST is the only channel, and it is the thing waiting for the answer. So:
    waiting on that session and answers `202`.
 4. The original stream carries the final result and closes.
 
+A request that asks nothing but is slow — a pass-through call waiting out
+`pool.callTimeout` on an upstream that went quiet — also becomes an event
+stream once it has been silent for `transport.sseKeepAlive`, carrying a comment
+each interval until the answer, when the client's `Accept` offered
+`text/event-stream`. Before, such a POST got no bytes at all, not even headers,
+for up to two minutes, and a client or proxy with an idle timeout gave up on a
+call that was still running. The stream carries no event ids: mcpx does not
+offer SEP-1699 resumption, and an id would promise a replay it cannot make.
+
 A legacy POST outside any session cannot be asked anything: its answer would
 arrive on a POST nothing can route back. Its questions stay with the broker.
 
@@ -383,6 +426,11 @@ A 2026-07-28 server has no connection to send a request on. It answers
 `requestState`; the client answers each and sends the **same request again**
 with `inputResponses` and the state attached. Only `tools/call`, `prompts/get`
 and `resources/read` may do this.
+
+`inputResponses` sent on a request that resumes nothing — a client that knows
+what will be asked and answers up front — are held until the upstream asks, and
+given to the questions whose keys they match. Keys that match nothing are
+ignored, as SEP-2322 asks of information a server does not recognise.
 
 Which means the call has already returned by the time the answer exists. The
 upstream call therefore cannot be tied to the client's request — if it were,
@@ -484,7 +532,7 @@ What mcpx sends upstream, and what it will accept from a server.
 | | |
 | --- | --- |
 | era | modern probed first (`server/discover`), legacy on fallback; the answer cached per server configuration ([spec/era-probe.md](spec/era-probe.md)) |
-| per-server override | `protocol: legacy \| modern \| force-legacy \| force-modern`, over `upstream.protocol` (default `modern`) |
+| per-server override | `protocol: legacy \| modern \| force-legacy \| force-modern \| follow`, over `upstream.protocol` (default `modern`); `follow` adds a legacy session for legacy callers ([spec/era-probe.md](spec/era-probe.md#follow)) |
 | legacy version | `2025-11-25` offered; `2024-11-05` .. `2025-11-25` accepted; anything else and mcpx disconnects |
 | modern version | `2026-07-28` |
 | declared to servers | `elicitation.form` and `roots` always; `elicitation.url` and `sampling` when a handler is installed — which in the daemon is always (#210) |
@@ -530,6 +578,36 @@ what the server declared and the URIs somebody subscribed to, and reopens it
 when it ends. Messages and progress go to `/v1/events`; a list change drops
 the cached schema. `notifications/tasks/status` (2025-11-25) is received and
 dropped — mcpx polls task state rather than tracking it.
+
+### 4.4 Progress, log messages and trace context, relayed (#212)
+
+During a `tools/call` that reaches an upstream, mcpx carries what the host
+asked for through to the server doing the work, and what that server sends
+back to the host:
+
+- **Progress.** A host's `_meta.progressToken` is replaced upstream by a token
+  of mcpx's own (`mcpx-<n>`, unique on that upstream connection, which two
+  hosts' tokens are not), and each `notifications/progress` for it is sent to
+  the host with the host's token restored.
+- **Log messages.** A 2026-07-28 host's `_meta` `logLevel` is sent upstream
+  (or the daemon's own level, if more verbose); a legacy host's level is the one
+  it set with `logging/setLevel`. Upstream `notifications/message` at or above
+  that level are sent to the host. No level, no messages. A log message names
+  no request, so one arriving while a host has several calls in flight on the
+  same upstream connection goes to each of them.
+- **Trace context.** `traceparent`, `tracestate` and `baggage` in `_meta` are
+  passed upstream unchanged.
+
+Over Streamable HTTP these go on the call's own response stream, which
+becomes `text/event-stream` only when something is relayed; over stdio, as
+notifications. Between `mcpx serve` and the daemon the call carries a `relay`
+object on `/v1/call` (answered as `application/x-ndjson` when anything was
+relayed, plain JSON otherwise) or `/v1/ask` (collected by the polls as
+`notifications`). `mcpx call` and `mcpx exec` send no relay and print only the
+result. Messages and progress still reach `/v1/events` as before.
+
+Not yet: progress does not extend mcpx's own call timeout (CODE-13), and
+prompts/get and resources/read relay nothing.
 
 ### 4.3 Resource subscriptions, end to end (#241, #247)
 
@@ -660,9 +738,9 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
   `notifications/cancelled` (stdio, legacy HTTP session) and a closed stream
   (2026-07-28 HTTP, sessionless legacy) cancel the upstream request. A call on
   the ask path runs as a daemon task and keeps running (§3.5).
-- **Progress and log messages are not relayed** to a host, in either
-  direction, and no `progressToken` is sent upstream, so progress cannot
-  extend anyone's timeout (#212).
+- **Progress does not extend mcpx's own call timeout.** It is relayed to the
+  host (§4.4), so a host's timeout can reset on it; the daemon's
+  per-server `callTimeout` still cannot.
 - **`-32021` for a tool that asks** is deliberately not raised (§3.1); whether
   the broker fallback discharges the MUST is #252 item 1.
 - **Tasks.** `notifications/tasks/status` is dropped; mcpx never

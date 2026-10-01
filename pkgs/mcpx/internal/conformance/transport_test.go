@@ -501,6 +501,30 @@ func TestTransportServer(t *testing.T) {
 			t.Errorf("an encoded name that matches was refused: %d %s", r.Status, r.Body)
 		}
 	})
+	// https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#server-behavior-for-custom-headers
+	// mcpx re-lists upstream tools verbatim, so an upstream's x-mcp-header
+	// annotation is one mcpx's own server must check.
+	srvSide("streamable-http-server-validates-param-headers", func(t *testing.T, rev string) {
+		b := newBackend()
+		srv := mcpserver.New(b, "mcpx", "test").WithExtras([]mcpserver.Extra{{
+			Tool: mcpserver.Tool{Name: "echo_region", InputSchema: json.RawMessage(
+				`{"type":"object","properties":{"region":{"type":"string","x-mcp-header":"Region"}}}`)},
+			Call: func(context.Context, json.RawMessage) (string, error) { return "ok", nil },
+		}})
+		hs := httpServer(t, srv)
+		body := frame(7, "tools/call", params(rev, map[string]any{"name": "echo_region",
+			"arguments": map[string]any{"region": "Hello"}}))
+		h := headersFor(rev, "", "tools/call", "echo_region")
+		mismatch(t, hs.post(t, body, h), 7) // omitted while the body has a value
+		h["Mcp-Param-Region"] = "Goodbye"
+		mismatch(t, hs.post(t, body, h), 7)
+		h["Mcp-Param-Region"] = "=?base64?SGVsbG8?=" // unpadded
+		mismatch(t, hs.post(t, body, h), 7)
+		h["Mcp-Param-Region"] = "=?base64?SGVsbG8=?="
+		if r := hs.post(t, body, h); r.Status != http.StatusOK {
+			t.Errorf("a matching encoded header was refused: %d %s", r.Status, r.Body)
+		}
+	})
 	srvSide("streamable-http-header-names-case-insensitive", func(t *testing.T, rev string) {
 		srv, _ := newServer(t)
 		hs := httpServer(t, srv)

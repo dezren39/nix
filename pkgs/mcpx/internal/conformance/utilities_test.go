@@ -233,7 +233,7 @@ func TestUtilitiesServer(t *testing.T) {
 		}
 	})
 
-	// ---- logging: mcpx sends none, declares none ----
+	// ---- logging: mcpx's own tools send none; upstream messages are relayed (e2e relay_test) ----
 
 	// https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging
 	for _, id := range []string{"logging-declare-capability", "logging-setlevel-at-or-above", "logging-unset-server-chooses",
@@ -249,8 +249,10 @@ func TestUtilitiesServer(t *testing.T) {
 				caps = asMap(resultOf(t, ss.initialize(t, rev))["capabilities"])
 				ss.request(t, rev, "logging/setLevel", map[string]any{"level": "debug"})
 			}
-			if _, ok := caps["logging"]; ok {
-				t.Error("declares logging and sends none")
+			// Legacy: declared, because upstream log messages are relayed to
+			// a client that set a level. 2026-07-28 has no such capability.
+			if _, ok := caps["logging"]; ok == isModern(rev) {
+				t.Errorf("logging declared=%v under %s", ok, rev)
 			}
 			ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_status", "arguments": map[string]any{}})
 			if f, quiet := ss.quiet(200 * time.Millisecond); !quiet {
@@ -625,8 +627,12 @@ func TestUtilitiesClient(t *testing.T) {
 		if _, ok, err := c.Complete(ctxT(t), json.RawMessage(`{"ref":{"type":"ref/prompt","name":"p"},"argument":{"name":"b","value":""}}`)); ok || err != nil {
 			t.Errorf("ok=%v err=%v", ok, err)
 		}
-		if strings.Contains(fmt.Sprint(p.sent()), "completion/complete") {
-			t.Error("asked anyway")
+		// 2024-11-05 has the method and no capability to declare it, so
+		// there the server is asked and its method-not-found is the same
+		// absence (#213, CMP-01).
+		asked := strings.Contains(fmt.Sprint(p.sent()), "completion/complete")
+		if asked != (rev == "2024-11-05") {
+			t.Errorf("asked=%v on %s", asked, rev)
 		}
 	})
 }

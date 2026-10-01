@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -119,7 +120,17 @@ func (e *env) try(args ...string) (string, error) {
 	cmd.Dir = e.dir
 	cmd.Env = e.envVars
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return string(out), harnessTimeout(ctx, err)
+}
+
+// harnessTimeout names the harness's own deadline as the killer. Without it
+// a slow machine reported a bare "signal: killed", which read as the OOM
+// killer or a crash (#260) when it was this 90 s budget expiring.
+func harnessTimeout(ctx context.Context, err error) error {
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("the test harness killed mcpx at its 90s deadline: %w", err)
+	}
+	return err
 }
 
 // runStdin runs mcpx with something on standard input, which is how a
@@ -1862,7 +1873,15 @@ checks.returnsUndefined = console.info("x") === undefined ? "ok" : "BAD";
 checks.keepsItsName = console.info.name === "info" ? "ok" : "BAD:" + console.info.name;
 console.log("RESULT " + JSON.stringify(checks));
 `)
-	out := e.run("run", "--format", "bare", script)
+	// Stdout alone. The 200 KB console.info is rendered on stderr, and with
+	// both streams merged into one buffer the RESULT line on stdout could
+	// land in the middle of it -- "xxx…RESULT {…}" -- and not be found at
+	// the start of any line (#282). Two streams interleaving in a shared
+	// pipe is not a defect in either.
+	out, stderr, err := e.split("run", "--format", "bare", script)
+	if err != nil {
+		t.Fatalf("mcpx run failed: %v\n%s\n%s", err, out, stderr)
+	}
 	line := ""
 	for _, l := range strings.Split(out, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(l), "RESULT ") {

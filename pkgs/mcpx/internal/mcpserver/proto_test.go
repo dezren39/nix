@@ -183,6 +183,19 @@ func TestOutboundShapesAreDowngradedToTheNegotiatedRevision(t *testing.T) {
 	}
 }
 
+// ResourceContents._meta is 2025-06-18; below it, it is removed.
+func TestReadContentsMetaIsDowngraded(t *testing.T) {
+	srv := mcpserver.New(nil, "mcpx", "test")
+	result := map[string]any{"contents": []any{
+		map[string]any{"uri": "a://b", "text": "x", "_meta": map[string]any{"k": "v"}}}}
+	if got := protoJSON(t, srv.Downgrade(result, "2025-03-26")); strings.Contains(got, "_meta") {
+		t.Errorf("2025-03-26 has no _meta on contents:\n%s", got)
+	}
+	if got := protoJSON(t, srv.Downgrade(result, "2025-06-18")); !strings.Contains(got, "_meta") {
+		t.Errorf("2025-06-18 defines it:\n%s", got)
+	}
+}
+
 func TestResultTypeGoesOnlyToARevisionThatDefinesIt(t *testing.T) {
 	srv := mcpserver.New(newBackend(), "mcpx", "test")
 	modern := modernParams(nil)
@@ -206,12 +219,11 @@ func TestCapabilitiesAreDeclaredOnlyWhereTheRevisionDefinesThem(t *testing.T) {
 	if strings.Contains(old, `"tasks"`) {
 		t.Errorf("tasks arrived in 2025-11-25; declaring them to 2025-06-18 promises a revision's worth of methods it has not got:\n%s", old)
 	}
-	if strings.Contains(old, `"logging"`) {
+	if !strings.Contains(old, `"logging"`) {
 		// The capability means "this server sends log messages to the
-		// client", not "this server accepts logging/setLevel". mcpx emits no
-		// notifications/message at all, so declaring it was a promise of a
-		// stream that does not exist. The method is still answered.
-		t.Errorf("mcpx sends no notifications/message, so logging must not be declared:\n%s", old)
+		// client". mcpx relays its upstreams' messages to a client that set
+		// a level, during that client's calls.
+		t.Errorf("mcpx relays upstream log messages, so logging must be declared:\n%s", old)
 	}
 
 	modern := protoJSON(t, srv.Handle(context.Background(), mcpserver.Request(2, "server/discover",

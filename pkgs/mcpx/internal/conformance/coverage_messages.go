@@ -109,7 +109,7 @@ func init() {
 		Gap{ID: "errors-method-not-found-for-unadvertised-capability", Side: Server, Issue: "#257",
 			Why: "mcpx answers methods whatever was negotiated (accept liberally, revisions.go); the schema guidance asks for -32601"},
 		Gap{ID: "mrtr-missing-capability-error-32021", Side: Server, Issue: "#257",
-			Why: "a call that needs input from a client that declared none goes to the broker instead of failing with -32021; the specification contradicts itself here (docs/spec/revision-conflicts.md)"},
+			Why: "through the gateway (mcpx_call) a call that needs input from a client that declared none goes to the broker instead of failing with -32021; the specification contradicts itself here (docs/spec/revision-conflicts.md). In pass-through mode the client's declaration is relayed and the upstream's -32021 returned (mcpserver.TestAPassThroughUpstreamsMissingCapabilityIsRelayed)"},
 		Gap{ID: "json-schema-support-2020-12", Side: Server, Issue: "#254",
 			Why: "mcpx never validates arguments against a tool's inputSchema; schemas pass through"},
 		Gap{ID: "json-schema-validate-per-dialect-and-error-on-unsupported", Side: Server, Issue: "#254",

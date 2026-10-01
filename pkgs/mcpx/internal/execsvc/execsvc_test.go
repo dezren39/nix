@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -422,5 +423,50 @@ func TestAFailedScriptExplainsItself(t *testing.T) {
 		if strings.TrimSpace(res.Error) == "" {
 			t.Errorf("%s: exit %d with no error to show for it", src, res.ExitCode)
 		}
+	}
+}
+
+// The sink is called from two goroutines -- the one copying the script's
+// stdout and the one parsing records off its stderr. An HTTP stream writes
+// each frame straight to the response, so two calls at once interleave
+// bytes and corrupt the chunked encoding ("chunked line ends with bare LF"),
+// which is how TestAStreamConsumerCanCancelAfterTheResult lost its end frame
+// (#270). One sink call at a time is the contract.
+func TestTheSinkIsNeverCalledConcurrently(t *testing.T) {
+	needRuntime(t)
+	svc := service(t, store(t))
+	var inFlight, overlaps, emits, stdouts atomic.Int32
+	_, err := svc.RunWith(context.Background(), runner.Options{
+		Source: `
+import { emit } from "./mcpx-client.ts";
+for (let i = 0; i < 200; i++) { console.log("out " + i); emit({ i }); }
+`,
+		ClientSource: minimalClient,
+		Permissions:  "all",
+	}, execsvc.Options{}, func(f execsvc.Frame) error {
+		switch f.Type {
+		case execsvc.FrameEmit:
+			emits.Add(1)
+		case execsvc.FrameStdout:
+			stdouts.Add(1)
+		}
+		if inFlight.Add(1) > 1 {
+			overlaps.Add(1)
+		}
+		// Widens the window, so an unserialised sink is caught every run
+		// rather than occasionally.
+		time.Sleep(200 * time.Microsecond)
+		inFlight.Add(-1)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emits.Load() < 200 || stdouts.Load() < 2 {
+		t.Fatalf("premise: frames must come from both streams; %d emit, %d stdout",
+			emits.Load(), stdouts.Load())
+	}
+	if n := overlaps.Load(); n > 0 {
+		t.Fatalf("the sink was entered concurrently %d times", n)
 	}
 }

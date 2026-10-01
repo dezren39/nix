@@ -23,6 +23,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/settings"
 )
 
@@ -201,6 +202,16 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, con
 // sendWith is send with extra request headers, also returning the status so
 // a caller can tell one 2xx answer from another.
 func (c *Client) sendWith(ctx context.Context, method, path string, body []byte, contentType string, headers map[string]string) ([]byte, int, error) {
+	resp, err := c.open(ctx, method, path, body, contentType, headers)
+	if err != nil {
+		return nil, 0, err
+	}
+	return c.readReply(resp)
+}
+
+// open sends a request and returns the response unread, for a caller that
+// consumes it as a stream.
+func (c *Client) open(ctx context.Context, method, path string, body []byte, contentType string, headers map[string]string) (*http.Response, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
@@ -213,7 +224,7 @@ func (c *Client) sendWith(ctx context.Context, method, path string, body []byte,
 	}
 	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	if body != nil && contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -224,13 +235,25 @@ func (c *Client) sendWith(ctx context.Context, method, path string, body []byte,
 	if c.callSettings != "" {
 		req.Header.Set(daemon.CallSettingsHeader, c.callSettings)
 	}
+	if caps := mcpclient.ClientCapabilitiesFrom(ctx); len(caps) > 0 {
+		req.Header.Set(daemon.ClientCapsHeader, string(caps))
+	}
+	if v := mcpclient.CallerVersionFrom(ctx); v != "" {
+		req.Header.Set(daemon.CallerVersionHeader, v)
+	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		if isDialErr(err) {
-			return nil, 0, ErrNoDaemon
+			return nil, ErrNoDaemon
 		}
-		return nil, 0, err
+		return nil, err
 	}
+	return resp, nil
+}
+
+// readReply reads a whole response, turning a non-2xx status into an
+// *HTTPError.
+func (c *Client) readReply(resp *http.Response) ([]byte, int, error) {
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -476,6 +499,51 @@ func (c *Client) Call(ctx context.Context, server, tool string, cc config.CallCo
 	}
 	var out CallResult
 	return &out, json.Unmarshal(b, &out)
+}
+
+// CallRelayed is Call for mcpx's MCP server, relaying what its client asked
+// of the call to the upstream and handing the upstream's progress and log
+// messages to notify as they arrive. A call that produced none is answered
+// as plain JSON, exactly as Call is.
+func (c *Client) CallRelayed(ctx context.Context, server, tool string, cc config.CallContext, args json.RawMessage, relay daemon.CallRelay, notify func(method string, params json.RawMessage)) (*CallResult, error) {
+	body, err := json.Marshal(map[string]any{
+		"server": server, "tool": tool, "args": args, "context": cc, "relay": relay,
+	})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.open(ctx, http.MethodPost, "/v1/call", body, "application/json", nil)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), daemon.RelayContentType) {
+		b, _, err := c.readReply(resp)
+		if err != nil {
+			return nil, err
+		}
+		var out CallResult
+		return &out, json.Unmarshal(b, &out)
+	}
+	defer resp.Body.Close()
+	dec := json.NewDecoder(resp.Body)
+	for {
+		var f daemon.RelayFrame
+		if err := dec.Decode(&f); err != nil {
+			return nil, fmt.Errorf("/v1/call: relayed stream ended without a result: %w", err)
+		}
+		if f.Method != "" {
+			notify(f.Method, f.Params)
+			continue
+		}
+		// The last line: the reply the call would have had as plain JSON.
+		fake := &http.Response{StatusCode: f.Status, Body: io.NopCloser(bytes.NewReader(f.Body))}
+		b, _, err := c.readReply(fake)
+		if err != nil {
+			return nil, err
+		}
+		var out CallResult
+		return &out, json.Unmarshal(b, &out)
+	}
 }
 
 // InputRequiredError is a call that stopped to ask something nobody here

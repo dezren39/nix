@@ -338,6 +338,8 @@ func Ops() []Op {
 				{Name: "argument", In: InBody, Type: "object", Required: true, Desc: "the argument being typed",
 					Schema: `{"type":"object","properties":{"name":{"type":"string"},"value":{"type":"string"}},` +
 						`"required":["name"],"additionalProperties":false}`},
+				{Name: "arguments", In: InBody, Type: "object", Desc: "values already chosen for the prompt's other arguments; forwarded as the request's context.arguments",
+					Schema: `{"type":"object","additionalProperties":{"type":"string"}}`},
 			}, callContextParams()...),
 		},
 		{

@@ -354,7 +354,16 @@ type ToolInfo struct {
 	Function    string          `json:"function"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
-	Score       int             `json:"score,omitempty"`
+	// Execution is the upstream's tool.execution, verbatim.
+	Execution json.RawMessage `json:"execution,omitempty"`
+	Score     int             `json:"score,omitempty"`
+	// What the upstream published beyond the above, carried so a
+	// pass-through listing is the upstream's own (#207).
+	Title        string          `json:"title,omitempty"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	Annotations  json.RawMessage `json:"annotations,omitempty"`
+	Icons        json.RawMessage `json:"icons,omitempty"`
+	Meta         json.RawMessage `json:"_meta,omitempty"`
 }
 
 // Tools returns every cached tool, optionally restricted to namespaces.
@@ -376,12 +385,18 @@ func (r *Registry) Tools(namespaces []string) []ToolInfo {
 		all, _, _ := p.CachedSchemas()
 		for _, t := range visibleTools(view, all) {
 			out = append(out, ToolInfo{
-				Namespace:   view.Namespace,
-				Server:      name,
-				Tool:        t.Name,
-				Function:    view.Namespace + "." + codegen.ToolFuncName(t.Name),
-				Description: t.Description,
-				InputSchema: t.InputSchema,
+				Namespace:    view.Namespace,
+				Server:       name,
+				Tool:         t.Name,
+				Function:     view.Namespace + "." + codegen.ToolFuncName(t.Name),
+				Description:  t.Description,
+				InputSchema:  t.InputSchema,
+				Execution:    t.Execution,
+				Title:        t.Title,
+				OutputSchema: t.OutputSchema,
+				Annotations:  t.Annotations,
+				Icons:        t.Icons,
+				Meta:         t.Meta,
 			})
 		}
 	}
@@ -654,16 +669,33 @@ type PromptInfo struct {
 	Title       string                     `json:"title,omitempty"`
 	Description string                     `json:"description,omitempty"`
 	Arguments   []mcpclient.PromptArgument `json:"arguments,omitempty"`
+	Icons       json.RawMessage            `json:"icons,omitempty"`
+	Meta        json.RawMessage            `json:"_meta,omitempty"`
 }
 
 // ResourceInfo is one resource, with the namespace it came from.
 type ResourceInfo struct {
-	Namespace   string `json:"namespace"`
-	Server      string `json:"server"`
-	URI         string `json:"uri"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	MimeType    string `json:"mimeType,omitempty"`
+	Namespace   string          `json:"namespace"`
+	Server      string          `json:"server"`
+	URI         string          `json:"uri"`
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	MimeType    string          `json:"mimeType,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Size        *int64          `json:"size,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
+}
+
+// resourceInfo is one cached resource or template under its namespace.
+func resourceInfo(ns, server, uri string, res mcpclient.Resource) ResourceInfo {
+	return ResourceInfo{
+		Namespace: ns, Server: server, URI: uri,
+		Name: res.Name, Description: res.Description, MimeType: res.MimeType,
+		Title: res.Title, Size: res.Size, Annotations: res.Annotations,
+		Icons: res.Icons, Meta: res.Meta,
+	}
 }
 
 // Prompts aggregates every prompt across the configured servers.
@@ -686,6 +718,7 @@ func (r *Registry) Prompts(namespaces []string) []PromptInfo {
 			out = append(out, PromptInfo{
 				Namespace: view.Namespace, Server: name, Name: pr.Name,
 				Title: pr.Title, Description: pr.Description, Arguments: pr.Arguments,
+				Icons: pr.Icons, Meta: pr.Meta,
 			})
 		}
 	}
@@ -722,10 +755,7 @@ func (r *Registry) Resources(namespaces []string) []ResourceInfo {
 			if res.URITemplate != "" {
 				continue
 			}
-			out = append(out, ResourceInfo{
-				Namespace: view.Namespace, Server: name, URI: res.URI,
-				Name: res.Name, Description: res.Description, MimeType: res.MimeType,
-			})
+			out = append(out, resourceInfo(view.Namespace, name, res.URI, res))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -753,10 +783,7 @@ func (r *Registry) ResourceTemplates(namespaces []string) []ResourceInfo {
 			continue
 		}
 		for _, t := range p.CachedTemplates() {
-			out = append(out, ResourceInfo{
-				Namespace: view.Namespace, Server: name, URI: t.URITemplate,
-				Name: t.Name, Description: t.Description, MimeType: t.MimeType,
-			})
+			out = append(out, resourceInfo(view.Namespace, name, t.URITemplate, t))
 		}
 	}
 	return out

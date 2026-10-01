@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/execsvc"
+	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
@@ -36,6 +38,7 @@ func (d daemonAsker) client(ctx context.Context) (*Client, error) {
 // operation -- answers ErrNotInterruptible and is run the ordinary way.
 func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMessage) (string, error) {
 	body := map[string]any{"kind": kind, "context": d.app.mcpCaller(ctx)}
+	ctx = mcpclient.WithCallerVersion(ctx, mcpserver.PeerVersion(ctx))
 
 	switch kind {
 	case "tools/call":
@@ -54,7 +57,7 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		// the one most likely to ask: it was left to the broker, where no
 		// client could answer and the request hung. Checked first, because
 		// on a collision the upstream's tool is the one the name means.
-		if ns := d.app.passNS(); ns != "" && d.passTool(ctx, ns, p.Name) {
+		if ns := d.passTool(ctx, p.Name); ns != "" {
 			var raw struct {
 				Arguments json.RawMessage `json:"arguments"`
 			}
@@ -63,6 +66,9 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 			if len(raw.Arguments) > 0 {
 				body["args"] = raw.Arguments
 			}
+			// The upstream judges what the client can answer, as on the
+			// direct path (mcpBackend.Call).
+			ctx = mcpclient.WithClientCapabilities(ctx, mcpserver.DeclaredCapabilities(ctx))
 			break
 		}
 		if p.Name == "mcpx_exec" {
@@ -134,7 +140,7 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		if err := json.Unmarshal(params, &p); err != nil {
 			return "", mcpserver.ErrNotInterruptible
 		}
-		ns, rest, ok := d.app.resolveURI(p.URI)
+		ns, rest, ok := d.app.resolveURI(ctx, p.URI)
 		if !ok {
 			return "", mcpserver.ErrNotInterruptible
 		}
@@ -163,6 +169,9 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 			return "", mcpserver.ErrNotInterruptible
 		}
 	}
+	if r := mcpserver.RelayFrom(ctx); r != nil && kind == "tools/call" {
+		body["relay"] = daemon.CallRelay{ProgressToken: r.ProgressToken, LogLevel: r.LogLevel, Meta: r.Meta}
+	}
 	raw, err := c.do(ctx, http.MethodPost, "/v1/ask", body)
 	if err != nil {
 		return "", err
@@ -179,12 +188,18 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 	return out.CallID, nil
 }
 
+// codeMissingCapability is 2026-07-28's MissingRequiredClientCapability.
+const codeMissingCapability = -32021
+
 type askPollReply struct {
 	Status    string                     `json:"status"`
 	Done      bool                       `json:"done"`
 	Error     string                     `json:"error"`
 	Questions []mcpserver.Question       `json:"questions"`
 	Result    map[string]json.RawMessage `json:"result"`
+	// Notifications are what the call relayed since the last poll.
+	Notifications []mcpserver.Notification `json:"notifications"`
+	Upstream      *daemon.UpstreamError    `json:"upstream"`
 }
 
 func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration) (mcpserver.Outcome, error) {
@@ -205,7 +220,7 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 	if err := json.Unmarshal(raw, &reply); err != nil {
 		return mcpserver.Outcome{}, err
 	}
-	out := mcpserver.Outcome{Done: reply.Done, Questions: reply.Questions}
+	out := mcpserver.Outcome{Done: reply.Done, Questions: reply.Questions, Notifications: reply.Notifications}
 	if !reply.Done {
 		return out, nil
 	}
@@ -214,12 +229,19 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		// protocol error: a client that retries the wrong thing on a tool
 		// failure never converges.
 		out.Text, out.IsError = reply.Error, true
+		// The protocol layer relays this as the error itself when the
+		// tool is a pass-through upstream's, and ignores it otherwise.
+		out.Upstream = upstreamError(errors.New(reply.Error))
 		// Classified for the two methods whose failure is a protocol
 		// error; which one applies is the caller's to pick, since the
 		// same upstream -32602 means not-found for a read and a bad
 		// argument for a prompt.
 		failed := errors.New(reply.Error)
 		switch {
+		case reply.Upstream != nil && reply.Upstream.Code == codeMissingCapability:
+			// Only -32021 here: the ask path also runs mcpx_call, whose
+			// upstream errors are tool results, and Poll cannot tell which.
+			out.Err = &mcpserver.UpstreamError{Code: reply.Upstream.Code, Message: reply.Upstream.Message, Data: reply.Upstream.Data}
 		case upstreamNotFound(failed) && upstreamInvalid(failed):
 			out.Err = fmt.Errorf("%w, %w: %v", mcpserver.ErrResourceNotFound, mcpserver.ErrInvalidParams, failed)
 		case upstreamNotFound(failed):
@@ -253,19 +275,12 @@ func (d daemonAsker) renderAsk(result map[string]json.RawMessage) (text string, 
 	_ = json.Unmarshal(result["server"], &server)
 	inner := result["result"]
 	switch kind {
-	case "prompts/get":
-		if d.app.isPass(server) {
-			return mcpserver.EncodeRaw(inner), nil, false
-		}
-		return renderPrompt(inner), nil, false
 	case "resources/read":
 		return "", d.app.resourceContents(inner, server), false
 	default:
-		if d.app.isPass(server) {
-			return mcpserver.EncodeRaw(inner), nil, false
-		}
-		text, failed := renderResult(inner)
-		return text, nil, failed
+		// tools/call and prompts/get: verbatim, as the direct path sends
+		// them (#206).
+		return mcpserver.EncodeRaw(d.app.exposeResult(server, inner)), nil, false
 	}
 }
 
@@ -327,20 +342,22 @@ func (l *lazyMCP) InvokeTool(ctx context.Context, tool string, args json.RawMess
 	return srv.InvokeTool(ctx, tool, args)
 }
 
-// passTool reports whether name is one of the pass-through upstream's tools.
-func (d daemonAsker) passTool(ctx context.Context, ns, name string) bool {
+// passTool is the pass-through upstream serving name, or "".
+func (d daemonAsker) passTool(ctx context.Context, name string) string {
 	// The protocol layer has normally looked this up already for the request.
-	if isPass, known := mcpserver.PassToolOf(ctx, name); known {
-		return isPass
+	if ns, known := mcpserver.PassToolOf(ctx, name); known {
+		return ns
 	}
-	tools, err := mcpBackend{app: d.app}.UpstreamTools(ctx, ns)
-	if err != nil {
-		return false
-	}
-	for _, t := range tools {
-		if t.Name == name {
-			return true
+	for _, ns := range d.app.passNS() {
+		tools, err := mcpBackend{app: d.app}.UpstreamTools(ctx, ns)
+		if err != nil {
+			continue
+		}
+		for _, t := range tools {
+			if t.Name == name {
+				return ns
+			}
 		}
 	}
-	return false
+	return ""
 }

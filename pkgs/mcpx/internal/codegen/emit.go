@@ -21,9 +21,16 @@ func Declarations(nss []Namespace) string {
 		fmt.Fprintf(&b, "declare namespace %s {\n", ns.Name)
 		tools := append([]Tool(nil), ns.Tools...)
 		sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+		clash := funcCollisions(tools)
 		for i, t := range tools {
 			if i > 0 {
 				b.WriteString("\n")
+			}
+			if names, ok := clash[ToolFuncName(t.Name)]; ok {
+				// No declaration: either one would name the other's tool.
+				fmt.Fprintf(&b, "  // %s: %s; use call(%s, name)\n", ToolFuncName(t.Name),
+					sanitizeComment(collisionText(names)), quote(ns.Server))
+				continue
 			}
 			b.WriteString(toolDecl(t, "  "))
 		}
@@ -120,7 +127,24 @@ func Module(nss []Namespace, endpoint, session string) string {
 
 		b.WriteString(namespaceDoc(ns))
 		fmt.Fprintf(&b, "export const %s = {\n", ns.Name)
+		clash := funcCollisions(tools)
+		done := map[string]bool{}
 		for i, t := range tools {
+			fn := ToolFuncName(t.Name)
+			if names, ok := clash[fn]; ok {
+				// One member that throws, naming every tool behind it,
+				// instead of duplicate keys where the last silently won.
+				if done[fn] {
+					continue
+				}
+				done[fn] = true
+				if i > 0 {
+					b.WriteString("\n")
+				}
+				fmt.Fprintf(&b, "  get %s(): never {\n    throw new Error(%s);\n  },\n", fn,
+					quote(ns.Name+"."+fn+": "+collisionText(names)+`; use call("`+ns.Server+`", name)`))
+				continue
+			}
 			if i > 0 {
 				b.WriteString("\n")
 			}
@@ -142,6 +166,14 @@ func Module(nss []Namespace, endpoint, session string) string {
 	b.WriteString(toolMeta(nss))
 	b.WriteString("\nexport default tools;\n")
 	return b.String()
+}
+
+func collisionText(names []string) string {
+	q := make([]string, len(names))
+	for i, n := range names {
+		q[i] = fmt.Sprintf("%q", n)
+	}
+	return "tools " + strings.Join(q, " and ") + " both become this identifier"
 }
 
 // toolMeta renders what search and describe read.

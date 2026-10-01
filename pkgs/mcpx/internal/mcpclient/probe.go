@@ -264,7 +264,7 @@ func (c *Client) probe(ctx context.Context, allowLegacy bool) error {
 	}
 	for {
 		tried[version]++
-		params, err := c.withMeta(json.RawMessage(`{}`), version)
+		params, err := c.withMeta(ctx, json.RawMessage(`{}`), version)
 		if err != nil {
 			return err
 		}
