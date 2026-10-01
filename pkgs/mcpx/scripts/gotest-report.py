@@ -70,6 +70,11 @@ def main(path, ceiling, summary):
                 f.write(f"| `{key[0].rsplit('/', 1)[-1]}` | {key[1]} | {r} |\n")
             f.write("\n</details>\n")
     print(f"go tests: {counts['pass']} passed, {counts['fail']} failed, {n_skip} skipped (ceiling {ceiling})")
+    # In the log too, not only the summary: which tests skip depends on the
+    # machine (filesystem case-sensitivity, git version, installed runtimes),
+    # so a count that differs between two machines needs the names to explain.
+    for key in sorted(skipped):
+        print(f"  skip  {key[0].rsplit('/', 1)[-1]}  {key[1]}  -- {reason(key)}")
     if over:
         print(f"::error::{n_skip} Go tests skipped, more than the ceiling of {ceiling}")
     elif n_skip < ceiling:
