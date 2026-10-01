@@ -229,9 +229,13 @@ type Source interface {
 
 // Limits are the resolved settings one service runs under.
 type Limits struct {
-	Timeout         time.Duration
-	Runtime         string
-	Permissions     string
+	Timeout     time.Duration
+	Runtime     string
+	Permissions string
+	// Setup holds declared runtimes, the auto order and user profiles.
+	Setup runner.Setup
+	// SetupErr is why Setup could not be read; every run reports it.
+	SetupErr        error
 	CaptureConsole  bool
 	Typecheck       string
 	Delivery        string
@@ -308,6 +312,9 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 	if req.Source == "" && req.File == "" {
 		return nil, errors.New("exec: need source or a file")
 	}
+	if s.Limits.SetupErr != nil {
+		return nil, s.Limits.SetupErr
+	}
 	opts := req.Opts
 
 	timeout := s.Limits.Timeout
@@ -333,6 +340,7 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 		WorkDir:        s.WorkDir,
 		WorkRoot:       s.WorkRoot,
 		Runtime:        firstNonEmpty(opts.Runtime, s.Limits.Runtime),
+		Setup:          s.Limits.Setup,
 		Timeout:        timeout,
 		Permissions:    firstNonEmpty(opts.Permissions, s.Limits.Permissions),
 		CaptureConsole: s.Limits.CaptureConsole,

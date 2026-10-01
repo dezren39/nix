@@ -17,7 +17,12 @@ const (
 	LayerDefault Layer = iota // internal/defaults/defaults.json
 	LayerFile                 // a configuration file, furthest first
 	LayerEnv                  // the environment
-	LayerFlag                 // the command line
+	// LayerPreset is a flag that came from a preset (--preset, MCPX_PRESET).
+	// Above the environment because selecting a preset is an explicit
+	// request for those flags; below the command line so a flag typed out
+	// beats a bundle.
+	LayerPreset
+	LayerFlag // the command line
 	// LayerRuntime is an override set through the API after the process
 	// started. It is highest because it is the most recent statement of
 	// intent: somebody changed their mind while the thing was running, and
@@ -33,6 +38,8 @@ func (l Layer) String() string {
 		return "file"
 	case LayerEnv:
 		return "env"
+	case LayerPreset:
+		return "preset"
 	case LayerFlag:
 		return "flag"
 	case LayerRuntime:

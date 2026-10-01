@@ -58,7 +58,7 @@ Bun because it is the smallest of the three. Measured on this machine
 
 Smaller margins than the x86-64 figures usually quoted, but the same order.
 
-`runner.Detect` picks the first of **deno, bun, node** on `PATH`, so an image
+`runner.Resolve` picks the first of `script.runtimeOrder` (by default **deno, bun, node**) on `PATH`, so an image
 with only bun would find bun anyway. `MCPX_SCRIPT_RUNTIME=bun` is set anyway,
 because relying on absence to select a default means adding a second runtime
 later silently changes which one runs. The setting is `script.runtime`
@@ -66,8 +66,10 @@ later silently changes which one runs. The setting is `script.runtime`
 does not contain is an error, not a fallback, so anyone who wants deno's
 permission model has to add deno to the image.
 
-That is the one real cost of choosing bun: `script.permissions` only does
-something under deno. Bun and node run with the privileges of the process.
+That is the one real cost of choosing bun: bun has no permission model, so
+any `script.permissions` profile other than `all` is refused under it (see
+[runtimes.md](runtimes.md)). Node enforces the `readnet` profile through
+`--permission`; deno enforces all of them.
 Inside a container that is a smaller gap than it is on a laptop, but it is a
 gap.
 

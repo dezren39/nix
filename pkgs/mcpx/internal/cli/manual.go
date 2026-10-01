@@ -96,9 +96,14 @@ func handCommands() []Command {
 			Detail: "Resolves a bare name along the script search path, or takes a " +
 				"path directly. The script is wrapped in a launcher that installs " +
 				"the tool bindings, captures the console and runs the configured " +
-				"phases; --no-launcher skips all of that.",
+				"phases; --no-launcher skips all of that. --runtime takes deno, bun, " +
+				"node, a script.runtimes name or a path; --permissions composes " +
+				"profiles in order (read,strict) or passes raw:<flags>; see " +
+				"docs/runtimes.md. --preset applies named flag bundles from the " +
+				"config's presets, below anything given explicitly.",
 			Examples: []string{
 				"mcpx run report",
+				"mcpx run --runtime node --permissions readnet report",
 				"mcpx run ./one-off.ts --format json",
 				"mcpx run --no-launcher bare.ts",
 			},

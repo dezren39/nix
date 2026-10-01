@@ -463,7 +463,8 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	}
 	fs := newFlagSet(name)
 	nsFlag := fs.String("ns", "", "restrict the client to these namespaces (comma separated)")
-	rt := fs.String("runtime", "", "javascript runtime: auto, deno, bun, node")
+	rt := fs.String("runtime", "",
+		"javascript runtime: auto, deno, bun, node, a name from script.runtimes, or a path")
 	timeout := fs.Duration("timeout", 0, "kill the script after this long (0 = no limit)")
 	keep := fs.Bool("keep", false, "keep the generated client and script for inspection")
 	session := fs.String("session", "", "session key (default: a fresh one per run)")
@@ -503,7 +504,8 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	noConsole := fs.Bool("no-capture-console", false,
 		"leave console.* alone instead of mirroring it into the record stream")
 	perms := fs.String("permissions", "",
-		"deno sandbox: all (default), net, read, read-net, strict, or explicit flags")
+		"permission profiles in order, e.g. read,mine: all (default), net, read, readnet, strict, "+
+			"a script.profiles name, or raw:<flags>")
 	// --remote and --local are the readable spellings of exec.where. The
 	// setting is an enum because there is a third value -- auto -- and an
 	// enum with three values is not two booleans.
@@ -611,9 +613,19 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	}
 
 	cfg, _ := config.Load(a.ConfigPath)
+	// --runtime is hand-written, so the registry's script.runtime only
+	// reaches here through the resolved set; reading cfg.Runtime alone left
+	// MCPX_SCRIPT_RUNTIME and script.runtime in a file ignored.
 	runtimePref := *rt
+	if runtimePref == "" && a.Settings().Given("script.runtime") {
+		runtimePref = a.Settings().String("script.runtime")
+	}
 	if runtimePref == "" && cfg != nil {
 		runtimePref = cfg.Runtime
+	}
+	rtSetup, serr := runtimeSetup(a.Settings())
+	if serr != nil {
+		return serr
 	}
 
 	// Read from the resolved settings, which already folded the flag, the
@@ -693,6 +705,7 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		GlobalsSource:  globalsSrc,
 		CaptureConsole: !*noConsole,
 		Runtime:        runtimePref,
+		Setup:          rtSetup,
 		Timeout:        *timeout,
 		Prelude:        prelude,
 		Export:         *export,
@@ -1641,6 +1654,13 @@ func (a *App) CmdCatalog(ctx context.Context, args []string) error {
 	}
 	fmt.Print(text)
 	return nil
+}
+
+// runtimeSetup reads the declared runtimes, the auto order and the user's
+// permission profiles.
+func runtimeSetup(set *settings.Set) (runner.Setup, error) {
+	return runner.ParseSetup(set.String("script.runtimes"),
+		set.List("script.runtimeOrder"), set.String("script.profiles"))
 }
 
 func cfgPerms(c *config.Config) string {
