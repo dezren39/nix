@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
@@ -226,13 +227,35 @@ func (c *Client) resolveInput(ctx context.Context, params json.RawMessage, ir in
 			return nil, err
 		}
 	}
+	// Answered concurrently, each under its own key. One at a time, a
+	// client of mcpx that answers questions inline saw only the first of
+	// several the server asked together, and had to come back once per
+	// question for what the server meant as a single round.
 	responses := map[string]any{}
+	var (
+		mu    sync.Mutex
+		wg    sync.WaitGroup
+		first error
+	)
 	for key, req := range ir.InputRequests {
-		out, rerr := c.answer(ctx, req.Method, req.Params)
-		if rerr != nil {
-			return nil, fmt.Errorf("server asked for %s (%s): %w", req.Method, key, rerr)
-		}
-		responses[key] = out
+		wg.Add(1)
+		go func(key, method string, params json.RawMessage) {
+			defer wg.Done()
+			out, rerr := c.answer(withInputKey(ctx, key), method, params)
+			mu.Lock()
+			defer mu.Unlock()
+			if rerr != nil {
+				if first == nil {
+					first = fmt.Errorf("server asked for %s (%s): %w", method, key, rerr)
+				}
+				return
+			}
+			responses[key] = out
+		}(key, req.Method, req.Params)
+	}
+	wg.Wait()
+	if first != nil {
+		return nil, first
 	}
 	delete(m, "inputResponses")
 	delete(m, "requestState")
@@ -423,4 +446,19 @@ func (c *Client) warn(w Warning) {
 	if f != nil {
 		f(w)
 	}
+}
+
+type inputKeyCtx struct{}
+
+func withInputKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, inputKeyCtx{}, key)
+}
+
+// InputKey is the key a 2026-07-28 server gave the question being answered
+// on ctx -- its inputRequests key -- or "" for a question that arrived as a
+// request of its own. A gateway that relays the question keeps the key, so
+// the client it asks sees the server's own name for it.
+func InputKey(ctx context.Context) string {
+	k, _ := ctx.Value(inputKeyCtx{}).(string)
+	return k
 }

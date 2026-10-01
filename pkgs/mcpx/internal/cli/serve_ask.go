@@ -50,6 +50,21 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		if err := json.Unmarshal(params, &p); err != nil {
 			return "", mcpserver.ErrNotInterruptible
 		}
+		// A pass-through tool is an upstream call under its own name, and
+		// the one most likely to ask: it was left to the broker, where no
+		// client could answer and the request hung. Checked first, because
+		// on a collision the upstream's tool is the one the name means.
+		if ns := d.app.passNS(); ns != "" && d.passTool(ctx, ns, p.Name) {
+			var raw struct {
+				Arguments json.RawMessage `json:"arguments"`
+			}
+			_ = json.Unmarshal(params, &raw)
+			body["server"], body["tool"] = ns, p.Name
+			if len(raw.Arguments) > 0 {
+				body["args"] = raw.Arguments
+			}
+			break
+		}
 		if p.Name == "mcpx_exec" {
 			// A script is one call making many; the daemon correlates its
 			// questions through the run id rather than a single (server, key).
@@ -119,7 +134,7 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		if err := json.Unmarshal(params, &p); err != nil {
 			return "", mcpserver.ErrNotInterruptible
 		}
-		ns, rest, ok := strings.Cut(strings.TrimPrefix(p.URI, "mcpx://"), "/")
+		ns, rest, ok := d.app.resolveURI(p.URI)
 		if !ok {
 			return "", mcpserver.ErrNotInterruptible
 		}
@@ -225,24 +240,30 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		out.Text = text
 		return out, nil
 	}
-	out.Text, out.Contents, out.IsError = renderAsk(reply.Result)
+	out.Text, out.Contents, out.IsError = d.renderAsk(reply.Result)
 	return out, nil
 }
 
 // renderAsk turns the daemon's task result into what every other mcpx
 // result is, using the same renderers the direct path uses. Two ways to
 // render one result is two ways for them to disagree.
-func renderAsk(result map[string]json.RawMessage) (text string, contents []mcpserver.ResourceContents, failed bool) {
+func (d daemonAsker) renderAsk(result map[string]json.RawMessage) (text string, contents []mcpserver.ResourceContents, failed bool) {
 	var kind, server string
 	_ = json.Unmarshal(result["kind"], &kind)
 	_ = json.Unmarshal(result["server"], &server)
 	inner := result["result"]
 	switch kind {
 	case "prompts/get":
+		if d.app.isPass(server) {
+			return mcpserver.EncodeRaw(inner), nil, false
+		}
 		return renderPrompt(inner), nil, false
 	case "resources/read":
-		return "", resourceContents(inner, "mcpx://"+server+"/"), false
+		return "", d.app.resourceContents(inner, server), false
 	default:
+		if d.app.isPass(server) {
+			return mcpserver.EncodeRaw(inner), nil, false
+		}
 		text, failed := renderResult(inner)
 		return text, nil, failed
 	}
@@ -304,4 +325,18 @@ func (l *lazyMCP) InvokeTool(ctx context.Context, tool string, args json.RawMess
 		return "", err
 	}
 	return srv.InvokeTool(ctx, tool, args)
+}
+
+// passTool reports whether name is one of the pass-through upstream's tools.
+func (d daemonAsker) passTool(ctx context.Context, ns, name string) bool {
+	tools, err := mcpBackend{app: d.app}.UpstreamTools(ctx, ns)
+	if err != nil {
+		return false
+	}
+	for _, t := range tools {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
 }

@@ -23,7 +23,11 @@ const resultMarker = "\x1emcpx-result\x1e"
 type richResult struct {
 	Text   string           `json:"text"`
 	Blocks []map[string]any `json:"blocks,omitempty"`
+	// Raw, when set, is the whole result verbatim; see EncodeRaw.
+	Raw json.RawMessage `json:"raw,omitempty"`
 }
+
+func cutMarker(s string) (string, bool) { return strings.CutPrefix(s, resultMarker) }
 
 // EncodeResult packs text and extra content blocks into one string.
 //

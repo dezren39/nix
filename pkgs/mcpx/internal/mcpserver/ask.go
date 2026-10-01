@@ -141,6 +141,10 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 		callID = id
 		if len(answers) > 0 {
+			// The questions still open, to undo wireKey's renaming.
+			if open, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil {
+				answers = answersByID(answers, sendableTo(open.Questions, peer))
+			}
 			if err := s.Ask.Reply(ctx, callID, answers); err != nil {
 				return fail(codeInvalidParams, err.Error())
 			}
@@ -226,6 +230,20 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 
 		if peer.Modern {
+			// An upstream that asks several things at once raises them
+			// together but not in the same instant; a moment's wait lets
+			// the round carry all of them rather than the first to land.
+			// Slept rather than long-polled: Poll returns at once while
+			// any question is open, so it cannot wait for a second one.
+			select {
+			case <-ctx.Done():
+			case <-time.After(askSettle):
+			}
+			if more, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil && !more.Done {
+				if m := sendableTo(more.Questions, peer); len(m) > len(sendable) {
+					sendable = m
+				}
+			}
 			state, err := s.states().mint(callID, requestBinding(req))
 			if err != nil {
 				// No verifiable state means no safe resume, so the question
@@ -255,6 +273,10 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 		cancelAsk()
 		if len(answers) > 0 {
+			// The questions still open, to undo wireKey's renaming.
+			if open, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil {
+				answers = answersByID(answers, sendableTo(open.Questions, peer))
+			}
 			if err := s.Ask.Reply(ctx, callID, answers); err != nil {
 				return fail(codeInternal, err.Error())
 			}
@@ -296,7 +318,7 @@ func inputRequired(qs []Question, state string, p Peer) map[string]any {
 		if err != nil {
 			params = q.Params
 		}
-		requests[q.ID] = map[string]any{"method": q.Method, "params": params}
+		requests[wireKey(q, qs)] = map[string]any{"method": q.Method, "params": params}
 	}
 	return map[string]any{
 		"resultType":    "input_required",
@@ -309,6 +331,9 @@ func inputRequired(qs []Question, state string, p Peer) map[string]any {
 func askResult(req request, out Outcome) map[string]any {
 	switch req.Method {
 	case "prompts/get":
+		if raw, ok := decodeRaw(out.Text); ok {
+			return raw
+		}
 		return map[string]any{"messages": []any{map[string]any{
 			"role":    "user",
 			"content": map[string]any{"type": "text", "text": out.Text},
@@ -322,6 +347,9 @@ func askResult(req request, out Outcome) map[string]any {
 	default:
 		// Decoded as the direct path decodes it, so an mcpx_exec answered
 		// inline keeps its resource_link blocks.
+		if raw, ok := decodeRaw(out.Text); ok {
+			return raw
+		}
 		text, blocks := decodeResult(out.Text)
 		content := []any{map[string]any{"type": "text", "text": text}}
 		for _, b := range blocks {
@@ -382,3 +410,41 @@ func (s *Server) mayBlockOnClient(c *Conn, req request) bool {
 	}
 	return s.canAsk(context.Background(), c, c.peerFor(req.Params))
 }
+
+// wireKey is the inputRequests key q is sent under: the upstream's own key
+// where it has one no other pending question shares, otherwise mcpx's id.
+func wireKey(q Question, qs []Question) string {
+	if q.Key == "" {
+		return q.ID
+	}
+	for _, o := range qs {
+		if o.ID != q.ID && (o.Key == q.Key || o.ID == q.Key) {
+			return q.ID
+		}
+	}
+	return q.Key
+}
+
+// answersByID maps a client's inputResponses, keyed as wireKey sent them,
+// back to the question ids the asker knows. A key it does not recognise is
+// passed through unchanged, for the asker to judge.
+func answersByID(answers map[string]json.RawMessage, qs []Question) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(answers))
+	for k, v := range answers {
+		out[k] = v
+	}
+	for _, q := range qs {
+		k := wireKey(q, qs)
+		if k == q.ID {
+			continue
+		}
+		if v, ok := answers[k]; ok {
+			delete(out, k)
+			out[q.ID] = v
+		}
+	}
+	return out
+}
+
+// askSettle is how long a round waits for sibling questions; see viaAsk.
+const askSettle = 50 * time.Millisecond

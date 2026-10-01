@@ -430,6 +430,23 @@ func outputSettings() []Setting {
 			Commands: []string{"serve"},
 		},
 		{
+			Path: "mcp.passthrough", Kind: KindString, Default: "",
+			Scope:       ScopeClient,
+			FlagAliases: []string{"passthrough"},
+			Name:        "MCP pass-through",
+			Short:       "serve one upstream's tools, prompts and resources under their own names",
+			Long: "Names a configured server whose surface /mcp and `mcpx serve` offer " +
+				"unrenamed: its tools by their own names (listed ahead of mcpx's gateway " +
+				"tools), its prompts without the <namespace>_ prefix, and its resources " +
+				"at their own URIs rather than mcpx://<namespace>/<uri>. Results are its " +
+				"own, verbatim, images and structured content included. On a name " +
+				"collision the upstream's tool wins and the gateway tool of that name is " +
+				"not offered over MCP. For a single-upstream gateway: pooling, logging " +
+				"and policy in front of one server that clients see as itself. Empty " +
+				"(the default) namespaces everything.",
+			Commands: []string{"serve", "daemon"},
+		},
+		{
 			Path: "output.json", Kind: KindBool, Default: "false",
 			Scope:       ScopeClient,
 			FlagAliases: []string{"json"},

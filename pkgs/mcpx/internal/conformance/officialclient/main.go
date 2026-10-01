@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dezren39/mcpx/internal/elicit"
 )
 
 // Knobs are flags rather than constants: this is test support run by a script, and each has a reason to be
@@ -32,7 +34,7 @@ import (
 var (
 	mcpxBin   = flag.String("mcpx", "mcpx", "the mcpx binary under test")
 	idleExit  = flag.String("idle-exit", "60s", "backstop: an orphaned daemon exits after this long idle")
-	pollEvery = flag.String("poll", "200ms", "how often pending elicitations are checked")
+	pollEvery = flag.String("poll", "20ms", "how often the broker's store is checked for pending elicitations")
 	deadline  = flag.String("deadline", "60s", "give up on the whole scenario after this long")
 	namespace = flag.String("ns", "conf", "namespace the scenario server is configured under")
 	keep      = flag.Bool("keep", false, "keep the scratch directory (its daemon log) for inspection")
@@ -236,43 +238,54 @@ func (m *mcpx) run(ctx context.Context, args ...string) ([]byte, error) {
 // answerElicitations accepts every question the broker holds with an empty answer. Empty on purpose: a
 // scenario like elicitation-sep1034-client-defaults checks that the client fills in the schema's defaults,
 // and an adapter that typed them in itself would be testing the adapter.
+//
+// In process, against the broker's own store, rather than by running `mcpx elicit list` on a ticker. Each
+// of those was a process start, and under the suite's parallel --requirements run a tick took long enough
+// that the question outlived the scenario's timeout: elicitation-sep1034-client-defaults passed alone and
+// failed every time in the full run. A query costs microseconds, so the tick can be short enough that the
+// answer is limited by the daemon noticing it, not by this program finding the question.
 func (m *mcpx) answerElicitations(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		answered := map[string]bool{}
 		every, err := time.ParseDuration(*pollEvery)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "-poll: %v\n", err)
 			return
 		}
+		logs := filepath.Join(m.dir, "state", "logs")
+		if err := os.MkdirAll(logs, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "elicit store: %v\n", err)
+			return
+		}
+		b, err := elicit.Open(filepath.Join(logs, "elicit.db"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "elicit store: %v\n", err)
+			return
+		}
+		defer b.Close()
 		t := time.NewTicker(every)
 		defer t.Stop()
+		answered := map[string]bool{}
 		for {
+			pending, err := b.Pending(elicit.Filter{})
+			if err == nil {
+				for _, p := range pending {
+					if p.ID == "" || answered[p.ID] {
+						continue
+					}
+					answered[p.ID] = true
+					err := b.Respond(elicit.Answer{ID: p.ID, Action: elicit.Accept,
+						Content: json.RawMessage(`{}`), By: "officialclient"})
+					fmt.Fprintf(os.Stderr, "elicit answer %s -> err=%v\n", p.ID, err)
+				}
+			}
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-			}
-			out, err := m.run(ctx, "--json", "elicit", "list")
-			if err != nil {
-				continue
-			}
-			var pending []struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal(out, &pending) != nil {
-				continue
-			}
-			for _, p := range pending {
-				if p.ID == "" || answered[p.ID] {
-					continue
-				}
-				answered[p.ID] = true
-				res, err := m.run(ctx, "elicit", "answer", p.ID, "{}")
-				fmt.Fprintf(os.Stderr, "elicit answer %s -> err=%v %s\n", p.ID, err, res)
 			}
 		}
 	}()
