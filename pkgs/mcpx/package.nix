@@ -61,6 +61,16 @@ buildGoModule {
   # docs/container.md measured a CGO_ENABLED=0 build working end-to-end.
   env.CGO_ENABLED = "0";
 
+  # No VCS stamping: the tarball source has no .git by design, and go's
+  # automatic stamping walks up from the sandbox build dir with plain stat
+  # (no filesystem-boundary stop like git's own discovery), so on hosts whose
+  # build dir sits under an unrelated checkout it either embeds THAT repo's
+  # state (wrong provenance) or fails outright — e.g. exit 128 "error
+  # obtaining VCS status" when git can't read the ancestor repo as the build
+  # user. Seen 2026-10-01: #301 put git on PATH (nativeCheckInputs), which
+  # activated stamping that previously silently skipped. (issue #304)
+  GOFLAGS = [ "-buildvcs=false" ];
+
   ldflags = [
     "-s"
     "-w"
