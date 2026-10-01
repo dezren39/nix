@@ -69,9 +69,22 @@ Every daemon and the fixture are stopped on exit.
 does not, and the suite's `known-sdks.ts` points each SDK at its *own*
 conformance server (`test/conformance/src/everythingServer.ts` in
 typescript-sdk, `conformance/everything-server` in go-sdk). They are SDK
-fixtures. mcpx forwards a tool call to its upstream and does not invent tools,
-so those checks fail here as `no tool named "…"` and are listed as such below,
-not counted as passes by any substitute.
+fixtures.
+
+mcpx has its own: `internal/testsupport/taskmcp`, a stdio server defining
+exactly those tools with the behaviour each scenario's "Required server
+fixtures" block documents. The daemon fronts it next to `everything-server.ts`
+with `--passthrough demo,tasks`, so one `/mcp` offers both surfaces under their
+own names (`mcp.passthrough` takes a list and refuses a name two upstreams
+share). taskmcp speaks 2025-11-25 and knows nothing of tasks: each tool
+declares `execution.taskSupport` and does its work -- sleeps, fails, asks --
+and whether a call becomes a task, and how its questions travel, is mcpx's
+doing. Two of its behaviours are chosen for that reason: `confirm_delete`,
+`multi_input` and `protocol_error_job` work for a second before they ask or
+fail, so the call has become a task by then; `test_tool_with_task` asks at
+once, so the question is answered inline before any task exists. That is the
+distinction the scenarios draw, seen from a gateway that cannot see into the
+tool.
 
 ## Results
 
@@ -82,13 +95,13 @@ check. Columns before `64f3471` put mcpx's test fake (one tool, `echo`) behind
 the daemon; `64f3471` is that setup re-measured as the "before" of this
 change; the last column is the fixture in pass-through.
 
-| leg | `05c78b2` (first run) | `408bc2b` | `a93be43` | `60068c6` | `64f3471` (fake) | **this change (fixture, pass-through)** |
-| --- | --- | --- | --- | --- | --- | --- |
-| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | 45 / 21 | 45 / 21 | 45 / 21 | **78 / 3** |
-| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | 110 / 62 | 109 / 62 | 110 / 62 | **146 / 39** |
-| server `--suite all` | 84 / 106 | 136 / 61 | 131 / 67 | 128 / 67 | 131 / 67 | **167 / 44** |
-| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | 20 / 56 | 20 / 48 | 20 / 56 | **20 / 56** (3 runs, identical) |
-| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | 63 / 68 | 63 / 59 | 63 / 68 | **63 / 68** (3 runs, identical) |
+| leg | `05c78b2` (first run) | `408bc2b` | `a93be43` | `60068c6` | `64f3471` (fake) | **this change (fixture, pass-through)** | fix2/tasks (taskmcp fronted, tasks extension) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | 45 / 21 | 45 / 21 | 45 / 21 | **78 / 3** | 78 / 3 |
+| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | 110 / 62 | 109 / 62 | 110 / 62 | **146 / 39** | 175 / 12 |
+| server `--suite all` | 84 / 106 | 136 / 61 | 131 / 67 | 128 / 67 | 131 / 67 | **167 / 44** | 196 / 17 |
+| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | 20 / 56 | 20 / 48 | 20 / 56 | **20 / 56** (3 runs, identical) | not run (no client change) |
+| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | 63 / 68 | 63 / 59 | 63 / 68 | **63 / 68** (3 runs, identical) | not run (no client change) |
 
 Totals moved by more than the failures did, because the fixture makes the
 suite run checks it skipped before (a scenario stops at its first missing
@@ -157,12 +170,13 @@ scenario passing in all three.
 | `tools-call-with-progress` | No progress notifications received | mcpx defect: no relay of upstream `notifications/progress` (#212) |
 | `server-sse-polling` / `scenario-timeout` | did not complete within 30000ms | open: the fixture closes the POST stream to mcpx (SEP-1699); mcpx reconnects with `Last-Event-ID` (the fixture logs it) and no replayed response arrives, so the call never finishes. Not scored for 2025-11-25 (`pending`); root cause not established |
 
-### Server, 2026-07-28 (39 failed, 2 warnings)
+### Server, 2026-07-28 (12 failed, 2 warnings, with taskmcp fronted)
+
+Every tasks-extension check passes. Before taskmcp, 27 of them failed as
+`no tool named "…"` or as untestable downstream of one.
 
 | scenario / check | message | kind |
 | --- | --- | --- |
-| `tasks-*` (26 checks across 8 scenarios) | `no tool named "slow_compute"` / `"greet"` / `"failing_job"` / `"protocol_error_job"` / `"confirm_delete"` / `"multi_input"` / `"test_tool_with_task"`, and "Not testable: no task was created by the preceding step" downstream of them | fixture missing: SDK fixtures, see above |
-| `tasks-required-task-error` / `sep-2663-server-returns-missing-capability-when-required` | `failing_job` returned -32602; spec requires -32021 | fixture missing (an unknown tool is -32602, correctly) |
 | `http-custom-header-server-validation` (5) | Not testable: server exposes no tool with `x-mcp-header` annotations | fixture missing: `everything-server.ts` has none |
 | `tools-call-with-progress` | No progress notifications received | mcpx defect (#212) |
 | `server-stateless` / `sep-2575-http-server-no-independent-requests-on-stream`, `sep-2575-server-no-log-without-loglevel` | no frames from the streaming / logging tool | mcpx defect: same relay gap (#212) |
@@ -171,7 +185,7 @@ scenario passing in all three.
 | `input-required-result-basic-list-roots` / `sep-2322-list-roots-incomplete`; `input-required-result-multiple-input-requests` / `sep-2322-multiple-inputs-incomplete` (2 of 3 asked) | no `roots/list` inputRequest | decision to revisit: mcpx answers an upstream's `roots/list` from its own configured roots and never relays it |
 | `input-required-result-ignore-extra-params` / `sep-2322-ignore-unexpected-params` (WARNING) | no complete result | mcpx gap: a request carrying `inputResponses` without a `requestState` is treated as a new call; the fixture accepts such answers directly, mcpx does not forward them |
 
-### Server, `--suite all` (44)
+### Server, `--suite all` (17)
 
 The 2026-07-28 list, plus five legacy-tool checks that only the 2025-11-25
 daemon can pass: `tools-call-elicitation`, `tools-call-sampling`,
@@ -191,10 +205,9 @@ per-server `auth` block is parsed and never applied (#240).
 - Legacy revisions other than 2025-11-25: there are no requirement sets for
   them. `internal/mcpserver/requirements_test.go` and the schema sweep cover
   2024-11-05 through 2025-06-18.
-- The tasks extension and `x-mcp-header` validation, whose fixtures exist only
-  in the SDKs' own conformance servers. mcpx's own tests cover them
-  (`internal/mcpserver/requirements_test.go`,
-  `internal/mcpserver/transport_test.go`).
+- `x-mcp-header` validation, whose fixture exists only in the SDKs' own
+  conformance servers. mcpx's own tests cover it
+  (`internal/mcpserver/transport_test.go`).
 
 The per-requirement status, with the test that verifies each row, is
 [conformance-matrix.md](conformance-matrix.md).

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,6 +134,11 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	}
 	res, err := c.Call(ctx, ns, tool, b.app.mcpCaller(ctx), args)
 	if err != nil {
+		if b.app.isPass(ns) {
+			if up := upstreamError(err); up != nil {
+				return "", up
+			}
+		}
 		return "", err
 	}
 	if b.app.isPass(ns) {
@@ -679,6 +686,7 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 		return nil, err
 	}
 	out := make([]mcpserver.PromptRef, 0, len(list))
+	passPrompt := map[string]string{}
 	for _, p := range list {
 		if !visible(p.Namespace) {
 			continue
@@ -692,6 +700,14 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 		name := p.Namespace + "_" + p.Name
 		if b.app.isPass(p.Namespace) {
 			name = p.Name
+			// Refused, as tools are: two pass-through upstreams with a
+			// prompt of one name leave the client unable to reach either
+			// by the name it was shown.
+			if prev, dup := passPrompt[name]; dup {
+				return nil, fmt.Errorf("pass-through upstreams %q and %q both offer a prompt named %q; "+
+					"mcp.passthrough cannot serve both under one name", prev, p.Namespace, name)
+			}
+			passPrompt[name] = p.Namespace
 		}
 		out = append(out, mcpserver.PromptRef{
 			Name:        name,
@@ -732,7 +748,7 @@ func (b mcpBackend) ReadResource(ctx context.Context, uri string) ([]mcpserver.R
 		}
 		return []mcpserver.ResourceContents{entry}, nil
 	}
-	ns, inner, ok := b.app.resolveURI(uri)
+	ns, inner, ok := b.app.resolveURI(ctx, uri)
 	if !ok {
 		return nil, fmt.Errorf("%w: a resource URI looks like mcpx://<namespace>/<uri>, got %q",
 			mcpserver.ErrResourceNotFound, uri)
@@ -798,6 +814,24 @@ func textMime(mime string) bool {
 // -- so this is string matching across a process boundary. The codes it
 // looks for are the only two any revision uses for a missing resource:
 // -32002 up to 2025-11-25, -32602 since.
+// upstreamError reads the JSON-RPC error an upstream answered with out of the
+// daemon's message, or nil when the failure was not one -- the same string
+// match upstreamNotFound makes, and for the same reason: the daemon reports
+// it as text.
+func upstreamError(err error) *mcpserver.UpstreamError {
+	m := upstreamErrRE.FindStringSubmatch(err.Error())
+	if m == nil {
+		return nil
+	}
+	code, cerr := strconv.Atoi(m[1])
+	if cerr != nil {
+		return nil
+	}
+	return &mcpserver.UpstreamError{Code: code, Message: m[2]}
+}
+
+var upstreamErrRE = regexp.MustCompile(`mcp error (-?\d+): (.*)`)
+
 func upstreamNotFound(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "unknown server or namespace") ||
@@ -894,7 +928,7 @@ func (b mcpBackend) Complete(ctx context.Context, params json.RawMessage) ([]str
 			// there is nothing to offer.
 			return nil, nil
 		}
-		ns, inner, ok := b.app.resolveURI(p.Ref.URI)
+		ns, inner, ok := b.app.resolveURI(ctx, p.Ref.URI)
 		visible, err := b.app.visibleNamespaces(ctx, c)
 		if err != nil {
 			return nil, err
@@ -1117,7 +1151,7 @@ func (n daemonNotifier) ListenResources(ctx context.Context, f mcpserver.ListenF
 	original := map[string]string{}
 	for _, u := range f.ResourceSubscriptions {
 		d := u
-		if ns, uri, ok := n.app.resolveURI(u); ok {
+		if ns, uri, ok := n.app.resolveURI(ctx, u); ok {
 			asked[strings.TrimPrefix(uri, "/")] = append(asked[strings.TrimPrefix(uri, "/")], u)
 			d = "mcpx://" + ns + "/" + uri
 		}
@@ -1222,11 +1256,27 @@ func escapeURIPath(s string) string {
 	return b.String()
 }
 
-// passNS is the upstream served under its own names (mcp.passthrough), or "".
-func (a *App) passNS() string { return a.Settings().String("mcp.passthrough") }
+// passNS is the upstreams served under their own names (mcp.passthrough, a
+// comma-separated list), in the order given.
+func (a *App) passNS() []string {
+	var out []string
+	for _, ns := range strings.Split(a.Settings().String("mcp.passthrough"), ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
 
-// isPass reports whether ns is the pass-through upstream.
-func (a *App) isPass(ns string) bool { p := a.passNS(); return p != "" && p == ns }
+// isPass reports whether ns is a pass-through upstream.
+func (a *App) isPass(ns string) bool {
+	for _, p := range a.passNS() {
+		if p == ns {
+			return true
+		}
+	}
+	return false
+}
 
 // exposedURI is the URI a resource of ns is offered under on /mcp: its own
 // for the pass-through upstream, mcpx://<ns>/<uri> for every other.
@@ -1281,15 +1331,61 @@ func (a *App) exposedTemplate(r daemon.ResourceInfo) mcpserver.ResourceRef {
 }
 
 // resolveURI undoes exposedURI: an mcpx:// URI names its namespace, and any
-// other URI belongs to the pass-through upstream when there is one.
-func (a *App) resolveURI(u string) (ns, uri string, ok bool) {
+// other URI belongs to a pass-through upstream when there is one.
+//
+// With several pass-through upstreams a bare URI is the first one's (in
+// mcp.passthrough order) that lists it as a resource or offers a template it
+// falls under; one none of them lists goes to the first, which will say
+// whether it exists.
+func (a *App) resolveURI(ctx context.Context, u string) (ns, uri string, ok bool) {
 	if ns, uri, ok := splitMCPXURI(u); ok {
 		return ns, uri, true
 	}
-	if p := a.passNS(); p != "" && u != "" {
-		return p, u, true
+	pass := a.passNS()
+	if len(pass) == 0 || u == "" {
+		return "", "", false
 	}
-	return "", "", false
+	if len(pass) > 1 {
+		if owner := a.uriOwner(ctx, pass, u); owner != "" {
+			return owner, u, true
+		}
+	}
+	return pass[0], u, true
+}
+
+// uriOwner is the pass-through upstream that lists u, or "".
+func (a *App) uriOwner(ctx context.Context, pass []string, u string) string {
+	c, err := a.ensure(ctx)
+	if err != nil {
+		return ""
+	}
+	// Read the upstreams first, as resources/list does: on a cold daemon
+	// the cache is empty and every URI would look unowned.
+	if a.ensureSchemas(ctx, c, pass) != nil {
+		return ""
+	}
+	owns := map[string]bool{}
+	if rs, err := c.Resources(ctx, pass); err == nil {
+		for _, r := range rs {
+			if r.URI == u {
+				owns[r.Namespace] = true
+			}
+		}
+	}
+	if ts, err := c.ResourceTemplatesIn(ctx, pass); err == nil {
+		for _, t := range ts {
+			prefix, _, _ := strings.Cut(t.URI, "{")
+			if prefix != "" && strings.HasPrefix(u, prefix) {
+				owns[t.Namespace] = true
+			}
+		}
+	}
+	for _, ns := range pass {
+		if owns[ns] {
+			return ns
+		}
+	}
+	return ""
 }
 
 // UpstreamTools lists one namespace's tools under their own names, for
@@ -1319,7 +1415,8 @@ func (b mcpBackend) UpstreamTools(ctx context.Context, ns string) ([]mcpserver.T
 		if len(schema) == 0 {
 			schema = json.RawMessage(`{"type":"object"}`)
 		}
-		out = append(out, mcpserver.Tool{Name: t.Tool, Description: t.Description, InputSchema: schema})
+		out = append(out, mcpserver.Tool{Name: t.Tool, Description: t.Description, InputSchema: schema,
+			Execution: t.Execution})
 	}
 	return out, nil
 }

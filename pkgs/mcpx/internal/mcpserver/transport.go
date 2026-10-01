@@ -269,8 +269,9 @@ func decodeHeaderValue(v string) (string, error) {
 // nameOf is the body value Mcp-Name mirrors, and whether the method has one.
 func nameOf(req request) (string, bool) {
 	var p struct {
-		Name string `json:"name"`
-		URI  string `json:"uri"`
+		Name   string `json:"name"`
+		URI    string `json:"uri"`
+		TaskID string `json:"taskId"`
 	}
 	_ = json.Unmarshal(req.Params, &p)
 	switch req.Method {
@@ -278,8 +279,26 @@ func nameOf(req request) (string, bool) {
 		return p.Name, true
 	case "resources/read":
 		return p.URI, true
+	case "tasks/get", "tasks/update", "tasks/cancel":
+		// The tasks extension's routing header (SEP-2663): Mcp-Name is
+		// the taskId, so a load balancer can route a poll to the node
+		// holding the task.
+		return p.TaskID, true
 	}
 	return "", false
+}
+
+// nameRequired reports whether a request of this method must carry
+// Mcp-Name. SEP-2243 requires it for the three methods it names. The tasks
+// extension puts the same obligation on its clients, but a client built to
+// SEP-2243 alone does not know it; a missing header is tolerated there, and
+// only one that contradicts the body is refused.
+func nameRequired(method string) bool {
+	switch method {
+	case "tools/call", "prompts/get", "resources/read":
+		return true
+	}
+	return false
 }
 
 func headerMismatch(id json.RawMessage, format string, a ...any) *response {
@@ -344,7 +363,7 @@ func checkModernHeaders(r *http.Request, req request) *response {
 	}
 	raw := r.Header.Get("Mcp-Name")
 	if raw == "" {
-		if isRequest {
+		if isRequest && nameRequired(req.Method) {
 			return headerMismatch(req.ID, "Mcp-Name header is required for %s", req.Method)
 		}
 		return nil

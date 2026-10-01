@@ -213,9 +213,13 @@ type Server struct {
 	// Origins decides which browser origins the HTTP transport serves.
 	Origins OriginPolicy
 
-	// Passthrough names one upstream whose tools are offered under their
+	// askedTasks are the tasks whose body is a call through the Asker,
+	// by task id; see askTask.
+	askedTasks map[string]askedTask
+
+	// Passthrough names the upstreams whose tools are offered under their
 	// own names alongside, and ahead of, the gateway's; see passthrough.go.
-	Passthrough string
+	Passthrough []string
 
 	mu sync.Mutex
 
@@ -364,6 +368,19 @@ var ErrResourceNotFound = errors.New("resource not found")
 // former is -32602, the client's to fix; the latter -32603.
 var ErrInvalidParams = errors.New("invalid params")
 
+// UpstreamError is a JSON-RPC error a pass-through upstream answered a
+// tools/call with. It is relayed to the client as that error, code and all,
+// rather than turned into a tool result with isError: in pass-through mode
+// the upstream is the server, and a protocol error it chose to send is not a
+// tool failure. The tasks extension makes the difference visible -- one is
+// a failed task carrying error, the other a completed one carrying result.
+type UpstreamError struct {
+	Code    int
+	Message string
+}
+
+func (e *UpstreamError) Error() string { return fmt.Sprintf("mcp error %d: %s", e.Code, e.Message) }
+
 // unsupportedVersion is the answer to a modern request carrying a version
 // mcpx does not implement.
 //
@@ -391,6 +408,10 @@ type Tool struct {
 	// destructiveHint -- which is how a client decides whether a tool may be
 	// run without asking. Omitted where mcpx has nothing to declare.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// Execution is a pass-through upstream's execution object, verbatim.
+	// Its taskSupport decides whether a call may, must or must not run as
+	// a task; see taskSupportOf.
+	Execution json.RawMessage `json:"execution,omitempty"`
 }
 
 // Tools is the surface.
@@ -873,6 +894,11 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 			return fail(codeInvalidParams, err.Error())
 		}
 		text, err := s.invoke(ctx, p.Name, p.Arguments)
+		var upstream *UpstreamError
+		if errors.As(err, &upstream) {
+			return &response{JSONRPC: "2.0", ID: req.ID,
+				Error: &rpcError{Code: upstream.Code, Message: upstream.Message}}
+		}
 		if err != nil {
 			// A tool that fails is a result with isError, not a protocol
 			// error. The distinction matters: a protocol error means the
@@ -2294,7 +2320,8 @@ func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) 
 		return "", err
 	}
 	if pass {
-		return s.backend.Call(ctx, s.Passthrough, name, args)
+		ns, _ := s.passOwner(ctx, name)
+		return s.backend.Call(ctx, ns, name, args)
 	}
 	return s.dispatch(ctx, name, args)
 }

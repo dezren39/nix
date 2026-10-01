@@ -490,15 +490,19 @@ func outputSettings() []Setting {
 			Scope:       ScopeClient,
 			FlagAliases: []string{"passthrough"},
 			Name:        "MCP pass-through",
-			Short:       "serve one upstream's tools, prompts and resources under their own names",
-			Long: "Names a configured server whose surface /mcp and `mcpx serve` offer " +
-				"unrenamed: its tools by their own names (listed ahead of mcpx's gateway " +
-				"tools), its prompts without the <namespace>_ prefix, and its resources " +
-				"at their own URIs rather than mcpx://<namespace>/<uri>. Results are its " +
-				"own, verbatim, images and structured content included. On a name " +
-				"collision the upstream's tool wins and the gateway tool of that name is " +
-				"not offered over MCP. For a single-upstream gateway: pooling, logging " +
-				"and policy in front of one server that clients see as itself. Empty " +
+			Short:       "serve upstreams' tools, prompts and resources under their own names",
+			Long: "Names a configured server -- or several, comma-separated -- whose " +
+				"surface /mcp and `mcpx serve` offer unrenamed: its tools by their own " +
+				"names (listed ahead of mcpx's gateway tools), its prompts without the " +
+				"<namespace>_ prefix, and its resources at their own URIs rather than " +
+				"mcpx://<namespace>/<uri>. Results are its own, verbatim, images, " +
+				"structured content and JSON-RPC errors included. On a name collision " +
+				"with a gateway tool the upstream's tool wins and the gateway tool of " +
+				"that name is not offered over MCP. With several upstreams their " +
+				"surfaces are merged; a tool or prompt name two of them offer is refused " +
+				"with an error naming both, and a bare resource URI goes to the first " +
+				"(in the order given) that lists it. For a gateway whose clients see " +
+				"its servers as themselves: pooling, logging and policy in front. Empty " +
 				"(the default) namespaces everything.",
 			Commands: []string{"serve", "daemon"},
 		},

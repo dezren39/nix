@@ -61,6 +61,9 @@ type Outcome struct {
 	IsError bool
 	// Questions are what the call is waiting on, oldest first.
 	Questions []Question
+	// Upstream is set when a pass-through tool's upstream answered with a
+	// JSON-RPC error, which is relayed as that error; see UpstreamError.
+	Upstream *UpstreamError
 }
 
 // canAsk reports whether this request should go through the Asker at all.
@@ -133,34 +136,9 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
 	}
 
-	var callID string
-	if state, answers, resuming := resumeOf(req.Params); resuming {
-		id, err := s.states().verify(state, requestBinding(req))
-		if err != nil {
-			return fail(codeInvalidParams, err.Error())
-		}
-		callID = id
-		if len(answers) > 0 {
-			// The questions still open, to undo wireKey's renaming.
-			if open, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil {
-				answers = answersByID(answers, sendableTo(open.Questions, peer))
-			}
-			if err := s.Ask.Reply(ctx, callID, answers); err != nil {
-				return fail(codeInvalidParams, err.Error())
-			}
-		}
-	} else {
-		id, err := s.Ask.Begin(ctx, req.Method, forAsk(req.Params))
-		if errors.Is(err, ErrNotInterruptible) {
-			return nil
-		}
-		if errors.Is(err, ErrInvalidParams) {
-			return fail(codeInvalidParams, err.Error())
-		}
-		if err != nil {
-			return fail(codeInternal, err.Error())
-		}
-		callID = id
+	callID, failed := s.beginAsk(ctx, req, peer)
+	if failed != nil || callID == "" {
+		return failed
 	}
 
 	tm := s.Timing.resolved()
@@ -184,25 +162,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 			return fail(codeInternal, err.Error())
 		}
 		if out.Done {
-			if out.IsError && req.Method != "tools/call" {
-				// Only a tool has a result that can say it failed. A read or
-				// a prompt that failed upstream is an error, and was being
-				// returned as contents whose text was the error message --
-				// which is how a read of a URI that exists nowhere "passed"
-				// the official suite's resources-read-text.
-				switch {
-				case req.Method == "resources/read" && errors.Is(out.Err, ErrResourceNotFound):
-					var p struct {
-						URI string `json:"uri"`
-					}
-					_ = json.Unmarshal(req.Params, &p)
-					return notFound(req.ID, p.URI, peer, errors.New(out.Text))
-				case req.Method == "prompts/get" && errors.Is(out.Err, ErrInvalidParams):
-					return fail(codeInvalidParams, out.Text)
-				}
-				return fail(codeInternal, out.Text)
-			}
-			return reply(askResult(req, out))
+			return finishedAsk(req, out, peer, s.passCall(ctx, req))
 		}
 
 		sendable := sendableTo(out.Questions, peer)
@@ -284,6 +244,88 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 	}
 	s.Ask.Abandon(callID)
 	return fail(codeInternal, req.Method+": the call did not finish before mcpx stopped waiting for it")
+}
+
+// beginAsk starts the call a request names through the Asker, or resumes the
+// one its requestState names and hands it the answers attached. ("", nil)
+// means the request is not interruptible and the caller runs it the ordinary
+// way; a non-nil response is the error to answer with.
+func (s *Server) beginAsk(ctx context.Context, req request, peer Peer) (string, *response) {
+	fail := func(code int, msg string) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
+	}
+	if state, answers, resuming := resumeOf(req.Params); resuming {
+		id, err := s.states().verify(state, requestBinding(req))
+		if err != nil {
+			return "", fail(codeInvalidParams, err.Error())
+		}
+		if len(answers) > 0 {
+			// The questions still open, to undo wireKey's renaming.
+			if open, perr := s.Ask.Poll(ctx, id, time.Millisecond); perr == nil {
+				answers = answersByID(answers, sendableTo(open.Questions, peer))
+			}
+			if err := s.Ask.Reply(ctx, id, answers); err != nil {
+				return "", fail(codeInvalidParams, err.Error())
+			}
+		}
+		return id, nil
+	}
+	id, err := s.Ask.Begin(ctx, req.Method, forAsk(req.Params))
+	switch {
+	case errors.Is(err, ErrNotInterruptible):
+		return "", nil
+	case errors.Is(err, ErrInvalidParams):
+		return "", fail(codeInvalidParams, err.Error())
+	case err != nil:
+		return "", fail(codeInternal, err.Error())
+	}
+	return id, nil
+}
+
+// finishedAsk is the answer to a request whose asked call has finished.
+//
+// pass says the request is a pass-through upstream's tools/call, the one case
+// an upstream's JSON-RPC error is relayed as itself.
+func finishedAsk(req request, out Outcome, peer Peer, pass bool) *response {
+	fail := func(code int, msg string) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
+	}
+	if pass && out.Upstream != nil && req.Method == "tools/call" {
+		return &response{JSONRPC: "2.0", ID: req.ID,
+			Error: &rpcError{Code: out.Upstream.Code, Message: out.Upstream.Message}}
+	}
+	if out.IsError && req.Method != "tools/call" {
+		// Only a tool has a result that can say it failed. A read or
+		// a prompt that failed upstream is an error, and was being
+		// returned as contents whose text was the error message --
+		// which is how a read of a URI that exists nowhere "passed"
+		// the official suite's resources-read-text.
+		switch {
+		case req.Method == "resources/read" && errors.Is(out.Err, ErrResourceNotFound):
+			var p struct {
+				URI string `json:"uri"`
+			}
+			_ = json.Unmarshal(req.Params, &p)
+			return notFound(req.ID, p.URI, peer, errors.New(out.Text))
+		case req.Method == "prompts/get" && errors.Is(out.Err, ErrInvalidParams):
+			return fail(codeInvalidParams, out.Text)
+		}
+		return fail(codeInternal, out.Text)
+	}
+	return &response{JSONRPC: "2.0", ID: req.ID, Result: askResult(req, out)}
+}
+
+// passCall reports whether req is a tools/call of a pass-through tool.
+func (s *Server) passCall(ctx context.Context, req request) bool {
+	if req.Method != "tools/call" {
+		return false
+	}
+	var p struct {
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(req.Params, &p)
+	ok, _ := s.isPassTool(ctx, p.Name)
+	return ok
 }
 
 // sendableTo picks the questions this client may be sent.

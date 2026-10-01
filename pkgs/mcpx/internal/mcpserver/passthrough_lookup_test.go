@@ -46,7 +46,7 @@ func (p *passBackend) count() int {
 
 func passServer(b *passBackend) *mcpserver.Server {
 	s := mcpserver.New(b, "mcpx", "test")
-	s.Passthrough = "up"
+	s.Passthrough = []string{"up"}
 	return s
 }
 

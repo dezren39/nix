@@ -4,22 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
-// Pass-through exposure: one upstream served under its own names.
+// Pass-through exposure: one or more upstreams served under their own names.
 //
 // mcpx normally publishes a small gateway surface and namespaces everything
 // behind it (mcpx_call, mcpx://<ns>/<uri>, <ns>_<prompt>). A host that only
 // wants one server -- a single-upstream gateway, which is what a sandboxed or
 // audited deployment of one server looks like -- is better served by that
 // server's own tools, prompts and resources, unrenamed, with mcpx in front for
-// pooling, logging and policy. Server.Passthrough names that upstream.
+// pooling, logging and policy. Server.Passthrough names that upstream -- or
+// several, whose surfaces are merged into one; a name two of them offer is
+// refused rather than silently given to either.
 //
 // The tools half lives here, because tools/list and tools/call are this
 // package's; prompts and resources are named by the Backend, which already
 // decides what each list carries.
 //
-// On a name collision the upstream wins: the gateway tool of that name is not
+// On a collision between an upstream and the gateway the upstream wins: the gateway tool of that name is not
 // listed and cannot be called over MCP. The point of the mode is that the
 // upstream is the server, and a client that reads tools/list must be able to
 // call every name on it and get that tool.
@@ -29,57 +32,88 @@ type PassthroughBackend interface {
 	UpstreamTools(ctx context.Context, namespace string) ([]Tool, error)
 }
 
-// passKey carries one request's pass-through lookup, so the upstream's tool
-// list is fetched once per request rather than once per question asked of it.
-// A tools/call asks twice -- does the name exist, and is it the upstream's --
-// and each fetch is several daemon round trips.
+// passKey carries one request's pass-through lookup, so the upstreams' tool
+// lists are fetched once per request rather than once per question asked of
+// them. A tools/call asks twice -- does the name exist, and is it an
+// upstream's -- and each fetch is several daemon round trips.
 type passKey struct{}
 
 type passLookup struct {
 	tools []Tool
+	// owner maps each pass-through tool to the upstream that serves it.
+	owner map[string]string
 	err   error
 }
 
 // withPass resolves the pass-through list for the rest of this request.
 func (s *Server) withPass(ctx context.Context) context.Context {
-	if s.Passthrough == "" {
+	if len(s.Passthrough) == 0 {
 		return ctx
 	}
 	if _, ok := ctx.Value(passKey{}).(*passLookup); ok {
 		return ctx
 	}
-	ts, err := s.lookupPass(ctx)
-	return context.WithValue(ctx, passKey{}, &passLookup{tools: ts, err: err})
+	return context.WithValue(ctx, passKey{}, s.lookupPass(ctx))
 }
 
-// passTools is the pass-through upstream's tool list, or nil when the mode is
-// off. An upstream that cannot be listed is an error, not an empty list: an
-// empty list would hide its tools, and a client calling one would be told it
-// does not exist when it is the server that is not answering.
-func (s *Server) passTools(ctx context.Context) ([]Tool, error) {
-	if s.Passthrough == "" {
-		return nil, nil
+// pass is this request's pass-through lookup, or nil when the mode is off.
+// An upstream that cannot be listed is an error, not an empty list: an empty
+// list would hide its tools, and a client calling one would be told it does
+// not exist when it is the server that is not answering.
+func (s *Server) pass(ctx context.Context) *passLookup {
+	if len(s.Passthrough) == 0 {
+		return nil
 	}
 	if l, ok := ctx.Value(passKey{}).(*passLookup); ok {
-		return l.tools, l.err
+		return l
 	}
 	return s.lookupPass(ctx)
 }
 
-func (s *Server) lookupPass(ctx context.Context) ([]Tool, error) {
-	pb, ok := s.backend.(PassthroughBackend)
-	if !ok {
-		return nil, fmt.Errorf("pass-through %q: this backend cannot list an upstream's tools", s.Passthrough)
+// passTools is the pass-through upstreams' merged tool list.
+func (s *Server) passTools(ctx context.Context) ([]Tool, error) {
+	l := s.pass(ctx)
+	if l == nil {
+		return nil, nil
 	}
-	ts, err := pb.UpstreamTools(ctx, s.Passthrough)
-	if err != nil {
-		return nil, fmt.Errorf("pass-through upstream %q is not answering: %w", s.Passthrough, err)
-	}
-	return ts, nil
+	return l.tools, l.err
 }
 
-// surface is what tools/list offers: the pass-through upstream's tools first,
-// then every gateway tool whose name the upstream did not take.
+// lookupPass lists every pass-through upstream, in the order configured, and
+// merges them into one surface.
+//
+// Two upstreams offering the same tool name is refused rather than resolved:
+// whichever won, a client reading tools/list would be calling a tool it was
+// not shown, and the other upstream's tool would be unreachable without a
+// word. The operator has to choose -- drop one from mcp.passthrough, or
+// reach it through mcpx_call under its namespace.
+func (s *Server) lookupPass(ctx context.Context) *passLookup {
+	pb, ok := s.backend.(PassthroughBackend)
+	if !ok {
+		return &passLookup{err: fmt.Errorf("pass-through %q: this backend cannot list an upstream's tools",
+			strings.Join(s.Passthrough, ","))}
+	}
+	l := &passLookup{owner: map[string]string{}}
+	for _, ns := range s.Passthrough {
+		ts, err := pb.UpstreamTools(ctx, ns)
+		if err != nil {
+			return &passLookup{err: fmt.Errorf("pass-through upstream %q is not answering: %w", ns, err)}
+		}
+		for _, t := range ts {
+			if prev, dup := l.owner[t.Name]; dup {
+				return &passLookup{err: fmt.Errorf(
+					"pass-through upstreams %q and %q both offer a tool named %q; "+
+						"mcp.passthrough cannot serve both under one name", prev, ns, t.Name)}
+			}
+			l.owner[t.Name] = ns
+			l.tools = append(l.tools, t)
+		}
+	}
+	return l
+}
+
+// surface is what tools/list offers: the pass-through upstreams' tools first,
+// then every gateway tool whose name no upstream took.
 func (s *Server) surface(ctx context.Context) ([]Tool, error) {
 	pass, err := s.passTools(ctx)
 	if err != nil {
@@ -101,35 +135,48 @@ func (s *Server) surface(ctx context.Context) ([]Tool, error) {
 	return out, nil
 }
 
-// isPassTool reports whether name is served by the pass-through upstream.
+// isPassTool reports whether name is served by a pass-through upstream.
 func (s *Server) isPassTool(ctx context.Context, name string) (bool, error) {
-	pass, err := s.passTools(ctx)
-	if err != nil {
-		return false, err
+	ns, err := s.passOwner(ctx, name)
+	return ns != "", err
+}
+
+// passOwner is the pass-through upstream serving name, or "".
+func (s *Server) passOwner(ctx context.Context, name string) (string, error) {
+	l := s.pass(ctx)
+	if l == nil {
+		return "", nil
 	}
-	for _, t := range pass {
+	if l.err != nil {
+		return "", l.err
+	}
+	return l.owner[name], nil
+}
+
+// passTool is the pass-through definition of name, if an upstream serves it.
+func (s *Server) passTool(ctx context.Context, name string) (Tool, bool) {
+	l := s.pass(ctx)
+	if l == nil || l.err != nil {
+		return Tool{}, false
+	}
+	for _, t := range l.tools {
 		if t.Name == name {
-			return true, nil
+			return t, true
 		}
 	}
-	return false, nil
+	return Tool{}, false
 }
 
 // PassToolOf reports what this request already knows about name: whether a
 // pass-through lookup has been made for the request (known), and if so
-// whether name is the upstream's. Lets a Backend reuse the lookup the protocol
-// layer made instead of repeating it.
-func PassToolOf(ctx context.Context, name string) (isPass, known bool) {
+// which upstream serves it ("" for none). Lets a Backend reuse the lookup the
+// protocol layer made instead of repeating it.
+func PassToolOf(ctx context.Context, name string) (ns string, known bool) {
 	l, ok := ctx.Value(passKey{}).(*passLookup)
 	if !ok || l.err != nil {
-		return false, false
+		return "", false
 	}
-	for _, t := range l.tools {
-		if t.Name == name {
-			return true, true
-		}
-	}
-	return false, true
+	return l.owner[name], true
 }
 
 // EncodeRaw packs a complete upstream result -- a CallToolResult or a

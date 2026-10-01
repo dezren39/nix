@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/dezren39/mcpx/internal/tasks"
 )
@@ -125,6 +126,44 @@ func isWithinTask(ctx context.Context) bool {
 	return v
 }
 
+// Tool-level task support, from execution.taskSupport.
+const (
+	supportForbidden = "forbidden"
+	supportOptional  = "optional"
+	supportRequired  = "required"
+)
+
+// taskSupportOf is what the tool a tools/call names declared about running
+// as a task: a pass-through upstream's execution.taskSupport, verbatim, or
+// "" for a tool that declared nothing -- every gateway tool, and an upstream
+// tool without the field.
+func (s *Server) taskSupportOf(ctx context.Context, params json.RawMessage) string {
+	var call struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(params, &call) != nil || call.Name == "" {
+		return ""
+	}
+	t, ok := s.passTool(ctx, call.Name)
+	if !ok || len(t.Execution) == 0 {
+		return ""
+	}
+	var ex struct {
+		TaskSupport string `json:"taskSupport"`
+	}
+	_ = json.Unmarshal(t.Execution, &ex)
+	return ex.TaskSupport
+}
+
+// missingTasks is -32021 naming the tasks extension: what a client that did
+// not declare it gets when the only answer is a task.
+func missingTasks(id json.RawMessage) *response {
+	return &response{JSONRPC: "2.0", ID: id, Error: &rpcError{
+		Code: codeMissingCapability, Message: "Missing required client capability",
+		Data: map[string]any{"requiredCapabilities": map[string]any{
+			"extensions": map[string]any{ExtTasks: map[string]any{}}}}}}
+}
+
 // maybeTask decides whether a tools/call becomes a task, and if so answers
 // it with the handle. nil means run it the ordinary way.
 //
@@ -136,14 +175,23 @@ func isWithinTask(ctx context.Context) bool {
 //   - The 2026-07-28 extension is server-directed. The task field is gone,
 //     and the SEP says a server MUST ignore it rather than treat it as an
 //     opt-in; a server MUST NOT return a task to a client that did not
-//     declare the extension on that request. mcpx runs the call and, if it
-//     has not finished within Timing.TaskAfter, answers with a
-//     CreateTaskResult. A fast call is answered directly, which the SEP
-//     permits.
+//     declare the extension on that request.
 //
-// A modern client that can answer questions inline is never handed a task:
-// its questions travel as input_required on the original request, and the
-// SEP asks that those be resolved before any task is created.
+// For a modern client the tool's execution.taskSupport decides:
+//
+//   - "required" from a client that did not declare the extension is
+//     -32021, before anything runs: the only answer would be a task.
+//   - "optional" or "required" is task-supporting. The call gets
+//     Timing.TaskEager to finish or to ask its first question; past that it
+//     is a task. A question asked in that window goes to the client inline
+//     (input_required on this request), so the questions a tool asks up
+//     front are answered before any task exists, as the SEP asks; one asked
+//     after parks the task in input_required with inputRequests, answered
+//     through tasks/update.
+//   - anything else is run in line for Timing.TaskAfter and handed a task
+//     only if it has not finished by then -- except for a client that can
+//     answer questions inline, which is served on the original request.
+//   - "forbidden" never becomes a task.
 func (s *Server) maybeTask(ctx context.Context, c *Conn, req request, peer Peer) *response {
 	if isWithinTask(ctx) {
 		return nil
@@ -156,11 +204,34 @@ func (s *Server) maybeTask(ctx context.Context, c *Conn, req request, peer Peer)
 		t := s.startTask(c.id, ttl, s.runInner(c, req))
 		return &response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"task": t}}
 	}
-	if !peer.DeclaredExtension(ExtTasks) || s.canAsk(ctx, c, peer) {
+	support := s.taskSupportOf(ctx, req.Params)
+	if !peer.DeclaredExtension(ExtTasks) {
+		if support == supportRequired {
+			return missingTasks(req.ID)
+		}
 		return nil
 	}
+	eager := support == supportOptional || support == supportRequired
+	tm := s.Timing.resolved()
+	if s.canAsk(ctx, c, peer) {
+		if !eager {
+			return nil
+		}
+		if resp, handled := s.askTask(ctx, req, peer); handled {
+			return resp
+		}
+	} else if _, _, resuming := resumeOf(req.Params); resuming {
+		return nil
+	}
+	if support == supportForbidden {
+		return nil
+	}
+	after := tm.TaskAfter
+	if eager {
+		after = tm.TaskEager
+	}
 	t := s.startTask("", tasks.DefaultTTL(), s.runInner(c, req))
-	wait, cancel := context.WithTimeout(ctx, s.Timing.resolved().TaskAfter)
+	wait, cancel := context.WithTimeout(ctx, after)
 	defer cancel()
 	result, fault, err := s.tasks().Result(wait, t.TaskID)
 	if err == nil {
@@ -172,10 +243,150 @@ func (s *Server) maybeTask(ctx context.Context, c *Conn, req request, peer Peer)
 		}
 		return &response{JSONRPC: "2.0", ID: req.ID, Result: result}
 	}
-	snap, _ := s.tasks().Get(t.TaskID)
+	return s.created(req, t.TaskID)
+}
+
+// created is the CreateTaskResult for a task: the task itself, flat.
+func (s *Server) created(req request, id string) *response {
+	snap, _ := s.tasks().Get(id)
 	out := modernTask(snap)
 	out["resultType"] = "task"
 	return &response{JSONRPC: "2.0", ID: req.ID, Result: out}
+}
+
+// askedTask is a task whose body is a call running through the Asker, so
+// that tasks/update can answer the questions it raises.
+type askedTask struct {
+	callID string
+	peer   Peer
+}
+
+// askTask runs a task-supporting tools/call through the Asker. Only a
+// pass-through tool declares task support, which is why the calls here are
+// finished as pass-through calls. handled is
+// false when the call turns out not to be interruptible, and the caller
+// runs it as an ordinary task instead.
+func (s *Server) askTask(ctx context.Context, req request, peer Peer) (*response, bool) {
+	callID, failed := s.beginAsk(ctx, req, peer)
+	if failed != nil {
+		return failed, true
+	}
+	if callID == "" {
+		return nil, false
+	}
+	tm := s.Timing.resolved()
+	out, err := s.Ask.Poll(ctx, callID, tm.TaskEager)
+	if err != nil {
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: codeInternal, Message: err.Error()}}, true
+	}
+	if out.Done {
+		return finishedAsk(req, out, peer, true), true
+	}
+	if sendable := sendableTo(out.Questions, peer); len(sendable) > 0 {
+		// Asked before the call became a task: answered inline, on this
+		// request, as any other modern request is.
+		select {
+		case <-ctx.Done():
+		case <-time.After(askSettle):
+		}
+		if more, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil && !more.Done {
+			if m := sendableTo(more.Questions, peer); len(m) > len(sendable) {
+				sendable = m
+			}
+		}
+		if state, err := s.states().mint(callID, requestBinding(req)); err == nil {
+			return &response{JSONRPC: "2.0", ID: req.ID, Result: inputRequired(sendable, state, peer)}, true
+		}
+	}
+
+	t := s.tasks().Start(tasks.DefaultTTL(), func(tctx context.Context) (any, *tasks.Fault) {
+		return s.driveAsked(tctx, req, peer, callID)
+	})
+	s.mu.Lock()
+	if s.askedTasks == nil {
+		s.askedTasks = map[string]askedTask{}
+	}
+	s.askedTasks[t.TaskID] = askedTask{callID: callID, peer: peer}
+	s.mu.Unlock()
+	return s.created(req, t.TaskID), true
+}
+
+// driveAsked is the body of an asked task: wait for the call, publishing the
+// questions it is waiting on as the task's inputRequests.
+func (s *Server) driveAsked(ctx context.Context, req request, peer Peer, callID string) (any, *tasks.Fault) {
+	id := tasks.IDFrom(ctx)
+	tm := s.Timing.resolved()
+	for {
+		if ctx.Err() != nil {
+			// Cancelled: tasks/cancel, or the TTL. Nobody will answer.
+			s.Ask.Abandon(callID)
+			return nil, &tasks.Fault{Code: codeInternal, Message: "the task was cancelled"}
+		}
+		out, err := s.Ask.Poll(ctx, callID, tm.AskPoll)
+		if err != nil {
+			if ctx.Err() != nil {
+				continue
+			}
+			return nil, &tasks.Fault{Code: codeInternal, Message: err.Error()}
+		}
+		if out.Done {
+			resp := finishedAsk(req, out, peer, true)
+			if resp.Error != nil {
+				return nil, &tasks.Fault{Code: resp.Error.Code, Message: resp.Error.Message, Data: resp.Error.Data}
+			}
+			return resp.Result, nil
+		}
+		sendable := sendableTo(out.Questions, peer)
+		s.tasks().SetInput(id, inputRequestsOf(sendable, peer))
+		if len(sendable) > 0 {
+			// Poll returns at once while a question is open; wait for an
+			// answer, a cancel, or the next look.
+			select {
+			case <-ctx.Done():
+			case <-time.After(tm.TaskPoll):
+			}
+		}
+	}
+}
+
+// inputRequestsOf is the inputRequests map for a set of open questions,
+// keyed as the client answers them.
+func inputRequestsOf(qs []Question, p Peer) map[string]any {
+	if len(qs) == 0 {
+		return nil
+	}
+	return inputRequired(qs, "", p)["inputRequests"].(map[string]any)
+}
+
+// updateAsked hands tasks/update's answers to the call behind an asked task.
+//
+// Only answers to questions still open are passed on; the SEP says the rest
+// are ignored. The answered keys leave inputRequests at once, so a tasks/get
+// straight after the acknowledgement does not offer them again.
+func (s *Server) updateAsked(ctx context.Context, taskID string, at askedTask, responses map[string]json.RawMessage) error {
+	open, err := s.Ask.Poll(ctx, at.callID, time.Millisecond)
+	if err != nil || open.Done {
+		return nil
+	}
+	qs := sendableTo(open.Questions, at.peer)
+	current := inputRequestsOf(qs, at.peer)
+	answers := map[string]json.RawMessage{}
+	remaining := map[string]any{}
+	for k, v := range current {
+		if a, ok := responses[k]; ok {
+			answers[k] = a
+		} else {
+			remaining[k] = v
+		}
+	}
+	if len(answers) == 0 {
+		return nil
+	}
+	if err := s.Ask.Reply(ctx, at.callID, answersByID(answers, qs)); err != nil {
+		return err
+	}
+	s.tasks().SetInput(taskID, remaining)
+	return nil
 }
 
 // modernTask renders a task in the extension's shape: ttlMs and
@@ -191,6 +402,16 @@ func modernTask(t Task) map[string]any {
 	}
 	if t.StatusMessage != "" {
 		out["statusMessage"] = t.StatusMessage
+	}
+	return out
+}
+
+// detailedTask is modernTask plus what tasks/get adds while a task runs: the
+// questions an input_required task is waiting on.
+func detailedTask(t Task) map[string]any {
+	out := modernTask(t)
+	if t.Status == TaskInputRequired && len(t.InputRequests) > 0 {
+		out["inputRequests"] = t.InputRequests
 	}
 	return out
 }
@@ -219,10 +440,7 @@ func (s *Server) handleTask(ctx context.Context, c *Conn, req request, peer Peer
 		// Checked before the id, so a non-declaring client learns nothing
 		// about which tasks exist. tasks/list and tasks/result are removed
 		// methods and keep their -32601.
-		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{
-			Code: codeMissingCapability, Message: "Missing required client capability",
-			Data: map[string]any{"requiredCapabilities": map[string]any{
-				"extensions": map[string]any{ExtTasks: map[string]any{}}}}}}
+		return missingTasks(req.ID)
 	}
 	if req.Method != "tasks/list" && !s.visible(p.TaskID, c) {
 		// Said exactly as for a task that does not exist. Anything else
@@ -314,7 +532,7 @@ func (s *Server) handleModernTask(ctx context.Context, req request, id string, m
 		if !ok {
 			return missing()
 		}
-		out := modernTask(snap)
+		out := detailedTask(snap)
 		if !tasks.Terminal(snap.Status) {
 			return reply(out)
 		}
@@ -340,13 +558,24 @@ func (s *Server) handleModernTask(ctx context.Context, req request, id string, m
 		return reply(out)
 
 	case "tasks/update":
-		// mcpx never moves an extension task to input_required -- a client
-		// that can answer questions is served by input_required on the
-		// original request instead -- so no key is ever outstanding, and
-		// the SEP says responses to keys that are not outstanding are
-		// ignored. The acknowledgement is all there is.
+		// Answers for an asked task's open questions. Keys that are not
+		// outstanding are ignored, as the SEP says, so an update to a task
+		// with nothing open -- or to one that is not asked at all -- is
+		// acknowledged and changes nothing.
 		if _, ok := st.Get(id); !ok {
 			return missing()
+		}
+		var p struct {
+			InputResponses map[string]json.RawMessage `json:"inputResponses"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		s.mu.Lock()
+		at, asked := s.askedTasks[id]
+		s.mu.Unlock()
+		if asked && len(p.InputResponses) > 0 {
+			if err := s.updateAsked(ctx, id, at, p.InputResponses); err != nil {
+				return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: codeInternal, Message: err.Error()}}
+			}
 		}
 		return reply(map[string]any{})
 
