@@ -181,6 +181,15 @@ type Server struct {
 	version string
 	extras  []Extra
 
+	// ExtrasOnly makes the extras the whole tool surface: no mcpx_* tools.
+	// It is how one adapted program is served as an upstream server of its
+	// own (`mcpx adapter serve`), where the meta-tools would be a second,
+	// recursive copy of mcpx inside one of its own namespaces.
+	ExtrasOnly bool
+	// OwnInstructions replaces mcpx's initialize instructions when
+	// ExtrasOnly is set: they describe the meta-tools, which are absent.
+	OwnInstructions string
+
 	// PageSize caps how many items a list reply carries.
 	PageSize int
 
@@ -278,9 +287,11 @@ func (s *Server) WithExtras(extras []Extra) *Server {
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
-		Notify: s.Notify,
-		Ask:    s.Ask,
-		extras: sortedExtras(append(append([]Extra(nil), s.extras...), extras...)),
+		Notify:          s.Notify,
+		Ask:             s.Ask,
+		ExtrasOnly:      s.ExtrasOnly,
+		OwnInstructions: s.OwnInstructions,
+		extras:          sortedExtras(append(append([]Extra(nil), s.extras...), extras...)),
 	}
 }
 
@@ -385,6 +396,13 @@ type Tool struct {
 // again over MCP would rebuild the problem with extra steps. These ten reach
 // all of them, and the schemas stay here.
 func (s *Server) Tools() []Tool {
+	if s.ExtrasOnly {
+		out := make([]Tool, 0, len(s.extras))
+		for _, e := range s.extras {
+			out = append(out, e.Tool)
+		}
+		return out
+	}
 	base := []Tool{
 		{
 			Name: "mcpx_namespaces",
@@ -679,7 +697,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 			"protocolVersion": version,
 			"capabilities":    s.capabilities(ctx, version, c),
 			"serverInfo":      map[string]any{"name": s.name, "version": s.version},
-			"instructions":    Instructions,
+			"instructions":    s.instructions(),
 		})
 
 	case "server/discover":
@@ -690,7 +708,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(map[string]any{
 			"supportedVersions": Supported,
 			"capabilities":      s.capabilities(ctx, ModernLatest, c),
-			"instructions":      Instructions,
+			"instructions":      s.instructions(),
 		})
 
 	case "notifications/initialized", "initialized":
@@ -1160,6 +1178,9 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 		}
 		return json.Unmarshal(raw, v)
 	}
+	if s.ExtrasOnly {
+		return s.callExtra(ctx, name, raw)
+	}
 	switch name {
 	case "mcpx_namespaces":
 		return s.backend.Namespaces(ctx)
@@ -1267,6 +1288,19 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 	case "mcpx_status":
 		return s.backend.Status(ctx)
 	}
+	return s.callExtra(ctx, name, raw)
+}
+
+// instructions is what initialize says this server is for.
+func (s *Server) instructions() string {
+	if s.ExtrasOnly {
+		return s.OwnInstructions
+	}
+	return Instructions
+}
+
+// callExtra runs a contributed tool by name.
+func (s *Server) callExtra(ctx context.Context, name string, raw json.RawMessage) (string, error) {
 	for _, e := range s.extras {
 		if e.Tool.Name == name {
 			return e.Call(ctx, raw)

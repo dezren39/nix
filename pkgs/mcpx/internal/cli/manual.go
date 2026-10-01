@@ -437,13 +437,16 @@ func handCommands() []Command {
 		},
 		{
 			Name: "adapter", Group: "configuration",
-			Local:   "Adapter declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83, #102).",
-			Usage:   "[list|check|call|tools] [<name>.<tool> '<json>']",
+			Local:   "Adapter declarations are files the CLI reads; the daemon serves each adapter as a server of its own, so its tools reach every tool operation (call, types, search, catalog) like any upstream's.",
+			Usage:   "[list|check|call|tools|serve] [<name>.<tool> '<json>' | <name> [file...]]",
 			Summary: "command-line programs declared as MCP tools",
 			Detail: "An adapter file, named by paths.adapters, declares a program and " +
 				"the tools it offers. list shows them, check says whether each " +
 				"program is installed, call runs one tool, and tools prints the " +
-				"tool definitions an MCP host would see.",
+				"tool definitions an MCP host would see. Every adapter is also a " +
+				"namespace: the daemon runs it as `mcpx adapter serve <name>`, " +
+				"so it is in mcpx ls, types, search, catalog and the generated " +
+				"client, and a script calls it as <name>.<tool>({...}).",
 			Examples: []string{
 				"mcpx adapter check",
 				`mcpx adapter call jq.run '{"filter":"."}'`,

@@ -435,7 +435,7 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	extras := adapterTools(specs)
+	extras := adapterTools(specs, true)
 	// Operations from declared OpenAPI documents are tools in their own
 	// right too, for the same reason adapted programs are: a host that wants
 	// an endpoint should get the endpoint.
@@ -497,19 +497,30 @@ func writeJSONResponse(w http.ResponseWriter, v any) {
 }
 
 // adapterTools turns declarations into MCP tools.
-func adapterTools(specs []adapter.Spec) []mcpserver.Extra {
+//
+// prefixed names each tool <adapter>_<tool>, as mcpx's own tools/list must
+// to keep adapters apart. Served by `mcpx adapter serve`, one adapter is the
+// whole server and the namespace already says which, so the bare tool name
+// is what the generated client calls.
+func adapterTools(specs []adapter.Spec, prefixed bool) []mcpserver.Extra {
 	var out []mcpserver.Extra
 	for _, spec := range specs {
 		spec := spec
 		for _, t := range spec.Tools {
 			t := t
+			name := t.Name
+			if prefixed {
+				name = spec.Name + "_" + t.Name
+			}
 			desc := t.Description
-			if spec.Instructions != "" {
+			// Unprefixed, the adapter is its own server and says this at
+			// initialize; repeating it on every tool would say it twice.
+			if prefixed && spec.Instructions != "" {
 				desc = strings.TrimSpace(desc + "\n\n" + spec.Instructions)
 			}
 			out = append(out, mcpserver.Extra{
 				Tool: mcpserver.Tool{
-					Name:        spec.Name + "_" + t.Name,
+					Name:        name,
 					Description: desc,
 					InputSchema: t.Schema(),
 				},
