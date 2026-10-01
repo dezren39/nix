@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/testsupport"
+
+	_ "modernc.org/sqlite"
 )
 
 // env is a fully isolated mcpx installation: its own binary, config, state
@@ -2378,17 +2381,17 @@ func TestACredentialQuestionIsRoutedToAHuman(t *testing.T) {
 // a server that asked one.
 func seedElicitation(t *testing.T, e *env, id, server, mode, schema string) {
 	t.Helper()
-	script := fmt.Sprintf(`
-import sqlite3, time, sys
-now = int(time.time()*1000)
-db = sqlite3.connect(%q)
-db.execute("INSERT OR REPLACE INTO elicitations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-  (%q,"cal-x","","s1",%q,"tool",%q,"which one?",%q,"", "", "", now, now+120000,"pending",1))
-db.commit()
-`, filepath.Join(e.dir, "state", "logs", "elicit.db"), id, server, mode, schema)
-	cmd := exec.Command("python3", "-c", script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("seeding: %v\n%s", err, out)
+	// Through the same pure-Go driver the store uses, so the suite needs no
+	// sqlite3-capable interpreter on PATH (the nix check sandbox has none).
+	db, err := sql.Open("sqlite", filepath.Join(e.dir, "state", "logs", "elicit.db"))
+	if err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	defer db.Close()
+	now := time.Now().UnixMilli()
+	if _, err := db.Exec(`INSERT OR REPLACE INTO elicitations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, "cal-x", "", "s1", server, "tool", mode, "which one?", schema, "", "", "", now, now+120000, "pending", 1); err != nil {
+		t.Fatalf("seeding: %v", err)
 	}
 }
 
