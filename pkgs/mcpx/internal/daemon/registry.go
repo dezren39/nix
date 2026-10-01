@@ -716,6 +716,12 @@ func (r *Registry) Resources(namespaces []string) []ResourceInfo {
 		}
 		_, resources, _ := p.CachedSchemas()
 		for _, res := range resources {
+			// Templates share the cache (see pool.CachedTemplates) and
+			// have no uri; listing one here put an entry with an empty
+			// URI in resources/list, which no revision's schema allows.
+			if res.URITemplate != "" {
+				continue
+			}
 			out = append(out, ResourceInfo{
 				Namespace: view.Namespace, Server: name, URI: res.URI,
 				Name: res.Name, Description: res.Description, MimeType: res.MimeType,

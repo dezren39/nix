@@ -252,6 +252,35 @@ the rest of this page:
 
 ---
 
+### 2.5 Pass-through: one upstream under its own names
+
+By default mcpx is a gateway: a small tool set (`mcpx_call`, `mcpx_exec`,
+discovery), prompts as `<namespace>_<prompt>`, resources as
+`mcpx://<namespace>/<uri>`. `mcp.passthrough` (`--passthrough <server>` on
+`mcpx serve` and `mcpx daemon`, `MCPX_MCP_PASSTHROUGH`) names one configured
+server whose surface is offered **as itself** instead:
+
+- `tools/list` carries its tools under their own names, ahead of the gateway's;
+  `tools/call` on one of them is forwarded and its result returned verbatim —
+  images, audio, embedded resources, `structuredContent` and `isError` intact.
+  Its questions reach the calling client exactly as `mcpx_call`'s do (§3), with
+  the upstream's own `inputRequests` keys where it asked in a 2026-07-28 result.
+- `prompts/list` names its prompts without the prefix; `prompts/get` returns
+  the upstream's result verbatim.
+- `resources/list`, `resources/templates/list` and `resources/read` use its own
+  URIs, as do subscriptions and `completion/complete` refs. An `mcpx://` URI
+  still reaches every other server and mcpx's artifacts.
+- **Collisions:** the upstream wins. A gateway tool whose name the upstream
+  also uses is neither listed nor callable over MCP (it stays on the CLI and
+  `/v1`). The upstream is the server in this mode, and a client must be able to
+  call every name `tools/list` shows and get that tool.
+
+Every other server stays reachable through the gateway tools. Not carried
+over: a pass-through tool's `outputSchema`, `title` and `annotations` (the
+daemon's catalogue keeps name, description and input schema only), and the
+upstream's `notifications/message` and `notifications/progress` (§2.2, #212).
+`scripts/conformance.sh` runs the official suite's own fixture server this way.
+
 ## 3. A server asks a question
 
 This is the part with two mechanisms for one thing, and the reason the rest of

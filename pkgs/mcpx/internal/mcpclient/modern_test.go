@@ -366,3 +366,53 @@ func TestRootsAreServedEvenWithAHandlerInstalled(t *testing.T) {
 	}
 	t.Fatal("the client never answered roots/list")
 }
+
+func TestInputRequestsOfOneRoundAreAskedTogetherUnderTheirKeys(t *testing.T) {
+	// A server that asks two things in one round means one round. Asked
+	// one at a time, a gateway relaying them could only show its own client
+	// the first, and the client came back once per question.
+	s := newScripted(func(method string, params map[string]any) any {
+		switch method {
+		case "server/discover":
+			return modernDiscover(params)
+		case "tools/call":
+			if params["inputResponses"] == nil {
+				q := func(msg string) map[string]any {
+					return map[string]any{"method": "elicitation/create", "params": map[string]any{
+						"mode": "form", "message": msg, "requestedSchema": map[string]any{"type": "object"}}}
+				}
+				return map[string]any{"resultType": "input_required", "requestState": "s",
+					"inputRequests": map[string]any{"a": q("first?"), "b": q("second?")}}
+			}
+			return map[string]any{"resultType": "complete", "content": []any{}}
+		}
+		return nil
+	})
+	var mu sync.Mutex
+	keys := map[string]bool{}
+	both := make(chan struct{})
+	c := dialModern(t, s, mcpclient.Options{
+		OnServerRequest: func(ctx context.Context, _ string, _ json.RawMessage) (any, error) {
+			mu.Lock()
+			keys[mcpclient.InputKey(ctx)] = true
+			if len(keys) == 2 {
+				close(both)
+			}
+			mu.Unlock()
+			select {
+			case <-both:
+			case <-time.After(2 * time.Second):
+				return nil, context.DeadlineExceeded
+			}
+			return map[string]any{"action": "accept", "content": map[string]any{}}, nil
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := c.CallTool(ctx, "two", map[string]any{}); err != nil {
+		t.Fatalf("both questions should have been open at once: %v", err)
+	}
+	if !keys["a"] || !keys["b"] {
+		t.Errorf("each question should carry its server's key, saw %v", keys)
+	}
+}

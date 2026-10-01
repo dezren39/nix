@@ -245,7 +245,18 @@ func (t *askTable) owner(server, key string) (*askCall, int, bool) {
 // The residual window: an entry is registered just before its request is
 // counted, so a stranger's question arriving in that instant, while the
 // owner's request has not yet been sent, can still be misattributed.
-func (r *Registry) askFor(server, key string) (*askCall, bool) {
+func (r *Registry) askFor(ctx context.Context, server, key string) (*askCall, bool) {
+	// The call itself, when the question arrived on its context: a 2026-07-28
+	// upstream asks inside the call's own result, so there is no doubt whose
+	// question it is. Inferring it from the instance alone failed whenever
+	// a second call shared the instance -- an earlier caller that never
+	// resumed was enough -- and the question went to the broker, where the
+	// client that could answer it never saw it and the request hung.
+	if id, ok := ctx.Value(askCallKey{}).(string); ok {
+		if a, ok := r.asks.get(id); ok && a.Server == server {
+			return a, true
+		}
+	}
 	p, ok := r.Pool(server)
 	if !ok {
 		return nil, false
@@ -264,14 +275,14 @@ func (t *askTable) sole(server, key string, inflight int) (*askCall, bool) {
 
 // attach records a question against the call that provoked it, if one can be
 // identified, and returns whether it was.
-func (r *Registry) attach(server, key string, req elicit.Request, method string, params json.RawMessage) (string, bool) {
-	a, ok := r.askFor(server, key)
+func (r *Registry) attach(ctx context.Context, server, key string, req elicit.Request, method string, params json.RawMessage) (string, bool) {
+	a, ok := r.askFor(ctx, server, key)
 	if !ok {
 		return "", false
 	}
 	a.add(mcpserver.Question{
 		ID: req.ID, Method: method, Params: params,
-		Mode: string(req.Mode), Server: server,
+		Mode: string(req.Mode), Server: server, Key: mcpclient.InputKey(ctx),
 	})
 	return a.ID, true
 }
@@ -292,6 +303,7 @@ func (r *Registry) CallAsk(ctx context.Context, id, server, tool string, cc conf
 	}
 	r.beginAsk(id, server, key, cc.SessionID)
 	defer r.endAsk(id)
+	ctx = withAskCall(ctx, id)
 	return p.Call(ctx, key, tool, args)
 }
 
@@ -304,6 +316,7 @@ func (r *Registry) ReadResourceAsk(ctx context.Context, id, server, uri string, 
 	key := r.keyFor(p, cc)
 	r.beginAsk(id, server, key, cc.SessionID)
 	defer r.endAsk(id)
+	ctx = withAskCall(ctx, id)
 	return p.ReadResource(ctx, key, upstreamResourceURI(ctx, p, uri))
 }
 
@@ -316,6 +329,7 @@ func (r *Registry) GetPromptAsk(ctx context.Context, id, server, name string, ar
 	key := r.keyFor(p, cc)
 	r.beginAsk(id, server, key, cc.SessionID)
 	defer r.endAsk(id)
+	ctx = withAskCall(ctx, id)
 	return p.GetPrompt(ctx, key, name, args)
 }
 
@@ -956,4 +970,11 @@ func upstreamResourceURI(ctx context.Context, p *pool.Pool, inner string) string
 		}
 	}
 	return inner
+}
+
+// askCallKey carries the id of the interruptible call a context belongs to.
+type askCallKey struct{}
+
+func withAskCall(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, askCallKey{}, id)
 }

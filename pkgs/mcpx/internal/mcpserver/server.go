@@ -213,6 +213,10 @@ type Server struct {
 	// Origins decides which browser origins the HTTP transport serves.
 	Origins OriginPolicy
 
+	// Passthrough names one upstream whose tools are offered under their
+	// own names alongside, and ahead of, the gateway's; see passthrough.go.
+	Passthrough string
+
 	mu sync.Mutex
 
 	// Notify is where pushed notifications come from. Nil means mcpx never
@@ -283,7 +287,7 @@ func (s *Server) WithExtras(extras []Extra) *Server {
 	return &Server{
 		backend: s.backend, name: s.name, version: s.version,
 		PageSize: s.PageSize, MaxCompletions: s.MaxCompletions, Cache: s.Cache,
-		Timing: s.Timing, OnCancel: s.OnCancel, Origins: s.Origins,
+		Timing: s.Timing, OnCancel: s.OnCancel, Origins: s.Origins, Passthrough: s.Passthrough,
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
@@ -673,7 +677,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		var call struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" && !s.hasTool(call.Name) {
+		if json.Unmarshal(req.Params, &call) == nil && call.Name != "" && !s.hasTool(ctx, call.Name) {
 			return &response{JSONRPC: "2.0", ID: req.ID,
 				Error: &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("no tool named %q", call.Name)}}
 		}
@@ -726,7 +730,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		// server and a client with a frame limit has no other way to read
 		// the list. Ignoring the cursor meant a large installation was
 		// simply unreadable by such a client.
-		tools, next, perr := page(s.Tools(), req.Params, s.pageSize())
+		tools, next, perr := page(s.surface(ctx), req.Params, s.pageSize())
 		if perr != nil {
 			return fail(codeInvalidParams, perr.Error())
 		}
@@ -854,7 +858,13 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
 			return fail(codeInvalidParams, err.Error())
 		}
-		text, err := s.dispatch(ctx, p.Name, p.Arguments)
+		var text string
+		var err error
+		if s.isPassTool(ctx, p.Name) {
+			text, err = s.backend.Call(ctx, s.Passthrough, p.Name, p.Arguments)
+		} else {
+			text, err = s.dispatch(ctx, p.Name, p.Arguments)
+		}
 		if err != nil {
 			// A tool that fails is a result with isError, not a protocol
 			// error. The distinction matters: a protocol error means the
@@ -864,6 +874,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 				"content": []any{map[string]any{"type": "text", "text": err.Error()}},
 				"isError": true,
 			})
+		}
+		if raw, ok := decodeRaw(text); ok {
+			return reply(raw)
 		}
 		text, blocks := decodeResult(text)
 		content := []any{map[string]any{"type": "text", "text": text}}
@@ -975,6 +988,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 				return fail(codeInvalidParams, err.Error())
 			}
 			return fail(codeInternal, err.Error())
+		}
+		if raw, ok := decodeRaw(text); ok {
+			return reply(raw)
 		}
 		return reply(map[string]any{
 			"messages": []any{map[string]any{
@@ -2248,8 +2264,8 @@ func (l lockedEncoder) Encode(v any) error {
 const specMaxCompletions = 100
 
 // hasTool reports whether tools/call can reach name.
-func (s *Server) hasTool(name string) bool {
-	for _, t := range s.Tools() {
+func (s *Server) hasTool(ctx context.Context, name string) bool {
+	for _, t := range s.surface(ctx) {
 		if t.Name == name {
 			return true
 		}

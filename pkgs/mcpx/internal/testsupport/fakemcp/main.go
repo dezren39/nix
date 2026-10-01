@@ -268,7 +268,10 @@ func handle(r req) map[string]any {
 			}},
 		})
 	case "resources/templates/list":
-		return ok(r.ID, map[string]any{"resourceTemplates": []any{}})
+		return ok(r.ID, map[string]any{"resourceTemplates": []any{map[string]any{
+			"uriTemplate": "demo://items/{id}", "name": "item",
+			"description": "one item by id", "mimeType": "text/plain",
+		}}})
 	case "tools/call":
 		return callTool(r)
 	}
