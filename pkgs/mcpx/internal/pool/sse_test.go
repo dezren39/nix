@@ -27,7 +27,17 @@ type oldSSEServer struct {
 
 func newOldSSEServer(t *testing.T) *oldSSEServer {
 	s := &oldSSEServer{}
-	out := make(chan []byte, 16)
+	// One reply channel per GET stream, named in the endpoint it hands out,
+	// as a real HTTP+SSE server routes by session. A single shared channel
+	// let a stream the client had already closed -- whose handler had not
+	// yet noticed -- take the reply meant for the new one, and the new
+	// client waited out its whole budget for an initialize answer that had
+	// gone to a dead connection (#272).
+	var (
+		smu      sync.Mutex
+		sessions = map[string]chan []byte{}
+		next     int
+	)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -37,9 +47,20 @@ func newOldSSEServer(t *testing.T) *oldSSEServer {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		out := make(chan []byte, 16)
+		smu.Lock()
+		next++
+		id := fmt.Sprint(next)
+		sessions[id] = out
+		smu.Unlock()
+		defer func() {
+			smu.Lock()
+			delete(sessions, id)
+			smu.Unlock()
+		}()
 		w.Header().Set("Content-Type", "text/event-stream")
 		f := w.(http.Flusher)
-		fmt.Fprint(w, "event: endpoint\ndata: /message\n\n")
+		fmt.Fprintf(w, "event: endpoint\ndata: /message?session=%s\n\n", id)
 		f.Flush()
 		for {
 			select {
@@ -52,6 +73,13 @@ func newOldSSEServer(t *testing.T) *oldSSEServer {
 		}
 	})
 	mux.HandleFunc("/message", func(w http.ResponseWriter, r *http.Request) {
+		smu.Lock()
+		out, ok := sessions[r.URL.Query().Get("session")]
+		smu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		var f struct {
 			ID     json.RawMessage `json:"id"`

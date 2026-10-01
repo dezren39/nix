@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/testsupport"
 )
 
 // tree builds nested directories each holding a config, and chdirs to the
 // deepest one.
 func tree(t *testing.T, files map[string]string) string {
 	t.Helper()
-	root := t.TempDir()
+	root := testsupport.TempDir(t)
 	for rel, body := range files {
 		p := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
