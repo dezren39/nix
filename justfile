@@ -106,22 +106,20 @@ lootbox-check:
 rebuild:
     ./rebuild.sh
 
-# Only activation needs root, so this half of a switch runs unprivileged. Use
-# it to verify a config change compiles without being at the keyboard to type
-# a sudo password. `just switch` runs the same build before it activates.
+# Three entry points into one implementation (simple-rebuild.sh), split by
+# privilege: build needs no sudo and runs unattended, activate needs root.
+# Each commits --allow-empty to mark that it happened -- a build names the
+# store path it produced (no sudo), an activation names the generation.
 
 # Build the darwin system without activating it (no sudo)
 [group('nix')]
 build:
-    nix --extra-experimental-features 'nix-command flakes' \
-        build ".#darwinConfigurations.$(hostname -s).system" \
-        --keep-going --out-link ./result
+    ./simple-rebuild.sh --build-only
 
-# Activate ./result, which `just build` produced. The nix build here is a cache
-# hit in that case, so this is the "switch without building again" path -- a
-# few seconds of flake evaluation, no compilation.
+# Activate ./result, which `just build` produced. The nix build inside this is
+# a cache hit in that case, so it is the "switch without building again" path.
 #
-# This deliberately uses `switch` and not `darwin-rebuild activate`. Reading
+# It uses `darwin-rebuild switch`, not `darwin-rebuild activate`. Reading
 # darwin-rebuild: `nix-env -p /nix/var/nix/profiles/system --set` runs under
 # `if [ "$action" = switch ]` only, so `activate` applies the configuration
 # without registering a generation -- it would not appear in
@@ -131,9 +129,9 @@ build:
 # Activate what `just build` already built, without compiling again
 [group('nix')]
 activate:
-    sudo ./result/sw/bin/darwin-rebuild switch --flake . --keep-going
+    ./simple-rebuild.sh --activate-only
 
-# Simple rebuild: switch only (no flake update)
+# Simple rebuild: build + activate (no flake update)
 [group('nix')]
 switch:
     ./simple-rebuild.sh

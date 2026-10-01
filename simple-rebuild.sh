@@ -58,54 +58,98 @@ reclaim_root_owned() {
 reclaim_root_owned
 git add .
 
-echo "softwareupdate --install-rosetta --agree-to-license"
-softwareupdate --install-rosetta --agree-to-license
-
-# Build as the invoking user, activate as root.
+# Phases.
 #
-# `sudo nix run nix-darwin -- switch` did both halves as root, which is why the
-# repo needed `sudo chown -R "$USER" .` above: every eval/build artifact nix
-# touched in this directory came back root-owned. Building unprivileged keeps
-# ~/.cache/nix, the flake eval cache and any result symlinks owned by the user,
-# and leaves root doing only what genuinely needs privilege -- activation.
+# `just build`, `just activate` and `just switch` are three entry points into
+# one implementation, so there is nothing to drift. The split is by privilege:
+# phase_build needs no sudo and can run unattended, phase_activate needs root
+# and therefore a human (or a fingerprint) at the machine.
 #
-# Falls back to the old combined path if the build fails, so a broken build
-# never leaves the machine un-switched.
-echo "nix build .#darwinConfigurations.$(hostname -s).system  (as $USER)"
-if nix --extra-experimental-features 'nix-command flakes' \
-     build ".#darwinConfigurations.$(hostname -s).system" --keep-going --out-link ./result; then
-  echo "darwin-rebuild switch (activate as root)"
-  sudo ./result/sw/bin/darwin-rebuild switch --flake . --keep-going
-else
-  echo "user build failed; falling back to combined root build+switch"
-  sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
-fi
+#   --build-only     prepare + build            no sudo
+#   --activate-only  activate + post + commit   sudo
+#   (no flag)        all of it
+mode="all"
+case "${1:-}" in
+  --build-only)    mode="build" ;;
+  --activate-only) mode="activate" ;;
+  "")              ;;
+  *) echo "usage: ${0:t} [--build-only|--activate-only]" >&2; exit 2 ;;
+esac
 
-echo "install/update pinned lootbox"
-nix run .#lootbox-update -- --if-needed
+# Every commit here is --allow-empty: the point is to mark *when* a build or an
+# activation happened, which is information even when no file changed. A build
+# names the store path it produced, because that is the only identity a build
+# has -- and reading it needs no sudo, unlike --list-generations, which takes
+# the system profile lock. An activation names the generation, which is the
+# identity the system has.
+phase_build() {
+  echo "nix build .#darwinConfigurations.$(hostname -s).system  (as $USER)"
+  if nix --extra-experimental-features 'nix-command flakes' \
+       build ".#darwinConfigurations.$(hostname -s).system" --keep-going --out-link ./result; then
+    built=$(basename "$(readlink -f ./result)")
+  elif [[ "$mode" == "build" ]]; then
+    # No root fallback here: this phase's whole contract is that it never asks
+    # for a password, so a failed build fails rather than escalating.
+    echo "build failed" >&2
+    return 1
+  else
+    # Falls back to the old combined path, so a broken unprivileged build never
+    # leaves the machine un-switched.
+    echo "user build failed; falling back to combined root build+switch"
+    sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
+    built="root-fallback"
+  fi
+  git commit --no-verify --allow-empty -m "$(hostname) build ${built}"
+}
 
-# Spotlight: mark .git and regenerable build-artifact dirs under ~/git as
-# never-index. Runs as the invoking user (not root) so the markers are
-# user-owned. Static paths are handled by configuration.nix activation.
-# --system only: re-assert the static marker list for both accounts. The
-# per-repo walk is deliberately NOT run here -- it rescans every repo under
-# ~/git, which is wasted work on a switch. Use `just spotlight-walk` or ./clean.
-echo "spotlight: static exclude markers (user + root)"
-./spotlight-exclude-artifacts --system || true       # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
-sudo ./spotlight-exclude-artifacts --system || true  # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
+phase_activate() {
+  echo "softwareupdate --install-rosetta --agree-to-license"
+  softwareupdate --install-rosetta --agree-to-license
 
-# System-wide git setup only (scheduler + drift report). Touches no repos, so it
-# stays fast. Per-repo maintenance is the scheduler's job, or ./git-maintain-repos.
-# Run for both accounts: the scheduler is per-user, and root has its own global
-# config via /var/root/.gitconfig.
-echo "git: system-wide maintenance setup (user)"
-./git-maintain-repos --system || true                # ~80ms. Do NOT drop --system: default --auto walks every repo, ~3min
-echo "git: system-wide maintenance setup (root)"
-sudo ./git-maintain-repos --system || true           # ~80ms. Root: config only. No scheduler: macOS has only launchd, and git installs launchd *agents*, which need a GUI Aqua session root lacks
+  # Activate as root. Build already happened (phase_build, or a previous
+  # `just build`), so the nix build inside this is a cache hit.
+  if [[ -x ./result/sw/bin/darwin-rebuild ]]; then
+    echo "darwin-rebuild switch (activate as root)"
+    sudo ./result/sw/bin/darwin-rebuild switch --flake . --keep-going
+  else
+    echo "no ./result to activate; run 'just build' first" >&2
+    return 1
+  fi
 
-current=$(sudo darwin-rebuild --list-generations | grep current)
-echo "current: $current"
-hostname=$(hostname)
-echo "hostname: $hostname"
-reclaim_root_owned
-git commit --no-verify --allow-empty -m "$hostname $current"
+  echo "install/update pinned lootbox"
+  nix run .#lootbox-update -- --if-needed
+
+  # Spotlight: mark .git and regenerable build-artifact dirs under ~/git as
+  # never-index. Runs as the invoking user (not root) so the markers are
+  # user-owned. Static paths are handled by configuration.nix activation.
+  # --system only: re-assert the static marker list for both accounts. The
+  # per-repo walk is deliberately NOT run here -- it rescans every repo under
+  # ~/git, which is wasted work on a switch. Use `just spotlight-walk` or ./clean.
+  echo "spotlight: static exclude markers (user + root)"
+  ./spotlight-exclude-artifacts --system || true       # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
+  sudo ./spotlight-exclude-artifacts --system || true  # ~40ms. Consider dropping --system for default --auto: only +~3s, marks new repos
+
+  # System-wide git setup only (scheduler + drift report). Touches no repos, so it
+  # stays fast. Per-repo maintenance is the scheduler's job, or ./git-maintain-repos.
+  # Run for both accounts: the scheduler is per-user, and root has its own global
+  # config via /var/root/.gitconfig.
+  echo "git: system-wide maintenance setup (user)"
+  ./git-maintain-repos --system || true                # ~80ms. Do NOT drop --system: default --auto walks every repo, ~3min
+  echo "git: system-wide maintenance setup (root)"
+  sudo ./git-maintain-repos --system || true           # ~80ms. Root: config only. No scheduler: macOS has only launchd, and git installs launchd *agents*, which need a GUI Aqua session root lacks
+
+  # --list-generations needs root despite not matching darwin-rebuild's
+  # root-required action regex: it takes the /nix/var/nix/profiles/system lock.
+  current=$(sudo darwin-rebuild --list-generations | grep current)
+  echo "current: $current"
+  echo "hostname: $(hostname)"
+  reclaim_root_owned
+  git add .
+  git commit --no-verify --allow-empty -m "$(hostname) $current"
+}
+
+case "$mode" in
+  build)    phase_build ;;
+  activate) phase_activate ;;
+  all)      phase_build && phase_activate ;;
+esac
