@@ -253,19 +253,12 @@ func (d daemonAsker) renderAsk(result map[string]json.RawMessage) (text string, 
 	_ = json.Unmarshal(result["server"], &server)
 	inner := result["result"]
 	switch kind {
-	case "prompts/get":
-		if d.app.isPass(server) {
-			return mcpserver.EncodeRaw(inner), nil, false
-		}
-		return renderPrompt(inner), nil, false
 	case "resources/read":
 		return "", d.app.resourceContents(inner, server), false
 	default:
-		if d.app.isPass(server) {
-			return mcpserver.EncodeRaw(inner), nil, false
-		}
-		text, failed := renderResult(inner)
-		return text, nil, failed
+		// tools/call and prompts/get: verbatim, as the direct path sends
+		// them (#206).
+		return mcpserver.EncodeRaw(d.app.exposeResult(server, inner)), nil, false
 	}
 }
 

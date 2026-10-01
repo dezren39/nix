@@ -228,6 +228,10 @@ func TestMCPSurfaceAnswersLikeV1(t *testing.T) {
 		if c["blob"] != "iVBORw0KGgo=" || c["mimeType"] != "image/png" || c["text"] != nil {
 			t.Fatalf("not a blob: %s", dumpJSON(t, c))
 		}
+		// _meta on a read entry was dropped (#207, RES-06).
+		if m, _ := c["_meta"].(map[string]any); m["example.com/k"] != "contents" {
+			t.Errorf("the entry's _meta should survive: %s", dumpJSON(t, c))
+		}
 		if c["uri"] != "mcpx://demo/demo://logo" {
 			t.Errorf("the entry's uri should be readable back through mcpx: %v", c["uri"])
 		}

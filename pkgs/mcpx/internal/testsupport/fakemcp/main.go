@@ -226,7 +226,8 @@ func handle(r req) map[string]any {
 			// Binary, and deliberately unlisted so no listing test moves:
 			// the eight bytes of a PNG signature, as a blob.
 			return ok(r.ID, map[string]any{"contents": []any{
-				map[string]any{"uri": p.URI, "mimeType": "image/png", "blob": "iVBORw0KGgo="},
+				map[string]any{"uri": p.URI, "mimeType": "image/png", "blob": "iVBORw0KGgo=",
+					"_meta": map[string]any{"example.com/k": "contents"}},
 			}})
 		}
 		if subscribeMode && p.URI == absResource {
@@ -506,9 +507,16 @@ func callTool(r req) map[string]any {
 			"content": []map[string]any{{"type": "text", "text": "boom: deliberate failure"}},
 		})
 	case "structured":
+		// Every kind of block a proxy could flatten, so a test can see
+		// which survive.
 		return ok(r.ID, map[string]any{
-			"content":           []map[string]any{{"type": "text", "text": `{"n":42}`}},
+			"content": []map[string]any{
+				{"type": "text", "text": `{"n":42}`},
+				{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
+				{"type": "resource_link", "uri": "demo://greeting", "name": "greeting", "mimeType": "image/png"},
+			},
 			"structuredContent": map[string]any{"n": 42},
+			"_meta":             map[string]any{"example.com/k": "result"},
 		})
 	case "fancy-name":
 		b, _ := json.Marshal(p.Arguments)

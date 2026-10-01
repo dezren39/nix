@@ -130,6 +130,8 @@ type ResourceContents struct {
 	MimeType string
 	Text     string
 	Blob     string
+	// Meta is the entry's _meta, carried as the upstream sent it.
+	Meta json.RawMessage
 }
 
 // readResult renders contents in the schema's shape for a read of uri.
@@ -150,6 +152,9 @@ func readResult(uri string, contents []ResourceContents) map[string]any {
 				entry["mimeType"] = "text/plain"
 			}
 			entry["text"] = c.Text
+		}
+		if len(c.Meta) > 0 {
+			entry["_meta"] = c.Meta
 		}
 		out = append(out, entry)
 	}

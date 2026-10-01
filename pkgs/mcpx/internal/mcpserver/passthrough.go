@@ -144,6 +144,20 @@ func EncodeRaw(raw json.RawMessage) string {
 	return resultMarker + string(b)
 }
 
+// DecodeRaw returns the result EncodeRaw packed, if s is one, for a caller
+// that has to render it rather than send it.
+func DecodeRaw(s string) (json.RawMessage, bool) {
+	rest, ok := cutMarker(s)
+	if !ok {
+		return nil, false
+	}
+	var r richResult
+	if json.Unmarshal([]byte(rest), &r) != nil || len(r.Raw) == 0 {
+		return nil, false
+	}
+	return r.Raw, true
+}
+
 // decodeRaw returns the verbatim result EncodeRaw packed, if s is one.
 func decodeRaw(s string) (map[string]any, bool) {
 	rest, ok := cutMarker(s)

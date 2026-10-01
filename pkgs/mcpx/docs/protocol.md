@@ -183,14 +183,19 @@ that could never work (#284).
 ### 2.3 Result shapes, and what is downgraded
 
 Everything is built in the newest shape and spelled down once, at the edge, in
-`downgrade()`. Building several shapes and choosing between them is how the
+`downgrade()`. An upstream's `tools/call` result (through `mcpx_call` or a
+pass-through tool) and `prompts/get` result are carried as the upstream sent
+them -- `isError`, every content block, `structuredContent` and `_meta` -- with
+resource URIs rewritten to ones `/mcp` can read; listed tools, resources,
+templates and prompts keep their optional fields. Building several shapes and choosing between them is how the
 shapes drift apart.
 
 | carried | defined from | to an older client |
 | --- | --- | --- |
 | `structuredContent` | 2025-06-18 | removed, and rendered into the `content` array as text — the data survives, in a vocabulary the client has |
-| `resource_link` block | 2025-06-18 | becomes an embedded `resource`, which keeps the URI machine-readable where text would not |
+| `resource_link` block | 2025-06-18 | becomes an embedded `resource` with a `text/plain` label naming the URI, which keeps the URI machine-readable where text would not |
 | `audio` block | 2025-03-26 | a text block describing it, for 2024-11-05 |
+| `_meta` on listed tools, resources, templates, prompts and read contents; `annotations.lastModified` | 2025-06-18 | stripped |
 | tool `annotations`, the `completions` capability | 2025-03-26 | stripped for 2024-11-05 |
 | `title` | 2025-06-18 | stripped |
 | `icons` | 2025-11-25 | stripped |
