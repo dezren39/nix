@@ -31,104 +31,6 @@ import (
 	"time"
 )
 
-// Runtime is a JavaScript runtime capable of executing TypeScript directly.
-type Runtime struct {
-	Name string
-	Bin  string
-	Args func(script string) []string
-}
-
-// Permissions renders a sandbox setting into runtime flags.
-//
-// Only Deno has a permission model to speak of; bun and node run with the
-// user's own authority whatever is asked, which is stated here rather than
-// pretended otherwise.
-//
-// The default is wide open. A script is written by the same person who could
-// have run the command directly, and a half-sandbox invites working around it
-// rather than reasoning about it. Narrowing is available for the cases where
-// it is genuinely wanted.
-func Permissions(spec string) []string {
-	switch strings.ToLower(strings.TrimSpace(spec)) {
-	case "", "all", "none", "off", "unsandboxed":
-		return []string{"--allow-all"}
-	case "net":
-		return []string{"--allow-net", "--allow-env"}
-	case "read":
-		return []string{"--allow-read", "--allow-env"}
-	case "readnet", "read-net":
-		return []string{"--allow-read", "--allow-net", "--allow-env"}
-	case "strict":
-		// Enough to reach the daemon and nothing else.
-		return []string{"--allow-net=127.0.0.1", "--allow-env"}
-	}
-	// Anything else is passed through verbatim, so an unusual combination does
-	// not require a new keyword here.
-	return strings.Fields(spec)
-}
-
-// Detect picks a runtime. An explicit preference wins; otherwise the first
-// available of deno, bun, node is used.
-func Detect(prefer string, perms []string) (*Runtime, error) {
-	candidates := []string{"deno", "bun", "node"}
-	if prefer != "" && prefer != "auto" {
-		candidates = []string{prefer}
-	}
-	// A narrowed permission profile is a restriction, and only Deno can
-	// enforce one. Bun and Node used to run the script anyway with the
-	// user's full authority, so script.permissions strict read files it
-	// promised it could not. Refusing is the only honest answer there, and
-	// auto must not fall back to a runtime that would ignore the profile
-	// (docs/decisions/0003).
-	if !unrestricted(perms) {
-		if prefer != "" && prefer != "auto" && prefer != "deno" {
-			return nil, fmt.Errorf("%s has no permission model, so it cannot enforce "+
-				"script.permissions %s; use --runtime deno, or permissions all",
-				prefer, strings.Join(perms, " "))
-		}
-		candidates = []string{"deno"}
-	}
-	var tried []string
-	for _, name := range candidates {
-		bin, err := exec.LookPath(name)
-		if err != nil {
-			tried = append(tried, name)
-			continue
-		}
-		switch name {
-		case "deno":
-			return &Runtime{Name: "deno", Bin: bin, Args: func(s string) []string {
-				// --no-check skips type checking: the generated client is
-				// machine-written and already correct, and a type error in the
-				// agent's script surfaces at runtime anyway.
-				args := []string{"run", "--quiet", "--no-check"}
-				args = append(args, perms...)
-				return append(args, s)
-			}}, nil
-		case "bun":
-			return &Runtime{Name: "bun", Bin: bin, Args: func(s string) []string {
-				return []string{"run", s}
-			}}, nil
-		case "node":
-			return &Runtime{Name: "node", Bin: bin, Args: func(s string) []string {
-				return []string{"--no-warnings", "--experimental-strip-types", s}
-			}}, nil
-		}
-	}
-	if !unrestricted(perms) {
-		return nil, fmt.Errorf("script.permissions %s needs deno, the one runtime that can "+
-			"enforce a permission profile, and deno is not installed", strings.Join(perms, " "))
-	}
-	return nil, fmt.Errorf("no JavaScript runtime found (tried %s); install deno, bun or node",
-		strings.Join(tried, ", "))
-}
-
-// unrestricted reports whether a rendered profile grants everything, which
-// is the one profile a runtime with no permission model honours by default.
-func unrestricted(perms []string) bool {
-	return len(perms) == 0 || (len(perms) == 1 && perms[0] == "--allow-all")
-}
-
 // Options configure one script execution.
 type Options struct {
 	// Source is the TypeScript to run. Exactly one of Source or File.
@@ -151,8 +53,12 @@ type Options struct {
 	//
 	// Ignored when WorkDir is set.
 	WorkRoot string
-	// Runtime preference ("auto", "deno", "bun", "node").
+	// Runtime is "auto", a kind (deno, bun, node), a name declared in
+	// Setup.Runtimes, or a path or binary name whose basename is a kind.
 	Runtime string
+	// Setup carries the configured runtimes, auto-detection order and
+	// permission profiles. The zero value means the built-ins.
+	Setup Setup
 	// Timeout bounds execution; 0 means no limit.
 	Timeout time.Duration
 	// Env adds environment variables.
@@ -253,8 +159,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if opts.Source == "" && opts.File == "" {
 		return nil, errors.New("runner: need Source or File")
 	}
-	perms := Permissions(opts.Permissions)
-	rt, err := Detect(opts.Runtime, perms)
+	rt, err := Resolve(opts.Runtime, opts.Permissions, opts.Setup)
 	if err != nil {
 		return nil, err
 	}
@@ -380,11 +285,13 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// the client import still resolves against the script file, because ESM
 	// resolves relative specifiers against the importing module.
 	cmd.Dir = opts.Dir
-	cmd.Env = append(os.Environ(), "MCPX_RUNTIME="+rt.Name)
+	// The kind, not the configured name: a script branching on its runtime
+	// cares whether it is under Deno, not what somebody called the binary.
+	cmd.Env = append(os.Environ(), "MCPX_RUNTIME="+rt.Kind)
 	// Resolved here rather than by the caller: only the runner knows the final
 	// location of the entry script and the client it wrote beside it.
 	cmd.Env = append(cmd.Env, "MCPX_ENTRY="+scriptPath, "MCPX_CLIENT="+clientPath)
-	if allowsRead(perms) {
+	if allowsRead(rt.Kind, rt.Perms) {
 		cmd.Env = append(cmd.Env, "MCPX_ALLOW_READ=1")
 	}
 	for k, v := range opts.Env {
@@ -779,13 +686,32 @@ func indentLines(lines []string, indent string) string {
 	return strings.Join(out, "\n")
 }
 
-func allowsRead(perms []string) bool {
-	for _, perm := range perms {
-		if perm == "--allow-all" || strings.HasPrefix(perm, "--allow-read") {
-			return true
+// allowsRead reports whether the script may read files, which the generated
+// client's file helpers check before trying rather than leaving the failure
+// to the sandbox.
+func allowsRead(kind string, perms []string) bool {
+	switch kind {
+	case KindDeno:
+		for _, perm := range perms {
+			if perm == "--allow-all" || strings.HasPrefix(perm, "--allow-read") {
+				return true
+			}
 		}
+		return false
+	case KindNode:
+		// Without --permission node enforces nothing.
+		narrowed := false
+		for _, perm := range perms {
+			if perm == "--permission" || perm == "--experimental-permission" {
+				narrowed = true
+			}
+			if strings.HasPrefix(perm, "--allow-fs-read") {
+				return true
+			}
+		}
+		return !narrowed
 	}
-	return false
+	return true
 }
 
 // prunePrograms bounds how many generated programs a client directory keeps.

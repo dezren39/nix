@@ -17,11 +17,26 @@ type Binding struct {
 	// setting can be reported as the conflict they are rather than silently
 	// racing.
 	seen map[string][]spelling
+	// preset names the preset whose flags are being parsed, or "", and
+	// presets counts them so a later preset ranks above an earlier one.
+	preset  string
+	presets int
 }
 
 type spelling struct {
 	flagName string
 	raw      string
+	preset   string
+	rank     int
+}
+
+// FromPreset marks the flags parsed from now on as coming from the named
+// preset; "" returns to the command line.
+func (b *Binding) FromPreset(name string) {
+	b.preset = name
+	if name != "" {
+		b.presets++
+	}
 }
 
 // flagValue adapts one setting to flag.Value.
@@ -48,7 +63,8 @@ func (f *flagValue) Set(v string) error {
 	if f.set.Bare != "" && strings.EqualFold(v, "true") {
 		v = f.set.Bare
 	}
-	f.b.seen[f.set.Path] = append(f.b.seen[f.set.Path], spelling{flagName: f.name, raw: v})
+	f.b.seen[f.set.Path] = append(f.b.seen[f.set.Path], spelling{flagName: f.name, raw: v,
+		preset: f.b.preset, rank: f.b.presets})
 	return nil
 }
 
@@ -66,12 +82,29 @@ func (f *flagValue) IsBoolFlag() bool {
 // duplicate. The effect is that the registry fills in everything the command
 // did not already provide, which is what makes `mcpx config --schema` true
 // rather than aspirational.
+//
+// Skipping the registration must not mean skipping the setting. A hand-written
+// flag with a setting's spelling is wrapped so that whatever it is given also
+// reaches the resolved set; before that, `mcpx exec --runtime deno` reached the
+// local variable and left script.runtime at auto for everything that read the
+// set instead (#231). except names hand-written flags that share a spelling
+// but mean something else -- `--keep` on exec keeps temp files, not log files --
+// and are left alone.
 func (s *Schema) Bind(fs *flag.FlagSet, cmd string) *Binding {
+	return s.BindExcept(fs, cmd, nil)
+}
+
+// BindExcept is Bind with a list of hand-written spellings that are not the
+// setting they collide with.
+func (s *Schema) BindExcept(fs *flag.FlagSet, cmd string, except map[string]bool) *Binding {
 	b := &Binding{schema: s, fs: fs, seen: map[string][]spelling{}}
 	for _, set := range s.ForCommand(cmd) {
 		p := set
 		for _, name := range append([]string{p.FlagName()}, p.FlagAliases...) {
-			if fs.Lookup(name) != nil {
+			if f := fs.Lookup(name); f != nil {
+				if _, already := f.Value.(*teeValue); !already && !except[name] {
+					f.Value = &teeValue{Value: f.Value, also: &flagValue{set: &p, name: name, b: b}}
+				}
 				continue
 			}
 			usage := p.Short
@@ -87,6 +120,37 @@ func (s *Schema) Bind(fs *flag.FlagSet, cmd string) *Binding {
 	return b
 }
 
+// teeValue keeps a hand-written flag's own behaviour and also records the
+// value against the setting it shares a name with.
+type teeValue struct {
+	flag.Value
+	also *flagValue
+}
+
+func (t *teeValue) Set(v string) error {
+	if err := t.Value.Set(v); err != nil {
+		return err
+	}
+	return t.also.Set(v)
+}
+
+// String tolerates the zero value, which the flag package builds by
+// reflection to decide whether a default is worth printing.
+func (t *teeValue) String() string {
+	if t == nil || t.Value == nil {
+		return ""
+	}
+	return t.Value.String()
+}
+
+func (t *teeValue) IsBoolFlag() bool {
+	if t == nil || t.Value == nil {
+		return false
+	}
+	bf, ok := t.Value.(interface{ IsBoolFlag() bool })
+	return ok && bf.IsBoolFlag()
+}
+
 // ApplyTo folds everything the command line gave into a set.
 func (b *Binding) ApplyTo(s *Set) error {
 	paths := make([]string, 0, len(b.seen))
@@ -96,51 +160,78 @@ func (b *Binding) ApplyTo(s *Set) error {
 	sort.Strings(paths)
 
 	for _, path := range paths {
-		given := b.seen[path]
-		set, _ := b.schema.Lookup(path)
-		// Two different spellings of one setting on one command line is the
-		// conflict worth refusing. The same spelling twice is not -- that is
-		// a person editing their own command, and the last one is what they
-		// meant.
-		if len(given) > 1 && !set.Repeatable {
-			distinct := map[string]bool{}
-			for _, g := range given {
-				distinct[g.flagName] = true
-			}
-			if len(distinct) > 1 {
-				names := make([]string, 0, len(distinct))
-				for n := range distinct {
-					names = append(names, "--"+n)
-				}
-				sort.Strings(names)
-				return fmt.Errorf("%s given as both %s; they are the same setting, "+
-					"so there is no order to pick", path, strings.Join(names, " and "))
+		var presetGiven, flagGiven []spelling
+		for _, g := range b.seen[path] {
+			if g.preset != "" {
+				presetGiven = append(presetGiven, g)
+			} else {
+				flagGiven = append(flagGiven, g)
 			}
 		}
-		if set.Repeatable {
-			parts := make([]string, 0, len(given))
-			for _, g := range given {
-				if g.raw == "-" {
-					parts = append(parts, NullMarker)
-					continue
-				}
-				parts = append(parts, g.raw)
+		// Presets first, so the command line lands above them and records
+		// them as what it overrode.
+		// One preset at a time, ranked by order, so a later preset wins and
+		// the earlier one is recorded as what it overrode.
+		for len(presetGiven) > 0 {
+			n := 1
+			for n < len(presetGiven) && presetGiven[n].rank == presetGiven[0].rank {
+				n++
 			}
-			if err := s.Apply(path, encodeList(parts), Origin{
-				Layer: LayerFlag, Detail: "--" + given[0].flagName,
-			}); err != nil {
+			if err := b.apply(s, path, presetGiven[:n], LayerPreset); err != nil {
 				return err
 			}
-			continue
+			presetGiven = presetGiven[n:]
 		}
-		last := given[len(given)-1]
-		if err := s.Apply(path, last.raw, Origin{
-			Layer: LayerFlag, Detail: "--" + last.flagName,
-		}); err != nil {
-			return err
+		if len(flagGiven) > 0 {
+			if err := b.apply(s, path, flagGiven, LayerFlag); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (b *Binding) apply(s *Set, path string, given []spelling, layer Layer) error {
+	set, _ := b.schema.Lookup(path)
+	detail := func(g spelling) string {
+		if g.preset != "" {
+			return g.preset + " (--" + g.flagName + ")"
+		}
+		return "--" + g.flagName
+	}
+	// Two different spellings of one setting on one command line is the
+	// conflict worth refusing. The same spelling twice is not -- that is
+	// a person editing their own command, and the last one is what they
+	// meant. Presets compose by order, so among them the later one wins
+	// whatever it was spelled.
+	if len(given) > 1 && !set.Repeatable && layer == LayerFlag {
+		distinct := map[string]bool{}
+		for _, g := range given {
+			distinct[g.flagName] = true
+		}
+		if len(distinct) > 1 {
+			names := make([]string, 0, len(distinct))
+			for n := range distinct {
+				names = append(names, "--"+n)
+			}
+			sort.Strings(names)
+			return fmt.Errorf("%s given as both %s; they are the same setting, "+
+				"so there is no order to pick", path, strings.Join(names, " and "))
+		}
+	}
+	if set.Repeatable {
+		parts := make([]string, 0, len(given))
+		for _, g := range given {
+			if g.raw == "-" {
+				parts = append(parts, NullMarker)
+				continue
+			}
+			parts = append(parts, g.raw)
+		}
+		return s.Apply(path, encodeList(parts), Origin{Layer: layer, Detail: detail(given[0]), Rank: given[0].rank})
+	}
+	last := given[len(given)-1]
+	return s.Apply(path, last.raw, Origin{Layer: layer, Detail: detail(last), Rank: last.rank})
 }
 
 func encodeList(parts []string) string {

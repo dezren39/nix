@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dezren39/mcpx/internal/runner"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -172,6 +173,10 @@ func (s *Server) ExecService() *execsvc.Service {
 	lim.Timeout = set.Duration("exec.timeout")
 	lim.Runtime = set.String("script.runtime")
 	lim.Permissions = set.String("script.permissions")
+	// A malformed definition is reported by the run that needs it, rather
+	// than failing every other route that builds a service.
+	lim.Setup, lim.SetupErr = runner.ParseSetup(set.String("script.runtimes"),
+		set.List("script.runtimeOrder"), set.String("script.profiles"))
 	lim.CaptureConsole = set.Bool("script.captureConsole")
 	lim.Typecheck = set.String("script.typecheck")
 	lim.Delivery = set.String("artifacts.delivery")

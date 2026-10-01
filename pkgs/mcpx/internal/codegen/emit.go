@@ -547,6 +547,7 @@ async function __call(server: string, tool: string, args: unknown): Promise<Tool
         "x-mcpx-parent-session": env("MCPX_PARENT_SESSION_ID"),
         "x-mcpx-ephemeral": env("MCPX_EPHEMERAL"),
         "x-mcpx-run": env("MCPX_RUN"),
+        "x-mcpx-input": env("MCPX_INPUT"),
       },
       body: JSON.stringify({ server, tool, args: args ?? {} }),
     });
@@ -558,6 +559,18 @@ async function __call(server: string, tool: string, args: unknown): Promise<Tool
     );
   }
   const body = await resp.json().catch(() => ({ error: ` + "`" + `bad response (http ${resp.status})` + "`" + ` }));
+  if (resp.status === 202 && body.inputRequired) {
+    // The server stopped to ask something and nothing in this run can
+    // answer it (MCPX_INPUT=report, set by mcpx exec and mcpx run). Exiting
+    // 75 rather than throwing: a script that catches ToolError would
+    // otherwise carry on as if the call had merely failed, and the caller
+    // would never learn there is a question waiting.
+    writeStderr("mcpx: " + String(body.inputRequired.text ?? "").trimEnd());
+    const g = globalThis as any;
+    if (typeof g.Deno?.exit === "function") g.Deno.exit(75);
+    if (typeof g.process?.exit === "function") g.process.exit(75);
+    throw new ToolError(` + "`" + `${server}.${tool} is waiting for input` + "`" + `, server, tool, body);
+  }
   if (!resp.ok || body.error) {
     const err = new ToolError(body.error ?? ` + "`" + `http ${resp.status}` + "`" + `, server, tool, body);
     if (Array.isArray(body.diagnostics)) err.diagnostics = body.diagnostics;

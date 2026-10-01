@@ -121,6 +121,34 @@ type Options struct {
 	Args []string `json:"args,omitempty"`
 	// Export calls a named export instead of the default one.
 	Export string `json:"export,omitempty"`
+
+	// What follows shapes the program the way the CLI's flags do locally.
+	// Before #192 a remote `mcpx exec` parsed every one of these and sent
+	// none, so the daemon ran a different program from the one asked for.
+	// Phase lines and the launcher arrive as source: a path would name the
+	// daemon's filesystem, and the caller meant theirs.
+
+	// TypeCheck is off, on or strict; empty takes the daemon's default.
+	TypeCheck string `json:"typecheck,omitempty"`
+	// Launcher replaces the generated launcher with this template text;
+	// "none" runs the script with no launcher at all.
+	Launcher     string `json:"launcher,omitempty"`
+	LauncherName string `json:"launcherName,omitempty"`
+	// AllowRepeat names launcher placeholders permitted to resolve twice.
+	AllowRepeat []string `json:"allowRepeat,omitempty"`
+	// CaptureConsole false leaves console.* alone; absent takes the default.
+	CaptureConsole *bool `json:"captureConsole,omitempty"`
+	// Phases are lines run around the script, as runner.Phases.
+	Phases *Phases `json:"phases,omitempty"`
+}
+
+// Phases is runner.Phases on the wire.
+type Phases struct {
+	Before    []string `json:"before,omitempty"`
+	Prefix    []string `json:"prefix,omitempty"`
+	OnSuccess []string `json:"onSuccess,omitempty"`
+	OnError   []string `json:"onError,omitempty"`
+	Suffix    []string `json:"suffix,omitempty"`
 }
 
 // WantsArtifacts reports whether the caller declared it can receive them.
@@ -229,9 +257,13 @@ type Source interface {
 
 // Limits are the resolved settings one service runs under.
 type Limits struct {
-	Timeout         time.Duration
-	Runtime         string
-	Permissions     string
+	Timeout     time.Duration
+	Runtime     string
+	Permissions string
+	// Setup holds declared runtimes, the auto order and user profiles.
+	Setup runner.Setup
+	// SetupErr is why Setup could not be read; every run reports it.
+	SetupErr        error
 	CaptureConsole  bool
 	Typecheck       string
 	Delivery        string
@@ -308,6 +340,9 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 	if req.Source == "" && req.File == "" {
 		return nil, errors.New("exec: need source or a file")
 	}
+	if s.Limits.SetupErr != nil {
+		return nil, s.Limits.SetupErr
+	}
 	opts := req.Opts
 
 	timeout := s.Limits.Timeout
@@ -325,6 +360,10 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 	}
 	globals, _ := s.Src.Globals(ctx, opts.NS)
 
+	capture := s.Limits.CaptureConsole
+	if opts.CaptureConsole != nil {
+		capture = *opts.CaptureConsole
+	}
 	ropts := runner.Options{
 		Source:         req.Source,
 		File:           req.File,
@@ -333,10 +372,14 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 		WorkDir:        s.WorkDir,
 		WorkRoot:       s.WorkRoot,
 		Runtime:        firstNonEmpty(opts.Runtime, s.Limits.Runtime),
+		Setup:          s.Limits.Setup,
 		Timeout:        timeout,
 		Permissions:    firstNonEmpty(opts.Permissions, s.Limits.Permissions),
-		CaptureConsole: s.Limits.CaptureConsole,
-		TypeCheck:      s.Limits.Typecheck,
+		CaptureConsole: capture,
+		TypeCheck:      firstNonEmpty(opts.TypeCheck, s.Limits.Typecheck),
+		Launcher:       opts.Launcher,
+		LauncherName:   opts.LauncherName,
+		AllowRepeat:    opts.AllowRepeat,
 		Export:         opts.Export,
 		Args:           opts.Args,
 		Dir:            opts.Cwd,
@@ -348,11 +391,15 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 	if req.RunID != "" {
 		ropts.Env = map[string]string{"MCPX_RUN": req.RunID}
 	}
+	if ph := opts.Phases; ph != nil {
+		ropts.Phases = runner.Phases{Before: ph.Before, Prefix: ph.Prefix,
+			OnSuccess: ph.OnSuccess, OnError: ph.OnError, Suffix: ph.Suffix}
+	}
 	if len(opts.Placeholders) > 0 {
 		ropts.Placeholders = stringify(opts.Placeholders)
 	}
 	if req.Source != "" {
-		prelude, perr := s.prelude(ctx, opts.NS)
+		prelude, perr := s.prelude(ctx, opts.NS, capture)
 		if perr != nil {
 			return nil, perr
 		}
@@ -598,12 +645,12 @@ func (s *Service) scriptEnv(runID, session string, opts Options) map[string]stri
 	return env
 }
 
-func (s *Service) prelude(ctx context.Context, ns []string) (string, error) {
+func (s *Service) prelude(ctx context.Context, ns []string, capture bool) (string, error) {
 	names, err := s.Src.Namespaces(ctx, ns)
 	if err != nil {
 		return "", err
 	}
-	return Prelude(names, s.Limits.CaptureConsole), nil
+	return Prelude(names, capture), nil
 }
 
 // Prelude imports the client and binds every namespace as a bare identifier.

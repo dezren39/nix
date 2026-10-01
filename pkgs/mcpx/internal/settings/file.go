@@ -85,7 +85,7 @@ func notASetting(key string) bool {
 	}
 	switch head {
 	case "mcpServers", "servers", "adapters", "apis", "profiles",
-		"$schema", "script", "plumbing":
+		"$schema", "script", "plumbing", "presets":
 		return true
 	}
 	return false

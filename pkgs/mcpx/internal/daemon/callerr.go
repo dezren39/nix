@@ -1,13 +1,36 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
 
 	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/mcpclient"
+	"github.com/dezren39/mcpx/internal/settings"
 )
+
+type callSetKey struct{}
+
+// withCallSettings carries a request's call settings -- the daemon's live
+// set with the caller's header on top -- to the registry, which otherwise
+// sees only the daemon's.
+func withCallSettings(ctx context.Context, cs *settings.Set) context.Context {
+	return context.WithValue(ctx, callSetKey{}, cs)
+}
+
+// repairAutonomy is the request's repair.autonomy, already lowered to
+// autonomy.max, or the daemon's own when the call came without a request.
+func (r *Registry) repairAutonomy(ctx context.Context) string {
+	if cs, ok := ctx.Value(callSetKey{}).(*settings.Set); ok && cs != nil {
+		return cs.String("repair.autonomy")
+	}
+	if r.set != nil {
+		return r.set.String("repair.autonomy")
+	}
+	return "advise"
+}
 
 // A call a server refused is explained here, in the registry, because the
 // surfaces reach a tool through Registry.Call: /v1/call, the path-per-tool
@@ -47,7 +70,14 @@ func (f *callFailure) Unwrap() error { return f.err }
 
 // explainCall attaches diagnostics to a failed call when the catalog can say
 // something the server did not.
-func (r *Registry) explainCall(server, tool string, args any, err error) error {
+//
+// That is repair at advise on the autonomy dial; repair.autonomy off, from
+// the caller or lowered to it by autonomy.max, returns the server's error
+// alone.
+func (r *Registry) explainCall(ctx context.Context, server, tool string, args any, err error) error {
+	if !settings.AutonomyAtLeast(r.repairAutonomy(ctx), "advise") {
+		return err
+	}
 	code, message, ok := upstreamFault(err)
 	if !ok {
 		// A timeout, a server that would not start, a pipe that broke before

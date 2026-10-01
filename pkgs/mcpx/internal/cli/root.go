@@ -54,7 +54,11 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 	cmd := flagSetCommand[fs]
 	apply := func() error { return nil }
 	if a != nil && cmd != "" {
-		apply = a.BindFlags(fs, cmd)
+		var b *settings.Binding
+		b, apply = a.bindFlags(fs, cmd)
+		if err := a.applyPresets(fs, b, args); err != nil {
+			return err
+		}
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -64,8 +68,16 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 		return err
 	}
 	a.adoptSettings()
+	if parseFlagsHook != nil {
+		return parseFlagsHook(fs)
+	}
 	return nil
 }
+
+// parseFlagsHook lets a test stop a command the moment its flags are folded
+// in, so every command can be checked for flags that parse but never reach
+// the resolved settings without running the command itself.
+var parseFlagsHook func(*flag.FlagSet) error
 
 // adoptSettings copies the settings that decide how the App itself behaves
 // out of the resolved set, once the flags have been folded in.
@@ -180,6 +192,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		Logger:   logger,
 		IdleExit: a.Settings().Duration("daemon.idleExit"),
 		Settings: a.Settings(),
+		Augment:  a.augmentAdapters,
 	})
 	if err != nil {
 		return err
@@ -388,10 +401,23 @@ func (a *App) configSources(cfg *config.Config) error {
 		Server string `json:"server"`
 		From   string `json:"from"`
 	}
+	type presetRow struct {
+		Setting string `json:"setting"`
+		Value   string `json:"value"`
+		From    string `json:"from"`
+	}
 	out := struct {
-		Sources []string `json:"sources"`
-		Servers []row    `json:"servers"`
+		Sources []string    `json:"sources"`
+		Servers []row       `json:"servers"`
+		Presets []presetRow `json:"presets,omitempty"`
 	}{Sources: cfg.Sources}
+	// A value a preset supplied is a source too, and the one least likely to
+	// be remembered: it came from a name on the command line, not a file.
+	for _, v := range a.Settings().All() {
+		if v.Origin.Layer == settings.LayerPreset {
+			out.Presets = append(out.Presets, presetRow{Setting: v.Path, Value: v.Raw, From: v.Origin.String()})
+		}
+	}
 
 	names := make([]string, 0, len(cfg.MCPServers))
 	for n := range cfg.MCPServers {
@@ -419,6 +445,15 @@ func (a *App) configSources(cfg *config.Config) error {
 			marker = "*"
 		}
 		fmt.Printf(" %s %s\n", marker, p)
+	}
+	if len(out.Presets) > 0 {
+		fmt.Println()
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "SETTING\tVALUE\tFROM PRESET")
+		for _, r := range out.Presets {
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Setting, r.Value, r.From)
+		}
+		tw.Flush()
 	}
 	if len(out.Servers) == 0 {
 		return nil
@@ -567,6 +602,9 @@ const usageFooter = `GLOBAL FLAGS
   --skip-default                 with --profile, exclude the usual default set
   --all-profiles                 every configured server, ignoring profiles
   --version
+  --<setting> [value]            any setting every command accepts, e.g.
+                                 --plumbing-strict-unknown-keys; same as after
+                                 the command
 
 CONCURRENCY
   Each server's "mcpx" block sets two independent things:

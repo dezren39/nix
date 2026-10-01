@@ -66,7 +66,7 @@ var accessorRead = regexp.MustCompile(
 // App.Plumbing, plumbingBool. The helper itself ends in an accessor, so the
 // promise is kept; the call site is just one indirection away.
 var readViaHelper = regexp.MustCompile(
-	`(?:Plumbing|plumbingBool|phaseValues)\("([a-zA-Z0-9_.]+)"`)
+	`(?:Plumbing|plumbingBool|phaseValues|Clamp)\("([a-zA-Z0-9_.]+)"`)
 
 // unreadAllowed lists settings that cannot be read through an accessor, with
 // the reason. An entry here is a claim somebody has to defend in review;
@@ -99,6 +99,14 @@ func TestEverySettingIsReadSomewhere(t *testing.T) {
 			}
 		}
 	})
+	// A ceiling is read by every read of a setting it clamps: Set.Value
+	// lowers the clamped value to it, so reading one reads both.
+	for _, set := range settings.Registry() {
+		if set.ClampedBy != "" && len(readPaths[set.Path]) > 0 {
+			readPaths[set.ClampedBy] = append(readPaths[set.ClampedBy],
+				"ClampedBy of "+set.Path)
+		}
+	}
 
 	pluginSrc := pluginSources(t, root)
 

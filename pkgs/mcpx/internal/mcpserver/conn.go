@@ -430,6 +430,10 @@ type Question struct {
 	// Server is which upstream server is asking. A client has to be told,
 	// because "are you sure?" means different things from different servers.
 	Server string `json:"server,omitempty"`
+	// Key is the upstream's own name for the question, its inputRequests
+	// key, when it asked in a 2026-07-28 result. Relayed as the key a modern
+	// client sees, so a server's "user_name" is not renamed on the way.
+	Key string `json:"key,omitempty"`
 }
 
 // Sendable reports whether this client may be asked this question.

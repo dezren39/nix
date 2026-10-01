@@ -96,6 +96,10 @@ type SettingRecord struct {
 	Hot        bool     `json:"hot"`
 	Plumbing   bool     `json:"plumbing,omitempty"`
 	Commands   []string `json:"commands,omitempty"`
+	// Requested and ClampedBy say a ceiling lowered this value: what the
+	// layers asked for, and which setting, from where, lowered it.
+	Requested string `json:"requested,omitempty"`
+	ClampedBy string `json:"clampedBy,omitempty"`
 }
 
 // Describe renders one setting with its resolved value.
@@ -118,6 +122,7 @@ func Describe(set settings.Setting, v *settings.Value) SettingRecord {
 	if v != nil {
 		rec.Value = v.Raw
 		rec.Source = v.Origin.String()
+		rec.Requested, rec.ClampedBy = v.Requested, v.ClampedBy
 		for _, sh := range v.Shadowed {
 			rec.Shadowed = append(rec.Shadowed, sh.String())
 		}
@@ -549,6 +554,11 @@ func (s *Server) reloadConfig() (added, removed []string, err error) {
 	// A reload re-reads the file and would otherwise drop whatever the
 	// environment, a flag or a runtime override said about the pool.
 	config.ApplyPoolSettings(cfg, s.set)
+	if s.augment != nil {
+		if err := s.augment(cfg); err != nil {
+			return nil, nil, err
+		}
+	}
 	added, removed, err = s.reg.Reload(cfg)
 	if err != nil {
 		return nil, nil, err

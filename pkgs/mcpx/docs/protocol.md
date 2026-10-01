@@ -252,6 +252,35 @@ the rest of this page:
 
 ---
 
+### 2.5 Pass-through: one upstream under its own names
+
+By default mcpx is a gateway: a small tool set (`mcpx_call`, `mcpx_exec`,
+discovery), prompts as `<namespace>_<prompt>`, resources as
+`mcpx://<namespace>/<uri>`. `mcp.passthrough` (`--passthrough <server>` on
+`mcpx serve` and `mcpx daemon`, `MCPX_MCP_PASSTHROUGH`) names one configured
+server whose surface is offered **as itself** instead:
+
+- `tools/list` carries its tools under their own names, ahead of the gateway's;
+  `tools/call` on one of them is forwarded and its result returned verbatim —
+  images, audio, embedded resources, `structuredContent` and `isError` intact.
+  Its questions reach the calling client exactly as `mcpx_call`'s do (§3), with
+  the upstream's own `inputRequests` keys where it asked in a 2026-07-28 result.
+- `prompts/list` names its prompts without the prefix; `prompts/get` returns
+  the upstream's result verbatim.
+- `resources/list`, `resources/templates/list` and `resources/read` use its own
+  URIs, as do subscriptions and `completion/complete` refs. An `mcpx://` URI
+  still reaches every other server and mcpx's artifacts.
+- **Collisions:** the upstream wins. A gateway tool whose name the upstream
+  also uses is neither listed nor callable over MCP (it stays on the CLI and
+  `/v1`). The upstream is the server in this mode, and a client must be able to
+  call every name `tools/list` shows and get that tool.
+
+Every other server stays reachable through the gateway tools. Not carried
+over: a pass-through tool's `outputSchema`, `title` and `annotations` (the
+daemon's catalogue keeps name, description and input schema only), and the
+upstream's `notifications/message` and `notifications/progress` (§2.2, #212).
+`scripts/conformance.sh` runs the official suite's own fixture server this way.
+
 ## 3. A server asks a question
 
 This is the part with two mechanisms for one thing, and the reason the rest of
@@ -642,8 +671,10 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
 - **Capabilities declared upstream that nothing answers**: `sampling` and
   `elicitation.url` whenever a handler exists, `roots` with an empty list
   (#210).
-- **Authorization.** No OAuth client and no OAuth on `/mcp` (#253); the
-  per-server `auth` block is parsed and never applied (#240).
+- **Authorization.** No OAuth client and no OAuth on `/mcp` (#253). The
+  per-server `auth` block (bearer, basic, header, query, env) is applied to
+  every connection (#240); `type: oauth` is refused with a message, since the
+  flow is not implemented.
 - **Validation.** Tool inputs and outputs and elicitation answers are not
   checked against their JSON Schemas (#254); sampling results are relayed
   unreviewed (#256); elicitation storage is readable by any local user and

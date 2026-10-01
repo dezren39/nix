@@ -194,6 +194,13 @@ func (c *Client) do(ctx context.Context, method, path string, body any) ([]byte,
 // is: marshalling a file into JSON to have the daemon unmarshal it again
 // would cost a base64 pass in each direction for nothing.
 func (c *Client) send(ctx context.Context, method, path string, body []byte, contentType string) ([]byte, error) {
+	b, _, err := c.sendWith(ctx, method, path, body, contentType, nil)
+	return b, err
+}
+
+// sendWith is send with extra request headers, also returning the status so
+// a caller can tell one 2xx answer from another.
+func (c *Client) sendWith(ctx context.Context, method, path string, body []byte, contentType string, headers map[string]string) ([]byte, int, error) {
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
@@ -206,10 +213,13 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, con
 	}
 	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if body != nil && contentType != "" {
 		req.Header.Set("Content-Type", contentType)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	if c.callSettings != "" {
 		req.Header.Set(daemon.CallSettingsHeader, c.callSettings)
@@ -217,14 +227,14 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, con
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		if isDialErr(err) {
-			return nil, ErrNoDaemon
+			return nil, 0, ErrNoDaemon
 		}
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e struct {
@@ -234,9 +244,9 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, con
 		if json.Unmarshal(b, &e) == nil && e.Error != "" {
 			msg = e.Error
 		}
-		return nil, &HTTPError{Status: resp.StatusCode, Body: b, Msg: msg}
+		return nil, resp.StatusCode, &HTTPError{Status: resp.StatusCode, Body: b, Msg: msg}
 	}
-	return b, nil
+	return b, resp.StatusCode, nil
 }
 
 // HTTPError is a refusal from the daemon, with the body kept.
@@ -468,6 +478,45 @@ func (c *Client) Call(ctx context.Context, server, tool string, cc config.CallCo
 	return &out, json.Unmarshal(b, &out)
 }
 
+// InputRequiredError is a call that stopped to ask something nobody here
+// can answer. The call is still running on the daemon; the error carries
+// the question and how to answer it.
+type InputRequiredError struct {
+	Doc daemon.InputRequired
+}
+
+func (e *InputRequiredError) Error() string { return strings.TrimRight(e.Doc.Text, "\n") }
+
+// ExitCode is ExitInputRequired, so main exits with it.
+func (e *InputRequiredError) ExitCode() int { return ExitInputRequired }
+
+// CallReporting is Call for a caller that cannot answer a question mid-call.
+// A question comes back as *InputRequiredError instead of holding the call
+// open until it expires.
+func (c *Client) CallReporting(ctx context.Context, server, tool string, cc config.CallContext, args json.RawMessage) (*CallResult, error) {
+	body, err := json.Marshal(map[string]any{
+		"server": server, "tool": tool, "args": args, "context": cc,
+	})
+	if err != nil {
+		return nil, err
+	}
+	b, status, err := c.sendWith(ctx, http.MethodPost, "/v1/call", body, "application/json",
+		map[string]string{daemon.InputHeader: daemon.InputReport})
+	if err != nil {
+		return nil, err
+	}
+	if status == http.StatusAccepted {
+		var ir struct {
+			InputRequired *daemon.InputRequired `json:"inputRequired"`
+		}
+		if json.Unmarshal(b, &ir) == nil && ir.InputRequired != nil {
+			return nil, &InputRequiredError{Doc: *ir.InputRequired}
+		}
+	}
+	var out CallResult
+	return &out, json.Unmarshal(b, &out)
+}
+
 // ReleaseCaller frees instances a finished caller created.
 func (c *Client) ReleaseCaller(ctx context.Context, callID string) error {
 	_, err := c.do(ctx, http.MethodPost, "/v1/session/release", map[string]string{"session": callID})
@@ -494,16 +543,36 @@ func (c *Client) Refresh(ctx context.Context) (map[string]any, error) {
 	return out, json.Unmarshal(b, &out)
 }
 
-// Restart stops instances for a server (or all when empty).
-func (c *Client) Restart(ctx context.Context, server string) (int, error) {
-	b, err := c.do(ctx, http.MethodPost, "/v1/restart", map[string]string{"server": server})
+// RestartReply is what POST /v1/restart answers.
+type RestartReply struct {
+	Stopped int  `json:"stopped"`
+	Started int  `json:"started"`
+	Failed  int  `json:"failed"`
+	Lazy    bool `json:"lazy"`
+	Servers []struct {
+		Server  string   `json:"server"`
+		Stopped int      `json:"stopped"`
+		Started []string `json:"started"`
+		Failed  []struct {
+			Key   string `json:"key"`
+			Error string `json:"error"`
+		} `json:"failed"`
+		Skipped []struct {
+			Key   string `json:"key"`
+			Error string `json:"error"`
+		} `json:"skipped"`
+		Note string `json:"note"`
+	} `json:"servers"`
+}
+
+// Restart restarts a server (or all when empty); lazy only stops.
+func (c *Client) Restart(ctx context.Context, server string, lazy bool) (RestartReply, error) {
+	var out RestartReply
+	b, err := c.do(ctx, http.MethodPost, "/v1/restart", map[string]any{"server": server, "lazy": lazy})
 	if err != nil {
-		return 0, err
+		return out, err
 	}
-	var out struct {
-		Stopped int `json:"stopped"`
-	}
-	return out.Stopped, json.Unmarshal(b, &out)
+	return out, json.Unmarshal(b, &out)
 }
 
 // Shutdown asks the daemon to exit.

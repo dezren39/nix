@@ -154,14 +154,51 @@ superset — and is a guess without that. Say which check you ran.
 
 ## Writing to the user
 
-- **Plain words.** Project jargon invented by an earlier agent — "autonomy ceiling", "adapted binary",
-  "confinement" — must be defined on first use or avoided.
+The user reads your words, not your context. Anything that only makes sense with your context is noise.
+
+- **Never use a name you made up.** Labels you gave your own work — a worker's item name ("inert",
+  "matrix", "fixall"), "the conformance worker", "the closeout agent" — mean nothing to the user.
+  Say what the thing is: "the subagent I sent to fix the flags that were accepted and ignored".
+- **Define project jargon on first use or avoid it.** "Autonomy ceiling", "adapted binary",
+  "confinement", "fixture", "pass-through" — all were used without explanation and all prompted a
+  question. If an earlier agent coined it, assume the user has never seen it.
+- **Label every number.** Never `45 / 21` or `before 45/21, after 78/3`. Write "45 checks passed, 21
+  failed", say what was measured (the official MCP conformance suite, server side, 2025-11-25 rules),
+  and say which direction is good. A table needs column headers that say the same.
+- **No status shorthand.** "Filed and unbuilt" means "there is a GitHub issue (#294) and no code yet" —
+  write the second.
+- **Answer every question asked, in the order asked.** A message with eight questions gets eight
+  answers. Check the list before sending.
 - **Lead with the correction.** If something you said earlier was wrong, say so first and plainly,
   and say what it cost.
 - **State the plain fact before the framing.** "The nix build tests 17 of 32 packages; CI tests all
   of them" beats "the guards are not in the shipping gate".
 - **Answer what was asked.** Nothing else.
 - Append the moments worth remembering to `~/git/ai_recordings.jsonl` (see `recordings.md`).
+
+## Reading and recording what you find
+
+- **Read the document before quoting it, and check its date.** Docs in this repo record the commit
+  they describe; numbers in them go stale. A number you repeat from a doc is a number you are now
+  claiming — verify it or say where it came from and how old it is.
+- **Verify docs against code when you touch either.** "The doc says X, the code does Y" is the most
+  common defect here. If you change behaviour, grep the docs for claims about it.
+- **Write findings down where the next agent will read them** — the PR body, the issue, the doc that
+  describes the behaviour — not only in your reply. Replies vanish; the repo stays.
+
+## Reviewing an agent's work
+
+**A subagent's report is not a review.** Read the diff yourself before it merges. Reviewing the
+conformance branch after its agent reported success found three defects it never mentioned: an upstream
+that was down looked like an upstream with no tools, every call looked the upstream up twice, and one
+route ignored the new mode entirely. Its commit had a one-line message and no evidence.
+
+- Require a commit body: what changed, why, and the falsification evidence.
+- **Falsify the agent's fixes yourself** for anything load-bearing.
+- **Exit 1 with zero failing tests means it did not compile.** It is not a result. Read the output.
+  Two of three mutations in one review "passed" this way before being redone.
+- **A mutation that cannot trigger proves nothing.** A `break` on a map filled by goroutines never
+  fired, so the test "passed" with the fix removed. Make the mutation undo the fix's actual mechanism.
 
 ## mcpx specifics
 

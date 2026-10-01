@@ -36,10 +36,12 @@ import (
 // loopback TCP port (for generated script clients, because fetch() over a unix
 // socket is not portable across Deno, Bun and Node).
 type Server struct {
-	reg    *Registry
-	paths  Paths
-	cfg    *config.Config
-	logger *log.Logger
+	reg *Registry
+	// augment is Options.Augment, kept for reloads.
+	augment func(*config.Config) error
+	paths   Paths
+	cfg     *config.Config
+	logger  *log.Logger
 
 	// Address is the interface the TCP listener binds. Empty is loopback.
 	Address string
@@ -132,6 +134,11 @@ type Options struct {
 	// defaults, which is what a test that only wants a daemon should get
 	// rather than a nil dereference.
 	Settings *settings.Set
+	// Augment adds servers that are not written in a config file -- an
+	// adapted program is one -- to every config the daemon loads, at start
+	// and on each reload, so they go through the same pools, cache, codegen
+	// and /v1 routes as a configured server. Nil adds nothing.
+	Augment func(*config.Config) error
 }
 
 // NewServer builds the daemon but does not listen yet.
@@ -141,6 +148,11 @@ func NewServer(opts Options) (*Server, error) {
 	}
 	if err := opts.Paths.EnsureDirs(); err != nil {
 		return nil, err
+	}
+	if opts.Augment != nil && opts.Config != nil {
+		if err := opts.Augment(opts.Config); err != nil {
+			return nil, err
+		}
 	}
 	reg, err := NewRegistry(opts.Config, opts.Paths, func(f string, a ...any) {
 		opts.Logger.Printf(f, a...)
@@ -169,6 +181,7 @@ func NewServer(opts Options) (*Server, error) {
 		version:  opts.Version,
 		idleExit: opts.IdleExit,
 		sink:     opts.Sink,
+		augment:  opts.Augment,
 		Events:   events.New(opts.Settings.Int("events.history")),
 	}
 	// The broker is optional: a daemon whose state directory cannot hold a
@@ -706,8 +719,13 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Header.Get(InputHeader) == InputReport && s.reg.broker != nil {
+		s.handleCallReporting(w, r, req, cc, args)
+		return
+	}
+
 	start := time.Now()
-	res, err := s.reg.Call(withRun(r.Context(), r.Header.Get("X-Mcpx-Run")), req.Server, req.Tool, cc, args)
+	res, err := s.reg.Call(withRun(withCallSettings(r.Context(), s.callSettings(r)), r.Header.Get("X-Mcpx-Run")), req.Server, req.Tool, cc, args)
 	dur := time.Since(start).Truncate(time.Millisecond)
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
@@ -775,14 +793,25 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Server string `json:"server"`
+		Lazy   bool   `json:"lazy"`
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, s.set.Bytes("http.controlBodyLimit"))).Decode(&req)
-	n, err := s.reg.Restart(req.Server)
+	res, err := s.reg.Restart(r.Context(), req.Server, req.Lazy)
 	if err != nil {
 		writeErr(w, 400, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"stopped": n})
+	stopped, started, failed := 0, 0, 0
+	for _, x := range res {
+		stopped += x.Stopped
+		started += len(x.Started)
+		failed += len(x.Failed)
+	}
+	// 200 even when a replacement failed: the restart ran and the body says
+	// what came back. The CLI turns failed > 0 into a non-zero exit.
+	writeJSON(w, 200, map[string]any{
+		"stopped": stopped, "started": started, "failed": failed,
+		"lazy": req.Lazy, "servers": res})
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {

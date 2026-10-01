@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -388,7 +389,7 @@ func TestRestartStopsEverything(t *testing.T) {
 	if _, err := p.Call(ctx, "b", "open", map[string]any{"value": "2"}); err != nil {
 		t.Fatal(err)
 	}
-	if n := p.Restart(); n != 2 {
+	if n := p.Restart(ctx, true).Stopped; n != 2 {
 		t.Fatalf("restart should stop 2 instances, stopped %d", n)
 	}
 	if st := p.Status(); st.Live != 0 {
@@ -401,6 +402,89 @@ func TestRestartStopsEverything(t *testing.T) {
 	}
 	if strings.Contains(textOf(t, res), `"1"`) {
 		t.Fatal("state survived a restart")
+	}
+}
+
+// An eager restart replaces each instance under the key it served, before it
+// returns, and the replacement has none of the old state.
+func TestRestartReplacesEachInstanceUnderItsKey(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingExclusive, Scope: config.ScopeSession, Max: 2}))
+	defer p.Close()
+
+	ctx := context.Background()
+	for _, k := range []string{"session:a", "session:b"} {
+		if _, err := p.Call(ctx, k, "open", map[string]any{"value": "1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := map[string]string{}
+	for _, in := range p.Status().Instances {
+		before[in.Key] = in.ID
+	}
+	res := p.Restart(ctx, false)
+	if res.Stopped != 2 || len(res.Started) != 2 || len(res.Failed) != 0 {
+		t.Fatalf("restart = %+v", res)
+	}
+	st := p.Status()
+	if st.Live != 2 {
+		t.Fatalf("%d instances live after restart, want 2", st.Live)
+	}
+	for _, in := range st.Instances {
+		old, ok := before[in.Key]
+		if !ok || old == in.ID || in.PID == 0 {
+			t.Fatalf("instance %+v is not a fresh replacement for a previous key (before %v)", in, before)
+		}
+	}
+	got, err := p.Call(ctx, "session:a", "state", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(textOf(t, got), `"1"`) {
+		t.Fatal("state survived a restart")
+	}
+
+	// With nothing running, a scoped pool has no caller to start one for.
+	p.Restart(ctx, true)
+	if res := p.Restart(ctx, false); len(res.Started) != 0 || res.Note == "" {
+		t.Fatalf("scoped pool with nothing running: %+v", res)
+	}
+}
+
+// A global pool with nothing running starts one, so restart verifies the
+// server comes up; a replacement that does not come up is reported with the
+// server's stderr, not swallowed until the next call.
+func TestRestartStartsGlobalAndSurfacesStderr(t *testing.T) {
+	bin := testsupport.FakeMCPBinary(t)
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "broken")
+	wrapper := filepath.Join(dir, "wrap.sh")
+	script := "#!/bin/sh\nif [ -e " + broken + " ]; then echo 'fatal: missing API_TOKEN' >&2; exit 3; fi\nexec " + bin + " \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := pool.New(resolved(t, wrapper, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal}))
+	defer p.Close()
+	ctx := context.Background()
+
+	res := p.Restart(ctx, false)
+	if res.Stopped != 0 || len(res.Started) != 1 || p.Status().Live != 1 {
+		t.Fatalf("restart of an idle global pool = %+v, live %d", res, p.Status().Live)
+	}
+	res = p.Restart(ctx, false)
+	if res.Stopped != 1 || len(res.Started) != 1 {
+		t.Fatalf("second restart = %+v", res)
+	}
+
+	if err := os.WriteFile(broken, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res = p.Restart(ctx, false)
+	if res.Stopped != 1 || len(res.Started) != 0 || len(res.Failed) != 1 {
+		t.Fatalf("restart into a broken server = %+v", res)
+	}
+	if !strings.Contains(res.Failed[0].Error, "missing API_TOKEN") {
+		t.Fatalf("failure does not carry the server's stderr: %q", res.Failed[0].Error)
 	}
 }
 

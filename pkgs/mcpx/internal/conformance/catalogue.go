@@ -58,6 +58,31 @@ type Requirement struct {
 	// Notes are the catalogue's original judgement of mcpx, kept so a
 	// reviewer can see what the applicability was derived from.
 	Notes map[string]string `json:"notes,omitempty"`
+	// Claims is what a note asserts about mcpx, per side, read from the
+	// prose so the matrix can hold the note to the tests: ClaimGap when the
+	// note says mcpx does not meet the requirement.
+	Claims map[string]string `json:"claims,omitempty"`
+}
+
+// ClaimGap is a note's claim that mcpx does not meet a requirement.
+const ClaimGap = "gap"
+
+// gapWordRe is how the catalogue's notes say "gap": `**gap**`, `GAP`,
+// "gap (...)", "GAP-ish".
+var gapWordRe = regexp.MustCompile(`(?i)\bgap\b`)
+
+// claimsOf reads the notes' claims.
+func claimsOf(notes map[string]string) map[string]string {
+	var out map[string]string
+	for side, n := range notes {
+		if gapWordRe.MatchString(n) {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[side] = ClaimGap
+		}
+	}
+	return out
 }
 
 // Override re-judges one requirement's applicability. Empty fields keep the
@@ -222,6 +247,7 @@ func Parse(path string) ([]Requirement, error) {
 			},
 			Notes: map[string]string{Server: c[7], Client: c[8]},
 		})
+		out[len(out)-1].Claims = claimsOf(out[len(out)-1].Notes)
 	}
 	return out, nil
 }

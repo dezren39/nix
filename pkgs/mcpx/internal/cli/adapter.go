@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -20,8 +21,11 @@ type AdapterFile struct {
 
 // loadAdapters reads declarations from the configured paths.
 func (a *App) loadAdapters() ([]adapter.Spec, error) {
-	raw := a.Settings().String("paths.adapters")
-	paths := splitPathList(raw)
+	return loadAdapterFiles(splitPathList(a.Settings().String("paths.adapters")))
+}
+
+// loadAdapterFiles reads and validates declarations from these files.
+func loadAdapterFiles(paths []string) ([]adapter.Spec, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
@@ -168,6 +172,79 @@ func (a *App) CmdAdapter(ctx context.Context, args []string) error {
 			}
 		}
 		return a.out(out)
+
+	case "serve":
+		// One adapter as a stdio MCP server. This is what the daemon spawns
+		// for every declared adapter (see augmentAdapters), so an adapted
+		// program is an upstream server like any other.
+		// Files after the name replace paths.adapters, so the daemon can
+		// say exactly which declarations it meant whatever the child's
+		// environment or working directory.
+		if len(fs.Args()) < 1 {
+			return fmt.Errorf("usage: mcpx adapter serve <name> [file...]")
+		}
+		if len(fs.Args()) > 1 {
+			if specs, err = loadAdapterFiles(fs.Args()[1:]); err != nil {
+				return err
+			}
+		}
+		for _, s := range specs {
+			if s.Name != fs.Arg(0) {
+				continue
+			}
+			srv := mcpserver.New(nil, s.Name, a.Version)
+			srv.ExtrasOnly = true
+			srv.OwnInstructions = s.Instructions
+			srv = srv.WithExtras(adapterTools([]adapter.Spec{s}, false))
+			return srv.ServeStdio(ctx, os.Stdin, os.Stdout)
+		}
+		return fmt.Errorf("no adapter named %q", fs.Arg(0))
 	}
-	return fmt.Errorf("no adapter subcommand %q; list, check, call or tools", sub)
+	return fmt.Errorf("no adapter subcommand %q; list, check, call, tools or serve", sub)
+}
+
+// augmentAdapters adds every declared adapter to cfg as a server of its
+// own: `mcpx adapter serve <name>`, under the adapter's name.
+//
+// That is the whole of making an adapter first-class (#83, #102). Attached
+// only as mcpserver extras, adapters reached mcpx's own tools/list and
+// nothing else -- not the pool, so not `mcpx ls`, `types`, `search`,
+// `catalog`, /v1 or the generated client a script calls. As a server they
+// get all of those by the same path a configured server does.
+func (a *App) augmentAdapters(cfg *config.Config) error {
+	specs, err := a.loadAdapters()
+	if err != nil || len(specs) == 0 {
+		return err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("adapters need mcpx's own path to serve them: %w", err)
+	}
+	// The child reads the same files whatever its working directory.
+	var files []string
+	for _, p := range splitPathList(a.Settings().String("paths.adapters")) {
+		if p == "" {
+			continue
+		}
+		if abs, aerr := filepath.Abs(p); aerr == nil {
+			p = abs
+		}
+		files = append(files, p)
+	}
+	if cfg.MCPServers == nil {
+		cfg.MCPServers = map[string]*config.Server{}
+	}
+	for _, s := range specs {
+		if _, dup := cfg.MCPServers[s.Name]; dup {
+			return fmt.Errorf("adapter %q has the same name as a configured server; rename one", s.Name)
+		}
+		cfg.MCPServers[s.Name] = &config.Server{
+			Name:    s.Name,
+			Command: self,
+			Args:    append([]string{"adapter", "serve", s.Name}, files...),
+			// Instructions arrive from initialize, as a real server's do.
+			Mcpx: &config.Extras{Description: s.Description},
+		}
+	}
+	return nil
 }
