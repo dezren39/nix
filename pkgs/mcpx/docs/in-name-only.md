@@ -85,6 +85,18 @@ notice if it stopped.
 | mcpx asking an upstream to run a call as a task | absent | An upstream that requires a task fails. #209 |
 | `taskSupport` default for 2025-11-25 clients | partial | A tool with none declared can still be called as a task. #209 |
 
+## Skills extension
+
+mcpx declares `io.modelcontextprotocol/skills` (SEP-2640, 2026-07-28 only) and
+serves its own four skills from `plugin/opencode/skills` through `skills/list`,
+`skills/get` and `resources/read`. Two parts of the extension are deliberately
+not built; neither is declared.
+
+| what | state | detail |
+| --- | --- | --- |
+| An upstream's skills through `skills/list` | absent | mcpx answers `skills/list` with its own skills only. An upstream that declares the extension has its `skill://` files passed through as ordinary resources (under their own URIs in pass-through mode, as `mcpx://<ns>/...` otherwise), but its `skills/list` entries -- the digests and frontmatter a host verifies against -- are not relayed, so a host cannot load them as skills through mcpx. Relaying needs a new daemon route and a pool and client method for a request the upstream may or may not support, plus URI handling for the gateway's `mcpx://` rewrite; no fixture in the conformance suite serves skills, so nothing would test it today. |
+| `resources/directory/read` (`directoryRead`) | absent | Optional in the extension. Not declared, because every mcpx skill is a single `SKILL.md`: there would be no directory to list beyond the one file, and the suite's subdirectory check would have nothing to find. The six `sep-2640-skills-directory` checks in the `server-all` leg are SKIPPED for this reason ("declared the skills extension but not directoryRead"). Declare it when a skill gains supporting files. |
+
 ## Relay between hosts and upstreams
 
 | what | state | detail |

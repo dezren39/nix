@@ -43,15 +43,20 @@ func TestResourcesListOmitsTemplates(t *testing.T) {
 		"serve")
 	f := replies(t, out)
 	res, _ := f[2]["resources"].([]any)
-	if len(res) == 0 {
-		t.Fatalf("no resources listed:\n%s", out)
-	}
+	upstream := 0
 	for _, r := range res {
 		m, _ := r.(map[string]any)
 		u, _ := m["uri"].(string)
+		if strings.HasPrefix(u, "skill://mcpx/") {
+			continue // mcpx's own skills (SEP-2640), not the upstream's
+		}
+		upstream++
 		if !strings.HasPrefix(u, "mcpx://demo/") || strings.Contains(u, "{id}") || u == "mcpx://demo/" {
 			t.Errorf("resources/list entry %v is not a resource", m)
 		}
+	}
+	if upstream == 0 {
+		t.Fatalf("no upstream resources listed:\n%s", out)
 	}
 	if !strings.Contains(out, "demo://items/{id}") {
 		t.Errorf("the template belongs in resources/templates/list:\n%s", out)
