@@ -42,7 +42,7 @@ paths and silently not on others.
 | Elicitation storage | partial | Readable by any local user and never pruned. #255 |
 | Elicitation answering UI | minimal | Does not show which server asks; answers are not checked against the requested schema. #255 |
 | Sampling | minimal | Declared to every upstream; answering needs an agent watching the question queue. No human review, no result validation, no error mapping. Deprecated in 2026-07-28; kept working only. #256, #210 |
-| Server-to-client requests across eras | absent | A caller on 2025-11-25 reaching an upstream mcpx talks to in 2026-07-28 never sees the upstream's elicitation or sampling. Four `server-all` conformance failures. |
+| Server-to-client requests across eras | partial | Works when the upstream is configured `protocol: follow`: a 2025-11-25 caller gets its own legacy session of a dual-era upstream, whose requests reach it as requests ([spec/era-probe.md](spec/era-probe.md#follow)). Under the default `modern` a legacy caller still shares the modern session, where a dual-era server's legacy-only push (the official suite's `test_elicitation`, `test_sampling`) answers -32601 -- the four `server-all` failures, until `scripts/conformance.sh` configures `follow`. The reverse direction -- a 2026-07-28 upstream's `input_required` reaching a legacy caller as `elicitation/create` -- already worked, and is now tested (`internal/e2e/follow_test.go`). |
 
 ## Tasks
 

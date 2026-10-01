@@ -136,6 +136,7 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if b.app.isPass(ns) {
 		ctx = mcpclient.WithClientCapabilities(ctx, mcpserver.DeclaredCapabilities(ctx))
 	}
+	ctx = mcpclient.WithCallerVersion(ctx, mcpserver.PeerVersion(ctx))
 	var res *CallResult
 	if r := mcpserver.RelayFrom(ctx); r != nil {
 		notify := r.Notify

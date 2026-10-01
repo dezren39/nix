@@ -38,6 +38,7 @@ func (d daemonAsker) client(ctx context.Context) (*Client, error) {
 // operation -- answers ErrNotInterruptible and is run the ordinary way.
 func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMessage) (string, error) {
 	body := map[string]any{"kind": kind, "context": d.app.mcpCaller(ctx)}
+	ctx = mcpclient.WithCallerVersion(ctx, mcpserver.PeerVersion(ctx))
 
 	switch kind {
 	case "tools/call":

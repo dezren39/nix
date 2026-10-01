@@ -435,6 +435,7 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 		// The task outlives this request, so the header is carried over
 		// by value rather than through r.Context().
 		ctx = mcpclient.WithClientCapabilities(ctx, mcpclient.ClientCapabilitiesFrom(caps))
+		ctx = mcpclient.WithCallerVersion(ctx, mcpclient.CallerVersionFrom(caps))
 		var (
 			raw json.RawMessage
 			err error

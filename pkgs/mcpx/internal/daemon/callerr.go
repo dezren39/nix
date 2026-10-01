@@ -71,8 +71,14 @@ type UpstreamError struct {
 // see mcpclient.WithClientCapabilities.
 const ClientCapsHeader = "X-Mcpx-Client-Capabilities"
 
-// withClientCaps applies ClientCapsHeader to ctx.
+// CallerVersionHeader carries, on /v1/call and /v1/ask, the protocol
+// revision of the MCP client mcpx is relaying for; see
+// mcpclient.WithCallerVersion.
+const CallerVersionHeader = "X-Mcpx-Caller-Protocol"
+
+// withClientCaps applies ClientCapsHeader and CallerVersionHeader to ctx.
 func withClientCaps(ctx context.Context, r *http.Request) context.Context {
+	ctx = mcpclient.WithCallerVersion(ctx, r.Header.Get(CallerVersionHeader))
 	raw := r.Header.Get(ClientCapsHeader)
 	if raw == "" || !json.Valid([]byte(raw)) {
 		return ctx

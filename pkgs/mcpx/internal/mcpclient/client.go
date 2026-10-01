@@ -224,6 +224,11 @@ const (
 	// be one or the other, or to diagnose which it is.
 	ForceLegacy Preference = "force-legacy"
 	ForceModern Preference = "force-modern"
+	// PreferFollow is PreferModern for the server's own session, plus a
+	// separate legacy session for callers that speak a legacy revision, so
+	// a server that can only push requests to a legacy client still can.
+	// The pool implements it; to NewWithOptions it means PreferModern.
+	PreferFollow Preference = "follow"
 )
 
 // Where an era determination came from, as reported on Client.Source.
@@ -397,9 +402,25 @@ func (c *Client) Supports(cap string) bool {
 	return ok
 }
 
+// contextReceiver is a transport that knows which request a frame arrived
+// in answer to; see HTTPTransport.RecvContext.
+type contextReceiver interface {
+	RecvContext() ([]byte, context.Context, error)
+}
+
 func (c *Client) recvLoop() {
+	cr, _ := c.t.(contextReceiver)
 	for {
-		raw, err := c.t.Recv()
+		var (
+			raw    []byte
+			origin context.Context
+			err    error
+		)
+		if cr != nil {
+			raw, origin, err = cr.RecvContext()
+		} else {
+			raw, err = c.t.Recv()
+		}
 		if err != nil {
 			c.fail(err)
 			return
@@ -410,17 +431,17 @@ func (c *Client) recvLoop() {
 			var batch []json.RawMessage
 			if json.Unmarshal(trimmed, &batch) == nil {
 				for _, m := range batch {
-					c.dispatch(m)
+					c.dispatch(origin, m)
 				}
 			}
 			continue
 		}
-		c.dispatch(raw)
+		c.dispatch(origin, raw)
 	}
 }
 
 // dispatch routes one received message.
-func (c *Client) dispatch(raw []byte) {
+func (c *Client) dispatch(origin context.Context, raw []byte) {
 	// A server-initiated request has an id AND a method. Matching only on
 	// the id made such a frame look like a reply to nothing and dropped it,
 	// so the server waited until the call timed out. The id is kept raw:
@@ -432,7 +453,7 @@ func (c *Client) dispatch(raw []byte) {
 	}
 	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 		if len(probe.ID) > 0 && string(probe.ID) != "null" {
-			c.handleServerRequest(probe.ID, probe.Method, probe.Params)
+			c.handleServerRequest(origin, probe.ID, probe.Method, probe.Params)
 		} else {
 			c.handleNotification(probe.Method, probe.Params)
 		}
@@ -474,9 +495,17 @@ func (c *Client) SetElicitHandler(h ElicitHandler) {
 // Always answers. The alternative -- dropping what we do not understand --
 // is what the old code did by accident, and it is indistinguishable from a
 // hung server.
-func (c *Client) handleServerRequest(id json.RawMessage, method string, params json.RawMessage) {
+//
+// origin is the context of the request the server asked in the course of,
+// when the transport knows it; the handler sees its values (which call this
+// is), not its deadline -- the answer has its own.
+func (c *Client) handleServerRequest(origin context.Context, id json.RawMessage, method string, params json.RawMessage) {
+	base := context.Background()
+	if origin != nil {
+		base = context.WithoutCancel(origin)
+	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), defaults.ElicitHandlerTimeout)
+		ctx, cancel := context.WithTimeout(base, defaults.ElicitHandlerTimeout)
 		defer cancel()
 
 		result, rpcErr := c.answer(ctx, method, params)

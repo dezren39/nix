@@ -687,6 +687,7 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return bad
 	}
 	peer := c.peerFor(req.Params)
+	ctx = withPeerVersion(ctx, peer)
 
 	// A method the peer's own revision removed is method-not-found for that
 	// peer, whatever mcpx is still willing to do for an older one. See
