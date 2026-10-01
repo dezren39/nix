@@ -114,5 +114,17 @@ const execOptionsSchema = `{"type":"object","properties":{
 "task":{"type":"object","properties":{"ttl":{"type":"integer","description":"milliseconds the result is kept"}},"additionalProperties":false},
 "ns":{"type":"array","items":{"type":"string"},"description":"restrict the generated client to these namespaces"},
 "args":{"type":"array","items":{"type":"string"},"description":"arguments handed to the script"},
-"export":{"type":"string","description":"call this exported function instead of the default one"}
+"export":{"type":"string","description":"call this exported function instead of the default one"},
+"typecheck":{"type":"string","enum":["off","on","strict"],"description":"check the program before running it; default from settings"},
+"launcher":{"type":"string","description":"launcher template text replacing the generated one, or none for no launcher"},
+"launcherName":{"type":"string","description":"what to call the launcher in messages"},
+"allowRepeat":{"type":"array","items":{"type":"string"},"description":"launcher placeholders permitted to resolve more than once"},
+"captureConsole":{"type":"boolean","description":"mirror console.* into the record stream; default true"},
+"phases":{"type":"object","properties":{
+  "before":{"type":"array","items":{"type":"string"}},
+  "prefix":{"type":"array","items":{"type":"string"}},
+  "onSuccess":{"type":"array","items":{"type":"string"}},
+  "onError":{"type":"array","items":{"type":"string"}},
+  "suffix":{"type":"array","items":{"type":"string"}}
+},"additionalProperties":false,"description":"source lines run around the script, as the CLI's phase flags"}
 },"additionalProperties":false}`
