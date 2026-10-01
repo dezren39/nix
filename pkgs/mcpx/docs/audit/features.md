@@ -18,7 +18,7 @@ Hooks invoked under bun with fake `client`/`ctx` against a scratch daemon; not l
 | what | state | evidence | issue |
 | --- | --- | --- | --- |
 | `instructions` option (`experimental.chat.system.transform`) | absent | pushes onto `output.parts` (`mcpx-session.ts:745-746`); v1 type is `output: { system: string[] }` (`@opencode-ai/plugin` `index.d.ts:264-268`). `OPTS='{"instructions":true}'` → `system after: {"system":[]}` | #217 |
-| `remember: "permanent"` (`mcpx_daemon_select`, TUI picker) | absent | `putSetting` sends `persist: true` (`mcpx/daemon.ts:665-667`); daemon field is a string (`daemon/routes_settings.go:191`). Tool → "Writing the setting failed"; curl same body → `cannot unmarshal bool into … .persist of type string` | |
+| `remember: "permanent"` (`mcpx_daemon_select`, TUI picker) | absent | `putSetting` sends `persist: true` (`mcpx/daemon.ts:665-667`); daemon field is a string (`internal/daemon/routes_settings.go:191`). Tool → "Writing the setting failed"; curl same body → `cannot unmarshal bool into … .persist of type string` | |
 | `until-gone` remembered scope | absent | `Remembered.scope` written (`daemon.ts:1231`), never read; after `stop --all` the file still has `"scope":"until-gone"` — same as `indefinite` | |
 | `toolTiming` ("one `mcpx stats` covers both") | minimal | record has no duration (`mcpx-session.ts:775-781`); `mcpx log` shows `harness.tool … tool=bash`, `mcpx stats calls` → "No tool calls in the log yet." | |
 | `MCPX_HARNESS_VERSION` injection | absent | read from `OPENCODE_VERSION` (`mcpx-session.ts:373,685`), which opencode 1.18.31 does not set (env inside it lists `OPENCODE_PID` etc.) | |
@@ -41,13 +41,13 @@ Hooks invoked under bun with fake `client`/`ctx` against a scratch daemon; not l
 | Permission profiles as a boundary | partial | a script reaching the daemon can ask it for more: under `--runtime deno --permissions strict`, `fetch(MCPX_ENDPOINT+"/v1/exec", {source:"await Deno.writeTextFile(…)", options:{permissions:"all"}})` → `200`, file written; same under node `readnet`. `/v1/exec` does not cap requested permissions | |
 | `artifact({path})` reads files the profile denies | partial | under `strict` `Deno.readTextFile` fails, `artifact("leak.txt",{path:"$T/secret.txt"})` succeeds (daemon reads via `x-mcpx-path`, `codegen/emit.go:1355-1358`); fetched back `[200,"secret-data\n"]`. No test for `x-mcpx-path` | |
 | `read` profile | partial | `--permissions read` + any tool call → `cannot reach the mcpx daemon … Requires net access`; undocumented (`runtimes.md:63-69`) | |
-| `exec.timeout` / `--exec-timeout` (default 120s) | partial | local: `--exec-timeout 1s` and env both let a 5s script print "late", rc 0; also not honoured with `--remote`. Read only at `daemon/routes_exec.go:173`; CLI `--timeout` default 0 = none (`cli/commands.go:478`). No test | |
+| `exec.timeout` / `--exec-timeout` (default 120s) | partial | local: `--exec-timeout 1s` and env both let a 5s script print "late", rc 0; also not honoured with `--remote`. Read only at `internal/daemon/routes_exec.go:173`; CLI `--timeout` default 0 = none (`cli/commands.go:478`). No test | |
 | Local `--timeout` message | minimal | local: rc 124, nothing printed; remote prints `script timed out after 1s` | |
 | `--suffix` "runs last on both paths, like a finally" (`settings/registry.go:302`) | partial | `exec` snippet that throws: suffix never runs (deno/node/bun); `run` file that throws: runs. Tests cover file path only (`e2e/phases_test.go:47`) | |
 | `--remote` text output | partial | `--remote --format bare 'log.info("hello"); emit(2)'` → `2` (local `hello 2`); `renderExecResult` ignores `res.Logs` (`cli/exec.go:276-283`); stderr dropped (`"logs": []`) | |
 | `--remote` carries the caller's environment (`exec.md:117-121`) | partial | `FOO=bar … --remote --env A=1 'emit([env A, env FOO])'` → `["1",null]`; only `--env` sent (`exec.go:491`) | |
 | `--remote` and caller's `script.profiles`/`runtimes`/`runtimeOrder` | partial | resolved from daemon settings (`routes_exec.go:173-178`): `--permissions mine` → `no permission profile "mine"` remote, works local; `runtimeOrder=bun,node` → deno remote | |
-| `diagnose.preflight` on `--remote` | partial | remote run proceeds to `TypeError: tools.demo.nosuch is not a function`; `ConsumerPolicy.DiagnosePreflight` assigned `daemon/consumer.go:121`, never read | |
+| `diagnose.preflight` on `--remote` | partial | remote run proceeds to `TypeError: tools.demo.nosuch is not a function`; `ConsumerPolicy.DiagnosePreflight` assigned `internal/daemon/consumer.go:121`, never read | |
 | `--hooks-autonomy off` | partial | refuses hooks from env/config; hooks given as CLI flags all still run; help does not say | |
 | `script.typecheck` | partial | deno only; node/bun warn and run `"str"`; deno detected by `strings.Contains(base,"deno")` (`preflight.go:205`) so a renamed deno runtime skips it | |
 | Generated client result types from `outputSchema` | absent | `structured(...): Promise<ToolResult>`, `type ToolResult = any` despite an `outputSchema`; codegen never reads it | #216 |
@@ -124,7 +124,7 @@ Hooks invoked under bun with fake `client`/`ctx` against a scratch daemon; not l
 | `elicit answer key=value` types | partial | `age=3` reaches the server as `"3"` for an integer field; every value a string (`cli/elicit.go:119-126`); `show`'s hint quotes numbers too | #255 |
 | `elicit show` constraints | partial | shows type/optional/enum, not `minLength`/`minimum` | #255 |
 | Sampling question on the CLI | minimal | `call el.sample` rc 75 prints `asks` empty and suggests `'{}'`; `elicit show` omits the messages (only in `--json`) | #256 |
-| `ask answers` rejection | partial | wrong shape → `accepted: 0`, problems listed, rc 0, HTTP always 200 (`daemon/routes_proto.go:672-676`); help does not give the `<answers>` shape | |
+| `ask answers` rejection | partial | wrong shape → `accepted: 0`, problems listed, rc 0, HTTP always 200 (`internal/daemon/routes_proto.go:672-676`); help does not give the `<answers>` shape | |
 | `ask abandon` on finished call | partial | `status: completed`, rc 0, no indication nothing was abandoned | |
 | CLI elicitation tests | untested | no test on JSON types from key=value or on `ask answers` exit code | |
 | exit 75, answer/decline/cancel, re-answer refused | works | server received accept/decline/cancel; re-answer rc 1 | |
