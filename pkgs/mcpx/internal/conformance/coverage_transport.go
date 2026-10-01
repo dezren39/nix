@@ -64,6 +64,7 @@ func init() {
 			"streamable-http-server-rejects-header-body-mismatch",
 			"streamable-http-protocol-version-header-matches-meta",
 			"streamable-http-server-decodes-before-compare",
+			"streamable-http-server-validates-param-headers",
 			"streamable-http-header-names-case-insensitive",
 			"streamable-http-unknown-method-404",
 			"streamable-http-unsupported-version-400",

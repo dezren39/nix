@@ -70,7 +70,6 @@ paths and silently not on others.
 | Progress and mcpx's own timeout | partial | Progress reaches the host but does not extend mcpx's per-server call timeout. |
 | Relay on `prompts/get` and `resources/read` | absent | Only `tools/call` relays progress and logs. |
 | Client capabilities to 2025-11-25 upstreams | partial | Declared once at connection; per-request narrowing reaches 2026-07-28 upstreams only. |
-| `x-mcp-header` on mcpx's server side | untested | No fixture exposes such a tool, so five conformance checks cannot run. |
 
 ## Commands and settings
 

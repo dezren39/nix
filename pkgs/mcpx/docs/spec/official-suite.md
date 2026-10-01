@@ -89,6 +89,12 @@ once, so the question is answered inline before any task exists. That is the
 distinction the scenarios draw, seen from a gateway that cannot see into the
 tool.
 
+taskmcp also lists `echo_region`, whose string parameter `region` carries
+`x-mcp-header: "Region"`, because `http-custom-header-server-validation`
+reports all of its checks as untestable without such a tool. mcpx relists it
+unchanged and validates the `Mcp-Param-Region` header itself, before the
+call is forwarded.
+
 ## Results
 
 Every column is a run of `scripts/conformance.sh` against a daemon built from
@@ -180,7 +186,6 @@ Every tasks-extension check passes. Before taskmcp, 27 of them failed as
 
 | scenario / check | message | kind |
 | --- | --- | --- |
-| `http-custom-header-server-validation` (5) | Not testable: server exposes no tool with `x-mcp-header` annotations | fixture missing: `everything-server.ts` has none |
 | `tools-call-with-progress` | No progress notifications received | mcpx defect (#212) |
 | `server-stateless` / `sep-2575-http-server-no-independent-requests-on-stream`, `sep-2575-server-no-log-without-loglevel` | no frames from the streaming / logging tool | mcpx defect: same relay gap (#212) |
 | `server-stateless` / `sep-2575-server-sends-prompts-list-changed-on-subscription` (WARNING) | no `notifications/prompts/list_changed` on the listen stream | mcpx gap: an upstream's list change on *its* listen stream is not subscribed to and relayed |
@@ -208,9 +213,6 @@ per-server `auth` block is parsed and never applied (#240).
 - Legacy revisions other than 2025-11-25: there are no requirement sets for
   them. `internal/mcpserver/requirements_test.go` and the schema sweep cover
   2024-11-05 through 2025-06-18.
-- `x-mcp-header` validation, whose fixture exists only in the SDKs' own
-  conformance servers. mcpx's own tests cover it
-  (`internal/mcpserver/transport_test.go`).
 
 The per-requirement status, with the test that verifies each row, is
 [conformance-matrix.md](conformance-matrix.md).

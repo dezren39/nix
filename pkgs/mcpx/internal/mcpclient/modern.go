@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/mcpheaders"
 )
 
 // The reserved _meta keys a 2026-07-28 request carries.
@@ -467,11 +468,11 @@ func (c *Client) checkToolHeaders(tools []Tool) []Tool {
 	if !c.mirrorsHeaders() {
 		return tools
 	}
-	headers := map[string][]headerParam{}
+	headers := map[string][]mcpheaders.Param{}
 	invalid := map[string]string{}
 	kept := tools[:0:0]
 	for _, t := range tools {
-		hp, err := toolHeaders(t.InputSchema)
+		hp, err := mcpheaders.ToolParams(t.InputSchema)
 		if err != nil {
 			invalid[t.Name] = err.Error()
 			c.warn(Warning{Tool: t.Name, Reason: "excluded: invalid x-mcp-header: " + err.Error()})
@@ -508,7 +509,7 @@ func (c *Client) toolCallHeaders(ctx context.Context, name string, args any, ref
 	if bad {
 		return nil, fmt.Errorf("tool %q was excluded because its x-mcp-header annotations are invalid: %s", name, why)
 	}
-	h, err := paramHeaders(hp, args)
+	h, err := mcpheaders.Values(hp, args)
 	if err != nil {
 		return nil, fmt.Errorf("tool %q: %w", name, err)
 	}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/mcpheaders"
 )
 
 // ProtocolVersion is the MCP revision mcpx negotiates.
@@ -117,7 +118,7 @@ type Client struct {
 	relaySeq atomic.Int64
 	// toolHeaders are each tool's x-mcp-header annotations, learned from
 	// tools/list, for a modern connection over HTTP.
-	toolHeaders map[string][]headerParam
+	toolHeaders map[string][]mcpheaders.Param
 	// invalidTools are tools excluded for invalid annotations, with why.
 	invalidTools map[string]string
 	// listen is the subscriptions/listen stream of a modern connection.
