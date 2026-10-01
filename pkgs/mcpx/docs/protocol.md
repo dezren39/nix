@@ -561,13 +561,19 @@ passed every test.
 | `sampling/createMessage` | through the broker; a decline becomes an error, since the specification has no decline result for sampling | yes |
 | anything else | `-32601`, but **always answered** — silence is indistinguishable from a hung server | yes |
 
+Always answered, unless the server withdraws the question first: a
+`notifications/cancelled` naming a request still being answered ends the
+handler's context (so a question relayed to the host is withdrawn too) and no
+response is sent. The reason, if given, goes to the daemon log as a
+`server.warning`. A cancellation naming anything else is ignored.
+
 A modern server asks the same three things by *answering* `input_required`,
 and mcpx resolves them through the identical function. One function is what
 stops the two eras answering the same question differently.
 
 ### 4.2 Notifications mcpx listens to
 
-`notifications/message`, `notifications/progress`,
+`notifications/message`, `notifications/progress`, `notifications/cancelled`,
 `notifications/{tools,resources,prompts}/list_changed`,
 `notifications/resources/updated`, `notifications/elicitation/complete`.
 
@@ -588,7 +594,14 @@ back to the host:
 - **Progress.** A host's `_meta.progressToken` is replaced upstream by a token
   of mcpx's own (`mcpx-<n>`, unique on that upstream connection, which two
   hosts' tokens are not), and each `notifications/progress` for it is sent to
-  the host with the host's token restored.
+  the host with the host's token restored. Only progress for a call still in
+  flight is passed on: a token nobody asked for, or one whose response is in,
+  is dropped. A report that does not exceed the last one passed on is dropped,
+  so the host never sees progress go backwards; once progress reaches `total`
+  nothing more is sent; and reports for one token are passed on no more often
+  than every 20 ms (`mcpclient.ProgressMinInterval`), except the final one. A
+  `message` goes to a host whose revision defines it (2025-03-26 on) and is
+  removed for a 2024-11-05 host.
 - **Log messages.** A 2026-07-28 host's `_meta` `logLevel` is sent upstream
   (or the daemon's own level, if more verbose); a legacy host's level is the one
   it set with `logging/setLevel`. Upstream `notifications/message` at or above

@@ -123,6 +123,8 @@ const (
 	// the 2026-07-28 schema, which has no liveness probe: a modern request
 	// is answered or it is not, and there is no session to keep alive.
 	FeatPing Feature = "ping"
+	// FeatProgressMessage is notifications/progress's message field.
+	FeatProgressMessage Feature = "progressMessage"
 )
 
 // removedIn names the methods a revision no longer defines, so a peer on
@@ -163,6 +165,7 @@ var floors = map[Feature]string{
 	FeatStructuredContent:   "2025-06-18",
 	FeatResourceLink:        "2025-06-18",
 	FeatAudio:               "2025-03-26",
+	FeatProgressMessage:     "2025-03-26",
 	FeatToolAnnotations:     "2025-03-26",
 	FeatCompletions:         "2025-03-26",
 	FeatTitle:               "2025-06-18",
