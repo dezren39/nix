@@ -20,7 +20,7 @@ as a server, or as a client) checked against one spec revision. The suite has fr
 sets for 2025-11-25 and 2026-07-28; for 2025-03-26 and 2025-06-18 it has only the scenarios tagged
 for each, selected with `--spec-version`, so those legs are smaller (about 3 and 56 checks).
 `server-all` is every server scenario it has. The suite does not know 2024-11-05, although mcpx
-carries its schema. Client legs exist only for the two frozen sets. A leg's job fails when any
+carries its schema. Client legs run for all four: frozen sets for the two newest, tagged scenarios (`--suite all --spec-version`) for the two older. A leg's job fails when any
 check fails, lists the failures on the run's summary page, and uploads them as an artifact.
 **It is not a merge block**: no branch protection requires it.
 

@@ -32,7 +32,7 @@ PORT=${MCPX_CONFORMANCE_PORT:-18731}
 FIXTURE_PORT=$((PORT + 1))
 LEGACY_PORT=$((PORT + 2))
 FIXTURE_DIR=$CONFORMANCE_DIR/examples/servers/typescript
-LEGS=${LEGS:-"server-2025-03-26 server-2025-06-18 server-2025-11-25 server-2026-07-28 server-all client-2025-11-25 client-2026-07-28"}
+LEGS=${LEGS:-"server-2025-03-26 server-2025-06-18 server-2025-11-25 server-2026-07-28 server-all client-2025-03-26 client-2025-06-18 client-2025-11-25 client-2026-07-28"}
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/mcpx-conformance.XXXXXX")
@@ -125,6 +125,11 @@ for leg in $LEGS; do
   server-2025-06-18 | server-2025-03-26)
     run_leg "$leg" server --url "http://127.0.0.1:$LEGACY_PORT/mcp" --spec-version "${leg#server-}" ;;
   server-*) run_leg "$leg" server --url "http://127.0.0.1:$PORT/mcp" --requirements "${leg#server-}" ;;
+  # As on the server side, the suite has frozen requirement sets only for
+  # 2025-11-25 and 2026-07-28; the two older revisions run their tagged
+  # scenarios.
+  client-2025-06-18 | client-2025-03-26)
+    run_leg "$leg" client --command "$CLIENT" --suite all --spec-version "${leg#client-}" ;;
   client-*) run_leg "$leg" client --command "$CLIENT" --requirements "${leg#client-}" ;;
   *) echo "unknown leg $leg" >&2 ;;
   esac

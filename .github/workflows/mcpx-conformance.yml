@@ -4,7 +4,8 @@ name: mcpx conformance
 # one job per leg. A leg is one side of the protocol (mcpx as a server, or as a client) checked
 # against one spec revision. The suite has frozen requirement sets for 2025-11-25 and 2026-07-28;
 # for 2025-03-26 and 2025-06-18 it has only the scenarios tagged for each, run with
-# --spec-version. "server-all" is every server scenario it has. It does not know 2024-11-05.
+# --spec-version, on both sides. "server-all" is every server scenario it has. It does not know
+# 2024-11-05.
 #
 # NOT A BLOCK. A leg fails when any check fails, so the failures are visible, but no branch
 # protection requires this workflow. The suite expects fixtures and behaviour a gateway does not
@@ -55,6 +56,8 @@ jobs:
           - server-2025-11-25
           - server-2026-07-28
           - server-all
+          - client-2025-03-26
+          - client-2025-06-18
           - client-2025-11-25
           - client-2026-07-28
         # mcpx has no OAuth client (docs/in-name-only.md), so every client
@@ -64,6 +67,10 @@ jobs:
         # check that starts passing all fail the job, so the numbers here
         # are updated deliberately rather than drifting.
         include:
+          - leg: client-2025-03-26
+            expect: "0 7"
+          - leg: client-2025-06-18
+            expect: "3 9"
           - leg: client-2025-11-25
             expect: "20 56"
           - leg: client-2026-07-28
