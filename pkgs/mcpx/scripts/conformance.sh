@@ -14,10 +14,10 @@
 # Runs at /mcp for --requirements 2025-11-25, --requirements 2026-07-28 and --suite all. The suite has no stdio
 # server mode, so `mcpx serve` over stdio is not covered here.
 #
-# The tasks-extension scenarios (src/scenarios/server/tasks/*.ts) ask for slow_compute, failing_job, greet and
-# protocol_error_job. No fixture in this repository defines them -- everything-server.ts does not -- they come
-# from each SDK's own conformance server. They fail here as "no tool named", honestly: mcpx forwards a tool
-# call to its upstream and does not invent fixtures.
+# The tasks-extension scenarios (src/scenarios/server/tasks/*.ts) ask for slow_compute, failing_job, greet,
+# confirm_delete, multi_input, protocol_error_job and test_tool_with_task. The suite's everything-server does not
+# define them, so mcpx's own fixture, internal/testsupport/taskmcp, provides exactly those, and both upstreams are
+# offered through one /mcp: --passthrough takes a list and merges their surfaces.
 #
 # Client leg: builds internal/conformance/officialclient, the adapter that makes mcpx the client under test
 # (see its package doc), and runs the client scenarios for both requirement sets.
@@ -64,7 +64,8 @@ fi
 SUITE=(node "$CONFORMANCE_DIR/dist/index.js")
 
 (cd "$HERE" && go build -o "$WORK/mcpx" ./cmd/mcpx &&
-  go build -o "$WORK/officialclient" ./internal/conformance/officialclient) || exit 1
+  go build -o "$WORK/officialclient" ./internal/conformance/officialclient &&
+  go build -o "$WORK/taskmcp" ./internal/testsupport/taskmcp) || exit 1
 
 start_fixture() {
   (cd "$FIXTURE_DIR" && PORT=$FIXTURE_PORT exec node_modules/.bin/tsx everything-server.ts) \
@@ -87,11 +88,11 @@ start_daemon() {
   [ "$era" = legacy ] && protocol=force-legacy
   [ -n "${FIXTURE_PID:-}" ] || start_fixture
   mkdir -p "$WORK/$era"
-  printf '{"mcpServers":{"demo":{"url":"http://127.0.0.1:%s/mcp","protocol":"%s","mcpx":{"sharing":"shared","scope":"global"}}}}\n' \
-    "$FIXTURE_PORT" "$protocol" >"$WORK/$era/.mcpx.json"
+  printf '{"mcpServers":{"demo":{"url":"http://127.0.0.1:%s/mcp","protocol":"%s","mcpx":{"sharing":"shared","scope":"global"}},"tasks":{"command":"%s","mcpx":{"sharing":"shared","scope":"global"}}}}\n' \
+    "$FIXTURE_PORT" "$protocol" "$WORK/taskmcp" >"$WORK/$era/.mcpx.json"
   MCPX_CONFIG=$WORK/$era/.mcpx.json MCPX_STATE_DIR=$WORK/$era/state MCPX_CACHE_DIR=$WORK/$era/cache \
     MCPX_REGISTRY_URL=http://127.0.0.1:1/ \
-    "$WORK/mcpx" daemon --port "$port" --passthrough demo >"$OUT/daemon-$era.log" 2>&1 &
+    "$WORK/mcpx" daemon --port "$port" --passthrough demo,tasks >"$OUT/daemon-$era.log" 2>&1 &
   DAEMON_PIDS+=($!)
   for _ in $(seq 1 100); do
     curl -sf "http://127.0.0.1:$port/v1/health" >/dev/null && return 0
