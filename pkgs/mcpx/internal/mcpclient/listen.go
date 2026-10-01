@@ -141,7 +141,7 @@ func (l *listener) open(f ListenFilter) (int64, <-chan *rpcResponse, func()) {
 	c := l.c
 	ctx, cancel := context.WithCancel(context.Background())
 	params, _ := json.Marshal(map[string]any{"notifications": f})
-	params, _ = c.withMeta(params, c.metaVersion)
+	params, _ = c.withMeta(ctx, params, c.metaVersion)
 	id := c.nextID.Add(1)
 	l.mu.Lock()
 	// Recorded before the request goes out: the acknowledgement can arrive

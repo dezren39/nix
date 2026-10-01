@@ -55,6 +55,11 @@ const (
 	// Stored in the same table because it has the same life: asked by a
 	// server, answered by whatever drives mcpx, bounded by a deadline.
 	Sample Mode = "sample"
+	// Roots relays a server's roots/list to the client mcpx is serving, when
+	// that client declared roots: in pass-through mode the roots that matter
+	// are its own, not the ones configured on mcpx. Answered with a
+	// ListRootsResult.
+	Roots Mode = "roots"
 )
 
 // State is where a question is in its life.
@@ -308,7 +313,7 @@ func (b *Broker) Respond(a Answer) error {
 		// first answer stands and the caller is told so.
 		return fmt.Errorf("%s was already %s", a.ID, r.State)
 	}
-	if a.Action == Accept && (r.Mode == Form || r.Mode == Sample) && len(a.Content) == 0 {
+	if a.Action == Accept && (r.Mode == Form || r.Mode == Sample || r.Mode == Roots) && len(a.Content) == 0 {
 		return errors.New("an accepted form elicitation needs content")
 	}
 

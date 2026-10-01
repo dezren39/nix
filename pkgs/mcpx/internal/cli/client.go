@@ -23,6 +23,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/settings"
 )
 
@@ -223,6 +224,9 @@ func (c *Client) sendWith(ctx context.Context, method, path string, body []byte,
 	}
 	if c.callSettings != "" {
 		req.Header.Set(daemon.CallSettingsHeader, c.callSettings)
+	}
+	if caps := mcpclient.ClientCapabilitiesFrom(ctx); len(caps) > 0 {
+		req.Header.Set(daemon.ClientCapsHeader, string(caps))
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {

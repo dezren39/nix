@@ -115,6 +115,31 @@ func (s *Server) isPassTool(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
+// routesToPass reports whether a call to name goes to the pass-through
+// upstream: a tool it lists, or any name that is not one of the gateway's
+// own. An upstream may answer to tools it does not list -- the conformance
+// suite's own server has diagnostic hooks such as test_trigger_prompt_change
+// -- and in pass-through mode the upstream is the server, so it is the one
+// to say whether a name exists. mcpx answering "no tool named" for them was
+// mcpx deciding on the server's behalf.
+func (s *Server) routesToPass(ctx context.Context, name string) (bool, error) {
+	pass, err := s.isPassTool(ctx, name)
+	if err != nil || pass || s.Passthrough == "" {
+		return pass, err
+	}
+	for _, t := range s.Tools() {
+		if t.Name == name {
+			return false, nil
+		}
+	}
+	for _, e := range s.extras {
+		if e.Tool.Name == name {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // PassToolOf reports what this request already knows about name: whether a
 // pass-through lookup has been made for the request (known), and if so
 // whether name is the upstream's. Lets a Backend reuse the lookup the protocol

@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/execsvc"
+	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
@@ -63,6 +65,9 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 			if len(raw.Arguments) > 0 {
 				body["args"] = raw.Arguments
 			}
+			// The upstream judges what the client can answer, as on the
+			// direct path (mcpBackend.Call).
+			ctx = mcpclient.WithClientCapabilities(ctx, mcpserver.DeclaredCapabilities(ctx))
 			break
 		}
 		if p.Name == "mcpx_exec" {
@@ -179,12 +184,16 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 	return out.CallID, nil
 }
 
+// codeMissingCapability is 2026-07-28's MissingRequiredClientCapability.
+const codeMissingCapability = -32021
+
 type askPollReply struct {
 	Status    string                     `json:"status"`
 	Done      bool                       `json:"done"`
 	Error     string                     `json:"error"`
 	Questions []mcpserver.Question       `json:"questions"`
 	Result    map[string]json.RawMessage `json:"result"`
+	Upstream  *daemon.UpstreamError      `json:"upstream"`
 }
 
 func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration) (mcpserver.Outcome, error) {
@@ -220,6 +229,10 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		// argument for a prompt.
 		failed := errors.New(reply.Error)
 		switch {
+		case reply.Upstream != nil && reply.Upstream.Code == codeMissingCapability:
+			// Only -32021 here: the ask path also runs mcpx_call, whose
+			// upstream errors are tool results, and Poll cannot tell which.
+			out.Err = &mcpserver.UpstreamError{Code: reply.Upstream.Code, Message: reply.Upstream.Message, Data: reply.Upstream.Data}
 		case upstreamNotFound(failed) && upstreamInvalid(failed):
 			out.Err = fmt.Errorf("%w, %w: %v", mcpserver.ErrResourceNotFound, mcpserver.ErrInvalidParams, failed)
 		case upstreamNotFound(failed):

@@ -270,6 +270,20 @@ server whose surface is offered **as itself** instead:
 - `resources/list`, `resources/templates/list` and `resources/read` use its own
   URIs, as do subscriptions and `completion/complete` refs. An `mcpx://` URI
   still reaches every other server and mcpx's artifacts.
+- **Its declaration, not mcpx's.** A 2026-07-28 client's
+  `clientCapabilities` go to the upstream with the call, narrowed from mcpx's
+  own: mcpx never declares to the upstream a capability its client did not
+  (a tool that needs sampling is refused rather than run on mcpx's say-so).
+  An upstream JSON-RPC error — `-32021` with its `requiredCapabilities`,
+  `-32602` for a name it does not know — is returned as that error, HTTP 400
+  included, not as a tool result with `isError`.
+- **Names it does not list.** A `tools/call` for a name that is neither the
+  upstream's listed tool nor a gateway tool is forwarded; the upstream says
+  whether it exists. A server may answer to diagnostic or hidden tools it does
+  not list.
+- **Roots.** A `roots/list` the upstream asks in an `input_required` round is
+  put to a client that declared `roots`, as an elicitation is; for one that
+  did not, mcpx answers with its own configured roots.
 - **Collisions:** the upstream wins. A gateway tool whose name the upstream
   also uses is neither listed nor callable over MCP (it stays on the CLI and
   `/v1`). The upstream is the server in this mode, and a client must be able to
@@ -363,6 +377,15 @@ POST is the only channel, and it is the thing waiting for the answer. So:
    waiting on that session and answers `202`.
 4. The original stream carries the final result and closes.
 
+A request that asks nothing but is slow — a pass-through call waiting out
+`pool.callTimeout` on an upstream that went quiet — also becomes an event
+stream once it has been silent for `transport.sseKeepAlive`, carrying a comment
+each interval until the answer, when the client's `Accept` offered
+`text/event-stream`. Before, such a POST got no bytes at all, not even headers,
+for up to two minutes, and a client or proxy with an idle timeout gave up on a
+call that was still running. The stream carries no event ids: mcpx does not
+offer SEP-1699 resumption, and an id would promise a replay it cannot make.
+
 A legacy POST outside any session cannot be asked anything: its answer would
 arrive on a POST nothing can route back. Its questions stay with the broker.
 
@@ -383,6 +406,11 @@ A 2026-07-28 server has no connection to send a request on. It answers
 `requestState`; the client answers each and sends the **same request again**
 with `inputResponses` and the state attached. Only `tools/call`, `prompts/get`
 and `resources/read` may do this.
+
+`inputResponses` sent on a request that resumes nothing — a client that knows
+what will be asked and answers up front — are held until the upstream asks, and
+given to the questions whose keys they match. Keys that match nothing are
+ignored, as SEP-2322 asks of information a server does not recognise.
 
 Which means the call has already returned by the time the answer exists. The
 upstream call therefore cannot be tied to the client's request — if it were,

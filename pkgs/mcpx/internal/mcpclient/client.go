@@ -759,7 +759,7 @@ func (c *Client) call(ctx context.Context, method string, params json.RawMessage
 	// callers see only the final result, exactly as they would from a
 	// legacy server that asked its questions on the wire.
 	for round := 0; ; round++ {
-		withMeta, err := c.withMeta(params, version)
+		withMeta, err := c.withMeta(ctx, params, version)
 		if err != nil {
 			return err
 		}

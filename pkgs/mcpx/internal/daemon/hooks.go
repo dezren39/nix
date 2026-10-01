@@ -116,6 +116,8 @@ func (r *Registry) answerServer(ctx context.Context, server, key, method string,
 		return r.elicitViaBroker(ctx, server, key, params)
 	case "sampling/createMessage":
 		return r.sampleViaBroker(ctx, server, key, params)
+	case "roots/list":
+		return r.rootsViaBroker(ctx, server, key, params)
 	}
 	return nil, fmt.Errorf("mcpx does not implement %s", method)
 }
@@ -228,6 +230,41 @@ func (r *Registry) sampleViaBroker(ctx context.Context, server, key string, para
 	}
 	if _, ok := result["model"]; !ok {
 		result["model"] = "unknown"
+	}
+	return result, nil
+}
+
+// rootsViaBroker relays a server's roots/list to the client whose call it
+// interrupted. Only to that client: a roots question nobody's call raised has
+// no one to answer it but mcpx, which answers with its own configured roots
+// (mcpclient.ErrNotRelayed).
+func (r *Registry) rootsViaBroker(ctx context.Context, server, key string, params json.RawMessage) (any, error) {
+	if r.askIDFor(ctx, server, key) == "" {
+		return nil, mcpclient.ErrNotRelayed
+	}
+	req, err := r.broker.OpenRequest(elicit.Request{
+		Server:    server,
+		Trace:     r.askIDFor(ctx, server, key),
+		Mode:      elicit.Roots,
+		Message:   server + " asks for the client's roots",
+		Audience:  elicit.ToAgent,
+		Reason:    "roots are the client's own, and only it can list them",
+		ExpiresAt: time.Now().Add(defaults.ElicitTTL),
+	})
+	if err != nil {
+		return nil, err
+	}
+	r.attach(ctx, server, key, req, "roots/list", params)
+	ans, err := r.broker.Await(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if ans.Action != elicit.Accept {
+		return nil, errors.New("the roots request was " + string(ans.Action))
+	}
+	var result map[string]any
+	if err := json.Unmarshal(ans.Content, &result); err != nil {
+		return nil, fmt.Errorf("a roots answer must be a ListRootsResult: %w", err)
 	}
 	return result, nil
 }

@@ -425,9 +425,13 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 	// the body waits for it, so there is no window in which a question
 	// arrives for a call nothing has heard of.
 	ready := make(chan string, 1)
+	caps := withClientCaps(context.Background(), r)
 	t := s.taskStore().Start(ttl, func(ctx context.Context) (any, *tasks.Fault) {
 		id := <-ready
 		start := time.Now()
+		// The task outlives this request, so the header is carried over
+		// by value rather than through r.Context().
+		ctx = mcpclient.WithClientCapabilities(ctx, mcpclient.ClientCapabilitiesFrom(caps))
 		var (
 			raw json.RawMessage
 			err error
@@ -449,7 +453,11 @@ func (s *Server) handleAskBegin(w http.ResponseWriter, r *http.Request) {
 			raw, err = s.reg.ReadResourceAsk(ctx, id, req.Server, req.URI, cc)
 		}
 		if err != nil {
-			return nil, &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			f := &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			if up := callErrorBody(err).Upstream; up != nil {
+				f.Data = up
+			}
+			return nil, f
 		}
 		return map[string]any{"result": raw, "kind": req.Kind, "server": req.Server,
 			"durationMs": time.Since(start).Milliseconds()}, nil
@@ -536,6 +544,9 @@ func (s *Server) handleAskPoll(w http.ResponseWriter, r *http.Request) {
 			out["error"] = err.Error()
 		case fault != nil:
 			out["error"] = fault.Message
+			if up, ok := fault.Data.(*UpstreamError); ok {
+				out["upstream"] = up
+			}
 		default:
 			out["result"] = result
 		}
@@ -638,11 +649,11 @@ func (s *Server) handleAskAnswers(w http.ResponseWriter, r *http.Request) {
 
 // answerFromResult converts an MCP result into the broker's answer.
 func answerFromResult(id, method string, raw json.RawMessage) (elicit.Answer, error) {
-	if method == "sampling/createMessage" {
+	if method == "sampling/createMessage" || method == "roots/list" {
 		// Sampling has no decline shape in the specification, so anything
 		// that arrives is an acceptance and a refusal has to be an error.
 		if len(raw) == 0 || string(raw) == "null" {
-			return elicit.Answer{}, errors.New("a sampling answer must be a CreateMessageResult")
+			return elicit.Answer{}, fmt.Errorf("a %s answer must be its result object", method)
 		}
 		return elicit.Answer{ID: id, Action: elicit.Accept, Content: raw}, nil
 	}
