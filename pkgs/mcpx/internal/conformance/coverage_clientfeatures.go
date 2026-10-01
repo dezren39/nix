@@ -99,7 +99,6 @@ func init() {
 		),
 	)
 	registerGaps(
-		Gap{ID: "sampling-both-iteration-limits-tool-loops", Side: Server, Revs: []string{"2026-07-28"}, Issue: "#201", Why: "AskRounds bounds one request; a 2026-07-28 client that keeps answering is re-asked across retries without limit", Test: "conformance.TestClientFeaturesServer"},
 		Gap{ID: "sampling-app-review-ui", Side: Client, Issue: "#256", Why: "a sampling request is routed to the agent audience; nothing lets a person review or edit the prompt or the result"},
 		Gap{ID: "sampling-app-view-edit-prompts", Side: Client, Issue: "#256", Why: "a sampling request is routed to the agent audience; nothing lets a person review or edit the prompt or the result"},
 		Gap{ID: "sampling-app-review-responses", Side: Client, Issue: "#256", Why: "a sampling request is routed to the agent audience; nothing lets a person review or edit the prompt or the result"},

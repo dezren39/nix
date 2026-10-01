@@ -13,6 +13,17 @@ import (
 // report (progress reaching total) is never held back.
 const ProgressMinInterval = 20 * time.Millisecond
 
+// ProgressBurst is how many of a call's progress notifications are passed on
+// before ProgressMinInterval starts to apply.
+//
+// A plain interval drops progress a host asked for: a server reporting three
+// steps as fast as it does them is not flooding, and the official suite's
+// tools-call-with-progress sends exactly that and expects all three
+// ("Expected at least 3 progress notifications, got 2", 3 runs of 3). The
+// burst lets ordinary reporting through and still bounds a server that sends
+// thousands.
+const ProgressBurst = 5
+
 // relayState is one call in flight: the token mcpx sent upstream for it, and
 // the last progress passed on, which the next must exceed.
 type relayState struct {
@@ -21,6 +32,7 @@ type relayState struct {
 	seen  bool
 	done  bool // progress reached total: nothing more is passed on
 	at    time.Time
+	n     int // passed on so far, against ProgressBurst
 }
 
 // Relay carries what a downstream client asked of one call through to the
@@ -152,7 +164,8 @@ func (c *Client) beginRelay(r *Relay, params json.RawMessage) (json.RawMessage, 
 // still in flight -- once the response is in, the relay is gone and so is
 // its token -- only when it exceeds the last value passed on (the spec has
 // it increase with every notification, and a host must not see it go
-// backwards from mcpx), and no more often than ProgressMinInterval.
+// backwards from mcpx), and -- after ProgressBurst of them -- no more often
+// than ProgressMinInterval.
 func (c *Client) acceptProgress(params json.RawMessage) (*Relay, map[string]json.RawMessage, bool) {
 	var p map[string]json.RawMessage
 	if json.Unmarshal(params, &p) != nil {
@@ -180,10 +193,11 @@ func (c *Client) acceptProgress(params json.RawMessage) (*Relay, map[string]json
 		}
 		final := v.Total != nil && *v.Progress >= *v.Total
 		now := time.Now()
-		if st.seen && !final && now.Sub(st.at) < ProgressMinInterval {
+		if st.n >= ProgressBurst && !final && now.Sub(st.at) < ProgressMinInterval {
 			return nil, nil, false
 		}
 		st.last, st.seen, st.done, st.at = *v.Progress, true, final, now
+		st.n++
 		return r, p, true
 	}
 	return nil, nil, false

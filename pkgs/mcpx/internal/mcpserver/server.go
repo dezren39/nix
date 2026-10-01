@@ -410,9 +410,10 @@ type Tool struct {
 	// destructiveHint -- which is how a client decides whether a tool may be
 	// run without asking. Omitted where mcpx has nothing to declare.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
-	// Execution is a pass-through upstream's execution object, verbatim.
-	// Its taskSupport decides whether a call may, must or must not run as
-	// a task; see taskSupportOf.
+	// Execution is a pass-through upstream's execution object, verbatim,
+	// or for mcpx's own tools the taskSupport it declares. Its taskSupport
+	// decides whether a call may, must or must not run as a task; see
+	// taskSupportOf and legacyTaskSupport.
 	Execution json.RawMessage `json:"execution,omitempty"`
 	// The rest of an upstream tool, for pass-through listings. mcpx's own
 	// tools leave them empty.
@@ -420,6 +421,26 @@ type Tool struct {
 	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 	Icons        json.RawMessage `json:"icons,omitempty"`
 	Meta         json.RawMessage `json:"_meta,omitempty"`
+}
+
+// taskOptional is the execution object of mcpx's own tools that may run as
+// a 2025-11-25 task: the two that wait on upstreams. The rest answer from
+// what the daemon already holds, so they declare nothing -- "forbidden".
+var taskOptional = json.RawMessage(`{"taskSupport":"optional"}`)
+
+// withoutOwnExecution drops the execution object from mcpx's own tools.
+// It is 2025-11-25's core-tasks declaration, which 2026-07-28's Tool does
+// not define; there the server decides what becomes a task. A pass-through
+// upstream's own execution is its business and is relayed as it came.
+func withoutOwnExecution(tools []Tool) []Tool {
+	out := make([]Tool, len(tools))
+	for i, t := range tools {
+		if len(t.Execution) > 0 && &t.Execution[0] == &taskOptional[0] {
+			t.Execution = nil
+		}
+		out[i] = t
+	}
+	return out
 }
 
 // Tools is the surface.
@@ -484,6 +505,8 @@ func (s *Server) Tools() []Tool {
 				"tool":{"type":"string"},
 				"arguments":{"type":"object","description":"the tool's arguments"}
 			},"required":["namespace","tool"],"additionalProperties":false}`),
+			// An upstream call can take as long as the upstream likes.
+			Execution: taskOptional,
 		},
 		{
 			Name: "mcpx_exec",
@@ -496,6 +519,7 @@ func (s *Server) Tools() []Tool {
 				"source":{"type":"string","description":"TypeScript; top-level await is available"},
 				"timeoutSec":{"type":"integer","description":"default 120"}
 			},"required":["source"],"additionalProperties":false}`),
+			Execution: taskOptional,
 		},
 		{
 			Name: "mcpx_log",
@@ -788,6 +812,9 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		tools, next, perr := page(all, req.Params, s.pageSize())
 		if perr != nil {
 			return fail(codeInvalidParams, perr.Error())
+		}
+		if peer.Modern {
+			tools = withoutOwnExecution(tools)
 		}
 		out := map[string]any{"tools": tools}
 		if next != "" {
@@ -2165,11 +2192,12 @@ func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[
 		push = s.Notify != nil && ((c != nil && c.canPush()) || senderFrom(ctx) != nil)
 	}
 	caps := map[string]any{
-		// Never listChanged: mcpx's own tool list is fixed when the server
-		// is built. It used to be declared and fed by upstream tool changes,
-		// which are not changes to *this* list -- a client re-listed on
-		// every one and got the same ten tools back.
-		"tools":     map[string]any{"listChanged": false},
+		// mcpx's own tool list is fixed when the server is built, so it
+		// declares listChanged only in pass-through mode, where tools/list
+		// is the upstreams' list and changes when theirs does. It used to
+		// be declared for the fixed list too, and a client re-listed on
+		// every upstream change and got the same ten tools back.
+		"tools":     map[string]any{"listChanged": push && s.toolsVary()},
 		"resources": map[string]any{"subscribe": push, "listChanged": push},
 		"prompts":   map[string]any{"listChanged": push},
 	}

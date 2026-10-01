@@ -111,7 +111,6 @@ func init() {
 		),
 	)
 	registerGaps(
-		Gap{ID: "stdio-client-no-responses", Side: Client, Issue: "#200", Why: "a request from a 2026-07-28 server is answered; the client has no era guard on server requests"},
 		Gap{ID: "streamable-http-client-reissue-broken-request", Side: Client, Issue: "#203", Why: "a broken 2026-07-28 response stream is reported lost to the caller (http.go); nothing re-issues the request with a new id"},
 		Gap{ID: "streamable-http-client-reinit-on-404", Side: Client, Issue: "#203", Why: "a 404 for the session is returned as an error; no new initialize"},
 		Gap{ID: "stdio-client-restart-crashed-server", Side: Client, Issue: "#257", Why: "unverified: the in-flight call fails and the pool respawns only on the next acquire, subject to its start-failure cooldown"},

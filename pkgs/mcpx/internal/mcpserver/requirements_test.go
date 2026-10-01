@@ -974,7 +974,7 @@ func TestTasksPerEra(t *testing.T) {
 				map[string]any{"protocolVersion": "2025-11-25"}))
 		}
 		created := protoJSON(t, s.HandleOn(context.Background(), a, mcpserver.Request(2, "tools/call",
-			map[string]any{"name": "mcpx_namespaces", "task": map[string]any{}})))
+			map[string]any{"name": "mcpx_call", "arguments": map[string]any{"namespace": "alpha", "tool": "t"}, "task": map[string]any{}})))
 		var doc struct {
 			Result struct {
 				Task struct {

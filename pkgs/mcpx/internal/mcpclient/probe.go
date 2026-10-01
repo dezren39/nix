@@ -182,6 +182,7 @@ func (c *Client) judge(resp *rpcResponse, tried map[string]int) (verdict, string
 	c.Capabilities = dr.Capabilities
 	c.Instructions = dr.Instructions
 	c.Era = EraModern
+	c.modern.Store(true)
 	return isModern, "", nil
 }
 

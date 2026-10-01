@@ -53,12 +53,23 @@ type statePayload struct {
 	// one call minted within the same second were byte-identical, so a
 	// client could not tell a new round from a repeat of the last one.
 	Nonce string `json:"n"`
+	// Rounds is how many times this call has come back asking, so far.
+	// Each round of a 2026-07-28 exchange is a new request, so a count
+	// kept per request restarted at zero on every retry, and an upstream
+	// that never stopped asking was re-asked without limit. Carried in the
+	// signed state, the client cannot reset it.
+	Rounds int `json:"r,omitempty"`
 }
 
 // ErrNoStateKey means this process could not generate a signing key.
 var ErrNoStateKey = errors.New("mcpx cannot sign a requestState")
 
 func (s *stateSigner) mint(callID, binding string) (string, error) {
+	return s.mintRound(callID, binding, 0)
+}
+
+// mintRound is mint recording the rounds asked so far.
+func (s *stateSigner) mintRound(callID, binding string, rounds int) (string, error) {
 	ttl := s.ttl
 	if ttl <= 0 {
 		ttl = defaults.ProtoStateTTL
@@ -74,7 +85,8 @@ func (s *stateSigner) mint(callID, binding string) (string, error) {
 		return "", err
 	}
 	b, err := json.Marshal(statePayload{Call: callID, Binding: binding,
-		Expires: time.Now().Add(ttl).Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonce)})
+		Expires: time.Now().Add(ttl).Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonce),
+		Rounds: rounds})
 	if err != nil {
 		return "", err
 	}
@@ -89,34 +101,41 @@ func (s *stateSigner) sign(body string) string {
 }
 
 func (s *stateSigner) verify(token, binding string) (string, error) {
+	id, _, err := s.verifyRound(token, binding)
+	return id, err
+}
+
+// verifyRound is verify also returning the rounds the state records.
+func (s *stateSigner) verifyRound(token, binding string) (string, int, error) {
+	fail := func(err error) (string, int, error) { return "", 0, err }
 	if len(s.key) == 0 {
-		return "", ErrNoStateKey
+		return fail(ErrNoStateKey)
 	}
 	body, mac, ok := strings.Cut(token, ".")
 	if !ok {
-		return "", errors.New("requestState is malformed")
+		return fail(errors.New("requestState is malformed"))
 	}
 	// Constant time, because a comparison that stops at the first wrong byte
 	// tells an attacker how much of a forgery was right.
 	if !hmac.Equal([]byte(mac), []byte(s.sign(body))) {
-		return "", errors.New("requestState does not verify")
+		return fail(errors.New("requestState does not verify"))
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(body)
 	if err != nil {
-		return "", errors.New("requestState is malformed")
+		return fail(errors.New("requestState is malformed"))
 	}
 	var p statePayload
 	if err := json.Unmarshal(raw, &p); err != nil {
-		return "", errors.New("requestState is malformed")
+		return fail(errors.New("requestState is malformed"))
 	}
 	if p.Binding != binding {
 		// The signature was ours, so this is a valid token presented on the
 		// wrong request. Said plainly rather than as "invalid": the
 		// difference is a bug in a client versus somebody replaying.
-		return "", errors.New("this requestState was issued for a different request")
+		return fail(errors.New("this requestState was issued for a different request"))
 	}
 	if time.Now().Unix() > p.Expires {
-		return "", fmt.Errorf("this requestState expired; the call it named is gone")
+		return fail(fmt.Errorf("this requestState expired; the call it named is gone"))
 	}
-	return p.Call, nil
+	return p.Call, p.Rounds, nil
 }

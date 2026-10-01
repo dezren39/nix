@@ -760,7 +760,8 @@ func TestAToolCallCanRunAsATask(t *testing.T) {
 	// every intermediary to time it out. A task hands back a handle at once.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "tools/call", map[string]any{
-		"name": "mcpx_namespaces", "arguments": map[string]any{},
+		// mcpx_call: a tool that declares taskSupport (2025-11-25).
+		"name": "mcpx_call", "arguments": map[string]any{"namespace": "alpha", "tool": "t"},
 		"task": map[string]any{"ttl": 60000},
 	}))
 	b, _ := json.Marshal(resp)
@@ -800,7 +801,7 @@ func TestAToolCallCanRunAsATask(t *testing.T) {
 func TestATaskCanBeListedAndCancelled(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	s.Handle(context.Background(), mcpserver.Request(1, "tools/call", map[string]any{
-		"name": "mcpx_status", "arguments": map[string]any{}, "task": map[string]any{},
+		"name": "mcpx_call", "arguments": map[string]any{"namespace": "alpha", "tool": "t"}, "task": map[string]any{},
 	}))
 	list := s.Handle(context.Background(), mcpserver.Request(2, "tasks/list", nil))
 	b, _ := json.Marshal(list)
