@@ -3143,7 +3143,7 @@
     },
     "notes": {
       "client": "partial — never sends batches; does not parse batch replies on stdio",
-      "server": "gap — `ServeStdio` unmarshals one object; a batch array gets a parse error"
+      "server": "yes — `ServeStdio` answers a 2025-03-26 batch with an array (`isBatch`, `internal/mcpserver/server.go`); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -3371,7 +3371,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "gap — recorded, upstream call not interrupted (`protocol.md` §6)"
+      "server": "yes — `notifications/cancelled` cancels the request context the backend runs under (`Conn.track`); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -3638,6 +3638,9 @@
     "notes": {
       "client": "gap if a 2024-11-05 remote is configured — no SSE client",
       "server": "not-implemented-by-choice"
+    },
+    "claims": {
+      "client": "gap"
     }
   },
   {
@@ -3836,7 +3839,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "**gap** — `ServeHTTP` never reads `Origin`; loopback default is the only defence"
+      "server": "yes — `ServeHTTP` refuses a foreign `Origin` (`originAllowed`, `internal/mcpserver/server.go`, #198); `/v1` too (`internal/daemon/origin.go`, #267); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -3856,7 +3859,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "**gap** (as above)"
+      "server": "yes — 403 with an id-less JSON-RPC error (as above); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -3964,6 +3967,9 @@
     "notes": {
       "client": "yes (never batches); parses batch replies",
       "server": "**gap** for 2025-03-26 — batch body → parse error 400"
+    },
+    "claims": {
+      "server": "gap"
     }
   },
   {
@@ -4020,7 +4026,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "**gap** — only `MCP-Protocol-Version`; no `Mcp-Method`/`Mcp-Name`",
+      "client": "yes — `Mcp-Method`/`Mcp-Name` and `Mcp-Param-*` on every modern POST (`internal/mcpclient/headers.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -4289,6 +4295,9 @@
     "notes": {
       "client": "**gap** — a server that does this loses mcpx the response (no reconnect)",
       "server": "not used"
+    },
+    "claims": {
+      "client": "gap"
     }
   },
   {
@@ -4306,7 +4315,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "**gap**",
+      "client": "yes — reconnects with GET and `Last-Event-ID` after `retry` (`internal/mcpclient/http.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -4446,7 +4455,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "gap (upstream not interrupted)"
+      "server": "yes — a closed POST stream cancels the backend call; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -4898,7 +4907,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "**gap** — reaped/DELETEd ids are silently served statelessly"
+      "server": "yes — an ended or unknown session id is 404; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -4920,6 +4929,9 @@
     "notes": {
       "client": "**gap** — 404 surfaces as `http 404` error; session id kept",
       "server": "n/a"
+    },
+    "claims": {
+      "client": "gap"
     }
   },
   {
@@ -4980,7 +4992,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "**gap** — legacy frames carry the constant `2025-11-25`, even when the server negotiated down",
+      "client": "yes — the header carries the negotiated revision; tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5021,7 +5033,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "**gap** — header value is compared only with `_meta`, never validated"
+      "server": "yes — an unsupported `MCP-Protocol-Version` is 400; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -5135,7 +5147,7 @@
     },
     "notes": {
       "client": "must not mistake it for a dead session/legacy server — partial (any 404 → error)",
-      "server": "**gap** — `writeJSON(... 200 ...)` for every JSON-RPC error"
+      "server": "yes — `-32601` is HTTP 404 on the modern path; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -5172,7 +5184,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "**gap**",
+      "client": "yes (`standardHeaders`, `internal/mcpclient/headers.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5191,7 +5203,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "gap (no header)",
+      "client": "yes (`encodeHeaderValue`, `internal/mcpclient/headers.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5229,7 +5241,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "**gap**",
+      "client": "yes (`paramHeaders`, `internal/mcpclient/headers.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5267,7 +5279,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "gap (only when mcpx speaks modern over HTTP)",
+      "client": "yes (`checkToolHeaders`, `internal/mcpclient/modern.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5286,7 +5298,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "gap",
+      "client": "yes (`encodeHeaderValue`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5306,7 +5318,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "gap (no validation at all)"
+      "server": "yes — encoded header values are decoded before comparison; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -5324,7 +5336,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "gap",
+      "client": "yes (`paramHeaders`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5343,7 +5355,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "gap",
+      "client": "yes — re-lists tools and retries once on `-32020` (`toolCallHeaders`, `internal/mcpclient/modern.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -5382,6 +5394,9 @@
     },
     "notes": {
       "client": "n/a",
+      "server": "gap"
+    },
+    "claims": {
       "server": "gap"
     }
   },
@@ -5439,7 +5454,7 @@
     },
     "notes": {
       "client": "n/a",
-      "server": "**gap** — body is not JSON-RPC"
+      "server": "yes — 400 with a JSON-RPC `-32020` body carrying the request id; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -11379,7 +11394,7 @@
     },
     "notes": {
       "client": "yes",
-      "server": "GAP — `dispatch` error for an unknown tool is returned as `isError:true` (server.go ~l.667), not `-32602`"
+      "server": "yes — an unknown tool is `-32602` (`internal/mcpserver/server.go` `no tool named`, #284); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -11402,7 +11417,7 @@
     },
     "notes": {
       "client": "yes",
-      "server": "GAP — same as above"
+      "server": "yes (as above); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -12198,7 +12213,7 @@
     },
     "notes": {
       "client": "yes — accept -32002",
-      "server": "GAP — mcpx returns `-32602` for every read error in every era (server.go resources/read)"
+      "server": "yes — `-32002` with `data.uri` through 2025-11-25, `-32602` in 2026-07-28 (`codeResourceNotFoundLegacy`); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -12221,7 +12236,7 @@
     },
     "notes": {
       "client": "yes",
-      "server": "GAP — backend read failures (not only not-found) mapped to -32602"
+      "server": "yes — backend read failures are `-32603` (`codeInternal`); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -12678,7 +12693,7 @@
     },
     "notes": {
       "client": "yes",
-      "server": "yes — prompts/get returns -32602 for all backend errors; internal errors misclassified (minor GAP)"
+      "server": "yes — unknown prompt `-32602`, backend failure `-32603`; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -12808,7 +12823,7 @@
     },
     "notes": {
       "client": "yes — may use for upstream cache",
-      "server": "GAP — no ttlMs/cacheScope on tools/list, prompts/list, resources/list, resources/read, templates/list, server/discover"
+      "server": "yes — `ttlMs`/`cacheScope` on discover, the three lists, templates/list and resources/read (`internal/mcpserver/server.go` `cacheable`); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -12846,7 +12861,7 @@
     },
     "notes": {
       "client": "yes — read `supportedVersions`",
-      "server": "GAP — mcpx emits `protocolVersions` (server.go ~l.533)"
+      "server": "yes — `supportedVersions` (#224); tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -12903,7 +12918,7 @@
     },
     "notes": {
       "client": "yes",
-      "server": "GAP — mcpx sends top-level `serverInfo`, not in `_meta`"
+      "server": "yes — `_meta[io.modelcontextprotocol/serverInfo]`, no top-level `serverInfo`; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -12960,7 +12975,7 @@
     },
     "notes": {
       "client": "yes",
-      "server": "GAP — no ttlMs/cacheScope"
+      "server": "yes — `ttlMs`/`cacheScope`; tested, see `conformance-matrix.md`"
     }
   },
   {
@@ -13658,6 +13673,9 @@
     "notes": {
       "client": "n/a (peer's duty)",
       "server": "yes — GAP: `Peer.CanSample()` checks `sampling` only, not `sampling.tools` (`conn.go:211`); safe today only because mcpx never declares `sampling.tools` upstream, so a compliant upstream never sends tools"
+    },
+    "claims": {
+      "server": "gap"
     }
   },
   {
@@ -13678,6 +13696,9 @@
     "notes": {
       "client": "yes — GAP: not checked; the handler forwards. In 2026 there is no error slot in `inputResponses` (see Conflicts)",
       "server": "n/a"
+    },
+    "claims": {
+      "client": "gap"
     }
   },
   {
@@ -15114,7 +15135,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "yes — GAP: mcpx declares form only but accepts a url-mode request into the broker (`hooks.go:134`) instead of `-32602`",
+      "client": "yes — an undeclared mode is `-32602` (`elicitModeDeclared`, `internal/mcpclient/modern.go`); tested, see `conformance-matrix.md`",
       "server": "n/a"
     }
   },
@@ -15192,6 +15213,9 @@
     "notes": {
       "client": "n/a",
       "server": "yes — GAP: mcpx binds to `MCPX_SESSION_ID`/connection, i.e. session identity alone (no user auth exists)"
+    },
+    "claims": {
+      "server": "gap"
     }
   },
   {
@@ -15773,6 +15797,9 @@
     "notes": {
       "client": "n/a",
       "server": "yes — GAP-ish: `MCPX_SESSION_ID` is client-provided; the signed `requestState` binds to a connection mcpx issued, which is the verification"
+    },
+    "claims": {
+      "server": "gap"
     }
   },
   {

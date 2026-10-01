@@ -195,7 +195,7 @@ One endpoint answers POST and, in the legacy revisions, GET.
   DNS rebinding, and from 2025-11-25 an invalid origin gets 403. On a
   loopback, unauthenticated server this is the *only* defence the transport
   offers against any web page the user visits. Binding to loopback alone does
-  not stop DNS rebinding. (mcpx checks it: [`transport.md`](transport.md#origin-every-revision-with-streamable-http).)
+  not stop DNS rebinding. (mcpx checks it on `/mcp` and on the daemon's `/v1` routes beside it: [`transport.md`](transport.md#origin-every-revision-with-streamable-http), `internal/daemon/origin.go`.)
 - **Local binding.** A local server **SHOULD** bind to 127.0.0.1 and **SHOULD**
   authenticate.
 - **POST responses.** A POST carrying only responses or notifications gets

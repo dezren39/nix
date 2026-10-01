@@ -211,6 +211,56 @@ func TestAnInputRequiredResultIsAnsweredAndRetried(t *testing.T) {
 	}
 }
 
+// https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation#requested-schema
+// The 2026-07-28 path asks through input_required, not a wire request, so
+// the legacy defaults test does not reach it.
+func TestModernElicitationAppliesSchemaDefaults(t *testing.T) {
+	t.Run("2026-07-28/elicitation/client-applies-schema-defaults", func(t *testing.T) {
+		var got map[string]any
+		s := newScripted(func(method string, params map[string]any) any {
+			switch method {
+			case "server/discover":
+				return modernDiscover(params)
+			case "tools/call":
+				resp, _ := params["inputResponses"].(map[string]any)
+				if resp == nil {
+					return map[string]any{
+						"resultType": "input_required",
+						"inputRequests": map[string]any{
+							"q": map[string]any{"method": "elicitation/create", "params": map[string]any{
+								"mode": "form", "message": "?",
+								"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{
+									"name": map[string]any{"type": "string", "default": "John Doe"},
+									"age":  map[string]any{"type": "integer", "default": 30},
+								}}}},
+						},
+					}
+				}
+				got, _ = resp["q"].(map[string]any)
+				return map[string]any{"resultType": "complete", "content": []any{}}
+			}
+			return nil
+		})
+		c := dialModern(t, s, mcpclient.Options{
+			OnServerRequest: func(context.Context, string, json.RawMessage) (any, error) {
+				return map[string]any{"action": "accept", "content": map[string]any{"age": 41}}, nil
+			},
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := c.CallTool(ctx, "ask", map[string]any{}); err != nil {
+			t.Fatal(err)
+		}
+		content, _ := got["content"].(map[string]any)
+		if content["name"] != "John Doe" {
+			t.Errorf("default not applied: %v", got)
+		}
+		if content["age"] != float64(41) {
+			t.Errorf("an answered field was overwritten by its default: %v", got)
+		}
+	})
+}
+
 func TestAServerThatNeverStopsAskingIsCutOff(t *testing.T) {
 	s := newScripted(func(method string, params map[string]any) any {
 		switch method {

@@ -10,7 +10,8 @@ func init() {
 	const cliAnswer = "e2e.TestElicitationsCanBeListedAndAnsweredFromTheCommandLine@2025-11-25,2026-07-28"
 	register(
 		C("elicitation-client-32602-on-undeclared-mode", "mcpclient.TestElicitationDeclarations/2025-11-25/elicitation/undeclared-mode-is-32602"),
-		C("elicitation-client-prepopulate-defaults", "mcpclient.TestElicitationDeclarations/2025-11-25/elicitation/client-applies-schema-defaults"),
+		C("elicitation-client-prepopulate-defaults", "mcpclient.TestElicitationDeclarations/2025-11-25/elicitation/client-applies-schema-defaults",
+			"mcpclient.TestModernElicitationAppliesSchemaDefaults/2026-07-28/elicitation/client-applies-schema-defaults"),
 		C("elicitation-app-decline-cancel-options", decline, expire),
 		C("elicitation-client-decline-cancel-options", decline, expire),
 		C("elicitation-client-allow-decline-any-time", decline),
@@ -122,7 +123,6 @@ func init() {
 		Gap{ID: "elicitation-client-handle-urls-carefully", Side: Client, Issue: "#255", Why: "mcpx elicit prints the raw request: no review step, no domain emphasis or punycode warning, no defaults pre-filled"},
 		Gap{ID: "elicitation-client-highlight-domain", Side: Client, Issue: "#255", Why: "mcpx elicit prints the raw request: no review step, no domain emphasis or punycode warning, no defaults pre-filled"},
 		Gap{ID: "elicitation-client-warn-punycode", Side: Client, Issue: "#255", Why: "mcpx elicit prints the raw request: no review step, no domain emphasis or punycode warning, no defaults pre-filled"},
-		Gap{ID: "elicitation-client-prepopulate-defaults", Side: Client, Revs: []string{"2026-07-28"}, Issue: "#255", Why: "mcpx elicit prints the raw request: no review step, no domain emphasis or punycode warning, no defaults pre-filled"},
 		Gap{ID: "elicitation-client-validate-responses", Side: Client, Issue: "#255", Why: "an answer is checked only for non-empty content, not against requestedSchema"},
 		Gap{ID: "elicitation-both-validate-against-schema", Side: Client, Issue: "#255", Why: "an answer is checked only for non-empty content, not against requestedSchema"},
 		Gap{ID: "elicitation-both-validate-against-schema", Side: Server, Issue: "#255", Why: "an answer is checked only for non-empty content, not against requestedSchema"},
