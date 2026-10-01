@@ -139,5 +139,9 @@ func TestMatrix(t *testing.T) {
 		}
 	})
 
-	golden(t, conformance.MatrixPath, []byte(conformance.Render(reqs, st)))
+	inputs, err := conformance.InputDigest(root(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden(t, conformance.MatrixPath, []byte(conformance.Render(reqs, st, inputs)))
 }

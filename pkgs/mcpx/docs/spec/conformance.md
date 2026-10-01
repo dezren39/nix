@@ -23,6 +23,10 @@ how it is put together, and what building it found.
 - **The check.** `TestMatrix` regenerates `requirements.json` and the matrix and compares both with the committed
   files (`MCPX_UPDATE_MATRIX=1` rewrites them), parses the Go test sources to refuse a cover that names a test which
   does not exist or which skips as a gap, and fails listing every cell with no cover and no gap.
+  It also fails when a tested cell's catalogue note claims a gap (any `gap`/`GAP` in the note, recorded as `claims`
+  in `requirements.json`): the note and the test cannot both be right, so neither is allowed to silently outrank
+  the other. The matrix names the sha256 of its inputs (the catalogue, overrides and `coverage*.go`) rather than a
+  commit, since a file cannot name the commit that contains it; the comparison is what keeps it current.
   `MCPX_MATRIX_AREAS=tools,resources` narrows the list. `go run ./internal/conformance/cmd/covering` runs exactly the
   covering tests, one `go test -run` per package (`-n` prints the commands).
 

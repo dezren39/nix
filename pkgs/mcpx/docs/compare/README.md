@@ -154,40 +154,23 @@ something it does not deliver hang under #177, the rest under #181.
 
 ## Refreshing the status column
 
-The status column is a snapshot, and the protocol work was changing mcpx's
-protocol behaviour while this was written (a modern-first probe and
-conformance fixes). PR #198, open at the time, describes server-side
-transport fixes that touch rows in the transports, errors, notifications,
-capabilities and progress areas; the issues above say which rows.
+The status column is a snapshot of mcpx at `05c78b2`, and mcpx has changed
+since -- including fixes to rows in every area. **Treat every `mcpx @ 05c78b2`
+cell as out of date until re-checked; some are wrong in mcpx's favour.** They
+are not refreshed piecemeal, because refreshing a 511-row register by hand is
+how a register starts lying: it is better to know the whole column is stale
+than to trust a column that was half updated.
 
-**Twenty-seven pull requests have landed since `05c78b2`, so every `mcpx @
-05c78b2` cell in this register is now out of date and some of them are wrong
-in mcpx's favour.** They have *not* been refreshed here, because refreshing a
-511-row register by hand is how a register starts lying: it is better to know
-the whole column is stale than to trust a column that was half updated. In
-merge order:
+What has landed since is not listed here, because a hand-kept list goes stale
+the same way. Ask git:
 
-| PR | what it changed, for this register |
-| --- | --- |
-| #197, #227 | the daemon key is the config file set, and is cwd-independent — process model |
-| #194, #195 | pure-Go build (`CGO_ENABLED=0`); systemd user unit — process model |
-| #198 | server transport: `Origin` validation and 403, `Mcp-Method`/`Mcp-Name`/`MCP-Protocol-Version` checks with `-32020`, 400/404 statuses for modern errors — transports, errors |
-| #222 | this register |
-| #224 | modern-first upstream probe with a persisted era cache; `server/discover` answers `supportedVersions`, not `protocolVersions` — lifecycle and versioning |
-| #225, #232, #198, #239 | a wire-schema validator for every revision, message and transport conformance as a server, client conformance for every revision — transports, errors, content types, `_meta` |
-| #223, #246 | repository discovery without `git`; `git` out of the image — process model |
-| #226 | filtered log calls — logging |
-| #228 | decision records for the hook vocabulary, the autonomy dial, and declared-vs-enforced capabilities — capabilities |
-| #229, #236 | question attribution, `isError`, the ask-path guard, the call budget, the anonymous scope; questions from inside `mcpx_exec` — elicitation, MRTR, code mode |
-| #230 | a refused tool call explains the schema change behind it — tools |
-| #234 | `init` writes keys the loader reads — process model |
-| #237 | the `MCPX_*` variables read by hand are declared — `_meta`, process model |
-| #243 | registry search follows the cursor — pagination |
-| #245 | per-connection MCP identity, honest capabilities, error classes, blob reads, profiles on the MCP surface — capabilities, errors, resources, process model |
-| #247 | resource subscriptions reach the upstream server — subscriptions and notifications |
-| #244, #248 | a CLI command for every `/v1` operation; one OpenAPI document; a guard that `tools/list` and the generated client agree — plugin APIs, code mode |
-| #250, #258 | `-32602` for a modern request missing `_meta`; `-32601` and 404 for the five methods 2026-07-28 removed — errors, lifecycle and versioning |
-| #221, #184 | test isolation; the image's Go tag — neither touches a row |
+```
+git log --oneline 05c78b2..HEAD -- pkgs/mcpx
+```
+
+For the protocol rows, the current status of each specification requirement is
+[`../spec/conformance-matrix.md`](../spec/conformance-matrix.md), which is
+generated from the tests and checked on every `go test`.
 
 To refresh:
 
