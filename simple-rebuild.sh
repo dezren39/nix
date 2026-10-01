@@ -30,7 +30,32 @@ cd "${script_dir}" || exit 1
 echo "entered: $script_dir"
 echo "git add ."
 
-sudo chown -R "${USER:-$(id -un)}" .
+# Reclaim any root-owned files, but only if there are any.
+#
+# This was an unconditional `sudo chown -R`, which prompted for a password
+# before anything else happened even when there was nothing to fix. It dates
+# from when `sudo nix run nix-darwin -- switch` did the build *and* the
+# activation as root, leaving every eval/build artifact in this directory
+# root-owned (see the comment above the build below). Building unprivileged
+# fixed the cause; measured on 2026-10-01 after two unprivileged builds, the
+# repo had 0 files not owned by the invoking user.
+#
+# Kept as a guard rather than deleted because the activation below still runs
+# nix as root against this flake, so it is not proven that nothing can slip
+# through. The difference is that it now costs a password only when it finds
+# something, and says what it found.
+reclaim_root_owned() {
+  local owner="${USER:-$(id -un)}" strays
+  strays=$(find . -not -user "$owner" -not -path './.git/*' -print -quit 2>/dev/null)
+  if [[ -n "$strays" ]]; then
+    echo "reclaiming root-owned files (first: $strays)"
+    sudo chown -R "$owner" .
+  else
+    echo "no root-owned files; skipping chown"
+  fi
+}
+
+reclaim_root_owned
 git add .
 
 echo "softwareupdate --install-rosetta --agree-to-license"
@@ -82,5 +107,5 @@ current=$(sudo darwin-rebuild --list-generations | grep current)
 echo "current: $current"
 hostname=$(hostname)
 echo "hostname: $hostname"
-sudo chown -R "${USER:-$(id -un)}" .
+reclaim_root_owned
 git commit --no-verify --allow-empty -m "$hostname $current"

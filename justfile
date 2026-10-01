@@ -117,6 +117,22 @@ build:
         build ".#darwinConfigurations.$(hostname -s).system" \
         --keep-going --out-link ./result
 
+# Activate ./result, which `just build` produced. The nix build here is a cache
+# hit in that case, so this is the "switch without building again" path -- a
+# few seconds of flake evaluation, no compilation.
+#
+# This deliberately uses `switch` and not `darwin-rebuild activate`. Reading
+# darwin-rebuild: `nix-env -p /nix/var/nix/profiles/system --set` runs under
+# `if [ "$action" = switch ]` only, so `activate` applies the configuration
+# without registering a generation -- it would not appear in
+# --list-generations and could not be rolled back to. The saving is one flake
+# evaluation; the cost is the undo button.
+
+# Activate what `just build` already built, without compiling again
+[group('nix')]
+activate:
+    sudo ./result/sw/bin/darwin-rebuild switch --flake . --keep-going
+
 # Simple rebuild: switch only (no flake update)
 [group('nix')]
 switch:
@@ -200,6 +216,22 @@ link-git-dirs *args:
 alias link-git     := link-git-dirs
 alias link-home    := link-git-dirs
 alias link-git-dir := link-git-dirs
+
+# clean.sh has existed unwired to any recipe. Its own --help documents the
+# scopes: --auto (caches + logs + repositories), --system (caches, logs,
+# package managers, colima; no repositories), --no-system (repository half
+# only), --path DIR, --depth N. Repo discovery is shared with
+# git-maintain-repos and spotlight-exclude-artifacts via ./git-discover-repos.
+
+# Reclaim disk: caches, logs, build artifacts, then git maintenance
+[group('maintenance')]
+clean *args:
+    ./clean.sh {{ args }}
+
+# Reclaim disk: caches, logs and package managers only, no repository walk
+[group('maintenance')]
+clean-system *args:
+    ./clean.sh --system {{ args }}
 
 # Spotlight: full per-repo artifact walk (not run on switch -- see simple-rebuild.sh)
 [group('maintenance')]
