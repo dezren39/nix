@@ -5,6 +5,14 @@ Usage:
   spec-parity.py <mcpx-json-array> <suite-json-array> <now-iso> <run-id/attempt>
                  <success-var-json-or-empty> <failure-var-json-or-empty>
                  <on-main: true|false> <summary-file> <out-dir>
+                 [<allow-only-mcpx-json> <allow-only-suite-json>]
+
+The two allow lists name revisions one side is expected to have and the other
+not -- mcpx serves 2024-11-05, which the suite has never tested. An allowed
+revision is left out of the comparison. An allowed revision that both sides
+now have, or that the side it was allowed for no longer has, is an error at
+once: the entry is dead and must be removed, or it would hide a real
+mismatch later.
 
 Both lists come from the tools themselves, never from this repository:
   mcpx   mcpx protocol --json | jq '.asServer.supported'
@@ -50,11 +58,41 @@ def fmt_h(h):
     return f"{h:,.1f} h ({h / 24:,.1f} days)"
 
 
-def decide(mcpx, suite, now, run, success, failure, on_main):
+def stale_allowances(mcpx, suite, allow_mcpx, allow_suite):
+    """Allow-list entries that no longer describe a one-sided revision."""
+    out = []
+    for v in allow_mcpx:
+        if v in mcpx and v in suite:
+            out.append((v, "only-mcpx", "both sides have it now"))
+        elif v not in mcpx:
+            out.append((v, "only-mcpx", "mcpx does not have it"))
+    for v in allow_suite:
+        if v in mcpx and v in suite:
+            out.append((v, "only-suite", "both sides have it now"))
+        elif v not in suite:
+            out.append((v, "only-suite", "the suite does not have it"))
+    return out
+
+
+def decide(mcpx, suite, now, run, success, failure, on_main, allow_mcpx=(), allow_suite=()):
     """Returns (status, sleep, new_success, new_failure, report_lines)."""
     mcpx, suite = sorted(set(mcpx)), sorted(set(suite))
-    only_mcpx = [v for v in mcpx if v not in suite]
-    only_suite = [v for v in suite if v not in mcpx]
+    stale = stale_allowances(mcpx, suite, allow_mcpx, allow_suite)
+    if stale:
+        lines = ["## Spec parity: ❌ ERROR — an allowance is dead code", "",
+                 "> [!CAUTION]",
+                 "> An entry in the workflow's allow list no longer describes a revision only one "
+                 "side has. **Remove it** from `.github/workflows/mcpx-conformance.yml`: left in place it "
+                 "would hide a real mismatch on that revision later.", "",
+                 "| revision | list | why it is dead |", "| --- | --- | --- |"]
+        lines += [f"| `{v}` | `{lst}` | {why} |" for v, lst, why in stale]
+        lines += ["", "mcpx: " + ", ".join(f"`{v}`" for v in mcpx) + ". Suite: "
+                  + ", ".join(f"`{v}`" for v in suite) + "."]
+        return "error", 0, None, None, lines
+    only_mcpx = [v for v in mcpx if v not in suite and v not in allow_mcpx]
+    only_suite = [v for v in suite if v not in mcpx and v not in allow_suite]
+    allowed_note = [v for v in mcpx if v not in suite and v in allow_mcpx] + \
+                   [v for v in suite if v not in mcpx and v in allow_suite]
     both = [v for v in mcpx if v in suite]
     nowt = parse(now)
     success = success or {}
@@ -65,8 +103,11 @@ def decide(mcpx, suite, now, run, success, failure, on_main):
         new_success = {"timestamp": now, "run": run, "specs": mcpx}
         new_failure = dict(failure, count=0) if failure else None
         lines += ["## Spec parity: ✅ match", "",
-                  f"mcpx and the conformance suite know the same {len(mcpx)} revisions: "
-                  + ", ".join(f"`{v}`" for v in mcpx) + "."]
+                  "mcpx: " + ", ".join(f"`{v}`" for v in mcpx) + ". Suite: "
+                  + ", ".join(f"`{v}`" for v in suite) + "."]
+        if allowed_note:
+            lines += ["", "Allowed by the workflow's lists, so not counted: "
+                      + ", ".join(f"`{v}`" for v in allowed_note) + "."]
         if failure.get("count"):
             lines += ["", f"This ends a run of **{failure['count']}** mismatched runs on main "
                           f"that began {failure.get('first_timestamp')}."]
@@ -145,6 +186,8 @@ def decide(mcpx, suite, now, run, success, failure, on_main):
 
 def main(argv):
     (mcpx_raw, suite_raw, now, run, succ_raw, fail_raw, on_main, summary, out) = argv[1:10]
+    allow_mcpx = json.loads(argv[10]) if len(argv) > 10 and argv[10].strip() else []
+    allow_suite = json.loads(argv[11]) if len(argv) > 11 and argv[11].strip() else []
     mcpx, suite = json.loads(mcpx_raw), json.loads(suite_raw)
     if not mcpx or not suite:
         with open(summary, "a") as f:
@@ -158,7 +201,7 @@ def main(argv):
     success = json.loads(succ_raw) if succ_raw.strip() else None
     failure = json.loads(fail_raw) if fail_raw.strip() else None
     status, sleep, new_s, new_f, lines = decide(mcpx, suite, now, run, success, failure,
-                                                on_main == "true")
+                                                on_main == "true", allow_mcpx, allow_suite)
     os.makedirs(out, exist_ok=True)
     open(os.path.join(out, "status"), "w").write(status)
     open(os.path.join(out, "sleep"), "w").write(str(sleep))
