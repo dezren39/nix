@@ -42,12 +42,19 @@ func TestOfficialExamplesValidate(t *testing.T) {
 					t.Fatalf("%s: %v", def, err)
 				}
 				// Strict mode must accept the spec's own examples too, or it flags things the spec does.
-				if why, ok := knownBadExamples[rev+"/"+name]; ok {
-					t.Skip(why)
-				}
 				s, _ := Get(rev)
 				doc, _ := decode(raw)
-				if err := s.validateAt(def, doc, "$", true); err != nil {
+				err := s.validateAt(def, doc, "$", true)
+				// A known-bad example is asserted bad rather than skipped: the
+				// day the spec fixes it, this fails and says to drop the entry,
+				// instead of a skip quietly hiding a check that now passes.
+				if why, ok := knownBadExamples[rev+"/"+name]; ok {
+					if err == nil {
+						t.Fatalf("knownBadExamples[%q] (%s) now validates in strict mode; remove the entry", rev+"/"+name, why)
+					}
+					return
+				}
+				if err != nil {
 					t.Fatalf("strict %s: %v", def, err)
 				}
 			})
