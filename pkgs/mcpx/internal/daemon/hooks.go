@@ -142,7 +142,7 @@ func (r *Registry) elicitViaBroker(ctx context.Context, server, key string, para
 		Message:   p.Message,
 		Schema:    p.RequestedSchema,
 		URL:       p.URL,
-		Trace:     r.askIDFor(server, key),
+		Trace:     r.askIDFor(ctx, server, key),
 		ExpiresAt: time.Now().Add(defaults.ElicitTTL),
 	})
 	if err != nil {
@@ -153,7 +153,7 @@ func (r *Registry) elicitViaBroker(ctx context.Context, server, key string, para
 	// callers sharing an instance -- it stays a broker question and its
 	// audience answers, which is the behaviour that existed before any of
 	// this and is still correct.
-	callID, _ := r.attach(server, key, req, "elicitation/create", params)
+	callID, _ := r.attach(ctx, server, key, req, "elicitation/create", params)
 	r.publish(events.Event{Kind: events.ElicitOpened, Server: server, Trace: callID,
 		Data: mustJSON(req)})
 
@@ -187,7 +187,7 @@ func (r *Registry) sampleViaBroker(ctx context.Context, server, key string, para
 
 	req, err := r.broker.OpenRequest(elicit.Request{
 		Server: server,
-		Trace:  r.askIDFor(server, key),
+		Trace:  r.askIDFor(ctx, server, key),
 		Mode:   elicit.Sample,
 		// A sampling request has no question as such. The system prompt is
 		// the closest thing to one, and it is what a human reading the
@@ -201,7 +201,7 @@ func (r *Registry) sampleViaBroker(ctx context.Context, server, key string, para
 	if err != nil {
 		return nil, err
 	}
-	callID, _ := r.attach(server, key, req, "sampling/createMessage", params)
+	callID, _ := r.attach(ctx, server, key, req, "sampling/createMessage", params)
 	r.publish(events.Event{Kind: events.SampleOpened, Server: server, Trace: callID,
 		Data: mustJSON(req)})
 
@@ -276,11 +276,11 @@ func (s *Server) PublishLifecycle(event string, attrs map[string]any) {
 
 // askIDFor names the interruptible call a question belongs to, or "" when
 // none can be identified.
-func (r *Registry) askIDFor(server, key string) string {
+func (r *Registry) askIDFor(ctx context.Context, server, key string) string {
 	if r.asks == nil {
 		return ""
 	}
-	if a, ok := r.askFor(server, key); ok {
+	if a, ok := r.askFor(ctx, server, key); ok {
 		return a.ID
 	}
 	return ""

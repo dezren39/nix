@@ -49,6 +49,10 @@ type statePayload struct {
 	Call    string `json:"c"`
 	Binding string `json:"b"`
 	Expires int64  `json:"e"`
+	// Nonce makes every round's state its own. Without it two rounds of
+	// one call minted within the same second were byte-identical, so a
+	// client could not tell a new round from a repeat of the last one.
+	Nonce string `json:"n"`
 }
 
 // ErrNoStateKey means this process could not generate a signing key.
@@ -65,8 +69,12 @@ func (s *stateSigner) mint(callID, binding string) (string, error) {
 	if binding == "" {
 		return "", errors.New("a requestState must be bound to something")
 	}
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
 	b, err := json.Marshal(statePayload{Call: callID, Binding: binding,
-		Expires: time.Now().Add(ttl).Unix()})
+		Expires: time.Now().Add(ttl).Unix(), Nonce: base64.RawURLEncoding.EncodeToString(nonce)})
 	if err != nil {
 		return "", err
 	}

@@ -1,7 +1,9 @@
 package e2e_test
 
 import (
+	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,8 +25,53 @@ try { readFileSync("/etc/hosts"); console.log("ALLOWED"); } catch { console.log(
 		if strings.Contains(out, "ALLOWED") {
 			t.Errorf("%s ran a strict script with full authority:\n%s", rt, out)
 		}
-		if err == nil || !strings.Contains(out, "no permission model") {
+		if err == nil || !strings.Contains(out, `profile "strict"`) || !strings.Contains(out, "script.profiles.strict."+rt) {
 			t.Errorf("%s with strict permissions should be refused, saying why: %v\n%s", rt, err, out)
 		}
 	}
+}
+
+// A profile that defines node flags has to reach node: readnet runs node
+// under --permission with reads allowed, so a write is refused by node
+// itself. Without the flags the same write succeeds, which is the control.
+func TestNodeReceivesTheFlagsAProfileDefinesForIt(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not installed")
+	}
+	e := newEnv(t, oneServer)
+	target := filepath.Join(t.TempDir(), "w")
+	probe := `import { writeFileSync } from "node:fs";
+try { writeFileSync(` + jsonQuote(target) + `, "1"); console.log("WROTE"); } catch (e) { console.log("DENIED " + e.code); }`
+	out, err := e.try("exec", "--runtime", "node", "--permissions", "readnet", probe)
+	if err != nil || !strings.Contains(out, "DENIED ERR_ACCESS_DENIED") {
+		t.Errorf("node under readnet should refuse a write: %v\n%s", err, out)
+	}
+	out, err = e.try("exec", "--runtime", "node", "--permissions", "all", probe)
+	if err != nil || !strings.Contains(out, "WROTE") {
+		t.Errorf("node under all should write: %v\n%s", err, out)
+	}
+}
+
+// A runtime declared by name, with a binary whose name says nothing, runs
+// with the argv of its kind.
+func TestADeclaredRuntimeRunsByName(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed")
+	}
+	e := newEnv(t, oneServer).withEnv(
+		`MCPX_SCRIPT_RUNTIMES={"engine":{"kind":"node","bin":` + jsonQuote(node) + `}}`)
+	out, err := e.try("exec", "--runtime", "engine", `console.log("kind=" + process.env.MCPX_RUNTIME)`)
+	if err != nil || !strings.Contains(out, "kind=node") {
+		t.Errorf("declared runtime: %v\n%s", err, out)
+	}
+	out, err = e.try("exec", "--runtime", "sh", `console.log(1)`)
+	if err == nil || !strings.Contains(out, "not a known JavaScript runtime") {
+		t.Errorf("--runtime sh: %v\n%s", err, out)
+	}
+}
+
+func jsonQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

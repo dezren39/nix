@@ -195,6 +195,17 @@ type Setting struct {
 	// will not change it -- each of those would be accepted and then do
 	// nothing, which is the failure this package exists to prevent.
 	Bootstrap bool
+
+	// ClampedBy names the setting whose value is the most this one may
+	// resolve to. The ceiling is daemon-scoped and not hot, this setting is
+	// call-scoped, and both are KindEnum; this one's Enum is an ordered
+	// subset of the ceiling's, and the ceiling's order is what "most" means.
+	//
+	// A value above the ceiling is lowered to it, from any layer, and the
+	// lowering is recorded on the Value. It is never refused: the lower
+	// value is always a safe answer to the request
+	// (docs/decisions/0002-autonomy-dial.md).
+	ClampedBy string
 }
 
 // Writable reports whether a configuration file or the runtime API may set
@@ -326,6 +337,11 @@ func New(list []Setting) (*Schema, error) {
 					name, prev.Path, set.Path)
 			}
 			s.byEnv[name] = p
+		}
+	}
+	for i := range s.settings {
+		if err := s.checkClamp(&s.settings[i]); err != nil {
+			return nil, err
 		}
 	}
 	return s, nil

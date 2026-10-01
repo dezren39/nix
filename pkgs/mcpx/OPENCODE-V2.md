@@ -10,7 +10,8 @@
 
 
 Reviewed against `anomalyco/opencode` branch `v2` at `37049a5` (2026-09-26), and
-the build pinned in `~/.config/nix` (`d0a9028`, v2.0.18).
+the build pinned in `~/.config/nix` (`d0a9028`, which reports `2.0.3`). That
+rev is on branch `v2`, 582 commits behind `origin/v2` as of 2026-09-30.
 
 ## What opencode v2 actually shipped
 
@@ -42,8 +43,15 @@ It is wired in as a first-class feature, not an experiment:
 - Built-in tools opt *out* individually (`edit`, `grep`, `glob`, `patch`,
   `question` carry `codemode: false`), so the model still calls those directly.
 - The model sees one `execute` tool plus a **budgeted catalog** rendered into
-  instructions — 2,000 characters inline, namespaces always listed, full
-  signatures selected round-robin until the budget runs out.
+  instructions — `INLINE_BUDGET = 2_000` estimated tokens, counted at four
+  characters each, so roughly 8,000 characters (`core/src/codemode/catalog.ts:48`).
+  Namespaces are always listed; full signatures are selected round-robin,
+  shortest first, until the budget runs out. The fixed header is not counted
+  against it. Measured with five servers and 68 tools: the catalog showed 24 of
+  them and cost 2,018 tokens, against 10,215 for the same tools listed plainly.
+  For a small server code mode costs more than plain tools (memory, 9 tools:
+  1,320 against 902), and when the catalog is partial any change to a shown
+  entry resends the whole catalog rather than a diff (`instructions.ts:249`).
 - When the catalog is partial, a synchronous `search(...)` built-in is available
   *inside* the interpreter for the model to find the rest.
 - Catalog changes are delivered as **diffs** (`instructions.ts` computes
@@ -118,7 +126,12 @@ TDZ semantics, `var` hoisting. Absent:
 For scripting tool calls this is close to irrelevant. It matters if you wanted
 to paste in an existing module.
 
-TypeScript is rejected rather than stripped — programs are JavaScript.
+TypeScript is accepted: types are stripped by the real `typescript` compiler
+before the interpreter runs the result (`interpreter/execute.ts:113`). What is
+missing is JavaScript, not types — at the pin: classes and private fields,
+user-defined constructors, getters and setters, BigInt, symbol keys, tagged
+templates, most typed arrays. `this`/`call`/`apply`/`bind`, `WeakMap`/`WeakSet` and
+`Object.freeze`/`structuredClone` were added upstream after the pin.
 
 ## Side by side
 

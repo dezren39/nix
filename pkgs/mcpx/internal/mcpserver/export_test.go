@@ -41,3 +41,9 @@ func (c *Conn) DeliverForTest(id int64, result json.RawMessage) bool {
 // StopListenForTest ends every stream a connection holds, as its transport
 // going away does.
 func (c *Conn) StopListenForTest() { c.stopListen() }
+
+// WireKey and AnswersByID are the inputRequests key mapping.
+func WireKey(q Question, qs []Question) string { return wireKey(q, qs) }
+func AnswersByID(a map[string]json.RawMessage, qs []Question) map[string]json.RawMessage {
+	return answersByID(a, qs)
+}

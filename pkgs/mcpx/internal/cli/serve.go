@@ -134,6 +134,12 @@ func (b mcpBackend) Call(ctx context.Context, ns, tool string, args json.RawMess
 	if err != nil {
 		return "", err
 	}
+	if b.app.isPass(ns) {
+		// The upstream's result verbatim, isError included: in pass-through
+		// mode the upstream is the server, and flattening its images and
+		// structured content to one text block would make it a worse one.
+		return mcpserver.EncodeRaw(res.Result), nil
+	}
 	text, failed := renderResult(res.Result)
 	if failed {
 		// mcpserver turns a backend error into a result with isError, and
@@ -387,6 +393,7 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 	srv := mcpserver.New(mcpBackend{app: a}, "mcpx", a.Version)
 	srv.Notify = daemonNotifier{app: a}
 	srv.PageSize = a.Settings().Int("mcp.pageSize")
+	srv.Passthrough = a.passNS()
 	// A function, because completion.maxValues is hot: the daemon's /mcp
 	// is built once and a value copied here never followed a change.
 	srv.MaxCompletions = func() int { return a.Settings().Int("completion.maxValues") }
@@ -435,7 +442,7 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	extras := adapterTools(specs)
+	extras := adapterTools(specs, true)
 	// Operations from declared OpenAPI documents are tools in their own
 	// right too, for the same reason adapted programs are: a host that wants
 	// an endpoint should get the endpoint.
@@ -497,19 +504,30 @@ func writeJSONResponse(w http.ResponseWriter, v any) {
 }
 
 // adapterTools turns declarations into MCP tools.
-func adapterTools(specs []adapter.Spec) []mcpserver.Extra {
+//
+// prefixed names each tool <adapter>_<tool>, as mcpx's own tools/list must
+// to keep adapters apart. Served by `mcpx adapter serve`, one adapter is the
+// whole server and the namespace already says which, so the bare tool name
+// is what the generated client calls.
+func adapterTools(specs []adapter.Spec, prefixed bool) []mcpserver.Extra {
 	var out []mcpserver.Extra
 	for _, spec := range specs {
 		spec := spec
 		for _, t := range spec.Tools {
 			t := t
+			name := t.Name
+			if prefixed {
+				name = spec.Name + "_" + t.Name
+			}
 			desc := t.Description
-			if spec.Instructions != "" {
+			// Unprefixed, the adapter is its own server and says this at
+			// initialize; repeating it on every tool would say it twice.
+			if prefixed && spec.Instructions != "" {
 				desc = strings.TrimSpace(desc + "\n\n" + spec.Instructions)
 			}
 			out = append(out, mcpserver.Extra{
 				Tool: mcpserver.Tool{
-					Name:        spec.Name + "_" + t.Name,
+					Name:        name,
 					Description: desc,
 					InputSchema: t.Schema(),
 				},
@@ -602,12 +620,7 @@ func (b mcpBackend) Resources(ctx context.Context) ([]mcpserver.ResourceRef, err
 		}
 		// Namespaced, because two servers may publish the same URI and a
 		// caller has no way to say which one it meant otherwise.
-		out = append(out, mcpserver.ResourceRef{
-			URI:         mcpxURI(r.Namespace, r.URI),
-			Name:        r.Name,
-			Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
-			MimeType:    r.MimeType,
-		})
+		out = append(out, b.app.exposedResource(r))
 	}
 	return append(out, b.artifactResources(ctx)...), nil
 }
@@ -676,8 +689,12 @@ func (b mcpBackend) Prompts(ctx context.Context) ([]mcpserver.PromptRef, error) 
 				Name: a.Name, Description: a.Description, Required: a.Required,
 			})
 		}
+		name := p.Namespace + "_" + p.Name
+		if b.app.isPass(p.Namespace) {
+			name = p.Name
+		}
 		out = append(out, mcpserver.PromptRef{
-			Name:        p.Namespace + "_" + p.Name,
+			Name:        name,
 			Title:       p.Title,
 			Description: p.Description,
 			Arguments:   args,
@@ -715,7 +732,7 @@ func (b mcpBackend) ReadResource(ctx context.Context, uri string) ([]mcpserver.R
 		}
 		return []mcpserver.ResourceContents{entry}, nil
 	}
-	ns, inner, ok := splitMCPXURI(uri)
+	ns, inner, ok := b.app.resolveURI(uri)
 	if !ok {
 		return nil, fmt.Errorf("%w: a resource URI looks like mcpx://<namespace>/<uri>, got %q",
 			mcpserver.ErrResourceNotFound, uri)
@@ -738,13 +755,13 @@ func (b mcpBackend) ReadResource(ctx context.Context, uri string) ([]mcpserver.R
 		}
 		return nil, err
 	}
-	return resourceContents(raw, ns), nil
+	return b.app.resourceContents(raw, ns), nil
 }
 
 // resourceContents reads a resources/read reply into entries, keeping each
 // blob a blob. Entry URIs are namespaced the way the listing namespaces
 // them, so a client can read any of them back.
-func resourceContents(raw json.RawMessage, ns string) []mcpserver.ResourceContents {
+func (a *App) resourceContents(raw json.RawMessage, ns string) []mcpserver.ResourceContents {
 	var doc struct {
 		Contents []struct {
 			URI      string `json:"uri"`
@@ -760,7 +777,7 @@ func resourceContents(raw json.RawMessage, ns string) []mcpserver.ResourceConten
 	for _, c := range doc.Contents {
 		uri := ""
 		if c.URI != "" {
-			uri = mcpxURI(ns, c.URI)
+			uri = a.exposedURI(ns, c.URI)
 		}
 		out = append(out, mcpserver.ResourceContents{URI: uri, MimeType: c.MimeType,
 			Text: c.Text, Blob: c.Blob})
@@ -806,6 +823,9 @@ func (b mcpBackend) GetPrompt(ctx context.Context, name string, args map[string]
 			return "", fmt.Errorf("%w: %v", mcpserver.ErrInvalidParams, err)
 		}
 		return "", err
+	}
+	if b.app.isPass(ns) {
+		return mcpserver.EncodeRaw(raw), nil
 	}
 	return renderPrompt(raw), nil
 }
@@ -874,7 +894,7 @@ func (b mcpBackend) Complete(ctx context.Context, params json.RawMessage) ([]str
 			// there is nothing to offer.
 			return nil, nil
 		}
-		ns, inner, ok := splitMCPXURI(p.Ref.URI)
+		ns, inner, ok := b.app.resolveURI(p.Ref.URI)
 		visible, err := b.app.visibleNamespaces(ctx, c)
 		if err != nil {
 			return nil, err
@@ -994,6 +1014,11 @@ func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.Resource
 	if err != nil {
 		return nil, err
 	}
+	// Schemas first, as Resources does: the daemon's template list is its
+	// cache, and asked cold it answered with nothing at all.
+	if err := b.app.ensureAnySchemas(ctx, c); err != nil {
+		return nil, err
+	}
 	list, err := c.ResourceTemplates(ctx)
 	if err != nil {
 		return nil, err
@@ -1016,12 +1041,7 @@ func (b mcpBackend) ResourceTemplates(ctx context.Context) ([]mcpserver.Resource
 		if !visible(r.Namespace) {
 			continue
 		}
-		out = append(out, mcpserver.ResourceRef{
-			URI:         mcpxURI(r.Namespace, r.URI),
-			Name:        r.Name,
-			Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
-			MimeType:    r.MimeType,
-		})
+		out = append(out, b.app.exposedTemplate(r))
 	}
 	return out, nil
 }
@@ -1097,7 +1117,7 @@ func (n daemonNotifier) ListenResources(ctx context.Context, f mcpserver.ListenF
 	original := map[string]string{}
 	for _, u := range f.ResourceSubscriptions {
 		d := u
-		if ns, uri, ok := splitMCPXURI(u); ok {
+		if ns, uri, ok := n.app.resolveURI(u); ok {
 			asked[strings.TrimPrefix(uri, "/")] = append(asked[strings.TrimPrefix(uri, "/")], u)
 			d = "mcpx://" + ns + "/" + uri
 		}
@@ -1200,4 +1220,106 @@ func escapeURIPath(s string) string {
 		fmt.Fprintf(&b, "%%%02X", c)
 	}
 	return b.String()
+}
+
+// passNS is the upstream served under its own names (mcp.passthrough), or "".
+func (a *App) passNS() string { return a.Settings().String("mcp.passthrough") }
+
+// isPass reports whether ns is the pass-through upstream.
+func (a *App) isPass(ns string) bool { p := a.passNS(); return p != "" && p == ns }
+
+// exposedURI is the URI a resource of ns is offered under on /mcp: its own
+// for the pass-through upstream, mcpx://<ns>/<uri> for every other.
+func (a *App) exposedURI(ns, uri string) string {
+	if a.isPass(ns) {
+		return uri
+	}
+	return mcpxURI(ns, uri)
+}
+
+// exposedResource is one upstream resource (or template) as /mcp lists it.
+func (a *App) exposedResource(r daemon.ResourceInfo) mcpserver.ResourceRef {
+	if a.isPass(r.Namespace) {
+		return mcpserver.ResourceRef{URI: r.URI, Name: r.Name, Description: r.Description, MimeType: r.MimeType}
+	}
+	return mcpserver.ResourceRef{
+		URI:         mcpxURI(r.Namespace, r.URI),
+		Name:        r.Name,
+		Description: strings.TrimSpace(r.Description + " (" + r.Namespace + ")"),
+		MimeType:    r.MimeType,
+	}
+}
+
+// exposedTemplate is exposedResource for a resource template. The template's
+// {expressions} are kept as they are: percent-encoding them, as mcpxURI does
+// to everything a path may not hold, turned the template into a fixed URI
+// with no variables in it.
+func (a *App) exposedTemplate(r daemon.ResourceInfo) mcpserver.ResourceRef {
+	ref := a.exposedResource(r)
+	if a.isPass(r.Namespace) {
+		return ref
+	}
+	var b strings.Builder
+	rest := strings.TrimPrefix(r.URI, "/")
+	for rest != "" {
+		open := strings.IndexByte(rest, '{')
+		if open < 0 {
+			b.WriteString(escapeURIPath(rest))
+			break
+		}
+		end := strings.IndexByte(rest[open:], '}')
+		if end < 0 {
+			b.WriteString(escapeURIPath(rest))
+			break
+		}
+		b.WriteString(escapeURIPath(rest[:open]))
+		b.WriteString(rest[open : open+end+1])
+		rest = rest[open+end+1:]
+	}
+	ref.URI = "mcpx://" + r.Namespace + "/" + b.String()
+	return ref
+}
+
+// resolveURI undoes exposedURI: an mcpx:// URI names its namespace, and any
+// other URI belongs to the pass-through upstream when there is one.
+func (a *App) resolveURI(u string) (ns, uri string, ok bool) {
+	if ns, uri, ok := splitMCPXURI(u); ok {
+		return ns, uri, true
+	}
+	if p := a.passNS(); p != "" && u != "" {
+		return p, u, true
+	}
+	return "", "", false
+}
+
+// UpstreamTools lists one namespace's tools under their own names, for
+// pass-through mode. A namespace outside the profile has none.
+func (b mcpBackend) UpstreamTools(ctx context.Context, ns string) ([]mcpserver.Tool, error) {
+	c, err := b.app.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.app.ensureSchemas(ctx, c, []string{ns}); err != nil {
+		return nil, err
+	}
+	visible, err := b.app.visibleNamespaces(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	if !visible(ns) {
+		return nil, unknownNamespace(ns)
+	}
+	list, err := c.Tools(ctx, []string{ns})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcpserver.Tool, 0, len(list))
+	for _, t := range list {
+		schema := t.InputSchema
+		if len(schema) == 0 {
+			schema = json.RawMessage(`{"type":"object"}`)
+		}
+		out = append(out, mcpserver.Tool{Name: t.Tool, Description: t.Description, InputSchema: schema})
+	}
+	return out, nil
 }

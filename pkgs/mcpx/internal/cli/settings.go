@@ -5,8 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -67,23 +69,9 @@ func (a *App) Settings() *settings.Set {
 			a.settingsErr = cerr
 			return
 		}
-		// plumbing.strictUnknownKeys turns a key no setting claims from a
-		// note `mcpx doctor` prints into a refusal. It is read from the set
-		// that was just built, which is the only order that works: the switch
-		// itself lives in the file being judged.
-		if set.Bool("plumbing.strictUnknownKeys") {
-			if uerr := unknownKeysError(set.Unknown()); uerr != nil {
-				a.settingsErr = uerr
-				return
-			}
-			// The same rule for the server entries, which the settings
-			// layer does not read: a key there that mcpx ignores is either
-			// another host's or a mistake, and strict mode is the request
-			// to be told which.
-			if cfg, cerr := config.Load(a.ConfigPath); cerr == nil && len(cfg.Ignored) > 0 {
-				a.settingsErr = ignoredKeysError(cfg.Ignored)
-				return
-			}
+		if serr := a.strictCheck(set); serr != nil {
+			a.settingsErr = serr
+			return
 		}
 		a.settings = set
 		a.settingsSchema = sch
@@ -95,6 +83,79 @@ func (a *App) Settings() *settings.Set {
 		return settings.NewSet(sch)
 	}
 	return a.settings
+}
+
+// strictCheck applies plumbing.strictUnknownKeys.
+//
+// The switch turns a key no setting claims from a note `mcpx doctor` prints
+// into a refusal. It runs twice: once when the files and environment are
+// resolved, and again after a command folds in its flags. Running it only in
+// the first place is why `--plumbing-strict-unknown-keys` parsed and did
+// nothing (#231): the check had already been decided before the flag existed.
+func (a *App) strictCheck(set *settings.Set) error {
+	if !set.Bool("plumbing.strictUnknownKeys") {
+		return nil
+	}
+	if uerr := unknownKeysError(set.Unknown()); uerr != nil {
+		return uerr
+	}
+	// The same rule for the server entries, which the settings layer does
+	// not read: a key there that mcpx ignores is either another host's or a
+	// mistake, and strict mode is the request to be told which.
+	if cfg, cerr := config.Load(a.ConfigPath); cerr == nil && len(cfg.Ignored) > 0 {
+		return ignoredKeysError(cfg.Ignored)
+	}
+	return nil
+}
+
+// ApplyGlobalSettingFlags folds setting flags given before the subcommand
+// (`mcpx --plumbing-strict-unknown-keys ls`). Only settings every command
+// accepts are global; the rest belong after the command that reads them.
+// It returns the arguments it did not consume.
+func (a *App) ApplyGlobalSettingFlags(args []string) (rest []string, err error) {
+	sch, err := settings.New(settings.Registry())
+	if err != nil {
+		return args, err
+	}
+	fs := flag.NewFlagSet("mcpx", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	b := sch.Bind(fs, "")
+	var mine []string
+	for len(args) > 0 && strings.HasPrefix(args[0], "--") {
+		name := strings.TrimPrefix(args[0], "--")
+		if i := strings.IndexByte(name, '='); i >= 0 {
+			name = name[:i]
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			break
+		}
+		mine = append(mine, args[0])
+		args = args[1:]
+		bf, isBool := f.Value.(interface{ IsBoolFlag() bool })
+		if !strings.Contains(mine[len(mine)-1], "=") && !(isBool && bf.IsBoolFlag()) && len(args) > 0 {
+			mine = append(mine, args[0])
+			args = args[1:]
+		}
+	}
+	if len(mine) == 0 {
+		return args, nil
+	}
+	if err := fs.Parse(mine); err != nil {
+		return args, err
+	}
+	set := a.Settings()
+	if err := a.SettingsErr(); err != nil {
+		return args, err
+	}
+	if err := b.ApplyTo(set); err != nil {
+		return args, err
+	}
+	if err := a.strictCheck(set); err != nil {
+		return args, err
+	}
+	a.adoptSettings()
+	return args, nil
 }
 
 // SettingsErr reports a problem found while resolving settings.
@@ -116,17 +177,154 @@ func (a *App) Plumbing(path string) bool { return a.Settings().Bool(path) }
 // registry landed and before this call site existed, and it was found by
 // trying one.
 func (a *App) BindFlags(fs *flag.FlagSet, cmd string) func() error {
+	_, apply := a.bindFlags(fs, cmd)
+	return apply
+}
+
+func (a *App) bindFlags(fs *flag.FlagSet, cmd string) (*settings.Binding, func() error) {
 	sch, err := settings.New(settings.Registry())
 	if err != nil {
-		return func() error { return err }
+		return nil, func() error { return err }
 	}
-	b := sch.Bind(fs, cmd)
-	return func() error {
+	b := sch.BindExcept(fs, cmd, handFlagsMeaningOther[cmd])
+	return b, func() error {
+		if err := a.SettingsErr(); err != nil {
+			return err
+		}
 		if err := b.ApplyTo(a.Settings()); err != nil {
 			return err
 		}
-		return a.Settings().CheckRequirements()
+		if err := a.Settings().CheckRequirements(); err != nil {
+			return err
+		}
+		return a.strictCheck(a.Settings())
 	}
+}
+
+// applyPresets parses the flags of every selected preset into fs, in order,
+// before the command line is parsed.
+//
+// Parsing them first is what makes an explicit flag win: a hand-written flag
+// is simply set again by the command line, and a registry flag is recorded at
+// the preset layer, below the flag layer. A preset flag the command does not
+// accept is skipped, because one preset is meant to serve several commands.
+func (a *App) applyPresets(fs *flag.FlagSet, b *settings.Binding, args []string) error {
+	names, given := scanFlag(fs, args, "preset")
+	var list []string
+	if given {
+		list = splitAll(strings.Split(names, ","))
+	} else {
+		list = a.Settings().List("preset")
+	}
+	if len(list) == 0 {
+		return nil
+	}
+	defs, err := parsePresets(a.Settings().String("presets"))
+	if err != nil {
+		return err
+	}
+	for _, name := range list {
+		flags, ok := defs[name]
+		if !ok {
+			known := make([]string, 0, len(defs))
+			for n := range defs {
+				known = append(known, n)
+			}
+			sort.Strings(known)
+			return fmt.Errorf("no preset %q; defined: %s", name, quoteEmpty(strings.Join(known, ", ")))
+		}
+		var keep []string
+		for _, f := range flags {
+			fname := strings.TrimLeft(f, "-")
+			if i := strings.IndexByte(fname, '='); i >= 0 {
+				fname = fname[:i]
+			}
+			if fname == "preset" || fname == "presets" {
+				return fmt.Errorf("preset %s: a preset cannot select presets", name)
+			}
+			if fs.Lookup(fname) == nil {
+				continue
+			}
+			keep = append(keep, f)
+		}
+		if b != nil {
+			b.FromPreset(name)
+		}
+		perr := fs.Parse(keep)
+		if b != nil {
+			b.FromPreset("")
+		}
+		if perr != nil {
+			return fmt.Errorf("preset %s: %w", name, perr)
+		}
+	}
+	return nil
+}
+
+// parsePresets reads the presets setting: name -> list of single-token flags.
+func parsePresets(raw string) (map[string][]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var defs map[string][]string
+	if err := json.Unmarshal([]byte(raw), &defs); err != nil {
+		return nil, fmt.Errorf("presets: want an object of name -> [\"--flag=value\", ...]: %w", err)
+	}
+	for name, flags := range defs {
+		for _, f := range flags {
+			// One token per entry. A value given as the next entry would be
+			// taken for a positional argument the moment its flag is skipped.
+			if !strings.HasPrefix(f, "-") {
+				return nil, fmt.Errorf("presets.%s: %q is not a flag; write a value as --flag=value", name, f)
+			}
+		}
+	}
+	return defs, nil
+}
+
+// scanFlag finds one flag's value in args without disturbing fs, by parsing
+// a copy that has the same flags and the same notion of which are boolean.
+// Anything simpler misreads `--timeout 5s --preset ci` or a script argument.
+func scanFlag(fs *flag.FlagSet, args []string, name string) (string, bool) {
+	scratch := flag.NewFlagSet("scan", flag.ContinueOnError)
+	scratch.SetOutput(io.Discard)
+	scratch.Usage = func() {}
+	var val string
+	var seen bool
+	fs.VisitAll(func(f *flag.Flag) {
+		bf, _ := f.Value.(interface{ IsBoolFlag() bool })
+		sv := &scanValue{boolean: bf != nil && bf.IsBoolFlag()}
+		if f.Name == name {
+			sv.set = func(v string) { val, seen = v, true }
+		}
+		scratch.Var(sv, f.Name, "")
+	})
+	_ = scratch.Parse(args)
+	return val, seen
+}
+
+type scanValue struct {
+	boolean bool
+	set     func(string)
+}
+
+func (s *scanValue) String() string { return "" }
+func (s *scanValue) Set(v string) error {
+	if s.set != nil {
+		s.set(v)
+	}
+	return nil
+}
+func (s *scanValue) IsBoolFlag() bool { return s.boolean }
+
+// handFlagsMeaningOther lists hand-written flags that share a spelling with a
+// setting but mean something else on that command. Everything else a command
+// declares by hand under a setting's name feeds that setting.
+var handFlagsMeaningOther = map[string]map[string]bool{
+	"run":    {"keep": true},    // keep the generated files, not logging.keep
+	"exec":   {"keep": true},    // likewise
+	"api":    {"include": true}, // operations to include, not logging.include
+	"schema": {"format": true},  // output schema format, not logging.format
 }
 
 // unknownKeysError turns the collected unknown keys into one message naming

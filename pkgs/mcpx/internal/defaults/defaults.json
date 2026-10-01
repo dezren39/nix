@@ -37,6 +37,24 @@
   },
   "script": {
     "permissions": "all",
+    "runtimeOrder": ["deno", "bun", "node"],
+    "profiles": {
+      "all": { "deno": ["--allow-all"], "bun": [], "node": [] },
+      "none": { "deno": ["--allow-all"], "bun": [], "node": [] },
+      "off": { "deno": ["--allow-all"], "bun": [], "node": [] },
+      "unsandboxed": { "deno": ["--allow-all"], "bun": [], "node": [] },
+      "net": { "deno": ["--allow-net", "--allow-env"] },
+      "read": { "deno": ["--allow-read", "--allow-env"] },
+      "readnet": {
+        "deno": ["--allow-read", "--allow-net", "--allow-env"],
+        "node": ["--permission", "--allow-fs-read=*"]
+      },
+      "read-net": {
+        "deno": ["--allow-read", "--allow-net", "--allow-env"],
+        "node": ["--permission", "--allow-fs-read=*"]
+      },
+      "strict": { "deno": ["--allow-net=127.0.0.1", "--allow-env"] }
+    },
     "captureConsole": true,
     "typecheckTimeout": "60s"
   },
@@ -104,6 +122,9 @@
     "recipeMatchMargin": 150,
     "recipeLimit": 5,
     "promptAutonomy": "propose",
+    "autonomyMax": "run",
+    "repairAutonomy": "advise",
+    "hooksAutonomy": "run",
     "promptSample": "never",
     "promptCatalogBudget": 1200,
     "promptSampleTimeout": "90s",

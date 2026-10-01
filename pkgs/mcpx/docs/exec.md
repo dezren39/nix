@@ -68,9 +68,19 @@ different result.
 
 A remote run sends the script's *text*, not its path. A path would mean the
 daemon's filesystem, and somebody typing `mcpx run ./report.ts --remote` means
-the file in front of them. The consequence is that relative imports and
-`--export` do not survive the trip — both need a module on the runtime's disk
-— and `--export` with `--remote` is refused rather than half-supported.
+the file in front of them. The consequence is that relative imports do not
+survive the trip: the daemon writes the text to its own disk, and a sibling
+module is not beside it. `--export` does survive, because the launcher imports
+the written file and calls the named export there.
+
+Every flag that shapes the program travels with it: `--env`, `--typecheck`,
+`--launcher`/`--no-launcher`, `--allow-repeat`, `--no-capture-console`,
+`--export`, and the five phases (`--before`, `--prefix`, `--suffix`,
+`--on-success`, `--on-error`). The CLI resolves them -- reading any file a
+phase or launcher names on *its* side -- and sends source, so the daemon runs
+the program that would have run locally. Until #192 the remote path sent five
+of these and silently dropped the rest; `TestEveryExecFlagChangesSomething`
+now runs every row both ways.
 
 ## ExecOptions
 
@@ -96,6 +106,12 @@ type ExecOptions = {
   }
   task?: { ttl: number }
   ns?: string[]; args?: string[]; export?: string
+  typecheck?: "off" | "on" | "strict"
+  launcher?: string; launcherName?: string   // template text, or "none"
+  allowRepeat?: string[]
+  captureConsole?: boolean
+  phases?: { before?: string[]; prefix?: string[]; onSuccess?: string[];
+             onError?: string[]; suffix?: string[] }
 }
 ```
 
@@ -355,6 +371,5 @@ so it was the wrong example.)
   the stream. NDJSON and SSE carry chunks base64'd, which costs 33% on the
   wire. Worth revisiting; not worth a second framing before the first one has
   a user.
-- **`--export` and relative imports on a remote run.** Both need a module on
-  the runtime's disk, and a remote run sends text. Refused explicitly rather
-  than half-working.
+- **Relative imports on a remote run.** They need sibling modules on the
+  runtime's disk, and a remote run sends one file's text.

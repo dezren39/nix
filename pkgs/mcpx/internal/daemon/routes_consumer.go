@@ -17,6 +17,7 @@ import (
 	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/recipes"
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // routesConsumer registers the operations behind the things mcpx asks for
@@ -223,7 +224,12 @@ func (s *Server) handleRecipeSave(w http.ResponseWriter, r *http.Request) {
 // distances: intent picks the recipe, recipe_run is told which. A caller that
 // handles one handles the other.
 type resolution struct {
-	Autonomy     string                `json:"autonomy"`
+	Autonomy string `json:"autonomy"`
+	// Requested and ClampedBy are set when autonomy.max lowered the level
+	// the caller asked for: the ceiling lowers rather than refuses, and says
+	// so (docs/decisions/0002-autonomy-dial.md).
+	Requested    string                `json:"requested,omitempty"`
+	ClampedBy    string                `json:"clampedBy,omitempty"`
 	Recipe       string                `json:"recipe,omitempty"`
 	Source       string                `json:"source,omitempty"`
 	Placeholders map[string]any        `json:"placeholders,omitempty"`
@@ -266,12 +272,13 @@ func (s *Server) handleRecipeRun(w http.ResponseWriter, r *http.Request) {
 	// A route named run runs. propose is here so a caller can see what
 	// would happen first, which is the same courtesy intent extends by
 	// default.
-	level, err := promptAutonomy(req.Autonomy, "run")
+	cs := s.callSettings(r)
+	level, err := promptAutonomy(cs, req.Autonomy, "run")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	r = r.WithContext(withPolicy(r.Context(), consumerPolicyFrom(s.callSettings(r))))
+	r = r.WithContext(withPolicy(r.Context(), consumerPolicyFrom(cs)))
 	out, code := s.resolveRecipe(r, rec, req.Placeholders, level, req.Session)
 	writeJSON(w, code, out)
 }
@@ -279,10 +286,11 @@ func (s *Server) handleRecipeRun(w http.ResponseWriter, r *http.Request) {
 // resolveRecipe fills a recipe's holes, checks the result and, if asked,
 // runs it.
 func (s *Server) resolveRecipe(r *http.Request, rec recipes.Recipe,
-	values map[string]any, level, session string) (resolution, int) {
+	values map[string]any, level settings.Clamp, session string) (resolution, int) {
 	s.warmIfCold(r.Context())
 
-	out := resolution{Autonomy: level, Recipe: rec.Name, Model: "recipe"}
+	out := resolution{Recipe: rec.Name, Model: "recipe"}
+	out.setLevel(level)
 	if values == nil {
 		values = map[string]any{}
 	}
@@ -310,13 +318,17 @@ func (s *Server) resolveRecipe(r *http.Request, rec recipes.Recipe,
 		out.Message = err.Error()
 		return out, http.StatusUnprocessableEntity
 	}
-	out.Source = source
 	out.Diagnostics = nonNilDiagnostics(diagnose.Script(source, s.reg.DiagnoseCatalog()))
+	if !settings.AutonomyAtLeast(level.Value, "propose") {
+		out.Message = belowPropose(level.Value)
+		return out, 200
+	}
+	out.Source = source
 	if anyFatal(out.Diagnostics) {
 		out.Message = "the recipe does not match the tools as they are now"
 		return out, http.StatusUnprocessableEntity
 	}
-	if level != "run" {
+	if level.Value != "run" {
 		return out, 200
 	}
 	res, rerr := s.execScript(r.Context(), source, session)
@@ -349,9 +361,10 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 	// environment, a flag or PUT /v1/settings arrives on this request, not
 	// in the files the daemon read when it started. Reading the startup
 	// copy ignored all three while PUT answered "applied".
-	pol := consumerPolicyFrom(s.callSettings(r))
+	cs := s.callSettings(r)
+	pol := consumerPolicyFrom(cs)
 	r = r.WithContext(withPolicy(r.Context(), pol))
-	level, err := promptAutonomy(req.Autonomy, pol.PromptAutonomy)
+	level, err := promptAutonomy(cs, req.Autonomy, "")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -367,7 +380,16 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := resolution{Autonomy: level, Candidates: stripSources(cands)}
+	out := resolution{Candidates: stripSources(cands)}
+	out.setLevel(level)
+	if !settings.AutonomyAtLeast(level.Value, "propose") {
+		// Generating a script nobody may see would spend a model's time on
+		// nothing, so below propose there is no sampling request at all.
+		out.Model = "none"
+		out.Message = belowPropose(level.Value)
+		writeJSON(w, 200, out)
+		return
+	}
 	if pol.PromptSample != "ask" || s.reg.broker == nil {
 		out.Model = "none"
 		out.Message = "no recipe matched, and generating one is off " +
@@ -401,7 +423,7 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, out)
 		return
 	}
-	if level == "run" {
+	if level.Value == "run" {
 		res, rerr := s.execScript(r.Context(), source, req.Session)
 		if rerr != nil {
 			out.Message = rerr.Error()
@@ -443,16 +465,36 @@ func suggestName(prompt string) string {
 }
 
 // promptAutonomy validates a requested level for the prompt routes, which
-// have two of the dial's six: propose returns the script, run executes it.
-// An unknown value is refused -- "plan" used to be read as the default
-// without a word, which is the silent downgrade the dial exists to end.
-func promptAutonomy(requested, fallback string) (string, error) {
+// have two of the dial's six: propose returns the script, run executes it,
+// and bounds it by autonomy.max. An unknown value is refused -- "plan" used
+// to be read as the default without a word, which is the silent downgrade
+// the dial exists to end. A known value above the ceiling is lowered, not
+// refused, and the Clamp says so. An empty requested is fallback, or the
+// caller's own prompt.autonomy when fallback is empty too.
+func promptAutonomy(cs *settings.Set, requested, fallback string) (settings.Clamp, error) {
 	switch requested {
 	case "":
-		return fallback, nil
+		requested = fallback
 	case "propose", "run":
-		return requested, nil
+	default:
+		return settings.Clamp{}, fmt.Errorf("autonomy %q: the prompt routes take propose or run "+
+			"(docs/decisions/0002-autonomy-dial.md)", requested)
 	}
-	return "", fmt.Errorf("autonomy %q: the prompt routes take propose or run "+
-		"(docs/decisions/0002-autonomy-dial.md)", requested)
+	return cs.Clamp("prompt.autonomy", requested)
+}
+
+func (o *resolution) setLevel(c settings.Clamp) {
+	o.Autonomy = c.Value
+	if c.Lowered() {
+		o.Requested = c.Requested
+		o.ClampedBy = c.ClampedBy()
+	}
+}
+
+// belowPropose is the answer at a level that may not hand back a script:
+// autonomy.max set to off, advise or ask.
+func belowPropose(level string) string {
+	return fmt.Sprintf("autonomy is %s, which does not permit returning a script, "+
+		"let alone running one; the diagnostics and candidates are all this "+
+		"daemon will give (autonomy.max)", level)
 }

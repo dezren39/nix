@@ -94,3 +94,20 @@ func TestAskTableAttribution(t *testing.T) {
 		}
 	})
 }
+
+// A question raised on a call's own context belongs to that call, however
+// many others share the instance. Inferred from the instance alone, a second
+// call -- one an earlier client never resumed was enough -- left every later
+// question with the broker, and the client that could answer never saw it.
+func TestAQuestionOnACallsContextIsThatCalls(t *testing.T) {
+	r := &Registry{asks: newAskTable()}
+	r.asks.begin("call-1", "srv", "shared", "s1")
+	r.asks.begin("call-2", "srv", "shared", "s2")
+	a, ok := r.askFor(withAskCall(context.Background(), "call-2"), "srv", "shared")
+	if !ok || a.ID != "call-2" {
+		t.Fatalf("askFor = %v, %v; want call-2", a, ok)
+	}
+	if _, ok := r.askFor(withAskCall(context.Background(), "call-2"), "other", "shared"); ok {
+		t.Fatal("a call is only the asker for its own server")
+	}
+}

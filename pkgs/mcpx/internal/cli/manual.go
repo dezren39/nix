@@ -96,9 +96,14 @@ func handCommands() []Command {
 			Detail: "Resolves a bare name along the script search path, or takes a " +
 				"path directly. The script is wrapped in a launcher that installs " +
 				"the tool bindings, captures the console and runs the configured " +
-				"phases; --no-launcher skips all of that.",
+				"phases; --no-launcher skips all of that. --runtime takes deno, bun, " +
+				"node, a script.runtimes name or a path; --permissions composes " +
+				"profiles in order (read,strict) or passes raw:<flags>; see " +
+				"docs/runtimes.md. --preset applies named flag bundles from the " +
+				"config's presets, below anything given explicitly.",
 			Examples: []string{
 				"mcpx run report",
+				"mcpx run --runtime node --permissions readnet report",
 				"mcpx run ./one-off.ts --format json",
 				"mcpx run --no-launcher bare.ts",
 			},
@@ -153,7 +158,10 @@ func handCommands() []Command {
 				"the catalog the search ranked for this request. Without an " +
 				"answerer, it prints the ranked recipes and says plainly that no " +
 				"model is available. The script is returned rather than run unless " +
-				"--run is given, because generated code runs with your credentials.",
+				"--run is given, because generated code runs with your credentials. " +
+				"The daemon's autonomy.max bounds --run: above it the request is " +
+				"lowered, and mcpx says \"requested run, clamped to propose by " +
+				"autonomy.max\" on stderr.",
 			Examples: []string{
 				`mcpx prompt "take a screenshot of the checkout page"`,
 				`mcpx prompt --run "list my open issues"`,
@@ -220,7 +228,16 @@ func handCommands() []Command {
 		},
 		{
 			Name: "restart", Group: "daemon",
-			Usage: "[server...]", Summary: "restart servers, or all of them",
+			Usage: "[--lazy] [server]", Summary: "restart servers, or all of them",
+			Detail: "Stops every running instance and starts a replacement under the " +
+				"same scope key, waiting until it has initialized, so a server with a " +
+				"slow start comes back warm and a broken configuration fails now, " +
+				"with the server's stderr, and a non-zero exit. With nothing running " +
+				"a global-scope server starts one instance; a scoped server " +
+				"(session, pid, cwd, ...) with nothing running has no caller to start " +
+				"one for and starts nothing. A pid-scoped instance whose owner has " +
+				"exited, and a per-call instance, are reported and not replaced. " +
+				"--lazy only stops: the next call starts a fresh instance.",
 		},
 		{
 			Name: "stop", Group: "daemon",
@@ -311,9 +328,10 @@ func handCommands() []Command {
 				"are you sure, log in here. mcpx stores the question with a " +
 				"deadline rather than blocking on it, so whoever answers need not " +
 				"be whoever asked: a call from CI can be answered from a laptop " +
-				"twenty minutes later. A waiting call prints the question and the " +
-				"command that answers it; poll `mcpx elicit list` to find one, " +
-				"because the exit code does not yet distinguish it (#286).",
+				"twenty minutes later. `mcpx call`, `exec` and `run` stop at a " +
+				"question with exit status 75 (EX_TEMPFAIL), printing what is " +
+				"asked, the `mcpx elicit answer` command, and the task id whose " +
+				"result `mcpx task result` collects once it is answered.",
 			Examples: []string{
 				"mcpx elicit list",
 				"mcpx elicit answer elc-9f2c1a84 repo=me/thing",
@@ -428,13 +446,16 @@ func handCommands() []Command {
 		},
 		{
 			Name: "adapter", Group: "configuration",
-			Local:   "Adapter declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83, #102).",
-			Usage:   "[list|check|call|tools] [<name>.<tool> '<json>']",
+			Local:   "Adapter declarations are files the CLI reads; the daemon serves each adapter as a server of its own, so its tools reach every tool operation (call, types, search, catalog) like any upstream's.",
+			Usage:   "[list|check|call|tools|serve] [<name>.<tool> '<json>' | <name> [file...]]",
 			Summary: "command-line programs declared as MCP tools",
 			Detail: "An adapter file, named by paths.adapters, declares a program and " +
 				"the tools it offers. list shows them, check says whether each " +
 				"program is installed, call runs one tool, and tools prints the " +
-				"tool definitions an MCP host would see.",
+				"tool definitions an MCP host would see. Every adapter is also a " +
+				"namespace: the daemon runs it as `mcpx adapter serve <name>`, " +
+				"so it is in mcpx ls, types, search, catalog and the generated " +
+				"client, and a script calls it as <name>.<tool>({...}).",
 			Examples: []string{
 				"mcpx adapter check",
 				`mcpx adapter call jq.run '{"filter":"."}'`,

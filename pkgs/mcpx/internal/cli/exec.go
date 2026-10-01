@@ -436,26 +436,27 @@ type execRemoteFlags struct {
 	permissions string
 	export      string
 	session     string
+	shape       scriptShape
 }
 
 // execOnDaemon sends the script to the daemon and renders what comes back.
 //
 // The script text travels, not the path. A path would mean the daemon's
 // filesystem, and a caller typing `mcpx run ./report.ts --remote` means the
-// file in front of them. The consequence is that relative imports and
-// --export do not survive the trip -- both need a module on the runtime's
-// disk -- which is refused rather than half-supported.
+// file in front of them. The consequence is that relative imports do not
+// survive the trip. Every flag that shapes the program does (#192): the shape
+// was resolved by the caller and is sent as source.
 func (a *App) execOnDaemon(ctx context.Context, c *Client, fs *flag.FlagSet, inline bool,
 	ns []string, session string, eo execOptions, rf execRemoteFlags) error {
 
-	source := strings.Join(fs.Args(), " ")
+	sh := rf.shape
+	source := sh.inlineSource(fs.Args())
 	var args []string
+	phases := &execsvc.Phases{Before: sh.before, OnSuccess: sh.onSuccess, OnError: sh.onError}
 	if !inline {
-		if rf.export != "" {
-			return errors.New("--export needs a module on the runtime's disk, and a " +
-				"remote run sends the script's text. Run it locally, or put the " +
-				"script on the daemon's machine")
-		}
+		// The file's text travels and the daemon writes it to its own disk,
+		// where the launcher imports it -- so --export works as it does
+		// locally. Relative imports are what cannot survive the trip.
 		path, err := resolveScript(fs.Arg(0))
 		if err != nil {
 			return err
@@ -466,6 +467,9 @@ func (a *App) execOnDaemon(ctx context.Context, c *Client, fs *flag.FlagSet, inl
 		}
 		source = string(b)
 		args = fs.Args()[1:]
+		// A file keeps its own scope, so prefix and suffix run in the
+		// launcher around it rather than being spliced into it.
+		phases.Prefix, phases.Suffix = sh.prefix, sh.suffix
 	}
 
 	cwd, _ := os.Getwd()
@@ -482,6 +486,18 @@ func (a *App) execOnDaemon(ctx context.Context, c *Client, fs *flag.FlagSet, inl
 		NS:        ns,
 		Args:      args,
 		Artifacts: eo.artifactOptions(cwd),
+
+		Export:         rf.export,
+		Env:            withInputReport(sh.env, a.stdoutOverride == nil),
+		TypeCheck:      sh.typecheck,
+		Launcher:       sh.launcher,
+		LauncherName:   sh.launcherName,
+		AllowRepeat:    sh.allowRepeat,
+		CaptureConsole: &sh.captureConsole,
+	}
+	if len(phases.Before)+len(phases.Prefix)+len(phases.OnSuccess)+
+		len(phases.OnError)+len(phases.Suffix) > 0 {
+		opts.Phases = phases
 	}
 	if rf.timeout > 0 {
 		opts.Timeout = rf.timeout.String()
@@ -555,4 +571,18 @@ func (c *Client) ArtifactBody(ctx context.Context, id string) (string, string, e
 		return string(body), mime, nil
 	}
 	return base64.StdEncoding.EncodeToString(body), mime, nil
+}
+
+// withInputReport adds MCPX_INPUT=report to a remote run's environment: the
+// caller is a terminal command with nobody to answer a question mid-call, so
+// the script should exit ExitInputRequired rather than wait (#286).
+func withInputReport(env map[string]string, report bool) map[string]string {
+	out := make(map[string]string, len(env)+1)
+	for k, v := range env {
+		out[k] = v
+	}
+	if report {
+		out["MCPX_INPUT"] = "report"
+	}
+	return out
 }

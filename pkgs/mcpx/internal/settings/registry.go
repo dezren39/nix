@@ -29,7 +29,35 @@ func Registry() []Setting {
 	s = append(s, protoTasksSettings()...)
 	s = append(s, upstreamSettings()...)
 	s = append(s, envSettings()...)
+	s = append(s, presetSettings()...)
 	return s
+}
+
+// presetSettings are named bundles of mcpx's own flags. They are applied as
+// their own layer, above the environment and below the command line, so an
+// explicit flag always beats a preset and `mcpx settings` can say which
+// preset a value came from.
+func presetSettings() []Setting {
+	return []Setting{
+		{
+			Path: "presets", Kind: KindString, Default: "",
+			Scope: ScopeClient,
+			Name:  "Preset definitions",
+			Short: "named flag bundles: {name: [\"--json\", \"--timeout=30s\"]}",
+			Long: "A JSON object of preset name to a list of mcpx flags. A preset " +
+				"applies those of its flags the running command accepts; the rest " +
+				"are skipped, because one preset serves several commands. Positional " +
+				"arguments are not allowed.",
+		},
+		{
+			Path: "preset", Kind: KindList, Default: "",
+			Scope: ScopeClient,
+			Name:  "Presets",
+			Short: "which presets to apply, in order",
+			Long: "Later presets win over earlier ones; any flag given on the command " +
+				"line wins over every preset.",
+		},
+	}
 }
 
 func poolSettings() []Setting {
@@ -178,20 +206,48 @@ func scriptSettings() []Setting {
 
 	return []Setting{
 		{
-			Path: "script.runtime", Commands: runCommands, Kind: KindEnum, Default: "auto",
+			Path: "script.runtime", Commands: runCommands, Kind: KindString, Default: "auto",
 			Scope:       ScopeClient,
-			Enum:        []string{"auto", "deno", "bun", "node"},
 			FlagAliases: []string{"runtime"},
 			Name:        "Runtime", Short: "which JavaScript runtime executes the script",
+			Long: "auto tries script.runtimeOrder. Otherwise deno, bun or node; a name " +
+				"declared under script.runtimes; or a path or binary name whose " +
+				"basename is one of the three. See docs/runtimes.md.",
+		},
+		{
+			Path: "script.runtimes", Commands: runCommands, Kind: KindString, Default: "",
+			Scope: ScopeClient,
+			Name:  "Declared runtimes",
+			Short: "named runtime binaries: {name: {kind, bin, args}}",
+			Long: "A JSON object. kind is deno, bun or node and decides how the " +
+				"command line is built; bin is a path or a name on PATH; args are " +
+				"runtime options placed before the permission flags.",
+		},
+		{
+			Path: "script.runtimeOrder", Commands: runCommands, Kind: KindList, Default: "deno,bun,node",
+			Scope: ScopeClient,
+			Name:  "Runtime order", Short: "the runtimes auto tries, in order",
+			Long: "Entries are anything script.runtime accepts. A runtime that cannot " +
+				"enforce the permissions asked for is skipped rather than used.",
 		},
 		{
 			Path: "script.permissions", Commands: runCommands, Kind: KindString, Default: "all",
 			Scope:       ScopeClient,
 			FlagAliases: []string{"permissions"},
 			EnvAliases:  []string{"MCPX_PERMISSIONS"},
-			Name:        "Permissions", Short: "the sandbox profile, or raw runtime flags",
-			Long: "One of all, net, read, read-net, strict, or flags passed through " +
-				"verbatim. The default is wide open because the scripts are yours.",
+			Name:        "Permissions", Short: "permission profiles, composed in order, or raw: flags",
+			Long: "A comma-separated list of profile names applied in order: all, net, " +
+				"read, readnet, strict, or one defined in script.profiles. raw: " +
+				"introduces flags passed through verbatim and takes the rest of the " +
+				"value. The default is wide open because the scripts are yours.",
+		},
+		{
+			Path: "script.profiles", Commands: runCommands, Kind: KindString, Default: "",
+			Scope: ScopeClient,
+			Name:  "Permission profiles",
+			Short: "user profiles: {name: {deno: [flags], node: [flags]}} or {name: \"raw flags\"}",
+			Long: "Each replaces a built-in of the same name. A runtime kind a profile " +
+				"does not list cannot run under it.",
 		},
 		{
 			Path: "script.captureConsole", Commands: runCommands, Kind: KindBool, Default: "true",
@@ -428,6 +484,23 @@ func outputSettings() []Setting {
 				"with a frame limit has no other way to read the list than to page " +
 				"through it.",
 			Commands: []string{"serve"},
+		},
+		{
+			Path: "mcp.passthrough", Kind: KindString, Default: "",
+			Scope:       ScopeClient,
+			FlagAliases: []string{"passthrough"},
+			Name:        "MCP pass-through",
+			Short:       "serve one upstream's tools, prompts and resources under their own names",
+			Long: "Names a configured server whose surface /mcp and `mcpx serve` offer " +
+				"unrenamed: its tools by their own names (listed ahead of mcpx's gateway " +
+				"tools), its prompts without the <namespace>_ prefix, and its resources " +
+				"at their own URIs rather than mcpx://<namespace>/<uri>. Results are its " +
+				"own, verbatim, images and structured content included. On a name " +
+				"collision the upstream's tool wins and the gateway tool of that name is " +
+				"not offered over MCP. For a single-upstream gateway: pooling, logging " +
+				"and policy in front of one server that clients see as itself. Empty " +
+				"(the default) namespaces everything.",
+			Commands: []string{"serve", "daemon"},
 		},
 		{
 			Path: "output.json", Kind: KindBool, Default: "false",

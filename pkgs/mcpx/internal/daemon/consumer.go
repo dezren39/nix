@@ -41,7 +41,6 @@ type ConsumerPolicy struct {
 	RecipeMinScore      int
 	RecipeMatchMargin   int
 	RecipeLimit         int
-	PromptAutonomy      string
 	PromptSample        string
 	PromptCatalogBudget int
 	PromptSampleTimeout time.Duration
@@ -105,7 +104,6 @@ func defaultConsumerPolicy() ConsumerPolicy {
 		RecipeMinScore:      defaults.RecipeMinScore,
 		RecipeMatchMargin:   defaults.RecipeMatchMargin,
 		RecipeLimit:         defaults.RecipeLimit,
-		PromptAutonomy:      defaults.PromptAutonomy,
 		PromptSample:        defaults.PromptSample,
 		PromptCatalogBudget: defaults.PromptCatalogBudget,
 		PromptSampleTimeout: defaults.PromptSampleTimeout,
@@ -125,7 +123,6 @@ func consumerPolicyFrom(set *settings.Set) ConsumerPolicy {
 	p.RecipeMinScore = set.Int("recipes.minScore")
 	p.RecipeMatchMargin = set.Int("recipes.matchMargin")
 	p.RecipeLimit = set.Int("recipes.limit")
-	p.PromptAutonomy = set.String("prompt.autonomy")
 	p.PromptSample = set.String("prompt.sample")
 	p.PromptCatalogBudget = set.Int("prompt.catalogBudget")
 	p.PromptSampleTimeout = set.Duration("prompt.sampleTimeout")

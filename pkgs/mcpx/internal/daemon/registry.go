@@ -614,7 +614,7 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 	defer r.joinAsk(ctx, server, key)()
 	res, err := p.Call(ctx, key, tool, args)
 	if err != nil {
-		return nil, r.explainCall(server, tool, args, err)
+		return nil, r.explainCall(ctx, server, tool, args, err)
 	}
 	return res, nil
 }
@@ -716,6 +716,12 @@ func (r *Registry) Resources(namespaces []string) []ResourceInfo {
 		}
 		_, resources, _ := p.CachedSchemas()
 		for _, res := range resources {
+			// Templates share the cache (see pool.CachedTemplates) and
+			// have no uri; listing one here put an entry with an empty
+			// URI in resources/list, which no revision's schema allows.
+			if res.URITemplate != "" {
+				continue
+			}
 			out = append(out, ResourceInfo{
 				Namespace: view.Namespace, Server: name, URI: res.URI,
 				Name: res.Name, Description: res.Description, MimeType: res.MimeType,
@@ -880,26 +886,45 @@ func (r *Registry) Status() []pool.Status {
 	return out
 }
 
-// Restart stops instances for one server, or all servers when name is empty.
-func (r *Registry) Restart(name string) (int, error) {
+// ServerRestart is one pool's part of a restart.
+type ServerRestart struct {
+	Server string `json:"server"`
+	pool.RestartResult
+}
+
+// Restart restarts one server, or all servers when name is empty. Unless lazy,
+// each replacement is started and waited for; see pool.Restart.
+func (r *Registry) Restart(ctx context.Context, name string, lazy bool) ([]ServerRestart, error) {
+	var pools []*pool.Pool
 	if name == "" {
 		r.mu.RLock()
-		pools := make([]*pool.Pool, 0, len(r.pools))
-		for _, p := range r.pools {
-			pools = append(pools, p)
+		// Several names can reach one pool; restart it once.
+		seen := map[*pool.Pool]bool{}
+		for _, n := range r.order {
+			if p := r.pools[n]; !seen[p] {
+				seen[p] = true
+				pools = append(pools, p)
+			}
 		}
 		r.mu.RUnlock()
-		n := 0
-		for _, p := range pools {
-			n += p.Restart()
+	} else {
+		p, ok := r.Pool(name)
+		if !ok {
+			return nil, fmt.Errorf("unknown server or namespace %q", name)
 		}
-		return n, nil
+		pools = []*pool.Pool{p}
 	}
-	p, ok := r.Pool(name)
-	if !ok {
-		return 0, fmt.Errorf("unknown server or namespace %q", name)
+	out := make([]ServerRestart, len(pools))
+	var wg sync.WaitGroup
+	for i, p := range pools {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out[i] = ServerRestart{Server: p.Name(), RestartResult: p.Restart(ctx, lazy)}
+		}()
 	}
-	return p.Restart(), nil
+	wg.Wait()
+	return out, nil
 }
 
 // UseSettings gives the registry the daemon's resolved configuration.

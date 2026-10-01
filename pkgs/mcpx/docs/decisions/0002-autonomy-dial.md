@@ -249,7 +249,18 @@ mechanism with the order reversed; nothing needs one yet, and
 `elicit.confirmDestructive` gets the same effect today by being daemon-scoped
 so a caller cannot touch it at all.
 
-**Not implemented in this change**, for two reasons. The `Setting` struct lives
+**Landed** with `autonomy.max`, `repair.autonomy` and `hooks.autonomy`
+(`internal/settings/clamp.go`). Two deviations from the sketch above: a
+clamped setting's `Enum` is an ordered *subset* of the ceiling's rather than
+equal to it, so `prompt.autonomy` keeps its two levels; and a prompt route
+whose level is lowered below `propose` returns neither the script nor a
+generation, only the candidates and diagnostics. `repair.autonomy` governs
+the diagnostics a refused call carries (`off` drops them); `hooks.autonomy`
+governs launcher phases from a configuration file or the environment, never
+those given as flags on the command itself. The `autonomy.max` row in
+`internal/api/boundaries.go` names the refusal tests.
+
+**Originally not implemented**, for two reasons. The `Setting` struct lives
 in `schema.go`, which another change is editing now. And a `ClampedBy` field
 that clamps nothing would be a declared capability with no behaviour — the
 #177 bug, and the thing [0003](0003-declared-vs-enforced-capabilities.md) forbids.

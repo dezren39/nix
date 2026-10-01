@@ -113,7 +113,7 @@ func TestWatchResubscribesAReplacementInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	p.Restart()
+	p.Restart(context.Background(), false)
 	eventually(t, "a second process subscribed after the restart", func() bool {
 		pids := map[string]bool{}
 		for _, l := range logged(t, log) {

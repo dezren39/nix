@@ -526,12 +526,21 @@ func Ops() []Op {
 		{
 			Name: "restart", Method: "POST", Path: "/v1/restart",
 			Command: "restart",
-			Summary: "Stop a server's instances, or every server's",
-			Description: "In-flight calls on those instances fail. Omit the server to " +
-				"restart all of them.",
+			Summary: "Restart a server's instances, or every server's",
+			Description: "Stops every running instance and starts a replacement under the " +
+				"same scope key, waiting for each to initialize; a replacement that " +
+				"does not come up is reported with the server's own error. With " +
+				"nothing running, a global-scope server starts one instance, so a " +
+				"restart verifies the server comes up; a scoped server with nothing " +
+				"running has no caller to start one for and starts nothing. In-flight " +
+				"calls on the stopped instances fail. Omit the server to restart all " +
+				"of them. lazy stops without starting anything: the next call starts " +
+				"a fresh instance.",
 			Admin: true, Mutating: true, Destructive: true,
 			Params: []Param{
 				{Name: "server", In: InBody, Type: "string", Desc: "empty means every server"},
+				{Name: "lazy", In: InBody, Type: "boolean",
+					Desc: "stop only; start on the next call instead of now"},
 			},
 		},
 		{

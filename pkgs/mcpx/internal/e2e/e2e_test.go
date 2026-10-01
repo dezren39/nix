@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/testsupport"
+
+	_ "modernc.org/sqlite"
 )
 
 // env is a fully isolated mcpx installation: its own binary, config, state
@@ -2378,17 +2381,17 @@ func TestACredentialQuestionIsRoutedToAHuman(t *testing.T) {
 // a server that asked one.
 func seedElicitation(t *testing.T, e *env, id, server, mode, schema string) {
 	t.Helper()
-	script := fmt.Sprintf(`
-import sqlite3, time, sys
-now = int(time.time()*1000)
-db = sqlite3.connect(%q)
-db.execute("INSERT OR REPLACE INTO elicitations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-  (%q,"cal-x","","s1",%q,"tool",%q,"which one?",%q,"", "", "", now, now+120000,"pending",1))
-db.commit()
-`, filepath.Join(e.dir, "state", "logs", "elicit.db"), id, server, mode, schema)
-	cmd := exec.Command("python3", "-c", script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("seeding: %v\n%s", err, out)
+	// Through the same pure-Go driver the store uses, so the suite needs no
+	// sqlite3-capable interpreter on PATH (the nix check sandbox has none).
+	db, err := sql.Open("sqlite", filepath.Join(e.dir, "state", "logs", "elicit.db"))
+	if err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	defer db.Close()
+	now := time.Now().UnixMilli()
+	if _, err := db.Exec(`INSERT OR REPLACE INTO elicitations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, "cal-x", "", "s1", server, "tool", mode, "which one?", schema, "", "", "", now, now+120000, "pending", 1); err != nil {
+		t.Fatalf("seeding: %v", err)
 	}
 }
 
@@ -2886,17 +2889,29 @@ func TestTwoConfigurationsDoNotShareAGeneratedClient(t *testing.T) {
 //
 // A flag earns its place by changing an observable outcome. Add a row when
 // you add a flag to `mcpx exec`.
+//
+// Every row runs twice: here, and with --remote on the daemon. The remote
+// path was handed five of these flags and dropped the rest (#192) -- parsed,
+// described in the help, and absent from the program the daemon ran.
 func TestEveryExecFlagChangesSomething(t *testing.T) {
 	e := newEnv(t, oneServer)
-	for _, c := range []struct {
-		flag   string
+	type row struct {
+		flag string
+		// base is given both with and without the flag, so the comparison
+		// isolates the flag rather than everything around it.
+		base   []string
 		args   []string
 		source string
 		// want must appear with the flag and must not appear without it.
 		want string
-		// fails marks a flag whose whole purpose is to refuse the run.
+		// gone must appear without the flag and must not appear with it,
+		// for a flag whose effect is to take something away.
+		gone string
+		// fails marks a flag whose whole purpose is to refuse the run, or a
+		// source that fails so a failure hook can be seen.
 		fails bool
-	}{
+	}
+	rows := []row{
 		{
 			flag:   "--export",
 			args:   []string{"--export=main"},
@@ -2910,10 +2925,62 @@ func TestEveryExecFlagChangesSomething(t *testing.T) {
 			want:   "LAUNCHED",
 		},
 		{
+			flag:   "--no-launcher",
+			args:   []string{"--no-launcher"},
+			source: `export default () => emit({wrapped: 1});`,
+			gone:   `"wrapped":1`,
+		},
+		{
 			flag:   "--prefix",
 			args:   []string{"--prefix", "const shared = 41;"},
 			source: `emit({v: shared + 1});`,
 			want:   `"v":42`,
+		},
+		{
+			flag:   "--suffix",
+			args:   []string{"--suffix", `emit({tail: "SUFFIXED"});`},
+			source: `emit({ok: 1});`,
+			want:   "SUFFIXED",
+		},
+		{
+			flag:   "--before",
+			args:   []string{"--before", `console.log("BEFORE-RAN");`},
+			source: `emit({ok: 1});`,
+			want:   "BEFORE-RAN",
+		},
+		{
+			flag:   "--on-success",
+			args:   []string{"--on-success", `console.log("SUCCESS-HOOK");`},
+			source: `emit({ok: 1});`,
+			want:   "SUCCESS-HOOK",
+		},
+		{
+			flag:   "--on-error",
+			args:   []string{"--on-error", `console.log("ERROR-HOOK");`},
+			source: `throw new Error("boom");`,
+			want:   "ERROR-HOOK",
+			fails:  true,
+		},
+		{
+			flag:   "--env",
+			args:   []string{"--env", "MCPX_FLAG_PROBE=FROM-ENV-FLAG"},
+			source: `const g = globalThis as any; emit({e: g.Deno ? g.Deno.env.get("MCPX_FLAG_PROBE") : g.process.env.MCPX_FLAG_PROBE});`,
+			want:   "FROM-ENV-FLAG",
+		},
+		{
+			flag:   "--no-capture-console",
+			args:   []string{"--no-capture-console"},
+			source: `console.log("WRAPPED:" + String((globalThis.console as any).__mcpxWrapped));`,
+			want:   "WRAPPED:undefined",
+		},
+		{
+			// Without permission the repeated placeholder is refused before
+			// anything runs, so the launcher's line is the evidence.
+			flag:   "--allow-repeat",
+			base:   []string{`--launcher=console.log("REPEAT-OK"); @entry @entry`},
+			args:   []string{"--allow-repeat", "entry"},
+			source: `emit({ok: 1});`,
+			want:   "REPEAT-OK",
 		},
 		{
 			// The marker is the point: with the check the script is refused
@@ -2925,25 +2992,43 @@ func TestEveryExecFlagChangesSomething(t *testing.T) {
 			want:   "does not type check",
 			fails:  true,
 		},
-	} {
-		t.Run(c.flag, func(t *testing.T) {
-			argv := append([]string{"exec"}, c.args...)
-			argv = append(argv, c.source)
-			with, werr := e.try(argv...)
-			if !c.fails && werr != nil {
-				t.Fatalf("%s: %v\n%s", c.flag, werr, with)
-			}
-			if !strings.Contains(with, c.want) {
-				t.Errorf("%s did nothing: wanted %q in\n%s", c.flag, c.want, with)
-			}
-			// And without it, the same source must not produce that outcome,
-			// or the flag is not what caused it.
-			without, _ := e.try("exec", c.source)
-			if strings.Contains(without, c.want) {
-				t.Errorf("%s: %q appears without the flag too, so the test proves nothing:\n%s",
-					c.flag, c.want, without)
-			}
-		})
+	}
+	for _, where := range []string{"local", "remote"} {
+		for _, c := range rows {
+			t.Run(where+"/"+c.flag, func(t *testing.T) {
+				lead := []string{"exec"}
+				if where == "remote" {
+					lead = append(lead, "--remote")
+				}
+				lead = append(lead, c.base...)
+				argv := append(append(append([]string{}, lead...), c.args...), c.source)
+				with, werr := e.try(argv...)
+				if !c.fails && werr != nil {
+					t.Fatalf("%s: %v\n%s", c.flag, werr, with)
+				}
+				without, _ := e.try(append(append([]string{}, lead...), c.source)...)
+				if c.want != "" {
+					if !strings.Contains(with, c.want) {
+						t.Errorf("%s did nothing: wanted %q in\n%s", c.flag, c.want, with)
+					}
+					// And without it, the same source must not produce that
+					// outcome, or the flag is not what caused it.
+					if strings.Contains(without, c.want) {
+						t.Errorf("%s: %q appears without the flag too, so the test proves nothing:\n%s",
+							c.flag, c.want, without)
+					}
+				}
+				if c.gone != "" {
+					if strings.Contains(with, c.gone) {
+						t.Errorf("%s did nothing: %q should be gone from\n%s", c.flag, c.gone, with)
+					}
+					if !strings.Contains(without, c.gone) {
+						t.Errorf("%s: %q is missing without the flag too, so the test proves nothing:\n%s",
+							c.flag, c.gone, without)
+					}
+				}
+			})
+		}
 	}
 }
 

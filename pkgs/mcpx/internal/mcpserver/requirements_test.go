@@ -1152,3 +1152,35 @@ func TestUnknownToolIsAProtocolError(t *testing.T) {
 		}
 	})
 }
+
+// The same over /mcp, for every revision mcpx serves: each legacy one through
+// its own initialize and session, the modern one statelessly. #284 made this
+// -32602; before it, an isError result let the official suite's
+// tools-call-simple-text "pass" against a tool that did not exist.
+func TestUnknownToolIsAProtocolErrorOverHTTP(t *testing.T) {
+	for _, v := range mcpserver.LegacySupported() {
+		t.Run(v+"/tools/unknown-tool-is-32602-over-http", func(t *testing.T) {
+			s := mcpserver.New(newBackend(), "mcpx", "test")
+			w := post(s, frame(0, "initialize", map[string]any{"protocolVersion": v,
+				"capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "1"}}), nil)
+			sess := w.Header().Get("Mcp-Session-Id")
+			if sess == "" {
+				t.Fatalf("no session from initialize: %d %s", w.Code, w.Body)
+			}
+			h := map[string]string{"Mcp-Session-Id": sess, "MCP-Protocol-Version": v}
+			post(s, frame(nil, "notifications/initialized", nil), h)
+			w = post(s, frame(1, "tools/call", map[string]any{"name": "no_such_tool"}), h)
+			if code, _ := rpcErr(t, w.Body.Bytes()); code != -32602 {
+				t.Errorf("code %d, want -32602: %s", code, w.Body)
+			}
+		})
+	}
+	t.Run("2026-07-28/tools/unknown-tool-is-32602-over-http", func(t *testing.T) {
+		s := mcpserver.New(newBackend(), "mcpx", "test")
+		w := post(s, frame(1, "tools/call", modernParams(map[string]any{"name": "no_such_tool"})),
+			modernHeaders("tools/call", "no_such_tool"))
+		if code, _ := rpcErr(t, w.Body.Bytes()); code != -32602 {
+			t.Errorf("code %d, want -32602: %s", code, w.Body)
+		}
+	})
+}

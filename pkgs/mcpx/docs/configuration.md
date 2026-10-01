@@ -198,6 +198,12 @@ and a switch to turn the report off would have kept it quiet.
 | `artifacts.quota` | bytes | `1GiB` | daemon | no | `--artifacts-quota` | `MCPX_ARTIFACTS_QUOTA` | the total the artifact store may hold |
 | `artifacts.ttl` | duration | `24h` | daemon | no | `--artifacts-ttl` | `MCPX_ARTIFACTS_TTL` | how long an artifact is kept before it is collected |
 
+### autonomy
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `autonomy.max` | enum | `run` | daemon | no | `--autonomy-max` | `MCPX_AUTONOMY_MAX` | the most autonomy this daemon exercises, whatever a caller asks for |
+
 ### autostart
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -284,6 +290,12 @@ and a switch to turn the report off would have kept it quiet.
 | `exec.timeout` | duration | `120s` | call | yes | `--exec-timeout` | `MCPX_EXEC_TIMEOUT` | kill a script after this long |
 | `exec.where` | enum | `auto` | call | yes | `--exec-where` | `MCPX_EXEC_WHERE` | in this process, or on the daemon |
 
+### hooks
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `hooks.autonomy` | enum | `run` | call | yes | `--hooks-autonomy` | `MCPX_HOOKS_AUTONOMY` | whether configured script hooks (before, onSuccess, onError) run |
+
 ### http
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -330,6 +342,7 @@ and a switch to turn the report off would have kept it quiet.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `mcp.pageSize` | int | `100` | client | no | `--mcp-page-size` | `MCPX_MCP_PAGE_SIZE` | how many items one tools/list reply carries |
+| `mcp.passthrough` | string | *(empty)* | client | no | `--mcp-passthrough`, `--passthrough` | `MCPX_MCP_PASSTHROUGH` | serve one upstream's tools, prompts and resources under their own names |
 
 ### output
 
@@ -393,6 +406,18 @@ and a switch to turn the report off would have kept it quiet.
 | `pool.sharing` | enum | `shared` | daemon | no | `--pool-sharing` | `MCPX_POOL_SHARING` | whether callers reuse one instance or each get their own |
 | `pool.startTimeout` | duration | `60s` | daemon | yes | `--pool-start-timeout` | `MCPX_POOL_START_TIMEOUT` | how long a server has to become ready |
 
+### preset
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `preset` | list | *(empty)* | client | no | `--preset` | `MCPX_PRESET` | which presets to apply, in order |
+
+### presets
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `presets` | string | *(empty)* | client | no | `--presets` | `MCPX_PRESETS` | named flag bundles: {name: ["--json", "--timeout=30s"]} |
+
 ### prompt
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -450,6 +475,12 @@ and a switch to turn the report off would have kept it quiet.
 | `registry.timeout` | duration | `30s` | client | no | `--registry-timeout` | `MCPX_REGISTRY_TIMEOUT` | how long a registry request may take |
 | `registry.url` | string | `https://registry.modelcontextprotocol.io` | client | no | `--registry-url` | `MCPX_REGISTRY_URL` | where `mcpx registry` looks for servers |
 
+### repair
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `repair.autonomy` | enum | `advise` | call | yes | `--repair-autonomy` | `MCPX_REPAIR_AUTONOMY` | how far mcpx goes about a failed call: off attaches nothing, advise attaches diagnostics |
+
 ### script
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -460,9 +491,12 @@ and a switch to turn the report off would have kept it quiet.
 | `script.launcher` | source | *(empty)* | client | no | `--script-launcher` | `MCPX_SCRIPT_LAUNCHER` | replace the generated launcher entirely |
 | `script.onError` | source | *(empty)* | client | no | `--script-on-error` | `MCPX_SCRIPT_ON_ERROR` | runs when the script throws; the error still propagates |
 | `script.onSuccess` | source | *(empty)* | client | no | `--script-on-success` | `MCPX_SCRIPT_ON_SUCCESS` | runs when the script returns without throwing |
-| `script.permissions` | string | `all` | client | no | `--script-permissions`, `--permissions` | `MCPX_SCRIPT_PERMISSIONS`, `MCPX_PERMISSIONS` | the sandbox profile, or raw runtime flags |
+| `script.permissions` | string | `all` | client | no | `--script-permissions`, `--permissions` | `MCPX_SCRIPT_PERMISSIONS`, `MCPX_PERMISSIONS` | permission profiles, composed in order, or raw: flags |
 | `script.prefix` | source | *(empty)* | client | no | `--script-prefix` | `MCPX_SCRIPT_PREFIX` | runs after globals are installed, before the script |
-| `script.runtime` | enum | `auto` | client | no | `--script-runtime`, `--runtime` | `MCPX_SCRIPT_RUNTIME` | which JavaScript runtime executes the script |
+| `script.profiles` | string | *(empty)* | client | no | `--script-profiles` | `MCPX_SCRIPT_PROFILES` | user profiles: {name: {deno: [flags], node: [flags]}} or {name: "raw flags"} |
+| `script.runtime` | string | `auto` | client | no | `--script-runtime`, `--runtime` | `MCPX_SCRIPT_RUNTIME` | which JavaScript runtime executes the script |
+| `script.runtimeOrder` | list | `deno,bun,node` | client | no | `--script-runtime-order` | `MCPX_SCRIPT_RUNTIME_ORDER` | the runtimes auto tries, in order |
+| `script.runtimes` | string | *(empty)* | client | no | `--script-runtimes` | `MCPX_SCRIPT_RUNTIMES` | named runtime binaries: {name: {kind, bin, args}} |
 | `script.suffix` | source | *(empty)* | client | no | `--script-suffix` | `MCPX_SCRIPT_SUFFIX` | runs last on both paths, like a finally |
 | `script.typecheck` | enum | `off` | client | no | `--script-typecheck` | `MCPX_SCRIPT_TYPECHECK` | check the generated program before running it |
 
