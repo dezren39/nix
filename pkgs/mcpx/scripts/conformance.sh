@@ -32,7 +32,7 @@ PORT=${MCPX_CONFORMANCE_PORT:-18731}
 FIXTURE_PORT=$((PORT + 1))
 LEGACY_PORT=$((PORT + 2))
 FIXTURE_DIR=$CONFORMANCE_DIR/examples/servers/typescript
-LEGS=${LEGS:-"server-2025-11-25 server-2026-07-28 server-all client-2025-11-25 client-2026-07-28"}
+LEGS=${LEGS:-"server-2025-03-26 server-2025-06-18 server-2025-11-25 server-2026-07-28 server-all client-2025-11-25 client-2026-07-28"}
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/mcpx-conformance.XXXXXX")
@@ -113,12 +113,16 @@ run_leg() { # name, suite args...
 CLIENT="$WORK/officialclient -mcpx $WORK/mcpx"
 for leg in $LEGS; do
   case $leg in
-  server-2025-11-25) [ -n "${LEGACY_UP:-}" ] || { start_daemon legacy "$LEGACY_PORT"; LEGACY_UP=1; } ;;
+  server-2025-11-25 | server-2025-06-18 | server-2025-03-26) [ -n "${LEGACY_UP:-}" ] || { start_daemon legacy "$LEGACY_PORT"; LEGACY_UP=1; } ;;
   server-*) [ -n "${MODERN_UP:-}" ] || { start_daemon modern "$PORT"; MODERN_UP=1; } ;;
   esac
   case $leg in
   server-all) run_leg "$leg" server --url "http://127.0.0.1:$PORT/mcp" --suite all ;;
   server-2025-11-25) run_leg "$leg" server --url "http://127.0.0.1:$LEGACY_PORT/mcp" --requirements 2025-11-25 ;;
+  # The suite has no frozen requirement set for these two, only the scenarios
+  # tagged for each version, which is what --spec-version selects.
+  server-2025-06-18 | server-2025-03-26)
+    run_leg "$leg" server --url "http://127.0.0.1:$LEGACY_PORT/mcp" --spec-version "${leg#server-}" ;;
   server-*) run_leg "$leg" server --url "http://127.0.0.1:$PORT/mcp" --requirements "${leg#server-}" ;;
   client-*) run_leg "$leg" client --command "$CLIENT" --requirements "${leg#client-}" ;;
   *) echo "unknown leg $leg" >&2 ;;
