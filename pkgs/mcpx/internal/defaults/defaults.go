@@ -142,6 +142,9 @@ type Defaults struct {
 		RecipeMatchMargin   int    `json:"recipeMatchMargin"`
 		RecipeLimit         int    `json:"recipeLimit"`
 		PromptAutonomy      string `json:"promptAutonomy"`
+		AutonomyMax         string `json:"autonomyMax"`
+		RepairAutonomy      string `json:"repairAutonomy"`
+		HooksAutonomy       string `json:"hooksAutonomy"`
 		PromptSample        string `json:"promptSample"`
 		PromptCatalogBudget int    `json:"promptCatalogBudget"`
 		PromptSampleTimeout string `json:"promptSampleTimeout"`
@@ -573,6 +576,9 @@ var (
 	RecipeMatchMargin   = builtin.Consumer.RecipeMatchMargin
 	RecipeLimit         = builtin.Consumer.RecipeLimit
 	PromptAutonomy      = builtin.Consumer.PromptAutonomy
+	AutonomyMax         = builtin.Consumer.AutonomyMax
+	RepairAutonomy      = builtin.Consumer.RepairAutonomy
+	HooksAutonomy       = builtin.Consumer.HooksAutonomy
 	PromptSample        = builtin.Consumer.PromptSample
 	PromptCatalogBudget = builtin.Consumer.PromptCatalogBudget
 	PromptSampleTimeout = mustDur(builtin.Consumer.PromptSampleTimeout, "consumer.promptSampleTimeout")

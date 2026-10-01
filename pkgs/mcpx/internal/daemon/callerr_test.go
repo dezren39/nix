@@ -158,7 +158,7 @@ func TestARefusedCallIsExplainedByWhatChanged(t *testing.T) {
 	r := schemaRegistry(t)
 	upstream := callThrough(t, newScripted(diagnose.InvalidParams, "Invalid params"))
 
-	got := r.explainCall("demo", "create_issue", map[string]any{"title": "x"}, upstream)
+	got := r.explainCall(context.Background(), "demo", "create_issue", map[string]any{"title": "x"}, upstream)
 	ds := callDiagnostics(got)
 	if len(ds) != 1 {
 		t.Fatalf("expected one diagnostic, got %+v", ds)
@@ -209,7 +209,7 @@ func TestAFailureTheCatalogCannotExplainIsLeftAlone(t *testing.T) {
 		"a server not yet read": {"cold", callThrough(t,
 			newScripted(diagnose.InvalidParams, "Invalid params"))},
 	} {
-		got := r.explainCall(c.server, "create_issue", map[string]any{}, c.err)
+		got := r.explainCall(context.Background(), c.server, "create_issue", map[string]any{}, c.err)
 		if got != c.err {
 			t.Errorf("%s: the error should come back unchanged, got:\n%v", name, got)
 		}

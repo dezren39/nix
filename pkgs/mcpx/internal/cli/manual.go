@@ -153,7 +153,10 @@ func handCommands() []Command {
 				"the catalog the search ranked for this request. Without an " +
 				"answerer, it prints the ranked recipes and says plainly that no " +
 				"model is available. The script is returned rather than run unless " +
-				"--run is given, because generated code runs with your credentials.",
+				"--run is given, because generated code runs with your credentials. " +
+				"The daemon's autonomy.max bounds --run: above it the request is " +
+				"lowered, and mcpx says \"requested run, clamped to propose by " +
+				"autonomy.max\" on stderr.",
 			Examples: []string{
 				`mcpx prompt "take a screenshot of the checkout page"`,
 				`mcpx prompt --run "list my open issues"`,

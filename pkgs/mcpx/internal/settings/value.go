@@ -69,6 +69,13 @@ type Value struct {
 	// because "why is this not what my config says" is the single most
 	// common configuration question, and the answer is always in this list.
 	Shadowed []Origin `json:"shadowed,omitempty"`
+	// Requested is the value the layers asked for when a ceiling lowered it
+	// (Setting.ClampedBy); Raw is then the ceiling. Empty when nothing was
+	// lowered.
+	Requested string `json:"requested,omitempty"`
+	// ClampedBy is the ceiling that lowered Requested to Raw, with its
+	// origin: "autonomy.max (file:/etc/mcpx.json)".
+	ClampedBy string `json:"clampedBy,omitempty"`
 }
 
 // Set is a resolved configuration.
@@ -209,8 +216,18 @@ func (s *Set) Apply(path, raw string, origin Origin) error {
 	return nil
 }
 
-// Value returns the resolved value for a path, overrides included.
+// Value returns the resolved value for a path, overrides included, lowered
+// to its ceiling when it has one (Setting.ClampedBy), so no reader can
+// observe a value above it.
 func (s *Set) Value(path string) (*Value, bool) {
+	v, ok := s.unclamped(path)
+	if !ok {
+		return v, ok
+	}
+	return s.clampValue(v), true
+}
+
+func (s *Set) unclamped(path string) (*Value, bool) {
 	s.mu.RLock()
 	raw, overridden := s.override[path]
 	detail := s.overrideDetail
@@ -218,7 +235,7 @@ func (s *Set) Value(path string) (*Value, bool) {
 
 	var under *Value
 	if s.base != nil {
-		under, _ = s.base.Value(path)
+		under, _ = s.base.unclamped(path)
 	} else {
 		s.mu.RLock()
 		if v, ok := s.values[path]; ok {

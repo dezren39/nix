@@ -198,6 +198,12 @@ and a switch to turn the report off would have kept it quiet.
 | `artifacts.quota` | bytes | `1GiB` | daemon | no | `--artifacts-quota` | `MCPX_ARTIFACTS_QUOTA` | the total the artifact store may hold |
 | `artifacts.ttl` | duration | `24h` | daemon | no | `--artifacts-ttl` | `MCPX_ARTIFACTS_TTL` | how long an artifact is kept before it is collected |
 
+### autonomy
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `autonomy.max` | enum | `run` | daemon | no | `--autonomy-max` | `MCPX_AUTONOMY_MAX` | the most autonomy this daemon exercises, whatever a caller asks for |
+
 ### autostart
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -283,6 +289,12 @@ and a switch to turn the report off would have kept it quiet.
 | `exec.output` | enum | `text` | call | yes | `--exec-output`, `--output` | `MCPX_EXEC_OUTPUT` | text for a terminal, structured for one document, stream for frames |
 | `exec.timeout` | duration | `120s` | call | yes | `--exec-timeout` | `MCPX_EXEC_TIMEOUT` | kill a script after this long |
 | `exec.where` | enum | `auto` | call | yes | `--exec-where` | `MCPX_EXEC_WHERE` | in this process, or on the daemon |
+
+### hooks
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `hooks.autonomy` | enum | `run` | call | yes | `--hooks-autonomy` | `MCPX_HOOKS_AUTONOMY` | whether configured script hooks (before, onSuccess, onError) run |
 
 ### http
 
@@ -449,6 +461,12 @@ and a switch to turn the report off would have kept it quiet.
 | `registry.pageSize` | int | `30` | client | no | `--registry-page-size` | `MCPX_REGISTRY_PAGE_SIZE` | *(plumbing)* how many entries are fetched per registry request |
 | `registry.timeout` | duration | `30s` | client | no | `--registry-timeout` | `MCPX_REGISTRY_TIMEOUT` | how long a registry request may take |
 | `registry.url` | string | `https://registry.modelcontextprotocol.io` | client | no | `--registry-url` | `MCPX_REGISTRY_URL` | where `mcpx registry` looks for servers |
+
+### repair
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `repair.autonomy` | enum | `advise` | call | yes | `--repair-autonomy` | `MCPX_REPAIR_AUTONOMY` | how far mcpx goes about a failed call: off attaches nothing, advise attaches diagnostics |
 
 ### script
 

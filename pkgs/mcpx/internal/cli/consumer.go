@@ -83,6 +83,8 @@ func (c *Client) SaveRecipe(ctx context.Context, name, source string, overwrite 
 // Resolution is the answer shape recipe_run and intent share.
 type Resolution struct {
 	Autonomy     string                `json:"autonomy"`
+	Requested    string                `json:"requested,omitempty"`
+	ClampedBy    string                `json:"clampedBy,omitempty"`
 	Recipe       string                `json:"recipe,omitempty"`
 	Source       string                `json:"source,omitempty"`
 	Placeholders map[string]any        `json:"placeholders,omitempty"`
@@ -432,6 +434,12 @@ func (a *App) CmdPrompt(ctx context.Context, args []string) error {
 
 // showResolution renders what a recipe or a request produced.
 func (a *App) showResolution(res *Resolution) error {
+	// On stderr even with --json: a run that did not run because the
+	// daemon's ceiling lowered it must not look like one that did.
+	if res.ClampedBy != "" {
+		fmt.Fprintf(os.Stderr, "mcpx: requested %s, clamped to %s by %s\n",
+			res.Requested, res.Autonomy, res.ClampedBy)
+	}
 	if a.JSON {
 		return a.out(res)
 	}
