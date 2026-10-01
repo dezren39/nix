@@ -12,6 +12,22 @@ description:  what modelcontextprotocol/conformance says about mcpx as a
               remaining failure is.
 ```
 
+## In CI
+
+`.github/workflows/mcpx-conformance.yml` runs every leg on each pull request and push to `main`
+that touches mcpx -- one job per leg, about a minute each. A leg is one side of the protocol (mcpx
+as a server, or as a client) checked against one rule set; the suite has rule sets for 2025-11-25
+and 2026-07-28 only, plus `server-all`, every server scenario it has. A leg's job fails when any
+check fails, lists the failures on the run's summary page, and uploads them as an artifact.
+**It is not a merge block**: no branch protection requires it.
+
+On `main` each leg's counts are compared with two records kept in the repository variable
+`MCPX_CONFORMANCE_<LEG>` -- the best failed/total ratio and the largest total -- and a run that
+goes backwards on either gets a large warning on its summary. The rules are in
+`scripts/conformance-record.py`. Saving the records needs the secret
+`MCPX_CONFORMANCE_VARS_TOKEN`, a fine-grained token with *Variables: read and write* on this
+repository; GITHUB_TOKEN cannot write variables.
+
 `modelcontextprotocol/conformance` (npm `@modelcontextprotocol/conformance`)
 is the suite the specification's own process leans on: SEP-2484 makes a
 merged scenario a condition of a Standards Track SEP reaching Final, and

@@ -1,0 +1,209 @@
+name: mcpx conformance
+
+# The official MCP conformance suite (github.com/modelcontextprotocol/conformance) against mcpx,
+# one job per leg. A leg is one side of the protocol (mcpx as a server, or as a client) checked
+# against one set of rules: the suite ships rule sets for spec revisions 2025-11-25 and 2026-07-28
+# only, plus "all", every server scenario it has.
+#
+# NOT A BLOCK. A leg fails when any check fails, so the failures are visible, but no branch
+# protection requires this workflow. The suite expects fixtures and behaviour a gateway does not
+# always have; read the failures, do not chase the number.
+#
+# On main, the counts are compared with two records per leg kept in a repository variable
+# (MCPX_CONFORMANCE_<LEG>), and the records are updated. See scripts/conformance-record.py for the
+# rules. Writing a variable needs a token GITHUB_TOKEN cannot provide: a fine-grained token with
+# "Variables: read and write" on this repository, stored as the secret MCPX_CONFORMANCE_VARS_TOKEN.
+
+on:
+  pull_request:
+    paths:
+      - "pkgs/mcpx/**"
+      - ".github/workflows/mcpx-conformance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pkgs/mcpx/**"
+      - ".github/workflows/mcpx-conformance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two runs on main must not read and write the records at the same time.
+concurrency:
+  group: mcpx-conformance-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # The suite commit these results are measured against. Bump deliberately: a new suite commit can
+  # add checks, which moves every number.
+  CONFORMANCE_REPO: modelcontextprotocol/conformance
+  CONFORMANCE_REF: 7169291ec0b68eb370fddcd9947313ab0d5e4156
+
+jobs:
+  leg:
+    name: ${{ matrix.leg }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [server-2025-11-25, server-2026-07-28, server-all, client-2025-11-25, client-2026-07-28]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: pkgs/mcpx/go.mod
+          cache-dependency-path: pkgs/mcpx/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.CONFORMANCE_REPO }}
+          ref: ${{ env.CONFORMANCE_REF }}
+          path: .conformance
+
+      - name: Run the leg
+        id: run
+        working-directory: pkgs/mcpx
+        env:
+          CONFORMANCE_DIR: ${{ github.workspace }}/.conformance
+          LEGS: ${{ matrix.leg }}
+        run: |
+          out="$RUNNER_TEMP/results"
+          bash scripts/conformance.sh "$out" | tee "$RUNNER_TEMP/run.txt"
+          line=$(grep -m1 -E '^Total: [0-9]+ passed, [0-9]+ failed' "$out/${{ matrix.leg }}/out.txt" || true)
+          {
+            if [ -z "$line" ]; then
+              echo "parsed=false"; echo "passed=0"; echo "failed=0"
+            else
+              echo "parsed=true"
+              echo "passed=$(sed -E 's/^Total: ([0-9]+) passed.*/\1/' <<<"$line")"
+              echo "failed=$(sed -E 's/^Total: [0-9]+ passed, ([0-9]+) failed.*/\1/' <<<"$line")"
+            fi
+            echo "out=$out"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Summary
+        if: always()
+        env:
+          LEG: ${{ matrix.leg }}
+          PARSED: ${{ steps.run.outputs.parsed }}
+          PASSED: ${{ steps.run.outputs.passed }}
+          FAILED: ${{ steps.run.outputs.failed }}
+          OUT: ${{ steps.run.outputs.out }}
+        run: |
+          {
+            echo "## Conformance: \`$LEG\`"
+            echo
+            echo "> [!NOTE]"
+            echo "> **Failed conformance checks do not block a merge.** This workflow is informational."
+            echo
+            if [ "$PARSED" != true ]; then
+              echo "> [!CAUTION]"
+              echo "> The suite produced no summary line. It did not run to completion; see the artifact."
+            else
+              echo "| checks passed | checks failed | total |"
+              echo "| --- | --- | --- |"
+              echo "| $PASSED | $FAILED | $((PASSED + FAILED)) |"
+              echo
+              echo "Suite \`$CONFORMANCE_REPO@${CONFORMANCE_REF:0:7}\`."
+            fi
+            f="$OUT/failures.txt"
+            if [ -s "$f" ]; then
+              echo
+              echo "### Failures"
+              echo
+              echo "| scenario | check | status | message |"
+              echo "| --- | --- | --- | --- |"
+              # leg | scenario | check | status | message -- drop the leg, escape pipes in the message.
+              awk -F' \\| ' '{msg=$5; for(i=6;i<=NF;i++) msg=msg " / " $i; gsub(/\|/,"\\|",msg);
+                sub(/-20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9-]+Z$/,"",$2);
+                printf "| %s | %s | %s | %s |\n", $2, $3, $4, substr(msg,1,300)}' "$f"
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+          mkdir -p "$RUNNER_TEMP/counts"
+          printf '{"leg":"%s","parsed":%s,"passed":%s,"failed":%s}\n' \
+            "$LEG" "${PARSED:-false}" "${PASSED:-0}" "${FAILED:-0}" >"$RUNNER_TEMP/counts/$LEG.json"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-${{ matrix.leg }}
+          path: |
+            ${{ steps.run.outputs.out }}
+            ${{ runner.temp }}/run.txt
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: counts-${{ matrix.leg }}
+          path: ${{ runner.temp }}/counts/${{ matrix.leg }}.json
+
+      - name: Fail on any failed check
+        if: always()
+        run: |
+          if [ "${{ steps.run.outputs.parsed }}" != true ]; then
+            echo "::error::the suite did not produce a summary for ${{ matrix.leg }}"; exit 1
+          fi
+          if [ "${{ steps.run.outputs.failed }}" != 0 ]; then
+            echo "::error::${{ steps.run.outputs.failed }} conformance check(s) failed in ${{ matrix.leg }} (informational; not a merge block)"
+            exit 1
+          fi
+
+  records:
+    name: compare with the records
+    needs: leg
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: pkgs/mcpx/scripts
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: counts-*
+          path: counts
+          merge-multiple: true
+      - name: Compare, and on main update the records
+        env:
+          VARS: ${{ toJSON(vars) }}
+          GH_TOKEN: ${{ secrets.MCPX_CONFORMANCE_VARS_TOKEN }}
+          ON_MAIN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          RUN: ${{ github.run_id }}/${{ github.run_attempt }}
+        run: |
+          now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          {
+            echo "## Conformance records"
+            echo
+            echo "> [!NOTE]"
+            echo "> **Failed conformance checks do not block a merge.** Records are compared on every run and written on \`main\` only."
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [ "$ON_MAIN" = true ] && [ -z "$GH_TOKEN" ]; then
+            {
+              echo
+              echo "> [!CAUTION]"
+              echo "> # Records not saved"
+              echo "> The secret \`MCPX_CONFORMANCE_VARS_TOKEN\` is not set, and GITHUB_TOKEN cannot write repository"
+              echo "> variables. Add a fine-grained token with *Variables: read and write* on this repository."
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
+          shopt -s nullglob
+          for f in counts/*.json; do
+            leg=$(jq -r .leg "$f")
+            name="MCPX_CONFORMANCE_$(tr 'a-z-' 'A-Z_' <<<"$leg")"
+            if [ "$(jq -r .parsed "$f")" != true ]; then
+              { echo; echo "> [!CAUTION]"; echo "> # \`$leg\` did not complete; nothing to compare"; } >>"$GITHUB_STEP_SUMMARY"
+              echo "::error::$leg did not complete"
+              continue
+            fi
+            stored=$(jq -r --arg n "$name" '.[$n] // ""' <<<"$VARS")
+            rm -f new.json
+            python3 pkgs/mcpx/scripts/conformance-record.py "$leg" "$(jq -r .passed "$f")" "$(jq -r .failed "$f")" \
+              "$RUN" "$now" "$stored" "$GITHUB_STEP_SUMMARY" new.json
+            if [ -f new.json ] && [ "$ON_MAIN" = true ] && [ -n "$GH_TOKEN" ]; then
+              gh variable set "$name" --repo "$GITHUB_REPOSITORY" --body "$(cat new.json)"
+              echo "- saved \`$name\`" >>"$GITHUB_STEP_SUMMARY"
+            fi
+          done
