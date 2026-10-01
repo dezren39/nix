@@ -2585,25 +2585,20 @@ limit of "accept liberally": offering a method a revision never had withholds
 nothing, but answering one it removed contradicts the specification naming the
 replacement.
 
-| requirement set | at `05c78b2`, before this work | at `408bc2b` |
-| --- | --- | --- |
-| `2026-07-28` | 59 passed / 104 failed | **116 / 54** |
-| `2025-11-25` | 47 / 19 | **45 / 21** |
+The numbers -- passed and failed per requirement set, the commit they were
+measured at, and which failures are defects -- live in exactly one place,
+[`docs/spec/official-suite.md`](./spec/official-suite.md), so they are not
+repeated here to go stale.
 
-**Read those failure counts carefully; most are not defects.** The suite's
+**Read the failure counts carefully; most are not defects.** The suite's
 scenarios assume a server implementing its own fixture surface -- tools named
 `slow_compute`, prompts named `test_simple_prompt`, resources under `test://`.
 mcpx is a proxy: it publishes its own small tool set and namespaces every
 upstream resource as `mcpx://<namespace>/<uri>`. A scenario that cannot find
-its fixture fails without ever reaching a protocol assertion. Every one of the
-21 on 2025-11-25 is that; roughly 50 of the 54 on 2026-07-28 are. The genuine
-remainder is about four, and they carry issue numbers (#199, #209).
-
-2025-11-25 went *down*, from 47 to 45, and that is the same story from the
-other side. #247 taught mcpx to actually arrange an upstream subscription
-rather than acknowledging one and subscribing nothing. The suite subscribes to
-`test://watched-resource`, which no upstream owns, and mcpx now says so. An
-honest refusal replaced a dishonest pass and scored worse for it (#251).
+its fixture fails without ever reaching a protocol assertion. An honest
+refusal can score worse than a dishonest pass: once #247 made mcpx arrange a
+real upstream subscription, subscribing to `test://watched-resource`, which no
+upstream owns, became a failure (#251).
 
 What the specification asks of a server, revision by revision -- including the
 obligations the prose implies but never states -- is
