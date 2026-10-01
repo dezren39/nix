@@ -342,7 +342,7 @@ and a switch to turn the report off would have kept it quiet.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `mcp.pageSize` | int | `100` | client | no | `--mcp-page-size` | `MCPX_MCP_PAGE_SIZE` | how many items one tools/list reply carries |
-| `mcp.passthrough` | string | *(empty)* | client | no | `--mcp-passthrough`, `--passthrough` | `MCPX_MCP_PASSTHROUGH` | serve one upstream's tools, prompts and resources under their own names |
+| `mcp.passthrough` | string | *(empty)* | client | no | `--mcp-passthrough`, `--passthrough` | `MCPX_MCP_PASSTHROUGH` | serve upstreams' tools, prompts and resources under their own names |
 
 ### output
 

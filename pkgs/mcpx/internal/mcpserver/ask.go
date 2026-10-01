@@ -65,6 +65,9 @@ type Outcome struct {
 	// last poll -- progress and log messages, already in the client's
 	// terms (see CallRelay) -- to be delivered before anything else.
 	Notifications []Notification
+	// Upstream is set when a pass-through tool's upstream answered with a
+	// JSON-RPC error, which is relayed as that error; see UpstreamError.
+	Upstream *UpstreamError
 }
 
 // Notification is one MCP notification to pass on to the client.
@@ -153,43 +156,9 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
 	}
 
-	var callID string
-	// Answers sent with a request that resumes nothing: a client that knows
-	// what the server will ask and answers up front, as the MRTR page lets
-	// it. Held until the upstream asks, then given to the questions they
-	// fit; keys that fit none are ignored, as unrecognised information
-	// SHOULD be. They were dropped with the rest of the protocol fields, so
-	// the client was asked again for what it had already said.
-	var upfront map[string]json.RawMessage
-	if state, answers, resuming := resumeOf(req.Params); resuming {
-		id, err := s.states().verify(state, requestBinding(req))
-		if err != nil {
-			return fail(codeInvalidParams, err.Error())
-		}
-		callID = id
-		if len(answers) > 0 {
-			// The questions still open, to undo wireKey's renaming.
-			if open, perr := s.Ask.Poll(ctx, callID, time.Millisecond); perr == nil {
-				relayNotes(ctx, open)
-				answers = answersByID(answers, sendableTo(open.Questions, peer))
-			}
-			if err := s.Ask.Reply(ctx, callID, answers); err != nil {
-				return fail(codeInvalidParams, err.Error())
-			}
-		}
-	} else {
-		id, err := s.Ask.Begin(ctx, req.Method, forAsk(req.Params))
-		if errors.Is(err, ErrNotInterruptible) {
-			return nil
-		}
-		if errors.Is(err, ErrInvalidParams) {
-			return fail(codeInvalidParams, err.Error())
-		}
-		if err != nil {
-			return fail(codeInternal, err.Error())
-		}
-		callID = id
-		upfront = inputResponsesOf(req.Params)
+	callID, upfront, failed := s.beginAsk(ctx, req, peer)
+	if failed != nil || callID == "" {
+		return failed
 	}
 
 	tm := s.Timing.resolved()
@@ -214,28 +183,7 @@ func (s *Server) viaAsk(ctx context.Context, c *Conn, req request, peer Peer) *r
 		}
 		relayNotes(ctx, out)
 		if out.Done {
-			if up := (*UpstreamError)(nil); errors.As(out.Err, &up) {
-				return up.relay(req.ID)
-			}
-			if out.IsError && req.Method != "tools/call" {
-				// Only a tool has a result that can say it failed. A read or
-				// a prompt that failed upstream is an error, and was being
-				// returned as contents whose text was the error message --
-				// which is how a read of a URI that exists nowhere "passed"
-				// the official suite's resources-read-text.
-				switch {
-				case req.Method == "resources/read" && errors.Is(out.Err, ErrResourceNotFound):
-					var p struct {
-						URI string `json:"uri"`
-					}
-					_ = json.Unmarshal(req.Params, &p)
-					return notFound(req.ID, p.URI, peer, errors.New(out.Text))
-				case req.Method == "prompts/get" && errors.Is(out.Err, ErrInvalidParams):
-					return fail(codeInvalidParams, out.Text)
-				}
-				return fail(codeInternal, out.Text)
-			}
-			return reply(askResult(req, out))
+			return finishedAsk(req, out, peer, s.passCall(ctx, req))
 		}
 
 		sendable := sendableTo(out.Questions, peer)
@@ -351,6 +299,96 @@ func relayNotes(ctx context.Context, out Outcome) {
 	for _, n := range out.Notifications {
 		r.Notify(n.Method, n.Params)
 	}
+}
+
+// beginAsk starts the call a request names through the Asker, or resumes the
+// one its requestState names and hands it the answers attached. ("", nil)
+// means the request is not interruptible and the caller runs it the ordinary
+// way; a non-nil response is the error to answer with.
+//
+// upfront is the inputResponses a new request carried with nothing to resume:
+// answers given before the question, held until the upstream asks.
+func (s *Server) beginAsk(ctx context.Context, req request, peer Peer) (id string, upfront map[string]json.RawMessage, failed *response) {
+	fail := func(code int, msg string) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
+	}
+	if state, answers, resuming := resumeOf(req.Params); resuming {
+		id, err := s.states().verify(state, requestBinding(req))
+		if err != nil {
+			return "", nil, fail(codeInvalidParams, err.Error())
+		}
+		if len(answers) > 0 {
+			// The questions still open, to undo wireKey's renaming.
+			if open, perr := s.Ask.Poll(ctx, id, time.Millisecond); perr == nil {
+				relayNotes(ctx, open)
+				answers = answersByID(answers, sendableTo(open.Questions, peer))
+			}
+			if err := s.Ask.Reply(ctx, id, answers); err != nil {
+				return "", nil, fail(codeInvalidParams, err.Error())
+			}
+		}
+		return id, nil, nil
+	}
+	id, err := s.Ask.Begin(ctx, req.Method, forAsk(req.Params))
+	switch {
+	case errors.Is(err, ErrNotInterruptible):
+		return "", nil, nil
+	case errors.Is(err, ErrInvalidParams):
+		return "", nil, fail(codeInvalidParams, err.Error())
+	case err != nil:
+		return "", nil, fail(codeInternal, err.Error())
+	}
+	return id, inputResponsesOf(req.Params), nil
+}
+
+// finishedAsk is the answer to a request whose asked call has finished.
+//
+// pass says the request is a pass-through upstream's tools/call, the one case
+// an upstream's JSON-RPC error is relayed as itself.
+func finishedAsk(req request, out Outcome, peer Peer, pass bool) *response {
+	fail := func(code int, msg string) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: code, Message: msg}}
+	}
+	// An upstream error carried whole -- -32021 with its requiredCapabilities
+	// -- is relayed as itself on every path.
+	if up := (*UpstreamError)(nil); errors.As(out.Err, &up) {
+		return up.relay(req.ID)
+	}
+	if pass && out.Upstream != nil && req.Method == "tools/call" {
+		return out.Upstream.relay(req.ID)
+	}
+	if out.IsError && req.Method != "tools/call" {
+		// Only a tool has a result that can say it failed. A read or
+		// a prompt that failed upstream is an error, and was being
+		// returned as contents whose text was the error message --
+		// which is how a read of a URI that exists nowhere "passed"
+		// the official suite's resources-read-text.
+		switch {
+		case req.Method == "resources/read" && errors.Is(out.Err, ErrResourceNotFound):
+			var p struct {
+				URI string `json:"uri"`
+			}
+			_ = json.Unmarshal(req.Params, &p)
+			return notFound(req.ID, p.URI, peer, errors.New(out.Text))
+		case req.Method == "prompts/get" && errors.Is(out.Err, ErrInvalidParams):
+			return fail(codeInvalidParams, out.Text)
+		}
+		return fail(codeInternal, out.Text)
+	}
+	return &response{JSONRPC: "2.0", ID: req.ID, Result: askResult(req, out)}
+}
+
+// passCall reports whether req is a tools/call of a pass-through tool.
+func (s *Server) passCall(ctx context.Context, req request) bool {
+	if req.Method != "tools/call" {
+		return false
+	}
+	var p struct {
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(req.Params, &p)
+	ok, _ := s.isPassTool(ctx, p.Name)
+	return ok
 }
 
 // sendableTo picks the questions this client may be sent.

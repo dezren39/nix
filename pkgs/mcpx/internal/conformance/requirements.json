@@ -8450,11 +8450,11 @@
     "url": "https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation",
     "quote": "\"If `execution.taskSupport` is `\"required\"`, clients **MUST** invoke the tool as a task. Servers **MUST** return a `-32601` (Method not found) error if a client does not attempt to do so.\"",
     "applicability": {
-      "client": "n/a:mcpx ignores upstream `execution.taskSupport`; a `required` upstream tool would be called plainly and fail",
+      "client": "n/a:mcpx reads upstream `execution.taskSupport` to serve its own clients, but never task-augments the upstream call; a `required` upstream tool that enforces it would fail",
       "server": "n/a:never required"
     },
     "notes": {
-      "client": "n/a — mcpx ignores upstream `execution.taskSupport`; a `required` upstream tool would be called plainly and fail",
+      "client": "n/a — mcpx reads upstream `execution.taskSupport` to serve its own clients, but never task-augments the upstream call; a `required` upstream tool that enforces it would fail",
       "server": "n/a (never required)"
     }
   },

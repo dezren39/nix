@@ -56,7 +56,7 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		// the one most likely to ask: it was left to the broker, where no
 		// client could answer and the request hung. Checked first, because
 		// on a collision the upstream's tool is the one the name means.
-		if ns := d.app.passNS(); ns != "" && d.passTool(ctx, ns, p.Name) {
+		if ns := d.passTool(ctx, p.Name); ns != "" {
 			var raw struct {
 				Arguments json.RawMessage `json:"arguments"`
 			}
@@ -139,7 +139,7 @@ func (d daemonAsker) Begin(ctx context.Context, kind string, params json.RawMess
 		if err := json.Unmarshal(params, &p); err != nil {
 			return "", mcpserver.ErrNotInterruptible
 		}
-		ns, rest, ok := d.app.resolveURI(p.URI)
+		ns, rest, ok := d.app.resolveURI(ctx, p.URI)
 		if !ok {
 			return "", mcpserver.ErrNotInterruptible
 		}
@@ -198,7 +198,7 @@ type askPollReply struct {
 	Result    map[string]json.RawMessage `json:"result"`
 	// Notifications are what the call relayed since the last poll.
 	Notifications []mcpserver.Notification `json:"notifications"`
-	Upstream  *daemon.UpstreamError      `json:"upstream"`
+	Upstream      *daemon.UpstreamError    `json:"upstream"`
 }
 
 func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration) (mcpserver.Outcome, error) {
@@ -228,6 +228,9 @@ func (d daemonAsker) Poll(ctx context.Context, callID string, wait time.Duration
 		// protocol error: a client that retries the wrong thing on a tool
 		// failure never converges.
 		out.Text, out.IsError = reply.Error, true
+		// The protocol layer relays this as the error itself when the
+		// tool is a pass-through upstream's, and ignores it otherwise.
+		out.Upstream = upstreamError(errors.New(reply.Error))
 		// Classified for the two methods whose failure is a protocol
 		// error; which one applies is the caller's to pick, since the
 		// same upstream -32602 means not-found for a read and a bad
@@ -345,20 +348,22 @@ func (l *lazyMCP) InvokeTool(ctx context.Context, tool string, args json.RawMess
 	return srv.InvokeTool(ctx, tool, args)
 }
 
-// passTool reports whether name is one of the pass-through upstream's tools.
-func (d daemonAsker) passTool(ctx context.Context, ns, name string) bool {
+// passTool is the pass-through upstream serving name, or "".
+func (d daemonAsker) passTool(ctx context.Context, name string) string {
 	// The protocol layer has normally looked this up already for the request.
-	if isPass, known := mcpserver.PassToolOf(ctx, name); known {
-		return isPass
+	if ns, known := mcpserver.PassToolOf(ctx, name); known {
+		return ns
 	}
-	tools, err := mcpBackend{app: d.app}.UpstreamTools(ctx, ns)
-	if err != nil {
-		return false
-	}
-	for _, t := range tools {
-		if t.Name == name {
-			return true
+	for _, ns := range d.app.passNS() {
+		tools, err := mcpBackend{app: d.app}.UpstreamTools(ctx, ns)
+		if err != nil {
+			continue
+		}
+		for _, t := range tools {
+			if t.Name == name {
+				return ns
+			}
 		}
 	}
-	return false
+	return ""
 }

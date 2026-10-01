@@ -54,7 +54,7 @@ func TestAPassThroughUpstreamsMissingCapabilityIsRelayed(t *testing.T) {
 	b.err = &mcpserver.UpstreamError{Code: -32021, Message: "MissingRequiredClientCapabilityError",
 		Data: json.RawMessage(`{"requiredCapabilities":{"sampling":{}}}`)}
 	s := mcpserver.New(b, "mcpx", "test")
-	s.Passthrough = "up"
+	s.Passthrough = []string{"up"}
 
 	w := post(s, frame(9, "tools/call", modernWith(`{"elicitation":{}}`,
 		map[string]any{"name": "greet", "arguments": map[string]any{}})), modernHeaders("tools/call", "greet"))
@@ -90,7 +90,7 @@ func TestAPassThroughUpstreamsMissingCapabilityIsRelayed(t *testing.T) {
 func TestAPassThroughCallToAnUnlistedNameReachesTheUpstream(t *testing.T) {
 	b := newRelay()
 	s := mcpserver.New(b, "mcpx", "test")
-	s.Passthrough = "up"
+	s.Passthrough = []string{"up"}
 
 	m := handle(t, s, "tools/call", map[string]any{"name": "hidden_hook", "arguments": map[string]any{}})
 	if errCode(m) != 0 {
@@ -168,7 +168,7 @@ func TestASlowLegacyAnswerIsKeptAlive(t *testing.T) {
 	b := newRelay()
 	b.delay = 150 * time.Millisecond
 	s := mcpserver.New(b, "mcpx", "test")
-	s.Passthrough = "up"
+	s.Passthrough = []string{"up"}
 	s.Timing.SSEKeepAlive = 20 * time.Millisecond
 	id := legacySession(t, s, "2025-11-25")
 	headers := map[string]string{"Mcp-Session-Id": id, "MCP-Protocol-Version": "2025-11-25",

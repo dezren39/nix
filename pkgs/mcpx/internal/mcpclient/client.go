@@ -155,6 +155,10 @@ type Tool struct {
 	// it acts on. Without them a client has nothing but the description to
 	// decide whether a call is worth confirming.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// Execution carries taskSupport ("forbidden", "optional", "required"):
+	// whether the tool may be run as a task. Kept raw and forwarded, so a
+	// pass-through client sees what the upstream declared.
+	Execution json.RawMessage `json:"execution,omitempty"`
 }
 
 type toolsListResult struct {

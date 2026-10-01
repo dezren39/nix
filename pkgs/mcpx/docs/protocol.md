@@ -134,11 +134,15 @@ on `tools/call`, `{task}` back at once, `tasks/result` blocks. mcpx honours the
 field from any legacy client. The 2026-07-28 extension is server-directed and
 forbids the other way: the `task` field is ignored, and a client that declared
 `io.modelcontextprotocol/tasks` on the request gets a `CreateTaskResult`
-(`resultType: "task"`, `ttlMs`, `pollIntervalMs`) only if its call is still
-running after `protoMessages.taskAfter`; a fast call is answered directly.
-`tasks/get` inlines the result. A client that can answer questions inline is
-never handed a task — its questions travel as `input_required` on the original
-request, which the extension asks be resolved first. A legacy task shows
+(`resultType: "task"`, `ttlMs`, `pollIntervalMs`). Which calls become tasks
+follows the tool's `execution.taskSupport`: a task-supporting tool's call is a
+task once it has run 250 ms, one that declared nothing only after
+`protoMessages.taskAfter`, and a `required` one is `-32021` to a client
+without the extension. `tasks/get` inlines the result. Questions a
+task-supporting call asks at once go inline as `input_required` on the
+original request, before any task exists; ones it asks later park the task in
+`input_required` with `inputRequests`, answered through `tasks/update`.
+A legacy task shows
 `input_required` while one of its questions is out, and the question carries
 the related-task `_meta`. [`spec/messages.md`](spec/messages.md#tasks) has the
 rest.
@@ -251,17 +255,21 @@ the rest of this page:
 
 ---
 
-### 2.5 Pass-through: one upstream under its own names
+### 2.5 Pass-through: upstreams under their own names
 
 By default mcpx is a gateway: a small tool set (`mcpx_call`, `mcpx_exec`,
 discovery), prompts as `<namespace>_<prompt>`, resources as
 `mcpx://<namespace>/<uri>`. `mcp.passthrough` (`--passthrough <server>` on
-`mcpx serve` and `mcpx daemon`, `MCPX_MCP_PASSTHROUGH`) names one configured
-server whose surface is offered **as itself** instead:
+`mcpx serve` and `mcpx daemon`, `MCPX_MCP_PASSTHROUGH`) names a configured
+server -- or several, comma-separated, `--passthrough demo,tasks` -- whose
+surface is offered **as itself** instead:
 
 - `tools/list` carries its tools under their own names, ahead of the gateway's;
   `tools/call` on one of them is forwarded and its result returned verbatim —
-  images, audio, embedded resources, `structuredContent` and `isError` intact.
+  images, audio, embedded resources, `structuredContent` and `isError` intact;
+  a JSON-RPC error the upstream answers with is relayed as that error, not
+  turned into an `isError` result. Its `execution.taskSupport` is carried on
+  `tools/list` and decides whether a call runs as a task ("Tasks, per era", §2.1).
   Its questions reach the calling client exactly as `mcpx_call`'s do (§3), with
   the upstream's own `inputRequests` keys where it asked in a 2026-07-28 result.
 - `prompts/list` names its prompts without the prefix; `prompts/get` returns
@@ -283,16 +291,24 @@ server whose surface is offered **as itself** instead:
 - **Roots.** A `roots/list` the upstream asks in an `input_required` round is
   put to a client that declared `roots`, as an elicitation is; for one that
   did not, mcpx answers with its own configured roots.
-- **Collisions:** the upstream wins. A gateway tool whose name the upstream
+- **Several upstreams** are merged into one surface. A tool or prompt name two
+  of them offer is refused -- `tools/list` or `prompts/list` fails with an
+  error naming both -- rather than handed to either, since the loser would be
+  unreachable under the name the client was shown. A bare resource URI goes
+  to the first upstream, in the order given, that lists it as a resource or
+  offers a template it falls under; one none of them lists goes to the first.
+- **Collisions with the gateway:** the upstream wins. A gateway tool whose name the upstream
   also uses is neither listed nor callable over MCP (it stays on the CLI and
   `/v1`). The upstream is the server in this mode, and a client must be able to
   call every name `tools/list` shows and get that tool.
 
 Every other server stays reachable through the gateway tools. Not carried
 over: a pass-through tool's `outputSchema`, `title` and `annotations` (the
-daemon's catalogue keeps name, description and input schema only). The
-upstream's progress and log messages during a call are relayed (§4.4).
-`scripts/conformance.sh` runs the official suite's own fixture server this way.
+daemon's catalogue keeps name, description, input schema and `execution`
+only). The upstream's progress and log messages during a call are relayed
+(§4.4). `scripts/conformance.sh` runs the official suite's own fixture server
+this way, merged with `internal/testsupport/taskmcp`, mcpx's fixture for the
+suite's tasks-extension scenarios, which the suite's server does not define.
 
 ## 3. A server asks a question
 

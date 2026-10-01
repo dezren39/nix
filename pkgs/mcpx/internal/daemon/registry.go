@@ -354,7 +354,9 @@ type ToolInfo struct {
 	Function    string          `json:"function"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
-	Score       int             `json:"score,omitempty"`
+	// Execution is the upstream's tool.execution, verbatim.
+	Execution json.RawMessage `json:"execution,omitempty"`
+	Score     int             `json:"score,omitempty"`
 }
 
 // Tools returns every cached tool, optionally restricted to namespaces.
@@ -382,6 +384,7 @@ func (r *Registry) Tools(namespaces []string) []ToolInfo {
 				Function:    view.Namespace + "." + codegen.ToolFuncName(t.Name),
 				Description: t.Description,
 				InputSchema: t.InputSchema,
+				Execution:   t.Execution,
 			})
 		}
 	}

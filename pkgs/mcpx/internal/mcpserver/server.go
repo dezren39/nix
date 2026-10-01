@@ -213,9 +213,13 @@ type Server struct {
 	// Origins decides which browser origins the HTTP transport serves.
 	Origins OriginPolicy
 
-	// Passthrough names one upstream whose tools are offered under their
+	// askedTasks are the tasks whose body is a call through the Asker,
+	// by task id; see askTask.
+	askedTasks map[string]askedTask
+
+	// Passthrough names the upstreams whose tools are offered under their
 	// own names alongside, and ahead of, the gateway's; see passthrough.go.
-	Passthrough string
+	Passthrough []string
 
 	mu sync.Mutex
 
@@ -391,6 +395,10 @@ type Tool struct {
 	// destructiveHint -- which is how a client decides whether a tool may be
 	// run without asking. Omitted where mcpx has nothing to declare.
 	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// Execution is a pass-through upstream's execution object, verbatim.
+	// Its taskSupport decides whether a call may, must or must not run as
+	// a task; see taskSupportOf.
+	Execution json.RawMessage `json:"execution,omitempty"`
 }
 
 // Tools is the surface.
@@ -2357,7 +2365,14 @@ func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) 
 		return "", err
 	}
 	if pass {
-		return s.backend.Call(ctx, s.Passthrough, name, args)
+		ns, _ := s.passOwner(ctx, name)
+		if ns == "" {
+			// A name no upstream lists: the first upstream given decides
+			// whether it exists, as a bare resource URI nobody lists goes
+			// to the first (passthrough.go).
+			ns = s.Passthrough[0]
+		}
+		return s.backend.Call(ctx, ns, name, args)
 	}
 	return s.dispatch(ctx, name, args)
 }
