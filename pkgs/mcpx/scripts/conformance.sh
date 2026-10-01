@@ -28,9 +28,28 @@ set -uo pipefail
 : "${CONFORMANCE_DIR:?set CONFORMANCE_DIR to a clone of modelcontextprotocol/conformance}"
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${1:-$PWD/conformance-results}
-PORT=${MCPX_CONFORMANCE_PORT:-18731}
+# Three consecutive free ports. A fixed default let two runs on one machine
+# collide: the second daemon failed to bind, and the suite tested the first
+# run's server without saying so, which invalidated a measurement before
+# anyone noticed. MCPX_CONFORMANCE_PORT still pins the base when you want it.
+free_port_base() {
+  local base
+  for base in $(seq 18731 20 19500); do
+    if ! { exec 3<>/dev/tcp/127.0.0.1/"$base"; } 2>/dev/null &&
+      ! { exec 3<>/dev/tcp/127.0.0.1/"$((base + 1))"; } 2>/dev/null &&
+      ! { exec 3<>/dev/tcp/127.0.0.1/"$((base + 2))"; } 2>/dev/null; then
+      echo "$base"
+      return 0
+    fi
+    exec 3>&- 2>/dev/null
+  done
+  echo "no free port triple in 18731..19500" >&2
+  return 1
+}
+PORT=${MCPX_CONFORMANCE_PORT:-$(free_port_base)} || exit 1
 FIXTURE_PORT=$((PORT + 1))
 LEGACY_PORT=$((PORT + 2))
+echo "ports: daemon $PORT, fixture $FIXTURE_PORT, legacy $LEGACY_PORT"
 FIXTURE_DIR=$CONFORMANCE_DIR/examples/servers/typescript
 LEGS=${LEGS:-"server-2025-03-26 server-2025-06-18 server-2025-11-25 server-2026-07-28 server-all client-2025-03-26 client-2025-06-18 client-2025-11-25 client-2026-07-28"}
 mkdir -p "$OUT"
@@ -94,9 +113,18 @@ start_daemon() {
     MCPX_REGISTRY_URL=http://127.0.0.1:1/ \
     "$WORK/mcpx" daemon --port "$port" --passthrough demo,tasks >"$OUT/daemon-$era.log" 2>&1 &
   DAEMON_PIDS+=($!)
+  local pid=${DAEMON_PIDS[-1]}
   for _ in $(seq 1 100); do
-    curl -sf "http://127.0.0.1:$port/v1/health" >/dev/null && return 0
-    sleep 0.1
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "daemon exited at once (port $port already in use?); see $OUT/daemon-$era.log" >&2
+      exit 1
+    fi
+    # Ours, not whatever else is listening: the health answer carries the pid.
+    got=$(curl -sf "http://127.0.0.1:$port/v1/health" 2>/dev/null) || { sleep 0.1; continue; }
+    case $got in
+    *"\"pid\":$pid"*) return 0 ;;
+    *) echo "port $port answers, but not our daemon (pid $pid): $got" >&2; exit 1 ;;
+    esac
   done
   echo "daemon did not come up; see $OUT/daemon-$era.log" >&2
   exit 1

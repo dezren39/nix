@@ -104,13 +104,29 @@ check. Columns before `64f3471` put mcpx's test fake (one tool, `echo`) behind
 the daemon; `64f3471` is that setup re-measured as the "before" of this
 change; the last column is the fixture in pass-through.
 
-| leg | `05c78b2` (first run) | `408bc2b` | `a93be43` | `60068c6` | `64f3471` (fake) | **this change (fixture, pass-through)** | fix2/tasks (taskmcp fronted, tasks extension) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | 45 / 21 | 45 / 21 | 45 / 21 | **78 / 3** | 78 / 3 |
-| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | 110 / 62 | 109 / 62 | 110 / 62 | **146 / 39** | 175 / 12 |
-| server `--suite all` | 84 / 106 | 136 / 61 | 131 / 67 | 128 / 67 | 131 / 67 | **167 / 44** | 196 / 17 |
-| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | 20 / 56 | 20 / 48 | 20 / 56 | **20 / 56** (3 runs, identical) | not run (no client change) |
-| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | 63 / 68 | 63 / 59 | 63 / 68 | **63 / 68** (3 runs, identical) | not run (no client change) |
+| leg | `05c78b2` (first run) | `408bc2b` | `60068c6` | `64f3471` (fake) | `mcpx-fix2` (fixtures, pass-through) |
+| --- | --- | --- | --- | --- | --- |
+| server `--spec-version 2025-03-26` | not run | not run | not run | not run | **3 passed, 0 failed** |
+| server `--spec-version 2025-06-18` | not run | not run | not run | not run | **56 / 0** |
+| server `--requirements 2025-11-25` | 47 passed, 19 failed | 45 / 21 | 45 / 21 | 45 / 21 | **80 / 0** |
+| server `--requirements 2026-07-28` | 60 / 104 | 117 / 54 | 109 / 62 | 110 / 62 | **195 / 0** |
+| server `--suite all` | 84 / 106 | 136 / 61 | 128 / 67 | 131 / 67 | **217 / 4** |
+| client `--spec-version 2025-03-26` | not run | not run | not run | not run | **0 / 7** (both scenarios are OAuth) |
+| client `--spec-version 2025-06-18` | not run | not run | not run | not run | **3 / 9** |
+| client `--requirements 2025-11-25` | 5 / 64 | 20 / 56 | 20 / 48 | 20 / 56 | **20 / 56** |
+| client `--requirements 2026-07-28` | 23 / 84 | 62–63 / 68–69 | 63 / 59 | 63 / 68 | **63 / 68** |
+
+The four server failures left are in `--suite all` only: two elicitation
+scenarios, one `tools-call-elicitation` and one `tools-call-sampling`, all
+"Server did not request elicitation/sampling from client". They are the
+cross-era gap in `docs/in-name-only.md`: that leg's daemon speaks 2026-07-28
+to the upstream, which cannot push a request to its client, while the suite's
+client speaks 2025-11-25 to mcpx. The same scenarios pass in the
+`server-2025-11-25` leg, whose upstream session is legacy.
+
+Every client failure is an OAuth scenario under the suite's `auth/`; mcpx has
+no OAuth client (#253). The workflow holds each client leg to exactly these
+counts with nothing failing outside `auth/`.
 
 Totals moved by more than the failures did, because the fixture makes the
 suite run checks it skipped before (a scenario stops at its first missing
