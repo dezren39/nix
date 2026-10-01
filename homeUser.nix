@@ -107,7 +107,7 @@ lib.recursiveUpdate {
       # buffer. git is unaffected here only because core.editor is set to vim.
       EDITOR = "zed --wait";
       LANG = "en_US.UTF-8";
-      COPILOT_MODEL = "claude-opus-5";
+      COPILOT_MODEL = "claude-opus-5.5";
       # Redundant with environment.variables, launchd.user.envVariables, and the
       # wrapProgram flags baked into the opencode binaries themselves. The
       # wrapper is the one that actually guarantees them; these three cover the

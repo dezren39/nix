@@ -25,6 +25,7 @@ python3Packages.buildPythonApplication rec {
     ./../../patches/sidepulse-pr-33-completion-hold-until-seen.patch
     ./../../patches/sidepulse-pr-34-errors-and-prompts-persist.patch
     ./../../patches/sidepulse-pr-35-multi-signal-composition.patch
+    ./../../patches/sidepulse-pr-36-signals-mean-what-they-say.patch
   ];
 
   # WebKit is not imported and ScriptingBridge is guarded as an optional

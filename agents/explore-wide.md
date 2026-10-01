@@ -1,7 +1,7 @@
 ---
 description: Sweeps several unrelated areas at once and characterizes what it finds. Use when location or naming is unknown.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   edit: deny

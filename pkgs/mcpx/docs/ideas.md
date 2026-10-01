@@ -336,3 +336,167 @@ background service, and OpenAPI import. mcpx is ahead on shell access, pooling
 and scoping, real-runtime TypeScript, and per-config isolation.
 
 **68. Track parity deliberately.** → proposal.
+
+---
+
+## Intake 2026-09-30
+
+From one message about adapters, plus two language/transport requests. Filed
+straight to issues rather than proposals, per the graduation path above: these
+needed a design argument written down, not a line kept.
+
+---
+
+### Adapters without hand-writing JSON
+
+**78. Can a binary become a declaration automatically, without a model?**
+The AI-assisted version is already sketched (#114 has the `--help` parse plan,
+#83 has it as step 5), but both park it behind a large design and neither owns
+it. The deterministic half is shippable on its own. → **#295.**
+
+The thing worth keeping from the thinking: `--help` is the *worst* regular
+source, not the best, and leading with it is why this looks harder than it is.
+Shell completion scripts are generated data structures — fish's
+`complete -c tool -l flag -d 'desc'` is nearly a declaration already, and zsh
+`_arguments` specs carry flag, type and description in a fixed grammar. Cobra,
+clap and argparse all emit them. Ladder: completions → a published spec (which
+is `paths.apis`, not an adapter at all) → man → `--help` → `--bare`.
+
+And completions need **two ways in, not one**. Extracting from the binary
+(`tool completion fish`, `__complete`) is the convenient path and only works
+when the program ships a generator. Accepting a completion *file* is the one
+that matters: distributions already ship completions for programs that have no
+generator at all — `/usr/share/bash-completion/completions/*`, zsh
+`site-functions`, the Homebrew and Nix prefixes — and those are frequently
+packager-written for old tools whose `--help` is the worst in the first place.
+It also makes the parser testable from a corpus instead of from installed
+binaries, lets someone fix the *source* and re-import rather than hand-editing
+generated JSON, and covers binaries mcpx cannot run at all. So extraction is
+sugar over the file parser; build the parser first. Best version of the idea:
+`import` searches the system completion directories by name before it ever
+probes a binary.
+
+Also settled here: a generated declaration records the binary's version, so
+`mcpx adapter check` can say "written against jq 1.7, found 1.8" instead of
+drifting silently. That was #83's open question.
+
+**79. Can I just say `git` is an MCP that takes the subcommand and the flags?**
+Not ideal but fast. → **#295**, as `--bare`, opt-in and loud.
+
+Worth keeping *why* it is allowed at all, because #83 Approach A rejects the
+shell-escape version and the distinction is the whole argument: a bare adapter
+is an **argv** hole, not a **shell** hole. The cost is that it has no schema
+beyond "array of strings", so the agent gets nothing to reason about and
+`mcpx doctor` can only check the binary exists. Hence: required `description`,
+a visible marker in `mcpx adapter list`, and probably a settings gate so an
+organisation can forbid it centrally.
+
+The sharp edge found while writing it up: **`--bare` on a binary that has its
+own argv-level exec escape is equivalent to Approach A.** `git -c
+core.pager='sh -c ...'` is a shell escape mcpx cannot see. The sandbox is only
+as good as the wrapped program's own argv surface, and the docs have to name
+the common offenders.
+
+**80. Go can exec a program so it can't shell escape, right?**
+→ **answered: yes, and it already does.** `Spec.Call` builds an argv and runs
+`exec.CommandContext(cctx, s.Command, full...)`
+(`internal/adapter/adapter.go:237`). No `/bin/sh -c` anywhere in
+`internal/adapter`, so no word-splitting, globbing, `;`, `$()`, backticks, pipes
+or redirection. The guarantee is real; see 79 for the one place it leaks.
+
+**81. Is there an issue for exec'ing bash, and for Python first-class?**
+→ **answered: both already exist, no new issue needed.** Shell and shebangs are
+**#106** — its own notes already say "nearly just allow any shebang" and
+`--shell||--bash||--shell python3`. Python 1:1 with TypeScript is **#105**,
+framed there as "a second codegen backend and a second runner, not a second
+product". Both sit under #175.
+
+---
+
+### Languages and reach
+
+**82. Roc.** → **#296.**
+
+The reason it is not just "another interpreter": Roc's platform/application
+split means an application is pure and a *platform* supplies every effect it
+may have. That is the exact shape of an mcpx script — pure logic whose only
+effects are tool calls — and no other language in the runtime list models it
+natively. The dream version is mcpx *as* a Roc platform, where the capability
+boundary becomes the type system rather than a Deno flag set.
+
+Why it is staged behind a codegen backend anyway: a Roc host is ordinarily
+Rust/Zig/C and links against the compiled app, so a Go host means cgo and a
+separate toolchain. Plus Roc is pre-1.0 with no compatibility promise. Ship the
+boring backend, keep the platform as research.
+
+**83. Iroh.** → **#297.**
+
+Reach a daemon by *identity* rather than by address — no port forwarding, no
+public IP, no ssh key copied. ssh (#85) solves encryption and auth and solves
+routing only if you can already reach the host, which is exactly the
+laptop-behind-NAT case.
+
+The honest finding, kept because it is the part that would otherwise be
+rediscovered: **iroh is Rust and mcpx is pure Go**, and `tsnet` (Tailscale,
+embeddable in a Go program, mature hole-punching, real ACLs) and `go-libp2p`
+deliver most of the same property with no cgo. Where iroh genuinely wins is
+`iroh-blobs` — BLAKE3, content-addressed, resumable — which is the same shape
+#187 already wants for the dependency cache. If that convergence is the goal,
+iroh earns its sidecar; otherwise it probably does not.
+
+---
+
+### The gap both of those exposed
+
+**84. Nobody knows who is calling the daemon.** → **#298**, and the framing in
+the first draft was wrong.
+
+Not a bug — it is written down three times as a deliberate choice
+(`internal/daemon/server.go:214`, `internal/daemon/origin.go:13`,
+`internal/api/openapi.go:40`): unauthenticated, socket file permissions are the
+access control, and the TCP bind host is deliberately not defaulted because
+"that has to be somebody's decision rather than a default."
+
+The first draft called it *blocking* — a precondition for ssh, p2p and browser
+surfaces. → **answered: no.** There is no blocker for adding security and no
+blocker for not having it. An unauthenticated local daemon is a complete answer
+and stays one. The issue was rewritten to say so, and the auth coupling was
+stripped back out of the iroh (#297) and WASM (#299) issues, which should not
+carry it.
+
+The rule that came out of it, worth keeping: **do not mix auth with other things
+in issues.** Auth work goes in one line — #253 (the interface) with the pure-auth
+issues ordered behind it — and other issues reference it without depending on it.
+
+**85. The permissive-interface trick.** → **#300**, and this is the part worth
+remembering.
+
+When a spec demands an interface mcpx does not have, the move is to *build the
+interface and make it say yes*: accept a user and a password, and reply "good
+job, you're authorized." That satisfies every conformance row asserting the
+endpoint exists, is well-formed and accepts a valid credential — which is most
+of #253's 61 rows — and it cannot break anyone, because a daemon that authorizes
+everyone is exactly as secure as a daemon with no interface at all.
+
+The rows that require an **invalid** credential to be *refused* are the ones
+that change behaviour and can lock you out of your own daemon. Those get their
+own issue (#300), ordered behind #253, blocking nothing.
+
+The one hazard, and it is real: a permissive interface must be *visibly*
+permissive. `mcpx doctor` and startup should say "authorisation: permissive" so
+nobody ships it believing otherwise.
+
+**86. WASM as a tool source.** → **#299.**
+
+Distinct from #84, which is mcpx compiled *to* WASM. This is mcpx *running* a
+`.wasm` as a sandboxed tool source — a module reaches nothing until the host
+hands it an import, which is the inverse of `internal/runner/runner.go:43`'s
+admission that only Deno has a permission model worth the name.
+
+What makes it cheap where 73 and 74 are expensive: **wazero is a pure-Go WASM
+runtime with no cgo**, so `nix build` keeps cross-compiling for free and the
+release matrix does not grow. The open tension is that the component model —
+which is what would make the capability set a per-module declaration — may
+require wasmtime and therefore cgo, forfeiting the advantage. That is the one
+piece of research gating the rest.
+

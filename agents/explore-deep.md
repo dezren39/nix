@@ -1,7 +1,7 @@
 ---
 description: Traces one known entry point through its layers and explains the chain.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   edit: deny

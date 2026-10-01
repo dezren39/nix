@@ -1,7 +1,7 @@
 ---
 description: One thread followed all the way through, including whatever it turns out to touch.
 mode: subagent
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   task:

@@ -1,7 +1,7 @@
 ---
 description: The default agent. Executes tools based on configured permissions.
 mode: primary
-model: github-copilot/claude-opus-5
+model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   task:
