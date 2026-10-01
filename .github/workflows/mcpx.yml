@@ -31,8 +31,12 @@ permissions:
 env:
   # The most Go tests that may be skipped. A skipped test passes nothing, so
   # more than this fails the build; fewer warns until it is lowered to match.
-  # Each skip names the issue it waits on; the run's summary lists them all.
-  GO_TEST_MAX_SKIPPED: 30
+  # The run's summary and log list every skip with its reason. Counted on
+  # this workflow's runner (ubuntu): 32. That is 30 on macOS plus two tests
+  # that only mean anything there -- TestGitCaseOfAWrongCaseCwdIsKept needs a
+  # case-insensitive filesystem, TestGitParityTmpAndPrivateTmp needs /tmp to
+  # be a symlink.
+  GO_TEST_MAX_SKIPPED: 32
 
 jobs:
   build:

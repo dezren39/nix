@@ -41,8 +41,8 @@ Each leg's summary shows every status the suite recorded: passed, failed,
 job fails any run with more skipped checks than the record on `main`, and the
 record's skip count only moves down. At the time of writing, 2026-07-28 skips
 2, `--suite all` 44, and the 2026-07-28 client run 6. The Go tests have the
-same rule: `GO_TEST_MAX_SKIPPED` in `.github/workflows/mcpx.yml` (30, each naming
-the issue it waits on).
+same rule: `GO_TEST_MAX_SKIPPED` in `.github/workflows/mcpx.yml` (32 on the Linux runner:
+28 recorded gaps or spec quirks and two macOS-only tests).
 
 Each leg's total is every check the suite recorded, from its `checks.json`
 files, warnings included: the summary line's passed + failed leaves warnings
