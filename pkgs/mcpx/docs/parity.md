@@ -104,7 +104,7 @@ that reaches none says why: those are decisions, not gaps.
 
 | Command | Operations | Notes |
 | --- | --- | --- |
-| `adapter` | – | Adapter declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83, #102). |
+| `adapter` | – | Adapter declarations are files the CLI reads; the daemon serves each adapter as a server of its own, so its tools reach every tool operation (call, types, search, catalog) like any upstream's. |
 | `api` | – | OpenAPI declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83). |
 | `artifact` / `artifacts` | `artifacts_list`, `artifact_put`, `artifact_delete`, `artifact_get` | Generated from the operation table. |
 | `ask` | `ask_begin`, `ask_poll`, `ask_abandon`, `ask_answers` | Generated from the operation table. |

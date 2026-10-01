@@ -36,10 +36,12 @@ import (
 // loopback TCP port (for generated script clients, because fetch() over a unix
 // socket is not portable across Deno, Bun and Node).
 type Server struct {
-	reg    *Registry
-	paths  Paths
-	cfg    *config.Config
-	logger *log.Logger
+	reg *Registry
+	// augment is Options.Augment, kept for reloads.
+	augment func(*config.Config) error
+	paths   Paths
+	cfg     *config.Config
+	logger  *log.Logger
 
 	// Address is the interface the TCP listener binds. Empty is loopback.
 	Address string
@@ -132,6 +134,11 @@ type Options struct {
 	// defaults, which is what a test that only wants a daemon should get
 	// rather than a nil dereference.
 	Settings *settings.Set
+	// Augment adds servers that are not written in a config file -- an
+	// adapted program is one -- to every config the daemon loads, at start
+	// and on each reload, so they go through the same pools, cache, codegen
+	// and /v1 routes as a configured server. Nil adds nothing.
+	Augment func(*config.Config) error
 }
 
 // NewServer builds the daemon but does not listen yet.
@@ -141,6 +148,11 @@ func NewServer(opts Options) (*Server, error) {
 	}
 	if err := opts.Paths.EnsureDirs(); err != nil {
 		return nil, err
+	}
+	if opts.Augment != nil && opts.Config != nil {
+		if err := opts.Augment(opts.Config); err != nil {
+			return nil, err
+		}
 	}
 	reg, err := NewRegistry(opts.Config, opts.Paths, func(f string, a ...any) {
 		opts.Logger.Printf(f, a...)
@@ -169,6 +181,7 @@ func NewServer(opts Options) (*Server, error) {
 		version:  opts.Version,
 		idleExit: opts.IdleExit,
 		sink:     opts.Sink,
+		augment:  opts.Augment,
 		Events:   events.New(opts.Settings.Int("events.history")),
 	}
 	// The broker is optional: a daemon whose state directory cannot hold a

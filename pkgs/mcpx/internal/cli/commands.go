@@ -1067,18 +1067,26 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
-// ensureAnySchemas fetches schemas once if nothing has ever been cached.
+// ensureAnySchemas fetches schemas when a namespace has none yet.
+//
+// It used to stop at the first namespace that was cached, so a server whose
+// first fetch was still in flight -- an adapter, which is mcpx spawning
+// itself, is reliably slower than a small upstream -- was silently missing
+// from the generated client while its neighbours were present. A namespace
+// whose fetch failed has an error to show instead and is not retried here,
+// or every command would pay for one broken server.
 func (a *App) ensureAnySchemas(ctx context.Context, c *Client) error {
 	known, err := c.Namespaces(ctx, a.Profile)
 	if err != nil {
 		return err
 	}
+	missing := false
 	for _, n := range known {
-		if n.Cached {
-			return nil
+		if !n.Cached && n.Error == "" {
+			missing = true
 		}
 	}
-	if len(known) == 0 {
+	if !missing {
 		return nil
 	}
 	a.notice("reading tool schemas for the first time...")
