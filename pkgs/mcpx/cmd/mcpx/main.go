@@ -165,6 +165,12 @@ func main() {
 	defer app.CloseInline()
 
 	if err := h(ctx, rest); err != nil {
+		var ec cli.ExitCoder
+		if errors.As(err, &ec) {
+			fmt.Fprintln(os.Stderr, "mcpx:", err)
+			app.CloseInline()
+			os.Exit(ec.ExitCode())
+		}
 		if errors.Is(err, cli.ErrNoDaemon) {
 			fmt.Fprintln(os.Stderr, "mcpx: daemon is not running and could not be started")
 		} else {

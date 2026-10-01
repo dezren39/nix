@@ -19,7 +19,19 @@ import (
 // 75 is EX_TEMPFAIL, which is what this is: not a failure, a "try again when
 // you have an answer". A distinct code matters because the alternative is a
 // caller parsing stdout to find out whether it succeeded.
+//
+// `mcpx call` exits with it when the tool's server asks a question mid-call
+// (InputRequiredError); a script run by `mcpx exec` or `mcpx run` exits with
+// it from inside the generated client, which sees the same answer from the
+// daemon. Either way the call keeps running on the daemon until the question
+// is answered or expires.
 const ExitInputRequired = 75
+
+// ExitCoder is an error that decides the process's exit status.
+type ExitCoder interface {
+	error
+	ExitCode() int
+}
 
 // broker opens the question store, which lives beside the log index.
 func (a *App) broker() (*elicit.Broker, error) {

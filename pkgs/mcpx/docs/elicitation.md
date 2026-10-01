@@ -24,7 +24,7 @@ worth knowing before you read on:
 | --- | --- |
 | §2's three "live bugs" | all three fixed: `dispatch` routes server-initiated requests (`internal/mcpclient/client.go:404-421`), `negotiate` no longer echoes a version it does not serve (`internal/mcpserver/server.go:1092-1095`), and the client declares `elicitation` (`internal/mcpclient/modern.go:71-84`) |
 | `mcpx call --elicit=<mode>` | not built. There is no `--elicit` flag on any command |
-| a waiting call exits `75` | not built. `cli.ExitInputRequired` is declared and read by nothing |
+| a waiting call exits `75` | built (#286), with a different document: `mcpx call`, `mcpx exec` and `mcpx run` exit `75` with the question, its schema, the `mcpx elicit answer` command and the task id that collects the result. The call keeps running on the daemon as a task. The wire is `POST /v1/call` with `X-Mcpx-Input: report`, answered `202 {"inputRequired": {...}}` -- see §5.1 |
 | `POST /v1/elicit/<id>/answer` | `POST /v1/elicit/{id}/{action}` -- the action is in the path, the body is content only |
 | `GET /v1/elicit/subscribe` | not built. `mcpx elicit watch` polls; the SSE stream is `GET /v1/events` |
 | `mcpx_elicit_pending` | the tool is `mcpx_elicit_list` |
@@ -322,8 +322,37 @@ $ mcpx call github.create_issue '{"title":"x"}'
   }
 }
 $ echo $?
-75          # NOT BUILT: cli.ExitInputRequired is declared and read by nothing
+75
 ```
+
+What shipped (#286) carries the same information in a different shape:
+
+```console
+$ mcpx call ask.need_repo; echo $?
+mcpx: ask.need_repo is waiting for input and nothing here can answer it.
+
+  asks     Which repository should this go in?
+  schema   {"properties":{"repo":{"description":"owner/name","type":"string"}},"required":["repo"],"type":"object"}
+  expires  2026-09-30T22:31:37-05:00 (2m0s from now)
+  answer   mcpx elicit answer elc-93e18b28a5a3c1f5 '{"repo":"..."}'
+           mcpx elicit decline elc-93e18b28a5a3c1f5 | mcpx elicit cancel elc-93e18b28a5a3c1f5
+
+The call keeps running until it is answered or expires; collect its result with: mcpx task result tsk-06654ccc9f064a5c
+75
+$ mcpx elicit answer elc-93e18b28a5a3c1f5 '{"repo":"me/thing"}'
+$ mcpx task result tsk-06654ccc9f064a5c      # the call's real result
+```
+
+`--json` puts `{"inputRequired": {callId, server, tool, questions[], text}}` on
+stdout. A script under `mcpx exec` or `mcpx run` stops at the call that asked
+and exits `75` with the same message, even if it catches `ToolError`: the
+generated client sees the daemon's `202` and exits rather than throwing.
+
+Two limits. A daemon running inside the command (`daemon.inline`) stops with
+it, so the call cannot outlive the exit and the message says so. And when other
+calls share the server's instance a question cannot be tied to one call for
+certain; it is still reported, marked `ambiguous`, because waiting out the TTL
+and exiting 0 was the bug.
 
 `respondWith` is there because the alternative is the caller assembling it
 from three fields, and they will get it wrong once and then copy it forever.
@@ -387,7 +416,7 @@ HTTP has a status code for exactly this, and it is not 400.
 
 ```
 POST /v1/call/github/create_issue
-→ 202 Accepted          # NOT BUILT: /v1/call answers 200 or an error status
+→ 202 Accepted          # built only with X-Mcpx-Input: report, as {"inputRequired": {...}}; no Location/Retry-After
   Location: /v1/elicit/elc-9f2c1a84bb0e7d31
   Retry-After: 120
 

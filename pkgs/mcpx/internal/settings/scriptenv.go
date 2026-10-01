@@ -114,6 +114,14 @@ func ScriptEnv() []EnvVar {
 			Meaning: "this execution's run id, which groups the artifacts it produces",
 			ReadBy:  client + ", when storing an artifact",
 		},
+		{
+			Name:  "MCPX_INPUT",
+			SetBy: []Setter{SetByCLI},
+			When:  "mcpx exec and mcpx run, locally and with --remote; not when mcpx serve collects the output",
+			Meaning: "report: nothing in this run can answer a server's question mid-call, so a call that " +
+				"asks one exits 75 with the question instead of waiting for it to expire",
+			ReadBy: client + ", sent as X-Mcpx-Input",
+		},
 		// ---- reaching the daemon ----
 		{
 			Name:    "MCPX_ENDPOINT",

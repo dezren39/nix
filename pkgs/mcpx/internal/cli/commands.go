@@ -369,9 +369,19 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.Call(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
+	res, err := c.CallReporting(ctx, ns, tool, a.callContext(*session, *session), argsJSON)
 	if err != nil {
-		if a.JSON {
+		var ir *InputRequiredError
+		if errors.As(err, &ir) && a.inlineStop != nil {
+			// The daemon lives inside this command, so the call cannot
+			// outlive it and "answer it later" would be untrue.
+			ir.Doc.Text = strings.TrimRight(ir.Doc.Text, "\n") + "\n\nThis daemon runs " +
+				"inside this command (daemon.inline) and stops with it, taking the call " +
+				"with it. Start a daemon (`mcpx daemon`) to answer and collect it.\n"
+		}
+		if errors.As(err, &ir) && a.JSON {
+			_ = a.out(map[string]any{"inputRequired": ir.Doc})
+		} else if a.JSON {
 			a.outCallFailure(err)
 		}
 		return err
@@ -745,6 +755,10 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 			"MCPX_EPHEMERAL":         boolFlag(ephemeral),
 			"MCPX_SCRIPT_DIRS":       strings.Join(scriptSearchDirs(), ":"),
 			"MCPX_CONFIG_PATH":       configPathOf(cfg),
+			// Nothing in this run can answer a server's question, so the
+			// generated client asks the daemon to report one and exits
+			// ExitInputRequired instead of waiting for it to expire.
+			"MCPX_INPUT": inputReport(a.stdoutOverride == nil),
 		},
 	}
 	opts.TypeCheck = shape.typecheck
@@ -1697,4 +1711,14 @@ func (a *App) resolveScriptShape(cfg *config.Config, f scriptFlags) (scriptShape
 	sh.allowRepeat = append(sh.allowRepeat,
 		a.Settings().List("plumbing.launcherPlaceholderRepeat")...)
 	return sh, nil
+}
+
+// inputReport is MCPX_INPUT for a run: "report" when nothing in it can
+// answer a question mid-call. A run whose output is collected by the MCP
+// server is the exception -- its client can be asked -- so it stays empty.
+func inputReport(report bool) string {
+	if report {
+		return "report"
+	}
+	return ""
 }

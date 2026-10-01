@@ -488,7 +488,7 @@ func (a *App) execOnDaemon(ctx context.Context, c *Client, fs *flag.FlagSet, inl
 		Artifacts: eo.artifactOptions(cwd),
 
 		Export:         rf.export,
-		Env:            sh.env,
+		Env:            withInputReport(sh.env, a.stdoutOverride == nil),
 		TypeCheck:      sh.typecheck,
 		Launcher:       sh.launcher,
 		LauncherName:   sh.launcherName,
@@ -571,4 +571,18 @@ func (c *Client) ArtifactBody(ctx context.Context, id string) (string, string, e
 		return string(body), mime, nil
 	}
 	return base64.StdEncoding.EncodeToString(body), mime, nil
+}
+
+// withInputReport adds MCPX_INPUT=report to a remote run's environment: the
+// caller is a terminal command with nobody to answer a question mid-call, so
+// the script should exit ExitInputRequired rather than wait (#286).
+func withInputReport(env map[string]string, report bool) map[string]string {
+	out := make(map[string]string, len(env)+1)
+	for k, v := range env {
+		out[k] = v
+	}
+	if report {
+		out["MCPX_INPUT"] = "report"
+	}
+	return out
 }
