@@ -642,8 +642,10 @@ Named, because a gap nobody wrote down is a gap somebody rediscovers.
 - **Capabilities declared upstream that nothing answers**: `sampling` and
   `elicitation.url` whenever a handler exists, `roots` with an empty list
   (#210).
-- **Authorization.** No OAuth client and no OAuth on `/mcp` (#253); the
-  per-server `auth` block is parsed and never applied (#240).
+- **Authorization.** No OAuth client and no OAuth on `/mcp` (#253). The
+  per-server `auth` block (bearer, basic, header, query, env) is applied to
+  every connection (#240); `type: oauth` is refused with a message, since the
+  flow is not implemented.
 - **Validation.** Tool inputs and outputs and elicitation answers are not
   checked against their JSON Schemas (#254); sampling results are relayed
   unreviewed (#256); elicitation storage is readable by any local user and

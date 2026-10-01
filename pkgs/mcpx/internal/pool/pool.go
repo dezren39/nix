@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -33,6 +34,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/mcpauth"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 )
 
@@ -532,7 +534,11 @@ func (p *Pool) start(ctx context.Context) (*Instance, error) {
 // legacy-only: that transport predates the modern era.
 func (p *Pool) connectSSE(ctx context.Context, tr mcpclient.Transport, opts mcpclient.Options) (*mcpclient.Client, mcpclient.Transport, error) {
 	_ = tr.Close()
-	sse, err := mcpclient.NewLegacySSE(ctx, mcpclient.HTTPOptions{URL: p.cfg.URL, Headers: p.cfg.Headers})
+	ho, err := p.httpOptions()
+	if err != nil {
+		return nil, tr, err
+	}
+	sse, err := mcpclient.NewLegacySSE(ctx, ho)
 	if err != nil {
 		return nil, tr, err
 	}
@@ -547,19 +553,82 @@ func (p *Pool) connectSSE(ctx context.Context, tr mcpclient.Transport, opts mcpc
 
 // dial creates the transport for one instance.
 func (p *Pool) dial() (mcpclient.Transport, error) {
+	auth, err := p.resolveAuth()
+	if err != nil {
+		return nil, err
+	}
 	if p.cfg.Stdio() {
 		return mcpclient.NewStdio(mcpclient.StdioOptions{
 			Command:    p.cfg.Command,
 			Args:       p.cfg.Args,
-			Env:        p.cfg.Env,
+			Env:        overlay(p.cfg.Env, auth.Env),
 			Cwd:        p.cfg.Cwd,
 			InheritEnv: true,
 		})
 	}
-	return mcpclient.NewHTTP(mcpclient.HTTPOptions{
-		URL:     p.cfg.URL,
-		Headers: p.cfg.Headers,
-	})
+	ho, err := p.httpOptions()
+	if err != nil {
+		return nil, err
+	}
+	return mcpclient.NewHTTP(ho)
+}
+
+// resolveAuth turns the server's `auth` block into the headers, query
+// parameters and environment a connection carries. A credential that names an
+// unset variable fails here, before a request, rather than as a 401 later.
+func (p *Pool) resolveAuth() (*mcpauth.Resolved, error) {
+	r, err := p.cfg.Auth.Resolve()
+	if err != nil {
+		return nil, fmt.Errorf("%s: auth: %w", p.cfg.Name, err)
+	}
+	if len(r.Missing) > 0 {
+		return nil, fmt.Errorf("%s: auth: %s not set in the daemon's environment",
+			p.cfg.Name, strings.Join(r.Missing, ", "))
+	}
+	if r.NeedsOAuth {
+		return nil, fmt.Errorf("%s: auth: the OAuth flow is not implemented; "+
+			"use type bearer with a token you obtained, or header", p.cfg.Name)
+	}
+	return r, nil
+}
+
+// httpOptions is the URL and headers for an HTTP connection with the auth
+// block applied. Auth headers are applied over `headers`, because a
+// credential declared as auth is the more specific statement.
+func (p *Pool) httpOptions() (mcpclient.HTTPOptions, error) {
+	auth, err := p.resolveAuth()
+	if err != nil {
+		return mcpclient.HTTPOptions{}, err
+	}
+	u := p.cfg.URL
+	if len(auth.Query) > 0 {
+		parsed, err := url.Parse(u)
+		if err != nil {
+			return mcpclient.HTTPOptions{}, fmt.Errorf("%s: url: %w", p.cfg.Name, err)
+		}
+		q := parsed.Query()
+		for k, v := range auth.Query {
+			q.Set(k, v)
+		}
+		parsed.RawQuery = q.Encode()
+		u = parsed.String()
+	}
+	return mcpclient.HTTPOptions{URL: u, Headers: overlay(p.cfg.Headers, auth.Headers)}, nil
+}
+
+// overlay returns base with over applied on top, without mutating either.
+func overlay(base, over map[string]string) map[string]string {
+	if len(over) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(over))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range over {
+		out[k] = v
+	}
+	return out
 }
 
 // Schemas returns the cached tool and resource lists, fetching them on first
