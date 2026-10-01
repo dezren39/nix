@@ -175,7 +175,7 @@ covers an operation, no second tool is generated for it.
 | `mcpx_status` | `status` | The daemon, its pools and live instances. |
 | `mcpx_types` | `types` | Full TypeScript signatures for named namespaces, including each server's own guidance. |
 
-## Boundaries (4)
+## Boundaries (5)
 
 Every restriction mcpx declares, and whether anything enforces it
 ([decisions/0003](decisions/0003-declared-vs-enforced-capabilities.md)). An enforced
@@ -187,4 +187,5 @@ that will enforce it. `TestEveryEnforcedBoundaryNamesItsRefusal` holds both.
 | `transport.allowedOrigins` | a web page on an origin that is not loopback, the daemon's own address or listed in transport.allowedOrigins cannot use /v1 or /mcp | **enforced** | `TestAWebPageCannotRunCodeThroughTheDaemon`, `TestV1AndMCPAgreeOnOrigins` |
 | `script.permissions` | a script runs with no more than the permission profile named; a runtime with no permission model refuses a narrowed profile | **enforced** | `TestScriptPermissionsIsReachableFromEverySurface`, `TestAStrictScriptCannotReadFilesOnARuntimeWithoutPermissions`, `TestARestrictedProfileIsRefusedByARuntimeThatCannotEnforceIt` |
 | `elicit.confirmDestructive` | with it on, a call to a tool annotated destructiveHint does not run unless somebody confirms it | **enforced** | `TestADestructiveCallIsRefusedWhenNobodyConfirms`, `TestConfirmDestructiveHoldsOnAColdDaemon` |
+| `autonomy.max` | mcpx does no more on its own than the daemon's autonomy.max allows: a prompt, a recipe run by name or a configured hook asked for above it is lowered to it and the answer says so, from /v1, the CLI, MCP and the plugin alike. It does not govern code a caller sends to /v1/exec itself | **enforced** | `TestV1CannotRaiseAutonomyAboveTheCeiling`, `TestTheCeilingCannotBeRaisedAtRuntime`, `TestTheCLICannotRaiseAutonomyAboveTheCeiling`, `TestMCPCannotRaiseAutonomyAboveTheCeiling`, `TestThePluginCannotRaiseAutonomyAboveTheCeiling`, `TestHooksFromConfigDoNotRunAboveTheCeiling`, `TestRepairCannotRaiseAutonomyAboveTheCeiling`, `TestACallerCannotRaiseAClampedSetting` |
 | `privileged operations (Admin)` | operations marked privileged change the daemon rather than read it; nothing checks who calls them, and every tool description and the OpenAPI document say so | **advisory** | #253 |

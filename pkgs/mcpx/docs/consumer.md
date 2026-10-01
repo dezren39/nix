@@ -203,6 +203,14 @@ sends as few as it can.
 The generated script is validated with the step-1 diagnostics before anything
 runs, and returned rather than run unless `autonomy: run` is asked for.
 
+Whatever is asked for, the daemon's `autonomy.max` is the most it does: a
+request above it — in a body, the `X-Mcpx-Settings` header, the CLI's
+`--run`, an MCP tool call or the plugin — is lowered to it, not refused, and
+the answer carries `requested` and `clampedBy` beside `autonomy`. The CLI
+prints `requested run, clamped to propose by autonomy.max (...)` on stderr.
+The same ceiling bounds `repair.autonomy` (whether a failed call carries
+diagnostics) and `hooks.autonomy` (whether configured script hooks run).
+
 ## Running a script from the daemon
 
 `recipe_run` and `intent` in run mode need to execute something, and the

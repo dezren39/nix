@@ -74,6 +74,24 @@ func Boundaries() []Boundary {
 			},
 		},
 		{
+			Name: "autonomy.max",
+			Declares: "mcpx does no more on its own than the daemon's autonomy.max allows: " +
+				"a prompt, a recipe run by name or a configured hook asked for above it " +
+				"is lowered to it and the answer says so, from /v1, the CLI, MCP and the " +
+				"plugin alike. It does not govern code a caller sends to /v1/exec itself",
+			State: Enforced,
+			Refusals: []string{
+				"TestV1CannotRaiseAutonomyAboveTheCeiling",
+				"TestTheCeilingCannotBeRaisedAtRuntime",
+				"TestTheCLICannotRaiseAutonomyAboveTheCeiling",
+				"TestMCPCannotRaiseAutonomyAboveTheCeiling",
+				"TestThePluginCannotRaiseAutonomyAboveTheCeiling",
+				"TestHooksFromConfigDoNotRunAboveTheCeiling",
+				"TestRepairCannotRaiseAutonomyAboveTheCeiling",
+				"TestACallerCannotRaiseAClampedSetting",
+			},
+		},
+		{
 			Name: "privileged operations (Admin)",
 			Declares: "operations marked privileged change the daemon rather than " +
 				"read it; nothing checks who calls them, and every tool description " +

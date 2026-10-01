@@ -773,8 +773,9 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	// through cfg.ScriptPhase below, and counting it twice would run the
 	// line twice. Before this, --script-prefix and MCPX_SCRIPT_PREFIX were
 	// accepted, recorded and dropped.
-	prefixLines := cfgScriptLines(cfg, a.phaseValues("script.prefix", prefix), true)
-	suffixLines := cfgScriptLines(cfg, a.phaseValues("script.suffix", suffix), false)
+	hk := a.newHookGate(cfg)
+	prefixLines := cfgScriptLines(hk.cfg, hk.phaseValues("script.prefix", prefix), true)
+	suffixLines := cfgScriptLines(hk.cfg, hk.phaseValues("script.suffix", suffix), false)
 
 	// Both paths, not only the file one. This lived in the `else` branch, so
 	// `mcpx exec --typecheck=on` accepted the flag and ignored it -- on the
@@ -841,9 +842,9 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// for a file, so `mcpx exec --before/--on-success/--on-error` and
 		// script.before/onSuccess/onError were accepted and dropped.
 		opts.Phases = runner.Phases{
-			Before:    cfg.ScriptPhase("before", a.phaseValues("script.before", before)),
-			OnSuccess: cfg.ScriptPhase("onSuccess", a.phaseValues("script.onSuccess", onSuccess)),
-			OnError:   cfg.ScriptPhase("onError", a.phaseValues("script.onError", onError)),
+			Before:    hk.cfg.ScriptPhase("before", hk.phaseValues("script.before", before)),
+			OnSuccess: hk.cfg.ScriptPhase("onSuccess", hk.phaseValues("script.onSuccess", onSuccess)),
+			OnError:   hk.cfg.ScriptPhase("onError", hk.phaseValues("script.onError", onError)),
 		}
 	} else {
 		// A file keeps its own module scope, so its prefix and suffix run in
@@ -851,10 +852,10 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		// They can act -- set globals, log, time, clean up -- but cannot
 		// declare bindings the script will see.
 		opts.Phases = runner.Phases{
-			Before:    cfg.ScriptPhase("before", a.phaseValues("script.before", before)),
+			Before:    hk.cfg.ScriptPhase("before", hk.phaseValues("script.before", before)),
 			Prefix:    prefixLines,
-			OnSuccess: cfg.ScriptPhase("onSuccess", a.phaseValues("script.onSuccess", onSuccess)),
-			OnError:   cfg.ScriptPhase("onError", a.phaseValues("script.onError", onError)),
+			OnSuccess: hk.cfg.ScriptPhase("onSuccess", hk.phaseValues("script.onSuccess", onSuccess)),
+			OnError:   hk.cfg.ScriptPhase("onError", hk.phaseValues("script.onError", onError)),
 			Suffix:    suffixLines,
 		}
 		file, rerr := resolveScript(fs.Arg(0))
@@ -864,6 +865,8 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		opts.File = file
 		opts.Args = fs.Args()[1:]
 	}
+
+	hk.report(prefixLines, suffixLines, opts.Phases)
 
 	// Deterministic diagnostics, before anything starts. What this catches is
 	// a tool whose schema moved under a script that used to work; left to the
@@ -1661,6 +1664,80 @@ func (a *App) phaseValues(path string, flagged *repeatable) []any {
 		out = append(out, line)
 	}
 	return out
+}
+
+// hookGate applies hooks.autonomy to the script phases.
+//
+// A phase from a configuration file or the environment is code this command
+// did not send, so it runs only when hooks.autonomy -- lowered to
+// autonomy.max -- is run (docs/decisions/0002-autonomy-dial.md). A phase
+// given on this command line, as --on-success or --script-on-success, is the
+// caller's own code and the dial never governs that.
+type hookGate struct {
+	a       *App
+	cfg     *config.Config
+	full    *config.Config
+	allowed bool
+	flagged map[string][]any
+}
+
+func (a *App) newHookGate(cfg *config.Config) *hookGate {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	g := &hookGate{a: a, cfg: cfg, full: cfg, flagged: map[string][]any{},
+		allowed: settings.AutonomyAtLeast(a.Settings().String("hooks.autonomy"), "run")}
+	if !g.allowed {
+		g.cfg = &config.Config{}
+	}
+	return g
+}
+
+// phaseValues is the phase's command-line lines plus, when allowed or when they
+// came from a flag, what the registry resolved for script.<phase>.
+func (g *hookGate) phaseValues(path string, flagged *repeatable) []any {
+	phase := strings.TrimPrefix(path, "script.")
+	g.flagged[phase] = g.a.phaseValues(path, flagged)
+	if g.allowed {
+		return g.flagged[phase]
+	}
+	out := flagged.Values()
+	if v, ok := g.a.Settings().Value(path); ok && v.Origin.Layer == settings.LayerFlag {
+		for _, line := range g.a.Settings().ListAboveFile(path) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// report says on stderr which configured hooks were not run, and why.
+func (g *hookGate) report(prefix, suffix []string, ph runner.Phases) {
+	if g.allowed {
+		return
+	}
+	var skipped []string
+	for _, c := range []struct {
+		name string
+		kept []string
+	}{
+		{"before", ph.Before}, {"prefix", prefix}, {"onSuccess", ph.OnSuccess},
+		{"onError", ph.OnError}, {"suffix", suffix},
+	} {
+		if len(g.full.ScriptPhase(c.name, g.flagged[c.name])) > len(c.kept) {
+			skipped = append(skipped, c.name)
+		}
+	}
+	if len(skipped) == 0 {
+		return
+	}
+	v, _ := g.a.Settings().Value("hooks.autonomy")
+	why := "hooks.autonomy is " + v.Raw
+	if v.ClampedBy != "" {
+		why = fmt.Sprintf("hooks.autonomy requested %s, clamped to %s by %s",
+			v.Requested, v.Raw, v.ClampedBy)
+	}
+	fmt.Fprintf(os.Stderr, "mcpx: %s; not running the configured %s hook(s)\n",
+		why, strings.Join(skipped, ", "))
 }
 
 // cfgScriptLines resolves a layered prefix or suffix, with command-line values
