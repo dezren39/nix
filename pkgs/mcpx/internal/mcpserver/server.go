@@ -627,6 +627,9 @@ var cacheable = map[string]struct {
 	"resources/templates/list": {scope: "public"},
 	"resources/list":           {scope: "private"},
 	"resources/read":           {scope: "private", read: true},
+	// GetSkillResult extends CacheableResult, as resources/read does.
+	"skills/list": {scope: "public"},
+	"skills/get":  {scope: "public", read: true},
 }
 
 // envelope adds what 2026-07-28 wants on every result: resultType, the
@@ -700,6 +703,8 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 	switch req.Method {
 	case "tasks/get", "tasks/list", "tasks/result", "tasks/cancel", "tasks/update":
 		return s.handleTask(ctx, c, req, peer)
+	case "skills/list", "skills/get":
+		return s.handleSkills(ctx, req)
 	case "tools/call":
 		// Finding the tool is the protocol's business, running it the
 		// tool's: an unknown name is -32602, in every revision, before a
@@ -935,12 +940,13 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(map[string]any{"content": content})
 
 	case "resources/list":
-		if s.backend == nil {
-			return reply(map[string]any{"resources": []any{}})
-		}
-		rs, err := s.backend.Resources(ctx)
-		if err != nil {
-			return fail(codeInternal, err.Error())
+		rs := s.skillResources()
+		if s.backend != nil {
+			up, err := s.backend.Resources(ctx)
+			if err != nil {
+				return fail(codeInternal, err.Error())
+			}
+			rs = append(rs, up...)
 		}
 		if rs == nil {
 			rs = []ResourceRef{}
@@ -956,6 +962,16 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return reply(out)
 
 	case "resources/read":
+		var sk struct {
+			URI string `json:"uri"`
+		}
+		// Before the ask path: a skill file is mcpx's own and never needs
+		// an upstream to answer for it.
+		if json.Unmarshal(req.Params, &sk) == nil {
+			if contents, ok := s.readSkillFile(sk.URI); ok {
+				return reply(readResult(sk.URI, contents))
+			}
+		}
 		if s.canAsk(ctx, c, peer) {
 			if resp := s.viaAsk(ctx, c, req, peer); resp != nil {
 				return resp
@@ -2182,6 +2198,12 @@ func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[
 		// sent it to 2025-11-25 as well, whose schema has no such field.
 		caps["extensions"] = map[string]any{
 			ExtTasks: map[string]any{},
+		}
+		if len(s.skills()) > 0 {
+			// An empty object: skills/list and skills/get, without the
+			// optional resources/directory/read, which mcpx's single-file
+			// skills would give nothing to list.
+			caps["extensions"].(map[string]any)[ExtSkills] = map[string]any{}
 		}
 	}
 	return caps

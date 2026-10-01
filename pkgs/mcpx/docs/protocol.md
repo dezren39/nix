@@ -108,6 +108,7 @@ What a host connected to mcpx gets, over `mcpx serve` (stdio) or the daemon's
 | `logging/setLevel` | legacy | legacy peers | `{}`; sets the level of upstream log messages relayed to this connection (§4.4) |
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core | **any** legacy peer | the core shapes; a task is visible only to the connection that started it |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers that declared `io.modelcontextprotocol/tasks` on the request; `-32021` with `data.requiredCapabilities` (HTTP 400) otherwise | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
+| `skills/list`, `skills/get` | skills extension (SEP-2640) | always, unless the server offers only contributed tools | mcpx's own skills (`plugin/opencode/skills`, embedded at build), each file at `skill://mcpx/<name>/<file>` and also listed and readable as a resource; an unknown URI is `-32602`. Upstreams' skills are not relayed: [in-name-only.md](in-name-only.md#skills-extension) |
 | `notifications/cancelled` | all | always | cancels the request it names — its context, and so its upstream call — and withholds the reply |
 
 Two rows are the "accept liberally" rule doing visible work:
@@ -163,6 +164,7 @@ that could never work (#284).
 | `logging` | ✓ | ✓ | ✓ | ✓ | — (the level travels in each request's `_meta`) |
 | `tasks` (core) | — | — | — | ✓ | — |
 | `extensions["io.modelcontextprotocol/tasks"]` | — | — | — | — | ✓ |
+| `extensions["io.modelcontextprotocol/skills"]` | — | — | — | — | `{}` (no `directoryRead`) |
 
 - **`tools.listChanged` is false.** mcpx's own tool list is fixed when its
   server is built. It used to be declared and fed by upstream tool changes,

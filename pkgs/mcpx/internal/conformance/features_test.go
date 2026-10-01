@@ -320,11 +320,19 @@ func TestFeaturesServer(t *testing.T) {
 			srv, _ := newServer(t)
 			ss := stdioServer(t, srv)
 			ss.initialize(t, rev)
+			backend := 0
 			for _, x := range resultOf(t, ss.request(t, rev, "resources/list", nil))["resources"].([]any) {
 				r := asMap(x)
+				if u, _ := r["uri"].(string); strings.HasPrefix(u, "skill://mcpx/") {
+					continue // mcpx's own skills, not the backend's
+				}
+				backend++
 				if r["uri"] != "mem://alpha/one" || r["mimeType"] != "text/plain" {
 					t.Errorf("%v", r)
 				}
+			}
+			if backend == 0 {
+				t.Fatal("no backend resource listed")
 			}
 			c := resultOf(t, ss.request(t, rev, "resources/read", map[string]any{"uri": "mem://alpha/one"}))["contents"].([]any)
 			if len(c) < 1 || asMap(c[0])["mimeType"] != "text/plain" {
