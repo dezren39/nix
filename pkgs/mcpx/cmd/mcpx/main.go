@@ -99,6 +99,18 @@ func main() {
 			_ = app.CmdHelp(ctx, nil)
 			return
 		default:
+			// Any setting every command accepts is also a global flag, so
+			// `mcpx --plumbing-strict-unknown-keys ls` means what
+			// `mcpx ls --plumbing-strict-unknown-keys` does.
+			rest, err := app.ApplyGlobalSettingFlags(args)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "mcpx:", err)
+				os.Exit(2)
+			}
+			if len(rest) < len(args) {
+				args = rest
+				continue
+			}
 			fmt.Fprintf(os.Stderr, "unknown global flag %q\n", args[0])
 			os.Exit(2)
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"strings"
@@ -67,23 +68,9 @@ func (a *App) Settings() *settings.Set {
 			a.settingsErr = cerr
 			return
 		}
-		// plumbing.strictUnknownKeys turns a key no setting claims from a
-		// note `mcpx doctor` prints into a refusal. It is read from the set
-		// that was just built, which is the only order that works: the switch
-		// itself lives in the file being judged.
-		if set.Bool("plumbing.strictUnknownKeys") {
-			if uerr := unknownKeysError(set.Unknown()); uerr != nil {
-				a.settingsErr = uerr
-				return
-			}
-			// The same rule for the server entries, which the settings
-			// layer does not read: a key there that mcpx ignores is either
-			// another host's or a mistake, and strict mode is the request
-			// to be told which.
-			if cfg, cerr := config.Load(a.ConfigPath); cerr == nil && len(cfg.Ignored) > 0 {
-				a.settingsErr = ignoredKeysError(cfg.Ignored)
-				return
-			}
+		if serr := a.strictCheck(set); serr != nil {
+			a.settingsErr = serr
+			return
 		}
 		a.settings = set
 		a.settingsSchema = sch
@@ -95,6 +82,79 @@ func (a *App) Settings() *settings.Set {
 		return settings.NewSet(sch)
 	}
 	return a.settings
+}
+
+// strictCheck applies plumbing.strictUnknownKeys.
+//
+// The switch turns a key no setting claims from a note `mcpx doctor` prints
+// into a refusal. It runs twice: once when the files and environment are
+// resolved, and again after a command folds in its flags. Running it only in
+// the first place is why `--plumbing-strict-unknown-keys` parsed and did
+// nothing (#231): the check had already been decided before the flag existed.
+func (a *App) strictCheck(set *settings.Set) error {
+	if !set.Bool("plumbing.strictUnknownKeys") {
+		return nil
+	}
+	if uerr := unknownKeysError(set.Unknown()); uerr != nil {
+		return uerr
+	}
+	// The same rule for the server entries, which the settings layer does
+	// not read: a key there that mcpx ignores is either another host's or a
+	// mistake, and strict mode is the request to be told which.
+	if cfg, cerr := config.Load(a.ConfigPath); cerr == nil && len(cfg.Ignored) > 0 {
+		return ignoredKeysError(cfg.Ignored)
+	}
+	return nil
+}
+
+// ApplyGlobalSettingFlags folds setting flags given before the subcommand
+// (`mcpx --plumbing-strict-unknown-keys ls`). Only settings every command
+// accepts are global; the rest belong after the command that reads them.
+// It returns the arguments it did not consume.
+func (a *App) ApplyGlobalSettingFlags(args []string) (rest []string, err error) {
+	sch, err := settings.New(settings.Registry())
+	if err != nil {
+		return args, err
+	}
+	fs := flag.NewFlagSet("mcpx", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	b := sch.Bind(fs, "")
+	var mine []string
+	for len(args) > 0 && strings.HasPrefix(args[0], "--") {
+		name := strings.TrimPrefix(args[0], "--")
+		if i := strings.IndexByte(name, '='); i >= 0 {
+			name = name[:i]
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			break
+		}
+		mine = append(mine, args[0])
+		args = args[1:]
+		bf, isBool := f.Value.(interface{ IsBoolFlag() bool })
+		if !strings.Contains(mine[len(mine)-1], "=") && !(isBool && bf.IsBoolFlag()) && len(args) > 0 {
+			mine = append(mine, args[0])
+			args = args[1:]
+		}
+	}
+	if len(mine) == 0 {
+		return args, nil
+	}
+	if err := fs.Parse(mine); err != nil {
+		return args, err
+	}
+	set := a.Settings()
+	if err := a.SettingsErr(); err != nil {
+		return args, err
+	}
+	if err := b.ApplyTo(set); err != nil {
+		return args, err
+	}
+	if err := a.strictCheck(set); err != nil {
+		return args, err
+	}
+	a.adoptSettings()
+	return args, nil
 }
 
 // SettingsErr reports a problem found while resolving settings.
@@ -120,13 +180,29 @@ func (a *App) BindFlags(fs *flag.FlagSet, cmd string) func() error {
 	if err != nil {
 		return func() error { return err }
 	}
-	b := sch.Bind(fs, cmd)
+	b := sch.BindExcept(fs, cmd, handFlagsMeaningOther[cmd])
 	return func() error {
+		if err := a.SettingsErr(); err != nil {
+			return err
+		}
 		if err := b.ApplyTo(a.Settings()); err != nil {
 			return err
 		}
-		return a.Settings().CheckRequirements()
+		if err := a.Settings().CheckRequirements(); err != nil {
+			return err
+		}
+		return a.strictCheck(a.Settings())
 	}
+}
+
+// handFlagsMeaningOther lists hand-written flags that share a spelling with a
+// setting but mean something else on that command. Everything else a command
+// declares by hand under a setting's name feeds that setting.
+var handFlagsMeaningOther = map[string]map[string]bool{
+	"run":    {"keep": true},    // keep the generated files, not logging.keep
+	"exec":   {"keep": true},    // likewise
+	"api":    {"include": true}, // operations to include, not logging.include
+	"schema": {"format": true},  // output schema format, not logging.format
 }
 
 // unknownKeysError turns the collected unknown keys into one message naming

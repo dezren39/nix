@@ -64,8 +64,16 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 		return err
 	}
 	a.adoptSettings()
+	if parseFlagsHook != nil {
+		return parseFlagsHook(fs)
+	}
 	return nil
 }
+
+// parseFlagsHook lets a test stop a command the moment its flags are folded
+// in, so every command can be checked for flags that parse but never reach
+// the resolved settings without running the command itself.
+var parseFlagsHook func(*flag.FlagSet) error
 
 // adoptSettings copies the settings that decide how the App itself behaves
 // out of the resolved set, once the flags have been folded in.
@@ -567,6 +575,9 @@ const usageFooter = `GLOBAL FLAGS
   --skip-default                 with --profile, exclude the usual default set
   --all-profiles                 every configured server, ignoring profiles
   --version
+  --<setting> [value]            any setting every command accepts, e.g.
+                                 --plumbing-strict-unknown-keys; same as after
+                                 the command
 
 CONCURRENCY
   Each server's "mcpx" block sets two independent things:
