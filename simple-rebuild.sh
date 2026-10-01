@@ -1,5 +1,17 @@
 #!/usr/bin/env zsh
 path=("$HOME/.nix-profile/bin" "/nix/var/nix/profiles/default/bin" "/run/current-system/sw/bin" "$path[@]")
+
+# Trace every command with the file and line it came from.
+#
+# zsh's default PS4 is '+%N:%i> ', where %N is the *script or function* name
+# and %i the line within it. At top level that reads as simple-rebuild.sh:97,
+# which is what you want; inside a function it collapses to phase_build:2,
+# which cannot be looked up in the file. That became the common case when this
+# script was split into phases.
+#
+# %x is the file containing the source, %I the line number in that file, so
+# both cases report a real location you can open.
+PS4='+%x:%I> '
 set -exuo pipefail
 
 # error: opening Git repository "/Users/drewry.pope/.config/nix": repository path '/Users/drewry.pope/.config/nix' is not owned by current user

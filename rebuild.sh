@@ -1,5 +1,10 @@
 #!/usr/bin/env zsh
 path=("$HOME/.nix-profile/bin" "/nix/var/nix/profiles/default/bin" "/run/current-system/sw/bin" "$path[@]")
+
+# See simple-rebuild.sh: zsh's default PS4 reports the *function* name and a
+# line within it, which cannot be looked up in the file. %x:%I reports the file
+# and the line in it, in both cases.
+PS4='+%x:%I> '
 set -exuo pipefail
 
 # error: opening Git repository "/Users/drewry.pope/.config/nix": repository path '/Users/drewry.pope/.config/nix' is not owned by current user
