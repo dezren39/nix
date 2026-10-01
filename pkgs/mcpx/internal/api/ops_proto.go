@@ -69,13 +69,14 @@ func protoOps() []Op {
 		},
 		{
 			Name: "ask_abandon", Method: "POST", Path: "/v1/ask/{id}/abandon",
-			Summary: "Give up on a call nobody is going to answer",
+			Idempotent: true,
+			Summary:    "Give up on a call nobody is going to answer",
 			Description: "Cancels the task. The questions it raised stay in the broker " +
 				"until their own deadlines, where they expire as cancellations -- " +
 				"which is what they are, and not the same thing as a refusal.",
 			Admin: true, Mutating: true, Destructive: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the id of the call to give up on"},
 			},
 		},
 		{
@@ -96,6 +97,7 @@ func protoOps() []Op {
 		},
 		{
 			Name: "call_path", Method: "POST", Path: "/v1/call/{server}/{tool}",
+			Command: "call",
 			Summary: "Call one tool, with the pair in the URL",
 			Description: "The same call as POST /v1/call, spelled the way a shell script " +
 				"wants to spell it: one path per tool, arguments as the whole body, " +
@@ -105,7 +107,7 @@ func protoOps() []Op {
 			CoveredBy: "mcpx_call", Mutating: true,
 			Params: []Param{
 				{Name: "server", In: InPath, Type: "string", Required: true, Desc: "server name or namespace"},
-				{Name: "tool", In: InPath, Type: "string", Required: true},
+				{Name: "tool", In: InPath, Type: "string", Required: true, Desc: "the tool's name, as it appears in this server's tool list"},
 				{Name: "session", In: InQuery, Type: "string", Desc: "the caller's session id"},
 				{Name: "arguments", In: InBody, Type: "object", Desc: "the tool's arguments, as the whole body",
 					Schema: `{"type":"object","additionalProperties":true}`},

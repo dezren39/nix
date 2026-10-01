@@ -5,7 +5,21 @@ something breaks without it.
 
 ## Go libraries
 
-**One.** `modernc.org/sqlite`, which backs the log index.
+**Five**, and `pkgs/mcpx/package.nix` states the trade for each one beside
+the `vendorHash` that pays for them.
+
+| module | what it is for |
+| --- | --- |
+| `modernc.org/sqlite` | the log index |
+| `github.com/charmbracelet/bubbletea` | the full-screen browser, `mcpx tui` |
+| `github.com/charmbracelet/bubbles` | its widgets |
+| `github.com/charmbracelet/lipgloss` | its layout |
+| `gopkg.in/yaml.v3` | OpenAPI documents, which are published as YAML as often as JSON, and which one you get is not the caller's choice |
+
+The three `charmbracelet` modules are one decision, not three: they cost about
+1.2 MB in the stripped binary and replace raw terminal handling -- escape
+sequences, resize, a redraw loop -- which is the kind of code that is never
+finished and never correct on every terminal.
 
 Everything else -- the MCP client, the JSON-RPC framing, the process pools,
 the JSON Schema to TypeScript compiler, the HTTP API and the CLI -- is
@@ -48,15 +62,17 @@ a tokeniser, a SQLite driver — and the trade should be stated here.
 
 | Program | Needed for | If missing |
 | --- | --- | --- |
-| `git` | `repo` and `worktree` scopes | those scopes degrade to `cwd`, with a log line saying git is absent |
+| `git` | `repo` and `worktree` scopes, for repository layouts native discovery does not read | only those layouts degrade to `cwd`, with a log line and a `doctor` warning saying why |
 | `deno`, `bun` or `node` | `mcpx run` and `mcpx exec` | those commands fail; `mcpx call`, `ls`, `types`, `catalog`, `search` still work |
 | the configured MCP servers | their own namespaces | that namespace reports `error` with the server's stderr |
 
-**git** is invoked as `git rev-parse [--path-format=absolute] --git-common-dir`
-and `--show-toplevel`, with results cached per directory for the daemon's
-lifetime. `--path-format=absolute` needs git 2.31 (March 2021); there is a
-fallback that absolutises the relative answer by hand, so older git still
-works. Nothing else about git is used — no fetching, no writing, no config.
+**git** is optional. mcpx finds a repository by reading `.git` itself --
+a port of git's discovery rules, `docs/git-discovery.md` -- and runs `git
+rev-parse --path-format=absolute --git-common-dir --show-toplevel` only for a
+layout that port does not vouch for, such as a repository format newer than
+it knows. That needs git 2.31 (March 2021); an older git's answer is refused
+rather than misread. Nothing else about git is used — no fetching, no
+writing, no config.
 
 **A JavaScript runtime** is chosen at first use: deno, then bun, then node.
 Override with `--runtime` or the `runtime` config key. Deno runs with

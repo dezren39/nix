@@ -1,0 +1,95 @@
+# A container that builds mcpx and runs it.
+#
+# Deliberately ordinary: a Go builder, a Debian runtime, and a JavaScript
+# runtime copied in. It is a starting point, not the image anyone would ship
+# -- see docs/container.md for what is missing and why it is missing on
+# purpose.
+#
+# Build:  docker build -f Containerfile -t mcpx .
+# Run:    docker run --rm -v "$PWD/.mcpx.json:/work/.mcpx.json:ro" mcpx ls
+
+# Pinned by tag and digest. The tag says what it is and the digest says which
+# one, because a tag moves and a reproducible build cannot depend on when it
+# ran.
+ARG GO_IMAGE=golang:1.27-bookworm@sha256:69a7b9788769bec032d238959b61854e9ae87f57be9029ec04e9885fabf99195
+ARG BUN_IMAGE=oven/bun:1-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73
+ARG RUNTIME_IMAGE=debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+
+# ---- build ----------------------------------------------------------------
+
+FROM ${GO_IMAGE} AS build
+
+# Static linking is the goal, and this is the switch that gets there -- but
+# the goal is recorded here, not decided here, so it defaults to the value an
+# ordinary Go build already uses.
+#
+# What a default build does today: CGO_ENABLED is unset, which means *enabled*
+# on a native build, so `internal/logging/trace.go`'s os/user resolves through
+# getpwuid_r and net's resolver through getaddrinfo. The binary links against
+# glibc, which is why the runtime stage is the same Debian the builder is.
+#
+# Flipping this to 0 was tested rather than guessed: it builds, the binary is
+# fully static ("not a dynamic executable"), it is the same size to within a
+# hundred bytes, and `--version`, `ls`, `call` and `exec` all work. So mcpx is
+# not what stands between this image and a static one -- bun is, a
+# dynamically linked distribution binary. The behavioural change is
+# real but external: pure-Go os/user parses /etc/passwd instead of asking NSS,
+# and the resolver stops honouring nsswitch.conf. Neither matters inside this
+# image; both matter to somebody. docs/container.md has the measurements.
+ARG CGO_ENABLED=1
+ARG VERSION=0.1.0
+ENV CGO_ENABLED=${CGO_ENABLED}
+
+WORKDIR /src
+
+# Dependencies first, so editing Go files does not re-download the module
+# cache.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/mcpx ./cmd/mcpx
+
+# ---- javascript runtime ---------------------------------------------------
+
+# Bun, taken from its own image rather than downloaded, so the version is
+# pinned by the same digest mechanism as everything else and the build does
+# not depend on a release URL still being there.
+FROM ${BUN_IMAGE} AS bun
+
+# ---- runtime --------------------------------------------------------------
+
+FROM ${RUNTIME_IMAGE}
+
+# No git. The `repo` and `worktree` sharing scopes find a repository by
+# reading .git themselves (internal/config/gitdiscover.go), and git -- 105 MB
+# here, mostly perl -- is only a fallback for repository layouts that reader
+# does not vouch for. Without it those rare layouts key by directory and
+# `mcpx doctor` says why; docs/git-discovery.md has the list. ca-certificates
+# is for the registry.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=build /out/mcpx /usr/local/bin/mcpx
+
+# mcpx picks the first of deno, bun, node on PATH, so shipping exactly one
+# makes the choice unambiguous. `script.runtime` (MCPX_SCRIPT_RUNTIME,
+# --script-runtime) overrides it, and naming a runtime that is not in the
+# image is an error rather than a fallback.
+ENV MCPX_SCRIPT_RUNTIME=bun
+
+# Nothing here needs root, and a daemon that owns arbitrary MCP server
+# processes is the last thing that should have it.
+RUN useradd --create-home --uid 1000 mcpx
+USER mcpx
+WORKDIR /work
+
+ENV MCPX_STATE_DIR=/home/mcpx/.local/state/mcpx \
+    MCPX_CACHE_DIR=/home/mcpx/.cache/mcpx
+
+ENTRYPOINT ["mcpx"]
+CMD ["--help"]

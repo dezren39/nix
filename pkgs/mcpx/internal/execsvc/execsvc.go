@@ -290,6 +290,9 @@ type Request struct {
 	Source string
 	File   string
 	Opts   Options
+	// RunID, when set, is used instead of a fresh one: the daemon registers
+	// a script's run for question correlation before the script starts.
+	RunID string
 }
 
 // Sink receives frames in order. Returning an error stops the run, which is
@@ -341,6 +344,9 @@ func (s *Service) Run(ctx context.Context, req Request, sink Sink) (*Result, err
 		// somebody else's behalf reading the daemon's stdin would be reading
 		// whatever started the daemon.
 		Stdin: strings.NewReader(opts.Stdin),
+	}
+	if req.RunID != "" {
+		ropts.Env = map[string]string{"MCPX_RUN": req.RunID}
 	}
 	if len(opts.Placeholders) > 0 {
 		ropts.Placeholders = stringify(opts.Placeholders)

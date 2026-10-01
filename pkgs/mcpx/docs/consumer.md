@@ -62,11 +62,37 @@ has no required properties. So the diagnostic mcpx can actually produce is
 shape the generated code has. Anything else would be advice that does not
 compile.
 
-The upstream half, `diagnose.CallError`, exists and is exercised by tests, but
-nothing on `main` calls it yet: the code path that would — the exec service
-catching a `-32602` from a tool call — is being rebuilt concurrently. The
-signature is deliberately a plain struct in, diagnostics out, with no daemon
-types in it, so that wiring is one call.
+The upstream half, `diagnose.CallError`, runs in `Registry.Call`
+(`internal/daemon/callerr.go`), the one place a failed call passes on its way
+to every surface. The server's error stays first and whole; the rendered
+diagnostic follows it, and `/v1/call` carries the same finding as data:
+
+```json
+{"error": "mcp error -32602: Invalid params\ndemo.create_issue: the call was rejected and repo is required but was not sent (schema changed 2026-09-30: `repo` was added and is required)\n  minimum:    await demo.create_issue({ repo: \"\", ... })",
+ "diagnostics": [{"kind": "invalid-params", "tool": "demo.create_issue", "field": "repo",
+   "changed": {"when": "2026-09-30T…", "kind": "argument-added", "what": "`repo` was added and is required"},
+   "fix": "await demo.create_issue({ repo: \"\", ... })", "fatal": true}]}
+```
+
+So `mcpx call` prints it, `mcpx --json call` puts the document on stdout, a
+task's result carries it, a script's `ToolError` has `.diagnostics`, and
+`mcpx_call` shows the text. Data beside the prose, because an agent can act on
+`field` where it would have to parse a sentence.
+
+Three conditions decide whether it runs, and each is there because of what it
+said without them. Only an answer from a server is explained: a timeout or a
+server that would not start never answered, so the arguments were not at
+fault. Not a code in `-32000..-32099`: mcpx's own client reports a dropped
+connection as `-32000 connection closed: unexpected EOF`, and the text match
+read "unexpected" as "expected" — a crash was explained as a missing argument.
+And not a namespace whose schemas have not been read, where `CallError` said
+"no server is configured under this namespace" about a configured server; it
+used to answer that for any failure, before it looked at the code at all.
+
+Not covered: `mcpx_call` from a client that can answer questions goes through
+`CallAsk`, which leases the pool itself; `/v1/call/{server}/{tool}` carries the
+text but not the field; and a server that reports bad arguments as a result
+with `isError` has made a successful call, so there is no failure to explain.
 
 `--diagnose-preflight` is on by default on `run` and `exec`. The failure it
 catches surfaces otherwise as an error from a server, halfway through, after
@@ -175,17 +201,17 @@ stay out of a model's context; a generation request has to send some, so it
 sends as few as it can.
 
 The generated script is validated with the step-1 diagnostics before anything
-runs, and returned rather than run unless `mode: run` is asked for.
+runs, and returned rather than run unless `autonomy: run` is asked for.
 
 ## Running a script from the daemon
 
 `recipe_run` and `intent` in run mode need to execute something, and the
 daemon has never run scripts. `Server.execScript` calls `internal/runner`
 directly, against the daemon's own endpoint. **This is a seam, not a design.**
-Another agent is building `POST /v1/exec` with its own options and permission
-model; when it lands, `execScript` becomes a call into it. It is one function,
-marked, for exactly that reason. Until then a recipe that cannot be run is
-half a feature.
+`POST /v1/exec` has since landed, with its own options and permission model
+(`internal/api/ops_exec.go`, `internal/daemon/routes_exec.go`), but
+`execScript` (`internal/daemon/consumer.go:517`) has not yet been rerouted
+through it. It is one function, marked, for exactly that reason.
 
 ## The concerns from the issue, and what was decided
 
@@ -198,7 +224,8 @@ the one that makes mcpx an agent. Sampling through the caller is the opposite
 specification is for.
 
 **Trust — "generated code runs with the user's credentials."** Return the
-script by default (`prompt.mode: script`); run only on explicit request.
+script by default (`prompt.autonomy: propose`, one level of the dial in
+[decisions/0002](decisions/0002-autonomy-dial.md)); run only on explicit request.
 Recipe values are JSON-encoded, so a recipe cannot be turned into an injection
 site by its arguments. A recipe name that would become a path is refused.
 

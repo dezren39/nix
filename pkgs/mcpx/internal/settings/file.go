@@ -31,7 +31,8 @@ func (s *Schema) ApplyFile(set *Set, doc map[string]any, path string, rank int) 
 
 	var unknown []string
 	for _, k := range keys {
-		if _, ok := s.Lookup(k); !ok {
+		decl, ok := s.Lookup(k)
+		if !ok {
 			// A key that is only a branch -- "logging", when "logging.level"
 			// is a setting -- is not unknown, it is the path to one. And a
 			// section that is not settings at all, like mcpServers, is the
@@ -45,6 +46,9 @@ func (s *Schema) ApplyFile(set *Set, doc map[string]any, path string, rank int) 
 			}
 			unknown = append(unknown, k)
 			continue
+		}
+		if err := decl.Writable(); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
 		}
 		if err := set.Apply(k, flat[k], Origin{
 			Layer: LayerFile, Detail: path, Rank: rank,
@@ -187,6 +191,9 @@ func (s *Schema) Describe(includePlumbing bool) string {
 		if set.Plumbing {
 			tag = "  [plumbing]"
 		}
+		if set.Bootstrap {
+			tag += "  [environment or --" + set.FlagName() + " only]"
+		}
 		fmt.Fprintf(&b, "  %-34s %-9s default %s%s\n", set.Path, set.Kind, quoteEmpty(set.Default), tag)
 		if set.Short != "" {
 			fmt.Fprintf(&b, "  %-34s %s\n", "", set.Short)
@@ -233,6 +240,7 @@ func (s *Schema) JSON(includePlumbing bool) string {
 		Repeatable bool     `json:"repeatable,omitempty"`
 		Commands   []string `json:"commands,omitempty"`
 		Plumbing   bool     `json:"plumbing,omitempty"`
+		Bootstrap  bool     `json:"bootstrap,omitempty"`
 	}
 	var out []entry
 	for _, set := range s.All() {
@@ -245,7 +253,7 @@ func (s *Schema) JSON(includePlumbing bool) string {
 			Flag: set.FlagName(), FlagAlias: set.FlagAliases,
 			Env: set.EnvName(), EnvAlias: set.EnvAliases,
 			Enum: set.Enum, Bare: set.Bare, Repeatable: set.Repeatable,
-			Commands: set.Commands, Plumbing: set.Plumbing,
+			Commands: set.Commands, Plumbing: set.Plumbing, Bootstrap: set.Bootstrap,
 		})
 	}
 	b, _ := json.MarshalIndent(out, "", "  ")

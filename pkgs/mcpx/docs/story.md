@@ -17,8 +17,10 @@ read, write, edit, bash, glob, grep. Nothing named "browser", nothing named
 their schemas is in the agent's context, which is the entire point, but the
 agent does not know that yet.
 
-What it does have is one instruction file, 62 lines, injected at session start.
-It reads:
+What it does have is one instruction file, [`AGENTS.md`](../AGENTS.md),
+injected at session start. Abridged -- the full file is 109 lines and adds
+profiles, per-tool `types`, `catalog --budget` and the `globalThis` bindings,
+which this walk does not need and #264 is about -- it reads:
 
 ```markdown
 # mcpx
@@ -1616,8 +1618,12 @@ only job is to shell out, and there are hundreds of such programs.
   ] }] }
 ```
 
-That is git as an MCP server. It appears in `tools/list`, it is callable from
-a script, and `mcpx adapter check` says whether the binary is even installed.
+That is git as an MCP server. It appears in `tools/list`, and `mcpx adapter
+check` says whether the binary is even installed. It is not yet callable from
+a script: adapted tools are attached as MCP extras and the generated client is
+built from the catalog, which does not see them (#102), so a script reaches
+them through `mcpx_exec` rather than as `git.log(...)`. #83 is the design that
+closes that.
 
 **Not a shell escape.** A tool is a named subcommand with declared parameters,
 so a model cannot invent a command line and what is reachable is exactly what
@@ -2032,8 +2038,8 @@ the first request rather than failing with a 401 nobody can interpret.
 
 ```
 created:      2026-09-28T22:00:00-05:00
-last-updated: 2026-09-28T22:00:00-05:00
-increment:    1
+last-updated: 2026-09-30T14:30:00-05:00
+increment:    2
 status:       standard
 tags:         area:protocol
 description:  the features that are not tools, and which of them mcpx has.
@@ -2066,7 +2072,10 @@ cursor is opaque -- base64 of an offset -- because the specification says so
 and a client that parses one is relying on something it was told not to. An
 *invalid* cursor starts from the beginning rather than failing: a client
 cannot validate an opaque value before sending it, so refusing would strand
-one that has nothing better to send.
+one that has nothing better to send. That is a deliberate departure from a
+SHOULD -- the specification asks for `-32602`, and
+[`docs/spec/server-obligations.md`](./spec/server-obligations.md) §4.3 records
+the obligation being departed from. #257 is where it gets revisited.
 
 **Completion.** `completion/complete` answers from what mcpx already holds.
 A client that offers autocomplete and receives method-not-found shows
@@ -2077,17 +2086,20 @@ interrupt an in-flight upstream call -- that needs the request id plumbed
 through the pool -- but a cancellation silently discarded leaves a client
 unable to tell whether the message arrived.
 
-### Still not implemented, and declared as such
+**Sampling.** Shipped since this entry was written; see
+[Sampling](#sampling) below for what it does and the ordering bug that made
+it unreachable at first.
 
-**Sampling.** A server asking the client for a model completion. mcpx has no
-model. The honest answer is a pass-through to whatever is driving it, the
-same shape elicitation uses, and that is worth building once something asks.
+### Still not implemented, and declared as such
 
 Capabilities are declared only where mcpx can actually deliver. Claiming one
 it cannot serve invites a server to use it and get silence, which is worse
-than not offering it at all.
+than not offering it at all. What mcpx declares, per revision and per
+direction, is [`docs/protocol.md`](./protocol.md) §2.2; what the
+specification would require of a server that declared more is
+[`docs/spec/server-obligations.md`](./spec/server-obligations.md).
 
-2026-09-28T22:00:00-05:00
+2026-09-30T14:30:00-05:00
 
 ## One daemon, many clients
 
@@ -2387,22 +2399,41 @@ offers it, because a result nobody collects is memory nobody frees.
 
 ```
 created:      2026-09-27T04:20:00-05:00
-last-updated: 2026-09-27T05:05:00-05:00
-increment:    1
+last-updated: 2026-09-30T16:10:00-05:00
+increment:    3
 status:       standard
 tags:         area:packaging, platform:nix
-description:  buildGoModule with vendorHash = null; unit tests run in the
+description:  buildGoModule with a pinned vendorHash; unit tests run in the
               sandbox; deno, bun and node are pinned on the wrapper's PATH.
 ```
 
-mcpx has one third-party Go dependency: `modernc.org/sqlite`, which backs the
-log index. It is a pure-Go translation rather than the usual cgo driver,
-because a cgo driver would make this derivation need a C toolchain and would
-break cross-compilation, for a database that is only ever an index over files
-that remain the source of truth.
+mcpx has **five** direct third-party Go dependencies. `modernc.org/sqlite`
+backs the log index, and it is a pure-Go translation rather than the usual cgo
+driver, because a cgo driver would make this derivation need a C toolchain and
+would break cross-compilation, for a database that is only ever an index over
+files that remain the source of truth. The other four are one decision each:
+`bubbletea`, `bubbles` and `lipgloss` for the browser, and `gopkg.in/yaml.v3`
+for OpenAPI documents. Each is argued in
+[`package.nix`](../package.nix) and listed with its reason in
+[`docs/dependencies.md`](./dependencies.md).
 
-The wrapper suffixes `deno`, `bun-bin` and `nodejs` onto `PATH` so script
-execution does not depend on the calling shell.
+This entry and `docs/dependencies.md` both said "one" until the browser and the
+OpenAPI work landed, while the browser entry above already described three of
+the four by name — the file disagreed with itself, which is how a count that
+nothing checks decays.
+
+That reasoning was written down and not enforced: `buildGoModule` leaves cgo
+enabled on a native build, so the derivation was free to link against a C
+toolchain the comment said it must not need. `CGO_ENABLED=0` is now set in the
+derivation itself. It surfaced on a machine with a symlinked `/nix`, where the
+cc-wrapper's purity check trips on gcc canonicalising the path -- a build that
+should never have consulted a C compiler failing because of one.
+
+The wrapper suffixes `git`, `deno`, `bun-bin` and `nodejs` onto `PATH`, so
+script execution does not depend on the calling shell and the two repository
+layouts native discovery cannot read still resolve. `git` is a *suffix*, not a
+prefix, and since #223 nothing on the default path needs it -- see
+[Finding the repository without git](#finding-the-repository-without-git).
 
 The man page and the shell completions are generated by the binary the build
 just produced, so they describe the commands and settings this build actually
@@ -2410,9 +2441,259 @@ has. A man page maintained separately is wrong within two releases.
 
 `nix build .#mcpx` runs the unit suites in the sandbox. The end-to-end suite
 spawns JavaScript runtimes and binds unix sockets, so it runs outside with
-`go test ./...`.
+`go test ./...`. The sandbox list is hand-written (`package.nix`), and of the
+32 packages under `internal/` that have tests it names 18 — `internal/e2e` is
+excluded on purpose, and the other fourteen, `internal/api`, `internal/cli`
+and `internal/mcpclient` among them, by drift. A list maintained beside a
+generated one, which is the failure mode this document keeps finding (#285).
 
-2026-09-27T05:05:00-05:00
+2026-09-30T16:10:00-05:00
+
+## The comparison register
+
+```
+created:      2026-09-30T08:00:00-05:00
+last-updated: 2026-09-30T14:30:00-05:00
+increment:    2
+status:       standard
+tags:         area:compare, area:protocol
+description:  511 rows, one per difference between mcpx and the five MCP
+              revisions, opencode v1 and v2, lootbox and Cloudflare code mode.
+```
+
+mcpx sits between things that disagree: five revisions of the protocol, two of
+them eras apart; two opencodes with different plugin APIs; three other ways to
+run code against MCP tools. Every argument about what mcpx should do next was
+being had from memory.
+
+[`docs/compare/`](./compare/) is the register that replaced the memory. One
+row per difference -- one field, one method, one error code, one header, one
+behaviour -- with where it exists, what mcpx did at commit `05c78b2`, what
+adopting it is worth, what it would cost, and a citation for every claim. 511
+rows; 171 of them labelled `mcpx missing`.
+
+**The point of a register is that it is specific enough to be wrong.** A
+prose comparison says "mcpx has partial 2026 support"; a register says
+`server/discover` answers `protocolVersions` where the schema says
+`supportedVersions`, at `internal/mcpserver/server.go:534`, against
+`schema/2026-07-28/schema.ts:678`. The second can be checked, and checking it
+produced twenty-four issues (#199 through #220 and their siblings), each
+grouping the rows one fix would close. Several were fixed in the same week
+the register was written.
+
+It is dated on purpose. The status column is `mcpx @ 05c78b2` and says so in
+every table header, because a status column with no commit behind it is a
+column nobody can falsify. Twenty-seven pull requests have landed since; the
+README lists them and says the column is stale rather than pretending
+otherwise.
+
+2026-09-30T14:30:00-05:00
+
+## Finding the repository without git
+
+```
+created:      2026-09-30T07:30:00-05:00
+last-updated: 2026-09-30T14:30:00-05:00
+increment:    2
+status:       standard
+tags:         area:config, area:packaging
+description:  the repo and worktree scopes read .git themselves, so git is no
+              longer a runtime dependency and the image lost 105 MB.
+```
+
+A server scoped `repo` gets one process per clone; one scoped `worktree` gets
+one per checkout. Both keys used to come from forking git twice per directory
+-- `rev-parse --git-common-dir` and `--show-toplevel` -- and caching the
+answers, negative ones included, for the daemon's lifetime.
+
+That cost four things, and three of them were only found by building the
+replacement:
+
+- **105 MB of the container image.** Debian's git depends on perl outright.
+- **It did not work in the container anyway.** A checkout mounted into the
+  image is owned by the host's uid and the image runs as uid 1000, so git
+  refuses it: `fatal: detected dubious ownership in repository at
+  '/work/proj'`. git was in the image *so that these scopes would work*, and
+  in the ordinary way of using the image they silently fell back to
+  per-directory keys.
+- **The daemon's environment leaked into every caller's key.** An autostarted
+  daemon inherits the environment of whoever ran mcpx first. A git hook
+  exports `GIT_DIR`; a hook that runs mcpx leaves a daemon carrying it for
+  hours, and every later caller from any directory was then keyed to that one
+  repository.
+- **The cache made the first answer permanent.** A directory that became a
+  repository after the first call there stayed "not a repository" until the
+  daemon exited.
+
+mcpx now reads `.git` itself -- a port of git's own discovery rules, written
+against them and recorded in [`docs/git-discovery.md`](./git-discovery.md)
+layout by layout. git is still consulted, once, for the two layouts the
+native reader deliberately does not implement, and if it is absent those
+layouts degrade to `cwd` with a log line and a `doctor` warning saying which
+layout and why. That is the whole of the dependency: no fetching, no writing,
+no network.
+
+The environment leak is pinned by
+`TestTheDaemonsOwnGitDirDoesNotPinEveryCaller`, which fails against the old
+code. The image went from 413 MB to 288 MB.
+
+`doctor` keeps its git row. An optional dependency whose absence changes
+behaviour is exactly the thing a diagnostic should report -- dropping the row
+because git became optional would have hidden the one case where its absence
+still matters.
+
+2026-09-30T14:30:00-05:00
+
+## Measured against the official suite
+
+```
+created:      2026-09-30T09:00:00-05:00
+last-updated: 2026-09-30T14:30:00-05:00
+increment:    3
+status:       standard
+tags:         area:protocol, area:conformance
+description:  every frame validated against the real schema, and the official
+              MCP conformance suite run against a live daemon in both
+              directions.
+```
+
+mcpx claims five revisions in each direction. Until this, all five claims were
+tested against mcpx's idea of them.
+
+Two things changed that. First, `internal/mcpspec` validates real traffic
+against the official schemas for all five revisions, in strict mode when mcpx
+is the sender: a key some *other* revision defines is a failure, because
+"send conservatively" is precisely the rule a lenient check cannot see. That
+is what makes a passing test mean something -- the previous tests pinned the
+wrong `server/discover` field name on both sides at once, which is how it
+passed CI for weeks.
+
+Second, there is now an **official** suite: `modelcontextprotocol/conformance`.
+It is not optional folklore. SEP-2484, Final, makes a merged conformance
+scenario a condition of a Standards Track SEP reaching Final, and SEP-1730
+ties SDK tiering to a score from it. Its `requirements/<revision>.yaml` files
+are frozen, so an implementation is measured against the suite as it stood
+when it was expected to conform. `scripts/conformance.sh` runs both legs: mcpx
+as a server at the daemon's `/mcp`, and -- through
+`internal/conformance/officialclient` -- mcpx as the client under test.
+
+It found real defects, including two that no amount of reading found: a
+modern request missing `_meta` was answered `-32020` when the specification
+and mcpx's own doc comment both say `-32602`, and the five methods 2026-07-28
+*removed* were still being answered to 2026-07-28 peers. The second is the
+limit of "accept liberally": offering a method a revision never had withholds
+nothing, but answering one it removed contradicts the specification naming the
+replacement.
+
+| requirement set | at `05c78b2`, before this work | at `408bc2b` |
+| --- | --- | --- |
+| `2026-07-28` | 59 passed / 104 failed | **116 / 54** |
+| `2025-11-25` | 47 / 19 | **45 / 21** |
+
+**Read those failure counts carefully; most are not defects.** The suite's
+scenarios assume a server implementing its own fixture surface -- tools named
+`slow_compute`, prompts named `test_simple_prompt`, resources under `test://`.
+mcpx is a proxy: it publishes its own small tool set and namespaces every
+upstream resource as `mcpx://<namespace>/<uri>`. A scenario that cannot find
+its fixture fails without ever reaching a protocol assertion. Every one of the
+21 on 2025-11-25 is that; roughly 50 of the 54 on 2026-07-28 are. The genuine
+remainder is about four, and they carry issue numbers (#199, #209).
+
+2025-11-25 went *down*, from 47 to 45, and that is the same story from the
+other side. #247 taught mcpx to actually arrange an upstream subscription
+rather than acknowledging one and subscribing nothing. The suite subscribes to
+`test://watched-resource`, which no upstream owns, and mcpx now says so. An
+honest refusal replaced a dishonest pass and scored worse for it (#251).
+
+What the specification asks of a server, revision by revision -- including the
+obligations the prose implies but never states -- is
+[`docs/spec/server-obligations.md`](./spec/server-obligations.md).
+
+2026-09-30T14:30:00-05:00
+
+## Decision records
+
+```
+created:      2026-09-30T10:00:00-05:00
+last-updated: 2026-09-30T14:30:00-05:00
+increment:    1
+status:       standard
+tags:         area:process
+description:  when two issues answer one question differently, the answer is
+              written down before either is built.
+```
+
+An audit of the backlog found eighteen collisions between themes: pairs of
+issues proposing different answers to the same question, written by people who
+could not see each other's work, none with an owner. Each would have been a
+breaking change whenever the second one was built.
+
+[`docs/decisions/`](./decisions/) holds the answer to each. A record says what
+the code already does, what each issue proposed, which option was taken and
+why, and exactly what every affected issue has to change as a result. Three
+exist: the hook vocabulary and where a hook's output goes in the exec stream;
+one autonomy dial with a ceiling the daemon sets; and what mcpx *declares*
+against what it *enforces*.
+
+Two rules keep them honest. **A record that lists options without choosing one
+does not belong here** -- that is a design document, and it is the shape a
+decision takes when nobody wants to decide. And **a change that contradicts an
+accepted record changes the record in the same pull request, or it does not
+merge**: a record nobody is obliged to update is a record that describes last
+month.
+
+2026-09-30T14:30:00-05:00
+
+## A command for every operation
+
+```
+created:      2026-09-30T13:00:00-05:00
+last-updated: 2026-09-30T14:30:00-05:00
+increment:    2
+status:       standard
+tags:         area:cli, area:parity
+description:  the CLI, /v1, the MCP tools and the plugin are four renderings
+              of one declaration, and tests hold each direction.
+```
+
+`config = env = cli = /v1 = mcp` had been the rule from the start, and the
+CLI was the surface that kept falling behind: an operation was easy to add to
+the ops table and easy to forget on the command line, and nothing noticed.
+
+A command is now *generated* from its operation's declaration -- flags from
+its parameters, positionals for its path -- so it exists the moment the
+operation does. Sixty operations, each with a route and a plugin method;
+fifty-nine with an MCP tool, because one of them streams and a tool call
+cannot. Fifty-two commands, because some cover several operations.
+[`docs/parity.md`](./parity.md) is generated from the same four declarations,
+which is why it cannot describe a surface that does not exist or leave one
+out, and ten tests hold the seven directions between them -- including that
+every command the binary runs is declared, and every declared one runs.
+
+`mcpx openapi` was the same failure one level up. It printed a hand-written
+map maintained beside the generated one, and the map had drifted to describing
+a command that was removed: its only declared server was `mcpx serve
+--transport http`, which refuses to run, and it listed none of the `/v1`
+operations. Thirteen paths against sixty-four. There is now one document --
+the command adds to the bytes the daemon serves rather than competing with
+them -- and it stays publishable, because the daemon templates upstream tools
+as `/v1/tools/{tool}` instead of enumerating a particular machine's:
+
+```
+$ mcpx openapi | jq '.paths | length'
+64
+$ mcpx openapi | jq -c .servers
+[{"description":"over the daemon's unix socket","url":"http://mcpx"},{"description":"the loopback endpoint reported by /v1/health","url":"http://127.0.0.1:0"}]
+```
+
+
+**Privileged operations are offered, not hidden.** A caller that can reach the
+socket can already stop the daemon, so withholding the tool buys no safety and
+costs an agent the ability to restart a server that has wedged. What they
+carry instead is a description saying so and the MCP annotations
+(`readOnlyHint`, `destructiveHint`) a client can scope on.
+
+2026-09-30T14:30:00-05:00
 
 ---
 
@@ -2499,18 +2780,34 @@ same problem opencode v2 solves for its PTY daemon with a handoff ticket.
 
 ```
 created:      2026-09-27T05:05:00-05:00
-status:       proposed
+last-updated: 2026-09-30T14:30:00-05:00
+increment:    2
+status:       partial
 tags:         area:ops, area:packaging
 ```
 
 A nix-darwin module existed and was dropped when the package moved into the
 nix repo. Wanted: `mcpx service install` emitting a launchd plist or systemd
-unit, plus `mcpx completions bash|zsh|fish`.
+unit.
+
+**The systemd half now exists as a template rather than a command.**
+[`daemon/mcpx.service`](../daemon/mcpx.service) is a user unit --
+`default.target`, `Restart=on-failure` -- with
+[`daemon/README.md`](../daemon/README.md) giving the install, verify and log
+commands. A *user* unit rather than a system one because config and state
+belong in the real `$HOME`, and a system unit running as root would need a
+`HOME` override to find either.
+
+A file you copy is not the same as a command that writes it, so this stays
+`partial`: there is still no `mcpx service install`, nothing emits a launchd
+plist, and macOS gets nothing. The completions half of the original want is
+done -- `mcpx completion bash|zsh|fish` exists, and the Nix build already
+installs what it prints.
 
 Until then the daemon starts on demand from any command, which is the
 supported path.
 
-2026-09-27T05:05:00-05:00
+2026-09-30T14:30:00-05:00
 
 ### Alternative input modes
 
@@ -2588,8 +2885,9 @@ else in this document is detail underneath those four verbs.
 
 # Notes and links
 
-- [`AGENTS.md`](../AGENTS.md) — the instruction file quoted above. This is the
-  text to inject into an agent's session; it is deliberately 62 lines.
+- [`AGENTS.md`](../AGENTS.md) — the instruction file abridged above. This is
+  the text to inject into an agent's session; it is deliberately short, and
+  109 lines today. The quote above is not the whole of it (#264).
 - [`ASSESSMENT.md`](../ASSESSMENT.md) — why this exists, with the measurements
   against the predecessor it replaced.
 - [`OPENCODE-V2.md`](../OPENCODE-V2.md) — how this compares to opencode v2's

@@ -10,6 +10,7 @@ func execOps() []Op {
 	return []Op{
 		{
 			Name: "exec", Method: "POST", Path: "/v1/exec",
+			Command: "exec",
 			Summary: "Run TypeScript on the daemon",
 			Description: "The same execution `mcpx exec` performs, hosted by the daemon " +
 				"instead of by the CLI. That is what lets a caller with no mcpx " +
@@ -48,16 +49,19 @@ func execOps() []Op {
 				{Name: "run", In: InQuery, Type: "string", Desc: "the exec run this belongs to"},
 				{Name: "session", In: InQuery, Type: "string", Desc: "the session this belongs to"},
 				{Name: "ttl", In: InQuery, Type: "string", Desc: "how long to keep it, as a duration"},
+				{Name: "content", In: InBody, Type: "string", Required: true, Raw: true,
+					Desc: "the bytes, sent as the whole request body; on the command line, @path reads a file and - reads stdin"},
 			},
 		},
 		{
 			Name: "artifacts_list", Method: "GET", Path: "/v1/artifacts",
+			CLI:         "artifact list",
 			Summary:     "Files scripts produced, newest first",
 			Description: "Filter by run to collect one execution's output, or by session.",
 			Params: []Param{
 				{Name: "run", In: InQuery, Type: "string", Desc: "only this run's artifacts"},
 				{Name: "session", In: InQuery, Type: "string", Desc: "only this session's artifacts"},
-				{Name: "limit", In: InQuery, Type: "integer"},
+				{Name: "limit", In: InQuery, Type: "integer", Desc: "how many to return, newest first"},
 			},
 		},
 		{
@@ -68,17 +72,18 @@ func execOps() []Op {
 				"and a Content-Disposition naming the sanitised filename.",
 			Text: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the artifact's id, as returned when it was stored"},
 			},
 		},
 		{
 			Name: "artifact_delete", Method: "DELETE", Path: "/v1/artifacts/{id}",
-			Summary: "Forget one artifact",
+			Idempotent: true,
+			Summary:    "Forget one artifact",
 			Description: "The registration goes, and the body with it once no other " +
 				"registration shares that content.",
 			Admin: true, Mutating: true, Destructive: true,
 			Params: []Param{
-				{Name: "id", In: InPath, Type: "string", Required: true},
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the artifact's id, as returned when it was stored"},
 			},
 		},
 	}

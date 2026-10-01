@@ -43,6 +43,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { DaemonOps } from "./ops.gen.ts"
+
 /**
  * Every tunable in one place.
  *
@@ -338,6 +340,15 @@ const withTimeout = (ms: number): RequestInit => {
 export class DaemonClient {
   constructor(readonly target: Target) {}
 
+  /**
+   * Every /v1 operation as a typed method, generated from the table the
+   * routes are declared in (`ops.gen.ts`). The named methods below are
+   * conveniences over some of them, with typed answers; these are the whole
+   * surface, so nothing the daemon serves is reachable only through a
+   * hand-built URL.
+   */
+  readonly ops: DaemonOps = new DaemonOps((path, init) => this.raw(path, init))
+
   private url(path: string): string {
     // Any host works over a socket; the dispatcher ignores it.
     return this.target.kind === "socket" ? `http://mcpx${path}` : this.target.base + path
@@ -396,7 +407,11 @@ export class DaemonClient {
     })
   }
 
-  /** Whether the daemon is answering, and what it says about itself. */
+  /**
+   * Whether the daemon is answering, and what it says about itself.
+   *
+   * @op health
+   */
   async health(timeoutMs = TUNING.healthTimeoutMs): Promise<
     { status: string; version?: string; pid?: number; uptime?: string; endpoint?: string } | undefined
   > {
@@ -412,12 +427,20 @@ export class DaemonClient {
     return (await this.health()) !== undefined
   }
 
-  /** The daemon, its pools and live instances. */
+  /**
+   * The daemon, its pools and live instances.
+   *
+   * @op status
+   */
   status(): Promise<DaemonStatus> {
     return this.get("/v1/status")
   }
 
-  /** Which daemon serves a directory. Undefined when the route is absent. */
+  /**
+   * Which daemon serves a directory. Undefined when the route is absent.
+   *
+   * @op resolve
+   */
   async resolve(dir: string): Promise<Resolution | undefined> {
     try {
       const res = await this.raw(
@@ -431,12 +454,20 @@ export class DaemonClient {
     }
   }
 
-  /** Every namespace, with tool counts. */
+  /**
+   * Every namespace, with tool counts.
+   *
+   * @op namespaces
+   */
   namespaces(): Promise<Array<{ namespace: string; tools: number; description?: string }>> {
     return this.get("/v1/namespaces?_")
   }
 
-  /** TypeScript signatures for namespaces -- `mcpx types` without a spawn. */
+  /**
+   * TypeScript signatures for namespaces -- `mcpx types` without a spawn.
+   *
+   * @op types
+   */
   types(ns?: string): Promise<string> {
     return this.text(`/v1/types${ns ? `?ns=${encodeURIComponent(ns)}` : ""}`)
   }
@@ -447,6 +478,8 @@ export class DaemonClient {
    * Returns undefined when the daemon has no /v1/exec, which is how a caller
    * knows to fall back rather than reporting a failure that is really a
    * version difference.
+   *
+   * @op exec
    */
   async exec(source: string): Promise<{ output?: string; result?: unknown } | undefined> {
     const res = await this.postRaw("/v1/exec", {
@@ -458,23 +491,30 @@ export class DaemonClient {
     return (await res.json()) as { output?: string; result?: unknown }
   }
 
-  /** Call one tool. */
+  /**
+   * Call one tool.
+   *
+   * Through the generated method, so the body's keys are the route's. This
+   * was hand-built and sent the arguments as `arguments` and the session as
+   * `sessionId`; /v1/call reads `args` and `session`, ignored both, and
+   * called every tool with no arguments at all.
+   *
+   * @op call
+   */
   call(
     namespace: string,
     tool: string,
     args: Record<string, unknown>,
     session?: string,
   ): Promise<{ result: unknown }> {
-    return this.post("/v1/call", {
-      server: namespace,
-      tool,
-      arguments: args,
-      sessionId: session,
-      callId: session,
-    })
+    return this.ops.call({ server: namespace, tool, args, session }) as Promise<{ result: unknown }>
   }
 
-  /** Questions a server is waiting on an answer for. */
+  /**
+   * Questions a server is waiting on an answer for.
+   *
+   * @op elicit_list
+   */
   pendingElicitations(session?: string): Promise<unknown[]> {
     const q = session ? `?session=${encodeURIComponent(session)}` : ""
     return this.get(`/v1/elicit${q}`)
@@ -486,6 +526,8 @@ export class DaemonClient {
    * The action is in the path and the body is only ever content, so there is
    * no way to send an accept with the wrong shape or a decline with content
    * that will be ignored.
+   *
+   * @op elicit_answer
    */
   answer(id: string, action: "accept" | "decline" | "cancel", content?: unknown): Promise<unknown> {
     return this.post(`/v1/elicit/${encodeURIComponent(id)}/${action}`, content ?? {})
@@ -497,18 +539,29 @@ export class DaemonClient {
    * The filters are the ones the command takes, and the daemon runs them
    * through the same query builder, so a plugin and a prompt select the same
    * records.
+   *
+   * @op log_query
    */
   logQuery(filter: LogFilter = {}): Promise<{ records: LogRecord[]; chain?: LogChainLevel[] }> {
     return this.get(`/v1/log${query(filter)}`)
   }
 
-  /** Aggregate the log: `mcpx stats` as JSON. */
+  /**
+   * Aggregate the log: `mcpx stats` as JSON.
+   *
+   * @op stats_query
+   */
   stats(opts: StatsQuery = {}): Promise<{ dimension: string; rows: unknown }> {
     return this.get(`/v1/stats${query(opts)}`)
   }
 
-  /** Search the public registry for servers that are not configured here. */
-  registrySearch(q: string, limit?: number): Promise<{ servers: RegistryEntry[] }> {
+  /**
+   * Search the public registry for servers that are not configured here.
+   * `truncated` means the registry had more than came back.
+   *
+   * @op registry_search
+   */
+  registrySearch(q: string, limit?: number): Promise<{ servers: RegistryEntry[]; truncated: boolean }> {
     return this.get(`/v1/registry/search${query({ q, limit })}`)
   }
 
@@ -519,6 +572,8 @@ export class DaemonClient {
    * rather than from the server itself -- worth showing differently, because
    * an empty list from a server and an empty list from a guess mean
    * different things.
+   *
+   * @op complete
    */
   complete(req: CompleteRequest): Promise<{ completion: Completion; upstream: boolean }> {
     return this.post("/v1/complete", req)
@@ -529,6 +584,8 @@ export class DaemonClient {
    *
    * For anything slow enough that holding a request open would invite an
    * intermediary to time it out.
+   *
+   * @op call
    */
   callAsTask(
     namespace: string,
@@ -545,27 +602,47 @@ export class DaemonClient {
     })
   }
 
-  /** Every task this daemon holds. */
+  /**
+   * Every task this daemon holds.
+   *
+   * @op tasks_list
+   */
   tasks(): Promise<{ tasks: Task[] }> {
     return this.get("/v1/tasks")
   }
 
-  /** One task's status. */
+  /**
+   * One task's status.
+   *
+   * @op task_get
+   */
   task(id: string): Promise<Task> {
     return this.get(`/v1/tasks/${encodeURIComponent(id)}`)
   }
 
-  /** Wait for a task and collect its result. */
+  /**
+   * Wait for a task and collect its result.
+   *
+   * @op task_result
+   */
   taskResult(id: string, waitMs?: number): Promise<{ result: unknown }> {
     return this.get(`/v1/tasks/${encodeURIComponent(id)}/result${query({ waitMs })}`)
   }
 
-  /** Stop a running task. */
+  /**
+   * Stop a running task.
+   *
+   * @op task_cancel
+   */
   cancelTask(id: string): Promise<Task> {
     return this.post(`/v1/tasks/${encodeURIComponent(id)}/cancel`, {})
   }
 
-  /** Stop this daemon. Used when the user picks one and wants the rest gone. */
+  /**
+   * Stop this daemon. Used when the user picks one and wants the rest gone.
+   *
+   * @op shutdown
+   */
   async shutdown(): Promise<boolean> {
     try {
       const res = await this.postRaw("/v1/shutdown", {})
@@ -582,6 +659,8 @@ export class DaemonClient {
    *
    * Returns "absent" when the daemon has no settings API, so the caller can
    * explain that rather than reporting a failure the user cannot act on.
+   *
+   * @op settings_set
    */
   async putSetting(key: string, value: unknown, persist = true): Promise<"ok" | "absent" | "failed"> {
     try {
@@ -597,6 +676,8 @@ export class DaemonClient {
    * Append a record to mcpx's durable log -- `mcpx log record` without the
    * process. Same parser on the daemon side, so the record is identical to
    * one sent by spawning the binary.
+   *
+   * @op log_record
    */
   record(record: Record<string, unknown>, level?: "debug" | "info" | "warn" | "error"): Promise<unknown> {
     const q = level ? `?level=${level}` : ""

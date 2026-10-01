@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/dezren39/mcpx/internal/settings"
 )
 
 // OpenAPI describes the daemon's /v1 API.
@@ -12,9 +14,9 @@ import (
 // two releases, and a wrong specification is worse than none because people
 // trust it.
 //
-// This is not the same document `mcpx serve --http` publishes at
-// /openapi.json. That one describes the MCP tools; this one describes the
-// daemon API those tools proxy.
+// This is the /v1 half of the document `mcpx openapi` prints. That one adds
+// the MCP endpoint, a REST path per mcpx tool and the settings index; the
+// paths here are the same bytes in both, because there is one table.
 func OpenAPI(version string) map[string]any {
 	paths := map[string]any{}
 	for _, op := range Ops() {
@@ -44,10 +46,39 @@ func OpenAPI(version string) map[string]any {
 		},
 		"servers": []any{
 			map[string]any{"url": "http://mcpx", "description": "over the daemon's unix socket"},
-			map[string]any{"url": "http://127.0.0.1:0", "description": "the loopback endpoint reported by /v1/health"},
+			// A server variable rather than an absolute URL. daemon.port
+			// defaults to 0, which means "choose one at start-up", so the
+			// literal this replaced -- http://127.0.0.1:0 -- was an address
+			// nothing can ever be listening on. Offering it as a `servers`
+			// entry is the same defect as the entry it replaced, which named
+			// a command that refuses to run: a destination a client cannot
+			// send to. The variable says the port is chosen and where to
+			// read it, and keeps the document identical on every machine.
+			map[string]any{
+				"url":         "http://127.0.0.1:{port}",
+				"description": "the loopback endpoint; GET /v1/health reports the port this daemon chose",
+				"variables": map[string]any{
+					"port": map[string]any{
+						"default":     defaultPort(),
+						"description": "the daemon.port setting; its default of 0 means the daemon picks a free port and reports it from GET /v1/health",
+					},
+				},
+			},
 		},
 		"paths": paths,
 	}
+}
+
+// defaultPort is the declared default of daemon.port, read from the registry
+// so the document cannot disagree with `mcpx settings` about it.
+func defaultPort() string {
+	for _, s := range settings.Registry() {
+		if s.Path == "daemon.port" {
+			return s.Default
+		}
+	}
+	// Unreachable while the setting exists; a guard test holds that.
+	return "0"
 }
 
 func operation(op Op) map[string]any {
@@ -65,6 +96,9 @@ func operation(op Op) map[string]any {
 	body := map[string]any{}
 	var required []string
 	for _, p := range op.Params {
+		if p.Raw {
+			continue
+		}
 		if p.In == InBody {
 			var schema any
 			_ = json.Unmarshal([]byte(p.schema()), &schema)
@@ -88,7 +122,16 @@ func operation(op Op) map[string]any {
 	if len(params) > 0 {
 		out["parameters"] = params
 	}
-	if op.Method != "GET" {
+	if raw, ok := op.RawParam(); ok {
+		out["requestBody"] = map[string]any{
+			"required":    raw.Required,
+			"description": raw.Desc,
+			"content": map[string]any{
+				"application/octet-stream": map[string]any{
+					"schema": map[string]any{"type": "string", "format": "binary"}},
+			},
+		}
+	} else if op.Method != "GET" {
 		schema := map[string]any{"type": "object", "properties": body}
 		if len(required) > 0 {
 			schema["required"] = required

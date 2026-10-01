@@ -16,6 +16,7 @@ import (
 	"github.com/dezren39/mcpx/internal/api"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpclient"
@@ -283,8 +284,9 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 	client := registry.New(cs.String("registry.url"), registry.Options{
 		Timeout:  cs.Duration("registry.timeout"),
 		PageSize: cs.Int("registry.pageSize"),
+		MaxPages: cs.Int("registry.maxPages"),
 	})
-	servers, err := client.Search(r.Context(), r.URL.Query().Get("q"), limit)
+	res, err := client.Search(r.Context(), r.URL.Query().Get("q"), limit)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
@@ -295,8 +297,8 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 		Install   string `json:"install,omitempty"`
 		AddWith   string `json:"addWith"`
 	}
-	out := make([]entry, 0, len(servers))
-	for _, srv := range servers {
+	out := make([]entry, 0, len(res.Servers))
+	for _, srv := range res.Servers {
 		e := entry{Server: srv, Namespace: registry.Namespace(srv.Name),
 			AddWith: "mcpx registry add " + srv.Name + " --write"}
 		if in, ierr := srv.ToInstall(false); ierr == nil {
@@ -304,7 +306,7 @@ func (s *Server) handleRegistrySearch(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, e)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"servers": out})
+	writeJSON(w, http.StatusOK, map[string]any{"servers": out, "truncated": res.Truncated})
 }
 
 // ---- completion ----
@@ -426,7 +428,10 @@ func localCompletion(prompts []mcpclient.Prompt, templates []mcpclient.Resource,
 // taskStore is the daemon's own, created on first use so a daemon that never
 // runs one carries nothing.
 func (s *Server) taskStore() *tasks.Store {
-	s.taskOnce.Do(func() { s.tasks = tasks.New() })
+	s.taskOnce.Do(func() {
+		s.tasks = tasks.New()
+		s.tasks.PollInterval = s.set.Duration("protoTasks.pollInterval")
+	})
 	return s.tasks
 }
 
@@ -465,7 +470,13 @@ func (s *Server) handleTaskResult(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusRequestTimeout, map[string]any{
 			"error": "the task has not finished yet", "taskId": r.PathValue("id")})
 	case fault != nil:
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": fault.Message, "code": fault.Code})
+		body := map[string]any{"error": fault.Message, "code": fault.Code}
+		// Set by startCallTask, so a call collected later is explained the
+		// same as one answered at once.
+		if ds, ok := fault.Data.([]diagnose.Diagnostic); ok {
+			body["diagnostics"] = ds
+		}
+		writeJSON(w, http.StatusBadGateway, body)
 	default:
 		writeJSON(w, http.StatusOK, map[string]any{"result": result})
 	}
@@ -486,7 +497,11 @@ func (s *Server) startCallTask(ttl int64, server, tool string, cc config.CallCon
 		start := time.Now()
 		res, err := s.reg.Call(ctx, server, tool, cc, args)
 		if err != nil {
-			return nil, &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			f := &tasks.Fault{Code: http.StatusBadGateway, Message: err.Error()}
+			if ds := callDiagnostics(err); len(ds) > 0 {
+				f.Data = ds
+			}
+			return nil, f
 		}
 		return map[string]any{"result": res,
 			"durationMs": time.Since(start).Milliseconds()}, nil

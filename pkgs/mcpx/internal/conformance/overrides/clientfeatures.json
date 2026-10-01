@@ -1,0 +1,62 @@
+{
+  "roots-client-implement-access-controls": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-client-monitor-accessibility": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-client-monitor-root-changes": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-client-only-expose-permitted-roots": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-client-prompt-consent-before-exposing": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-client-provide-root-management-ui": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-client-validate-accessibility-before-exposing": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-client-validate-uris-path-traversal": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "roots-uri-must-be-file-scheme": {
+    "client": "n/a:mcpx exposes no roots -- the daemon configures none, so roots/list is always empty and there is nothing to validate, monitor or consent to"
+  },
+  "sampling-hints-evaluated-in-order": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-hints-over-priorities": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-hint-name-substring": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-hint-may-map-provider": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-client-respect-hints": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-client-may-ignore-model-preferences": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-client-may-ignore-includecontext": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-client-may-ignore-temperature-stop-metadata": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-client-may-sample-fewer-tokens": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-client-may-modify-system-prompt": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  },
+  "sampling-client-must-respect-maxtokens": {
+    "client": "n/a:mcpx runs no model; it relays the request unchanged to whatever answers it (the pass-through tests), which is where model choice and generation happen"
+  }
+}

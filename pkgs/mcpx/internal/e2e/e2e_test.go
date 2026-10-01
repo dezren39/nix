@@ -49,7 +49,7 @@ func newEnv(t *testing.T, cfgBody string) *env {
 		dir:  dir,
 		mcpx: mcpx,
 		fake: fake,
-		envVars: append(os.Environ(),
+		envVars: append(withoutMCPXVars(os.Environ()),
 			// Never the real registry. A test that reaches the internet
 			// fails wherever the internet is slow, which is every CI runner
 			// -- `/v1/registry/search` timed out there while passing on a
@@ -58,14 +58,38 @@ func newEnv(t *testing.T, cfgBody string) *env {
 			"MCPX_STATE_DIR="+filepath.Join(dir, "state"),
 			"MCPX_CACHE_DIR="+filepath.Join(dir, "cache"),
 			"MCPX_CONFIG="+filepath.Join(dir, ".mcpx.json"),
+			// Backstop for anything that escapes cleanup entirely -- an
+			// interrupted run, a panic before t.Cleanup, a daemon started by
+			// a child the harness never learned about. The default for an
+			// auto-started daemon is hours; at that length a few suite runs
+			// leave dozens of live daemons, each holding a fakemcp child.
+			// This is the setting `mcpx` gives the daemon it starts on
+			// demand, so it is the one the tests start.
+			"MCPX_AUTOSTART_IDLE_EXIT="+testIdleExit,
 		),
 	}
 	t.Cleanup(func() {
-		out, _ := e.try("stop")
-		_ = out
+		// `stop --all` rather than `stop`: plain `stop` dials the socket
+		// path recomputed from the environment, and a long state path moves
+		// the real socket to a private runtime directory keyed to the
+		// *caller's* TMPDIR, so the computed path misses and the daemon
+		// survives. `--all` reads the daemon-<key>.json info files instead,
+		// which record the path the daemon actually bound. Each env has its
+		// own MCPX_STATE_DIR, so `--all` is scoped to this test.
+		if out, err := e.try("stop", "--all"); err != nil {
+			// Logged, not fatal: a test that has already passed should not
+			// be failed by its own teardown, but a teardown that silently
+			// fails is how the leak went unnoticed for so long.
+			t.Logf("cleanup: mcpx stop --all failed: %v\n%s", err, out)
+		}
 	})
 	return e
 }
+
+// testIdleExit is how long a daemon a test started survives with nothing to
+// do. Short enough that a leak clears itself before the next run, long enough
+// that it cannot expire in the middle of a slow test.
+const testIdleExit = "60s"
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -1070,22 +1094,36 @@ func TestLogSourceIsOffByDefault(t *testing.T) {
 	}
 }
 
-func TestFilteredLogCallsAreCheap(t *testing.T) {
+// A filtered call must not touch what it was given, which is the whole point
+// of checking the level first: the cost a caller is trying to avoid is
+// building the argument, not the call.
+//
+// This was a wall-clock assertion -- 50k calls, fail over 0.5us each -- and it
+// failed at 1.559us on a loaded machine while short-circuiting perfectly.
+// The threshold did sit in a real gap (a call that formats and writes measures
+// ~16.5us here, not the ~0.1us the old comment claimed), but a 0.5us budget
+// measured by a wall clock on a shared machine loses that margin to a noisy
+// neighbour, and it did.
+//
+// A getter counts reads instead. Untouched is exactly the property, it is the
+// same answer whatever else the machine is doing, and it still discriminates:
+// at --log-level debug this same script reports touched=1000.
+func TestAFilteredLogCallNeverTouchesItsArguments(t *testing.T) {
 	e := newEnv(t, oneServer)
 	script := filepath.Join(e.dir, "cost.ts")
 	os.WriteFile(script, []byte(`import { log } from "./mcpx-client.ts";
 export default function main() {
-  const N = 50_000;
-  const t = performance.now();
-  for (let i = 0; i < N; i++) log.debug("filtered {i}", { i });
-  return { perCallUs: (performance.now() - t) * 1000 / N, enabled: log.enabled("debug") };
+  let touched = 0;
+  const probe = { get i() { touched++; return 1; } };
+  for (let i = 0; i < 1000; i++) log.debug("filtered {i}", probe);
+  return { touched, enabled: log.enabled("debug") };
 }
 `), 0o644)
 	out := e.run("run", "--log-level", "info", "--format", "bare", script)
 	start := strings.Index(out, "{")
 	var doc struct {
-		PerCallUs float64 `json:"perCallUs"`
-		Enabled   bool    `json:"enabled"`
+		Touched int  `json:"touched"`
+		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal([]byte(out[start:]), &doc); err != nil {
 		t.Fatalf("bad result: %v\n%s", err, out)
@@ -1093,10 +1131,8 @@ export default function main() {
 	if doc.Enabled {
 		t.Error("debug should report disabled at an info threshold")
 	}
-	// Serialising and writing would be ~0.1us; a stack trace ~5us. A
-	// short-circuited call should be far below either.
-	if doc.PerCallUs > 0.5 {
-		t.Errorf("a filtered call cost %.3fus; the level check is not short-circuiting", doc.PerCallUs)
+	if doc.Touched != 0 {
+		t.Errorf("a filtered call read its arguments %d times; the level check is not short-circuiting", doc.Touched)
 	}
 }
 
@@ -2585,6 +2621,116 @@ func TestStatusReportsRunningEitherWay(t *testing.T) {
 	}
 }
 
+// TestEnvCleanupStopsTheDaemonItStarted is a test of the harness rather than
+// of mcpx. The e2e suite was leaking daemons -- dozens of them, each holding
+// a fakemcp child and living for hours -- and nothing noticed, because the
+// error from the cleanup was discarded.
+//
+// The mechanism reproduced here is the daemon key. A daemon is keyed to the
+// set of config files it read, so a second config file means a second daemon,
+// and plain `mcpx stop` only ever targets the key the current invocation
+// resolves to -- leaving the other one running. The other half of the bug is
+// the socket path: a state directory too long for sun_path relocates the
+// socket into a private runtime directory derived from the *caller's* TMPDIR,
+// so a recomputed path can miss even when the key is right. Both are fixed
+// the same way, and this test exercises both at once, because t.TempDir()
+// here is long enough to trigger the relocation.
+//
+// Checked two ways, because the two failures look different. A socket that
+// still accepts a connection means the daemon is serving. A live pid with a
+// dead socket means it dropped the listener and kept running.
+func TestEnvCleanupStopsTheDaemonItStarted(t *testing.T) {
+	type daemon struct {
+		socket string
+		pid    int
+	}
+	var started []daemon
+
+	t.Run("lifecycle", func(t *testing.T) {
+		e := newEnv(t, oneServer)
+
+		// cfgArgs selects which config, and therefore which daemon, the
+		// invocation is about.
+		record := func(cfgArgs ...string) {
+			var st struct {
+				Socket  string `json:"socket"`
+				PID     int    `json:"pid"`
+				Running bool   `json:"running"`
+			}
+			args := append(append([]string{"--json"}, cfgArgs...), "status")
+			if err := json.Unmarshal([]byte(jsonOf(t, e.run(args...))), &st); err != nil {
+				t.Fatal(err)
+			}
+			if !st.Running || st.Socket == "" || st.PID == 0 {
+				t.Fatalf("no daemon to clean up: %+v", st)
+			}
+			started = append(started, daemon{st.Socket, st.PID})
+		}
+
+		e.run("ls") // anything that needs a daemon starts one
+		record()
+
+		// A second config file is a second daemon: the key is the set of
+		// config paths, so this is a daemon plain `mcpx stop` -- which only
+		// ever asks about the config the current invocation resolves to --
+		// cannot see.
+		other := filepath.Join(e.dir, "other.mcpx.json")
+		if err := os.WriteFile(other, []byte(strings.ReplaceAll(oneServer, "FAKE", e.fake)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		e.run("--config", other, "ls")
+		record("--config", other)
+
+		if started[0].pid == started[1].pid {
+			t.Fatalf("the second config reused daemon %d; this test needs two", started[0].pid)
+		}
+
+		// The info files are what cleanup reads, so a test that cleanup
+		// works is worthless if they are not there to be found.
+		type daemonRow struct {
+			PID     int  `json:"pid"`
+			Running bool `json:"running"`
+		}
+		var rows []daemonRow
+		if err := json.Unmarshal([]byte(jsonOf(t, e.run("--json", "daemons"))), &rows); err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range started {
+			if !slices.ContainsFunc(rows, func(r daemonRow) bool { return r.PID == d.pid && r.Running }) {
+				t.Fatalf("daemon %d absent from the info files: %+v", d.pid, rows)
+			}
+		}
+	})
+
+	// Shutdown goes on past the point `stop` waits for, so give each process
+	// a moment to actually leave rather than racing it.
+	for _, d := range started {
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) && daemonAlive(d.socket, d.pid) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if conn, err := net.Dial("unix", d.socket); err == nil {
+			conn.Close()
+			t.Errorf("daemon %d still listening on %s after cleanup", d.pid, d.socket)
+		}
+		if syscall.Kill(d.pid, 0) == nil {
+			t.Errorf("daemon pid %d still alive after cleanup", d.pid)
+		}
+	}
+}
+
+// daemonAlive reports whether either half of a daemon survives: the listener
+// or the process.
+func daemonAlive(socket string, pid int) bool {
+	if conn, err := net.Dial("unix", socket); err == nil {
+		conn.Close()
+		return true
+	}
+	return syscall.Kill(pid, 0) == nil
+}
+
+// TestResolveTellsAPluginWhichDaemonServesADirectory is the no-binary case
+
 // TestResolveTellsAPluginWhichDaemonServesADirectory is the no-binary case
 // from the plugin's side: everything the opencode plugin needs to pick a
 // daemon comes back from one request to a daemon it already reached.
@@ -2840,4 +2986,26 @@ func TestConcurrentRunsOfOneScriptKeepTheirOwnLauncher(t *testing.T) {
 			t.Errorf("a run executed another run's launcher: wanted %s, got:\n%s", r.want, r.out)
 		}
 	}
+}
+
+// withoutMCPXVars drops every MCPX_ variable the developer running the suite
+// happens to have exported.
+//
+// The harness sets the ones it needs a line below, and last-wins in exec's
+// environment would cover those. It does not cover the ones it deliberately
+// leaves unset: a test that asserts a knob is off reads the default only if
+// nothing in the ambient environment turned it on, and MCPX_TRACE=1 in the
+// shell of somebody debugging mcpx is exactly the case. That fails on one
+// machine and nowhere else, which is the worst kind.
+//
+// PATH and everything else is kept, because the child needs a runtime.
+func withoutMCPXVars(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "MCPX_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }

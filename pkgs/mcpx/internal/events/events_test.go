@@ -64,7 +64,7 @@ func TestAReconnectingSubscriberMissesNothing(t *testing.T) {
 	// rather than merely resumable.
 	b := events.New(0)
 	first, _ := b.Subscribe(events.Filter{}, 0)
-	e1 := b.Publish(events.Event{Kind: events.CallStarted})
+	e1 := b.Publish(events.Event{Kind: events.ServerStarted})
 	recv(t, first)
 	first.Close() // the connection drops
 
@@ -162,4 +162,18 @@ func TestPositionZeroReplaysEverythingButAbsentIsLiveOnly(t *testing.T) {
 	live, _ := b.SubscribeFrom(events.Filter{}, 0, false)
 	defer live.Close()
 	none(t, live)
+}
+
+// mcpx's listings drop a resource URI's leading "/" when they namespace it,
+// so a subscriber naming mcpx://ns/abs/doc asks for "abs/doc" and the
+// upstream reports "/abs/doc". Compared literally, they never matched (#241).
+func TestResourceURIMatchingIgnoresALeadingSlash(t *testing.T) {
+	b := events.New(0)
+	s, _ := b.Subscribe(events.Filter{URIs: []string{"abs/doc"}}, 0)
+	defer s.Close()
+	b.Publish(events.Event{Kind: events.ResourceUpdated, URI: "/abs/other"})
+	b.Publish(events.Event{Kind: events.ResourceUpdated, URI: "/abs/doc"})
+	if e := recv(t, s); e.URI != "/abs/doc" {
+		t.Errorf("got %s", e.URI)
+	}
 }

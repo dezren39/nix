@@ -31,6 +31,9 @@ const (
 	ResourcesChanged Kind = "resources.changed"
 	PromptsChanged   Kind = "prompts.changed"
 	ResourceUpdated  Kind = "resource.updated"
+	// ResourceWatching opens a /v1/events stream that named resources: what
+	// it subscribed upstream and what it could not. Never on the bus.
+	ResourceWatching Kind = "resource.watching"
 
 	ElicitOpened    Kind = "elicit.opened"
 	ElicitAnswered  Kind = "elicit.answered"
@@ -42,13 +45,13 @@ const (
 	ServerStarted Kind = "server.started"
 	ServerStopped Kind = "server.stopped"
 
-	CallStarted  Kind = "call.started"
+	// CallFinished is published by the daemon's hooks. There is no
+	// call.started: it was declared here and published by nothing, so a
+	// subscriber waiting for it waited forever (docs/decisions/0001).
 	CallFinished Kind = "call.finished"
 
 	ServerLog Kind = "server.log"
 	Progress  Kind = "progress"
-
-	TaskUpdated Kind = "task.updated"
 )
 
 // Event is one thing that happened.
@@ -100,8 +103,10 @@ func (f Filter) Matches(e Event) bool {
 		return false
 	}
 	if e.Kind == ResourceUpdated && len(f.URIs) > 0 {
+		// Compared without a leading "/": mcpx's listings drop it (see the
+		// daemon's upstreamResourceURI), so a subscriber may name /abs as abs.
 		for _, u := range f.URIs {
-			if u == e.URI {
+			if strings.TrimPrefix(u, "/") == strings.TrimPrefix(e.URI, "/") {
 				return true
 			}
 		}
@@ -174,7 +179,7 @@ func (b *Bus) Subscribe(f Filter, since uint64) (sub *Subscription, gap bool) {
 // knows it missed something and can resynchronise instead of trusting a
 // stream with a hole in it.
 func (b *Bus) SubscribeFrom(f Filter, since uint64, replay bool) (sub *Subscription, gap bool) {
-	ch := make(chan Event, 256)
+	ch := make(chan Event, defaults.EventSubscriberBuf)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

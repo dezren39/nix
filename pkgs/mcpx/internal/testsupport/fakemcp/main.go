@@ -27,7 +27,58 @@ var (
 	mu    sync.Mutex
 	state []string
 	pid   = os.Getpid()
+
+	// notify writes an unsolicited frame; set by main.
+	notify func(map[string]any)
+	// subscribed are the URIs a client subscribed to, in FAKEMCP_SUBSCRIBE
+	// mode.
+	subscribed = map[string]bool{}
 )
+
+// FAKEMCP_SUBSCRIBE declares resources.subscribe, lists an absolute-path
+// resource beside the greeting, and while any resource is subscribed sends
+// notifications/resources/updated for it every FAKEMCP_UPDATE_EVERY. Every
+// subscribe and unsubscribe is appended to FAKEMCP_SUB_LOG, so a test can
+// see what mcpx asked upstream rather than what it says it asked. Off by
+// default, so no other test's capabilities or listings move.
+var subscribeMode = os.Getenv("FAKEMCP_SUBSCRIBE") != ""
+
+// absResource is the absolute-path URI subscribe mode lists: a listing
+// drops its leading "/" when it namespaces it, which is the case #241 found
+// unmatchable.
+const absResource = "/abs/doc"
+
+func subLog(line string) {
+	path := os.Getenv("FAKEMCP_SUB_LOG")
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(f, "%d %s\n", pid, line)
+	f.Close()
+}
+
+func emitUpdates() {
+	every, err := time.ParseDuration(os.Getenv("FAKEMCP_UPDATE_EVERY"))
+	if err != nil || every <= 0 {
+		return
+	}
+	for range time.Tick(every) {
+		mu.Lock()
+		uris := make([]string, 0, len(subscribed))
+		for u := range subscribed {
+			uris = append(uris, u)
+		}
+		mu.Unlock()
+		for _, u := range uris {
+			notify(map[string]any{"jsonrpc": "2.0", "method": "notifications/resources/updated",
+				"params": map[string]any{"uri": u}})
+		}
+	}
+}
 
 func main() {
 	// FAKEMCP_FAIL_START makes the server exit before the handshake, so the
@@ -56,6 +107,10 @@ func main() {
 		out.WriteByte('\n')
 		out.Flush()
 		writeMu.Unlock()
+	}
+	notify = send
+	if subscribeMode {
+		go emitUpdates()
 	}
 
 	for {
@@ -108,15 +163,36 @@ func fail(id *int64, code int, msg string) map[string]any {
 func handle(r req) map[string]any {
 	switch r.Method {
 	case "initialize":
+		resources := map[string]any{}
+		if subscribeMode {
+			resources["subscribe"] = true
+		}
 		return ok(r.ID, map[string]any{
 			"protocolVersion": "2025-06-18",
 			"serverInfo":      map[string]any{"name": "fakemcp", "version": "1.0.0"},
 			"capabilities": map[string]any{
 				"tools":     map[string]any{},
-				"resources": map[string]any{},
+				"resources": resources,
 				"prompts":   map[string]any{},
 			},
 		})
+	case "resources/subscribe", "resources/unsubscribe":
+		if !subscribeMode {
+			break
+		}
+		var p struct {
+			URI string `json:"uri"`
+		}
+		_ = json.Unmarshal(r.Params, &p)
+		mu.Lock()
+		if r.Method == "resources/subscribe" {
+			subscribed[p.URI] = true
+		} else {
+			delete(subscribed, p.URI)
+		}
+		mu.Unlock()
+		subLog(strings.TrimPrefix(r.Method, "resources/") + " " + p.URI)
+		return ok(r.ID, map[string]any{})
 	case "notifications/initialized", "notifications/cancelled":
 		return nil
 	case "ping":
@@ -124,17 +200,34 @@ func handle(r req) map[string]any {
 	case "tools/list":
 		return ok(r.ID, map[string]any{"tools": toolDefs()})
 	case "resources/list":
-		return ok(r.ID, map[string]any{"resources": []any{
+		list := []any{
 			map[string]any{
 				"uri": "demo://greeting", "name": "greeting",
 				"description": "a fixed greeting", "mimeType": "text/plain",
 			},
-		}})
+		}
+		if subscribeMode {
+			list = append(list, map[string]any{"uri": absResource, "name": "abs",
+				"description": "an absolute-path resource", "mimeType": "text/plain"})
+		}
+		return ok(r.ID, map[string]any{"resources": list})
 	case "resources/read":
 		var p struct {
 			URI string `json:"uri"`
 		}
 		_ = json.Unmarshal(r.Params, &p)
+		if p.URI == "demo://logo" {
+			// Binary, and deliberately unlisted so no listing test moves:
+			// the eight bytes of a PNG signature, as a blob.
+			return ok(r.ID, map[string]any{"contents": []any{
+				map[string]any{"uri": p.URI, "mimeType": "image/png", "blob": "iVBORw0KGgo="},
+			}})
+		}
+		if subscribeMode && p.URI == absResource {
+			return ok(r.ID, map[string]any{"contents": []any{
+				map[string]any{"uri": p.URI, "mimeType": "text/plain", "text": "an absolute-path resource"},
+			}})
+		}
 		if p.URI != "demo://greeting" {
 			return fail(r.ID, -32602, "no such resource: "+p.URI)
 		}
@@ -183,6 +276,57 @@ func handle(r req) map[string]any {
 }
 
 func toolDefs() []map[string]any {
+	return append(baseTools(), schemaTools()...)
+}
+
+// schemaVersion is the contents of FAKEMCP_SCHEMA_FILE, read on every request
+// so a test can change a schema under a running server, which is what a
+// server upgrade looks like from the client's side. Empty when the variable
+// is unset, and then the tools that depend on it do not exist, so no other
+// test sees them.
+func schemaVersion() string {
+	path := os.Getenv("FAKEMCP_SCHEMA_FILE")
+	if path == "" {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// schemaTools are the tools whose schema moves: create_issue takes a title
+// in v1, and in v2 also requires a repo. outage always fails with a protocol
+// error that has nothing to do with its arguments.
+func schemaTools() []map[string]any {
+	v := schemaVersion()
+	if v == "" {
+		return nil
+	}
+	props := map[string]any{"title": map[string]any{"type": "string"}}
+	required := []string{"title"}
+	if v == "v2" {
+		props["repo"] = map[string]any{"type": "string"}
+		required = append(required, "repo")
+	}
+	return []map[string]any{
+		{
+			"name":        "create_issue",
+			"description": "File an issue.",
+			"inputSchema": map[string]any{
+				"type": "object", "properties": props, "required": required,
+			},
+		},
+		{
+			"name":        "outage",
+			"description": "Always fails upstream, for a reason unrelated to its arguments.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+	}
+}
+
+func baseTools() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "echo",
@@ -260,6 +404,29 @@ func toolDefs() []map[string]any {
 	}
 }
 
+var (
+	barrierMu      sync.Mutex
+	barrierArrived int
+	barrierMet     = make(chan struct{})
+)
+
+// barrierWait reports whether n callers arrived before limit elapsed.
+func barrierWait(n int, limit time.Duration) bool {
+	barrierMu.Lock()
+	barrierArrived++
+	if barrierArrived == n {
+		close(barrierMet)
+	}
+	met := barrierMet
+	barrierMu.Unlock()
+	select {
+	case <-met:
+		return true
+	case <-time.After(limit):
+		return false
+	}
+}
+
 func textResult(s string) map[string]any {
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": s}}}
 }
@@ -301,6 +468,16 @@ func callTool(r req) map[string]any {
 		case string:
 			ms, _ = strconv.Atoi(v)
 		}
+		if n, _ := p.Arguments["barrier"].(float64); n > 0 {
+			// Wait until n barrier calls are in this process at once, with
+			// ms only as the failure bound. Proves concurrency without a
+			// wall-clock assertion that fails on a loaded machine.
+			// Deliberately absent from the schema, so listings are unchanged.
+			if barrierWait(int(n), time.Duration(ms)*time.Millisecond) {
+				return ok(r.ID, textResult("barrier met"))
+			}
+			return ok(r.ID, textResult("barrier timeout"))
+		}
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 		return ok(r.ID, textResult(fmt.Sprintf("slept %dms on pid %d", ms, pid)))
 	case "boom":
@@ -316,6 +493,23 @@ func callTool(r req) map[string]any {
 	case "fancy-name":
 		b, _ := json.Marshal(p.Arguments)
 		return ok(r.ID, textResult(string(b)))
+	}
+	if v := schemaVersion(); v != "" {
+		switch p.Name {
+		case "create_issue":
+			// Rejected the way an SDK's input validation rejects it: -32602
+			// and a message that names nothing, which is the failure the
+			// daemon's diagnostic exists to explain.
+			if _, has := p.Arguments["title"]; !has {
+				return fail(r.ID, -32602, "Invalid params")
+			}
+			if _, has := p.Arguments["repo"]; v == "v2" && !has {
+				return fail(r.ID, -32602, "Invalid params")
+			}
+			return ok(r.ID, textResult("filed"))
+		case "outage":
+			return fail(r.ID, -32603, "internal error: the backend is unavailable")
+		}
 	}
 	return fail(r.ID, -32602, "unknown tool "+p.Name)
 }

@@ -43,6 +43,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: pkgs/mcpx/go.mod
+          # setup-go looks for go.sum at the repository root unless told
+          # otherwise, and this is a monorepo. Without this the cache step
+          # logged "Restore cache failed: Dependencies file is not found" on
+          # every run and the module cache was rebuilt from scratch each time.
+          cache-dependency-path: pkgs/mcpx/go.sum
 
       # All three runtimes, because each reaches the daemon differently --
       # Deno and Bun over the unix socket, Node over TCP -- and a test that

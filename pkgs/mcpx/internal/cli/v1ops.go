@@ -35,7 +35,7 @@ func (a *App) v1OpTools() []mcpserver.Extra {
 		if err != nil {
 			return "", err
 		}
-		raw, err := c.Do(ctx, op.Method, path, body)
+		raw, err := c.DoOp(ctx, op, path, body)
 		if err != nil {
 			return "", fmt.Errorf("%s %s: %w", op.Method, path, err)
 		}

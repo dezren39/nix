@@ -23,6 +23,18 @@ func tree(t *testing.T, files map[string]string) string {
 		}
 	}
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-empty"))
+	// Isolate the user config too. SearchPathFrom adds $HOME/.config/mcpx
+	// and $HOME/.mcpx.json unconditionally, so the XDG_CONFIG_HOME above
+	// does not cover them: a real ~/.config/mcpx/config.json on the dev
+	// machine leaks into the search path and breaks the source-count
+	// assertion in TestSourcesAreRecordedNearestFirst.
+	//
+	// This closes the $HOME fallback, not the upward walk. When TMPDIR
+	// lives under $HOME, root's ancestors include the real home and the
+	// walk finds that config whatever $HOME is set to -- the walk keys on
+	// the path, not the variable. Isolating that would mean bounding the
+	// walk, which no environment variable does.
+	t.Setenv("HOME", filepath.Join(root, "home-empty"))
 	t.Setenv("MCPX_CONFIG", "")
 	return root
 }
@@ -122,11 +134,19 @@ func TestSourcesAreRecordedNearestFirst(t *testing.T) {
 	chdirTo(t, filepath.Join(root, "proj"))
 
 	c, _ := config.Load("")
-	if len(c.Sources) != 2 {
-		t.Fatalf("both files should be recorded, got %v", c.Sources)
+	// Assert the tree's files as a nearest-first PREFIX, not the exact set:
+	// the upward walk from cwd legitimately keeps going past root, so a
+	// machine config in an ancestor (e.g. ~/.config/mcpx/config.json when
+	// TMPDIR lives under the real $HOME) is a real source, not a leak.
+	// What must NOT appear is the home FALLBACK duplicating it -- tree()
+	// points $HOME at an empty dir, so any real-home source here came from
+	// the walk and is correctly deduped.
+	want := []string{
+		filepath.Join(root, "proj", ".config", "mcpx", "config.json"),
+		filepath.Join(root, ".config", "mcpx", "config.json"),
 	}
-	if filepath.Dir(filepath.Dir(filepath.Dir(c.Sources[0]))) != filepath.Join(root, "proj") {
-		t.Fatalf("nearest should be first, got %v", c.Sources)
+	if len(c.Sources) < 2 || c.Sources[0] != want[0] || c.Sources[1] != want[1] {
+		t.Fatalf("nearest-first prefix should be %v, got %v", want, c.Sources)
 	}
 	if c.Path != c.Sources[0] {
 		t.Fatalf("Path should be the nearest source")

@@ -2,6 +2,7 @@ package mcpclient
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,11 @@ type StdioTransport struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
+	// outR and errR are the parent's read ends, closed by Close once the
+	// child is gone. Ours rather than cmd.StdoutPipe/StderrPipe: see NewStdio.
+	outR, errR *os.File
+	// stderrDone is closed when the child's stderr has been read to EOF.
+	stderrDone chan struct{}
 
 	writeMu sync.Mutex
 	closeMu sync.Mutex
@@ -30,6 +36,8 @@ type StdioTransport struct {
 	stderr  *ringBuffer
 	exited  chan struct{}
 	waitErr error
+
+	stdinGrace, termGrace time.Duration
 }
 
 // StdioOptions configure a child MCP server process.
@@ -42,6 +50,9 @@ type StdioOptions struct {
 	InheritEnv bool
 	// StderrTo, if non-nil, receives a copy of the child's stderr.
 	StderrTo io.Writer
+	// StdinGrace and TermGrace are Close's waits after closing stdin and
+	// after SIGTERM. Zero means defaults.StdioStdinGrace / StdioTermGrace.
+	StdinGrace, TermGrace time.Duration
 }
 
 // maxLine bounds a single JSON-RPC frame. MCP servers such as
@@ -72,33 +83,53 @@ func NewStdio(opts StdioOptions) (*StdioTransport, error) {
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	// Plain pipes, not cmd.StdoutPipe/StderrPipe. Those are closed by
+	// cmd.Wait as soon as the child exits, which races the readers: a child
+	// that prints why it is refusing to start and exits had its stderr
+	// thrown away ("read |0: file already closed", stderr empty) about one
+	// start in twenty. With our own pipes the readers drain to EOF.
+	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	stderrPipe, err := cmd.StderrPipe()
+	errR, errW, err := os.Pipe()
 	if err != nil {
+		outR.Close()
+		outW.Close()
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", opts.Command, err)
+	cmd.Stdout, cmd.Stderr = outW, errW
+	startErr := cmd.Start()
+	// The child holds its own copies; ours must go, or EOF never arrives.
+	outW.Close()
+	errW.Close()
+	if startErr != nil {
+		outR.Close()
+		errR.Close()
+		return nil, fmt.Errorf("start %s: %w", opts.Command, startErr)
 	}
 
 	t := &StdioTransport{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: bufio.NewReaderSize(stdout, 1<<20),
-		label:  strings.TrimSpace(opts.Command + " " + strings.Join(opts.Args, " ")),
-		stderr: newRingBuffer(64 << 10),
-		exited: make(chan struct{}),
+		cmd:        cmd,
+		stdin:      stdin,
+		stdout:     bufio.NewReaderSize(outR, 1<<20),
+		outR:       outR,
+		errR:       errR,
+		label:      strings.TrimSpace(opts.Command + " " + strings.Join(opts.Args, " ")),
+		stderr:     newRingBuffer(64 << 10),
+		exited:     make(chan struct{}),
+		stderrDone: make(chan struct{}),
+		stdinGrace: cmp.Or(opts.StdinGrace, defaults.StdioStdinGrace),
+		termGrace:  cmp.Or(opts.TermGrace, defaults.StdioTermGrace),
 	}
 
 	go func() {
+		defer close(t.stderrDone)
 		var w io.Writer = t.stderr
 		if opts.StderrTo != nil {
 			w = io.MultiWriter(t.stderr, opts.StderrTo)
 		}
-		_, _ = io.Copy(w, stderrPipe)
+		_, _ = io.Copy(w, errR)
 	}()
 	go func() {
 		t.waitErr = cmd.Wait()
@@ -116,9 +147,31 @@ func (t *StdioTransport) Send(ctx context.Context, msg []byte) error {
 		return errors.New("stdio transport closed")
 	}
 	if _, err := t.stdin.Write(append(msg, '\n')); err != nil {
-		return fmt.Errorf("write to %s: %w (stderr: %s)", t.label, err, t.stderr.Tail(400))
+		return fmt.Errorf("write to %s: %w (stderr: %s)", t.label, err, t.lastWords(400))
 	}
 	return nil
+}
+
+// lastWords is the tail of the child's stderr, waited for rather than
+// sampled.
+//
+// The ring buffer is filled by a goroutine, so at the moment a write or a read
+// fails it may still be empty even though the child has already printed the
+// only explanation there is. Recv waited for the drain; Send sampled -- and
+// Send is the one that fails first when a server refuses to start, because
+// cmd.Wait closes our end of its stdin as soon as the child is reaped, so the
+// `initialize` frame hits "file already closed" before anything is ever read
+// back. The error a person then sees named the pipe and not the reason:
+//
+//	server "fake": initialize: write to .../fakemcp: write |1: file already
+//	closed (stderr: )
+//
+// Both waits are bounded. A grandchild that inherited the pipe can hold it
+// open past its parent's exit, and a diagnostic is not worth hanging for.
+func (t *StdioTransport) lastWords(n int) string {
+	<-waitOrTimeout(t.exited, defaults.StdioExitGrace)
+	<-waitOrTimeout(t.stderrDone, defaults.StdioDrainGrace)
+	return t.stderr.Tail(n)
 }
 
 // Recv reads one frame, skipping any non-JSON noise a server prints to stdout.
@@ -127,8 +180,12 @@ func (t *StdioTransport) Recv() ([]byte, error) {
 		line, err := readLine(t.stdout)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				<-waitOrTimeout(t.exited, 2*time.Second)
-				return nil, fmt.Errorf("%s exited: %v (stderr: %s)", t.label, t.waitErr, t.stderr.Tail(800))
+				// The reason a server died is usually its last words on
+				// stderr. Taken before waitErr is read, because that field
+				// is written by the reaping goroutine and only settled once
+				// `exited` has closed, which lastWords waits for.
+				tail := t.lastWords(800)
+				return nil, fmt.Errorf("%s exited: %v (stderr: %s)", t.label, t.waitErr, tail)
 			}
 			return nil, err
 		}
@@ -184,7 +241,13 @@ func waitOrTimeout(ch <-chan struct{}, d time.Duration) <-chan struct{} {
 	return out
 }
 
-// Close terminates the child process group.
+// Close ends the child the way every revision's stdio transport says a
+// client SHOULD: close its stdin and let it exit by itself, then SIGTERM if
+// it has not within a grace, then SIGKILL. Signalling at once, as mcpx used
+// to, denied a well-behaved server the clean exit that EOF is meant to give
+// it (#203, LV-39). Signals go to the whole process group, so a server's own
+// children (chrome-devtools-mcp's browser) end with it.
+// https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#stdio
 func (t *StdioTransport) Close() error {
 	t.closeMu.Lock()
 	if t.closed {
@@ -199,14 +262,19 @@ func (t *StdioTransport) Close() error {
 		return nil
 	}
 	pgid := -t.cmd.Process.Pid
-	_ = syscall.Kill(pgid, syscall.SIGTERM)
-
 	select {
 	case <-t.exited:
-	case <-time.After(defaults.StdioDrainGrace):
-		_ = syscall.Kill(pgid, syscall.SIGKILL)
-		<-waitOrTimeout(t.exited, 2*time.Second)
+	case <-time.After(t.stdinGrace):
+		_ = syscall.Kill(pgid, syscall.SIGTERM)
+		select {
+		case <-t.exited:
+		case <-time.After(t.termGrace):
+			_ = syscall.Kill(pgid, syscall.SIGKILL)
+			<-waitOrTimeout(t.exited, defaults.StdioKillWait)
+		}
 	}
+	t.outR.Close()
+	t.errR.Close()
 	return nil
 }
 

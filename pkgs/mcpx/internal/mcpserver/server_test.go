@@ -3,6 +3,8 @@ package mcpserver_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -11,11 +13,27 @@ import (
 	"github.com/dezren39/mcpx/internal/mcpserver"
 )
 
-type fakeBackend struct{ calls map[string]int }
+// fakeBackend counts calls under a lock: stdio requests run concurrently, so
+// an unguarded map here is a fatal "concurrent map writes" waiting for a run
+// where two requests land at once.
+type fakeBackend struct {
+	mu    sync.Mutex
+	calls map[string]int
+}
 
 func newBackend() *fakeBackend { return &fakeBackend{calls: map[string]int{}} }
 
-func (f *fakeBackend) hit(n string) { f.calls[n]++ }
+func (f *fakeBackend) hit(n string) {
+	f.mu.Lock()
+	f.calls[n]++
+	f.mu.Unlock()
+}
+
+func (f *fakeBackend) count(n string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[n]
+}
 
 func (f *fakeBackend) Namespaces(context.Context) (string, error) {
 	f.hit("namespaces")
@@ -63,13 +81,41 @@ func (f *fakeBackend) Prompts(context.Context) ([]mcpserver.PromptRef, error) {
 	f.hit("prompts")
 	return []mcpserver.PromptRef{{Name: "summarise", Description: "d"}}, nil
 }
-func (f *fakeBackend) ReadResource(_ context.Context, uri string) (string, string, error) {
+func (f *fakeBackend) ReadResource(_ context.Context, uri string) ([]mcpserver.ResourceContents, error) {
 	f.hit("readResource")
-	return "contents of " + uri, "text/plain", nil
+	if uri == "demo://logo" {
+		return []mcpserver.ResourceContents{{MimeType: "image/png", Blob: "iVBORw0KGgo="}}, nil
+	}
+	return []mcpserver.ResourceContents{{MimeType: "text/plain", Text: "contents of " + uri}}, nil
 }
 func (f *fakeBackend) GetPrompt(_ context.Context, name string, _ map[string]string) (string, error) {
 	f.hit("getPrompt")
+	switch name {
+	case "nosuch":
+		return "", fmt.Errorf("%w: no prompt named %q", mcpserver.ErrInvalidParams, name)
+	case "broken":
+		return "", errors.New("upstream timed out")
+	}
 	return "rendered " + name, nil
+}
+
+// Complete stands in for the upstream server that owns a ref: values only it
+// could know, so a test can tell who answered.
+func (f *fakeBackend) Complete(_ context.Context, params json.RawMessage) ([]string, error) {
+	f.hit("complete")
+	var p struct {
+		Ref struct {
+			Name string `json:"name"`
+		} `json:"ref"`
+	}
+	_ = json.Unmarshal(params, &p)
+	switch p.Ref.Name {
+	case "nosuch":
+		return nil, fmt.Errorf("%w: no prompt named %q", mcpserver.ErrInvalidParams, p.Ref.Name)
+	case "broken":
+		return nil, errors.New("upstream timed out")
+	}
+	return []string{"from-upstream-1", "from-upstream-2", "from-upstream-3"}, nil
 }
 
 func (f *fakeBackend) ResourceTemplates(context.Context) ([]mcpserver.ResourceRef, error) {
@@ -166,7 +212,7 @@ func TestEveryToolReachesItsBackend(t *testing.T) {
 		if _, isErr := call(t, s, c.tool, c.args); isErr {
 			t.Errorf("%s reported an error", c.tool)
 		}
-		if f.calls[c.want] == 0 {
+		if f.count(c.want) == 0 {
 			t.Errorf("%s never reached the backend", c.tool)
 		}
 	}
@@ -247,7 +293,10 @@ func TestExtraToolsAppearAndAreCallable(t *testing.T) {
 	}
 }
 
-func TestStdioAnswersFramesInOrder(t *testing.T) {
+// Every request gets one reply, matched by id. Not by position: requests run
+// concurrently so a cancellation can reach one, and JSON-RPC does not order
+// replies.
+func TestStdioAnswersEveryRequestByID(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n" +
@@ -260,8 +309,21 @@ func TestStdioAnswersFramesInOrder(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("expected one reply per request, got %d:\n%s", len(lines), out.String())
 	}
-	if !strings.Contains(lines[1], "mcpx_exec") {
-		t.Errorf("the second reply should be the tool list: %s", lines[1])
+	byID := map[float64]string{}
+	for _, l := range lines {
+		var f struct {
+			ID float64 `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(l), &f); err != nil {
+			t.Fatal(err)
+		}
+		byID[f.ID] = l
+	}
+	if !strings.Contains(byID[2], "mcpx_exec") {
+		t.Errorf("the reply to id 2 should be the tool list: %s", byID[2])
+	}
+	if _, ok := byID[1]; !ok {
+		t.Errorf("ping was not answered:\n%s", out.String())
 	}
 }
 
@@ -334,53 +396,19 @@ func TestCapabilitiesMatchWhatIsAnswered(t *testing.T) {
 	}
 }
 
-func TestAnUnsupportedVersionIsRefusedWithTheListThatWouldWork(t *testing.T) {
-	// Echoing whatever was asked for was the bug: a client requesting a
-	// version mcpx cannot serve was told yes, and discovered otherwise only
-	// when a method was missing.
-	s := mcpserver.New(newBackend(), "mcpx", "test")
-	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
-		map[string]any{"protocolVersion": "1999-01-01"}))
-	b, _ := json.Marshal(resp)
-	if !strings.Contains(string(b), "-32022") {
-		t.Errorf("expected UnsupportedProtocolVersionError: %s", b)
-	}
-	if !strings.Contains(string(b), "2025-11-25") {
-		t.Errorf("the supported list is a client's only way forward: %s", b)
-	}
-}
-
 func TestAModernVersionCannotBeAgreedOverInitialize(t *testing.T) {
 	// A client sending initialize is legacy by definition; the modern
 	// revisions have no handshake. Agreeing would promise a protocol neither
-	// side is speaking.
+	// side is speaking, so it is answered with the latest legacy revision,
+	// as for any other version mcpx cannot agree to.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "initialize",
 		map[string]any{"protocolVersion": "2026-07-28"}))
-	b, _ := json.Marshal(resp)
-	if !strings.Contains(string(b), "-32022") {
-		t.Errorf("expected a refusal: %s", b)
+	if resp.Error != nil {
+		t.Fatalf("initialize is answered with a version, not refused: %v", resp.Error)
 	}
-	// Checked against the supported list rather than the whole body, which
-	// also echoes what was requested.
-	var doc struct {
-		Error struct {
-			Data struct {
-				Supported []string `json:"supported"`
-			} `json:"data"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(b, &doc); err != nil {
-		t.Fatal(err)
-	}
-	for _, v := range doc.Error.Data.Supported {
-		if v == "2026-07-28" {
-			t.Errorf("a modern version must not be offered as a legacy option: %v",
-				doc.Error.Data.Supported)
-		}
-	}
-	if len(doc.Error.Data.Supported) == 0 {
-		t.Error("the legacy options should still be listed")
+	if got := protoJSON(t, resp.Result); !strings.Contains(got, `"protocolVersion":"`+mcpserver.Latest+`"`) {
+		t.Errorf("want %s:\n%s", mcpserver.Latest, got)
 	}
 }
 
@@ -390,19 +418,42 @@ func TestServerDiscoverAnswersForModernClients(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "server/discover", nil))
 	b, _ := json.Marshal(resp)
-	for _, want := range []string{"protocolVersions", "2026-07-28", "capabilities"} {
-		if !strings.Contains(string(b), want) {
-			t.Errorf("%q missing: %s", want, b)
+	// https://modelcontextprotocol.io/specification/2026-07-28/schema#discoverresult
+	t.Run("2026-07-28/discover/result-has-supportedVersions-and-serverInfo-in-meta", func(t *testing.T) {
+		var doc struct {
+			Result map[string]json.RawMessage `json:"result"`
 		}
-	}
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatal(err)
+		}
+		var versions []string
+		if err := json.Unmarshal(doc.Result["supportedVersions"], &versions); err != nil || len(versions) == 0 {
+			t.Errorf("supportedVersions must be a non-empty array: %s", b)
+		}
+		var meta struct {
+			ServerInfo struct {
+				Name string `json:"name"`
+			} `json:"io.modelcontextprotocol/serverInfo"`
+		}
+		_ = json.Unmarshal(doc.Result["_meta"], &meta)
+		if meta.ServerInfo.Name != "mcpx" {
+			t.Errorf("serverInfo belongs in _meta: %s", b)
+		}
+		for _, stale := range []string{"protocolVersions", "serverInfo"} {
+			if _, ok := doc.Result[stale]; ok {
+				t.Errorf("%q is not a DiscoverResult field: %s", stale, b)
+			}
+		}
+		if _, ok := doc.Result["capabilities"]; !ok {
+			t.Errorf("capabilities missing: %s", b)
+		}
+	})
 }
 
 func TestAPerRequestVersionIsHonouredAndChecked(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 
-	ok := s.Handle(context.Background(), mcpserver.Request(1, "tools/list",
-		map[string]any{"_meta": map[string]any{
-			"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}))
+	ok := s.Handle(context.Background(), mcpserver.Request(1, "tools/list", modernParams(nil)))
 	b, _ := json.Marshal(ok)
 	if !strings.Contains(string(b), "mcpx_exec") {
 		t.Errorf("a modern request should be served without a handshake: %s", b)
@@ -464,17 +515,19 @@ func TestListsArePaginatedSoALargeInstallationIsReadable(t *testing.T) {
 	}
 }
 
-func TestAnInvalidCursorStartsFromTheBeginningRatherThanFailing(t *testing.T) {
-	// A cursor is opaque, so a client cannot validate one before sending it.
-	// Refusing would strand a client that has nothing better to send.
+func TestAnInvalidCursorIsInvalidParams(t *testing.T) {
+	// Every revision's pagination page: an invalid cursor is -32602. The
+	// old answer -- page one again -- turned a client that follows
+	// nextCursor into one that re-reads the first page forever.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	resp := s.Handle(context.Background(), mcpserver.Request(1, "tools/list",
 		map[string]any{"cursor": "not-a-cursor"}))
-	// Parsed rather than substring-matched: a tool description legitimately
-	// contains the word "errors", and matching on it made this pass or fail
-	// for reasons unrelated to cursors.
-	if errOf(t, resp) != "" {
-		t.Errorf("an opaque cursor cannot be validated by the client: %s", errOf(t, resp))
+	if errOf(t, resp) == "" {
+		t.Fatal("an invalid cursor was answered with a page")
+	}
+	b, _ := json.Marshal(resp)
+	if !strings.Contains(string(b), `"code":-32602`) {
+		t.Errorf("%s", b)
 	}
 }
 
@@ -491,21 +544,6 @@ func errOf(t *testing.T, resp any) string {
 		return ""
 	}
 	return doc.Error.Message
-}
-
-func TestCompletionAnswersFromWhatMcpxKnows(t *testing.T) {
-	// A client offering completion and receiving method-not-found shows
-	// nothing, and the user concludes the feature is broken.
-	s := mcpserver.New(newBackend(), "mcpx", "test")
-	resp := s.Handle(context.Background(), mcpserver.Request(1, "completion/complete",
-		map[string]any{"argument": map[string]any{"name": "tool", "value": "exec"}}))
-	b, _ := json.Marshal(resp)
-	if !strings.Contains(string(b), "mcpx_exec") {
-		t.Errorf("expected a match: %s", b)
-	}
-	if !strings.Contains(string(b), `"hasMore"`) {
-		t.Errorf("the reply shape is values/total/hasMore: %s", b)
-	}
 }
 
 func TestCancellationIsRecordedRatherThanDropped(t *testing.T) {
@@ -603,27 +641,27 @@ func TestSubscriptionsListenStreamsOnlyWhatWasRequested(t *testing.T) {
 	})
 
 	resp := s.Handle(context.Background(), mcpserver.Request(7, "subscriptions/listen",
-		map[string]any{"notifications": map[string]any{"toolsListChanged": true}}))
+		map[string]any{"notifications": map[string]any{"resourcesListChanged": true}}))
 	if resp != nil {
 		t.Errorf("a listen stream is long-lived; its result is withheld: %+v", resp)
 	}
 
 	select {
 	case lf := <-n.got:
-		if !lf.ToolsListChanged || lf.PromptsListChanged {
+		if !lf.ResourcesListChanged || lf.PromptsListChanged {
 			t.Errorf("the filter should be exactly what was asked: %+v", lf)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("the notifier was never started")
 	}
 
-	n.fire <- [2]any{"notifications/tools/list_changed", map[string]any{}}
+	n.fire <- [2]any{"notifications/resources/list_changed", map[string]any{}}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
 		got := out.String()
 		mu.Unlock()
-		if strings.Contains(got, "notifications/tools/list_changed") {
+		if strings.Contains(got, "notifications/resources/list_changed") {
 			if !strings.Contains(got, "notifications/subscriptions/acknowledged") {
 				t.Errorf("the stream should be acknowledged first: %s", got)
 			}
@@ -671,7 +709,7 @@ func TestPushCapabilitiesAreDeclaredOnlyWhenSomethingCanPush(t *testing.T) {
 	b, _ = json.Marshal(loud.Handle(context.Background(),
 		mcpserver.Request(2, "initialize", map[string]any{"protocolVersion": "2025-06-18"})))
 	// 2025-06-18 has no subscriptions/listen, but it does define
-	// notifications/tools/list_changed, which arrives unsolicited. A
+	// notifications/resources/list_changed, which arrives unsolicited. A
 	// pushable connection can deliver it, so it must be declared.
 	if !strings.Contains(string(b), `"listChanged":true`) {
 		t.Errorf("legacy revisions define list_changed and mcpx sends it: %s", b)
@@ -775,15 +813,24 @@ func TestATaskCanBeListedAndCancelled(t *testing.T) {
 }
 
 func TestTasksAreDeclaredForBothEras(t *testing.T) {
-	// Core in 2025-11-25, an extension in 2026-07-28. Declared both ways so
-	// a client of either era finds them where it looks.
+	// Core in 2025-11-25, an extension in 2026-07-28 -- each where its own
+	// revision defines it, and never the other's way.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	b, _ := json.Marshal(s.Handle(context.Background(),
 		mcpserver.Request(1, "server/discover", nil)))
-	for _, want := range []string{`"tasks"`, "io.modelcontextprotocol/tasks"} {
-		if !strings.Contains(string(b), want) {
-			t.Errorf("%s should be declared: %s", want, b)
-		}
+	if !strings.Contains(string(b), "io.modelcontextprotocol/tasks") {
+		t.Errorf("the extension should be declared to a modern client: %s", b)
+	}
+	if strings.Contains(string(b), `"tasks":{`) {
+		t.Errorf("core tasks must not be declared under 2026-07-28: %s", b)
+	}
+	b, _ = json.Marshal(s.Handle(context.Background(),
+		mcpserver.Request(2, "initialize", map[string]any{"protocolVersion": "2025-11-25"})))
+	if !strings.Contains(string(b), `"tasks":{`) {
+		t.Errorf("core tasks should be declared to 2025-11-25: %s", b)
+	}
+	if strings.Contains(string(b), "extensions") {
+		t.Errorf("2025-11-25 has no extensions capability: %s", b)
 	}
 }
 
@@ -792,8 +839,7 @@ func TestModernResultsSayTheyAreComplete(t *testing.T) {
 	// client tells a finished result from an input_required one. mcpx sent
 	// none, so a strict modern client could not parse any of its replies.
 	s := mcpserver.New(newBackend(), "mcpx", "test")
-	modern := map[string]any{"_meta": map[string]any{
-		"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}
+	modern := modernParams(nil)
 	for i, method := range []string{"server/discover", "tools/list", "prompts/list"} {
 		b, _ := json.Marshal(s.Handle(context.Background(), mcpserver.Request(i+1, method, modern)))
 		if !strings.Contains(string(b), `"resultType":"complete"`) {
@@ -805,4 +851,23 @@ func TestModernResultsSayTheyAreComplete(t *testing.T) {
 	if strings.Contains(string(b), "resultType") {
 		t.Errorf("a legacy result should not grow a field it never asked for: %s", b)
 	}
+}
+
+// modernParams is a well-formed 2026-07-28 request's params: the two
+// per-request fields the specification makes mandatory, plus whatever the
+// method needs.
+func modernParams(extra map[string]any) map[string]any {
+	return modernWith(`{}`, extra)
+}
+
+// modernWith is modernParams with declared client capabilities.
+func modernWith(caps string, extra map[string]any) map[string]any {
+	p := map[string]any{"_meta": map[string]any{
+		mcpserver.MetaProtocolVersion:    "2026-07-28",
+		mcpserver.MetaClientCapabilities: json.RawMessage(caps),
+	}}
+	for k, v := range extra {
+		p[k] = v
+	}
+	return p
 }

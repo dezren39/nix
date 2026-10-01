@@ -24,6 +24,7 @@ import (
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/settings"
 	"github.com/dezren39/mcpx/internal/tasks"
@@ -58,6 +59,10 @@ type Server struct {
 
 	// Events carries everything the daemon notices, to every subscriber.
 	Events *events.Bus
+
+	// Origins decides which browser origins may use the daemon at all; see
+	// refuseBrowserPages. The zero value allows loopback origins only.
+	Origins mcpserver.OriginPolicy
 
 	httpSrv  *http.Server
 	tcpLn    net.Listener
@@ -143,15 +148,17 @@ func NewServer(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if os.Getenv("MCPX_TRACE") != "" {
-		pool.Trace = func(f string, a ...any) { opts.Logger.Printf(f, a...) }
-	}
 	if opts.Settings == nil {
 		sch, serr := settings.New(settings.Registry())
 		if serr != nil {
 			return nil, serr
 		}
 		opts.Settings = settings.NewSet(sch)
+	}
+	// logging.trace, which is MCPX_TRACE. It was read here by name, so a
+	// configuration file or `mcpx daemon --logging-trace` could not turn it on.
+	if opts.Settings.Bool("logging.trace") {
+		pool.Trace = func(f string, a ...any) { opts.Logger.Printf(f, a...) }
 	}
 	srv := &Server{
 		set:      opts.Settings,
@@ -269,7 +276,7 @@ func (s *Server) ServeInline(ctx context.Context, socket string) error {
 	s.unixLn = ln
 	mux := http.NewServeMux()
 	s.routes(mux)
-	s.httpSrv = &http.Server{Handler: mux,
+	s.httpSrv = &http.Server{Handler: s.refuseBrowserPages(mux),
 		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout")}
 	go func() {
 		<-ctx.Done()
@@ -288,7 +295,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	mux := http.NewServeMux()
 	s.routes(mux)
 	s.httpSrv = &http.Server{
-		Handler:           s.trackActivity(mux),
+		Handler:           s.refuseBrowserPages(s.trackActivity(mux)),
 		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout"),
 	}
 
@@ -453,7 +460,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 		cc := config.CallContext{SessionID: req.SessionID, CallID: req.CallID}
 		out, err := s.reg.GetPrompt(r.Context(), req.Server, req.Name, req.Arguments, cc)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			writeJSON(w, failureStatus(err), map[string]any{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"result": out})
@@ -646,6 +653,13 @@ func callContext(r *http.Request, body config.CallContext, session string) confi
 	if cc.CallID == "" {
 		cc.CallID = firstNonEmpty(r.Header.Get("X-Mcpx-Call"), cc.SessionID)
 	}
+	// With nothing to name the caller, the scope fallback would put every
+	// such request in one shared "call:anonymous" instance -- the accidental
+	// sharing config/scope.go promises it avoids. A fresh id per request is
+	// the per-call isolation it promises instead; the lease reaper releases it.
+	if cc.CallID == "" {
+		cc.CallID = string(logging.NewTraceID("anon"))
+	}
 	if cc.ParentSessionID == "" {
 		cc.ParentSessionID = r.Header.Get("X-Mcpx-Parent-Session")
 	}
@@ -693,11 +707,11 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	res, err := s.reg.Call(r.Context(), req.Server, req.Tool, cc, args)
+	res, err := s.reg.Call(withRun(r.Context(), r.Header.Get("X-Mcpx-Run")), req.Server, req.Tool, cc, args)
 	dur := time.Since(start).Truncate(time.Millisecond)
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
-		writeErr(w, 502, err)
+		writeJSON(w, failureStatus(err), callErrorBody(err))
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})
@@ -719,7 +733,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	cc := callContext(r, req.Context, req.Session)
 	res, err := s.reg.ReadResource(r.Context(), req.Server, req.URI, cc)
 	if err != nil {
-		writeErr(w, 502, err)
+		writeErr(w, failureStatus(err), err)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"result": res})
@@ -818,8 +832,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		Kinds:   splitCSV(q.Get("kinds")),
 		Session: q.Get("session"),
 		Server:  q.Get("server"),
-		URIs:    splitCSV(q.Get("uri")),
 	}
+	// Naming resources subscribes to them upstream for as long as this
+	// stream is open. See watchResources in routes_proto.go.
+	var watch *resourceWatch
+	f.URIs, watch = s.watchResources(r.Context(), f.Server, splitCSV(q.Get("uri")))
+	defer watch.release()
 	raw := firstNonEmptyStr(r.Header.Get("Last-Event-ID"), q.Get("since"))
 	since, _ := strconv.ParseUint(raw, 10, 64)
 	// Present-but-zero replays everything retained; absent is live only.
@@ -839,6 +857,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		// Said in-band, so a subscriber can resynchronise instead of
 		// trusting a stream with a hole in it.
 		fmt.Fprintf(w, "event: gap\ndata: {\"since\":%d,\"latest\":%d}\n\n", since, s.Events.Latest())
+	}
+	if len(f.URIs) > 0 {
+		watch.announce(w)
 	}
 	flusher.Flush()
 

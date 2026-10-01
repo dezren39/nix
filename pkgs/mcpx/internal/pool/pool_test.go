@@ -85,17 +85,27 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 	p := pool.New(resolved(t, bin, &config.Extras{Sharing: config.SharingShared, Scope: config.ScopeGlobal}))
 	defer p.Close()
 
-	// Ten 200ms calls on one process must overlap, proving requests are
-	// multiplexed rather than serialised.
+	// Ten calls on one process must all be in flight at once, proving
+	// requests are multiplexed rather than serialised. Each blocks in the
+	// fake until all ten have arrived; the bound is only how long to wait
+	// before calling it a failure, so a loaded machine cannot fail it.
 	const n = 10
-	start := time.Now()
+	barrier(t, p, "global", n)
+}
+
+// barrier makes n concurrent calls on key that each block in the fake until
+// all n are in flight at once, and fails unless every one saw the others.
+func barrier(t *testing.T, p *pool.Pool, key string, n int) {
+	t.Helper()
 	var wg sync.WaitGroup
+	res := make([]json.RawMessage, n)
 	errs := make([]error, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = p.Call(context.Background(), "global", "slow", map[string]any{"ms": 200})
+			res[i], errs[i] = p.Call(context.Background(), key, "slow",
+				map[string]any{"ms": 10000, "barrier": n})
 		}(i)
 	}
 	wg.Wait()
@@ -103,9 +113,9 @@ func TestSharedModeHandlesConcurrentCalls(t *testing.T) {
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
-	}
-	if elapsed := time.Since(start); elapsed > 1500*time.Millisecond {
-		t.Fatalf("10 concurrent 200ms calls took %s; they appear serialised", elapsed)
+		if got := textOf(t, res[i]); got != "barrier met" {
+			t.Fatalf("call %d: %s -- the %d calls were never all in flight at once", i, got, n)
+		}
 	}
 }
 
@@ -434,27 +444,9 @@ func TestSharedSharingAdmitsConcurrentHoldersOnOneKey(t *testing.T) {
 	defer p.Close()
 
 	// One key, four concurrent callers. Shared sharing must let them overlap
-	// on a single process rather than serialising or forking more.
-	const n = 4
-	start := time.Now()
-	var wg sync.WaitGroup
-	errs := make([]error, n)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, errs[i] = p.Call(context.Background(), "session:one", "slow", map[string]any{"ms": 200})
-		}(i)
-	}
-	wg.Wait()
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("call %d: %v", i, err)
-		}
-	}
-	if d := time.Since(start); d > 1200*time.Millisecond {
-		t.Fatalf("shared sharing serialised: %s for %d overlapping 200ms calls", d, n)
-	}
+	// on a single process rather than serialising or forking more: all four
+	// must be in that one process at once.
+	barrier(t, p, "session:one", 4)
 	if st := p.Status(); st.Live != 1 {
 		t.Fatalf("one key must mean one process, got %d", st.Live)
 	}

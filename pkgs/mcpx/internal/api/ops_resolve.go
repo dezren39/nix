@@ -25,7 +25,7 @@ func resolveOps() []Op {
 				"currently listening. The answer does not depend on which " +
 				"daemon is asked.",
 			Params: []Param{
-				{Name: "dir", In: InQuery, Type: "string", Required: true,
+				{Name: "dir", In: InQuery, Type: "string", Required: true, DefaultCwd: true,
 					Desc: "absolute path of the directory to resolve for"},
 			},
 		},

@@ -144,3 +144,47 @@ func TestOpenAPIDescribesEveryOperation(t *testing.T) {
 		t.Error("the version should reach the document")
 	}
 }
+
+// Every parameter says what it is.
+//
+// A generated CLI command prints one usage line per parameter, so an empty
+// Desc is a flag followed by a blank line -- and the same blank reaches the
+// MCP tool's input schema, the OpenAPI document and the generated TypeScript,
+// because all four are built from this table. 32 of them shipped that way
+// before the table generated a command for each.
+func TestEveryParameterIsDescribed(t *testing.T) {
+	n := 0
+	for _, op := range api.Ops() {
+		for _, p := range op.Params {
+			n++
+			if strings.TrimSpace(p.Desc) == "" {
+				t.Errorf("%s: parameter %q has no description; it would print as a "+
+					"usage line with nothing after it", op.Name, p.Name)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no parameters found; the table changed shape and this test checks nothing")
+	}
+}
+
+// TestIdempotentHintIsTrue: a client may retry an idempotent tool without
+// asking, so the hint has to be true where it is given. It was derived as
+// "destructive implies idempotent", which made restart claim it -- and a
+// second restart kills the calls the first one let start.
+func TestIdempotentHintIsTrue(t *testing.T) {
+	want := map[string]bool{
+		"restart": false, "refresh": false, "exec": false, "call": false,
+		"artifact_delete": true, "shutdown": true, "task_cancel": true,
+		"settings_set": true, "status": true,
+	}
+	for _, op := range api.Ops() {
+		w, ok := want[op.Name]
+		if !ok {
+			continue
+		}
+		if got, _ := op.Annotations()["idempotentHint"].(bool); got != w {
+			t.Errorf("%s: idempotentHint = %v, want %v", op.Name, got, w)
+		}
+	}
+}

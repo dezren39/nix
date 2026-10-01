@@ -66,6 +66,8 @@ is the way to configure a drop-in installation.
 | `mcpx-session.ts` | the opencode adapter: hooks, tools, toasts, and the session id. The only file opencode loads as a plugin. |
 | `mcpx/daemon.ts` | the portable core: the daemon HTTP client, the discovery ladder, and the remembered-choice file. Imports nothing from opencode. |
 | `mcpx/daemon.test.ts` | `bun test` over the ladder, against real sockets and real temporary state directories. |
+| `mcpx/ops.gen.ts` | a typed method for every `/v1` operation, generated from the Go operation table. Do not edit; `go test ./internal/api -run TestPluginOpsAreGenerated -update` rewrites it. |
+| `mcpx/ops.test.ts` | `bun test` over the generated methods, against a fake daemon and -- run from the Go suite -- a real one. |
 | `mcpx-tui.tsx` | optional TUI plugin: a real picker for the daemon. Different realm, different API, installed separately. |
 | `skills/mcpx-basics` | writing an `mcpx exec` script, and filtering in the script rather than in context. |
 | `skills/mcpx-observability` | investigating a failure or a slowdown through the log rather than by re-running it. |
@@ -305,6 +307,22 @@ const { client, discovery } = await connect({ directory })
 if (client) await client.call("fff", "grep", { query: "x" }, sessionID)
 if (discovery.ambiguous) console.warn(discovery.warning)
 ```
+
+Every operation the daemon serves is also a typed method on `client.ops`,
+generated from the same table as the routes, the MCP tools and the CLI
+commands, so nothing is reachable only through a hand-built URL:
+
+```ts
+const { artifacts } = (await client.ops.artifactsList({ limit: 5 })) as { artifacts: unknown[] }
+const bytes = await (await client.ops.artifactGet({ id })).arrayBuffer()
+await client.ops.taskCancel({ id: "tsk-..." })
+```
+
+A refusal throws `OpError` carrying the status and the daemon's own message.
+The named methods (`call`, `logQuery`, `resolve`...) are conveniences with
+typed answers over some of these; `call` used to be hand-built and sent its
+arguments under a key `/v1/call` does not read, which is why it now goes
+through `ops`.
 
 `connect` returns `{ client: undefined }` rather than throwing. A plugin that
 fails to load because mcpx is not running has broken the editor for a tool the

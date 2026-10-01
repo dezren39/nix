@@ -15,7 +15,8 @@ makes the next one a test failure.
 
 ## What the audit was
 
-The settings registry has 149 entries. Each one derives a config key, an
+The settings registry had 149 entries when this audit ran; it has 164 today,
+and the counts below are the ones the audit measured, not current figures. Each one derives a config key, an
 `MCPX_` variable and a flag from a single declaration, which is the whole
 argument for the registry existing. The question is therefore not "is this path
 string mentioned anywhere" but "does anything read the **resolved value**".
@@ -39,7 +40,9 @@ It found **54**, in a registry of 149.
 
 ## Verdicts
 
-Counts: **24 wired**, **3 deleted**, **9 legitimately external** (the plugin),
+Counts: **24 wired**, **3 deleted**, **9 legitimately external** (the plugin — seven are named below, and two more
+were reclassified while the audit ran; there are twelve plugin-scoped settings
+today),
 **1 left open**, **2 added** (the inverse bug), plus 15 settings the naive
 path-string grep called dead that the accessor scan cleared.
 
@@ -101,10 +104,14 @@ The plugin honoured four variables the registry had never heard of, which
 breaks the registry's promise from the other side: `mcpx settings` was supposed
 to answer "what will the plugin do" without anybody reading TypeScript.
 `plugin.remember` and `plugin.annotate` are now declared.
-`MCPX_PLUGIN_HEADLESS` and `MCPX_PLUGIN_DAEMON_TOOLS` are allowlisted: their
-defaults are computed at boot — whether the plugin is on the main thread,
-whether discovery was ambiguous — so a declared default would be a number that
-is right in one of the two realms the plugin runs in and wrong in the other.
+`MCPX_PLUGIN_HEADLESS` and `MCPX_PLUGIN_DAEMON_TOOLS` were allowlisted at the
+time, because their defaults are computed at boot — whether the plugin is on
+the main thread, whether discovery was ambiguous — so a declared *value* would
+be right in one of the two realms the plugin runs in and wrong in the other.
+They are declared now, as `plugin.headless` and `plugin.daemonTools`
+(`internal/settings/plugin.go:105`, `:114`), with the default `auto`: `auto` is
+the declared name for "work it out from the process shape", which is the thing
+a number could not express.
 
 ## The guard
 
@@ -132,6 +139,8 @@ whole promise, because the `Set` is the only reader that has all three layers.
 **`TestNoHandRolledSettingEnv`** closes the other direction: `os.Getenv` of a
 variable the registry owns is how a setting becomes env-only. Three entries on
 its allowlist, each because the read genuinely happens before a `Set` exists.
+(Since replaced by `TestNoUndeclaredEnvRead`, which walks the syntax tree and
+also refuses a variable *nothing* declares -- see `docs/environment.md`.)
 
 **`TestThePluginReadsNoUndeclaredSetting`** closes the third: a variable the
 plugin honours that no setting declares.
@@ -146,7 +155,8 @@ in another.
 
 ### /v1 parameters
 
-161 declared across 60 operations. The parity tests in `internal/api` already
+161 declared across 60 operations at the time of the audit; 162 across 60
+today. The parity tests in `internal/api` already
 bind every route to an op and every op to an MCP tool — but they match *paths*,
 not *parameters*, so a parameter can be declared, published in `InputSchema()`,
 rendered into the OpenAPI document, marshalled into the body by a generated MCP
@@ -227,7 +237,9 @@ error:
 - **`subscriptionId` in `_meta`** — 2026-07-28 makes it mandatory on every
   notification delivered on a listen stream (`2026-07-28.ts:121-132`). mcpx sets
   it on the acknowledgement only. A client with two subscriptions cannot
-  correlate anything. **Not fixed** — reported.
+  correlate anything. **Since fixed**: every notification on a listen stream
+  carries it (`internal/mcpserver/listen.go:94`), pinned by
+  `internal/e2e/subscribe_test.go` and `internal/e2e/protomsg_test.go`.
 - **`prompts` and `resources`** are declared unconditionally; both schemas say
   "present if the server offers any". The handlers return `[]` correctly, so
   this is over-declaration rather than a lie. **Not fixed** — reported.
@@ -237,9 +249,12 @@ error:
 
 ## One thing the audit found that it did not fix
 
-`Setting.EnvName()` derives `MCPX_PROTO_ASK_T_T_L` from `proto.askTTL`, and
-`--proto-ask-t-t-l` with it. The camel-case splitter does not know that `TTL`
-is one word. `proto.stateTTL` and `proto.askTTL` are both affected. Fixing the
-derivation changes a flag spelling and a variable name for every setting whose
-path ends in an acronym, which is a decision about naming rather than about
-this bug.
+`Setting.EnvName()` derived `MCPX_PROTO_ASK_T_T_L` from `proto.askTTL`, and
+`--proto-ask-t-t-l` with it. The camel-case splitter did not know that `TTL`
+is one word. `proto.stateTTL`, `proto.askTTL`, `daemon.leaseTTL` and
+`proto.serveMCP` were affected.
+
+Fixed since: a run of capitals is now one word (`MCPX_PROTO_ASK_TTL`,
+`--proto-serve-mcp`), and `TestNoDeclaredNameHasASingleLetterWord` fails if a
+derived flag or variable contains a one-letter word, which is what the next
+acronym split into letters would look like.

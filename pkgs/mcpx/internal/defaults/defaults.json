@@ -21,11 +21,16 @@
       "user",
       "process",
       "version"
-    ]
+    ],
+    "trace": false
   },
   "daemon": {
     "reapInterval": "30s",
     "saveInterval": "5m"
+  },
+  "cli": {
+    "cellWidth": 60,
+    "usageColumn": 30
   },
   "catalog": {
     "budget": 2000
@@ -37,6 +42,7 @@
   },
   "plumbing": {
     "shutdownGrace": "2s",
+    "stdioExitGrace": "2s",
     "stdioDrainGrace": "3s",
     "stdioMaxLine": "64MiB",
     "daemonConnectTimeout": "20s",
@@ -50,6 +56,7 @@
     "restartBackoffMax": "30s",
     "registryTimeout": "30s",
     "eventHistory": 1024,
+    "eventSubscriberBuffer": 256,
     "streamReconnect": "2s",
     "taskTTL": "10m",
     "taskResultWait": "2m",
@@ -76,6 +83,16 @@
     "abandonGrace": "5s",
     "mcpPath": "/mcp"
   },
+  "transport": {
+    "sseKeepAlive": "15s",
+    "stdioDrain": "30s",
+    "loopbackHosts": [
+      "localhost",
+      "127.0.0.1",
+      "::1"
+    ],
+    "allowedOrigins": []
+  },
   "consumer": {
     "disambiguate": "never",
     "disambiguateDefault": "new",
@@ -86,7 +103,7 @@
     "recipeMinScore": 30,
     "recipeMatchMargin": 150,
     "recipeLimit": 5,
-    "promptMode": "script",
+    "promptAutonomy": "propose",
     "promptSample": "never",
     "promptCatalogBudget": 1200,
     "promptSampleTimeout": "90s",
@@ -146,6 +163,8 @@
     "completionValues": 100,
     "elicitPending": 100,
     "registryPageSize": 30,
+    "registryMaxPages": 10,
+    "registryNameFallback": 10,
     "leaseTTL": "30m",
     "socketProbeTimeout": "500ms",
     "warmTimeout": "3m",
@@ -163,6 +182,10 @@
     "publicMode": "0644",
     "publicDirMode": "0755"
   },
+  "git": {
+    "bin": "git",
+    "gitfileMaxBytes": "1MiB"
+  },
   "plugin": {
     "bin": "mcpx",
     "binArgs": [],
@@ -173,6 +196,38 @@
     "instructions": false,
     "tools": false,
     "remember": "session",
-    "annotate": true
+    "annotate": true,
+    "headless": "auto",
+    "daemonTools": "auto"
+  },
+  "protoMessages": {
+    "listMaxAge": "1m",
+    "readMaxAge": "0s",
+    "taskAfter": "2s"
+  },
+  "protoTasks": {
+    "pollInterval": "1s"
+  },
+  "stdioShutdown": {
+    "stdinGrace": "2s",
+    "termGrace": "3s",
+    "killWait": "2s"
+  },
+  "upstream": {
+    "protocol": "modern",
+    "probeTimeout": "2s",
+    "eraCache": true,
+    "eraFile": "upstream-eras.json",
+    "eraFileVersion": 1,
+    "errorBodyLimit": "4KB",
+    "sseReconnectDelay": "1s",
+    "sseReconnectAttempts": 5,
+    "listenReopenDelay": "1s",
+    "legacyStreamEndpointTimeout": "10s",
+    "cancelSendTimeout": "5s",
+    "elicitReplyTimeout": "30s",
+    "sessionDeleteTimeout": "5s",
+    "listPageLimit": 100,
+    "versionAttempts": 2
   }
 }

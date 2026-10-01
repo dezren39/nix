@@ -18,6 +18,7 @@ import (
 	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/settings"
 )
@@ -194,6 +195,7 @@ func (a *App) CmdDaemon(ctx context.Context, args []string) error {
 		srv.MCPTool = mcp.InvokeTool
 	}
 	srv.Address = a.Settings().String("daemon.address")
+	srv.Origins = a.originPolicy()
 	if h := srv.Address; h != "" && h != "127.0.0.1" && h != "localhost" {
 		// Said once, loudly. The API is unauthenticated, so whoever can
 		// route to this port can run tools as this user, and that should be
@@ -461,7 +463,7 @@ func joinLines(ss []string) string {
 // CmdHelp prints usage.
 func (a *App) CmdHelp(_ context.Context, args []string) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Print(usage)
+		fmt.Print(Usage())
 		return nil
 	}
 	return a.helpFor(args[0])
@@ -546,47 +548,19 @@ func wrapAt(text string, width int, indent string) string {
 	return strings.Join(lines, "\n")
 }
 
-const usage = `mcpx - run TypeScript against your MCP servers from the command line
+// usageHeader and usageFooter frame the command listing, which is generated
+// from Commands() so that help cannot list a command that does not exist or
+// omit one that does. The hand-written listing it replaced was missing more
+// than half of them.
+const usageHeader = `mcpx - run TypeScript against your MCP servers from the command line
 
   A local daemon owns every MCP server process. Scripts import a generated,
   fully typed client and call tools as ordinary async functions, so only the
   result you print reaches the model's context.
 
-DISCOVERY (answered from cache; starts no servers)
-  mcpx ls                        list namespaces and tool counts
-  mcpx search <query>            find a tool by name or description
-  mcpx types <ns>[,<ns>...]      TypeScript signatures for those namespaces
-  mcpx catalog [--budget N]      every namespace, signatures fitted to a budget
+`
 
-RUNNING
-  mcpx exec '<typescript>'       run a snippet
-  mcpx run <name|file.ts> [args] run a named script from .mcpx/scripts, or a file
-  mcpx scripts                   list named scripts mcpx can run
-  mcpx call <ns>.<tool> '<json>' one-shot call, no JavaScript runtime involved
-  mcpx client -o <path>          write the typed client for a checked-in script
-  mcpx recipes [run <name> k=v]  saved scripts that declare their own parameters
-  mcpx prompt "<what you want>"  match a recipe, or generate a script to review
-
-MANAGEMENT
-  mcpx status [-v]               daemon, pools and live instances
-  mcpx refresh                   re-read every server's tool schemas
-  mcpx restart [<ns>]            stop instances; the next call starts fresh ones
-  mcpx stop [--all]              shut the daemon down (--all: every config's)
-  mcpx daemons                   list every running daemon
-  mcpx daemon [--port N]         run the daemon in the foreground
-  mcpx config [--path|--sources] show the resolved configuration and where it came from
-  mcpx settings [get|set] ...    every setting, its value, and where that value came from
-  mcpx servers add <n> -- <cmd>  add or remove an MCP server, live
-  mcpx init [--global]           write a starter config
-
-DIAGNOSTICS
-  mcpx diagnose <script|source>  explain what a script calls wrongly, and why
-  mcpx log [--since 1h] [-f]     query the durable log
-  mcpx log --chain <trace>       a call and everything that led to it, as a tree
-  mcpx log sql '<select ...>'    raw read-only SQL over the log index
-  mcpx stats [calls|servers|errors|sessions|volume|slowest|instances]
-
-GLOBAL FLAGS
+const usageFooter = `GLOBAL FLAGS
   --config <path>                config file (default: search up from $PWD)
   --json                         machine-readable output
   --profile <name>[,<name>]      include servers in these profiles as well
@@ -595,13 +569,15 @@ GLOBAL FLAGS
   --version
 
 CONCURRENCY
-  Each server declares a mode in its config:
-    shared   one process, many concurrent callers   (search, docs, databases)
-    pooled   up to N processes, one per call        (stateless but expensive)
-    session  up to N processes, one per script run  (browsers and other
-                                                     stateful servers)
-  In session mode a run holds its own process for its whole lifetime, so two
+  Each server's "mcpx" block sets two independent things:
+    sharing  shared     any number of callers use one process at once
+             exclusive  one caller at a time; the rest queue
+    scope    what decides which process you get: global (one for
+             everything), repo, worktree, cwd, session, parent-session, pid
+             or call -- one live process per distinct value, up to max
+  A browser wants "scope": "session" and "sharing": "exclusive", so two
   agents driving Chrome at once get two browsers rather than corrupting one.
+  A search index wants the defaults: one process, every caller at once.
 
 EXAMPLES
   mcpx ls
@@ -609,3 +585,41 @@ EXAMPLES
   mcpx exec 'const r = await fff.search({ query: "handleCall" }); console.log(r)'
   mcpx call chrome_devtools.navigate_page '{"url":"https://example.com"}'
 `
+
+// Usage is the text `mcpx help` prints.
+func Usage() string {
+	var b strings.Builder
+	b.WriteString(usageHeader)
+	groups := CommandsByGroup()
+	for _, g := range commandGroups {
+		fmt.Fprintf(&b, "%s\n", strings.ToUpper(commandGroupTitles[g]))
+		for _, c := range groups[g] {
+			left := "mcpx " + c.Name
+			if c.Usage != "" && len(left)+1+len(c.Usage) <= usageColumn {
+				left += " " + c.Usage
+			}
+			fmt.Fprintf(&b, "  %-*s %s\n", usageColumn, left, c.Summary)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("  mcpx help <command>            usage, flags and settings for one command\n\n")
+	b.WriteString(usageFooter)
+	return b.String()
+}
+
+// usageColumn is where summaries start in the listing. A rendering width like
+// cli.cellWidth beside it, so both are declared in the same place.
+var usageColumn = defaults.UsageColumn
+
+// originPolicy is the set of browser origins the daemon serves: loopback at
+// any port, the daemon's own address when it listens somewhere else, and
+// transport.allowedOrigins. The same rule MCPServer gives /mcp;
+// TestV1AndMCPAgreeOnOrigins holds the two together, since both answer on
+// the same listener and a page refused by one must be refused by the other.
+func (a *App) originPolicy() mcpserver.OriginPolicy {
+	hosts := append([]string(nil), defaults.TransportLoopbackHosts...)
+	if addr := a.Settings().String("daemon.address"); addr != "" && !unspecifiedHost(addr) {
+		hosts = append(hosts, addr)
+	}
+	return mcpserver.OriginPolicy{Hosts: hosts, Origins: a.Settings().List("transport.allowedOrigins")}
+}

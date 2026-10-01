@@ -306,8 +306,13 @@ it was.
 
 ## Settings
 
-Everything is declared once in `internal/settings/exec.go` and defaulted in
-`internal/defaults/defaults.json`.
+Everything is declared in `internal/settings/exec.go`. It is **not** declared
+*once*: unlike `internal/settings/consumer.go` and `internal/settings/wire.go`,
+which read `defaults.*`, every `Default:` in `exec.go` is an inline string
+literal (`"120s"`, `"64MiB"`, `"10m"`, …), so each value that also lives in
+`defaults.json` is written in two places with nothing holding them equal. Three
+of them — `exec.where`, `artifacts.enabled` and `artifacts.dir` — have no
+`defaults.json` key at all. The values below are what both say today.
 
 | setting | default | what it decides |
 | --- | --- | --- |
@@ -329,10 +334,12 @@ Exceeding `maxBytes` is an error, not a truncation. A truncated screenshot is
 worse than a refused one, because it looks like it worked.
 
 `nameMaxLength`, `nameCollisionLimit`, `idBytes` and `listLimit` live in
-`defaults.json` without a registry entry, like `plumbing.eventHistory`: they
-are read at package initialisation and a configuration file arriving later
-could not change them, and a setting that does nothing is worse than no
-setting.
+`defaults.json` without a registry entry: they are read at package
+initialisation and a configuration file arriving later could not change them,
+and a setting that does nothing is worse than no setting. (This paragraph used
+to offer `plumbing.eventHistory` as the comparison. That one *is* a setting —
+`events.history`, `internal/settings/wire.go:239`, flag `--events-history` —
+so it was the wrong example.)
 
 ## Not done
 

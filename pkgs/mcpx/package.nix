@@ -7,9 +7,10 @@
   deno,
   bun-bin,
   nodejs,
-  # git backs the `repo` and `worktree` scopes. Without it those silently
-  # degrade to per-directory keys, so it is a hard runtime dependency rather
-  # than a nicety.
+  # git is the fallback for the `repo` and `worktree` scopes: mcpx reads .git
+  # itself and only asks git about layouts it does not vouch for
+  # (docs/git-discovery.md). Kept on the wrapper's PATH so those still
+  # resolve; the container image leaves it out.
   git,
   makeBinaryWrapper,
   installShellFiles,
@@ -54,6 +55,11 @@ buildGoModule {
   vendorHash = "sha256-zu4iT7AAVQVivrviTVCl3w1kgwNQCeX0hyWCmH0tUHE=";
 
   subPackages = [ "cmd/mcpx" ];
+
+  # Pure-Go build, matching the design comment above: no cgo, no C toolchain
+  # needed, cross-compilation stays intact, and the result is a static binary.
+  # docs/container.md measured a CGO_ENABLED=0 build working end-to-end.
+  env.CGO_ENABLED = "0";
 
   ldflags = [
     "-s"
