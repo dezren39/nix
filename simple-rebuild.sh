@@ -15,8 +15,16 @@ set -exuo pipefail
 #sudo prlimit --pid $$ --nofile=1000000:1000000
 #nix-shell -p nixVersions.nix_2_18 git cachix jq
 #cat /mnt/c/wsl/cachix.key | cachix authtoken --stdin
-# Get the directory of the script
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get the directory of the script.
+#
+# This was `$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)`, which is bash. The
+# shebang is zsh, where BASH_SOURCE does not exist, so under `set -u` the line
+# errored with "BASH_SOURCE[0]: parameter not set", script_dir came out empty,
+# and the `cd` below became `cd ''` -- a no-op that silently left the script in
+# whatever directory the caller happened to be in. It only ever worked because
+# callers were already here. `${0:A:h}` is the zsh spelling: :A absolutises and
+# resolves symlinks (so ~/nix resolves to ~/.config/nix), :h takes the dirname.
+script_dir="${0:A:h}"
 # Git add for the script's directory
 cd "${script_dir}" || exit 1
 echo "entered: $script_dir"

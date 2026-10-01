@@ -106,6 +106,17 @@ lootbox-check:
 rebuild:
     ./rebuild.sh
 
+# Only activation needs root, so this half of a switch runs unprivileged. Use
+# it to verify a config change compiles without being at the keyboard to type
+# a sudo password. `just switch` runs the same build before it activates.
+
+# Build the darwin system without activating it (no sudo)
+[group('nix')]
+build:
+    nix --extra-experimental-features 'nix-command flakes' \
+        build ".#darwinConfigurations.$(hostname -s).system" \
+        --keep-going --out-link ./result
+
 # Simple rebuild: switch only (no flake update)
 [group('nix')]
 switch:
