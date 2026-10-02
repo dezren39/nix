@@ -107,7 +107,7 @@ start_fixture() {
 # carry -- over 2026-07-28 the fixture itself answers them -32601 -- and mcpx relays what arrives.
 start_daemon() {
   local era=$1 port=$2 protocol=follow
-  [ "$era" = legacy ] && protocol=force-legacy
+  [ "$era" = legacy ] && protocol=force-initialize
   [ -n "${FIXTURE_PID:-}" ] || start_fixture
   mkdir -p "$WORK/$era"
   printf '{"mcpServers":{"demo":{"url":"http://127.0.0.1:%s/mcp","protocol":"%s","mcpx":{"sharing":"shared","scope":"global"}},"tasks":{"command":"%s","mcpx":{"sharing":"shared","scope":"global"}}}}\n' \

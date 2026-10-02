@@ -67,10 +67,11 @@ func (s *Server) callSettings(r *http.Request) *settings.Set {
 		if !ok || decl.Scope != settings.ScopeCall {
 			continue
 		}
-		if settings.Validate(*decl, v) != nil {
+		nv, err := settings.Normalize(*decl, v)
+		if err != nil {
 			continue
 		}
-		ov[path] = v
+		ov[path] = nv
 	}
 	return s.set.WithOverrides(ov, CallSettingsHeader)
 }
@@ -92,10 +93,12 @@ type SettingRecord struct {
 	Short      string   `json:"description,omitempty"`
 	Long       string   `json:"detail,omitempty"`
 	Enum       []string `json:"enum,omitempty"`
-	Scope      string   `json:"scope"`
-	Hot        bool     `json:"hot"`
-	Plumbing   bool     `json:"plumbing,omitempty"`
-	Commands   []string `json:"commands,omitempty"`
+	// EnumAliases lists, per Enum value, the other spellings accepted for it.
+	EnumAliases map[string][]string `json:"enumAliases,omitempty"`
+	Scope       string              `json:"scope"`
+	Hot         bool                `json:"hot"`
+	Plumbing    bool                `json:"plumbing,omitempty"`
+	Commands    []string            `json:"commands,omitempty"`
 	// Requested and ClampedBy say a ceiling lowered this value: what the
 	// layers asked for, and which setting, from where, lowered it.
 	Requested string `json:"requested,omitempty"`
@@ -112,7 +115,7 @@ func Describe(set settings.Setting, v *settings.Value) SettingRecord {
 		Path: set.Path, Kind: set.Kind.String(), Default: set.Default,
 		Env: set.EnvName(), EnvAliases: set.EnvAliases,
 		Flag: "--" + set.FlagName(), Name: set.Name,
-		Short: set.Short, Long: set.Long, Enum: set.Enum,
+		Short: set.Short, Long: set.Long, Enum: set.Enum, EnumAliases: set.EnumAliases,
 		Scope: set.Scope.String(), Hot: set.Hot, Plumbing: set.Plumbing,
 		Commands: set.Commands,
 	}
@@ -195,10 +198,12 @@ func (s *Server) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := settings.Validate(*decl, req.Value); err != nil {
+	nv, err := settings.Normalize(*decl, req.Value)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	req.Value = nv
 
 	out := map[string]any{"path": decl.Path, "value": req.Value}
 	persist := req.Persist

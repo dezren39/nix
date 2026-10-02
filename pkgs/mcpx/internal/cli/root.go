@@ -374,6 +374,7 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 		URL         string `json:"url,omitempty"`
 		IdleTimeout string `json:"idleTimeout"`
 		CallTimeout string `json:"callTimeout"`
+		Protocol    string `json:"protocol,omitempty"`
 	}
 	out := struct {
 		Path    string   `json:"path"`
@@ -385,6 +386,7 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 			Name: s.Name, Namespace: s.Namespace,
 			Sharing: string(s.Sharing), Scope: string(s.Scope), Max: s.Max,
 			IdleTimeout: s.IdleTimeout.String(), CallTimeout: s.CallTimeout.String(),
+			Protocol: s.Protocol,
 		}
 		if s.Stdio() {
 			r.Transport, r.Command = "stdio", s.Command

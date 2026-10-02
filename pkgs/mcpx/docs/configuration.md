@@ -539,6 +539,6 @@ and a switch to turn the report off would have kept it quiet.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `upstream.eraCache` | bool | `true` | daemon | no | `--upstream-era-cache` | `MCPX_UPSTREAM_ERA_CACHE` | remember which era each server configuration speaks, across restarts |
 | `upstream.probeTimeout` | duration | `2s` | daemon | no | `--upstream-probe-timeout` | `MCPX_UPSTREAM_PROBE_TIMEOUT` | how long a stdio server/discover may go unanswered before initialize is also sent |
-| `upstream.protocol` | enum | `modern` | daemon | no | `--upstream-protocol` | `MCPX_UPSTREAM_PROTOCOL` | which protocol era to try first against a server that names none |
+| `upstream.protocol` | enum | `prefer-discover` | daemon | no | `--upstream-protocol` | `MCPX_UPSTREAM_PROTOCOL` | which request to send first to a server that names no protocol of its own; one of prefer-discover (also modern, prefer-modern, prefer-stateless, prefer-newest), prefer-initialize (also legacy, prefer-legacy, prefer-session, prefer-oldest), force-discover (also force-modern, force-stateless), force-initialize (also force-legacy, force-session), follow |
 
 <!-- END GENERATED -->

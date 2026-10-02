@@ -170,7 +170,7 @@ change; the last column is the fixture in pass-through.
 beyond the fixtures: its daemon fronts the upstream with `protocol: follow`,
 so a caller on a pre-2026 revision gets a legacy upstream session and the
 fixture's server-to-client requests (elicitation, sampling) reach it. Under
-the default `modern` those four scenarios fail, because a 2026-07-28 upstream
+the default `prefer-discover` those four scenarios fail, because a 2026-07-28 upstream
 session cannot carry a request to its client. See `docs/spec/era-probe.md`.
 
 Every client failure is an OAuth scenario under the suite's `auth/`; mcpx has

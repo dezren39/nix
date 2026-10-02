@@ -1,5 +1,7 @@
 package settings
 
+import "github.com/dezren39/mcpx/internal/defaults"
+
 // upstreamSettings govern how mcpx connects to the servers it fronts.
 //
 // The question they answer is which protocol era a server speaks. The
@@ -9,15 +11,25 @@ package settings
 func upstreamSettings() []Setting {
 	return []Setting{
 		{
-			Path: "upstream.protocol", Scope: ScopeDaemon, Kind: KindEnum, Default: "modern",
-			Enum:     []string{"modern", "legacy", "force-modern", "force-legacy", "follow"},
+			Path: "upstream.protocol", Scope: ScopeDaemon, Kind: KindEnum, Default: defaults.UpstreamProtocol,
+			// Named for the first request sent, not for an era's relative
+			// age: "modern" and "legacy" go stale the moment a newer
+			// revision ships. The old names stay accepted.
+			Enum: []string{"prefer-discover", "prefer-initialize", "force-discover", "force-initialize", "follow"},
+			EnumAliases: map[string][]string{
+				"prefer-discover":   {"modern", "prefer-modern", "prefer-stateless", "prefer-newest"},
+				"prefer-initialize": {"legacy", "prefer-legacy", "prefer-session", "prefer-oldest"},
+				"force-discover":    {"force-modern", "force-stateless"},
+				"force-initialize":  {"force-legacy", "force-session"},
+			},
 			Commands: []string{"daemon"},
 			Name:     "Upstream protocol",
-			Short:    "which protocol era to try first against a server that names none",
-			Long: "modern sends server/discover first and falls back to initialize, " +
-				"which is what the 2026-07-28 transport pages prescribe. legacy sends " +
-				"initialize first and probes only if it fails. The force forms skip " +
-				"the fallback. follow is modern, plus a second, legacy-only session " +
+			Short:    "which request to send first to a server that names no protocol of its own",
+			Long: "prefer-discover sends server/discover first and falls back to initialize, " +
+				"which is what the 2026-07-28 transport pages prescribe. prefer-initialize sends " +
+				"initialize first and probes only if it fails. force-discover and " +
+				"force-initialize send only that request, with no fallback. follow is " +
+				"prefer-discover, plus a second, initialize-only session " +
 				"for callers that reach mcpx in a legacy revision, so a dual-era " +
 				"server can still send them elicitation and sampling requests; a " +
 				"server that refuses initialize serves them from the modern one. " +

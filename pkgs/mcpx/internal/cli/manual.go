@@ -555,7 +555,7 @@ func ManPage(version string) string {
 				roffEscape(set.FlagName()), roffEscape(set.EnvName()),
 				roffEscape(defaultOrEmpty(set.Default)))
 			if len(set.Enum) > 0 {
-				fmt.Fprintf(&b, ".br\nOne of: %s\n", roffEscape(strings.Join(set.Enum, ", ")))
+				fmt.Fprintf(&b, ".br\nOne of: %s\n", roffEscape(set.EnumWords()))
 			}
 			if set.Long != "" {
 				fmt.Fprintf(&b, ".RS\n.PP\n%s\n.RE\n", roffEscape(set.Long))

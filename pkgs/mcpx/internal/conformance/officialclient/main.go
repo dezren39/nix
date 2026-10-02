@@ -98,9 +98,9 @@ func run(url, scenario string) error {
 	}
 
 	version := os.Getenv(envVersion)
-	protocol := "force-legacy"
+	protocol := "force-initialize"
 	if version >= modernFloor {
-		protocol = "force-modern"
+		protocol = "force-discover"
 	}
 	cfg := map[string]any{"mcpServers": map[string]any{*namespace: map[string]any{
 		"url": url, "transport": "http", "protocol": protocol,

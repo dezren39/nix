@@ -8,10 +8,43 @@ Sources: [versioning](https://modelcontextprotocol.io/specification/2026-07-28/b
 [stdio](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio#backward-compatibility),
 [Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#backward-compatibility).
 
+## Values
+
+`upstream.protocol`, and a server's own `protocol` key, which overrides it,
+take one of the values below. Each is named for the first request mcpx sends,
+not for an era's relative age; the older names are still accepted wherever the
+value is read (config file, `MCPX_UPSTREAM_PROTOCOL`, `--upstream-protocol`,
+`PUT /v1/settings`) and are normalised to the canonical one, which is what
+`mcpx settings`, `mcpx config` and `GET /v1/protocol` report. Case does not
+matter. Any other value is refused with this list.
+
+| canonical | meaning | aliases (accepted, normalised to the canonical) |
+| --- | --- | --- |
+| `prefer-discover` (default) | `server/discover` first, fall back to `initialize` | `modern`, `prefer-modern`, `prefer-stateless`, `prefer-newest` |
+| `prefer-initialize` | `initialize` first, fall back to `server/discover` | `legacy`, `prefer-legacy`, `prefer-session`, `prefer-oldest` |
+| `force-discover` | `server/discover` only | `force-modern`, `force-stateless` |
+| `force-initialize` | `initialize` only | `force-legacy`, `force-session` |
+| `follow` | unchanged | — |
+
+What each value does against a server that speaks only the old
+(`initialize`, 2025-11-25 and earlier) protocol, both, or only the new
+(`server/discover`, 2026-07-28) one. "Legacy session" means an `initialize`
+handshake; "modern session" means per-request `_meta` with no handshake. With
+the era cache on, the `prefer-*` and `follow` values try the cached era first
+on later starts; the result is the same.
+
+| value | old-only server | dual-version server | new-only server |
+| --- | --- | --- | --- |
+| `prefer-discover` | discover is refused (or unanswered within `upstream.probeTimeout` on stdio), then `initialize`: legacy session | discover answers: modern session | modern session |
+| `prefer-initialize` | legacy session, no discover sent | `initialize` answers: legacy session, so the server's 2026-07-28 features are not used | `initialize` is refused, then discover: modern session (fails if a stdio server exits on the refused `initialize`) |
+| `force-discover` | fails to connect; no fallback | modern session | modern session |
+| `force-initialize` | legacy session | legacy session | fails to connect; no fallback |
+| `follow` | as `prefer-discover`: one legacy session, shared by every caller | modern session for 2026-07-28 callers plus a second, legacy session for callers on an older revision ([Follow](#follow)) | modern session; the legacy session is refused, so older callers share the modern one |
+
 ## Order
 
-The default is modern first (`upstream.protocol=modern`; a server's own
-`protocol` key overrides it). Legacy first used to be the default on the
+The default is discover first (`upstream.protocol=prefer-discover`; a server's
+own `protocol` key overrides it). Legacy first used to be the default on the
 argument that nearly every server is legacy and the probe costs each of them a
 round trip. The spec prescribes the opposite order for a dual-era client, and
 the era cache turns the probe into a one-time cost per server configuration,
@@ -19,8 +52,8 @@ so the argument no longer holds.
 
 ## Follow
 
-`protocol: follow` (per server, or `upstream.protocol=follow`) is `modern`
-for the server's own session, plus a second, legacy-only session (`force-legacy`
+`protocol: follow` (per server, or `upstream.protocol=follow`) is `prefer-discover`
+for the server's own session, plus a second, legacy-only session (`force-initialize`
 -- `initialize`, no probe) used for any call whose caller reached mcpx in a
 revision before 2026-07-28. The point is server-to-client requests: a dual-era
 server can push `elicitation/create` or `sampling/createMessage` only on a
@@ -41,7 +74,7 @@ official suite's `test_elicitation`, `test_sampling`).
   needs no second session). Eviction stays within a lane.
 - **Fallback.** If the legacy-only start fails (a modern-only server refuses
   `initialize`), the pool remembers it for its lifetime and legacy callers
-  share the modern session, as under `modern`.
+  share the modern session, as under `prefer-discover`.
 - **Era cache.** The legacy session is forced, so it neither reads nor writes
   the cache; the cache keeps describing the server's own era.
 - **Attribution.** A legacy HTTP server's request on a POST's response stream

@@ -211,7 +211,7 @@ func TestEraCacheAcrossStarts(t *testing.T) {
 
 	t.Run("2026-07-28/era-cache/force-never-reads-the-cache", func(t *testing.T) {
 		s := newEraServer(t, "dual", nil)
-		s.cfg.Protocol = "force-modern"
+		s.cfg.Protocol = string(mcpclient.ForceModern)
 		store := pool.OpenEraFile(filepath.Join(t.TempDir(), "eras.json"))
 		_ = store.Put(pool.Identity(s.cfg), pool.EraRecord{Era: mcpclient.EraLegacy, Source: "probe"})
 		p := newEraPool(s, store)

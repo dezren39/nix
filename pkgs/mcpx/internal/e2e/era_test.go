@@ -68,7 +68,7 @@ func TestTheEraIsProbedOnceAndRememberedAcrossDaemonRestarts(t *testing.T) {
 			t.Fatalf("call: %s", out)
 		}
 		row := upstreamRow(t, e)
-		if row["era"] != "legacy" || row["eraSource"] != "probe" || row["preference"] != "modern" {
+		if row["era"] != "legacy" || row["eraSource"] != "probe" || row["preference"] != "prefer-discover" {
 			t.Errorf("cold row = %v", row)
 		}
 		if got := requests(t, log); len(got) < 2 || got[0] != "server/discover" || got[1] != "initialize" {
@@ -143,9 +143,9 @@ func TestTheEraIsProbedOnceAndRememberedAcrossDaemonRestarts(t *testing.T) {
 		e, log := eraEnv(t, "legacy-32601", "", "MCPX_UPSTREAM_PROTOCOL=legacy")
 		e.run("call", "era.hello", "{}")
 		if got := requests(t, log); len(got) == 0 || got[0] != "initialize" {
-			t.Errorf("upstream.protocol=legacy should send initialize first: %v", got)
+			t.Errorf("upstream.protocol=legacy (an alias of prefer-initialize) should send initialize first: %v", got)
 		}
-		if row := upstreamRow(t, e); row["preference"] != "legacy" {
+		if row := upstreamRow(t, e); row["preference"] != "prefer-initialize" {
 			t.Errorf("row = %v", row)
 		}
 	})
@@ -156,7 +156,7 @@ func TestTheEraIsProbedOnceAndRememberedAcrossDaemonRestarts(t *testing.T) {
 		if got := requests(t, log); len(got) == 0 || got[0] != "initialize" {
 			t.Errorf("the server's own protocol key should win: %v", got)
 		}
-		if row := upstreamRow(t, e); row["preference"] != "force-legacy" || row["eraSource"] != "forced" {
+		if row := upstreamRow(t, e); row["preference"] != "force-initialize" || row["eraSource"] != "forced" {
 			t.Errorf("row = %v", row)
 		}
 	})
