@@ -18,10 +18,21 @@
 # lists every tool flat, which Atlassian recommends for gateways, instead of
 # its own discover-then-execute pair.
 #
-# datadog: US1 (mcp.datadoghq.com). Toolsets core (logs, metrics, traces,
-# dashboards, monitors, incidents) and workflows; others are listed at
-# https://docs.datadoghq.com/mcp_server/setup#toolsets. Changing the URL,
-# toolsets included, is a new identity to mcp-remote and needs a new login.
+# datadog: US1 (mcp.datadoghq.com), toolsets:
+#   core      logs, metrics, traces, spans, RUM, monitors, incidents, hosts,
+#             dashboards, notebooks. Writes: create/edit notebook, and
+#             upsert_datadog_dashboard (create or overwrite a dashboard).
+#   workflows find, inspect, validate, create, update, publish, run and
+#             cancel workflows. Running one can do whatever the workflow does.
+#   alerting  monitor templates, validation, coverage, SLO search, and
+#             create_datadog_monitor -- which creates in draft: no
+#             notifications, priority 5, published by hand in the UI. The MCP
+#             server has no tool to update or delete a monitor at all.
+# omit_tools removes delete_datadog_workflow, the only delete in these
+# toolsets. omit_tools takes exact names, not patterns; a new toolset needs
+# its own delete_* names added. All tools: https://docs.datadoghq.com/mcp_server/tools
+# Changing the URL is a new identity to mcp-remote and needs `just mcp-login
+# datadog` again.
 { lib }:
 let
   lootbox = builtins.fromJSON (builtins.readFile ./lootbox.config.json);
