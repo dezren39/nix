@@ -299,7 +299,7 @@ func (r *Registry) CallAsk(ctx context.Context, id, server, tool string, cc conf
 	// the table before the upstream request goes out, so it is registered
 	// between the two. The guard's own questions are mcpx's, not the
 	// server's, and are never attributed through the table.
-	key, err := r.resolveAndGuard(ctx, p, tool, cc)
+	key, err := r.resolveAndGuard(ctx, p, server, tool, cc)
 	if err != nil {
 		return nil, err
 	}

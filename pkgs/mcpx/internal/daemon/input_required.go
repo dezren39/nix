@@ -72,7 +72,7 @@ func (r *Registry) CallReporting(ctx context.Context, id, server, tool string, c
 	if !ok {
 		return nil, UnknownServer{Name: server}
 	}
-	key, err := r.resolveAndGuard(ctx, p, tool, cc)
+	key, err := r.resolveAndGuard(ctx, p, server, tool, cc)
 	if err != nil {
 		return nil, err
 	}
