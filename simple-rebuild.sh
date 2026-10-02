@@ -135,6 +135,33 @@ phase_build() {
   commit_marker "$(hostname) build ${built}"
 }
 
+# Upgrade Homebrew formulae and casks, as you, on this terminal.
+#
+# configuration.nix sets homebrew.onActivation.upgrade = false because inside
+# activation brew runs on a pty of its own, where your sudo approval does not
+# reach, so every cask needing root asked for Touch ID again (measured; see the
+# comment there). Here brew's `sudo` calls run on this terminal and reuse one
+# approval. `sudo -v` refreshes it, and asks only if the approval from
+# darwin-rebuild above has expired (timestamp_timeout=15).
+#
+# Uses the same Brewfile activation just installed from, so the set of casks
+# and their per-cask options (greedy, args) are identical. Homebrew itself was
+# already updated during activation (onActivation.autoUpdate), so it is not
+# updated again. A failed upgrade is reported but does not undo the switch.
+brew_upgrade() {
+  local brewfile
+  brewfile=$(grep -o '/nix/store/[a-z0-9]*-Brewfile' ./result/activate | head -1)
+  if [[ -z "$brewfile" || ! -x /opt/homebrew/bin/brew ]]; then
+    echo "skipping brew upgrade: no Brewfile in ./result/activate or no brew" >&2
+    return 0
+  fi
+  echo "brew bundle --upgrade $brewfile (as $USER)"
+  sudo -v
+  HOMEBREW_NO_AUTO_UPDATE=1 /opt/homebrew/bin/brew bundle install \
+    --file="$brewfile" --upgrade --verbose --force ||
+    echo "brew upgrade failed; the switch itself succeeded" >&2
+}
+
 phase_activate() {
   # Rolling back to an existing generation is a different operation from
   # activating a freshly built one, and deliberately does less: no rosetta
@@ -162,6 +189,8 @@ phase_activate() {
     echo "no ./result to activate; run 'just build' first" >&2
     return 1
   fi
+
+  brew_upgrade
 
   echo "install/update pinned lootbox"
   nix run .#lootbox-update -- --if-needed

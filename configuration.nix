@@ -389,7 +389,19 @@ lib.recursiveUpdate {
       # drift stands: renamed casks (handbrake -> handbrake-app) leave BOTH
       # installed, and ./clean only reports it.
       cleanup = "none";
-      upgrade = true;
+      # Off here; simple-rebuild.sh's phase_activate runs the upgrade right
+      # after activation instead, as you, on your own terminal.
+      #
+      # Measured 2026-10-02: activation runs brew through
+      # `sudo --user=<you>`, and sudo 1.9.17 gives that command a fresh pty
+      # (the outer shell was /dev/ttys005, brew saw /dev/ttys010). sudo's
+      # credential is per-terminal, so every `sudo` brew made from inside
+      # activation (pkg installers, root-owned apps) asked for Touch ID again:
+      # `sudo -v` then that exact `sudo --user` chain then `sudo -n true`
+      # returned "a password is required", while `sudo -n true` on the same
+      # terminal returned 0. Run from the script, brew's sudo calls reuse the
+      # one approval. Installing missing casks still happens in activation.
+      upgrade = false;
       extraFlags = [
         "--verbose"
         "--force"
