@@ -1,0 +1,20 @@
+# /etc/systemd/system/mcpx.service — mcpx MCP gateway daemon.
+# WRITTEN BY ~/tools/install-mcpx-service.sh EVERY BOOT (/etc is ephemeral).
+# Canonical source: ~/tools/mcpx.service (this file). Pushed to dezren39/nix.
+[Unit]
+Description=mcpx MCP gateway daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# We run as root but mcpx keeps config/state under $HOME — point it at the
+# persistent home, not /root.
+Environment=HOME=/home/hatch
+ExecStart=/usr/local/bin/mcpx daemon
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
