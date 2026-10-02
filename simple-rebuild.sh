@@ -80,14 +80,34 @@ git add .
 #   --build-only     prepare + build            no sudo
 #   --activate-only  activate + post + commit   sudo
 #   (no flag)        all of it
+#   --no-commit      combinable with any of the above: still stages (flakes
+#                    only see tracked files) but skips the marker commits, for
+#                    iterating on a build that is not ready to be recorded
 mode="all"
 generation=""
-case "${1:-}" in
-  --build-only)    mode="build" ;;
-  --activate-only) mode="activate"; generation="${2:-}" ;;
-  "")              ;;
-  *) echo "usage: ${0:t} [--build-only|--activate-only [GENERATION]]" >&2; exit 2 ;;
-esac
+no_commit=0
+usage="usage: ${0:t} [--no-commit] [--build-only|--activate-only [GENERATION]]"
+while (( $# )); do
+  case "$1" in
+    --build-only)    mode="build" ;;
+    --activate-only)
+      mode="activate"
+      if [[ -n "${2:-}" && "$2" != --* ]]; then generation="$2"; shift; fi
+      ;;
+    --no-commit)     no_commit=1 ;;
+    *) echo "$usage" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+# Every marker commit goes through here so --no-commit has one place to act.
+commit_marker() {
+  if (( no_commit )); then
+    echo "--no-commit: skipping commit \"$1\""
+    return 0
+  fi
+  git commit --no-verify --allow-empty -m "$1"
+}
 
 # Every commit here is --allow-empty: the point is to mark *when* a build or an
 # activation happened, which is information even when no file changed. A build
@@ -112,7 +132,7 @@ phase_build() {
     sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
     built="root-fallback"
   fi
-  git commit --no-verify --allow-empty -m "$(hostname) build ${built}"
+  commit_marker "$(hostname) build ${built}"
 }
 
 phase_activate() {
@@ -180,7 +200,7 @@ record_activation() {
   echo "now: generation $gen -> $store"
   reclaim_root_owned
   git add .
-  git commit --no-verify --allow-empty -m "$(hostname) $how gen $gen $store"
+  commit_marker "$(hostname) $how gen $gen $store"
 }
 
 case "$mode" in

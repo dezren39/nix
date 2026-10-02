@@ -116,6 +116,16 @@ rebuild:
 build:
     ./simple-rebuild.sh --build-only
 
+# Same build, but stage only and skip the marker commit -- for iterating
+# until it passes; finish with `just build` to record it.
+
+# Build without committing (no sudo); `build-only` is an alias
+[group('nix')]
+build-no-commit:
+    ./simple-rebuild.sh --build-only --no-commit
+
+alias build-only := build-no-commit
+
 # Activate ./result, which `just build` produced. The nix build inside this is
 # a cache hit in that case, so it is the "switch without building again" path.
 #

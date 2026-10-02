@@ -31,6 +31,13 @@ let
     buildPhase = ''
       runHook preBuild
       export BUN_INSTALL_CACHE_DIR=$(mktemp -d)
+      # Upstream's bunfig.toml refuses any version published in the last 3
+      # days, and bun 1.3.14 applies that even to versions already pinned in
+      # bun.lock. A v2 commit that bumps a dependency the same day it ships
+      # (@agentclientprotocol/sdk 1.6.0 on 2026-10-01) then fails to install
+      # until the version ages in. The lockfile plus outputHash already pin the
+      # exact contents, so the gate adds nothing here.
+      sed -i '/^minimumReleaseAge[[:space:]]*=/d' bunfig.toml
       bun install \
         --cpu="${bunCpu}" \
         --os="${bunOs}" \
@@ -53,7 +60,7 @@ let
     dontFixup = true;
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
-    outputHash = "sha256-qxb371dCf7WG09VvQE+HZ/x3EURpFIr11bdnQwGTHhw=";
+    outputHash = "sha256-NAQA5Dh7t5/GPrRr9k/vuWAUSrBnTIxkEwyUez/xCrU=";
   };
 in
 stdenvNoCC.mkDerivation (finalAttrs: {

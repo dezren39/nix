@@ -285,7 +285,7 @@ rec {
             rev = builtins.substring 0 7 inputs.opencode.rev;
           }
           // pkgs.lib.optionalAttrs (system == "aarch64-darwin") {
-            hash = "sha256-/njY2BbhqncqQ+gODoTmhBJKTT22VCFAhh8L3kwgHfU=";
+            hash = "sha256-7B4h5fGOvFuFu5aa5uzzzkLb/98kG/oxr5uYJebFJrI=";
           }
         );
         # opencode resolves these once at startup (effect/runtime-flags.ts), and
@@ -358,9 +358,18 @@ rec {
               # in makeShellWrapper. Appending it puts its setup hook after
               # makeBinaryWrapper's, and the later hook is the one that defines
               # wrapProgram.
-              nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
-                pkgs.makeShellWrapper
-              ];
+              nativeBuildInputs =
+                (old.nativeBuildInputs or [ ])
+                ++ [ pkgs.makeShellWrapper ]
+                # build.ts ad-hoc re-signs the darwin binary with
+                # `codesign --force --sign -` (anomalyco/opencode#52183), and
+                # upstream's nix/opencode.nix does not provide codesign.
+                # sigtool's codesign implements that ad-hoc mode and spawns
+                # codesign_allocate, which cctools provides.
+                ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+                  pkgs.darwin.sigtool
+                  pkgs.cctools
+                ];
               postFixup = (old.postFixup or "") + ''
                 wrapProgram $out/bin/opencode \
                   ${pkgs.lib.concatStringsSep " \\\n  " opencodeEnvFlags}

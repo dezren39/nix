@@ -71,6 +71,7 @@ _: {
     "onedrive"
     "onyx" # system maintenance, cache cleaning, Spotlight reindexing
     # "onlyoffice"
+    "openchamber" # desktop/web UI for opencode; uses the nix-installed opencode
     "postico"
     "raycast"
     "rectangle"

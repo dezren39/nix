@@ -20,6 +20,9 @@ breakdown; this skill is the fast path.
 
 - `just rebuild` / `./rebuild.sh` / `./r` — flake update + switch.
 - `just switch` / `./simple-rebuild.sh` / `./s` — switch only (no flake update).
+- `just build` — build only, no sudo, commits a build marker. While iterating on a
+  failing build use `just build-no-commit` (alias `build-only`; passes
+  `--no-commit`), then finish with one `just build` to commit.
 - Both `git add .`, run `sudo nix run nix-darwin -- switch --flake .`, fix repo
   ownership, and auto-commit an empty commit tagged with hostname + generation.
 - `just fmt` — nixfmt + flake-tidy (run before finishing nix edits).
@@ -83,7 +86,7 @@ Where things go:
   `.lootbox/scripts/`. Nix provides Deno/codedb/fff-mcp; a pinned updater builds
   Lootbox and npm MCP CLIs. `just lootbox-server|-kill|-restart|-check|update-lootbox`.
 - The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with
-  nine patches, applied in `opencodePatches` order:
+  eleven patches, applied in `opencodePatches` order:
   `patches/opencode-compact-tui.patch`,
   `patches/opencode-scroll-autofollow.patch`,
   `patches/opencode-plan-permissions-reminder.patch`,
@@ -91,9 +94,11 @@ Where things go:
   `patches/opencode-agent-variant-defaults.patch`,
   `patches/opencode-run-descendant-permissions.patch`,
   `patches/opencode-nested-subagent-prompts.patch`,
-  `patches/opencode-question-submit-exit.patch`, and
-  `patches/opencode-question-enter-submit.patch` (the last two are a pair — the
-  second is generated against the first's post-image). The root `*.patch` files (Copilot
+  `patches/opencode-question-submit-exit.patch`,
+  `patches/opencode-question-enter-submit.patch` (these two are a pair — the
+  second is generated against the first's post-image),
+  `patches/opencode-permission-enter-submit.patch`, and
+  `patches/opencode-numpad-enter.patch`. The root `*.patch` files (Copilot
   Business/Enterprise, compaction, OpenAI response-id, edit-read) are NOT applied —
   they're local reference snapshots (already carried by the `anomalyco/opencode/dev`
   input). Read them before touching opencode auth/session/TUI behavior.

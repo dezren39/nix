@@ -309,6 +309,22 @@ Likely upstream-equivalence signals that require the human gate:
 - `@opentui` stops consuming Enter in focused textareas, or the keymap gains
   priority over focused-renderable key handling.
 
+### `patches/opencode-permission-enter-submit.patch`
+
+Intent: the same focused-textarea Enter defect as above, in the permission
+reject-reason prompt. `RejectPrompt`'s `<textarea>` in
+`packages/tui/src/routes/session/permission.tsx` passes
+`onSubmit={() => props.onConfirm(input.plainText)}`; the `return` binding stays.
+Upstream-equivalence signal: that textarea gains `onSubmit` upstream.
+
+### `patches/opencode-numpad-enter.patch`
+
+Intent: keypad Enter (`kpenter`) acts like `return` everywhere Enter confirms —
+run-mode footers (command, permission, question), the TUI dialogs it touches,
+`config/keybind.ts`, and the permission/question routes. Read the patch for the
+full target list. Upstream-equivalence signal: keybind parsing treats `kpenter`
+as `return` globally.
+
 ## Update workflow
 
 ### 1. Protect current work
@@ -437,8 +453,45 @@ Also evaluate or inspect the app program if needed to confirm `.#opencode` point
 to the patched package. The task is not complete with only `git apply --check` or
 only a package evaluation.
 
+Then build the whole system, which also covers `opencode2` and everything else
+the lock update moved:
+
+```bash
+just build-no-commit   # alias: just build-only — iterate with this
+just build             # once it passes — records the build commit
+```
+
+Both run `simple-rebuild.sh --build-only` (no sudo). `build-no-commit` adds
+`--no-commit`: it still runs `git add .` (flakes only see tracked files) but
+skips the `<host> build <store path>` marker commit, so failed attempts leave no
+commits. Use `just build` exactly once, after the build passes, to commit the
+change. Neither activates; `just activate`/`just switch` need sudo and the user.
+
 Run `git diff --check` and inspect the final diff. Do not run a full system switch
-unless the user asks. Do not commit or push unless explicitly requested.
+unless the user asks. Do not commit or push unless explicitly requested — a
+user request to "use just build to commit" is that request.
+
+## Recurring failure modes
+
+- **`opencode-node_modules` hash mismatch on aarch64-darwin.** `flake.nix`
+  overrides upstream's `nix/hashes.json` hash for `aarch64-darwin` because
+  `pkgs/bun-bin` may differ from upstream's bun. Take the `got:` value; compare
+  with upstream `nix/hashes.json` at the new rev (they matched at `a79ecfe`).
+- **`bun: command not found: codesign`.** Since anomalyco/opencode#52183,
+  `packages/opencode/script/build.ts` ad-hoc re-signs the darwin binary.
+  Upstream `nix/opencode.nix` lacks codesign; the override adds
+  `pkgs.darwin.sigtool` (codesign) and `pkgs.cctools` (codesign_allocate,
+  else "Failed to spawn codesign_allocate"). Verify with
+  `codesign --verify --strict` on the built binary.
+- **`opencode2` `bun install`: "blocked by minimum-release-age".** Upstream
+  `bunfig.toml` sets `minimumReleaseAge = 259200` and bun 1.3.14 enforces it
+  even for lockfile-pinned versions, so a same-day dependency bump fails.
+  `pkgs/opencode2/package.nix` deletes that line inside the fixed-output
+  node_modules build; then update `outputHash` from `got:`.
+- **Unrestricted `nix flake update` moves `sidepulse-src`.** Its lock pin is the
+  revision the 12 `patches/sidepulse-pr-*` patches target
+  (`pkgs/sidepulse/default.nix`). If they stop applying, restore the previous
+  `sidepulse-src` lock node rather than porting the stack unasked.
 
 ## Completion report
 
