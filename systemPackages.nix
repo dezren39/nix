@@ -153,6 +153,9 @@
       inputs.self.packages.${system}.opencode2
       # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
       inputs.self.packages.${system}.lootbox-link
+      # The MCP gateway in pkgs/mcpx. Its daemon runs at login from the mcpx
+      # launchd agent in configuration.nix; the CLI reaches it from any shell.
+      inputs.self.packages.${system}.mcpx
       inputs.self.packages.${system}.opencode-share
       inputs.self.packages.${system}.sidepulse
       inputs.self.packages.${system}.sidepulse-setup

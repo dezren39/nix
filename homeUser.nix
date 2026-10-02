@@ -27,6 +27,8 @@ lib.recursiveUpdate {
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
       ".config/lootbox/lootbox.config.json".source = ./lootbox.config.json;
+      # mcpx reads the same MCP servers as lootbox; see mcpx.config.nix.
+      ".config/mcpx/config.json".text = builtins.toJSON (import ./mcpx.config.nix { inherit lib; });
       # Deliberately-inert ~/.gitconfig. Git reads ~/.config/git/config first and
       # ~/.gitconfig second, so a stray file here silently overrides everything
       # home-manager writes — which is exactly what happened: an unmanaged 555-byte
