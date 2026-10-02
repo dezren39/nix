@@ -126,6 +126,10 @@ type Extras struct {
 	// Tools, when non-empty, restricts the exposed tools to this allowlist.
 	// Entries are exact names, globs or /regexps/; see ToolPatterns.
 	Tools []string `json:"tools,omitempty"`
+	// ExtraIncludeTools adds to the Tools allowlist instead of replacing it:
+	// a server can widen a pool-wide allowlist by a tool or two without
+	// restating it. With no Tools anywhere it is the allowlist.
+	ExtraIncludeTools []string `json:"extraIncludeTools,omitempty"`
 	// ExcludeTools removes tools from the exposed set, and wins over Tools.
 	// A removed tool is neither listed nor callable.
 	ExcludeTools []string `json:"excludeTools,omitempty"`
@@ -472,15 +476,15 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 	d := c.Pool
 
 	// A server's own allowlist replaces the pool's, as every other field
-	// here does. Exclusions add up instead: a pool-wide `delete_*` is a
+	// here does; extraIncludeTools from either adds to whichever won. Exclusions add up instead: a pool-wide `delete_*` is a
 	// safety rule, and a server listing one more tool to hide must not
 	// quietly drop it. These were read from the server alone, so a pool
 	// block's lists -- documented as applying to every server -- did nothing.
-	allow, err := CompileToolPatterns(pickList(ex.Tools, d.Tools))
+	allow, err := CompileToolPatterns(concat(pickList(ex.Tools, d.Tools), d.ExtraIncludeTools, ex.ExtraIncludeTools))
 	if err != nil {
 		return nil, fmt.Errorf("server %q: tools: %w", name, err)
 	}
-	deny, err := CompileToolPatterns(append(append([]string{}, d.ExcludeTools...), ex.ExcludeTools...))
+	deny, err := CompileToolPatterns(concat(d.ExcludeTools, ex.ExcludeTools))
 	if err != nil {
 		return nil, fmt.Errorf("server %q: excludeTools: %w", name, err)
 	}
@@ -534,6 +538,14 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 		r.Min = r.Max
 	}
 	return r, nil
+}
+
+func concat(lists ...[]string) []string {
+	var out []string
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	return out
 }
 
 func pickList(near, far []string) []string {
@@ -732,6 +744,8 @@ func mergeExtras(near, far Extras) Extras {
 	if len(near.ExcludeTools) == 0 {
 		near.ExcludeTools = far.ExcludeTools
 	}
+	// Appending is the point of the field, across files as within one.
+	near.ExtraIncludeTools = concat(far.ExtraIncludeTools, near.ExtraIncludeTools)
 	return near
 }
 
