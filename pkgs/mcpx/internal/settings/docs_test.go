@@ -106,6 +106,12 @@ func settingsTable(all []settings.Setting) string {
 				envs = append(envs, "`"+a+"`")
 			}
 			governs := set.Short
+			if len(set.EnumAliases) > 0 {
+				// Only where aliases exist: the canonical names are what a
+				// reader should write, and the aliases are what they may
+				// find in an older file.
+				governs += "; one of " + set.EnumWords()
+			}
 			if set.Plumbing {
 				governs = "*(plumbing)* " + governs
 			}

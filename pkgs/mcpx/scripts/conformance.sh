@@ -114,7 +114,7 @@ start_daemon() { # era port dir [mcp-spec]
   local era=$1 port=$2 dir=$3 first=${4:-} protocol=follow
   local specflag=()
   [ -n "$first" ] && specflag=(--mcp-spec "$first")
-  [ "$era" = legacy ] && protocol=force-legacy
+  [ "$era" = legacy ] && protocol=force-initialize
   [ -n "${FIXTURE_PID:-}" ] || start_fixture
   mkdir -p "$WORK/$dir"
   printf '{"mcpServers":{"demo":{"url":"http://127.0.0.1:%s/mcp","protocol":"%s","mcpx":{"sharing":"shared","scope":"global"}},"tasks":{"command":"%s","mcpx":{"sharing":"shared","scope":"global"}}}}\n' \

@@ -142,7 +142,7 @@ func (a *App) settingsGet(ctx context.Context, args []string) error {
 	fmt.Printf("  default   %s\n", quoteEmpty(row.Default))
 	fmt.Printf("  kind      %s\n", row.Kind)
 	if len(row.Enum) > 0 {
-		fmt.Printf("  one of    %s\n", strings.Join(row.Enum, ", "))
+		fmt.Printf("  one of    %s\n", settings.Setting{Enum: row.Enum, EnumAliases: row.EnumAliases}.EnumWords())
 	}
 	fmt.Printf("  scope     %s (%s)\n", row.Scope, hotWords(row.Hot))
 	fmt.Printf("  flag      %s\n", row.Flag)
@@ -183,7 +183,8 @@ func (a *App) settingsSet(ctx context.Context, args []string) error {
 	if err := decl.Writable(); err != nil {
 		return err
 	}
-	if err := settings.Validate(*decl, value); err != nil {
+	value, err := settings.Normalize(*decl, value)
+	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
@@ -299,20 +300,21 @@ func (a *App) settingsUnset(ctx context.Context, args []string) error {
 // two render identically. They came from one declaration; they should not
 // look like two features.
 type settingRow struct {
-	Path     string   `json:"path"`
-	Kind     string   `json:"kind"`
-	Value    string   `json:"value"`
-	Default  string   `json:"default"`
-	Source   string   `json:"source"`
-	Shadowed []string `json:"shadowed,omitempty"`
-	Env      string   `json:"env"`
-	Flag     string   `json:"flag"`
-	Short    string   `json:"description,omitempty"`
-	Long     string   `json:"detail,omitempty"`
-	Enum     []string `json:"enum,omitempty"`
-	Scope    string   `json:"scope"`
-	Hot      bool     `json:"hot"`
-	Plumbing bool     `json:"plumbing,omitempty"`
+	Path        string              `json:"path"`
+	Kind        string              `json:"kind"`
+	Value       string              `json:"value"`
+	Default     string              `json:"default"`
+	Source      string              `json:"source"`
+	Shadowed    []string            `json:"shadowed,omitempty"`
+	Env         string              `json:"env"`
+	Flag        string              `json:"flag"`
+	Short       string              `json:"description,omitempty"`
+	Long        string              `json:"detail,omitempty"`
+	Enum        []string            `json:"enum,omitempty"`
+	EnumAliases map[string][]string `json:"enumAliases,omitempty"`
+	Scope       string              `json:"scope"`
+	Hot         bool                `json:"hot"`
+	Plumbing    bool                `json:"plumbing,omitempty"`
 }
 
 func toRow(v any) settingRow {

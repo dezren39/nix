@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/mcpauth"
+	"github.com/dezren39/mcpx/internal/settings"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -140,11 +141,13 @@ type Server struct {
 	// theirs from the environment and HTTP servers use OAuth when protected;
 	// most need nothing at all.
 	Auth *mcpauth.Auth `json:"auth,omitempty"`
-	// Protocol chooses which era to probe first: modern, legacy,
-	// force-modern, force-legacy or follow. Empty means upstream.protocol,
-	// which defaults to modern. The force forms skip the fallback, for a
-	// server known to be one or the other, or to find out which it is.
-	// follow is modern plus a legacy session for legacy callers.
+	// Protocol chooses the first request mcpx sends: prefer-discover,
+	// prefer-initialize, force-discover, force-initialize or follow, or any
+	// alias upstream.protocol accepts (modern, legacy, force-legacy, ...);
+	// Resolve normalises it. Empty means upstream.protocol, which defaults
+	// to prefer-discover. The force forms skip the fallback, for a server
+	// known to be one or the other, or to find out which it is. follow is
+	// prefer-discover plus an initialize session for legacy callers.
 	Protocol string `json:"protocol,omitempty"`
 	Cwd      string `json:"cwd,omitempty"`
 	// AliasOf names another server whose process definition this entry reuses.
@@ -446,6 +449,19 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 		merged.AliasOf = s.AliasOf
 		merged.Mcpx = s.Mcpx
 		s = &merged
+	}
+	// A per-server protocol overrides upstream.protocol, so it is read
+	// through the same declaration: the same aliases, the same refusal.
+	if s.Protocol != "" {
+		p, err := settings.NormalizePath("upstream.protocol", s.Protocol)
+		if err != nil {
+			return nil, fmt.Errorf("server %q: protocol: %w", name, err)
+		}
+		if p != s.Protocol {
+			cp := *s
+			cp.Protocol = p
+			s = &cp
+		}
 	}
 	ex := s.Mcpx
 	if ex == nil {

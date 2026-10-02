@@ -215,23 +215,25 @@ const (
 	EraModern Era = "modern"
 )
 
-// Preference controls which era to try first.
+// Preference controls which era to try first. The values are the canonical
+// names of the upstream.protocol setting, which normalises its aliases
+// (modern, legacy, force-legacy, ...) before a Preference is ever built.
 type Preference string
 
 const (
 	// PreferLegacy tries initialize first and probes server/discover only
 	// if that fails. Kept for a server known to be legacy but not worth
 	// forcing: it saves the probe's round trip on every start.
-	PreferLegacy Preference = "legacy"
+	PreferLegacy Preference = "prefer-initialize"
 	// PreferModern probes server/discover first and falls back to
 	// initialize. The default, because it is what the 2026-07-28 transport
 	// pages prescribe for a dual-era client, and because the era cache makes
 	// its cost a one-time one per server configuration.
-	PreferModern Preference = "modern"
+	PreferModern Preference = "prefer-discover"
 	// ForceLegacy and ForceModern skip the fallback, for a server known to
 	// be one or the other, or to diagnose which it is.
-	ForceLegacy Preference = "force-legacy"
-	ForceModern Preference = "force-modern"
+	ForceLegacy Preference = "force-initialize"
+	ForceModern Preference = "force-discover"
 	// PreferFollow is PreferModern for the server's own session, plus a
 	// separate legacy session for callers that speak a legacy revision, so
 	// a server that can only push requests to a legacy client still can.

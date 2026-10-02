@@ -208,7 +208,7 @@ func (s *Schema) Describe(includePlumbing bool) string {
 			fmt.Fprintf(&b, "  %-34s also %s\n", "", strings.Join(alias, ", "))
 		}
 		if len(set.Enum) > 0 {
-			fmt.Fprintf(&b, "  %-34s one of %s\n", "", strings.Join(set.Enum, ", "))
+			fmt.Fprintf(&b, "  %-34s one of %s\n", "", set.EnumWords())
 		}
 	}
 	return strings.TrimLeft(b.String(), "\n")
@@ -225,22 +225,23 @@ func quoteEmpty(v string) string {
 // it -- shell completion, an editor schema, documentation.
 func (s *Schema) JSON(includePlumbing bool) string {
 	type entry struct {
-		Path       string   `json:"path"`
-		Kind       string   `json:"kind"`
-		Default    string   `json:"default"`
-		Name       string   `json:"name,omitempty"`
-		Short      string   `json:"short,omitempty"`
-		Long       string   `json:"long,omitempty"`
-		Flag       string   `json:"flag"`
-		FlagAlias  []string `json:"flagAliases,omitempty"`
-		Env        string   `json:"env"`
-		EnvAlias   []string `json:"envAliases,omitempty"`
-		Enum       []string `json:"enum,omitempty"`
-		Bare       string   `json:"bare,omitempty"`
-		Repeatable bool     `json:"repeatable,omitempty"`
-		Commands   []string `json:"commands,omitempty"`
-		Plumbing   bool     `json:"plumbing,omitempty"`
-		Bootstrap  bool     `json:"bootstrap,omitempty"`
+		Path       string              `json:"path"`
+		Kind       string              `json:"kind"`
+		Default    string              `json:"default"`
+		Name       string              `json:"name,omitempty"`
+		Short      string              `json:"short,omitempty"`
+		Long       string              `json:"long,omitempty"`
+		Flag       string              `json:"flag"`
+		FlagAlias  []string            `json:"flagAliases,omitempty"`
+		Env        string              `json:"env"`
+		EnvAlias   []string            `json:"envAliases,omitempty"`
+		Enum       []string            `json:"enum,omitempty"`
+		EnumAlias  map[string][]string `json:"enumAliases,omitempty"`
+		Bare       string              `json:"bare,omitempty"`
+		Repeatable bool                `json:"repeatable,omitempty"`
+		Commands   []string            `json:"commands,omitempty"`
+		Plumbing   bool                `json:"plumbing,omitempty"`
+		Bootstrap  bool                `json:"bootstrap,omitempty"`
 	}
 	var out []entry
 	for _, set := range s.All() {
@@ -252,7 +253,7 @@ func (s *Schema) JSON(includePlumbing bool) string {
 			Name: set.Name, Short: set.Short, Long: set.Long,
 			Flag: set.FlagName(), FlagAlias: set.FlagAliases,
 			Env: set.EnvName(), EnvAlias: set.EnvAliases,
-			Enum: set.Enum, Bare: set.Bare, Repeatable: set.Repeatable,
+			Enum: set.Enum, EnumAlias: set.EnumAliases, Bare: set.Bare, Repeatable: set.Repeatable,
 			Commands: set.Commands, Plumbing: set.Plumbing, Bootstrap: set.Bootstrap,
 		})
 	}
