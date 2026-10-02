@@ -37,6 +37,23 @@
 let
   lootbox = builtins.fromJSON (builtins.readFile ./lootbox.config.json);
 
+  # npm-installed servers, by absolute path. A daemon inherits the PATH of
+  # whatever started it: the launchd agent's includes this directory, but a
+  # daemon the CLI starts -- from a project with its own .mcpx.json, or when
+  # the agent is down -- has the shell's, which does not, and every
+  # mcp-remote server failed with "executable file not found".
+  npmBin = "/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin";
+  npm = [
+    "mcp-remote"
+    "chrome-devtools-mcp"
+  ];
+  absolute =
+    server:
+    server
+    // lib.optionalAttrs (builtins.elem (server.command or "") npm) {
+      command = "${npmBin}/${server.command}";
+    };
+
   # How mcpx pools each server, where the default (one process, shared by
   # every caller: sharing "shared", scope "global") is wrong.
   pooling = {
@@ -64,6 +81,6 @@ let
 in
 {
   mcpServers = lib.mapAttrs (
-    name: server: server // lib.optionalAttrs (pooling ? ${name}) { mcpx = pooling.${name}; }
+    name: server: absolute server // lib.optionalAttrs (pooling ? ${name}) { mcpx = pooling.${name}; }
   ) lootbox.mcpServers;
 }
