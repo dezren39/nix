@@ -152,6 +152,24 @@ branch; it was used here for the opposite direction and cost a round-trip to cor
 side is defensible when `comm -23` shows the other side contributes no unique file and the diff is a
 superset — and is a guess without that. Say which check you ran.
 
+## Comments in code, config and workflows
+
+Explain the reason where a reader will meet the thing, not only in a doc they
+may never open. Specifically, comment:
+
+- **Anything that looks wrong and is deliberate** — a skipped check, an
+  expected failure count, a disabled default, an exception list — with why it
+  stays and what would change it. A skip explained only in a doc gets "fixed"
+  by the next person who sees it.
+- **Every hardcoded number or list** in CI or config: where it came from and
+  how it is updated.
+- **A test that is the only coverage** of a behaviour, and why it is the only
+  one.
+- **A workaround**, naming what it works around, so it can be removed when the
+  cause is fixed.
+
+Say why, not what; the code already says what.
+
 ## Writing to the user
 
 The user reads your words, not your context. Anything that only makes sense with your context is noise.
