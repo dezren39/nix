@@ -858,9 +858,18 @@ lib.recursiveUpdate {
         KeepAlive = true;
         RunAtLoad = true;
         WorkingDirectory = "/Users/drewry.pope";
+        # --config, not discovery: at login or right after `just switch` this
+        # can start before home-manager has linked the file. Discovering
+        # nothing, the daemon served zero servers under an unkeyed socket
+        # name the CLI never looks for, and the CLI started a second daemon
+        # of its own. Named explicitly, a missing file is an error, the
+        # process exits and KeepAlive retries. The socket name is unchanged:
+        # it is keyed to the same single file discovery from $HOME finds.
         ProgramArguments = [
           "${inputs.self.packages.${system}.mcpx}/bin/mcpx"
           "daemon"
+          "--config"
+          "/Users/drewry.pope/.config/mcpx/config.json"
         ];
         StandardErrorPath = "/tmp/mcpx.err.log";
         StandardOutPath = "/tmp/mcpx.out.log";
