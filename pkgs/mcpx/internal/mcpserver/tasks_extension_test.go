@@ -225,9 +225,20 @@ func TestAnUpstreamProtocolErrorIsRelayedAsAnError(t *testing.T) {
 
 // timedAsker is an upstream call that asks its questions askAfter into the
 // call and finishes workAfter after the last answer.
+//
+// askAfter > 0 means "ask once the call is a task", and that is enforced, not
+// left to the clock: the server's first Poll is the TaskEager window, and a
+// question it sees there is rightly answered inline with no task. Timing alone
+// lost that race under a loaded nix build -- the eager Poll checks for
+// questions before its deadline, so a stalled scheduler let a question due at
+// 200-300ms land inside a 100ms window, and the call came back input_required
+// instead of a task (2026-10-02, two different tests). Withholding questions
+// from that first Poll makes the outcome independent of machine load.
+// askAfter == 0 still asks up front, inside the window.
 type timedAsker struct {
 	mu         sync.Mutex
 	begun      time.Time
+	polls      int
 	askAfter   time.Duration
 	workAfter  time.Duration
 	qs         []mcpserver.Question
@@ -241,14 +252,14 @@ type timedAsker struct {
 func (a *timedAsker) Begin(context.Context, string, json.RawMessage) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.begun, a.answers = time.Now(), map[string]json.RawMessage{}
+	a.begun, a.answers, a.polls = time.Now(), map[string]json.RawMessage{}, 0
 	return "call-1", nil
 }
 
-func (a *timedAsker) state() mcpserver.Outcome {
+func (a *timedAsker) state(eager bool) mcpserver.Outcome {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if time.Since(a.begun) < a.askAfter {
+	if time.Since(a.begun) < a.askAfter || (eager && a.askAfter > 0) {
 		return mcpserver.Outcome{}
 	}
 	var open []mcpserver.Question
@@ -274,9 +285,13 @@ func (a *timedAsker) state() mcpserver.Outcome {
 }
 
 func (a *timedAsker) Poll(ctx context.Context, _ string, wait time.Duration) (mcpserver.Outcome, error) {
+	a.mu.Lock()
+	a.polls++
+	eager := a.polls == 1
+	a.mu.Unlock()
 	deadline := time.Now().Add(wait)
 	for {
-		out := a.state()
+		out := a.state(eager)
 		if out.Done || len(out.Questions) > 0 || time.Now().After(deadline) || ctx.Err() != nil {
 			return out, nil
 		}
@@ -425,12 +440,10 @@ func TestAnUpstreamProtocolErrorFailsAnAskedTask(t *testing.T) {
 // Cancelling an asked task abandons the call behind it: nobody is going to
 // answer its question.
 func TestCancellingAnAskedTaskAbandonsTheCall(t *testing.T) {
-	// The question has to come after askingServer's 100ms TaskEager window,
-	// or the server rightly answers it inline with no task. askAfter was
-	// 200ms; under a loaded nix build the eager timer fired late, the
-	// question won, and r["taskId"].(string) panicked (2026-10-02). One
-	// second leaves margin a slow scheduler cannot eat.
-	a := &timedAsker{askAfter: time.Second, qs: []mcpserver.Question{elicitQ("confirm")}}
+	// askAfter > 0 keeps the question out of the eager window (see
+	// timedAsker), so this is a task however loaded the machine is. The
+	// unchecked r["taskId"].(string) here used to panic when it was not.
+	a := &timedAsker{askAfter: 200 * time.Millisecond, qs: []mcpserver.Question{elicitQ("confirm")}}
 	s := askingServer(a, "confirm_delete")
 	r := resultOf(t, handle(t, s, "tools/call", callTool(extAskCaps, "confirm_delete")))
 	id, _ := r["taskId"].(string)
