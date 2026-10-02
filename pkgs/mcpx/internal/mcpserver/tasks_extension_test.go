@@ -425,10 +425,18 @@ func TestAnUpstreamProtocolErrorFailsAnAskedTask(t *testing.T) {
 // Cancelling an asked task abandons the call behind it: nobody is going to
 // answer its question.
 func TestCancellingAnAskedTaskAbandonsTheCall(t *testing.T) {
-	a := &timedAsker{askAfter: 200 * time.Millisecond, qs: []mcpserver.Question{elicitQ("confirm")}}
+	// The question has to come after askingServer's 100ms TaskEager window,
+	// or the server rightly answers it inline with no task. askAfter was
+	// 200ms; under a loaded nix build the eager timer fired late, the
+	// question won, and r["taskId"].(string) panicked (2026-10-02). One
+	// second leaves margin a slow scheduler cannot eat.
+	a := &timedAsker{askAfter: time.Second, qs: []mcpserver.Question{elicitQ("confirm")}}
 	s := askingServer(a, "confirm_delete")
 	r := resultOf(t, handle(t, s, "tools/call", callTool(extAskCaps, "confirm_delete")))
-	id := r["taskId"].(string)
+	id, _ := r["taskId"].(string)
+	if id == "" {
+		t.Fatalf("want a task, got %v", r)
+	}
 	waitTask(t, s, id, func(r map[string]any) bool { return r["status"] == "input_required" })
 	handle(t, s, "tasks/cancel", taskParams(map[string]any{"taskId": id}))
 	deadline := time.Now().Add(2 * time.Second)

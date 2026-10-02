@@ -215,17 +215,16 @@ func (b *Bus) Publish(e Event) Event {
 		e.At = time.Now()
 	}
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.history = append(b.history, e)
 	if len(b.history) > b.keep {
 		b.history = append([]Event(nil), b.history[len(b.history)-b.keep:]...)
 	}
-	subs := make([]*Subscription, 0, len(b.subs))
+	// Delivered with the lock held. Subscription.Close closes the channel
+	// under this lock, so sending after releasing it -- as this once did --
+	// raced a disconnect and panicked with "send on closed channel". Every
+	// send is non-blocking, so holding the lock cannot stall on a reader.
 	for _, s := range b.subs {
-		subs = append(subs, s)
-	}
-	b.mu.Unlock()
-
-	for _, s := range subs {
 		if !s.filter.Matches(e) {
 			continue
 		}

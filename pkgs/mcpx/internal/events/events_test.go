@@ -121,6 +121,35 @@ func TestASlowReaderCannotStallThePublisher(t *testing.T) {
 	}
 }
 
+// A subscriber that disconnects while an event is being published must not
+// take the publisher down. Publish used to copy the subscriber list, release
+// the lock, and only then send; a Close in that window closed the channel
+// under it and the daemon died with "send on closed channel". Seen in the nix
+// build of 2026-10-02, where TestASlowReaderCannotStallThePublisher timed out
+// under load and its deferred Close raced the still-running publisher.
+func TestClosingDuringPublishDoesNotPanic(t *testing.T) {
+	b := events.New(0)
+	stop := make(chan struct{})
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				b.Publish(events.Event{Kind: events.CallFinished})
+			}
+		}
+	}()
+	for i := 0; i < 20000; i++ {
+		s, _ := b.Subscribe(events.Filter{}, 0)
+		s.Close()
+	}
+	close(stop)
+	<-published
+}
+
 func TestResourceUpdatesAreFilteredByURI(t *testing.T) {
 	b := events.New(0)
 	s, _ := b.Subscribe(events.Filter{URIs: []string{"file:///a"}}, 0)
