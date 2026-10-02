@@ -174,9 +174,26 @@ Each entry is one of:
 A pattern that cannot compile is a configuration error naming the field, not
 a rule that silently matches nothing.
 
-`excludeTools` wins over `tools`. A server's own `tools` replaces the pool's;
-`excludeTools` from the pool and the server both apply, so a server that hides
-one more tool does not undo a pool-wide rule. An alias (`aliasOf`) filters
+`extraIncludeTools` takes the same entries and adds them to the allowlist
+instead of replacing it, so a server can widen a pool-wide `tools` by one tool
+without restating the rest:
+
+```json
+{
+  "pool": { "tools": ["get_*", "list_*", "search_*"] },
+  "mcpServers": {
+    "datadog": { "mcpx": { "extraIncludeTools": ["create_datadog_monitor"] } }
+  }
+}
+```
+
+With no `tools` anywhere, `extraIncludeTools` is the allowlist -- it includes,
+as `tools` does, so everything it does not name is hidden.
+
+`excludeTools` wins over both. A server's own `tools` replaces the pool's;
+`extraIncludeTools` and `excludeTools` from the pool and the server all apply,
+so a server that hides one more tool does not undo a pool-wide rule. A nearer
+config file's `pool.extraIncludeTools` likewise adds to a farther one's. An alias (`aliasOf`) filters
 independently of the server it shares a process with.
 
 Names are the server's own tool names, as `mcpx tools` prints them in its

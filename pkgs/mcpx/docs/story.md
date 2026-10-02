@@ -958,8 +958,8 @@ Searched upward from the working directory: `.mcpx.json`, `.mcpx/config.json`,
 JSONC comments are stripped, string-literal aware.
 
 Per server: `mode`, `max`, `min`, `idleTimeout`, `callTimeout`, `startTimeout`,
-`namespace`, `description`, `tools`, `excludeTools`, `disabled`. A top-level `pool`
-block applies any of them to every server. `tools` and `excludeTools` take exact
+`namespace`, `description`, `tools`, `extraIncludeTools`, `excludeTools`, `disabled`. A top-level `pool`
+block applies any of them to every server. The three tool lists take exact
 names, globs (`delete_*`) or `/regexps/`, and hide a tool from listings and calls
 alike; see [Hiding tools](configuration.md#hiding-tools).
 

@@ -150,16 +150,44 @@ type Subscription struct {
 	// subscriber was not reading. Reported rather than blocking the
 	// publisher, since one slow reader must never stall the daemon.
 	Dropped atomic.Uint64
+
+	// mu guards closed and the send on ch. The receiver closes this
+	// channel, so without it a Close between Publish's snapshot of the
+	// subscribers and its send panics the daemon: "send on closed channel".
+	// A read lock, so publishers do not serialise with each other; the send
+	// never blocks, so Close waits only for the select below.
+	mu     sync.RWMutex
+	closed bool
+}
+
+// send delivers one event unless the subscription has been closed.
+func (s *Subscription) send(e Event) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed {
+		return
+	}
+	select {
+	case s.ch <- e:
+	default:
+		s.Dropped.Add(1)
+	}
 }
 
 // Close stops delivery.
 func (s *Subscription) Close() {
 	s.bus.mu.Lock()
-	if _, ok := s.bus.subs[s.id]; ok {
-		delete(s.bus.subs, s.id)
+	delete(s.bus.subs, s.id)
+	s.bus.mu.Unlock()
+	// After the bus lock, never under it: a publisher holds no bus lock by
+	// the time it sends, and taking them in one order everywhere is what
+	// keeps that true.
+	s.mu.Lock()
+	if !s.closed {
+		s.closed = true
 		close(s.ch)
 	}
-	s.bus.mu.Unlock()
+	s.mu.Unlock()
 }
 
 // Subscribe starts listening, live only.
@@ -187,10 +215,11 @@ func (b *Bus) SubscribeFrom(f Filter, since uint64, replay bool) (sub *Subscript
 	b.next++
 
 	if replay {
-		if since > 0 && len(b.history) > 0 && b.history[0].Seq > since+1 {
+		h := b.retained()
+		if since > 0 && len(h) > 0 && h[0].Seq > since+1 {
 			gap = true
 		}
-		for _, e := range b.history {
+		for _, e := range h {
 			if e.Seq > since && f.Matches(e) {
 				select {
 				case ch <- e:
@@ -216,8 +245,13 @@ func (b *Bus) Publish(e Event) Event {
 	}
 	b.mu.Lock()
 	b.history = append(b.history, e)
-	if len(b.history) > b.keep {
-		b.history = append([]Event(nil), b.history[len(b.history)-b.keep:]...)
+	// Trim in place, and only when twice the limit has built up: trimming on
+	// every event allocated a fresh slice and copied the whole history each
+	// time -- 214 us and 344 KB per event at the default 1024, paid by every
+	// call the daemon reports. Compacting once per keep events amortises to
+	// nothing, and retained() hides the slack from subscribers.
+	if len(b.history) >= 2*b.keep {
+		b.history = b.history[:copy(b.history, b.history[len(b.history)-b.keep:])]
 	}
 	subs := make([]*Subscription, 0, len(b.subs))
 	for _, s := range b.subs {
@@ -226,16 +260,21 @@ func (b *Bus) Publish(e Event) Event {
 	b.mu.Unlock()
 
 	for _, s := range subs {
-		if !s.filter.Matches(e) {
-			continue
-		}
-		select {
-		case s.ch <- e:
-		default:
-			s.Dropped.Add(1)
+		if s.filter.Matches(e) {
+			s.send(e)
 		}
 	}
 	return e
+}
+
+// retained is the history a subscriber may see: the last keep events. The
+// slice itself may hold up to twice that between compactions, which is an
+// allocation strategy and not a longer memory. Callers hold b.mu.
+func (b *Bus) retained() []Event {
+	if len(b.history) > b.keep {
+		return b.history[len(b.history)-b.keep:]
+	}
+	return b.history
 }
 
 // Latest is the most recent sequence number, for a subscriber that wants to
