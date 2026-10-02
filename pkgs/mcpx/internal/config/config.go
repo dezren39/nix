@@ -124,8 +124,10 @@ type Extras struct {
 	// to pull the namespace in without loading any schemas.
 	Description string `json:"description,omitempty"`
 	// Tools, when non-empty, restricts the exposed tools to this allowlist.
+	// Entries are exact names, globs or /regexps/; see ToolPatterns.
 	Tools []string `json:"tools,omitempty"`
-	// ExcludeTools removes tools from the exposed set.
+	// ExcludeTools removes tools from the exposed set, and wins over Tools.
+	// A removed tool is neither listed nor callable.
 	ExcludeTools []string `json:"excludeTools,omitempty"`
 }
 
@@ -333,8 +335,8 @@ type Resolved struct {
 	Description  string
 	Prelude      string
 	LogLevel     string
-	Tools        map[string]bool
-	ExcludeTools map[string]bool
+	Tools        ToolPatterns
+	ExcludeTools ToolPatterns
 	Profiles     []string
 	Default      bool
 }
@@ -343,10 +345,10 @@ type Resolved struct {
 // lists. Filtering is a property of the view, not of the process: two aliases
 // of one server expose different subsets while sharing a single child.
 func (r *Resolved) VisibleTool(name string) bool {
-	if r.ExcludeTools[name] {
+	if r.ExcludeTools.Match(name) {
 		return false
 	}
-	if len(r.Tools) > 0 && !r.Tools[name] {
+	if !r.Tools.Empty() && !r.Tools.Match(name) {
 		return false
 	}
 	return true
@@ -469,6 +471,20 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 	}
 	d := c.Pool
 
+	// A server's own allowlist replaces the pool's, as every other field
+	// here does. Exclusions add up instead: a pool-wide `delete_*` is a
+	// safety rule, and a server listing one more tool to hide must not
+	// quietly drop it. These were read from the server alone, so a pool
+	// block's lists -- documented as applying to every server -- did nothing.
+	allow, err := CompileToolPatterns(pickList(ex.Tools, d.Tools))
+	if err != nil {
+		return nil, fmt.Errorf("server %q: tools: %w", name, err)
+	}
+	deny, err := CompileToolPatterns(append(append([]string{}, d.ExcludeTools...), ex.ExcludeTools...))
+	if err != nil {
+		return nil, fmt.Errorf("server %q: excludeTools: %w", name, err)
+	}
+
 	sharing := Sharing(pick(string(ex.Sharing), string(d.Sharing), string(SharingShared)))
 	switch sharing {
 	case SharingShared, SharingExclusive:
@@ -509,8 +525,8 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 		Description:  ex.Description,
 		Prelude:      pick(ex.Prelude, d.Prelude),
 		LogLevel:     pickLoggingLevel(ex.Logging, d.Logging),
-		Tools:        toSet(ex.Tools),
-		ExcludeTools: toSet(ex.ExcludeTools),
+		Tools:        allow,
+		ExcludeTools: deny,
 		Profiles:     append(append([]string{}, d.Profiles...), ex.Profiles...),
 		Default:      boolOr(ex.Default, d.Default, true),
 	}
@@ -520,15 +536,11 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 	return r, nil
 }
 
-func toSet(v []string) map[string]bool {
-	if len(v) == 0 {
-		return nil
+func pickList(near, far []string) []string {
+	if len(near) > 0 {
+		return near
 	}
-	m := make(map[string]bool, len(v))
-	for _, s := range v {
-		m[s] = true
-	}
-	return m
+	return far
 }
 
 // ResolveAll returns every enabled server, sorted by name.
