@@ -406,7 +406,20 @@ prune_with() {
   fi
 }
 prune_with npm   npm cache verify
-prune_with uv    uv cache prune
+# uv: bounded wait for the cache lock. Every `uv run` holds a shared lock on
+# ~/.cache/uv for as long as its program runs, and `uv cache prune` waits for
+# all of them -- so one long-lived `uv run python main.py` (seen 2026-10-02,
+# running since 02:43) stalled clean indefinitely at "Cache is currently
+# in-use, waiting for other uv processes to finish". UV_LOCK_TIMEOUT makes uv
+# give up instead (verified: exits 2 after the timeout with "Timeout (3s) when
+# waiting for lock"). Not --force: that prunes without the lock, underneath
+# whatever is running.
+if as_user_have uv; then
+  run as_user env UV_LOCK_TIMEOUT=30 uv cache prune ||
+    warn "uv prune skipped: cache still locked after 30s by a running uv process (pgrep -fl 'uv run')"
+else
+  info "uv not installed, skipping"
+fi
 prune_with pnpm  pnpm store prune      # NEVER rm -rf: breaks hardlinked node_modules in place
 prune_with yarn  yarn cache clean
 prune_with go    go clean -modcache
@@ -861,8 +874,19 @@ mark_dir() {
 # rm -rf then recreate is FASTER than emptying in place: `find -delete` stats and
 # traverses every entry, while rm -rf uses the bulk unlink path. The stub costs
 # two syscalls.
+#
+# Except virtualenvs, which are deleted outright with no stub. uv (and venv
+# tooling generally) treats an existing .venv without pyvenv.cfg as a broken
+# environment and refuses to use or replace it, so the empty stub, marker and
+# all, made every cleaned project fail until the directory was removed by hand.
+# They lose the Spotlight marker until the next clean re-marks the new one.
+NO_STUB_NAMES=(.venv venv)
 del_and_stub() {
   del "$1"
+  local _n
+  for _n in "${NO_STUB_NAMES[@]}"; do
+    [ "${1##*/}" = "$_n" ] && return 0
+  done
   if [ "$DRY_RUN" != "1" ]; then
     mkdir -p "$1" 2>/dev/null && chown "$CALLER_USER" "$1" 2>/dev/null
   fi

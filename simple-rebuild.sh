@@ -145,17 +145,26 @@ phase_build() {
   if nix --extra-experimental-features 'nix-command flakes' \
        build ".#darwinConfigurations.$(hostname -s).system" --keep-going --out-link ./result; then
     built=$(basename "$(readlink -f ./result)")
-  elif [[ "$mode" == "build" ]]; then
-    # No root fallback here: this phase's whole contract is that it never asks
-    # for a password, so a failed build fails rather than escalating.
-    echo "build failed" >&2
-    return 1
   else
-    # Falls back to the old combined path, so a broken unprivileged build never
-    # leaves the machine un-switched.
-    echo "user build failed; falling back to combined root build+switch"
-    sudo nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake . --keep-going
-    built="root-fallback"
+    # A failed build stops here, in every mode, and nothing is activated or
+    # committed.
+    #
+    # This used to fall back to `sudo nix run nix-darwin -- switch` outside
+    # --build-only. Nothing the unprivileged build fails on is fixed by
+    # retrying it as root -- a broken patch or hash fails the same way -- so
+    # the only failures it ever "fixed" were flaky ones, by rebuilding the
+    # failed derivation and hoping. It also hid them: the run exited 0 and
+    # committed "build root-fallback". And it activated twice -- the fallback
+    # switch, then phase_activate's own -- so each such run made two
+    # generations (292/293 and 294/295 on 2026-10-02) and ran every activation
+    # step, Homebrew included, twice. Both of those failures were real mcpx
+    # test races; see the mcpx commits that day.
+    {
+      print -P "%F{red}%B==> build failed; nothing activated, nothing committed%b%f"
+      echo "    The failing derivation and its last log lines are above."
+      echo "    Full log: nix log <the .drv named in 'Cannot build'>"
+    } >&2
+    return 1
   fi
   commit_marker "$(hostname) build ${built}"
 }
