@@ -101,7 +101,9 @@ func downgradeNotification(method string, params json.RawMessage, version string
 	if method != "notifications/progress" || Defines(version, FeatProgressMessage) {
 		return params
 	}
-	if pol := spec.Current(); !pol.FirstIs(spec.Only(version)) || !pol.Strict(version) {
+	// 2024-11-05 has no `message` on progress; every later revision does.
+	// Stripped only when that revision's rule governs (see spec.Governs).
+	if !spec.Current().Governs(version) {
 		return params
 	}
 	var m map[string]json.RawMessage

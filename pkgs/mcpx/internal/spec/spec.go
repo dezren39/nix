@@ -116,6 +116,41 @@ func (p Policy) FirstIs(pred Pred) bool { return pred(p.First()) }
 // Strict reports whether mcpx holds a revision's rules strictly.
 func (p Policy) Strict(rev string) bool { return !p.lenient[rev] }
 
+// Winner is the highest-ranked of the revisions given, or "" if none is
+// known. The revisions given are the ones a particular conflict is between.
+func (p Policy) Winner(revs ...string) string {
+	for _, r := range p.Order() {
+		for _, c := range revs {
+			if c == r {
+				return r
+			}
+		}
+	}
+	return ""
+}
+
+// Governs reports whether rev's rule decides a conflict between the
+// revisions given, and is held strictly.
+//
+// This is the default way to settle a conflict two revisions answer
+// differently: whichever of them the operator ranked higher wins, and only
+// that one's strictness is consulted -- the others' settings say nothing
+// about a conflict they lost. With no revisions given the conflict is taken
+// to be between all of them, which is the common case: one revision does
+// something the rest do not.
+//
+// A rule that needs to decide differently is free to: Order, First, FirstIs,
+// Winner and Strict are all available, and `docs/protocol.md` asks that such
+// a rule say in a comment why the usual answer is wrong for it.
+func (p Policy) Governs(rev string, among ...string) bool {
+	if len(among) == 0 {
+		among = p.Order()
+	} else {
+		among = append(append([]string(nil), among...), rev)
+	}
+	return p.Winner(among...) == rev && p.Strict(rev)
+}
+
 // StrictTable is Strict for every revision, for reporting.
 func (p Policy) StrictTable() map[string]bool {
 	out := make(map[string]bool, len(Revisions))

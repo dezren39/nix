@@ -463,7 +463,10 @@ func (c *Client) dispatch(origin context.Context, raw []byte) {
 	}
 	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 		if len(probe.ID) > 0 && string(probe.ID) != "null" {
-			if c.modern.Load() && spec.Current().Strict("2026-07-28") {
+			// 2026-07-28 forbids answering a server's request; the earlier
+			// revisions require it. Dropped only when 2026-07-28's rule
+			// governs (see spec.Governs).
+			if c.modern.Load() && spec.Current().Governs("2026-07-28") {
 				// 2026-07-28 has no server-to-client requests: a server
 				// asks through input_required results instead (SEP-2260,
 				// SEP-2322). The stdio transport page says the client

@@ -44,8 +44,9 @@ standing, by name; `--suite all` skipped 7 of 280 checks at `650bf19` and 1 of
 280 after `resources/directory/read` landed (`LEGS=server-all
 scripts/conformance.sh`, counted from `checks.json`). The Go tests have the
 same rule, through the repository variable `MCPX_GO_TESTS` written by
-`scripts/gotest-report.py` (32 on the Linux runner: 28 recorded gaps or spec
-quirks and two macOS-only tests). Both kinds of record keep the **names** of
+`scripts/gotest-report.py`. The record is 0: every gap whose test was skipped
+has been closed, and the tests that only mean anything on macOS are compiled
+only there rather than counted as skipped on Linux. Both kinds of record keep the **names** of
 what is skipped, so a rise reports exactly which test or check is new.
 
 ### Skipped, and why
