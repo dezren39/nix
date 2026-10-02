@@ -22,6 +22,11 @@
 # Client leg: builds internal/conformance/officialclient, the adapter that makes mcpx the client under test
 # (see its package doc), and runs the client scenarios for both requirement sets.
 #
+# Revision precedence (#307, internal/spec): every per-revision leg runs mcpx with that revision first --
+# `mcpx daemon --mcp-spec <rev>` for a server leg, MCPX_MCP_SPEC=<rev> for a client leg, which the adapter's mcpx
+# and any daemon it starts inherit. server-all sets nothing and measures the defaults. A server leg therefore
+# gets a daemon of its own, started for the leg and stopped after it.
+#
 # Output: <out-dir>/<leg>-<set>/{out.txt,results/...} and <out-dir>/failures.txt, one line per failed check.
 set -uo pipefail
 
@@ -58,9 +63,9 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/mcpx-conformance.XXXXXX")
 
 DAEMON_PIDS=()
 cleanup() {
-  for era in modern legacy; do
-    [ -d "$WORK/$era" ] && MCPX_CONFIG=$WORK/$era/.mcpx.json MCPX_STATE_DIR=$WORK/$era/state \
-      MCPX_CACHE_DIR=$WORK/$era/cache "$WORK/mcpx" stop --all >/dev/null 2>&1
+  for dir in "$WORK"/server-*; do
+    [ -d "$dir" ] && MCPX_CONFIG=$dir/.mcpx.json MCPX_STATE_DIR=$dir/state \
+      MCPX_CACHE_DIR=$dir/cache "$WORK/mcpx" stop --all >/dev/null 2>&1
   done
   for pid in "${DAEMON_PIDS[@]}"; do
     kill "$pid" 2>/dev/null
@@ -98,28 +103,30 @@ start_fixture() {
   exit 1
 }
 
-# start_daemon <era> <port>: a daemon fronting the fixture over one protocol era, end to end. The
+# start_daemon <era> <port> <dir> [rev]: a daemon fronting the fixture over one protocol era, end to end. The
 # modern daemon uses protocol: follow, so a caller on a pre-2026 revision gets a legacy upstream
 # session and the fixture's server-to-client requests (elicitation, sampling) reach it. Without it
 # the --suite all leg fails four scenarios that pass in the 2025-11-25 leg. The
 # 2025-11-25 leg gets a daemon that speaks 2025-11-25 to the fixture too: the fixture's legacy tools
 # (test_elicitation, test_sampling, ...) push requests to their client, which only a legacy session can
 # carry -- over 2026-07-28 the fixture itself answers them -32601 -- and mcpx relays what arrives.
-start_daemon() {
-  local era=$1 port=$2 protocol=follow
+start_daemon() { # era port dir [mcp-spec]
+  local era=$1 port=$2 dir=$3 first=${4:-} protocol=follow
+  local specflag=()
+  [ -n "$first" ] && specflag=(--mcp-spec "$first")
   [ "$era" = legacy ] && protocol=force-legacy
   [ -n "${FIXTURE_PID:-}" ] || start_fixture
-  mkdir -p "$WORK/$era"
+  mkdir -p "$WORK/$dir"
   printf '{"mcpServers":{"demo":{"url":"http://127.0.0.1:%s/mcp","protocol":"%s","mcpx":{"sharing":"shared","scope":"global"}},"tasks":{"command":"%s","mcpx":{"sharing":"shared","scope":"global"}}}}\n' \
-    "$FIXTURE_PORT" "$protocol" "$WORK/taskmcp" >"$WORK/$era/.mcpx.json"
-  MCPX_CONFIG=$WORK/$era/.mcpx.json MCPX_STATE_DIR=$WORK/$era/state MCPX_CACHE_DIR=$WORK/$era/cache \
+    "$FIXTURE_PORT" "$protocol" "$WORK/taskmcp" >"$WORK/$dir/.mcpx.json"
+  MCPX_CONFIG=$WORK/$dir/.mcpx.json MCPX_STATE_DIR=$WORK/$dir/state MCPX_CACHE_DIR=$WORK/$dir/cache \
     MCPX_REGISTRY_URL=http://127.0.0.1:1/ \
-    "$WORK/mcpx" daemon --port "$port" --passthrough demo,tasks >"$OUT/daemon-$era.log" 2>&1 &
+    "$WORK/mcpx" daemon --port "$port" --passthrough demo,tasks "${specflag[@]}" >"$OUT/daemon-$dir.log" 2>&1 &
   DAEMON_PIDS+=($!)
   local pid=${DAEMON_PIDS[-1]}
   for _ in $(seq 1 100); do
     if ! kill -0 "$pid" 2>/dev/null; then
-      echo "daemon exited at once (port $port already in use?); see $OUT/daemon-$era.log" >&2
+      echo "daemon exited at once (port $port already in use?); see $OUT/daemon-$dir.log" >&2
       exit 1
     fi
     # Ours, not whatever else is listening: the health answer carries the pid.
@@ -129,8 +136,22 @@ start_daemon() {
     *) echo "port $port answers, but not our daemon (pid $pid): $got" >&2; exit 1 ;;
     esac
   done
-  echo "daemon did not come up; see $OUT/daemon-$era.log" >&2
+  echo "daemon did not come up; see $OUT/daemon-$dir.log" >&2
   exit 1
+}
+
+# stop_daemon <dir>: stop the daemon a leg started, so the next leg's --mcp-spec takes effect. Each leg
+# has its own state directory: a daemon restarted over the previous leg's state served no upstream
+# prompts (prompts-get-* and completion-complete failed in server-2025-06-18 and -11-25), so sharing it
+# would measure that, not the leg.
+stop_daemon() {
+  local dir=$1
+  MCPX_CONFIG=$WORK/$dir/.mcpx.json MCPX_STATE_DIR=$WORK/$dir/state MCPX_CACHE_DIR=$WORK/$dir/cache \
+    "$WORK/mcpx" stop --all >/dev/null 2>&1
+  local pid=${DAEMON_PIDS[-1]}
+  kill "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+  unset 'DAEMON_PIDS[-1]'
 }
 
 run_leg() { # name, suite args...
@@ -144,9 +165,11 @@ run_leg() { # name, suite args...
 
 CLIENT="$WORK/officialclient -mcpx $WORK/mcpx"
 for leg in $LEGS; do
+  rev=${leg#*-} # server-2025-11-25 -> 2025-11-25; server-all -> all
+  [ "$rev" = all ] && rev=
   case $leg in
-  server-2025-11-25 | server-2025-06-18 | server-2025-03-26) [ -n "${LEGACY_UP:-}" ] || { start_daemon legacy "$LEGACY_PORT"; LEGACY_UP=1; } ;;
-  server-*) [ -n "${MODERN_UP:-}" ] || { start_daemon modern "$PORT"; MODERN_UP=1; } ;;
+  server-2025-11-25 | server-2025-06-18 | server-2025-03-26) start_daemon legacy "$LEGACY_PORT" "$leg" "$rev" ;;
+  server-*) start_daemon modern "$PORT" "$leg" "$rev" ;;
   esac
   case $leg in
   server-all) run_leg "$leg" server --url "http://127.0.0.1:$PORT/mcp" --suite all ;;
@@ -154,15 +177,18 @@ for leg in $LEGS; do
   # The suite has no frozen requirement set for these two, only the scenarios
   # tagged for each version, which is what --spec-version selects.
   server-2025-06-18 | server-2025-03-26)
-    run_leg "$leg" server --url "http://127.0.0.1:$LEGACY_PORT/mcp" --spec-version "${leg#server-}" ;;
-  server-*) run_leg "$leg" server --url "http://127.0.0.1:$PORT/mcp" --requirements "${leg#server-}" ;;
+    run_leg "$leg" server --url "http://127.0.0.1:$LEGACY_PORT/mcp" --spec-version "$rev" ;;
+  server-*) run_leg "$leg" server --url "http://127.0.0.1:$PORT/mcp" --requirements "$rev" ;;
   # As on the server side, the suite has frozen requirement sets only for
   # 2025-11-25 and 2026-07-28; the two older revisions run their tagged
   # scenarios.
   client-2025-06-18 | client-2025-03-26)
-    run_leg "$leg" client --command "$CLIENT" --suite all --spec-version "${leg#client-}" ;;
-  client-*) run_leg "$leg" client --command "$CLIENT" --requirements "${leg#client-}" ;;
+    MCPX_MCP_SPEC=$rev run_leg "$leg" client --command "$CLIENT" --suite all --spec-version "$rev" ;;
+  client-*) MCPX_MCP_SPEC=$rev run_leg "$leg" client --command "$CLIENT" --requirements "$rev" ;;
   *) echo "unknown leg $leg" >&2 ;;
+  esac
+  case $leg in
+  server-*) stop_daemon "$leg" ;;
   esac
 done
 

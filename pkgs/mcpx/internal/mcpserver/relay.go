@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // CallRelay is what a client asked of one tools/call that only the upstream
@@ -89,8 +91,17 @@ func (s *Server) withRelay(ctx context.Context, c *Conn, req request, p Peer) co
 // revision. The upstream may speak a newer one than the client: progress
 // with a message, relayed verbatim to a 2024-11-05 client, is a frame that
 // revision does not define.
+//
+// Only when 2024-11-05 is first in spec.precedence and held strictly. Every
+// 2024-era client in the wild ignores the extra field, and the message is the
+// only human-readable part of a progress report, so under the default
+// (2026-07-28 first) it is sent; a user who wants the 2024-11-05 schema to
+// the letter puts that revision first (#307).
 func downgradeNotification(method string, params json.RawMessage, version string) json.RawMessage {
 	if method != "notifications/progress" || Defines(version, FeatProgressMessage) {
+		return params
+	}
+	if pol := spec.Current(); !pol.FirstIs(spec.Only(version)) || !pol.Strict(version) {
 		return params
 	}
 	var m map[string]json.RawMessage

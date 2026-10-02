@@ -79,6 +79,37 @@ is judged as 2025-03-26 (`Headerless`): 2024-11-05 has no Streamable HTTP, so
 nothing arriving on `/mcp` can be a 2024-11-05 request that omitted the
 header, and the later transport pages say to assume 2025-03-26.
 
+### 1.1 When revisions conflict: `spec.precedence` and `spec.lenient` (#307)
+
+Most differences between revisions are settled by the revision the peer
+states. Where two revisions require incompatible behaviour and the peer's
+version does not settle it, two settings decide
+([`configuration.md`](configuration.md)):
+
+- **`spec.precedence`** — the revisions in the order their rules win, first
+  wins. Default: every revision mcpx serves, newest first
+  (`2026-07-28,2025-11-25,2025-06-18,2025-03-26,2024-11-05`). A partial list
+  is completed with the rest, newest first. **`--mcp-spec <rev>`** /
+  `MCPX_MCP_SPEC` (`spec.first`) moves one revision to the front.
+- **`spec.lenient`** — revisions mcpx does not hold strictly. Empty by
+  default: every revision is strict.
+
+An unknown revision in any of the three is refused with the list of valid
+ones. The daemon reports the effective policy under `spec` in
+`GET /v1/protocol`; `mcpx settings` shows each setting and where it came from.
+Code consults it through `internal/spec` (`First`, `Strict`, and the
+predicates `AtOrAfter`, `Before`, `Only`, `Between`).
+
+Two behaviours consult it today:
+
+| behaviour | default | changed by |
+| --- | --- | --- |
+| progress `message` relayed to a 2024-11-05 client (whose schema has no such field) | **sent** | stripped only when 2024-11-05 is first *and* strict: `--mcp-spec 2024-11-05` |
+| a request from a 2026-07-28 upstream server (that revision has none; its stdio page says the client MUST NOT answer) | **dropped** | answered when `spec.lenient` includes `2026-07-28` |
+
+The other conflicts in [`spec/revision-conflicts.md`](spec/revision-conflicts.md)
+are still decided in code, not by these settings.
+
 `internal/mcpserver/revisions.go` holds the floors, ceilings and removals as
 data, and `GET /v1/protocol` serves them. A matrix in a document and a matrix
 in code agree on the day they are written and never again, so the document
@@ -602,7 +633,8 @@ the cached schema. `notifications/tasks/status` (2025-11-25) is received and
 dropped — mcpx polls task state rather than tracking it. A request from a
 2026-07-28 server is not answered: that revision has no server-to-client
 requests (a server asks through `input_required` results), and the stdio
-transport page says the client MUST NOT respond (#200).
+transport page says the client MUST NOT respond (#200). With `2026-07-28` in
+`spec.lenient` it is answered like a legacy server's (§1.1).
 
 ### 4.4 Progress, log messages and trace context, relayed (#212)
 
@@ -619,8 +651,10 @@ back to the host:
   so the host never sees progress go backwards; once progress reaches `total`
   nothing more is sent; and reports for one token are passed on no more often
   than every 20 ms (`mcpclient.ProgressMinInterval`), except the final one. A
-  `message` goes to a host whose revision defines it (2025-03-26 on) and is
-  removed for a 2024-11-05 host.
+  `message` goes to every host by default; it is removed for a 2024-11-05
+  host only when 2024-11-05 is first in `spec.precedence` and strict
+  (`--mcp-spec 2024-11-05`), since that revision's schema has no such field
+  (§1.1).
 - **Log messages.** A 2026-07-28 host's `_meta` `logLevel` is sent upstream
   (or the daemon's own level, if more verbose); a legacy host's level is the one
   it set with `logging/setLevel`. Upstream `notifications/message` at or above

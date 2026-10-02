@@ -155,7 +155,7 @@ func (a *App) ApplyGlobalSettingFlags(args []string) (rest []string, err error) 
 		return args, err
 	}
 	a.adoptSettings()
-	return args, nil
+	return args, a.adoptSpec()
 }
 
 // SettingsErr reports a problem found while resolving settings.
