@@ -1,8 +1,12 @@
+SidePulse patch 1/12 -- upstream PR inteliwear/sidepulse#14 "Add OpenCode and T3 Code support" (open).
+Applies to inteliwear/sidepulse 6d55225 directly, at zero fuzz.
+Tracking: dezren39/nix#327.
+
 diff --git a/README.md b/README.md
-index a8264ff..445009f 100644
+index 95f90f3..d3d3308 100644
 --- a/README.md
 +++ b/README.md
-@@ -203,7 +203,7 @@ SidePulse Pro and SidePulse Dot.
+@@ -353,7 +353,7 @@ SidePulse Pro and SidePulse Dot.
  
  #### AI Agent Monitoring
  
@@ -11,7 +15,7 @@ index a8264ff..445009f 100644
  translate the current agent state into a small, glanceable LED status.
  
  Agent status modes:
-@@ -283,6 +283,21 @@ The monitor currently supports:
+@@ -433,6 +433,21 @@ The monitor currently supports:
  | Codex | `~/.codex/config.toml` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/codex.jsonl` |
  | Claude | `~/.claude/settings.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/claude.jsonl` |
  | Grok | `~/.grok/hooks/sidepulse.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/grok.jsonl` |
@@ -33,7 +37,7 @@ index a8264ff..445009f 100644
  
  #### Local reply classifier (Apple Silicon)
  
-@@ -359,10 +374,11 @@ sidepulse setup
+@@ -509,10 +524,11 @@ sidepulse setup
  ```
  
  `sidepulse setup` installs or refreshes all supported agent hooks, including
@@ -49,7 +53,7 @@ index a8264ff..445009f 100644
  To skip the status-bar app but still install hooks and SidePulse Pro Eject Prevention, use
  `sidepulse setup --no-status-bar`.
  
-@@ -421,6 +437,7 @@ sidepulse agent-monitor install claude
+@@ -571,6 +587,7 @@ sidepulse agent-monitor install claude
  sidepulse agent-monitor install grok
  sidepulse agent-monitor install cursor
  sidepulse agent-monitor install junie
@@ -57,7 +61,7 @@ index a8264ff..445009f 100644
  ```
  
  Each hook invokes a small, standard-library-only Python entry point. It writes
-@@ -591,7 +608,7 @@ firmware/websim `sdled.wasm` engine, then AppKit only draws the returned RGB
+@@ -748,7 +765,7 @@ firmware/websim `sdled.wasm` engine, then AppKit only draws the returned RGB
  frames.
  
  Open `Settings...` from the dropdown to manage agent integrations. The settings
@@ -67,7 +71,7 @@ index a8264ff..445009f 100644
  live updates from the local hook event socket. Settings are stored at
  `${XDG_CONFIG_HOME:-~/.config}/sidepulse/agent-monitor/settings.json`.
 diff --git a/src/sidepulse/cli.py b/src/sidepulse/cli.py
-index 480fe6e..c7fed39 100644
+index 04413da..1347c05 100644
 --- a/src/sidepulse/cli.py
 +++ b/src/sidepulse/cli.py
 @@ -38,11 +38,13 @@ from .install import (
@@ -84,7 +88,7 @@ index 480fe6e..c7fed39 100644
  )
  from .led_status import AgentLedController, LedStatusWrite
  from .links import (
-@@ -151,6 +153,7 @@ def build_sidepulse_parser() -> argparse.ArgumentParser:
+@@ -161,6 +163,7 @@ def build_sidepulse_parser() -> argparse.ArgumentParser:
      setup.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
      setup.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
      setup.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
@@ -92,7 +96,7 @@ index 480fe6e..c7fed39 100644
      setup.add_argument("--dry-run", action="store_true", help="Show what would change.")
      setup.add_argument(
          "--sd-eject-guard-scope",
-@@ -1173,6 +1176,7 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
+@@ -1231,6 +1234,7 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
      install.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
      install.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
      install.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
@@ -100,7 +104,7 @@ index 480fe6e..c7fed39 100644
      install.add_argument("--dry-run", action="store_true", help="Show what would change.")
      install.set_defaults(func=cmd_install)
  
-@@ -1183,6 +1187,7 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
+@@ -1241,6 +1245,7 @@ def build_parser(prog: str = "agent-monitor") -> argparse.ArgumentParser:
      uninstall.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
      uninstall.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
      uninstall.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
@@ -108,7 +112,7 @@ index 480fe6e..c7fed39 100644
      uninstall.add_argument("--dry-run", action="store_true", help="Show what would change.")
      uninstall.set_defaults(func=cmd_uninstall)
  
-@@ -1226,6 +1231,7 @@ def add_status_args(parser: argparse.ArgumentParser, include_json: bool = True)
+@@ -1284,6 +1289,7 @@ def add_status_args(parser: argparse.ArgumentParser, include_json: bool = True)
      parser.add_argument("--grok-log", type=Path, help="Grok JSONL log path.")
      parser.add_argument("--cursor-log", type=Path, help="Cursor JSONL log path.")
      parser.add_argument("--junie-log", type=Path, help="Junie JSONL log path.")
@@ -116,7 +120,7 @@ index 480fe6e..c7fed39 100644
  
  
  def cmd_doctor(args: argparse.Namespace) -> int:
-@@ -1354,6 +1360,7 @@ def install_hook_results(args: argparse.Namespace):
+@@ -1443,6 +1449,7 @@ def install_hook_results(args: argparse.Namespace):
              results.append(install_grok_hooks(log_path=log_path, dry_run=args.dry_run))
          else:
              results.append(install_junie_hooks(log_path=log_path, dry_run=args.dry_run))
@@ -124,7 +128,7 @@ index 480fe6e..c7fed39 100644
      return results
  
  
-@@ -1384,6 +1391,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
+@@ -1473,6 +1480,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
              results.append(uninstall_grok_hooks(log_path=log_path, dry_run=args.dry_run))
          else:
              results.append(uninstall_junie_hooks(log_path=log_path, dry_run=args.dry_run))
@@ -1922,10 +1926,10 @@ index 528ae2a..d849e61 100644
              return "Open in Codex"
          if provider == "claude":
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index 90b98aa..b3e0fe6 100644
+index f804066..06906a3 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -83,7 +83,15 @@ from .audit import (
+@@ -93,7 +93,15 @@ from .audit import (
      read_status_history_records,
      status_history_record,
  )
@@ -1942,7 +1946,7 @@ index 90b98aa..b3e0fe6 100644
  from .device_writer import (
      DEFAULT_FILE_NAME,
      MOUNT_ROOT,
-@@ -104,11 +112,13 @@ from .install import (
+@@ -114,11 +122,13 @@ from .install import (
      install_cursor_hooks,
      install_grok_hooks,
      install_junie_hooks,
@@ -1956,7 +1960,7 @@ index 90b98aa..b3e0fe6 100644
  )
  from .led_status import (
      AgentLedController,
-@@ -144,6 +154,8 @@ from .providers import (
+@@ -156,6 +166,8 @@ from .providers import (
      detect_cursor_config,
      detect_grok_config,
      detect_junie_config,
@@ -1965,8 +1969,8 @@ index 90b98aa..b3e0fe6 100644
      default_state_dir,
      parse_log_line,
  )
-@@ -357,8 +369,12 @@ STATUS_BAR_KEEPALIVE_VOLUME_NAMES = (
- STATUS_BAR_REFRESH_SECONDS = 15.0
+@@ -372,8 +384,12 @@ STATUS_BAR_REFRESH_SECONDS = 15.0
+ STATUS_BAR_BATTERY_FALLBACK_POLL_SECONDS = 30.0
  STATUS_BAR_DEVICE_POLL_SECONDS = 2.0
  STATUS_BAR_SESSION_HISTORY_LIMIT = 10
 +# Below this the number is noise; above it the session is close enough to a
@@ -1978,8 +1982,8 @@ index 90b98aa..b3e0fe6 100644
  SETTINGS_WINDOW_WIDTH = 680
  SETTINGS_WINDOW_HEIGHT = 560
  SETTINGS_ANIMATIONS_WINDOW_WIDTH = 720
-@@ -522,6 +538,46 @@ def format_percent_value(value: float | int) -> str:
-     return f"{number:.1f}%"
+@@ -562,6 +578,46 @@ def schedule_status_bar_timer(interval: float, target, selector: str):
+     return timer
  
  
 +def replay_recent_debug_logs(
@@ -2025,15 +2029,15 @@ index 90b98aa..b3e0fe6 100644
  class StatusBarController(NSObject):
      def init(self):
          self = objc.super(StatusBarController, self).init()
-@@ -530,6 +586,7 @@ class StatusBarController(NSObject):
- 
+@@ -571,6 +627,7 @@ class StatusBarController(NSObject):
          self.settings = load_settings()
+         self.open_settings_on_launch = False
          self.monitor = self.build_monitor()
 +        self.t3code_monitor = self.build_t3code_monitor()
          self.event_server = None
          self.status_item = None
-         self.timer = None
-@@ -651,6 +708,7 @@ class StatusBarController(NSObject):
+         self.status_icon_timer = None
+@@ -715,6 +772,7 @@ class StatusBarController(NSObject):
      @objc.IBAction
      def refresh_(self, _sender):
          try:
@@ -2041,7 +2045,7 @@ index 90b98aa..b3e0fe6 100644
              snapshot = self.monitor.snapshot(include_stale=False)
          except Exception as exc:
              log_status_bar(f"refresh error: {exc}")
-@@ -893,6 +951,12 @@ class StatusBarController(NSObject):
+@@ -967,6 +1025,12 @@ class StatusBarController(NSObject):
      @objc.IBAction
      def uninstallJunieHooks_(self, _sender):
          self.update_hooks("junie", install=False)
@@ -2054,7 +2058,7 @@ index 90b98aa..b3e0fe6 100644
  
      @objc.IBAction
      def toggleCodexTranscripts_(self, sender):
-@@ -1090,8 +1154,15 @@ class StatusBarController(NSObject):
+@@ -1235,8 +1299,15 @@ class StatusBarController(NSObject):
              latest_state_path=default_latest_state_path(),
          )
  
@@ -2070,7 +2074,7 @@ index 90b98aa..b3e0fe6 100644
  
      def start_event_server(self) -> None:
          self.stop_event_server()
-@@ -1248,6 +1319,13 @@ class StatusBarController(NSObject):
+@@ -1401,6 +1472,13 @@ class StatusBarController(NSObject):
          launch_installed = launch_agent_installed()
          eject_installed = sd_eject_guard_installed()
          sleep_installed = sleep_helper_installed()
@@ -2084,7 +2088,7 @@ index 90b98aa..b3e0fe6 100644
  
          set_field_value(
              self.setup_fields.get("launch_status"),
-@@ -1261,9 +1339,14 @@ class StatusBarController(NSObject):
+@@ -1414,9 +1492,14 @@ class StatusBarController(NSObject):
              self.setup_fields.get("sleep_status"),
              "Installed" if sleep_installed else "Needs administrator setup",
          )
@@ -2099,7 +2103,7 @@ index 90b98aa..b3e0fe6 100644
          eject_uninstall = self.setup_buttons.get("eject_guard_uninstall")
          if eject_uninstall is not None:
              eject_uninstall.setEnabled_(eject_installed)
-@@ -1280,6 +1363,22 @@ class StatusBarController(NSObject):
+@@ -1433,6 +1516,22 @@ class StatusBarController(NSObject):
          errors: list[str] = []
          opened_sleep_installer = False
  
@@ -2122,7 +2126,7 @@ index 90b98aa..b3e0fe6 100644
          if checkbox_is_on(self.setup_buttons.get("launch")) and not launch_agent_installed():
              try:
                  result = install_launch_agent(start=False)
-@@ -1366,6 +1465,7 @@ class StatusBarController(NSObject):
+@@ -1524,6 +1623,7 @@ class StatusBarController(NSObject):
          grok = detect_grok_config()
          cursor = detect_cursor_config()
          junie = detect_junie_config()
@@ -2130,7 +2134,7 @@ index 90b98aa..b3e0fe6 100644
          set_field_value(
              self.settings_fields.get("codex_hook_status"),
              hook_status_text(codex),
-@@ -1386,6 +1486,14 @@ class StatusBarController(NSObject):
+@@ -1544,6 +1644,14 @@ class StatusBarController(NSObject):
              self.settings_fields.get("junie_hook_status"),
              hook_status_text(junie),
          )
@@ -2145,7 +2149,7 @@ index 90b98aa..b3e0fe6 100644
          set_field_value(
              self.settings_fields.get("settings_path"),
              f"Settings: {default_settings_path()}",
-@@ -1439,7 +1547,7 @@ class StatusBarController(NSObject):
+@@ -1593,7 +1701,7 @@ class StatusBarController(NSObject):
                  and self.selected_agent_animation_profile_id
                  not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
              )
@@ -2154,7 +2158,7 @@ index 90b98aa..b3e0fe6 100644
              popup = self.settings_fields.get(f"{provider}_session_opener")
              if popup is not None:
                  refresh_provider_opener_popup(
-@@ -1602,17 +1710,21 @@ class StatusBarController(NSObject):
+@@ -1756,17 +1864,21 @@ class StatusBarController(NSObject):
                  result = install_junie_hooks()
              elif provider == "junie":
                  result = uninstall_junie_hooks()
@@ -2178,7 +2182,7 @@ index 90b98aa..b3e0fe6 100644
          self.reload_monitor()
          self.refresh_settings_window()
          self.refresh_(None)
-@@ -1995,6 +2107,8 @@ class StatusBarController(NSObject):
+@@ -2156,6 +2268,8 @@ class StatusBarController(NSObject):
          kind, value = target
          if kind == "url":
              open_url(value)
@@ -2187,7 +2191,7 @@ index 90b98aa..b3e0fe6 100644
          elif kind == "terminal":
              open_terminal_command(
                  value,
-@@ -3543,7 +3657,7 @@ def build_brightness_slider_item(
+@@ -3802,7 +3916,7 @@ def build_brightness_slider_item(
  
  def build_setup_window(target: StatusBarController) -> NSWindow:
      width = 620
@@ -2196,7 +2200,7 @@ index 90b98aa..b3e0fe6 100644
      style = (
          NSWindowStyleMaskTitled
          | NSWindowStyleMaskClosable
-@@ -3560,8 +3674,21 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3819,8 +3933,21 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
      window.center()
      content = window.contentView()
  
@@ -2220,7 +2224,7 @@ index 90b98aa..b3e0fe6 100644
  
      launch = add_checkbox(
          content,
-@@ -3612,6 +3739,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3871,6 +3998,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
          "launch_status": launch_status,
          "eject_status": eject_status,
          "sleep_status": sleep_status,
@@ -2228,7 +2232,7 @@ index 90b98aa..b3e0fe6 100644
          "message": message,
      }
      target.setup_buttons = {
-@@ -3619,6 +3747,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3878,6 +4006,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
          "eject_guard": eject_guard,
          "eject_guard_uninstall": eject_uninstall,
          "sleep_helper": sleep_helper,
@@ -2236,7 +2240,7 @@ index 90b98aa..b3e0fe6 100644
      }
      return window
  
-@@ -4394,6 +4523,14 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4647,6 +4776,14 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
      value_width = primary_action_x - value_x - 5
  
      add_label(agents_tab, "Agent Hooks", section_x, 398, 200, 24)
@@ -2251,7 +2255,7 @@ index 90b98aa..b3e0fe6 100644
  
      def add_hook_row(
          title: str,
-@@ -4429,16 +4566,19 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4682,16 +4819,19 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "Codex", 364, "installCodexHooks:", "uninstallCodexHooks:"
      )
      claude_status = add_hook_row(
@@ -2275,7 +2279,7 @@ index 90b98aa..b3e0fe6 100644
      )
  
      add_separator(agents_tab, section_x, 246, tab_width - 48)
-@@ -4685,6 +4825,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4956,6 +5096,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "grok_hook_status": grok_status,
          "cursor_hook_status": cursor_status,
          "junie_hook_status": junie_status,
@@ -2284,7 +2288,7 @@ index 90b98aa..b3e0fe6 100644
          "debug_log_status": debug_log_status,
          "codex_session_opener": codex_opener,
          "claude_session_opener": claude_opener,
-@@ -5192,7 +5334,10 @@ def provider_open_action_label(provider: str, action: str, settings=None) -> str
+@@ -5463,7 +5605,10 @@ def provider_open_action_label(provider: str, action: str, settings=None) -> str
          return "VS Code"
      if action == SESSION_OPEN_TERMINAL:
          return "Resume in Terminal"
@@ -2296,7 +2300,7 @@ index 90b98aa..b3e0fe6 100644
  
  
  def refresh_provider_opener_popup(popup, provider: str, action: str, settings) -> None:
-@@ -5635,16 +5780,53 @@ def build_session_menu_item(
+@@ -5906,16 +6051,53 @@ def build_session_menu_item(
      return item
  
  
@@ -2351,7 +2355,7 @@ index 90b98aa..b3e0fe6 100644
  def build_session_options_menu(
      status: AgentStatus,
      now: datetime,
-@@ -5729,6 +5911,8 @@ def session_origin_icon_for_status(status: AgentStatus):
+@@ -6051,6 +6233,8 @@ def session_origin_icon_for_status(status: AgentStatus):
      host_icon = host_icon_for_origin(status.origin)
      if host_icon is None:
          return provider_icon
@@ -2360,7 +2364,7 @@ index 90b98aa..b3e0fe6 100644
      return composite_app_icons(host_icon, provider_icon)
  
  
-@@ -5774,7 +5958,16 @@ def host_icon_for_origin(origin: str | None):
+@@ -6096,7 +6280,16 @@ def host_icon_for_origin(origin: str | None):
      if normalized in _origin_icon_cache:
          return _origin_icon_cache[normalized]
      image = None
@@ -2378,7 +2382,7 @@ index 90b98aa..b3e0fe6 100644
          image = first_app_icon(
              (
                  "/Applications/Visual Studio Code.app",
-@@ -6016,7 +6209,7 @@ def session_title_collision_keys(statuses: list[AgentStatus]) -> set[tuple[str,
+@@ -6353,7 +6546,7 @@ def session_title_collision_keys(statuses: list[AgentStatus]) -> set[tuple[str,
  def session_title_collision_key(status: AgentStatus) -> tuple[str, str]:
      return (
          status.provider.lower(),
@@ -2387,7 +2391,7 @@ index 90b98aa..b3e0fe6 100644
      )
  
  
-@@ -6070,6 +6263,9 @@ def session_detail_for_status(status: AgentStatus, now: datetime) -> str:
+@@ -6407,6 +6600,9 @@ def session_detail_for_status(status: AgentStatus, now: datetime) -> str:
          details.append(status.origin)
      if status.tool_name:
          details.append(status.tool_name)
@@ -2397,7 +2401,7 @@ index 90b98aa..b3e0fe6 100644
      return " · ".join(details)
  
  
-@@ -6174,6 +6370,22 @@ def open_url(url: str) -> None:
+@@ -6511,6 +6707,22 @@ def open_url(url: str) -> None:
          NSWorkspace.sharedWorkspace().openURL_(ns_url)
  
  
@@ -2434,7 +2438,7 @@ index 5eb5889..e4205ce 100644
  
  
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index c017cb6..91c7f39 100644
+index 9d407a1..12f0742 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -4,6 +4,8 @@ import json
@@ -2471,7 +2475,7 @@ index c017cb6..91c7f39 100644
      update_codex_trusted_hashes,
  )
  from sidepulse.keep_awake import KeepAwakeController, status_file_for_target
-@@ -87,11 +97,12 @@ from sidepulse.lid_sleep import (
+@@ -90,11 +100,12 @@ from sidepulse.lid_sleep import (
      run_sudo_pmset_disablesleep,
      sleep_helper_sudoers_rule,
  )
@@ -2486,7 +2490,7 @@ index c017cb6..91c7f39 100644
      default_log_path,
      default_state_dir,
      parse_log_line,
-@@ -117,6 +128,7 @@ from sidepulse.session_actions import (
+@@ -120,6 +131,7 @@ from sidepulse.session_actions import (
      SESSION_OPEN_VSCODE,
      default_session_open_action,
      session_deep_link,
@@ -2494,7 +2498,7 @@ index c017cb6..91c7f39 100644
      session_open_target,
      session_resume_command,
      session_vscode_link,
-@@ -359,6 +371,291 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -362,6 +374,291 @@ class AgentMonitorTests(unittest.TestCase):
              "Claude Code CLI",
          )
  
@@ -2786,7 +2790,7 @@ index c017cb6..91c7f39 100644
      def test_grok_log_line_normalizes_camel_case_payload(self) -> None:
          record = parse_log_line(
              "grok",
-@@ -448,6 +745,10 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -451,6 +748,10 @@ class AgentMonitorTests(unittest.TestCase):
  
              with (
                  patch("sidepulse.hook.detect_log_path", return_value=grok),
@@ -2797,7 +2801,7 @@ index c017cb6..91c7f39 100644
                  patch.dict(os.environ, {"TERM_PROGRAM": "Apple_Terminal"}, clear=True),
              ):
                  provider, path, line = routed_hook_payload("claude", claude, payload)
-@@ -927,6 +1228,27 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -930,6 +1231,27 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertEqual(image.size().width, 24)
          self.assertEqual(image.size().height, 18)
  
@@ -2825,7 +2829,7 @@ index c017cb6..91c7f39 100644
      def test_status_bar_session_row_icon_combines_status_and_origin(self) -> None:
          try:
              from sidepulse import status_bar
-@@ -2195,6 +2517,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2262,6 +2584,7 @@ class AgentMonitorTests(unittest.TestCase):
              },
          )
          self.assertIn("debug_log_status", target.settings_fields)
@@ -2833,7 +2837,7 @@ index c017cb6..91c7f39 100644
          self.assertIn("status_history_status", target.settings_fields)
          self.assertIn("status_history_chart", target.settings_fields)
          self.assertIn("session_terminal", target.settings_fields)
-@@ -2476,9 +2799,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2583,9 +2906,11 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertIn("eject_guard", target.setup_buttons)
          self.assertIn("eject_guard_uninstall", target.setup_buttons)
          self.assertIn("sleep_helper", target.setup_buttons)
@@ -2845,7 +2849,7 @@ index c017cb6..91c7f39 100644
  
      def test_first_launch_setup_window_only_shows_until_completed(self) -> None:
          try:
-@@ -3911,6 +4236,13 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4018,6 +4343,13 @@ class AgentMonitorTests(unittest.TestCase):
              changed=True,
              backup_path=None,
          )
@@ -2859,7 +2863,7 @@ index c017cb6..91c7f39 100644
          launch_result = SimpleNamespace(
              plist_path=Path("/tmp/io.sidepulse.agentstatus.plist"),
              changed=True,
-@@ -3950,6 +4282,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4057,6 +4389,11 @@ class AgentMonitorTests(unittest.TestCase):
              ) as cursor,
              patch.object(cli_module, "install_grok_hooks", return_value=grok_result) as grok,
              patch.object(cli_module, "install_junie_hooks", return_value=junie_result) as junie,
@@ -2871,7 +2875,7 @@ index c017cb6..91c7f39 100644
              patch(
                  "sidepulse.sd_eject_guard_launch.install_sd_eject_guard",
                  return_value=guard_result,
-@@ -3967,6 +4304,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4074,6 +4411,7 @@ class AgentMonitorTests(unittest.TestCase):
          cursor.assert_called_once()
          grok.assert_called_once()
          junie.assert_called_once()
@@ -2879,7 +2883,7 @@ index c017cb6..91c7f39 100644
          guard.assert_called_once_with(scope="auto", dry_run=False)
          launch.assert_called_once_with(start=True)
          service.assert_called_once_with(start=True, dry_run=False)
-@@ -7039,6 +7377,69 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -7267,6 +7605,69 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(snapshot.aggregate.mode, AgentMode.IDLE_READY)
              self.assertEqual(snapshot.statuses, ())
  
@@ -2949,7 +2953,7 @@ index c017cb6..91c7f39 100644
      def test_codex_transcript_fallback_marks_recent_user_turn_active(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
              root = Path(tmp)
-@@ -7335,6 +7736,897 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -7563,6 +7964,897 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(snapshot.aggregate.mode, AgentMode.COMPLETED)
              self.assertEqual(snapshot.statuses[0].event_name, "Stop")
  
@@ -3847,7 +3851,7 @@ index c017cb6..91c7f39 100644
      def test_claude_transcript_fallback_marks_tool_calls_running(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
              root = Path(tmp)
-@@ -8071,6 +9363,57 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
+@@ -8299,6 +9591,57 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
              default_session_open_action(status_for("codex", "Codex UI")),
              SESSION_OPEN_APP,
          )
@@ -3906,10 +3910,10 @@ index c017cb6..91c7f39 100644
      def test_claude_session_actions_build_app_link_and_resume_command(self) -> None:
          status = AgentStatus(
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index 54a35ad..8daaf12 100644
+index b61bc46..6b52581 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
-@@ -94,6 +94,7 @@ def make_status(
+@@ -95,6 +95,7 @@ def make_status(
      cwd: str | None = "/Users/test/project",
      origin: str | None = None,
      stale: bool = False,
@@ -3917,7 +3921,7 @@ index 54a35ad..8daaf12 100644
      now: datetime | None = None,
  ) -> AgentStatus:
      now = now or datetime.now(timezone.utc)
-@@ -110,6 +111,7 @@ def make_status(
+@@ -111,6 +112,7 @@ def make_status(
          message="doing a thing",
          origin=origin,
          stale=stale,
@@ -3925,7 +3929,7 @@ index 54a35ad..8daaf12 100644
      )
  
  
-@@ -1031,5 +1033,35 @@ class PureUiLogicTests(unittest.TestCase):
+@@ -1220,5 +1222,35 @@ class PureUiLogicTests(unittest.TestCase):
          )
  
  

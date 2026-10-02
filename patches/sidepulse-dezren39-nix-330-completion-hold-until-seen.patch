@@ -1,7 +1,12 @@
-diff -ruN base/src/sidepulse/completion.py work/src/sidepulse/completion.py
---- a/src/sidepulse/completion.py	2026-09-25 02:48:33
-+++ b/src/sidepulse/completion.py	2026-09-25 02:53:37
-@@ -25,8 +25,24 @@
+SidePulse patch 9/12 -- local, dezren39/nix#330.
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-329-led-error-and-concurrency.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
+diff --git a/src/sidepulse/completion.py b/src/sidepulse/completion.py
+index 5980bc8..d787d4d 100644
+--- a/src/sidepulse/completion.py
++++ b/src/sidepulse/completion.py
+@@ -25,9 +25,25 @@ from collections.abc import Iterable
  from .models import AgentMode, AgentStatus
  
  # Long enough to notice across a room, short enough that a burst of sessions
@@ -11,7 +16,7 @@ diff -ruN base/src/sidepulse/completion.py work/src/sidepulse/completion.py
 +# window server, a Mac that reports no HID idle time - so an unanswerable
 +# question degrades to the old fixed pulse rather than to a stuck LED.
  COMPLETION_PULSE_SECONDS = 4.0
-+
+ 
 +# With presence available, the completion is held until somebody is plainly
 +# back at the terminal instead of being timed out blind. The ceiling exists
 +# because an unattended Mac would otherwise flash green until morning, and
@@ -24,12 +29,15 @@ diff -ruN base/src/sidepulse/completion.py work/src/sidepulse/completion.py
 +# Must stay below `presence.DEFAULT_INPUT_GAP_SECONDS`, or a pause in typing
 +# could fall entirely between two samples and never be seen as a pause at all.
 +COMPLETION_HOLD_POLL_SECONDS = 1.0
- 
++
  
  class CompletionWatcher:
-diff -ruN base/src/sidepulse/presence.py work/src/sidepulse/presence.py
---- a/src/sidepulse/presence.py	1969-12-31 18:00:00
-+++ b/src/sidepulse/presence.py	2026-09-25 02:54:22
+     """Detects top-level sessions newly entering COMPLETED."""
+diff --git a/src/sidepulse/presence.py b/src/sidepulse/presence.py
+new file mode 100644
+index 0000000..93d1ab3
+--- /dev/null
++++ b/src/sidepulse/presence.py
 @@ -0,0 +1,220 @@
 +"""Is the person actually back at the keyboard, in front of their work?
 +
@@ -251,10 +259,11 @@ diff -ruN base/src/sidepulse/presence.py work/src/sidepulse/presence.py
 +            self._active_since = now
 +            return False
 +        return (now - self._active_since) >= self.sustained_seconds
-diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
---- a/src/sidepulse/settings.py	2026-09-25 02:48:33
-+++ b/src/sidepulse/settings.py	2026-09-25 02:51:38
-@@ -203,6 +203,10 @@
+diff --git a/src/sidepulse/settings.py b/src/sidepulse/settings.py
+index 197fe4e..8e5aada 100644
+--- a/src/sidepulse/settings.py
++++ b/src/sidepulse/settings.py
+@@ -203,6 +203,10 @@ HISTORY_TIMEFRAME_CHOICES = (
  )
  DEFAULT_DND_START_TIME = "22:00"
  DEFAULT_DND_END_TIME = "07:00"
@@ -265,7 +274,7 @@ diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
  
  
  @dataclass(frozen=True)
-@@ -345,6 +349,12 @@
+@@ -345,6 +349,12 @@ class AgentMonitorSettings:
      dnd_start_time: str = DEFAULT_DND_START_TIME
      dnd_end_time: str = DEFAULT_DND_END_TIME
      dnd_last_schedule_transition: str = ""
@@ -276,9 +285,9 @@ diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
 +    )
 +    completion_hold_extra_bundle_ids: tuple[str, ...] = ()
      setup_screen_completed: bool = False
+     show_menu_bar_icon: bool = True
  
-     def transcript_enabled(self, provider: str) -> bool:
-@@ -912,6 +922,12 @@
+@@ -917,6 +927,12 @@ class AgentMonitorSettings:
                  "end_time": self.dnd_end_time,
                  "last_schedule_transition": self.dnd_last_schedule_transition,
              },
@@ -291,7 +300,7 @@ diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
              "setup_screen_completed": self.setup_screen_completed,
          }
  
-@@ -973,6 +989,9 @@
+@@ -978,6 +994,9 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
      dnd = data.get("do_not_disturb")
      if not isinstance(dnd, dict):
          dnd = {}
@@ -301,7 +310,7 @@ diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
  
      led_display = _led_display_setting(data.get("led_display"), LED_DISPLAY_AGENT)
      session_open_preferences = _session_open_preferences(
-@@ -1096,6 +1115,18 @@
+@@ -1102,6 +1121,18 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
              dnd.get("last_schedule_transition")
          ),
          setup_screen_completed=_bool_setting(data.get("setup_screen_completed"), False),
@@ -320,12 +329,10 @@ diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
      )
  
  
-@@ -1417,6 +1448,19 @@
- 
- def _string_setting(value: object) -> str:
+@@ -1425,6 +1456,19 @@ def _string_setting(value: object) -> str:
      return value if isinstance(value, str) else ""
-+
-+
+ 
+ 
 +def _string_tuple_setting(value: object) -> tuple[str, ...]:
 +    """Read a list of non-empty strings, ignoring anything malformed.
 +
@@ -337,13 +344,16 @@ diff -ruN base/src/sidepulse/settings.py work/src/sidepulse/settings.py
 +    if not isinstance(value, (list, tuple)):
 +        return ()
 +    return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
- 
- 
++
++
  def _sleep_prevention_policy(value: object, default: str = SLEEP_PREVENTION_AGENTS) -> str:
-diff -ruN base/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
---- a/src/sidepulse/status_bar.py	2026-09-25 02:48:33
-+++ b/src/sidepulse/status_bar.py	2026-09-25 02:53:37
-@@ -139,7 +139,13 @@
+     if isinstance(value, str) and value in SLEEP_PREVENTION_CHOICES:
+         return value
+diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
+index e7923aa..4a318e4 100644
+--- a/src/sidepulse/status_bar.py
++++ b/src/sidepulse/status_bar.py
+@@ -150,7 +150,13 @@ from .led_status import (
      program_for_agent_mode,
      write_mode_to_leds,
  )
@@ -358,7 +368,7 @@ diff -ruN base/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
  from .error_latch import SessionErrorLatch
  from .links import IOSLink, load_ios_links, remove_ios_link, send_ios_program
  from .virtual_device import (
-@@ -735,6 +741,13 @@
+@@ -785,6 +791,13 @@ class StatusBarController(NSObject):
          # because COMPLETED loses to WORKING in the aggregate.
          self.completion_watcher = CompletionWatcher()
          self.completion_pulse_until = 0.0
@@ -372,15 +382,15 @@ diff -ruN base/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
          self.led_sync_in_flight = False
          self.last_dnd_active = None
          self.dnd_off_targets = set()
-@@ -1319,6 +1332,7 @@
- 
-     def applicationWillTerminate_(self, _notification):
+@@ -1405,6 +1418,7 @@ class StatusBarController(NSObject):
+             self.battery_timer.invalidate()
+             self.battery_timer = None
          self.stop_agent_animation_preview_timer()
 +        self.stop_completion_hold_timer()
          self.stop_event_server()
          self.closed_lid_awake.release()
          self.keep_awake.release()
-@@ -3267,9 +3281,11 @@
+@@ -3496,9 +3510,11 @@ class StatusBarController(NSObject):
          failing session has moved on and the aggregate has drifted back to
          working or idle.
  
@@ -394,7 +404,7 @@ diff -ruN base/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
          """
  
          if self.error_latch.active:
-@@ -3279,15 +3295,86 @@
+@@ -3508,15 +3524,86 @@ class StatusBarController(NSObject):
          return mode
  
      def note_completions(self, snapshot) -> None:
@@ -484,9 +494,11 @@ diff -ruN base/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
  
      def sync_leds(
          self,
-diff -ruN base/tests/test_completion_hold.py work/tests/test_completion_hold.py
---- a/tests/test_completion_hold.py	1969-12-31 18:00:00
-+++ b/tests/test_completion_hold.py	2026-09-25 02:54:38
+diff --git a/tests/test_completion_hold.py b/tests/test_completion_hold.py
+new file mode 100644
+index 0000000..688834d
+--- /dev/null
++++ b/tests/test_completion_hold.py
 @@ -0,0 +1,171 @@
 +"""The completion signal is held until somebody is actually there to see it."""
 +

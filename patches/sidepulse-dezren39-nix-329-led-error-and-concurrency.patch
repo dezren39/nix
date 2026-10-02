@@ -1,7 +1,11 @@
-diff --git c/profiles/cyan.json i/profiles/cyan.json
+SidePulse patch 8/12 -- local, dezren39/nix#329.
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-328-led-writer-helper.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
+diff --git a/profiles/cyan.json b/profiles/cyan.json
 index 5deda21..3ce7ec1 100644
---- c/profiles/cyan.json
-+++ i/profiles/cyan.json
+--- a/profiles/cyan.json
++++ b/profiles/cyan.json
 @@ -1,7 +1,7 @@
  {
    "animations": {
@@ -12,10 +16,10 @@ index 5deda21..3ce7ec1 100644
      "idle_ready": "idle-pulse",
      "lid_closed": "lid-closed",
      "lid_open": "lid-open",
-diff --git c/src/sidepulse/collector.py i/src/sidepulse/collector.py
+diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
 index 1215a2b..ec5512f 100644
---- c/src/sidepulse/collector.py
-+++ i/src/sidepulse/collector.py
+--- a/src/sidepulse/collector.py
++++ b/src/sidepulse/collector.py
 @@ -69,6 +69,8 @@ class StatusMetadata:
      origin: str | None = None
      provider_session_id: str | None = None
@@ -77,11 +81,11 @@ index 1215a2b..ec5512f 100644
      )
  
  
-diff --git c/src/sidepulse/completion.py i/src/sidepulse/completion.py
+diff --git a/src/sidepulse/completion.py b/src/sidepulse/completion.py
 new file mode 100644
 index 0000000..5980bc8
 --- /dev/null
-+++ i/src/sidepulse/completion.py
++++ b/src/sidepulse/completion.py
 @@ -0,0 +1,82 @@
 +"""Announce a primary session finishing, rather than waiting for silence.
 +
@@ -165,11 +169,11 @@ index 0000000..5980bc8
 +        # not grow without bound over a long-lived status bar.
 +        self._completed &= present
 +        return tuple(fresh)
-diff --git c/src/sidepulse/error_latch.py i/src/sidepulse/error_latch.py
+diff --git a/src/sidepulse/error_latch.py b/src/sidepulse/error_latch.py
 new file mode 100644
 index 0000000..5eab2da
 --- /dev/null
-+++ i/src/sidepulse/error_latch.py
++++ b/src/sidepulse/error_latch.py
 @@ -0,0 +1,163 @@
 +"""Keep a failed session's error visible until it is dealt with.
 +
@@ -334,10 +338,10 @@ index 0000000..5eab2da
 +
 +    def agent_ids(self) -> frozenset[str]:
 +        return frozenset(self._latched)
-diff --git c/src/sidepulse/install.py i/src/sidepulse/install.py
+diff --git a/src/sidepulse/install.py b/src/sidepulse/install.py
 index 79c7f0d..cd74766 100644
---- c/src/sidepulse/install.py
-+++ i/src/sidepulse/install.py
+--- a/src/sidepulse/install.py
++++ b/src/sidepulse/install.py
 @@ -344,39 +344,162 @@ function sessionId(event) {{
    return firstString(p.sessionID, p.sessionId, p.session_id, p.id, p.info?.id, p.session?.id)
  }}
@@ -525,10 +529,10 @@ index 79c7f0d..cd74766 100644
  '''
  
  
-diff --git c/src/sidepulse/led_status.py i/src/sidepulse/led_status.py
+diff --git a/src/sidepulse/led_status.py b/src/sidepulse/led_status.py
 index cafb2dc..52edb22 100644
---- c/src/sidepulse/led_status.py
-+++ i/src/sidepulse/led_status.py
+--- a/src/sidepulse/led_status.py
++++ b/src/sidepulse/led_status.py
 @@ -22,6 +22,7 @@ class LedDisplayState(str, Enum):
      WORKING = "working"
      DONE = "done"
@@ -764,10 +768,10 @@ index cafb2dc..52edb22 100644
              )
          except (DeviceWriteError, OSError) as exc:
              self.last_state = state
-diff --git c/src/sidepulse/models.py i/src/sidepulse/models.py
+diff --git a/src/sidepulse/models.py b/src/sidepulse/models.py
 index cea11ff..0c3ee91 100644
---- c/src/sidepulse/models.py
-+++ i/src/sidepulse/models.py
+--- a/src/sidepulse/models.py
++++ b/src/sidepulse/models.py
 @@ -80,6 +80,12 @@ class AgentStatus:
      origin: str | None = None
      stale: bool = False
@@ -781,21 +785,21 @@ index cea11ff..0c3ee91 100644
  
      @property
      def priority(self) -> int:
-diff --git c/src/sidepulse/resources/animations/ember-complete.LED i/src/sidepulse/resources/animations/ember-complete.LED
+diff --git a/src/sidepulse/resources/animations/ember-complete.LED b/src/sidepulse/resources/animations/ember-complete.LED
 index 10fd005..5851626 100644
---- c/src/sidepulse/resources/animations/ember-complete.LED
-+++ i/src/sidepulse/resources/animations/ember-complete.LED
+--- a/src/sidepulse/resources/animations/ember-complete.LED
++++ b/src/sidepulse/resources/animations/ember-complete.LED
 @@ -1 +1,4 @@
 -#F23819 320ms cosine
 +off 40ms
 +#F23819 110ms
 +off 640ms ease-out
 +repeat
-diff --git c/src/sidepulse/resources/animations/error-red.LED i/src/sidepulse/resources/animations/error-red.LED
+diff --git a/src/sidepulse/resources/animations/error-red.LED b/src/sidepulse/resources/animations/error-red.LED
 new file mode 100644
 index 0000000..f73cc84
 --- /dev/null
-+++ i/src/sidepulse/resources/animations/error-red.LED
++++ b/src/sidepulse/resources/animations/error-red.LED
 @@ -0,0 +1,6 @@
 +off 60ms
 +#FF0010 120ms
@@ -803,30 +807,30 @@ index 0000000..f73cc84
 +#FF0010 120ms
 +off 700ms
 +repeat
-diff --git c/src/sidepulse/resources/animations/purple-complete.LED i/src/sidepulse/resources/animations/purple-complete.LED
+diff --git a/src/sidepulse/resources/animations/purple-complete.LED b/src/sidepulse/resources/animations/purple-complete.LED
 index b1433c6..ee92cd2 100644
---- c/src/sidepulse/resources/animations/purple-complete.LED
-+++ i/src/sidepulse/resources/animations/purple-complete.LED
+--- a/src/sidepulse/resources/animations/purple-complete.LED
++++ b/src/sidepulse/resources/animations/purple-complete.LED
 @@ -1 +1,4 @@
 -#FF00FF 320ms cosine
 +off 40ms
 +#FF00FF 110ms
 +off 640ms ease-out
 +repeat
-diff --git c/src/sidepulse/resources/animations/success-flash.LED i/src/sidepulse/resources/animations/success-flash.LED
+diff --git a/src/sidepulse/resources/animations/success-flash.LED b/src/sidepulse/resources/animations/success-flash.LED
 new file mode 100644
 index 0000000..ec25eaf
 --- /dev/null
-+++ i/src/sidepulse/resources/animations/success-flash.LED
++++ b/src/sidepulse/resources/animations/success-flash.LED
 @@ -0,0 +1,4 @@
 +off 40ms
 +#00FF66 110ms
 +off 640ms ease-out
 +repeat
-diff --git c/src/sidepulse/settings.py i/src/sidepulse/settings.py
-index 045ad29..687207e 100644
---- c/src/sidepulse/settings.py
-+++ i/src/sidepulse/settings.py
+diff --git a/src/sidepulse/settings.py b/src/sidepulse/settings.py
+index 5c391ea..197fe4e 100644
+--- a/src/sidepulse/settings.py
++++ b/src/sidepulse/settings.py
 @@ -42,6 +42,8 @@ AGENT_ANIMATION_CYAN_ROLL = "cyan-roll"
  AGENT_ANIMATION_CYAN_COMPLETE = "cyan-complete"
  AGENT_ANIMATION_AMBER_PULSE = "amber-pulse"
@@ -867,11 +871,11 @@ index 045ad29..687207e 100644
      if key == ANIMATION_STATE_LID_OPEN:
          return AGENT_ANIMATION_LID_OPEN
      if key == ANIMATION_STATE_LID_CLOSED:
-diff --git c/src/sidepulse/status_bar.py i/src/sidepulse/status_bar.py
-index 42e53d5..fc6a9d7 100644
---- c/src/sidepulse/status_bar.py
-+++ i/src/sidepulse/status_bar.py
-@@ -134,10 +134,13 @@ from .led_status import (
+diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
+index 052a274..e7923aa 100644
+--- a/src/sidepulse/status_bar.py
++++ b/src/sidepulse/status_bar.py
+@@ -145,10 +145,13 @@ from .led_status import (
      apply_brightness,
      brightness_percent,
      normalize_brightness,
@@ -885,7 +889,7 @@ index 42e53d5..fc6a9d7 100644
  from .links import IOSLink, load_ios_links, remove_ios_link, send_ios_program
  from .virtual_device import (
      FRAME_INTERVAL,
-@@ -198,6 +201,8 @@ from .settings import (
+@@ -211,6 +214,8 @@ from .settings import (
      AGENT_ANIMATION_EMBER_TIDE,
      AGENT_ANIMATION_IDLE_PULSE,
      AGENT_ANIMATION_KITT,
@@ -894,7 +898,7 @@ index 42e53d5..fc6a9d7 100644
      AGENT_ANIMATION_KITT_RED,
      AGENT_ANIMATION_LID_CLOSED,
      AGENT_ANIMATION_LID_OPEN,
-@@ -361,6 +366,22 @@ def dnd_is_active(
+@@ -374,6 +379,22 @@ def dnd_is_active(
      return settings.dnd_enabled
  
  
@@ -917,7 +921,7 @@ index 42e53d5..fc6a9d7 100644
  def latest_dnd_schedule_transition(
      settings: AgentMonitorSettings,
      now: datetime | None = None,
-@@ -707,6 +728,13 @@ class StatusBarController(NSObject):
+@@ -757,6 +778,13 @@ class StatusBarController(NSObject):
          self.last_led_display_kind_by_device = {}
          self.device_errors = {}
          self.leds_enabled = True
@@ -931,7 +935,7 @@ index 42e53d5..fc6a9d7 100644
          self.led_sync_in_flight = False
          self.last_dnd_active = None
          self.dnd_off_targets = set()
-@@ -853,10 +881,13 @@ class StatusBarController(NSObject):
+@@ -918,10 +946,13 @@ class StatusBarController(NSObject):
              battery_snapshot,
              mac_sleep_snapshot,
          )
@@ -946,18 +950,18 @@ index 42e53d5..fc6a9d7 100644
          )
  
      @objc.IBAction
-@@ -1121,6 +1152,10 @@ class StatusBarController(NSObject):
-     def clearAgents_(self, _sender):
-         self.clear_agents()
+@@ -1188,6 +1219,10 @@ class StatusBarController(NSObject):
+     def toggleClaudeTranscripts_(self, sender):
+         self.set_transcript_monitoring("claude", sender.state() == NSOnState)
  
 +    @objc.IBAction
 +    def acknowledgeErrors_(self, _sender):
 +        self.acknowledge_errors()
 +
      @objc.IBAction
-     def toggleBatteryPowerPreview_(self, _sender):
-         self.set_battery_power_preview(not self.settings.battery_show_on_power_change)
-@@ -2028,6 +2063,21 @@ class StatusBarController(NSObject):
+     def toggleBatteryLedDisplay_(self, _sender):
+         self.set_battery_led_display(self.settings.led_display != LED_DISPLAY_BATTERY)
+@@ -2190,6 +2225,21 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          self.refresh_(None)
  
@@ -979,7 +983,7 @@ index 42e53d5..fc6a9d7 100644
      def clear_agents(self) -> None:
          try:
              cleared = self.monitor.clear_statuses()
-@@ -2146,9 +2196,10 @@ class StatusBarController(NSObject):
+@@ -2308,9 +2358,10 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          if self.last_snapshot is not None:
              self.sync_leds(
@@ -991,7 +995,7 @@ index 42e53d5..fc6a9d7 100644
              )
  
      def set_virtual_status_device(self, enabled: bool) -> None:
-@@ -3208,11 +3259,42 @@ class StatusBarController(NSObject):
+@@ -3437,11 +3488,42 @@ class StatusBarController(NSObject):
              return LED_DISPLAY_BATTERY
          return LED_DISPLAY_AGENT
  
@@ -1034,7 +1038,7 @@ index 42e53d5..fc6a9d7 100644
      ) -> None:
          if not self.leds_enabled:
              return
-@@ -3228,7 +3310,7 @@ class StatusBarController(NSObject):
+@@ -3457,7 +3539,7 @@ class StatusBarController(NSObject):
              self.reset_led_controllers_for_display_change()
              log_status_bar(f"dnd={'active' if dnd_active else 'inactive'}")
  
@@ -1043,7 +1047,7 @@ index 42e53d5..fc6a9d7 100644
              self.virtual_status_device.hide()
              self.sync_dnd_leds()
              return
-@@ -3249,7 +3331,7 @@ class StatusBarController(NSObject):
+@@ -3478,7 +3560,7 @@ class StatusBarController(NSObject):
          self.led_sync_in_flight = True
          thread = threading.Thread(
              target=self.sync_leds_worker,
@@ -1052,7 +1056,7 @@ index 42e53d5..fc6a9d7 100644
              daemon=True,
          )
          thread.start()
-@@ -3258,9 +3340,10 @@ class StatusBarController(NSObject):
+@@ -3487,9 +3569,10 @@ class StatusBarController(NSObject):
          if self.last_snapshot is None:
              return
          self.sync_leds(
@@ -1064,7 +1068,7 @@ index 42e53d5..fc6a9d7 100644
          )
      def sync_dnd_leds(self) -> None:
          if self.led_sync_in_flight:
-@@ -3353,9 +3436,10 @@ class StatusBarController(NSObject):
+@@ -3582,9 +3665,10 @@ class StatusBarController(NSObject):
          mode: AgentMode,
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
@@ -1076,7 +1080,7 @@ index 42e53d5..fc6a9d7 100644
          finally:
              self.led_sync_in_flight = False
  
-@@ -3364,8 +3448,9 @@ class StatusBarController(NSObject):
+@@ -3593,8 +3677,9 @@ class StatusBarController(NSObject):
          mode: AgentMode,
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
@@ -1087,7 +1091,7 @@ index 42e53d5..fc6a9d7 100644
              self.sync_dnd_leds_now()
              return
          devices = [
-@@ -3414,6 +3499,7 @@ class StatusBarController(NSObject):
+@@ -3643,6 +3728,7 @@ class StatusBarController(NSObject):
                              brightness=255,
                              animation_style=animation.style,
                              custom_program=animation.custom_program,
@@ -1095,7 +1099,7 @@ index 42e53d5..fc6a9d7 100644
                          )
                      except DeviceWriteError as exc:
                          active_errors[device.device_id] = str(exc)
-@@ -3456,6 +3542,7 @@ class StatusBarController(NSObject):
+@@ -3685,6 +3771,7 @@ class StatusBarController(NSObject):
                      mode,
                      animation_style=animation.style,
                      custom_program=animation.custom_program,
@@ -1103,7 +1107,7 @@ index 42e53d5..fc6a9d7 100644
                  )
                  label = f"{device.name} {result.label}"
  
-@@ -3914,6 +4001,18 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -4174,6 +4261,18 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
          clear_agents.setTarget_(target)
          menu.addItem_(clear_agents)
  
@@ -1122,7 +1126,7 @@ index 42e53d5..fc6a9d7 100644
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Devices"))
      devices = target.status_bar_devices()
-@@ -5638,6 +5737,8 @@ def agent_animation_label(settings: AgentMonitorSettings, animation_id: str) ->
+@@ -5918,6 +6017,8 @@ def agent_animation_label(settings: AgentMonitorSettings, animation_id: str) ->
          AGENT_ANIMATION_CYAN_COMPLETE: "Cyan Complete",
          AGENT_ANIMATION_AMBER_PULSE: "Amber Pulse",
          AGENT_ANIMATION_SOLID_GREEN: "Solid Green",
@@ -1131,11 +1135,11 @@ index 42e53d5..fc6a9d7 100644
          AGENT_ANIMATION_KITT: "KITT Scanner",
          AGENT_ANIMATION_KITT_RED: "KITT Scanner Red",
          AGENT_ANIMATION_EMBER_IDLE: "Ember Idle",
-diff --git c/tests/test_led_signals.py i/tests/test_led_signals.py
+diff --git a/tests/test_led_signals.py b/tests/test_led_signals.py
 new file mode 100644
 index 0000000..850aa8c
 --- /dev/null
-+++ i/tests/test_led_signals.py
++++ b/tests/test_led_signals.py
 @@ -0,0 +1,579 @@
 +"""Tests for the error/concurrency LED signals.
 +
@@ -1716,11 +1720,11 @@ index 0000000..850aa8c
 +    fresh = (status("opencode:session:busy", AgentMode.WORKING, session_id="busy"),)
 +    stale = (status("opencode:session:done", AgentMode.COMPLETED, session_id="done"),)
 +    assert w.newly_completed(fresh + stale) == ("opencode:session:done",)
-diff --git c/tests/test_sidepulse.py i/tests/test_sidepulse.py
-index 3a92182..4a51042 100644
---- c/tests/test_sidepulse.py
-+++ i/tests/test_sidepulse.py
-@@ -148,6 +148,7 @@ from sidepulse.settings import (
+diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
+index d01ccc0..12236ef 100644
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -151,6 +151,7 @@ from sidepulse.settings import (
      AGENT_ANIMATION_EMBER_IDLE,
      AGENT_ANIMATION_EMBER_LID_OPEN,
      AGENT_ANIMATION_EMBER_TIDE,
@@ -1728,7 +1732,7 @@ index 3a92182..4a51042 100644
      AGENT_ANIMATION_IDLE_PULSE,
      AGENT_ANIMATION_KITT,
      AGENT_ANIMATION_KITT_RED,
-@@ -165,6 +166,7 @@ from sidepulse.settings import (
+@@ -168,6 +169,7 @@ from sidepulse.settings import (
      AGENT_ANIMATION_PURPLE_LID_OPEN,
      AGENT_ANIMATION_PURPLE_TIDE,
      AGENT_ANIMATION_SOLID_GREEN,
@@ -1736,7 +1740,7 @@ index 3a92182..4a51042 100644
      AGENT_ANIMATION_WORKING_MODES,
      CLOSED_LID_AWAKE_AGENTS,
      CLOSED_LID_AWAKE_ALWAYS,
-@@ -1849,6 +1851,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -1852,6 +1854,7 @@ class AgentMonitorTests(unittest.TestCase):
              settings=AgentMonitorSettings(),
              closed_lid_awake=SimpleNamespace(last_error=None),
              status_bar_devices=lambda: [],
@@ -1744,7 +1748,7 @@ index 3a92182..4a51042 100644
          )
  
          menu = status_bar.build_menu(snapshot, status_bar.STATE_DONE, target)
-@@ -2669,6 +2672,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2733,6 +2736,7 @@ class AgentMonitorTests(unittest.TestCase):
              ),
              closed_lid_awake=SimpleNamespace(last_error=None),
              status_bar_devices=lambda: [],
@@ -1752,7 +1756,7 @@ index 3a92182..4a51042 100644
          )
          menu = status_bar.build_menu(snapshot, status_bar.STATE_IDLE, target)
          by_title = {
-@@ -4925,7 +4929,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -5032,7 +5036,7 @@ class AgentMonitorTests(unittest.TestCase):
          )
          self.assertEqual(
              program_for_display_state(LedDisplayState.DONE),
@@ -1761,7 +1765,7 @@ index 3a92182..4a51042 100644
          )
          self.assertIn("#FF3A00 1.6s pulse", program_for_display_state(LedDisplayState.ASK))
          self.assertEqual(
-@@ -5049,7 +5053,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -5156,7 +5160,7 @@ class AgentMonitorTests(unittest.TestCase):
          )
          self.assertEqual(
              builtin_animation_program(AGENT_ANIMATION_PURPLE_COMPLETE, 8),
@@ -1770,7 +1774,7 @@ index 3a92182..4a51042 100644
          )
          self.assertIn(
              "#FF00FF 220ms ease",
-@@ -5092,7 +5096,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -5199,7 +5203,7 @@ class AgentMonitorTests(unittest.TestCase):
                  AGENT_ANIMATION_PURPLE_ATTENTION,
              ),
              (
@@ -1779,7 +1783,7 @@ index 3a92182..4a51042 100644
                  AGENT_ANIMATION_EMBER_COMPLETE,
                  AGENT_ANIMATION_PURPLE_COMPLETE,
              ),
-@@ -6292,7 +6296,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6520,7 +6524,7 @@ class AgentMonitorTests(unittest.TestCase):
              )
              self.assertEqual(
                  loaded.agent_animation(AgentMode.COMPLETED).style,
@@ -1788,7 +1792,7 @@ index 3a92182..4a51042 100644
              )
  
              custom_path.write_text("brightness 128\n#123456\n")
-@@ -6322,6 +6326,8 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6550,6 +6554,8 @@ class AgentMonitorTests(unittest.TestCase):
              AGENT_ANIMATION_CYAN_COMPLETE,
              AGENT_ANIMATION_AMBER_PULSE,
              AGENT_ANIMATION_SOLID_GREEN,
@@ -1797,11 +1801,11 @@ index 3a92182..4a51042 100644
              AGENT_ANIMATION_KITT,
              AGENT_ANIMATION_KITT_RED,
              AGENT_ANIMATION_EMBER_IDLE,
-diff --git c/tests/test_status_bar_ui.py i/tests/test_status_bar_ui.py
-index 9ddc921..08f01fa 100644
---- c/tests/test_status_bar_ui.py
-+++ i/tests/test_status_bar_ui.py
-@@ -841,6 +841,8 @@ class WindowBuildTests(StatusBarTestCase):
+diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
+index 0a4555b..03e6ea5 100644
+--- a/tests/test_status_bar_ui.py
++++ b/tests/test_status_bar_ui.py
+@@ -953,6 +953,8 @@ class WindowBuildTests(StatusBarTestCase):
                      "Cyan Complete",
                      "Amber Pulse",
                      "Solid Green",
@@ -1810,7 +1814,7 @@ index 9ddc921..08f01fa 100644
                      "KITT Scanner",
                      "KITT Scanner Red",
                      "Ember Idle",
-@@ -1133,7 +1135,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
+@@ -1322,7 +1324,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
          seen = []
          done = threading.Event()
  
@@ -1819,7 +1823,7 @@ index 9ddc921..08f01fa 100644
              seen.append((mode, battery_snapshot, display_kind))
              done.set()
  
-@@ -1157,7 +1159,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
+@@ -1346,7 +1348,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
          seen = []
          done = threading.Event()
  

@@ -1,3 +1,7 @@
+SidePulse patch 6/12 -- upstream PR inteliwear/sidepulse#30 "Fix stale and stuck session states in the status bar" (closed unmerged).
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-29-kitt.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
 index 30fc320..1215a2b 100644
 --- a/src/sidepulse/collector.py
@@ -126,11 +130,11 @@ index 30fc320..1215a2b 100644
      record: HookEvent,
      pending_permissions_by_key: dict[str, set[str]],
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index a4c3d34..3995697 100644
+index d5ce2e5..052a274 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -762,6 +762,15 @@ class StatusBarController(NSObject):
-         button.setToolTip_("SidePulse Agent Monitor: Idle")
+@@ -816,6 +816,15 @@ class StatusBarController(NSObject):
+         self.status_item.setVisible_(self.settings.show_menu_bar_icon)
          log_status_bar("status item created")
  
 +        # One persistent menu whose contents are rebuilt on demand: AppKit
@@ -143,9 +147,9 @@ index a4c3d34..3995697 100644
 +        self.status_item.setMenu_(self.menu)
 +
          self.refresh_(None)
-         self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+         self.timer = schedule_status_bar_timer(
              STATUS_BAR_REFRESH_SECONDS,
-@@ -829,7 +838,6 @@ class StatusBarController(NSObject):
+@@ -894,7 +903,6 @@ class StatusBarController(NSObject):
                  mac_sleep_snapshot,
              )
              self.sync_leds(AgentMode.BLOCKED_ERROR, battery_snapshot, LED_DISPLAY_AGENT)
@@ -153,7 +157,7 @@ index a4c3d34..3995697 100644
              return
  
          self.last_snapshot = snapshot
-@@ -850,12 +858,33 @@ class StatusBarController(NSObject):
+@@ -915,12 +923,33 @@ class StatusBarController(NSObject):
              battery_snapshot,
              self.active_led_display_kind(battery_snapshot),
          )
@@ -188,7 +192,7 @@ index a4c3d34..3995697 100644
      @objc.IBAction
      def openDeepLink_(self, sender):
          url = sender.representedObject()
-@@ -6665,7 +6694,10 @@ def recent_statuses(
+@@ -7014,7 +7043,10 @@ def recent_statuses(
  
  
  def menu_statuses(snapshot, settings=None) -> tuple[AgentStatus, ...]:
@@ -200,7 +204,7 @@ index a4c3d34..3995697 100644
      now = snapshot.collected_at
      retention_seconds = (
          settings.recent_session_retention_seconds
-@@ -6676,6 +6708,7 @@ def menu_statuses(snapshot, settings=None) -> tuple[AgentStatus, ...]:
+@@ -7025,6 +7057,7 @@ def menu_statuses(snapshot, settings=None) -> tuple[AgentStatus, ...]:
          status
          for status in getattr(snapshot, "stale_statuses", ())
          if status.mode == AgentMode.COMPLETED
@@ -209,10 +213,10 @@ index a4c3d34..3995697 100644
      )
      return tuple(statuses)
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 4126c58..1eb6ad7 100644
+index 81c23da..636ba87 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -227,6 +227,78 @@ class FakeProcess:
+@@ -238,6 +238,78 @@ class FakeProcess:
  
  
  class AgentMonitorTests(unittest.TestCase):
@@ -291,7 +295,7 @@ index 4126c58..1eb6ad7 100644
      def test_aggregates_highest_priority_status(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
              base = Path(tmp)
-@@ -853,6 +925,44 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -1018,6 +1090,44 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(reloaded.snapshot().aggregate.mode, AgentMode.TOOL_RUNNING)
              self.assertEqual(reloaded.snapshot().statuses[0].origin, "Codex UI")
  

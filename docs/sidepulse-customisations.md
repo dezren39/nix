@@ -1,9 +1,19 @@
 # SidePulse: what this repo adds on top of upstream
 
 The `sidepulse` package here is built from `github:inteliwear/sidepulse` with an
-ordered patch stack. Patches 14–32 carry upstream pull requests; **33, 34 and 35
-are local and have no upstream counterpart**. This page covers those three and
-the live configuration they work with.
+ordered patch stack, listed in `pkgs/sidepulse/default.nix`. The file name says
+where each patch comes from:
+
+| File name | Source |
+| --- | --- |
+| `sidepulse-pr-N-*.patch` | upstream pull request inteliwear/sidepulse#N (14, 17, 26 open; 28, 29, 30 closed unmerged) |
+| `sidepulse-dezren39-nix-N-*.patch` | local, no upstream counterpart; documented in dezren39/nix#N |
+
+The local patches are #328 (fixed-path LED writer helper), #329 (red error
+signal, error latch, completion pulse, concurrency tempo), and #330–#333, which
+this page covers along with the live configuration they work with. Until
+2026-10-01 the local patches were also named `sidepulse-pr-31` … `-36`, numbers
+that belong to unrelated upstream PRs. Porting history: dezren39/nix#327.
 
 For the hardware constraints every LED change works within, see
 [`sidepulse-leds.md`](./sidepulse-leds.md).
@@ -22,9 +32,9 @@ things follow from that which these patches address:
 3. Only one signal could be shown. With errors and prompts no longer expiring,
    several are routinely true at once, and priority alone discards the rest.
 
-## Patch 33 — hold the completion until it is seen
+## dezren39/nix#330 — hold the completion until it is seen
 
-`patches/sidepulse-pr-33-completion-hold-until-seen.patch`
+`patches/sidepulse-dezren39-nix-330-completion-hold-until-seen.patch`
 
 Upstream treats completion as a 4-second pulse (`COMPLETION_PULSE_SECONDS`).
 If you looked away for those four seconds, the run may as well not have
@@ -76,9 +86,9 @@ revert to the original 4-second pulse.
 22 terminal and editor bundle ids are recognised, plus prefix matching for
 `com.jetbrains.*` and `com.todesktop.*` (Cursor's generated id).
 
-## Patch 34 — failures and prompts stop expiring
+## dezren39/nix#331 — failures and prompts stop expiring
 
-`patches/sidepulse-pr-34-errors-and-prompts-persist.patch`
+`patches/sidepulse-dezren39-nix-331-errors-and-prompts-persist.patch`
 
 Three separate defects, all in the same area.
 
@@ -154,9 +164,9 @@ away a prompt that matters.
 and sidepulse keys everything by session, so a skill-load or plugin-load
 failure will not light red. Fixing it means inventing a synthetic session id.
 
-## Patch 35 — several signals at once
+## dezren39/nix#332 — several signals at once
 
-`patches/sidepulse-pr-35-multi-signal-composition.patch`
+`patches/sidepulse-dezren39-nix-332-multi-signal-composition.patch`
 
 New module `src/sidepulse/compose.py`. Composes one program carrying every live
 signal instead of only the winner. Ten modes over a **ranked signal registry
@@ -199,9 +209,9 @@ voice in the rotation rather than the whole device. That is the point of
 composing, but it is a real change to a previously absolute rule, and arrivals
 are what restore urgency its moment.
 
-## Patch 36 — a colour has to mean what it says
+## dezren39/nix#333 — a colour has to mean what it says
 
-Patches 33–35 made signals persist and made several of them visible at once.
+Patches #330–#332 made signals persist and made several of them visible at once.
 That was the right direction and it exposed what was underneath: the rules
 deciding *which* signal is true were much looser than the display built on top
 of them. A signal that persists until a human retires it has to be right the
@@ -243,7 +253,7 @@ a row that survived that round-trip came back with no process to test for
 liveness, no ancestor to inherit a prompt from, and no record of ever having
 been prompted. Since neither `BLOCKED_ERROR` nor `WAITING_FOR_INPUT` expires on
 a clock, **one restart made such a row immortal**. That is the 46-hour red: all
-three of patch 34's escape hatches had been quietly discarded by a serialiser.
+three of #331's escape hatches had been quietly discarded by a serialiser.
 
 The error latch also kept subagent rows, and it was the only reader that did —
 `aggregate_status`, `menu_statuses`, `CompletionWatcher` and

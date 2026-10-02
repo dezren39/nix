@@ -1,6 +1,11 @@
-diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
---- a/src/sidepulse/collector.py	2026-09-25 03:00:02
-+++ b/src/sidepulse/collector.py	2026-09-25 03:19:57
+SidePulse patch 10/12 -- local, dezren39/nix#331.
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-330-completion-hold-until-seen.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
+diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
+index ec5512f..05a02a4 100644
+--- a/src/sidepulse/collector.py
++++ b/src/sidepulse/collector.py
 @@ -1,6 +1,7 @@
  from __future__ import annotations
  
@@ -9,7 +14,7 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
  import re
  import threading
  import time
-@@ -55,7 +56,84 @@
+@@ -55,6 +56,83 @@ COMPLETED_VISIBLE_SECONDS = 20 * 60.0
  IDLE_VISIBLE_SECONDS = 0.0
  POST_TOOL_WORKING_VISIBLE_SECONDS = 2 * 60.0
  
@@ -37,7 +42,7 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
 +        AgentMode.WAITING_FOR_INPUT,
 +    }
 +)
- 
++
 +
 +def mode_awaits_a_human(mode: AgentMode) -> bool:
 +    """Whether this mode is a question for a person rather than a machine state."""
@@ -90,11 +95,10 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
 +
 +    return mode_awaits_a_human(status.mode) and process_is_alive(status.agent_pid)
 +
-+
+ 
  @dataclass(frozen=True)
  class SourceSpec:
-     provider: str
-@@ -437,6 +515,8 @@
+@@ -437,6 +515,8 @@ class AgentMonitor:
          return records
  
      def is_stale_status(self, status: AgentStatus, now: datetime) -> bool:
@@ -103,7 +107,7 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
          age = status.age_seconds(now)
          if status.mode == AgentMode.COMPLETED and self.completed_visible_seconds >= 0:
              return age > self.completed_visible_seconds
-@@ -1892,9 +1972,26 @@
+@@ -1892,9 +1972,26 @@ def status_from_event(record: HookEvent, metadata: StatusMetadata | None = None)
          context_percent=metadata.context_percent,
          parent_session_id=metadata.parent_session_id,
          last_user_prompt_at=metadata.last_user_prompt_at,
@@ -130,7 +134,7 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
  def mode_for_event(record: HookEvent) -> AgentMode | None:
      event = record.event_name
      raw = record.raw
-@@ -2147,6 +2244,8 @@
+@@ -2147,6 +2244,8 @@ def status_is_stale(
      completed_visible_seconds: float,
      idle_visible_seconds: float,
  ) -> bool:
@@ -139,7 +143,7 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
      age = status.age_seconds(now)
      if status.mode == AgentMode.COMPLETED and completed_visible_seconds >= 0:
          return age > completed_visible_seconds
-@@ -2297,6 +2396,9 @@
+@@ -2297,6 +2396,9 @@ def should_ignore_status_transition(
      ):
          return True
  
@@ -149,7 +153,7 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
      return (
          previous is not None
          and previous.mode == AgentMode.WAITING_FOR_INPUT
-@@ -2306,6 +2408,32 @@
+@@ -2306,6 +2408,32 @@ def should_ignore_status_transition(
      )
  
  
@@ -182,7 +186,7 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
  def should_ignore_record(record: HookEvent, metadata: StatusMetadata) -> bool:
      raw = record.raw
      if _string_or_none(raw.get("agent_internal_operation")) in {
-@@ -2360,12 +2488,48 @@
+@@ -2360,6 +2488,16 @@ def mark_ignored_session(
      statuses_by_key: dict[str, AgentStatus],
      ignored_status_keys: set[str],
  ) -> bool:
@@ -199,11 +203,10 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
      if not should_ignore_record(record, metadata):
          return False
      agent_id = record.status_key
-     ignored_status_keys.add(agent_id)
-     statuses_by_key.pop(agent_id, None)
+@@ -2368,6 +2506,32 @@ def mark_ignored_session(
      return True
-+
-+
+ 
+ 
 +def record_deletes_session(record: HookEvent) -> bool:
 +    return record.event_name == "SessionDeleted"
 +
@@ -228,13 +231,16 @@ diff -ruN base33/src/sidepulse/collector.py work/src/sidepulse/collector.py
 +        if status.session_id == session_id or status.parent_session_id == session_id:
 +            ignored_status_keys.add(key)
 +            statuses_by_key.pop(key, None)
- 
- 
++
++
  def read_recent_lines(path: Path, max_lines: int) -> list[str]:
-diff -ruN base33/src/sidepulse/install.py work/src/sidepulse/install.py
---- a/src/sidepulse/install.py	2026-09-25 03:00:02
-+++ b/src/sidepulse/install.py	2026-09-25 03:20:15
-@@ -386,6 +386,50 @@
+     if max_lines <= 0:
+         return []
+diff --git a/src/sidepulse/install.py b/src/sidepulse/install.py
+index cd74766..e234725 100644
+--- a/src/sidepulse/install.py
++++ b/src/sidepulse/install.py
+@@ -386,6 +386,50 @@ function isUserPrompt(event) {{
    return info?.role === "user" || info?.type === "user"
  }}
  
@@ -285,7 +291,7 @@ diff -ruN base33/src/sidepulse/install.py work/src/sidepulse/install.py
  function eventName(event) {{
    if (event?.type === "session.status") {{
      const status = event.properties?.status?.type ?? event.properties?.status
-@@ -397,25 +441,48 @@
+@@ -397,25 +441,48 @@ function eventName(event) {{
      // leaves the previous state standing, which is the conservative choice.
      return undefined
    }}
@@ -338,7 +344,7 @@ diff -ruN base33/src/sidepulse/install.py work/src/sidepulse/install.py
  const ORIGIN = process.env.T3CODE_HOME || process.env.T3_CODE || process.env.T3CODE ||
    process.env.T3_MCP_BEARER_TOKEN
    ? {{ agent_origin: "T3 Code", agent_origin_kind: "opencode_t3code" }}
-@@ -423,6 +490,7 @@
+@@ -423,6 +490,7 @@ const ORIGIN = process.env.T3CODE_HOME || process.env.T3_CODE || process.env.T3C
  
  async function emit(payload) {{
    if (!payload.session_id) return
@@ -346,17 +352,10 @@ diff -ruN base33/src/sidepulse/install.py work/src/sidepulse/install.py
    await Promise.all([appendSidePulseLog(payload), notifySidePulse(payload)])
  }}
  
-@@ -446,6 +514,26 @@
-           agent_id: agentIdFor(promptSession),
-           parent_session_id: parentOf(promptSession),
-           sidepulse_user_prompt: true,
-+          cwd,
-+          timestamp: new Date().toISOString(),
-+          ...ORIGIN,
-+        }})
-+        return
-+      }}
-+
+@@ -453,6 +521,26 @@ export const SidePulsePlugin = async ({{ directory, worktree }}) => {{
+         return
+       }}
+ 
 +      // A failure the session recorded on its own message. Reported under the
 +      // same event name as `session.error` so SidePulse needs no new mapping,
 +      // and harmlessly duplicated when both fire for one failure - the mode is
@@ -370,13 +369,21 @@ diff -ruN base33/src/sidepulse/install.py work/src/sidepulse/install.py
 +          agent_id: agentIdFor(errorSession),
 +          parent_session_id: parentOf(errorSession),
 +          message: firstString(assistantError.data?.message, errorName(assistantError)),
-           cwd,
-           timestamp: new Date().toISOString(),
-           ...ORIGIN,
-diff -ruN base33/src/sidepulse/models.py work/src/sidepulse/models.py
---- a/src/sidepulse/models.py	2026-09-25 03:00:02
-+++ b/src/sidepulse/models.py	2026-09-25 03:18:34
-@@ -86,6 +86,14 @@
++          cwd,
++          timestamp: new Date().toISOString(),
++          ...ORIGIN,
++        }})
++        return
++      }}
++
+       const name = eventName(event)
+       if (!name || !FORWARDED_EVENTS.includes(name)) return
+ 
+diff --git a/src/sidepulse/models.py b/src/sidepulse/models.py
+index 0c3ee91..5aab394 100644
+--- a/src/sidepulse/models.py
++++ b/src/sidepulse/models.py
+@@ -86,6 +86,14 @@ class AgentStatus:
      # When a human last actually prompted this session, as distinct from
      # the session merely becoming busy.
      last_user_prompt_at: datetime | None = None
@@ -391,10 +398,11 @@ diff -ruN base33/src/sidepulse/models.py work/src/sidepulse/models.py
  
      @property
      def priority(self) -> int:
-diff -ruN base33/src/sidepulse/providers.py work/src/sidepulse/providers.py
---- a/src/sidepulse/providers.py	2026-09-25 03:00:02
-+++ b/src/sidepulse/providers.py	2026-09-25 03:19:41
-@@ -100,6 +100,7 @@
+diff --git a/src/sidepulse/providers.py b/src/sidepulse/providers.py
+index deb8c02..37f3509 100644
+--- a/src/sidepulse/providers.py
++++ b/src/sidepulse/providers.py
+@@ -100,6 +100,7 @@ OPENCODE_EVENTS = (
      "Stop",
      "StopFailure",
      "SessionEnd",
@@ -402,7 +410,7 @@ diff -ruN base33/src/sidepulse/providers.py work/src/sidepulse/providers.py
  )
  
  HOOK_PROVIDERS = ("codex", "claude", "grok", "cursor", "junie", "opencode")
-@@ -586,6 +587,16 @@
+@@ -586,6 +587,16 @@ def canonical_event_name(value: Any) -> str | None:
              "session_status": "UserPromptSubmit",
              "session_idle": "Stop",
              "session_error": "StopFailure",
@@ -419,10 +427,11 @@ diff -ruN base33/src/sidepulse/providers.py work/src/sidepulse/providers.py
              "permission_asked": "PermissionRequest",
              "permission_replied": "PostToolUse",
              "tool_execute_before": "PreToolUse",
-diff -ruN base33/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
---- a/src/sidepulse/status_bar.py	2026-09-25 03:00:02
-+++ b/src/sidepulse/status_bar.py	2026-09-25 03:02:32
-@@ -99,6 +99,7 @@
+diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
+index 4a318e4..6579d20 100644
+--- a/src/sidepulse/status_bar.py
++++ b/src/sidepulse/status_bar.py
+@@ -110,6 +110,7 @@ from .collector import (
      SourceSpec,
      default_sources,
      default_t3code_event_log_dir,
@@ -430,7 +439,7 @@ diff -ruN base33/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
      read_recent_lines,
  )
  from .device_writer import (
-@@ -3286,11 +3287,23 @@
+@@ -3515,11 +3516,23 @@ class StatusBarController(NSObject):
          still visible. It is held until the user is visibly back at a terminal
          rather than timed out blind, so this can outlast the old fixed pulse by
          minutes - see `pollCompletionHold_`.
@@ -455,9 +464,11 @@ diff -ruN base33/src/sidepulse/status_bar.py work/src/sidepulse/status_bar.py
              return AgentMode.COMPLETED
          return mode
  
-diff -ruN base33/tests/test_awaiting_human.py work/tests/test_awaiting_human.py
---- a/tests/test_awaiting_human.py	1969-12-31 18:00:00
-+++ b/tests/test_awaiting_human.py	2026-09-25 03:20:58
+diff --git a/tests/test_awaiting_human.py b/tests/test_awaiting_human.py
+new file mode 100644
+index 0000000..4e39315
+--- /dev/null
++++ b/tests/test_awaiting_human.py
 @@ -0,0 +1,392 @@
 +"""Signals addressed to a person do not expire on a clock."""
 +

@@ -865,11 +865,11 @@
     "sidepulse-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789404441,
-        "narHash": "sha256-Vl+Bp35S1qRKhHchbeODPQphqmwLbVJdDN40aIpatYg=",
+        "lastModified": 1790790079,
+        "narHash": "sha256-Y5yOtP+qgFu/MCIXkc+DWFmnVxcdQ0r2+7gv3tF31CU=",
         "owner": "inteliwear",
         "repo": "sidepulse",
-        "rev": "6744439d8e82fa9beb727cfd06126686ecd68951",
+        "rev": "6d55225fed20a82521b23d86a4df2c4a15dff295",
         "type": "github"
       },
       "original": {

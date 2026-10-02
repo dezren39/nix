@@ -1,6 +1,12 @@
+SidePulse patch 12/12 -- local, dezren39/nix#333.
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-332-multi-signal-composition.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
+diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
+index 05a02a4..e4d1b75 100644
 --- a/src/sidepulse/collector.py
 +++ b/src/sidepulse/collector.py
-@@ -38,7 +38,19 @@
+@@ -38,7 +38,19 @@ T3CODE_MAX_LINES = 5000
  # it costs megabytes of JSON for records that are discarded moments later.
  T3CODE_MAX_FILE_AGE_SECONDS = 24 * 60 * 60
  T3CODE_METADATA_EVENT = "T3SessionMetadata"
@@ -21,7 +27,7 @@
  T3CODE_TOOL_ITEM_MARKERS = (
      "tool",
      "command",
-@@ -1204,8 +1216,13 @@
+@@ -1204,8 +1216,13 @@ def t3code_event_mapping(
      payload: dict[str, Any],
  ) -> tuple[str | None, AgentMode | None]:
      if event_type in {"turn.completed", "turn.aborted", "session.exited"}:
@@ -36,7 +42,7 @@
          return "Stop", AgentMode.COMPLETED
      if event_type == "turn.started":
          return "UserPromptSubmit", AgentMode.WORKING
-@@ -1223,8 +1240,12 @@
+@@ -1223,8 +1240,12 @@ def t3code_event_mapping(
              return "PreToolUse", AgentMode.TOOL_RUNNING
          return "UserPromptSubmit", AgentMode.WORKING
      if event_type in {"item.completed", "task.completed"}:
@@ -51,7 +57,7 @@
          return "PostToolUse", AgentMode.WORKING
      # Codex threads hosted by T3 report their idle/active transitions as
      # thread.state.changed; only agent-level sessions use session.state.changed.
-@@ -1232,14 +1253,27 @@
+@@ -1232,16 +1253,29 @@ def t3code_event_mapping(
          state = str(payload.get("state", "")).lower()
          if state in {"idle", "ready"}:
              return "Stop", AgentMode.COMPLETED
@@ -74,14 +80,16 @@
 -            return "StopFailure", AgentMode.BLOCKED_ERROR
 +            return "PermissionRequest", AgentMode.WAITING_FOR_INPUT
      return None, None
-+
-+
+ 
+ 
 +def t3code_state_cancelled(value: object) -> bool:
 +    return isinstance(value, str) and value.strip().lower() in T3CODE_CANCELLED_STATES
- 
- 
++
++
  def t3code_state_failed(value: object) -> bool:
-@@ -2002,7 +2036,10 @@
+     return isinstance(value, str) and value.strip().lower() in T3CODE_FAILED_STATES
+ 
+@@ -2002,7 +2036,10 @@ def mode_for_event(record: HookEvent) -> AgentMode | None:
      if explicit_mode is not None:
          return explicit_mode
  
@@ -93,7 +101,7 @@
          return AgentMode.BLOCKED_ERROR
      if event in {"PermissionRequest"}:
          return AgentMode.WAITING_FOR_INPUT
-@@ -2020,9 +2057,16 @@
+@@ -2020,9 +2057,16 @@ def mode_for_event(record: HookEvent) -> AgentMode | None:
          return AgentMode.WORKING
      if event in {"PreToolUse"}:
          return AgentMode.TOOL_RUNNING
@@ -113,7 +121,7 @@
          return AgentMode.WORKING
      if event in {"UserPromptSubmit", "PreCompact", "PostCompact", "SubagentStart"}:
          return AgentMode.WORKING
-@@ -2049,7 +2093,7 @@
+@@ -2049,7 +2093,7 @@ def mode_for_event(record: HookEvent) -> AgentMode | None:
  
  def explicit_mode_for_record(record: HookEvent) -> AgentMode | None:
      raw = record.raw
@@ -122,7 +130,7 @@
          mode = explicit_mode_from_value(raw.get(key))
          if mode is not None:
              return mode
-@@ -2298,6 +2342,7 @@
+@@ -2298,6 +2342,7 @@ def agent_status_from_dict(data: object) -> AgentStatus | None:
  
          mode = AgentMode(str(data["mode"]))
          updated_at = parse_datetime(data["updated_at"])
@@ -130,7 +138,7 @@
          return AgentStatus(
              provider=provider,
              agent_id=agent_id,
-@@ -2313,6 +2358,16 @@
+@@ -2313,6 +2358,16 @@ def agent_status_from_dict(data: object) -> AgentStatus | None:
              origin=_string_or_none(data.get("origin")),
              stale=bool(data.get("stale", False)),
              context_percent=_float_or_none(data.get("context_percent")),
@@ -147,24 +155,12 @@
          )
      except Exception:
          return None
-@@ -2721,19 +2776,36 @@
+@@ -2721,19 +2776,36 @@ def truncate_text(text: str, max_len: int) -> str:
  
  
  def _tool_response_looks_failed(response: object) -> bool:
--    if isinstance(response, dict):
--        if response.get("interrupted") is True:
--            return True
--        if response.get("success") is False:
--            return True
--        if response.get("exit_code") not in (None, 0):
--            return True
--        return False
--
--    if isinstance(response, str):
--        text = response.lower()
--        return "exit code: 1" in text or "traceback" in text
 +    """Whether the harness stated that this tool call failed.
- 
++
 +    Only names the event (`PostToolUseFailure` rather than `PostToolUse`) so
 +    that the menu and the history can show it; neither maps to a colour any
 +    more. It still has to be honest, because "that tool failed" appearing
@@ -191,14 +187,28 @@
 +    What remains is the harness saying outright that the call failed.
 +    """
 +
-+    if isinstance(response, dict):
+     if isinstance(response, dict):
+-        if response.get("interrupted") is True:
+-            return True
+-        if response.get("success") is False:
+-            return True
+-        if response.get("exit_code") not in (None, 0):
+-            return True
+-        return False
+-
+-    if isinstance(response, str):
+-        text = response.lower()
+-        return "exit code: 1" in text or "traceback" in text
+-
 +        return response.get("success") is False or response.get("is_error") is True
      return False
  
  
+diff --git a/src/sidepulse/completion.py b/src/sidepulse/completion.py
+index d787d4d..b5195a5 100644
 --- a/src/sidepulse/completion.py
 +++ b/src/sidepulse/completion.py
-@@ -32,11 +32,16 @@
+@@ -32,11 +32,16 @@ from .models import AgentMode, AgentStatus
  COMPLETION_PULSE_SECONDS = 4.0
  
  # With presence available, the completion is held until somebody is plainly
@@ -220,9 +230,11 @@
  
  # Presence is sampled far faster than the 15s status refresh so that sitting
  # down clears the completion within a second rather than a quarter-minute.
+diff --git a/src/sidepulse/error_latch.py b/src/sidepulse/error_latch.py
+index 5eab2da..3b0d5d7 100644
 --- a/src/sidepulse/error_latch.py
 +++ b/src/sidepulse/error_latch.py
-@@ -56,9 +56,25 @@
+@@ -56,9 +56,25 @@ class SessionErrorLatch:
          self._acknowledged_through: dict[str, datetime] = {}
  
      def update(self, statuses: Iterable[AgentStatus]) -> None:
@@ -250,9 +262,11 @@
          present: dict[str, AgentStatus] = {status.agent_id: status for status in rows}
          prompted = self._prompt_times(rows)
  
+diff --git a/src/sidepulse/models.py b/src/sidepulse/models.py
+index 5aab394..bd55adb 100644
 --- a/src/sidepulse/models.py
 +++ b/src/sidepulse/models.py
-@@ -126,6 +126,22 @@
+@@ -126,6 +126,22 @@ class AgentStatus:
              "origin": self.origin,
              "stale": self.stale,
              "context_percent": self.context_percent,
@@ -275,9 +289,11 @@
          }
  
  
+diff --git a/src/sidepulse/presence.py b/src/sidepulse/presence.py
+index 93d1ab3..29fa9ef 100644
 --- a/src/sidepulse/presence.py
 +++ b/src/sidepulse/presence.py
-@@ -11,11 +11,13 @@
+@@ -11,10 +11,12 @@ Two questions decide it, and macOS answers both without asking the user for a
  single extra permission:
  
  ``CGEventSourceSecondsSinceLastEventType``
@@ -288,14 +304,13 @@
 +    Seconds since the last key press, mouse button or scroll. Needs neither
 +    Accessibility nor Input Monitoring, and - unlike an event tap - cannot
 +    drop events or wedge the input stream when the process stalls.
- 
++
 +    Deliberately not mouse *movement*. Acknowledgement has to be an act, and
 +    the pointer drifting is not one.
-+
+ 
  ``NSWorkspace.frontmostApplication``
      Which app owns the screen. Only the *application*, never the window or
-     tab: window titles of other processes require Screen Recording on macOS 15
-@@ -73,8 +75,8 @@
+@@ -73,8 +75,8 @@ DEFAULT_ATTENTION_BUNDLE_PREFIXES: tuple[str, ...] = (
  )
  
  # How long input has to keep arriving before it counts. A single keystroke, a
@@ -306,13 +321,13 @@
  DEFAULT_SUSTAINED_INPUT_SECONDS = 2.5
  
  # The longest silence tolerated inside one burst of activity, so that the
-@@ -112,32 +114,62 @@
+@@ -112,30 +114,60 @@ def frontmost_bundle_id() -> str | None:
  
  
  def seconds_since_last_input() -> float | None:
 -    """Seconds since the last keystroke or mouse movement, or None."""
 +    """Seconds since the last deliberate input, or None if unknowable.
- 
++
 +    Deliberate means a key press, a mouse button, or a scroll. Explicitly
 +    *not* mouse movement, which is what `kCGAnyInputEventType` reports and
 +    what this used to ask for. A cat on the desk, a trackpad brushed on the
@@ -324,7 +339,7 @@
 +    Each event type is timed separately and the most recent wins, because
 +    Quartz answers per type and there is no "any of these" constant.
 +    """
-+
+ 
      try:
          import Quartz
      except Exception:
@@ -355,7 +370,7 @@
 -    if seconds < 0.0:
 -        return None
 -    return seconds
- 
++
 +    best: float | None = None
 +    for event_type in event_types:
 +        try:
@@ -381,13 +396,13 @@
 +            best = seconds
 +    return best
  
-+
+ 
  def bundle_id_holds_attention(
-     bundle_id: str | None,
-     *,
+diff --git a/src/sidepulse/providers.py b/src/sidepulse/providers.py
+index 37f3509..6be1d7c 100644
 --- a/src/sidepulse/providers.py
 +++ b/src/sidepulse/providers.py
-@@ -591,7 +591,15 @@
+@@ -591,7 +591,15 @@ def canonical_event_name(value: Any) -> str | None:
              # own event names rather than `session.error`. Whichever pipeline is
              # live, a failure has to reach the device.
              "session_next_step_failed": "StopFailure",
@@ -404,9 +419,11 @@
              # An explicitly deleted session is gone, not finished. It gets its
              # own event because "removed" and "completed" have to stay
              # distinguishable: a failure survives a completion, but nothing
+diff --git a/src/sidepulse/settings.py b/src/sidepulse/settings.py
+index c62fbcb..aade410 100644
 --- a/src/sidepulse/settings.py
 +++ b/src/sidepulse/settings.py
-@@ -211,7 +211,17 @@
+@@ -211,7 +211,17 @@ DEFAULT_DND_START_TIME = "22:00"
  DEFAULT_DND_END_TIME = "07:00"
  # Mirrors of the completion/presence tuning knobs, restated here so that
  # settings loading does not have to import the status-bar half of the app.
@@ -425,17 +442,11 @@
  DEFAULT_COMPLETION_HOLD_SUSTAINED_INPUT_SECONDS = 2.5
  # How the device behaves when several signals are true at once. Defaults to the
  # historical behaviour - paint the most urgent one and drop the rest - so the
+diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
+index ba56e2c..3c31002 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -1,6 +1,7 @@
- from __future__ import annotations
- 
- import json
-+import math
- import shlex
- import socket
- import subprocess
-@@ -897,18 +898,18 @@
+@@ -962,18 +962,18 @@ class StatusBarController(NSObject):
              reconcile_t3code_sessions(self.monitor, self.t3code_monitor)
              snapshot = self.monitor.snapshot(include_stale=False)
          except Exception as exc:
@@ -465,7 +476,7 @@
              return
  
          self.last_snapshot = snapshot
-@@ -3345,6 +3346,14 @@
+@@ -3574,6 +3574,14 @@ class StatusBarController(NSObject):
              return AgentMode.BLOCKED_ERROR
          if time.monotonic() < self.completion_pulse_until and not mode_awaits_a_human(mode):
              return AgentMode.COMPLETED
@@ -480,7 +491,7 @@
          return mode
  
      def note_completions(self, snapshot) -> None:
-@@ -3355,14 +3364,30 @@
+@@ -3584,14 +3592,30 @@ class StatusBarController(NSObject):
          )
          if not finished:
              return
@@ -513,7 +524,7 @@
          # Re-arm from zero: typing that was already in progress when the run
          # finished is not acknowledgement of a result the user cannot have
          # read yet.
-@@ -3371,7 +3396,10 @@
+@@ -3600,7 +3624,10 @@ class StatusBarController(NSObject):
          )
          self.attention_watcher.reset()
          self.start_completion_hold_timer()
@@ -525,7 +536,7 @@
  
      def start_completion_hold_timer(self) -> None:
          if self.completion_hold_timer is not None:
-@@ -3630,7 +3658,14 @@
+@@ -3859,7 +3886,14 @@ class StatusBarController(NSObject):
              signals.add(SIGNAL_ERROR)
          if AgentMode.WAITING_FOR_INPUT in modes:
              signals.add(SIGNAL_ASK)
@@ -541,53 +552,11 @@
              signals.add(SIGNAL_DONE)
          if modes & {
              AgentMode.WORKING,
---- a/tests/test_sidepulse.py
-+++ b/tests/test_sidepulse.py
-@@ -8298,8 +8298,11 @@
-             ).snapshot()
- 
-             self.assertEqual(len(snapshot.statuses), len(providers))
-+            # `turn.aborted` with reason "interrupted" is somebody stopping the
-+            # agent, which is neither a completion nor a failure - the same
-+            # reading `Interrupt` has always had.
-             self.assertTrue(
--                all(status.mode == AgentMode.COMPLETED for status in snapshot.statuses)
-+                all(status.mode == AgentMode.IDLE_READY for status in snapshot.statuses)
-             )
-             self.assertTrue(all(status.origin == "T3 Code" for status in snapshot.statuses))
-             self.assertEqual(
-@@ -8953,9 +8956,14 @@
-             canon("turn.completed", {"state": "failed", "stopReason": "error"})
-         )
- 
-+        # A single failed item is not a failed session: the model reads the
-+        # error and tries something else. Since BLOCKED_ERROR is latched until
-+        # a human retires it, reporting one here left the device permanently
-+        # red during healthy runs. A dead session still says so through
-+        # `turn.completed` state=failed, asserted below.
-         self.assertEqual(
-             collector_module.status_from_event(failed_item).mode,
--            AgentMode.BLOCKED_ERROR,
-+            AgentMode.WORKING,
-         )
-         self.assertEqual(
-             collector_module.status_from_event(ok_item).mode,
-@@ -9125,9 +9133,11 @@
-         self.assertIsNone(collector_module.parse_t3code_event_line(canon(None)))
-         reached = collector_module.parse_t3code_event_line(canon("primary"))
-         self.assertIsNotNone(reached)
-+        # Being rate limited is a wait, not a failure: nothing broke, the
-+        # harness resumes on its own, and there is nothing for a human to fix.
-         self.assertEqual(
-             collector_module.status_from_event(reached).mode,
--            AgentMode.BLOCKED_ERROR,
-+            AgentMode.WAITING_FOR_INPUT,
-         )
-         self.assertIn("Rate limit reached", reached.message)
- 
+diff --git a/tests/test_awaiting_human.py b/tests/test_awaiting_human.py
+index 4e39315..80aa2ac 100644
 --- a/tests/test_awaiting_human.py
 +++ b/tests/test_awaiting_human.py
-@@ -224,28 +224,50 @@
+@@ -224,26 +224,48 @@ class OpenCodeErrorSurfaceTests(unittest.TestCase):
          self.assertIn("SESSION_ERROR_IGNORED", source)
          self.assertIn("ContextOverflowError", source)
  
@@ -630,10 +599,10 @@
 +                raw_name,
              )
 -            self.assertEqual(mode_for_event(record), AgentMode.BLOCKED_ERROR, raw_name)
- 
++
 +    def test_tool_failure_is_not_a_session_failure(self):
 +        """A failed tool call is ordinary agent work, so it is not red.
- 
++
 +        The model reads the error and tries something else. An edit that did
 +        not match, a command that exited nonzero and a missing file all arrive
 +        here during healthy runs, and because BLOCKED_ERROR is latched until a
@@ -647,14 +616,14 @@
 +        canonical = canonical_event_name("session.next.tool.failed")
 +        self.assertEqual(canonical, "PostToolUse")
 +        self.assertEqual(mode_for_event(self.record(canonical)), AgentMode.WORKING)
-+
-+
- class ClosedSessionTests(unittest.TestCase):
-     """A question nobody can answer any more must stop being asked.
  
+ 
+ class ClosedSessionTests(unittest.TestCase):
+diff --git a/tests/test_completion_hold.py b/tests/test_completion_hold.py
+index 688834d..4bd5447 100644
 --- a/tests/test_completion_hold.py
 +++ b/tests/test_completion_hold.py
-@@ -158,7 +158,11 @@
+@@ -158,7 +158,11 @@ class CompletionHoldSettingsTests(unittest.TestCase):
      def test_missing_section_keeps_the_hold_on_by_default(self):
          restored = self.load({})
          self.assertTrue(restored.completion_hold_enabled)
@@ -667,9 +636,11 @@
  
      def test_malformed_bundle_id_entries_are_dropped(self):
          restored = self.load(
+diff --git a/tests/test_led_signals.py b/tests/test_led_signals.py
+index 218d525..8f95d96 100644
 --- a/tests/test_led_signals.py
 +++ b/tests/test_led_signals.py
-@@ -368,8 +368,21 @@
+@@ -368,8 +368,21 @@ def test_a_prompt_older_than_the_error_does_not_clear_it():
      assert latch.active
  
  
@@ -693,29 +664,30 @@
      latch = SessionErrorLatch()
      child = status(
          "opencode:agent:child", AgentMode.BLOCKED_ERROR,
-@@ -377,25 +390,31 @@
+@@ -377,25 +390,31 @@ def test_prompting_the_parent_clears_a_dead_subagents_error():
      )
      parent = status("opencode:session:parent", AgentMode.WORKING, session_id="parent")
      latch.update([child, parent])
 -    assert latch.active, "a subagent failure must be visible"
-+    assert not latch.active
- 
+-
 -    # The human replies to the parent; the child never runs again.
-+    # The parent failing is news, and still latches.
-     latch.update([
+-    latch.update([
 -        status("opencode:agent:child", AgentMode.BLOCKED_ERROR,
 -               session_id="child", parent_session_id="parent"),
 -        status("opencode:session:parent", AgentMode.WORKING,
 -               session_id="parent", offset_seconds=30, prompted_at=30),
+-    ])
+     assert not latch.active
+ 
++    # The parent failing is news, and still latches.
++    latch.update([
 +        child,
 +        status("opencode:session:parent", AgentMode.BLOCKED_ERROR, session_id="parent"),
-     ])
--    assert not latch.active
++    ])
 +    assert latch.active
 +    assert latch.agent_ids() == frozenset({"opencode:session:parent"})
- 
- 
--def test_parent_prompt_propagates_through_nested_subagents():
++
++
 +def test_a_prompt_propagates_down_the_reported_lineage():
 +    """A prompt to an ancestor retires errors latched against descendants.
 +
@@ -723,7 +695,8 @@
 +    what makes a failure inherited from further up clearable at all, and it is
 +    bounded by a seen-set so a malformed cycle cannot hang the status bar.
 +    """
-+
+ 
+-def test_parent_prompt_propagates_through_nested_subagents():
      latch = SessionErrorLatch()
      rows = [
 -        status("opencode:agent:grandchild", AgentMode.BLOCKED_ERROR,
@@ -737,7 +710,7 @@
          status("opencode:session:root", AgentMode.WORKING, session_id="root"),
      ]
      latch.update(rows)
-@@ -577,3 +596,116 @@
+@@ -577,3 +596,116 @@ def test_completion_is_seen_even_after_the_aggregate_demotes_it():
      fresh = (status("opencode:session:busy", AgentMode.WORKING, session_id="busy"),)
      stale = (status("opencode:session:done", AgentMode.COMPLETED, session_id="done"),)
      assert w.newly_completed(fresh + stale) == ("opencode:session:done",)
@@ -854,3 +827,49 @@
 +    assert FakeQuartz.kCGEventMouseMoved not in FakeQuartz.asked
 +    assert FakeQuartz.kCGEventKeyDown in FakeQuartz.asked
 +    assert FakeQuartz.kCGEventScrollWheel in FakeQuartz.asked
+diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
+index cfc89da..3c8af87 100644
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -8526,8 +8526,11 @@ class AgentMonitorTests(unittest.TestCase):
+             ).snapshot()
+ 
+             self.assertEqual(len(snapshot.statuses), len(providers))
++            # `turn.aborted` with reason "interrupted" is somebody stopping the
++            # agent, which is neither a completion nor a failure - the same
++            # reading `Interrupt` has always had.
+             self.assertTrue(
+-                all(status.mode == AgentMode.COMPLETED for status in snapshot.statuses)
++                all(status.mode == AgentMode.IDLE_READY for status in snapshot.statuses)
+             )
+             self.assertTrue(all(status.origin == "T3 Code" for status in snapshot.statuses))
+             self.assertEqual(
+@@ -9181,9 +9184,14 @@ class AgentMonitorTests(unittest.TestCase):
+             canon("turn.completed", {"state": "failed", "stopReason": "error"})
+         )
+ 
++        # A single failed item is not a failed session: the model reads the
++        # error and tries something else. Since BLOCKED_ERROR is latched until
++        # a human retires it, reporting one here left the device permanently
++        # red during healthy runs. A dead session still says so through
++        # `turn.completed` state=failed, asserted below.
+         self.assertEqual(
+             collector_module.status_from_event(failed_item).mode,
+-            AgentMode.BLOCKED_ERROR,
++            AgentMode.WORKING,
+         )
+         self.assertEqual(
+             collector_module.status_from_event(ok_item).mode,
+@@ -9353,9 +9361,11 @@ class AgentMonitorTests(unittest.TestCase):
+         self.assertIsNone(collector_module.parse_t3code_event_line(canon(None)))
+         reached = collector_module.parse_t3code_event_line(canon("primary"))
+         self.assertIsNotNone(reached)
++        # Being rate limited is a wait, not a failure: nothing broke, the
++        # harness resumes on its own, and there is nothing for a human to fix.
+         self.assertEqual(
+             collector_module.status_from_event(reached).mode,
+-            AgentMode.BLOCKED_ERROR,
++            AgentMode.WAITING_FOR_INPUT,
+         )
+         self.assertIn("Rate limit reached", reached.message)
+ 

@@ -2,15 +2,20 @@
   lib,
   python3Packages,
   sidepulseSrc,
+  writableTmpDirAsHomeHook,
 }:
 
 python3Packages.buildPythonApplication rec {
   pname = "sidepulse-unwrapped";
-  version = "0.1.0.dev20260817";
+  version = "0.1.0.dev20260930";
   pyproject = true;
 
   # `sidepulse-src` follows upstream main while flake.lock pins the compatible
-  # revision used by this ordered patch stack.
+  # revision used by this ordered patch stack (6d55225, 2026-09-30). Patches
+  # named `sidepulse-pr-N` carry upstream PR inteliwear/sidepulse#N; patches
+  # named `sidepulse-dezren39-nix-N` are local and documented in
+  # dezren39/nix#N. Each patch's header records its source and base, and all
+  # apply at zero fuzz. Porting history: dezren39/nix#327.
   src = sidepulseSrc;
 
   patches = [
@@ -20,12 +25,12 @@ python3Packages.buildPythonApplication rec {
     ./../../patches/sidepulse-pr-28-dnd.patch
     ./../../patches/sidepulse-pr-29-kitt.patch
     ./../../patches/sidepulse-pr-30-stuck-status.patch
-    ./../../patches/sidepulse-pr-31-led-writer-helper.patch
-    ./../../patches/sidepulse-pr-32-led-error-and-concurrency.patch
-    ./../../patches/sidepulse-pr-33-completion-hold-until-seen.patch
-    ./../../patches/sidepulse-pr-34-errors-and-prompts-persist.patch
-    ./../../patches/sidepulse-pr-35-multi-signal-composition.patch
-    ./../../patches/sidepulse-pr-36-signals-mean-what-they-say.patch
+    ./../../patches/sidepulse-dezren39-nix-328-led-writer-helper.patch
+    ./../../patches/sidepulse-dezren39-nix-329-led-error-and-concurrency.patch
+    ./../../patches/sidepulse-dezren39-nix-330-completion-hold-until-seen.patch
+    ./../../patches/sidepulse-dezren39-nix-331-errors-and-prompts-persist.patch
+    ./../../patches/sidepulse-dezren39-nix-332-multi-signal-composition.patch
+    ./../../patches/sidepulse-dezren39-nix-333-signals-mean-what-they-say.patch
   ];
 
   # WebKit is not imported and ScriptingBridge is guarded as an optional
@@ -36,6 +41,8 @@ python3Packages.buildPythonApplication rec {
     python3Packages.pyobjc-framework-Quartz
     # Upstream added `qrcode` for the iPhone-pairing QR codes in `links.py`.
     python3Packages.qrcode
+    # Upstream 05bc5ed: SPC2 USB control for a Dot on a read-only mount.
+    python3Packages.libusb-package
   ];
 
   nativeBuildInputs = [
@@ -45,6 +52,9 @@ python3Packages.buildPythonApplication rec {
   nativeCheckInputs = [
     python3Packages.pytestCheckHook
     python3Packages.pyobjc-framework-WebKit
+    # Upstream's device_write_lock (05bc5ed) keeps its lock files under
+    # ~/.cache/sidepulse; the sandbox's /homeless-shelter is read-only.
+    writableTmpDirAsHomeHook
   ];
   dontCheckRuntimeDeps = true;
   pytestFlags = [

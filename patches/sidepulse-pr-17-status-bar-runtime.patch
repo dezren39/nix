@@ -1,3 +1,7 @@
+SidePulse patch 2/12 -- upstream PR inteliwear/sidepulse#17 "Polish local status bar runtime" (open).
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-14-opencode-t3.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
 diff --git a/src/sidepulse/audit.py b/src/sidepulse/audit.py
 index c4fab92..53b34e9 100644
 --- a/src/sidepulse/audit.py
@@ -288,10 +292,10 @@ index f9acea2..80519d7 100644
  
  def launch_domain(scope: ResolvedSdEjectGuardScope) -> str:
 diff --git a/src/sidepulse/service_launch.py b/src/sidepulse/service_launch.py
-index 5cec58b..ffeb895 100644
+index 063e3ab..d108639 100644
 --- a/src/sidepulse/service_launch.py
 +++ b/src/sidepulse/service_launch.py
-@@ -8,7 +8,9 @@ import sys
+@@ -9,7 +9,9 @@ import sys
  from dataclasses import dataclass
  from pathlib import Path
  
@@ -301,8 +305,8 @@ index 5cec58b..ffeb895 100644
  
  
  SERVICE_LABEL = "io.sidepulse.service"
-@@ -26,6 +28,26 @@ def service_command() -> list[str]:
-     return [sys.executable, "-m", "sidepulse", "service", "run"]
+@@ -41,6 +43,26 @@ def build_service_launcher_script() -> str:
+     return f"#!/bin/sh\nexport PYTHONUNBUFFERED=1\nexec {command}\n"
  
  
 +def service_environment() -> dict[str, str]:
@@ -328,7 +332,7 @@ index 5cec58b..ffeb895 100644
  def install_service(*, start: bool = True, dry_run: bool = False) -> ServiceInstallResult:
      if sys.platform == "darwin":
          return install_launch_agent(start=start, dry_run=dry_run)
-@@ -45,12 +67,7 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
+@@ -64,12 +86,7 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
          "StandardOutPath": str(state / "service.out.log"),
          "StandardErrorPath": str(state / "service.err.log"),
          "WorkingDirectory": str(Path.home()),
@@ -342,7 +346,7 @@ index 5cec58b..ffeb895 100644
      }
      data = plistlib.dumps(payload, sort_keys=False)
      existing = path.read_bytes() if path.exists() else None
-@@ -64,20 +81,19 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
+@@ -89,20 +106,19 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
      started = False
      if start:
          domain = f"gui/{subprocess.check_output(['id', '-u'], text=True).strip()}"
@@ -372,7 +376,7 @@ index 5cec58b..ffeb895 100644
      else:
          detail = ""
      return ServiceInstallResult(path, changed, started, detail)
-@@ -86,11 +102,18 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
+@@ -111,11 +127,18 @@ def install_launch_agent(*, start: bool, dry_run: bool) -> ServiceInstallResult:
  def install_systemd_user_service(*, start: bool, dry_run: bool) -> ServiceInstallResult:
      path = Path.home() / ".config" / "systemd" / "user" / "sidepulse.service"
      command = " ".join(systemd_quote(part) for part in service_command())
@@ -391,7 +395,7 @@ index 5cec58b..ffeb895 100644
          f"ExecStart={command}\n"
          "Restart=on-failure\n"
          "RestartSec=2\n\n"
-@@ -147,13 +170,7 @@ def stop_service() -> bool:
+@@ -172,13 +195,7 @@ def stop_service() -> bool:
      if sys.platform == "darwin":
          path = Path.home() / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
          domain = f"gui/{subprocess.check_output(['id', '-u'], text=True).strip()}"
@@ -406,7 +410,7 @@ index 5cec58b..ffeb895 100644
      systemctl = shutil.which("systemctl")
      if systemctl is None:
          return False
-@@ -169,13 +186,10 @@ def stop_service() -> bool:
+@@ -194,13 +211,10 @@ def stop_service() -> bool:
  def service_is_running() -> bool:
      if sys.platform == "darwin":
          domain = f"gui/{subprocess.check_output(['id', '-u'], text=True).strip()}"
@@ -423,15 +427,16 @@ index 5cec58b..ffeb895 100644
      if systemctl is None:
          return False
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index b3e0fe6..c81481d 100644
+index 06906a3..344d005 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -55,7 +55,15 @@ try:
+@@ -64,7 +64,16 @@ try:
          NSWindowStyleMaskTitled,
-         NSVariableStatusItemLength,
+         NSSquareStatusItemLength,
      )
--    from Foundation import NSRunLoop, NSRunLoopCommonModes, NSObject, NSString, NSTimer, NSURL
+-    from Foundation import NSMutableAttributedString, NSRunLoop, NSRunLoopCommonModes, NSObject, NSString, NSTimer, NSURL
 +    from Foundation import (
++        NSMutableAttributedString,
 +        NSProcessInfo,
 +        NSRunLoop,
 +        NSRunLoopCommonModes,
@@ -443,7 +448,7 @@ index b3e0fe6..c81481d 100644
  except ImportError as exc:  # pragma: no cover - only exercised on non-macOS setups.
      raise SystemExit(
          f"The status-bar app requires PyObjC/AppKit ({exc}):\n"
-@@ -80,6 +88,7 @@ from .audit import (
+@@ -90,6 +99,7 @@ from .audit import (
      default_status_history_log_path,
      export_status_audit_csv,
      export_status_audit_html,
@@ -451,7 +456,7 @@ index b3e0fe6..c81481d 100644
      read_status_history_records,
      status_history_record,
  )
-@@ -610,6 +619,7 @@ class StatusBarController(NSObject):
+@@ -655,6 +665,7 @@ class StatusBarController(NSObject):
          self.setup_window = None
          self.settings_fields = {}
          self.settings_buttons = {}
@@ -459,7 +464,7 @@ index b3e0fe6..c81481d 100644
          self.setup_fields = {}
          self.setup_buttons = {}
          self.last_snapshot = None
-@@ -663,8 +673,10 @@ class StatusBarController(NSObject):
+@@ -714,8 +725,10 @@ class StatusBarController(NSObject):
          return self
  
      def applicationDidFinishLaunching_(self, _notification):
@@ -470,9 +475,9 @@ index b3e0fe6..c81481d 100644
          log_status_bar("launching status item")
          self.start_event_server()
  
-@@ -705,6 +717,22 @@ class StatusBarController(NSObject):
-         else:
-             self.virtual_status_device.hide()
+@@ -769,6 +782,22 @@ class StatusBarController(NSObject):
+         self.show_settings_window()
+         return True
  
 +    def remove_unavailable_virtual_device(self) -> None:
 +        if SIDEPULSE_NOTCH_FEATURE_ENABLED:
@@ -493,7 +498,7 @@ index b3e0fe6..c81481d 100644
      @objc.IBAction
      def refresh_(self, _sender):
          try:
-@@ -1215,6 +1243,8 @@ class StatusBarController(NSObject):
+@@ -1368,6 +1397,8 @@ class StatusBarController(NSObject):
          NSApp.activateIgnoringOtherApps_(True)
  
      def tabView_didSelectTabViewItem_(self, tab_view, tab_item) -> None:
@@ -502,7 +507,7 @@ index b3e0fe6..c81481d 100644
          window = self.settings_window or tab_view.window()
          if window is None:
              return
-@@ -1628,9 +1658,22 @@ class StatusBarController(NSObject):
+@@ -1782,9 +1813,22 @@ class StatusBarController(NSObject):
              chart.setRecords_(records)
  
      def set_settings_message(self, message: str) -> None:
@@ -525,7 +530,7 @@ index b3e0fe6..c81481d 100644
  
      def set_session_terminal(
          self,
-@@ -1670,6 +1713,15 @@ class StatusBarController(NSObject):
+@@ -1824,6 +1868,15 @@ class StatusBarController(NSObject):
      def exportDebugHtml_(self, _sender):
          self.export_debug_log("html")
  
@@ -541,7 +546,7 @@ index b3e0fe6..c81481d 100644
      @objc.IBAction
      def refreshHistoryChart_(self, _sender):
          self.refresh_history_chart()
-@@ -1912,6 +1964,7 @@ class StatusBarController(NSObject):
+@@ -2073,6 +2126,7 @@ class StatusBarController(NSObject):
          if not SIDEPULSE_NOTCH_FEATURE_ENABLED:
              try:
                  self.settings = self.settings.with_virtual_status_device(False)
@@ -549,7 +554,7 @@ index b3e0fe6..c81481d 100644
                  save_settings(self.settings)
              except Exception as exc:
                  self.set_settings_message(f"Could not disable SidePulse Notch: {exc}")
-@@ -3119,8 +3172,14 @@ class StatusBarController(NSObject):
+@@ -3347,8 +3401,14 @@ class StatusBarController(NSObject):
              )
          ]
          if not devices:
@@ -564,7 +569,7 @@ index b3e0fe6..c81481d 100644
          self.led_animation_token += 1
          token = self.led_animation_token
          duration = animation.duration_seconds + LID_ANIMATION_RESTORE_FUDGE_SECONDS
-@@ -3771,6 +3830,8 @@ def choose_debug_export_path(format_name: str) -> Path | None:
+@@ -4030,6 +4090,8 @@ def choose_debug_export_path(format_name: str) -> Path | None:
      panel.setNameFieldStringValue_(f"sidepulse-agent-debug.{extension}")
      if hasattr(panel, "setAllowedFileTypes_"):
          panel.setAllowedFileTypes_([extension])
@@ -573,7 +578,7 @@ index b3e0fe6..c81481d 100644
      if panel.runModal() != 1:
          return None
      url = panel.URL()
-@@ -4813,6 +4874,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -5084,6 +5146,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
      debug_log_status = add_label(diagnostics_tab, "", 32, 360, 588, 22)
      add_button(diagnostics_tab, "Export CSV", 32, 318, 110, 28, target, "exportDebugCsv:")
      add_button(diagnostics_tab, "Export HTML", 152, 318, 120, 28, target, "exportDebugHtml:")
@@ -581,7 +586,7 @@ index b3e0fe6..c81481d 100644
      add_separator(diagnostics_tab, 24, 280, tab_width - 48)
      add_label(diagnostics_tab, "Settings File", 24, 246, 240, 24)
      settings_path = add_label(diagnostics_tab, "", 32, 208, 588, 22)
-@@ -5565,9 +5627,12 @@ def open_terminal_setup_command(command: str, *, filename: str = "install-sleep-
+@@ -5836,9 +5899,12 @@ def open_terminal_setup_command(command: str, *, filename: str = "install-sleep-
              'echo "macOS may ask for your administrator password."',
              'echo ""',
              command,
@@ -1013,7 +1018,7 @@ index 0000000..1f3014c
 +if __name__ == "__main__":  # pragma: no cover
 +    unittest.main()
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 91c7f39..be478ee 100644
+index 12f0742..882083e 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -24,6 +24,7 @@ from sidepulse.audit import (
@@ -1024,7 +1029,7 @@ index 91c7f39..be478ee 100644
      status_history_record,
  )
  from sidepulse.battery import (
-@@ -206,6 +207,8 @@ from sidepulse.status_bar_launch import (
+@@ -209,6 +210,8 @@ from sidepulse.status_bar_launch import (
      STATUS_BAR_DISPLAY_NAME,
      build_launch_agent_plist,
      build_status_bar_launcher_script,
@@ -1033,7 +1038,7 @@ index 91c7f39..be478ee 100644
      install_launch_agent,
      launch_agent_installed,
  )
-@@ -792,6 +795,19 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -795,6 +798,19 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertIn("hook_event,status", csv_path.read_text())
              self.assertIn("SidePulse Agent Debug Log", html_path.read_text())
  
@@ -1053,7 +1058,7 @@ index 91c7f39..be478ee 100644
      def test_status_history_record_includes_charger_power_and_sleep_state(self) -> None:
          record = status_history_record(
              agent_mode=AgentMode.WORKING.value,
-@@ -2838,6 +2854,44 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2945,6 +2961,44 @@ class AgentMonitorTests(unittest.TestCase):
              popen.assert_called_once()
              self.assertEqual(popen.call_args.args[0][0], "/usr/bin/open")
  
@@ -1098,7 +1103,7 @@ index 91c7f39..be478ee 100644
      def test_status_bar_open_terminal_command_uses_selected_terminal(self) -> None:
          try:
              from sidepulse import status_bar
-@@ -6518,8 +6572,119 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6746,8 +6800,119 @@ class AgentMonitorTests(unittest.TestCase):
      def test_status_bar_launcher_uses_background_item_name(self) -> None:
          script = build_status_bar_launcher_script(python_executable="/usr/bin/python3")
  
@@ -1219,7 +1224,7 @@ index 91c7f39..be478ee 100644
  
      def test_status_bar_launch_agent_installed_checks_plist(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
-@@ -6587,7 +6752,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6815,7 +6980,7 @@ class AgentMonitorTests(unittest.TestCase):
              target = base / "io.sidepulse.agentstatus.plist"
              legacy = base / "com.sidepulse.agentstatus.plist"
              pixiepulse_legacy = base / "com.pixiepulse.agentstatus.plist"
@@ -1228,7 +1233,7 @@ index 91c7f39..be478ee 100644
              legacy.write_bytes(b"old")
              pixiepulse_legacy.write_bytes(b"old")
  
-@@ -6607,6 +6772,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6835,6 +7000,7 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertTrue(result.changed)
              self.assertTrue(target.exists())
              self.assertTrue(launcher.exists())

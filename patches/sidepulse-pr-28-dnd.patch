@@ -1,16 +1,20 @@
+SidePulse patch 4/12 -- upstream PR inteliwear/sidepulse#28 "Add manual and scheduled Do Not Disturb mode" (closed unmerged by its author).
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-26-lid-closed-leds.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
 diff --git a/README.md b/README.md
-index 68ba045..6966ffa 100644
+index cca734d..51803c8 100644
 --- a/README.md
 +++ b/README.md
-@@ -580,6 +580,16 @@ The status-bar item shows one of four collapsed states:
- | Done | The most recent active agent completed successfully. |
- | Ask | An agent needs input, permission, or attention. |
+@@ -737,6 +737,16 @@ from Finder or Spotlight. Check **Show menu bar icon** to restore it.
+ Running `sidepulse status-bar` (or `sidepulse status-bar start`) also restores
+ the icon immediately. Automatic starts at login retain your visibility preference.
  
 +### Do Not Disturb
 +
 +Do Not Disturb keeps all physical SidePulse LEDs and the optional Screen Bar off while
 +agent monitoring continues normally. Toggle it immediately from the menu-bar dropdown,
-+or open **Settings... → Devices & LEDs** to use the same DND toggle and optionally set a
++or open **Settings... → LEDs** to use the same DND toggle and optionally set a
 +recurring daily schedule such as `21:00`–`07:00`. The schedule switches the toggle on at
 +the start time and off at the end time. You can override the toggle at any time; that
 +choice remains in effect until the next scheduled boundary, including across app
@@ -20,7 +24,7 @@ index 68ba045..6966ffa 100644
  row to open that agent using the remembered choice for that provider. Use the
  session's Open Options row to choose and remember another opener, such as the
 diff --git a/src/sidepulse/settings.py b/src/sidepulse/settings.py
-index 2f5bb74..045ad29 100644
+index 64a2dd1..5c391ea 100644
 --- a/src/sidepulse/settings.py
 +++ b/src/sidepulse/settings.py
 @@ -194,6 +194,8 @@ HISTORY_TIMEFRAME_CHOICES = (
@@ -42,9 +46,9 @@ index 2f5bb74..045ad29 100644
 +    dnd_end_time: str = DEFAULT_DND_END_TIME
 +    dnd_last_schedule_transition: str = ""
      setup_screen_completed: bool = False
+     show_menu_bar_icon: bool = True
  
-     def transcript_enabled(self, provider: str) -> bool:
-@@ -801,6 +808,44 @@ class AgentMonitorSettings:
+@@ -805,6 +812,44 @@ class AgentMonitorSettings:
      def with_history_timeframe(self, seconds: float) -> "AgentMonitorSettings":
          return replace(self, history_timeframe_seconds=normalize_history_timeframe(seconds))
  
@@ -89,7 +93,7 @@ index 2f5bb74..045ad29 100644
      def to_dict(self) -> dict[str, Any]:
          return {
              "led_display": self.led_display,
-@@ -853,6 +898,13 @@ class AgentMonitorSettings:
+@@ -858,6 +903,13 @@ class AgentMonitorSettings:
                  )
                  if profile_id not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
              },
@@ -103,7 +107,7 @@ index 2f5bb74..045ad29 100644
              "setup_screen_completed": self.setup_screen_completed,
          }
  
-@@ -911,6 +963,9 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
+@@ -916,6 +968,9 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
      history = data.get("history")
      if not isinstance(history, dict):
          history = {}
@@ -113,7 +117,7 @@ index 2f5bb74..045ad29 100644
  
      led_display = _led_display_setting(data.get("led_display"), LED_DISPLAY_AGENT)
      session_open_preferences = _session_open_preferences(
-@@ -1017,6 +1072,22 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
+@@ -1023,6 +1078,22 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
                  data.get("history_timeframe_seconds", DEFAULT_HISTORY_TIMEFRAME_SECONDS),
              )
          ),
@@ -136,7 +140,7 @@ index 2f5bb74..045ad29 100644
          setup_screen_completed=_bool_setting(data.get("setup_screen_completed"), False),
      )
  
-@@ -1454,6 +1525,27 @@ def _nonnegative_float_setting(value: object, default: float) -> float:
+@@ -1460,6 +1531,27 @@ def _nonnegative_float_setting(value: object, default: float) -> float:
      return default
  
  
@@ -165,19 +169,19 @@ index 2f5bb74..045ad29 100644
      if isinstance(value, (int, float)):
          return max(0.0, float(value))
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index dc8564c..a4c3d34 100644
+index 91185a5..d5ce2e5 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -7,7 +7,7 @@ import subprocess
+@@ -8,7 +8,7 @@ import subprocess
  import threading
  import time
  from dataclasses import dataclass
 -from datetime import datetime, timezone
 +from datetime import datetime, timedelta, timezone
+ from functools import lru_cache
  from pathlib import Path
  
- try:
-@@ -348,6 +348,77 @@ class AgentAnimationMenuItemView(NSView):
+@@ -361,6 +361,77 @@ class AgentAnimationMenuItemView(NSView):
          popup.menu().cancelTracking()
  
  
@@ -255,7 +259,7 @@ index dc8564c..a4c3d34 100644
  @dataclass(frozen=True)
  class TerminalAppSpec:
      key: str
-@@ -637,6 +708,8 @@ class StatusBarController(NSObject):
+@@ -687,6 +758,8 @@ class StatusBarController(NSObject):
          self.device_errors = {}
          self.leds_enabled = True
          self.led_sync_in_flight = False
@@ -264,8 +268,8 @@ index dc8564c..a4c3d34 100644
          self.last_led_error = None
          self.last_led_display_kind = LED_DISPLAY_AGENT
          self.last_connected_device_signature = None
-@@ -712,7 +785,11 @@ class StatusBarController(NSObject):
-             True,
+@@ -770,7 +843,11 @@ class StatusBarController(NSObject):
+             "pollDevices:",
          )
          self.show_setup_window_if_needed()
 -        if SIDEPULSE_NOTCH_FEATURE_ENABLED and self.settings.virtual_status_device_enabled:
@@ -277,7 +281,7 @@ index dc8564c..a4c3d34 100644
              self.virtual_status_device.show()
          else:
              self.virtual_status_device.hide()
-@@ -735,6 +812,7 @@ class StatusBarController(NSObject):
+@@ -800,6 +877,7 @@ class StatusBarController(NSObject):
  
      @objc.IBAction
      def refresh_(self, _sender):
@@ -285,7 +289,7 @@ index dc8564c..a4c3d34 100644
          try:
              reconcile_t3code_sessions(self.monitor, self.t3code_monitor)
              snapshot = self.monitor.snapshot(include_stale=False)
-@@ -1096,6 +1174,16 @@ class StatusBarController(NSObject):
+@@ -1167,6 +1245,16 @@ class StatusBarController(NSObject):
          if self.agent_animation_editor_window is not None:
              self.agent_animation_editor_window.orderOut_(None)
          self.refresh_settings_window()
@@ -302,7 +306,7 @@ index dc8564c..a4c3d34 100644
  
      @objc.IBAction
      def saveAgentListTiming_(self, _sender):
-@@ -1593,6 +1681,26 @@ class StatusBarController(NSObject):
+@@ -1748,6 +1836,26 @@ class StatusBarController(NSObject):
              self.settings_buttons.get("lid_closed_led_idle"),
              self.settings.lid_closed_led_idle_enabled,
          )
@@ -329,7 +333,7 @@ index dc8564c..a4c3d34 100644
          for provider in ("codex", "claude", "grok", "opencode"):
              popup = self.settings_fields.get(f"{provider}_session_opener")
              if popup is not None:
-@@ -2040,7 +2148,7 @@ class StatusBarController(NSObject):
+@@ -2202,7 +2310,7 @@ class StatusBarController(NSObject):
          except Exception as exc:
              self.set_settings_message(f"Could not save SidePulse Notch: {exc}")
              return
@@ -338,7 +342,7 @@ index dc8564c..a4c3d34 100644
              self.virtual_status_device.show()
          else:
              self.virtual_status_device.hide()
-@@ -2683,6 +2791,84 @@ class StatusBarController(NSObject):
+@@ -2845,6 +2953,84 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          self.refresh_(None)
  
@@ -423,7 +427,7 @@ index dc8564c..a4c3d34 100644
      def read_battery_snapshot(self) -> BatterySnapshot | None:
          try:
              snapshot = read_battery_snapshot(
-@@ -3006,6 +3192,17 @@ class StatusBarController(NSObject):
+@@ -3235,6 +3421,17 @@ class StatusBarController(NSObject):
              mode = AgentMode.IDLE_READY
              battery_snapshot = None
              display_kind = LED_DISPLAY_AGENT
@@ -441,7 +445,7 @@ index dc8564c..a4c3d34 100644
  
          self.sync_virtual_status_device(mode, battery_snapshot)
  
-@@ -3036,6 +3233,45 @@ class StatusBarController(NSObject):
+@@ -3265,6 +3462,45 @@ class StatusBarController(NSObject):
              self.last_battery_snapshot,
              self.active_led_display_kind(self.last_battery_snapshot),
          )
@@ -487,7 +491,7 @@ index dc8564c..a4c3d34 100644
  
      def sync_virtual_status_device(
          self,
-@@ -3100,6 +3336,9 @@ class StatusBarController(NSObject):
+@@ -3329,6 +3565,9 @@ class StatusBarController(NSObject):
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
      ) -> None:
@@ -497,7 +501,7 @@ index dc8564c..a4c3d34 100644
          devices = [
              device for device in self.status_bar_devices()
              if device.connected and device.device_id != VIRTUAL_DEVICE_ID
-@@ -3212,7 +3451,7 @@ class StatusBarController(NSObject):
+@@ -3441,7 +3680,7 @@ class StatusBarController(NSObject):
          *,
          animation: LedAnimationSetting | None = None,
      ) -> None:
@@ -506,7 +510,7 @@ index dc8564c..a4c3d34 100644
              return
          if animation is None:
              state = (
-@@ -3316,6 +3555,7 @@ class StatusBarController(NSObject):
+@@ -3545,6 +3784,7 @@ class StatusBarController(NSObject):
  
      def connect_device(self) -> None:
          self.leds_enabled = True
@@ -514,7 +518,7 @@ index dc8564c..a4c3d34 100644
          self.status_bar_devices()
          self.reset_led_controllers_for_display_change()
          self.last_led_error = None
-@@ -3324,6 +3564,7 @@ class StatusBarController(NSObject):
+@@ -3553,6 +3793,7 @@ class StatusBarController(NSObject):
  
      def disconnect_device(self) -> None:
          self.leds_enabled = False
@@ -522,7 +526,7 @@ index dc8564c..a4c3d34 100644
          targets = self.current_led_targets()
          if not targets:
              targets = [
-@@ -3670,6 +3911,21 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -3930,6 +4171,21 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
      lid_idle.setTarget_(target)
      lid_idle.setState_(1 if target.settings.lid_closed_led_idle_enabled else 0)
      menu.addItem_(lid_idle)
@@ -544,22 +548,14 @@ index dc8564c..a4c3d34 100644
  
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Closed-Lid Sleep Prevention"))
-@@ -4826,13 +5082,60 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
-         devices_tab,
-         "Idle LEDs while the lid is closed",
-         32,
--        280,
-+        292,
-         320,
-         24,
-         target,
+@@ -5073,6 +5329,53 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "setLidClosedLedIdleFromCheckbox:",
      )
  
-+    add_separator(devices_tab, 24, 276, tab_width - 48)
-+    add_label(devices_tab, "Do Not Disturb", 24, 248, 240, 24)
++    add_separator(leds_tab, 24, 276, tab_width - 48)
++    add_label(leds_tab, "Do Not Disturb", 24, 248, 240, 24)
 +    dnd_enabled = add_checkbox(
-+        devices_tab,
++        leds_tab,
 +        "DND On",
 +        32,
 +        210,
@@ -569,7 +565,7 @@ index dc8564c..a4c3d34 100644
 +        "setDndFromCheckbox:",
 +    )
 +    dnd_schedule = add_checkbox(
-+        devices_tab,
++        leds_tab,
 +        "Use a daily schedule",
 +        32,
 +        174,
@@ -578,13 +574,13 @@ index dc8564c..a4c3d34 100644
 +        target,
 +        "saveDndSettings:",
 +    )
-+    add_label(devices_tab, "From", 280, 176, 44, 22)
-+    dnd_start_time = add_editable_field(devices_tab, "", 328, 174, 70, 24)
-+    add_label(devices_tab, "until", 410, 176, 44, 22)
-+    dnd_end_time = add_editable_field(devices_tab, "", 458, 174, 70, 24)
-+    add_label(devices_tab, "24-hour time", 540, 176, 90, 22)
++    add_label(leds_tab, "From", 280, 176, 44, 22)
++    dnd_start_time = add_editable_field(leds_tab, "", 328, 174, 70, 24)
++    add_label(leds_tab, "until", 410, 176, 44, 22)
++    dnd_end_time = add_editable_field(leds_tab, "", 458, 174, 70, 24)
++    add_label(leds_tab, "24-hour time", 540, 176, 90, 22)
 +    add_button(
-+        devices_tab,
++        leds_tab,
 +        "Save Schedule",
 +        328,
 +        132,
@@ -593,9 +589,9 @@ index dc8564c..a4c3d34 100644
 +        target,
 +        "saveDndSettings:",
 +    )
-+    dnd_status = add_label(devices_tab, "", 32, 94, 590, 22)
++    dnd_status = add_label(leds_tab, "", 32, 94, 590, 22)
 +    add_label(
-+        devices_tab,
++        leds_tab,
 +        "The schedule switches this toggle on/off; you can override it at any time.",
 +        32,
 +        62,
@@ -606,7 +602,7 @@ index dc8564c..a4c3d34 100644
      add_label(agent_animations_tab, "Profile", 32, 360, 56, 24)
      animation_profile = add_agent_animation_profile_popup(
          agent_animations_tab,
-@@ -5014,6 +5317,9 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -5294,6 +5597,9 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "status_history_status": history_status,
          "status_history_chart": history_chart,
          "agent_animation_profile": animation_profile,
@@ -616,7 +612,7 @@ index dc8564c..a4c3d34 100644
          "message": message,
          "settings_path": settings_path,
          **{
-@@ -5032,6 +5338,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -5312,6 +5618,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "battery_power_preview": battery_power_preview,
          "delete_agent_animation_profile": delete_animation_profile,
          "lid_closed_led_idle": lid_closed_led_idle,
@@ -626,10 +622,10 @@ index dc8564c..a4c3d34 100644
      return window
  
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index f8e732e..3eefd40 100644
+index 570b7af..f08037b 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -162,6 +162,8 @@ from sidepulse.settings import (
+@@ -172,6 +172,8 @@ from sidepulse.settings import (
      CLOSED_LID_AWAKE_AGENTS,
      CLOSED_LID_AWAKE_ALWAYS,
      CLOSED_LID_AWAKE_NEVER,
@@ -638,7 +634,7 @@ index f8e732e..3eefd40 100644
      DEFAULT_IDLE_TIMEOUT_SECONDS,
      DEFAULT_HISTORY_TIMEFRAME_SECONDS,
      DEFAULT_RECENT_SESSION_RETENTION_SECONDS,
-@@ -2126,6 +2128,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2352,6 +2354,7 @@ class AgentMonitorTests(unittest.TestCase):
              brightness=128,
          )
          fake = SimpleNamespace(
@@ -646,7 +642,7 @@ index f8e732e..3eefd40 100644
              status_bar_devices=lambda remember=True: [device],
              ensure_device_selection=lambda: None,
              last_led_error="old",
-@@ -2288,6 +2291,123 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2514,6 +2517,123 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertNotIn("Sleep Helper Missing", titles)
          self.assertIn("Setup...", titles)
  
@@ -770,7 +766,7 @@ index f8e732e..3eefd40 100644
      def test_lid_animation_program_uses_device_brightness(self) -> None:
          try:
              from sidepulse import status_bar
-@@ -2417,6 +2537,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2646,6 +2766,11 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertIn("idle_timeout_minutes", target.settings_fields)
          self.assertIn("sleep_prevention_min_battery_percent", target.settings_fields)
          self.assertIn("status_history_timeframe", target.settings_fields)
@@ -782,7 +778,7 @@ index f8e732e..3eefd40 100644
          self.assertIn("agent_animation_lid_closed", target.settings_fields)
          self.assertIn("agent_animation_lid_open", target.settings_fields)
          for mode in status_bar.ANIMATION_UI_STATES:
-@@ -6098,6 +6223,50 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6526,6 +6651,50 @@ class AgentMonitorTests(unittest.TestCase):
                  loaded.agent_animation(AgentMode.WORKING).style,
                  AGENT_ANIMATION_CYAN_ROLL,
              )
@@ -834,10 +830,10 @@ index f8e732e..3eefd40 100644
      def test_settings_migrates_missing_agent_list_timing_to_defaults(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index a31b6dd..9ddc921 100644
+index 35cf05a..0a4555b 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
-@@ -879,6 +879,15 @@ class WindowBuildTests(StatusBarTestCase):
+@@ -991,6 +991,15 @@ class WindowBuildTests(StatusBarTestCase):
                  self.assertIsNone(row.animation_preview.wasm_error)
          finally:
              self.controller.settings = original_settings

@@ -1,10 +1,14 @@
+SidePulse patch 3/12 -- upstream PR inteliwear/sidepulse#26 "Add closed-lid LED idle setting and a Clear Agents menu action" (open); its settings checkbox lives in a local LEDs tab since upstream 441ed38 removed the Devices tab.
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-17-status-bar-runtime.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
 diff --git a/README.md b/README.md
-index 445009f..68ba045 100644
+index d3d3308..cca734d 100644
 --- a/README.md
 +++ b/README.md
-@@ -596,6 +596,11 @@ battery status. When agent status is selected, `Show Battery on Plug/Unplug`
- can briefly show the battery animation for seven seconds after the power source
- changes.
+@@ -753,6 +753,11 @@ status. In **Settings → Advanced**, `Show battery for 7s on plug/unplug` can
+ briefly show the battery animation for seven seconds after the power source
+ changes when agent status is selected.
  
 +When sessions are listed, the Agents section also offers
 +**Clear Agents & Idle LEDs**. It forgets every tracked session and returns the
@@ -14,12 +18,12 @@ index 445009f..68ba045 100644
  The Devices section also offers **Add SidePulse Notch**, an optional virtual
  eight-LED device. It appears as a notch-shaped status-bar overlay that covers
  the camera island/notch footprint and adds a straight 5 px LED band along the
-@@ -624,6 +629,12 @@ Settings can export the hook decision log as CSV or HTML. This log lives at
+@@ -781,6 +786,12 @@ Settings can export the hook decision log as CSV or HTML. This log lives at
  `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/event-status.jsonl`
  and shows the path from provider hook event to interpreted SidePulse status.
  
 +The `Closed Lid` menu section has **Idle LEDs When Lid Closed** (also a
-+checkbox in Settings under Devices & LEDs, off by default). While it is on and
++checkbox in Settings under LEDs, off by default). While it is on and
 +the lid is shut, every LED display falls back to the dim Idle animation instead
 +of agent or battery status; opening the lid restores the normal display. Devices
 +set to `Manual` keep whatever program you wrote to them.
@@ -53,7 +57,7 @@ index 00d8502..30fc320 100644
      def snapshot(self, include_stale: bool = False) -> MonitorSnapshot:
          now = datetime.now(timezone.utc)
 diff --git a/src/sidepulse/settings.py b/src/sidepulse/settings.py
-index 426e89f..2f5bb74 100644
+index 7d7092e..64a2dd1 100644
 --- a/src/sidepulse/settings.py
 +++ b/src/sidepulse/settings.py
 @@ -308,6 +308,7 @@ class AgentMonitorSettings:
@@ -64,7 +68,7 @@ index 426e89f..2f5bb74 100644
      lid_closed_animation: LedAnimationSetting = field(
          default_factory=lambda: default_lid_animation(LID_ANIMATION_CLOSED)
      )
-@@ -580,6 +581,9 @@ class AgentMonitorSettings:
+@@ -581,6 +582,9 @@ class AgentMonitorSettings:
      def with_closed_lid_system_override(self, enabled: bool) -> "AgentMonitorSettings":
          return replace(self, closed_lid_system_override_enabled=bool(enabled))
  
@@ -74,7 +78,7 @@ index 426e89f..2f5bb74 100644
      def with_lid_animation(
          self,
          kind: str,
-@@ -804,6 +808,7 @@ class AgentMonitorSettings:
+@@ -809,6 +813,7 @@ class AgentMonitorSettings:
              "sleep_prevention_policy": self.sleep_prevention_policy,
              "virtual_status_device_enabled": self.virtual_status_device_enabled,
              "closed_lid_system_override_enabled": self.closed_lid_system_override_enabled,
@@ -82,7 +86,7 @@ index 426e89f..2f5bb74 100644
              "lid_closed_animation": self.lid_closed_animation.to_dict(),
              "lid_open_animation": self.lid_open_animation.to_dict(),
              "transcript_monitoring": {
-@@ -956,6 +961,10 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
+@@ -962,6 +967,10 @@ def load_settings(path: Path | None = None) -> AgentMonitorSettings:
              data.get("closed_lid_system_override_enabled"),
              False,
          ),
@@ -94,12 +98,12 @@ index 426e89f..2f5bb74 100644
              data.get("lid_closed_animation"),
              default_lid_animation(LID_ANIMATION_CLOSED),
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index b524515..dc8564c 100644
+index 344d005..91185a5 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
-@@ -1002,6 +1002,18 @@ class StatusBarController(NSObject):
-     def setBatteryLedDisplayFromCheckbox_(self, sender):
-         self.set_battery_led_display(sender.state() == NSOnState)
+@@ -1003,6 +1003,18 @@ class StatusBarController(NSObject):
+     def openSetup_(self, _sender):
+         self.show_setup_window()
  
 +    @objc.IBAction
 +    def toggleLidClosedLedIdle_(self, _sender):
@@ -114,9 +118,9 @@ index b524515..dc8564c 100644
 +        self.clear_agents()
 +
      @objc.IBAction
-     def toggleBatteryPowerPreview_(self, _sender):
-         self.set_battery_power_preview(not self.settings.battery_show_on_power_change)
-@@ -1577,6 +1589,10 @@ class StatusBarController(NSObject):
+     def runFirstLaunchSetup_(self, _sender):
+         self.run_first_launch_setup()
+@@ -1732,6 +1744,10 @@ class StatusBarController(NSObject):
                  and self.selected_agent_animation_profile_id
                  not in AGENT_ANIMATION_BUILT_IN_PROFILE_IDS
              )
@@ -127,7 +131,7 @@ index b524515..dc8564c 100644
          for provider in ("codex", "claude", "grok", "opencode"):
              popup = self.settings_fields.get(f"{provider}_session_opener")
              if popup is not None:
-@@ -1856,6 +1872,44 @@ class StatusBarController(NSObject):
+@@ -2018,6 +2034,44 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          self.refresh_(None)
  
@@ -172,7 +176,7 @@ index b524515..dc8564c 100644
      def set_device_display(self, device_id: str | None, display: str) -> None:
          if not device_id:
              return
-@@ -2731,9 +2785,15 @@ class StatusBarController(NSObject):
+@@ -2960,9 +3014,15 @@ class StatusBarController(NSObject):
  
          self.last_status_history_error = None
  
@@ -188,7 +192,7 @@ index b524515..dc8564c 100644
          if self.settings.led_display == LED_DISPLAY_BATTERY:
              return LED_DISPLAY_BATTERY
          if snapshot is not None and time.monotonic() < self.battery_preview_until:
-@@ -2925,6 +2985,8 @@ class StatusBarController(NSObject):
+@@ -3154,6 +3214,8 @@ class StatusBarController(NSObject):
      ) -> str:
          if device.display == LED_DISPLAY_CUSTOM:
              return LED_DISPLAY_CUSTOM
@@ -197,7 +201,7 @@ index b524515..dc8564c 100644
          if device.display == LED_DISPLAY_BATTERY:
              return LED_DISPLAY_BATTERY
          if battery_snapshot is not None and time.monotonic() < self.battery_preview_until:
-@@ -2940,6 +3002,11 @@ class StatusBarController(NSObject):
+@@ -3169,6 +3231,11 @@ class StatusBarController(NSObject):
          if not self.leds_enabled:
              return
  
@@ -209,7 +213,7 @@ index b524515..dc8564c 100644
          self.sync_virtual_status_device(mode, battery_snapshot)
  
          if self.lid_closed_led_hold_active:
-@@ -2961,6 +3028,15 @@ class StatusBarController(NSObject):
+@@ -3190,6 +3257,15 @@ class StatusBarController(NSObject):
          )
          thread.start()
  
@@ -225,7 +229,7 @@ index b524515..dc8564c 100644
      def sync_virtual_status_device(
          self,
          mode: AgentMode,
-@@ -3398,6 +3474,13 @@ class StatusBarController(NSObject):
+@@ -3630,6 +3706,13 @@ class StatusBarController(NSObject):
          else:
              self.lid_closed_led_hold_active = False
          self.play_lid_animation(kind)
@@ -239,7 +243,7 @@ index b524515..dc8564c 100644
  
      @objc.IBAction
      def pollDevices_(self, _sender):
-@@ -3553,6 +3636,14 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -3813,6 +3896,14 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
                  )
              )
  
@@ -254,7 +258,7 @@ index b524515..dc8564c 100644
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Devices"))
      devices = target.status_bar_devices()
-@@ -3569,6 +3660,17 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -3829,6 +3920,17 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
          virtual_toggle.setTarget_(target)
          menu.addItem_(virtual_toggle)
  
@@ -272,15 +276,30 @@ index b524515..dc8564c 100644
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Closed-Lid Sleep Prevention"))
      for policy in SLEEP_PREVENTION_CHOICES:
-@@ -4720,6 +4822,16 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
-         target,
-         "setBatteryPowerPreviewFromCheckbox:",
+@@ -4798,6 +4900,13 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
      )
+     tab_view.setDelegate_(target)
+     agents_tab = add_settings_tab(tab_view, "agents", "Agents", tab_width, tab_height)
++    leds_tab = add_settings_tab(
++        tab_view,
++        "leds",
++        "LEDs",
++        tab_width,
++        tab_height,
++    )
+     animations_tab = add_settings_tab(
+         tab_view,
+         "animations",
+@@ -4952,6 +5061,17 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+         target,
+         "toggleClaudeTranscripts:",
+     )
++    add_label(leds_tab, "Closed Lid", 24, 398, 240, 24)
 +    lid_closed_led_idle = add_checkbox(
-+        devices_tab,
++        leds_tab,
 +        "Idle LEDs while the lid is closed",
 +        32,
-+        280,
++        356,
 +        320,
 +        24,
 +        target,
@@ -289,8 +308,8 @@ index b524515..dc8564c 100644
  
      add_label(agent_animations_tab, "Profile", 32, 360, 56, 24)
      animation_profile = add_agent_animation_profile_popup(
-@@ -4919,6 +5031,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
-         "battery_leds": battery_leds,
+@@ -5191,6 +5311,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+         "claude_transcripts": claude_transcripts,
          "battery_power_preview": battery_power_preview,
          "delete_agent_animation_profile": delete_animation_profile,
 +        "lid_closed_led_idle": lid_closed_led_idle,
@@ -298,10 +317,10 @@ index b524515..dc8564c 100644
      return window
  
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 807270d..f8e732e 100644
+index 882083e..570b7af 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -851,12 +851,49 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -1016,12 +1016,49 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(reloaded.snapshot().aggregate.mode, AgentMode.TOOL_RUNNING)
              self.assertEqual(reloaded.snapshot().statuses[0].origin, "Codex UI")
  
@@ -351,7 +370,16 @@ index 807270d..f8e732e 100644
                  def ingest(event_name):
                      record = parse_log_line("codex", json.dumps({
                          "logged_at": datetime.now(timezone.utc).isoformat(),
-@@ -6263,6 +6300,13 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -2540,7 +2577,7 @@ class AgentMonitorTests(unittest.TestCase):
+         self.assertEqual(len(tab_views), 1)
+         self.assertEqual(
+             [str(item.label()) for item in tab_views[0].tabViewItems()],
+-            ["Agents", "Animations", "Advanced", "History", "Diagnostics"],
++            ["Agents", "LEDs", "Animations", "Advanced", "History", "Diagnostics"],
+         )
+         animations_tab = next(
+             tab_views[0].tabViewItemAtIndex_(index)
+@@ -6691,6 +6728,13 @@ class AgentMonitorTests(unittest.TestCase):
              loaded_enabled = load_settings(settings_path)
              self.assertTrue(loaded_enabled.closed_lid_system_override_enabled)
  
@@ -365,7 +393,7 @@ index 807270d..f8e732e 100644
              completed = settings.with_setup_screen_completed(True)
              save_settings(completed, settings_path)
              loaded_completed = load_settings(settings_path)
-@@ -6279,6 +6323,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6707,6 +6751,7 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(loaded.sleep_prevention_min_battery_percent, 20)
              self.assertEqual(loaded.history_timeframe_seconds, DEFAULT_HISTORY_TIMEFRAME_SECONDS)
              self.assertFalse(loaded.closed_lid_system_override_enabled)
@@ -374,7 +402,7 @@ index 807270d..f8e732e 100644
              self.assertEqual(
                  loaded.lid_animation(LID_ANIMATION_CLOSED),
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index 8daaf12..a31b6dd 100644
+index 6b52581..35cf05a 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
 @@ -20,6 +20,8 @@ import ast
@@ -386,7 +414,7 @@ index 8daaf12..a31b6dd 100644
  import unittest
  from datetime import datetime, timedelta, timezone
  from pathlib import Path
-@@ -970,6 +972,211 @@ class IconTests(StatusBarTestCase):
+@@ -1159,6 +1161,211 @@ class IconTests(StatusBarTestCase):
                  )
  
  

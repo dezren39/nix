@@ -1,8 +1,12 @@
+SidePulse patch 5/12 -- idle-off half of upstream PR inteliwear/sidepulse#29 (closed unmerged); the KITT half is not carried.
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-28-dnd.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
 diff --git a/README.md b/README.md
-index 6966ffa..89bf6f2 100644
+index 51803c8..749ea1f 100644
 --- a/README.md
 +++ b/README.md
-@@ -210,7 +210,7 @@ Agent status modes:
+@@ -360,7 +360,7 @@ Agent status modes:
  
  | Mode | Meaning | LED pattern |
  | --- | --- | --- |
@@ -11,7 +15,7 @@ index 6966ffa..89bf6f2 100644
  | Working | The agent is thinking, generating, or otherwise actively processing. | Cyan rolling animation. |
  | Tool Running | A shell command, API call, or external tool is in progress. | Cyan rolling animation. |
  | Waiting for Input | The agent needs a user decision, approval, or additional context. | Slow amber pulse. |
-@@ -482,9 +482,8 @@ Working.
+@@ -632,9 +632,8 @@ Working.
  
  `Completed` remains visible for 20 minutes so the status bar and LEDs can show
  Done long enough to be noticed. After that it drops out instead of counting as
@@ -45,10 +49,10 @@ index e2f3968..cafb2dc 100644
          return apply_brightness(builtin_animation_program("amber-pulse", led_count), brightness)
      if state == LedDisplayState.DONE:
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 3eefd40..4126c58 100644
+index f08037b..81c23da 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -4587,9 +4587,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4894,9 +4894,7 @@ class AgentMonitorTests(unittest.TestCase):
  
          self.assertEqual(
              program_for_display_state(LedDisplayState.IDLE),
@@ -59,7 +63,7 @@ index 3eefd40..4126c58 100644
          )
          self.assertEqual(
              program_for_display_state(LedDisplayState.DONE),
-@@ -4927,7 +4925,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -5234,7 +5232,7 @@ class AgentMonitorTests(unittest.TestCase):
  
              self.assertEqual(
                  (device / "LEDS.LED").read_text(),

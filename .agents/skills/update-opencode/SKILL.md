@@ -489,9 +489,15 @@ user request to "use just build to commit" is that request.
   `pkgs/opencode2/package.nix` deletes that line inside the fixed-output
   node_modules build; then update `outputHash` from `got:`.
 - **Unrestricted `nix flake update` moves `sidepulse-src`.** Its lock pin is the
-  revision the 12 `patches/sidepulse-pr-*` patches target
-  (`pkgs/sidepulse/default.nix`). If they stop applying, restore the previous
-  `sidepulse-src` lock node rather than porting the stack unasked.
+  revision the 12 sidepulse patches target (`patches/sidepulse-pr-*` for
+  upstream PRs, `patches/sidepulse-dezren39-nix-*` for local ones; list in
+  `pkgs/sidepulse/default.nix`). If they stop applying, restore the previous
+  `sidepulse-src` lock node rather than porting the stack unasked. When asked
+  to port: check with GNU patch (`nixpkgs#gnupatch`), not macOS
+  `/usr/bin/patch`, which prints "failed" in lowercase and fuzzes differently.
+  Regenerate every patch at zero fuzz from one commit per patch, and read
+  every hunk that needed fuzz — at 6d55225 a fuzz-2 hunk silently reordered
+  the LED writer fallbacks. Porting history: dezren39/nix#327.
 
 ## Completion report
 

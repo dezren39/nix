@@ -1,8 +1,12 @@
+SidePulse patch 7/12 -- local, dezren39/nix#328.
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-30-stuck-status.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
 diff --git a/pyproject.toml b/pyproject.toml
-index 6af2a1b..3ca8c1a 100644
+index 8ac1322..a3e8c11 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -63,7 +63,7 @@ where = ["src"]
+@@ -64,7 +64,7 @@ where = ["src"]
  include = ["sidepulse*", "agent_monitor*", "sidepulse_cli*"]
  
  [tool.setuptools.package-data]
@@ -12,10 +16,10 @@ index 6af2a1b..3ca8c1a 100644
  [tool.setuptools_scm]
  fallback_version = "0"
 diff --git a/src/sidepulse/cli.py b/src/sidepulse/cli.py
-index c7fed39..41e118a 100644
+index 1347c05..a3f9da0 100644
 --- a/src/sidepulse/cli.py
 +++ b/src/sidepulse/cli.py
-@@ -1046,6 +1046,21 @@ def cmd_sidepulse_setup(args: argparse.Namespace) -> int:
+@@ -1104,6 +1104,21 @@ def cmd_sidepulse_setup(args: argparse.Namespace) -> int:
          return 1
      print_sd_eject_guard_result(guard_result)
  
@@ -37,7 +41,7 @@ index c7fed39..41e118a 100644
      if args.no_status_bar:
          return 0
  
-@@ -1110,6 +1125,18 @@ def print_sd_eject_guard_result(result) -> None:
+@@ -1168,6 +1183,18 @@ def print_sd_eject_guard_result(result) -> None:
          print(f"  removed legacy helper: {path}")
  
  
@@ -57,21 +61,17 @@ index c7fed39..41e118a 100644
      parser = argparse.ArgumentParser(
          prog=prog,
 diff --git a/src/sidepulse/device_writer.py b/src/sidepulse/device_writer.py
-index c2e748a..24cffcd 100644
+index 13d7de8..f086288 100644
 --- a/src/sidepulse/device_writer.py
 +++ b/src/sidepulse/device_writer.py
-@@ -1,5 +1,6 @@
- from __future__ import annotations
- 
-+import errno
- import os
- import sys
- from dataclasses import dataclass
-@@ -17,6 +18,11 @@ DEVICE_NAME_HINTS = (
-     "sidepulsedot",
+@@ -22,6 +22,14 @@ DEVICE_NAME_HINTS = (
      "pulsedot",
  )
+ _WRITE_LOCK = threading.Lock()
++# Denials the fixed-path helper can get past: TCC and file permissions.
 +DENIED_ERRNOS = frozenset({errno.EPERM, errno.EACCES})
++# Denials that switch transport at all; EROFS goes straight to read-only.
++DENIED_OPEN_ERRNOS = DENIED_ERRNOS | {errno.EROFS}
 +
 +# The grant hint names a path and a System Settings pane; it is useless after
 +# the first time and the LED file is rewritten on every status change.
@@ -79,34 +79,45 @@ index c2e748a..24cffcd 100644
  
  
  class DeviceWriteError(RuntimeError):
-@@ -71,8 +77,26 @@ def write_text_synced(target: Path, text: str) -> None:
+@@ -93,19 +101,35 @@ def write_text_synced(target: Path, text: str) -> None:
      program until the data reaches the disk. Syncing is best effort: the
      bytes are already handed to the OS once the file is closed, so a
      filesystem that refuses to sync must not fail the write.
 +
 +    Writing in-process is the fast path and is what runs whenever SidePulse
 +    inherits a Removable Volumes grant from its parent - a terminal, say. From
-+    launchd there is no responsible app, macOS denies `/Volumes` with EPERM,
-+    and the write is retried through a helper binary that lives at a fixed path
-+    and can hold a grant of its own. If that helper is missing or is denied
-+    too, the original error is raised unchanged.
++    launchd there is no responsible app and macOS denies `/Volumes` with
++    EPERM. A denied open is retried, in order, through:
++
++    1. the helper binary at a fixed path, which can hold a TCC grant of its
++       own (EPERM/EACCES only - it cannot help a read-only mount);
++    2. upstream's read-only transport (READ2ME / USB control), which needs
++       firmware 1.1+ and a readable `STATUS.TXT`.
++
++    The helper goes first because the read-only transport cannot run under a
++    TCC denial either: it starts by reading `STATUS.TXT` from the same volume.
++    Only a denied *open* changes transport, so a partial write is never
++    replayed.
      """
  
-+    try:
-+        write_text_in_process(target, text)
-+        return
-+    except OSError as exc:
-+        if exc.errno not in DENIED_ERRNOS:
-+            raise
-+        if not write_text_via_helper(target, text):
-+            raise
-+
-+
-+def write_text_in_process(target: Path, text: str) -> None:
      is_new = not path_exists(target)
-     with target.open("w", encoding="utf-8") as handle:
+     try:
+         handle = target.open("w", encoding="utf-8")
+     except OSError as exc:
+-        if exc.errno not in (errno.EROFS, errno.EACCES, errno.EPERM):
++        if exc.errno not in DENIED_OPEN_ERRNOS:
+             raise
++        if exc.errno in DENIED_ERRNOS and write_text_via_helper(target, text):
++            return
+         from .readonly_control import write_readonly_program
+ 
+         write_readonly_program(target, text)
+         return
+-    # Only a denied open may change transports. Never replay a partial write.
+     with handle:
          handle.write(text)
-@@ -83,6 +107,51 @@ def write_text_synced(target: Path, text: str) -> None:
+         handle.flush()
+@@ -115,6 +139,51 @@ def write_text_synced(target: Path, text: str) -> None:
          sync_directory(target.parent)
  
  
@@ -114,8 +125,8 @@ index c2e748a..24cffcd 100644
 +    """Retry a denied write through the fixed-path native helper.
 +
 +    Returns True when the helper wrote the file. Returns False for every
-+    failure, so the caller re-raises the error the in-process write already
-+    produced and behaviour never regresses relative to not having a helper.
++    failure, so the caller falls through to the read-only transport and
++    behaviour never regresses relative to not having a helper.
 +    """
 +
 +    try:
@@ -436,7 +447,7 @@ index 0000000..1470d21
 +        return None
 diff --git a/src/sidepulse/resources/led_writer.c b/src/sidepulse/resources/led_writer.c
 new file mode 100644
-index 0000000..f3bf5c7
+index 0000000..d46b0af
 --- /dev/null
 +++ b/src/sidepulse/resources/led_writer.c
 @@ -0,0 +1,335 @@
@@ -777,10 +788,10 @@ index 0000000..f3bf5c7
 +}
 diff --git a/tests/test_led_writer.py b/tests/test_led_writer.py
 new file mode 100644
-index 0000000..2f6b336
+index 0000000..1553509
 --- /dev/null
 +++ b/tests/test_led_writer.py
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,411 @@
 +"""Tests for the fixed-path native LED writer helper.
 +
 +The helper exists so a Removable Volumes TCC grant can outlive interpreter
@@ -1040,96 +1051,142 @@ index 0000000..2f6b336
 +        self.addCleanup(setattr, device_writer, "_grant_hint_shown", False)
 +
 +    @staticmethod
-+    def denied(*_args, **_kwargs):
-+        raise PermissionError(errno.EPERM, "Operation not permitted")
++    def deny_open(error: int):
++        """Fail only the write-open of LEDS.LED, the way TCC or a read-only
++        mount does, and leave every other open (the temp dir, the helper's own
++        files) alone."""
++
++        original = Path.open
++
++        def fake_open(self, mode="r", *args, **kwargs):
++            if self.name == "LEDS.LED" and "w" in mode:
++                raise OSError(error, os.strerror(error))
++            return original(self, mode, *args, **kwargs)
++
++        return patch.object(Path, "open", fake_open)
 +
 +    def test_in_process_write_stays_the_fast_path(self) -> None:
 +        with tempfile.TemporaryDirectory() as tmp:
 +            target = Path(tmp) / "LEDS.LED"
 +
-+            with patch.object(device_writer, "write_text_via_helper") as helper:
++            with (
++                patch.object(device_writer, "write_text_via_helper") as helper,
++                patch("sidepulse.readonly_control.write_readonly_program") as readonly,
++            ):
 +                device_writer.write_text_synced(target, "off")
 +
 +            helper.assert_not_called()
++            readonly.assert_not_called()
 +            self.assertEqual(target.read_text(), "off")
 +
-+    def test_denied_write_falls_back_to_the_helper(self) -> None:
++    def test_denied_write_uses_the_helper_before_the_readonly_transport(self) -> None:
 +        with tempfile.TemporaryDirectory() as tmp:
 +            target = Path(tmp) / "LEDS.LED"
 +            written: list[tuple[Path, str]] = []
 +
 +            def fake_helper(path: Path, text: str) -> bool:
 +                written.append((path, text))
-+                path.write_text(text)
 +                return True
 +
 +            with (
-+                patch.object(device_writer, "write_text_in_process", self.denied),
++                self.deny_open(errno.EPERM),
 +                patch.object(device_writer, "write_text_via_helper", fake_helper),
++                patch("sidepulse.readonly_control.write_readonly_program") as readonly,
 +            ):
 +                device_writer.write_text_synced(target, "#FF00FF pulse")
 +
 +            self.assertEqual(written, [(target, "#FF00FF pulse")])
-+            self.assertEqual(target.read_text(), "#FF00FF pulse")
++            readonly.assert_not_called()
 +
-+    def test_eacces_also_falls_back(self) -> None:
-+        def refused(*_args, **_kwargs):
-+            raise PermissionError(errno.EACCES, "Permission denied")
-+
++    def test_eacces_also_uses_the_helper(self) -> None:
 +        calls: list[int] = []
 +        with tempfile.TemporaryDirectory() as tmp:
 +            with (
-+                patch.object(device_writer, "write_text_in_process", refused),
++                self.deny_open(errno.EACCES),
 +                patch.object(
 +                    device_writer,
 +                    "write_text_via_helper",
 +                    lambda *_args: bool(calls.append(1)) or True,
 +                ),
++                patch("sidepulse.readonly_control.write_readonly_program") as readonly,
 +            ):
 +                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
 +
 +        self.assertEqual(len(calls), 1)
++        readonly.assert_not_called()
 +
-+    def test_other_errors_never_reach_the_helper(self) -> None:
-+        def out_of_space(*_args, **_kwargs):
-+            raise OSError(errno.ENOSPC, "No space left on device")
++    def test_read_only_mount_skips_the_helper(self) -> None:
++        # The helper writes through the same filesystem; it cannot get past
++        # EROFS, so a read-only mount goes straight to the read-only transport.
++        with tempfile.TemporaryDirectory() as tmp:
++            target = Path(tmp) / "LEDS.LED"
++            with (
++                self.deny_open(errno.EROFS),
++                patch.object(device_writer, "write_text_via_helper") as helper,
++                patch("sidepulse.readonly_control.write_readonly_program") as readonly,
++            ):
++                device_writer.write_text_synced(target, "off")
 +
++            helper.assert_not_called()
++            readonly.assert_called_once_with(target, "off")
++
++    def test_other_errors_reach_neither_fallback(self) -> None:
 +        with tempfile.TemporaryDirectory() as tmp:
 +            with (
-+                patch.object(device_writer, "write_text_in_process", out_of_space),
++                self.deny_open(errno.ENOSPC),
 +                patch.object(device_writer, "write_text_via_helper") as helper,
++                patch("sidepulse.readonly_control.write_readonly_program") as readonly,
 +                self.assertRaises(OSError) as caught,
 +            ):
 +                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
 +
 +            helper.assert_not_called()
++            readonly.assert_not_called()
 +            self.assertEqual(caught.exception.errno, errno.ENOSPC)
 +
-+    def test_absent_helper_surfaces_the_original_error(self) -> None:
++    def test_absent_helper_falls_through_to_the_readonly_transport(self) -> None:
 +        with tempfile.TemporaryDirectory() as tmp:
++            target = Path(tmp) / "LEDS.LED"
 +            with (
 +                patch.dict(os.environ, {LED_WRITER_PATH_ENV: str(Path(tmp) / "absent")}),
-+                patch.object(device_writer, "write_text_in_process", self.denied),
-+                self.assertRaises(PermissionError) as caught,
++                self.deny_open(errno.EPERM),
++                patch("sidepulse.readonly_control.write_readonly_program") as readonly,
 +            ):
-+                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
++                device_writer.write_text_synced(target, "off")
 +
-+            self.assertEqual(caught.exception.errno, errno.EPERM)
++            readonly.assert_called_once_with(target, "off")
 +
-+    def test_denied_helper_surfaces_the_original_error_and_reports_once(self) -> None:
++    def test_denied_helper_reports_once_then_falls_through(self) -> None:
 +        def deny(*_args, **_kwargs):
 +            raise LedWriterFailed(LED_WRITER_EXIT_DENIED, "open: Operation not permitted")
 +
 +        with tempfile.TemporaryDirectory() as tmp:
++            target = Path(tmp) / "LEDS.LED"
 +            with (
-+                patch.object(device_writer, "write_text_in_process", self.denied),
++                self.deny_open(errno.EPERM),
 +                patch("sidepulse.led_writer_launch.run_led_writer", deny),
 +                patch.object(device_writer, "report_led_writer_denied") as report,
-+                self.assertRaises(PermissionError),
++                patch("sidepulse.readonly_control.write_readonly_program") as readonly,
 +            ):
-+                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
++                device_writer.write_text_synced(target, "off")
 +
 +            report.assert_called_once_with()
++            readonly.assert_called_once_with(target, "off")
++
++    def test_readonly_failure_after_helper_failure_propagates(self) -> None:
++        # Old firmware has no STATUS.TXT, so the read-only transport refuses.
++        # With the helper also unavailable that refusal is the error raised.
++        with tempfile.TemporaryDirectory() as tmp:
++            with (
++                patch.dict(os.environ, {LED_WRITER_PATH_ENV: str(Path(tmp) / "absent")}),
++                self.deny_open(errno.EPERM),
++                patch(
++                    "sidepulse.readonly_control.write_readonly_program",
++                    side_effect=device_writer.DeviceWriteError("no STATUS.TXT"),
++                ),
++                self.assertRaises(device_writer.DeviceWriteError),
++            ):
++                device_writer.write_text_synced(Path(tmp) / "LEDS.LED", "off")
 +
 +    def test_grant_hint_is_printed_once_per_process(self) -> None:
 +        stream = io.StringIO()
@@ -1147,10 +1204,10 @@ index 0000000..2f6b336
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 3314ba5..3a92182 100644
+index 636ba87..d01ccc0 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -4584,6 +4584,12 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4691,6 +4691,12 @@ class AgentMonitorTests(unittest.TestCase):
              cleanup_removed=None,
              cleanup_skipped=None,
          )
@@ -1163,7 +1220,7 @@ index 3314ba5..3a92182 100644
          service_result = SimpleNamespace(
              path=Path("/tmp/io.sidepulse.service.plist"),
              changed=True,
-@@ -4617,6 +4623,10 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4724,6 +4730,10 @@ class AgentMonitorTests(unittest.TestCase):
                  "sidepulse.sd_eject_guard_launch.install_sd_eject_guard",
                  return_value=guard_result,
              ) as guard,
@@ -1174,7 +1231,7 @@ index 3314ba5..3a92182 100644
              patch(
                  "sidepulse.status_bar_launch.install_launch_agent",
                  return_value=launch_result,
-@@ -4632,6 +4642,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4739,6 +4749,7 @@ class AgentMonitorTests(unittest.TestCase):
          junie.assert_called_once()
          opencode.assert_called_once()
          guard.assert_called_once_with(scope="auto", dry_run=False)
@@ -1182,7 +1239,7 @@ index 3314ba5..3a92182 100644
          launch.assert_called_once_with(start=True)
          service.assert_called_once_with(start=True, dry_run=False)
  
-@@ -4655,6 +4666,12 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4762,6 +4773,12 @@ class AgentMonitorTests(unittest.TestCase):
              cleanup_removed=None,
              cleanup_skipped=None,
          )
@@ -1195,7 +1252,7 @@ index 3314ba5..3a92182 100644
          service_result = SimpleNamespace(
              path=Path("/tmp/io.sidepulse.service.plist"),
              changed=False,
-@@ -4675,12 +4692,17 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4782,12 +4799,17 @@ class AgentMonitorTests(unittest.TestCase):
                  "sidepulse.sd_eject_guard_launch.install_sd_eject_guard",
                  return_value=guard_result,
              ) as guard,
@@ -1213,7 +1270,7 @@ index 3314ba5..3a92182 100644
          launch.assert_not_called()
  
      def test_sidepulse_setup_is_cli_only_on_linux(self) -> None:
-@@ -4705,6 +4727,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4812,6 +4834,7 @@ class AgentMonitorTests(unittest.TestCase):
              patch.object(cli_module, "install_hook_results", return_value=[hook_result]),
              patch("sidepulse.service_launch.install_service", return_value=service_result) as service,
              patch("sidepulse.sd_eject_guard_launch.install_sd_eject_guard") as guard,
@@ -1221,7 +1278,7 @@ index 3314ba5..3a92182 100644
              patch("sidepulse.status_bar_launch.install_launch_agent") as launch,
              patch("builtins.print") as output,
          ):
-@@ -4712,6 +4735,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -4819,6 +4842,7 @@ class AgentMonitorTests(unittest.TestCase):
  
          self.assertEqual(result, 0)
          guard.assert_not_called()
