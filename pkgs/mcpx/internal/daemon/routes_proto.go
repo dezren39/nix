@@ -23,6 +23,7 @@ import (
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/spec"
 	"github.com/dezren39/mcpx/internal/tasks"
 )
 
@@ -757,7 +758,11 @@ func (s *Server) handleProtocol(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(row.Declared)
 		upstream = append(upstream, row)
 	}
+	pol := spec.Current()
 	writeJSON(w, http.StatusOK, map[string]any{
+		// The effective revision policy (#307): spec.precedence with
+		// spec.first applied, and which revisions are held strictly.
+		"spec": map[string]any{"precedence": pol.Order(), "strict": pol.StrictTable()},
 		"asServer": map[string]any{
 			"supported":    mcpserver.Supported,
 			"legacy":       mcpserver.LegacySupported(),

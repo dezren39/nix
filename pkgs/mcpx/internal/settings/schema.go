@@ -156,6 +156,13 @@ type Setting struct {
 	// Enum lists the permitted values when Kind is KindEnum.
 	Enum []string
 
+	// EnumAliases maps an Enum value to older or alternative spellings that
+	// are accepted and normalised to it. A value's name can go stale -- a
+	// relative word like "modern" stops describing anything once something
+	// newer ships -- and renaming it must not break a config file that uses
+	// the old one. Every reader sees only the canonical value.
+	EnumAliases map[string][]string
+
 	// Bare is the value implied when a flag is given with no argument. An
 	// empty Bare means the flag requires one.
 	Bare string
@@ -340,6 +347,9 @@ func New(list []Setting) (*Schema, error) {
 		}
 	}
 	for i := range s.settings {
+		if err := checkEnumAliases(&s.settings[i]); err != nil {
+			return nil, err
+		}
 		if err := s.checkClamp(&s.settings[i]); err != nil {
 			return nil, err
 		}
@@ -391,4 +401,67 @@ func (s *Schema) ForCommand(cmd string) []Setting {
 		}
 	}
 	return out
+}
+
+// checkEnumAliases refuses an alias table that could resolve ambiguously: an
+// alias for a value that is not declared, or one spelling that names two
+// values (or is itself a canonical value).
+func checkEnumAliases(set *Setting) error {
+	if len(set.EnumAliases) == 0 {
+		return nil
+	}
+	if set.Kind != KindEnum {
+		return fmt.Errorf("settings: %q has enum aliases but is not an enum", set.Path)
+	}
+	seen := map[string]string{}
+	for _, e := range set.Enum {
+		seen[strings.ToLower(e)] = e
+	}
+	for canon, aliases := range set.EnumAliases {
+		if _, ok := seen[strings.ToLower(canon)]; !ok || seen[strings.ToLower(canon)] != canon {
+			return fmt.Errorf("settings: %q aliases %q, which is not one of %v", set.Path, canon, set.Enum)
+		}
+		for _, a := range aliases {
+			if prev, dup := seen[strings.ToLower(a)]; dup {
+				return fmt.Errorf("settings: %q value spelling %q claimed by both %q and %q",
+					set.Path, a, prev, canon)
+			}
+			seen[strings.ToLower(a)] = canon
+		}
+	}
+	return nil
+}
+
+// Canonical resolves a raw enum value, or one of its aliases, to the
+// declared spelling. ok is false for a value the setting does not accept.
+// Non-enum settings return raw unchanged.
+func (s Setting) Canonical(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if s.Kind != KindEnum || raw == "" {
+		return raw, true
+	}
+	for _, e := range s.Enum {
+		if strings.EqualFold(raw, e) {
+			return e, true
+		}
+		for _, a := range s.EnumAliases[e] {
+			if strings.EqualFold(raw, a) {
+				return e, true
+			}
+		}
+	}
+	return raw, false
+}
+
+// EnumWords renders the accepted values with their aliases, for help text and
+// error messages: "a (also x, y), b, c".
+func (s Setting) EnumWords() string {
+	parts := make([]string, 0, len(s.Enum))
+	for _, e := range s.Enum {
+		if al := s.EnumAliases[e]; len(al) > 0 {
+			e += " (also " + strings.Join(al, ", ") + ")"
+		}
+		parts = append(parts, e)
+	}
+	return strings.Join(parts, ", ")
 }

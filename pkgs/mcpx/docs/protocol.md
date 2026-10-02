@@ -79,6 +79,37 @@ is judged as 2025-03-26 (`Headerless`): 2024-11-05 has no Streamable HTTP, so
 nothing arriving on `/mcp` can be a 2024-11-05 request that omitted the
 header, and the later transport pages say to assume 2025-03-26.
 
+### 1.1 When revisions conflict: `spec.precedence` and `spec.lenient` (#307)
+
+Most differences between revisions are settled by the revision the peer
+states. Where two revisions require incompatible behaviour and the peer's
+version does not settle it, two settings decide
+([`configuration.md`](configuration.md)):
+
+- **`spec.precedence`** — the revisions in the order their rules win, first
+  wins. Default: every revision mcpx serves, newest first
+  (`2026-07-28,2025-11-25,2025-06-18,2025-03-26,2024-11-05`). A partial list
+  is completed with the rest, newest first. **`--mcp-spec <rev>`** /
+  `MCPX_MCP_SPEC` (`spec.first`) moves one revision to the front.
+- **`spec.lenient`** — revisions mcpx does not hold strictly. Empty by
+  default: every revision is strict.
+
+An unknown revision in any of the three is refused with the list of valid
+ones. The daemon reports the effective policy under `spec` in
+`GET /v1/protocol`; `mcpx settings` shows each setting and where it came from.
+Code consults it through `internal/spec` (`First`, `Strict`, and the
+predicates `AtOrAfter`, `Before`, `Only`, `Between`).
+
+Two behaviours consult it today:
+
+| behaviour | default | changed by |
+| --- | --- | --- |
+| progress `message` relayed to a 2024-11-05 client (whose schema has no such field) | **sent** | stripped only when 2024-11-05 is first *and* strict: `--mcp-spec 2024-11-05` |
+| a request from a 2026-07-28 upstream server (that revision has none; its stdio page says the client MUST NOT answer) | **dropped** | answered when `spec.lenient` includes `2026-07-28` |
+
+The other conflicts in [`spec/revision-conflicts.md`](spec/revision-conflicts.md)
+are still decided in code, not by these settings.
+
 `internal/mcpserver/revisions.go` holds the floors, ceilings and removals as
 data, and `GET /v1/protocol` serves them. A matrix in a document and a matrix
 in code agree on the day they are written and never again, so the document
@@ -109,6 +140,7 @@ What a host connected to mcpx gets, over `mcpx serve` (stdio) or the daemon's
 | `tasks/get`, `tasks/list`, `tasks/result`, `tasks/cancel` | 2025-11-25 core | **any** legacy peer | the core shapes; a task is visible only to the connection that started it |
 | `tasks/get`, `tasks/update`, `tasks/cancel` | 2026-07-28 extension | modern peers that declared `io.modelcontextprotocol/tasks` on the request; `-32021` with `data.requiredCapabilities` (HTTP 400) otherwise | the extension's shapes; `tasks/list` and `tasks/result` are `-32601`, as the extension says |
 | `skills/list`, `skills/get` | skills extension (SEP-2640) | always, unless the server offers only contributed tools | mcpx's own skills (`plugin/opencode/skills`, embedded at build), each file at `skill://mcpx/<name>/<file>` and also listed and readable as a resource; an unknown URI is `-32602`. Upstreams' skills are not relayed: [in-name-only.md](in-name-only.md#skills-extension) |
+| `resources/directory/read` | skills extension, `directoryRead` | wherever `skills/list` is | the direct children of a directory inside one of mcpx's skills: files as `resources/list` lists them, subdirectories as `inode/directory`; paginated. A file or an unknown URI is `-32602` |
 | `notifications/cancelled` | all | always | cancels the request it names — its context, and so its upstream call — and withholds the reply |
 
 Two rows are the "accept liberally" rule doing visible work:
@@ -172,7 +204,7 @@ that could never work (#284).
 | `logging` | ✓ | ✓ | ✓ | ✓ | — (the level travels in each request's `_meta`) |
 | `tasks` (core) | — | — | — | ✓ | — |
 | `extensions["io.modelcontextprotocol/tasks"]` | — | — | — | — | ✓ |
-| `extensions["io.modelcontextprotocol/skills"]` | — | — | — | — | `{}` (no `directoryRead`) |
+| `extensions["io.modelcontextprotocol/skills"]` | — | — | — | — | `{"directoryRead": true}` |
 
 - **`tools.listChanged` is false unless mcpx passes tools through.** mcpx's
   own tool list is fixed when its server is built. It used to be declared and
@@ -548,7 +580,7 @@ What mcpx sends upstream, and what it will accept from a server.
 | | |
 | --- | --- |
 | era | modern probed first (`server/discover`), legacy on fallback; the answer cached per server configuration ([spec/era-probe.md](spec/era-probe.md)) |
-| per-server override | `protocol: legacy \| modern \| force-legacy \| force-modern \| follow`, over `upstream.protocol` (default `modern`); `follow` adds a legacy session for legacy callers ([spec/era-probe.md](spec/era-probe.md#follow)) |
+| per-server override | `protocol: prefer-discover \| prefer-initialize \| force-discover \| force-initialize \| follow`, over `upstream.protocol` (default `prefer-discover`); the old names `modern`, `legacy`, `force-modern`, `force-legacy` and others are accepted as aliases ([spec/era-probe.md](spec/era-probe.md#values)); `follow` adds a legacy session for legacy callers ([spec/era-probe.md](spec/era-probe.md#follow)) |
 | legacy version | `2025-11-25` offered; `2024-11-05` .. `2025-11-25` accepted; anything else and mcpx disconnects |
 | modern version | `2026-07-28` |
 | declared to servers | `elicitation.form` and `roots` always; `elicitation.url` and `sampling` when a handler is installed — which in the daemon is always (#210) |
@@ -602,7 +634,8 @@ the cached schema. `notifications/tasks/status` (2025-11-25) is received and
 dropped — mcpx polls task state rather than tracking it. A request from a
 2026-07-28 server is not answered: that revision has no server-to-client
 requests (a server asks through `input_required` results), and the stdio
-transport page says the client MUST NOT respond (#200).
+transport page says the client MUST NOT respond (#200). With `2026-07-28` in
+`spec.lenient` it is answered like a legacy server's (§1.1).
 
 ### 4.4 Progress, log messages and trace context, relayed (#212)
 
@@ -619,8 +652,10 @@ back to the host:
   so the host never sees progress go backwards; once progress reaches `total`
   nothing more is sent; and reports for one token are passed on no more often
   than every 20 ms (`mcpclient.ProgressMinInterval`), except the final one. A
-  `message` goes to a host whose revision defines it (2025-03-26 on) and is
-  removed for a 2024-11-05 host.
+  `message` goes to every host by default; it is removed for a 2024-11-05
+  host only when 2024-11-05 is first in `spec.precedence` and strict
+  (`--mcp-spec 2024-11-05`), since that revision's schema has no such field
+  (§1.1).
 - **Log messages.** A 2026-07-28 host's `_meta` `logLevel` is sent upstream
   (or the daemon's own level, if more verbose); a legacy host's level is the one
   it set with `logging/setLevel`. Upstream `notifications/message` at or above

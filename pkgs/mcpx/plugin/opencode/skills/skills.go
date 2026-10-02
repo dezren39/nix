@@ -11,7 +11,9 @@ package skills
 import "embed"
 
 // FS holds every file of every mcpx-* skill directory, rooted at this
-// directory: FS's top-level entries are the skill names.
+// directory: FS's top-level entries are the skill names. all: keeps files
+// whose names begin with "." or "_", which a plain pattern drops: a skill
+// served over MCP has the same files as the one copied onto disk.
 //
-//go:embed mcpx-*
+//go:embed all:mcpx-*
 var FS embed.FS

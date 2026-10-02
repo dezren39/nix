@@ -2540,11 +2540,11 @@
     "url": "https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#compatibility-matrix",
     "quote": "\"On stdio, clients **SHOULD** send `server/discover` first to fail deterministically\" (Modern client, Legacy server)",
     "applicability": {
-      "client": "n/a:unless `protocol: force-modern`; then discover is first (yes",
+      "client": "n/a:unless `protocol: force-discover`; then discover is first (yes",
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "n/a unless `protocol: force-modern`; then discover is first (yes)",
+      "client": "n/a unless `protocol: force-discover`; then discover is first (yes)",
       "server": "n/a"
     }
   },
@@ -3503,7 +3503,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "not-implemented-by-choice — default probes legacy `initialize` first (`protocol: modern` flips it)",
+      "client": "not-implemented-by-choice — default probes legacy `initialize` first (`protocol: prefer-discover` flips it)",
       "server": "n/a"
     }
   },
@@ -3541,7 +3541,7 @@
       "server": "n/a:addresses the other side"
     },
     "notes": {
-      "client": "`force-modern` probes discover — yes",
+      "client": "`force-discover` probes discover — yes",
       "server": "n/a"
     }
   },

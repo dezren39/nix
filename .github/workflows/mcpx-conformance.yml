@@ -75,6 +75,10 @@ jobs:
         # failure in auth/: a new failure elsewhere, a lost pass, or an auth
         # check that starts passing all fail the job, so the numbers here
         # are updated deliberately rather than drifting.
+        # "expect" is "passed failed" only; skipped checks are held separately
+        # by the records job. Every check the suite skips or cannot test, on
+        # any leg, and why, is in pkgs/mcpx/docs/spec/official-suite.md under
+        # "Skipped, and why".
         include:
           - leg: client-2025-03-26
             expect: "0 7"

@@ -30,6 +30,7 @@ func Registry() []Setting {
 	s = append(s, upstreamSettings()...)
 	s = append(s, envSettings()...)
 	s = append(s, presetSettings()...)
+	s = append(s, specSettings()...)
 	return s
 }
 

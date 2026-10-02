@@ -75,9 +75,9 @@ is the way to configure a drop-in installation.
 | `mcpx/ops.gen.ts` | a typed method for every `/v1` operation, generated from the Go operation table. Do not edit; `go test ./internal/api -run TestPluginOpsAreGenerated -update` rewrites it. |
 | `mcpx/ops.test.ts` | `bun test` over the generated methods, against a fake daemon and -- run from the Go suite -- a real one. |
 | `mcpx-tui.tsx` | optional TUI plugin: a real picker for the daemon. Different realm, different API, installed separately. |
-| `skills/mcpx-basics` | writing an `mcpx exec` script, and filtering in the script rather than in context. |
+| `skills/mcpx-basics` | getting started (install, first config, first `ls`/`call`/`exec`), writing an `mcpx exec` script, and filtering in the script rather than in context. `examples/` holds seven runnable scripts. |
 | `skills/mcpx-observability` | investigating a failure or a slowdown through the log rather than by re-running it. |
-| `skills/mcpx-browser` | driving a stateful server, and what exclusive leasing is for. |
+| `skills/mcpx-browser` | driving a stateful server, and what exclusive leasing is for. `examples/screenshot-and-errors.ts` is a full chrome-devtools run. |
 | `skills/mcpx-daemon` | the guided flow for choosing between daemons. |
 
 ## Configuration

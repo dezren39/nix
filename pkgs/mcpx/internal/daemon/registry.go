@@ -95,17 +95,22 @@ type cacheFile struct {
 }
 
 type cachedEntry struct {
-	Tools        []mcpclient.Tool     `json:"tools"`
-	Resources    []mcpclient.Resource `json:"resources"`
-	Instructions string               `json:"instructions,omitempty"`
-	FetchedAt    time.Time            `json:"fetchedAt"`
+	Tools     []mcpclient.Tool     `json:"tools"`
+	Resources []mcpclient.Resource `json:"resources"`
+	// Prompts are cached like the rest. Without them a restarted daemon
+	// loaded this file, counted itself warm, and served no prompts at all:
+	// `mcpx prompts` said "No prompts" for a server that publishes them,
+	// and prompts/get and completion/complete failed against it.
+	Prompts      []mcpclient.Prompt `json:"prompts"`
+	Instructions string             `json:"instructions,omitempty"`
+	FetchedAt    time.Time          `json:"fetchedAt"`
 }
 
 // cacheVersion is bumped whenever a cached entry gains a field. Adding one
 // parses cleanly against an old file and leaves it empty, which presented as
 // the destructive-call policy silently never firing: the annotations were
 // there upstream and absent from the cache nobody had reason to invalidate.
-const cacheVersion = 4
+const cacheVersion = 5
 
 // NewRegistry builds pools from config and seeds them from the disk cache.
 func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*Registry, error) {
@@ -221,7 +226,7 @@ func (r *Registry) loadCache() {
 	}
 	for name, e := range cf.Servers {
 		if p, ok := r.pools[name]; ok {
-			p.SetSchemas(e.Tools, e.Resources, e.Instructions, e.FetchedAt)
+			p.SetSchemas(e.Tools, e.Resources, e.Prompts, e.Instructions, e.FetchedAt)
 		}
 	}
 	r.logf("loaded schema cache for %d servers", len(cf.Servers))
@@ -232,12 +237,13 @@ func (r *Registry) SaveCache() error {
 	cf := cacheFile{Version: cacheVersion, ConfigHash: r.hash, SavedAt: time.Now(), Servers: map[string]*cachedEntry{}}
 	r.mu.RLock()
 	for name, p := range r.pools {
-		tools, res, at := p.CachedSchemas()
+		tools, res, prompts, at := p.CachedAll()
 		if at.IsZero() {
 			continue
 		}
 		cf.Servers[name] = &cachedEntry{
-			Tools: tools, Resources: res, Instructions: p.Instructions(), FetchedAt: at,
+			Tools: tools, Resources: res, Prompts: prompts,
+			Instructions: p.Instructions(), FetchedAt: at,
 		}
 	}
 	r.mu.RUnlock()

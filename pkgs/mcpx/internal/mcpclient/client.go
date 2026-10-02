@@ -17,6 +17,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/mcpheaders"
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // ProtocolVersion is the MCP revision mcpx negotiates.
@@ -214,23 +215,25 @@ const (
 	EraModern Era = "modern"
 )
 
-// Preference controls which era to try first.
+// Preference controls which era to try first. The values are the canonical
+// names of the upstream.protocol setting, which normalises its aliases
+// (modern, legacy, force-legacy, ...) before a Preference is ever built.
 type Preference string
 
 const (
 	// PreferLegacy tries initialize first and probes server/discover only
 	// if that fails. Kept for a server known to be legacy but not worth
 	// forcing: it saves the probe's round trip on every start.
-	PreferLegacy Preference = "legacy"
+	PreferLegacy Preference = "prefer-initialize"
 	// PreferModern probes server/discover first and falls back to
 	// initialize. The default, because it is what the 2026-07-28 transport
 	// pages prescribe for a dual-era client, and because the era cache makes
 	// its cost a one-time one per server configuration.
-	PreferModern Preference = "modern"
+	PreferModern Preference = "prefer-discover"
 	// ForceLegacy and ForceModern skip the fallback, for a server known to
 	// be one or the other, or to diagnose which it is.
-	ForceLegacy Preference = "force-legacy"
-	ForceModern Preference = "force-modern"
+	ForceLegacy Preference = "force-initialize"
+	ForceModern Preference = "force-discover"
 	// PreferFollow is PreferModern for the server's own session, plus a
 	// separate legacy session for callers that speak a legacy revision, so
 	// a server that can only push requests to a legacy client still can.
@@ -460,11 +463,17 @@ func (c *Client) dispatch(origin context.Context, raw []byte) {
 	}
 	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 		if len(probe.ID) > 0 && string(probe.ID) != "null" {
-			if c.modern.Load() {
+			// 2026-07-28 forbids answering a server's request; the earlier
+			// revisions require it. Dropped only when 2026-07-28's rule
+			// governs (see spec.Governs).
+			if c.modern.Load() && spec.Current().Governs("2026-07-28") {
 				// 2026-07-28 has no server-to-client requests: a server
 				// asks through input_required results instead (SEP-2260,
 				// SEP-2322). The stdio transport page says the client
-				// MUST NOT answer one, so it is dropped unanswered.
+				// MUST NOT answer one, so it is dropped unanswered --
+				// while 2026-07-28 is held strictly (spec.lenient, #307).
+				// Lenient, it is answered like any legacy server's, for
+				// a server that has not caught up with its own revision.
 				return
 			}
 			c.handleServerRequest(origin, probe.ID, probe.Method, probe.Params)

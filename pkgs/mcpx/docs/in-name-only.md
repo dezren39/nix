@@ -88,14 +88,16 @@ notice if it stopped.
 ## Skills extension
 
 mcpx declares `io.modelcontextprotocol/skills` (SEP-2640, 2026-07-28 only) and
-serves its own four skills from `plugin/opencode/skills` through `skills/list`,
-`skills/get` and `resources/read`. Two parts of the extension are deliberately
-not built; neither is declared.
+serves its own four skills from `plugin/opencode/skills` -- each a `SKILL.md`
+plus whatever supporting files and subfolders sit beside it (`mcpx-basics` has
+a getting-started guide and an `examples/` folder of scripts) -- through
+`skills/list`, `skills/get`, `resources/read` and `resources/directory/read`.
+One part of the extension is not built and is not declared.
 
 | what | state | detail |
 | --- | --- | --- |
 | An upstream's skills through `skills/list` | absent | mcpx answers `skills/list` with its own skills only. An upstream that declares the extension has its `skill://` files passed through as ordinary resources (under their own URIs in pass-through mode, as `mcpx://<ns>/...` otherwise), but its `skills/list` entries -- the digests and frontmatter a host verifies against -- are not relayed, so a host cannot load them as skills through mcpx. Relaying needs a new daemon route and a pool and client method for a request the upstream may or may not support, plus URI handling for the gateway's `mcpx://` rewrite; no fixture in the conformance suite serves skills, so nothing would test it today. |
-| `resources/directory/read` (`directoryRead`) | absent | Optional in the extension. Not declared, because every mcpx skill is a single `SKILL.md`: there would be no directory to list beyond the one file, and the suite's subdirectory check would have nothing to find. The six `sep-2640-skills-directory` checks in the `server-all` leg are SKIPPED for this reason ("declared the skills extension but not directoryRead"). Declare it when a skill gains supporting files. |
+| `resources/directory/read` (`directoryRead`) | built | Declared as `directoryRead: true` wherever the skills extension is (2026-07-28, and not under `ExtrasOnly`, which serves no skills). Lists the direct children of any directory inside a served skill -- files with the metadata `resources/list` gives them, subdirectories as `inode/directory` -- paginated like `resources/list`; a file, an unknown URI or anything outside the skills is `-32602`. It follows the files, not a fixed layout: `TestDirectoryReadFollowsAnyLayout` covers nested, empty and binary content, and `TestDirectoryReadListsEveryDirectoryOnDisk` checks every shipped directory against the disk. All six `sep-2640-skills-directory` checks in the `server-all` leg pass. Upstreams' skill directories are not listed, for the reason in the row above. |
 
 ## Relay between hosts and upstreams
 

@@ -235,7 +235,7 @@
     "killWait": "2s"
   },
   "upstream": {
-    "protocol": "modern",
+    "protocol": "prefer-discover",
     "probeTimeout": "2s",
     "eraCache": true,
     "eraFile": "upstream-eras.json",

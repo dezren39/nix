@@ -381,6 +381,9 @@ function installDenoCompat(): void {
   const g = globalThis as any;
   const d = g.Deno ??= {};
   d.args ??= g.process?.argv?.slice(2) ?? [];
+  if (typeof d.exit !== "function" && typeof g.process?.exit === "function") {
+    d.exit = (code?: number) => g.process.exit(code);
+  }
   if (!d.env?.get) {
     d.env = {
       get(name: string): string | undefined {
@@ -1418,10 +1421,16 @@ function normaliseArtifact(data: unknown): NormalisedArtifact {
   if (data && typeof data === "object") {
     const o = data as Record<string, any>;
     if (typeof o.path === "string") return { path: o.path };
-    // A tool result carries its envelope on .raw; reach through to the first
-    // content block that has a body rather than making every call site do it.
+    // A tool result carries its envelope on .raw; reach through to a content
+    // block with a body rather than making every call site do it. Media and
+    // embedded resources first: a screenshot result is a caption followed by
+    // the image, and the caption is not the file anyone meant.
     if (o.raw && typeof o.raw === "object") {
       const blocks = (o.raw as RawToolResult).content ?? [];
+      for (const b of blocks) {
+        const inner = b?.type === "text" ? undefined : normaliseContent(b);
+        if (inner) return inner;
+      }
       for (const b of blocks) {
         const inner = normaliseContent(b);
         if (inner) return inner;
@@ -1484,6 +1493,14 @@ func GlobalDeclarations(nss []Namespace) string {
 	b.WriteString("  const paths: typeof __mcpx.paths;\n")
 	b.WriteString("  const here: typeof __mcpx.here;\n")
 	b.WriteString("  const hereDir: typeof __mcpx.hereDir;\n")
+	b.WriteString("  /** Find tools by name or description, without leaving the script. */\n")
+	b.WriteString("  const search: typeof __mcpx.search;\n")
+	b.WriteString("  /** The signature of one tool (\"ns.tool\") or of a namespace. */\n")
+	b.WriteString("  const describe: typeof __mcpx.describe;\n")
+	b.WriteString("  const transport: typeof __mcpx.transport;\n")
+	b.WriteString("  const captureFrames: typeof __mcpx.captureFrames;\n")
+	b.WriteString("  const errorFrames: typeof __mcpx.errorFrames;\n")
+	b.WriteString("  const releaseConsole: typeof __mcpx.releaseConsole;\n")
 	b.WriteString("  const tools: typeof __mcpx.tools;\n")
 
 	sorted := append([]Namespace(nil), nss...)

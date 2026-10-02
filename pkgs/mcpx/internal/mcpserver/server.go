@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // Backend is what the server exposes. Defined here rather than taken from the
@@ -729,6 +730,8 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return s.handleTask(ctx, c, req, peer)
 	case "skills/list", "skills/get":
 		return s.handleSkills(ctx, req)
+	case "resources/directory/read":
+		return s.handleDirectoryRead(ctx, req)
 	case "tools/call":
 		// Finding the tool is the protocol's business, running it the
 		// tool's: an unknown name is -32602, in every revision, before a
@@ -1194,7 +1197,7 @@ func malformedMeta(req request) *response {
 // 2025-03-26 replaced it, and 2026-07-28 says new implementations SHOULD NOT
 // adopt it. A 2024-11-05 client speaking Streamable HTTP is served; one that
 // only knows HTTP+SSE is not.
-var Supported = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
+var Supported = spec.Revisions
 
 // ModernLatest is the newest per-request-metadata revision mcpx serves.
 // server/discover answers with this one's capability shape.
@@ -2228,10 +2231,10 @@ func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[
 			ExtTasks: map[string]any{},
 		}
 		if len(s.skills()) > 0 {
-			// An empty object: skills/list and skills/get, without the
-			// optional resources/directory/read, which mcpx's single-file
-			// skills would give nothing to list.
-			caps["extensions"].(map[string]any)[ExtSkills] = map[string]any{}
+			// directoryRead: resources/directory/read lists any
+			// directory of a served skill. Declared only here, where
+			// skills are served, since it lists nothing else.
+			caps["extensions"].(map[string]any)[ExtSkills] = map[string]any{"directoryRead": true}
 		}
 	}
 	return caps
