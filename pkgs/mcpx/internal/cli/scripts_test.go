@@ -9,6 +9,14 @@ import (
 	"github.com/dezren39/mcpx/internal/testsupport"
 )
 
+// chdir moves into dir and isolates the search from the real user.
+//
+// Script and recipe discovery has two roots: the walk up from the working
+// directory, and $HOME. Setting XDG_CONFIG_HOME closes neither -- recipes.Dirs
+// takes home from os.UserHomeDir -- so the developer's own
+// ~/.config/mcpx/scripts was listed alongside each test's fixtures and these
+// tests failed on a machine that had any. HOME is set here rather than in each
+// test because a test that forgets it fails only for whoever has scripts.
 func chdir(t *testing.T, dir string) {
 	t.Helper()
 	prev, err := os.Getwd()
@@ -19,6 +27,7 @@ func chdir(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(prev) })
+	t.Setenv("HOME", filepath.Join(dir, "home-empty"))
 }
 
 func writeScript(t *testing.T, dir, name, body string) string {

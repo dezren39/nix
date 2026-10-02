@@ -38,7 +38,9 @@ type env struct {
 
 func newEnv(t *testing.T, cfgBody string) *env {
 	t.Helper()
-	dir := t.TempDir()
+	// Outside $HOME: the daemon finds scripts and recipes by walking up
+	// from here, and must not reach the user's own (testsupport.TempDir).
+	dir := testsupport.TempDir(t)
 	fake := testsupport.FakeMCPBinary(t)
 
 	mcpx := testsupport.MCPXBinary(t)
@@ -59,6 +61,17 @@ func newEnv(t *testing.T, cfgBody string) *env {
 			// -- `/v1/registry/search` timed out there while passing on a
 			// laptop, and took a merge with it.
 			"MCPX_REGISTRY_URL="+stubRegistry(t),
+			// Never the developer's own scripts and config. $HOME is the
+			// second root of recipe and script discovery (recipes.Dirs takes
+			// it from os.UserHomeDir, which no MCPX_ variable covers), so a
+			// machine with ~/.config/mcpx/scripts ranked its owner's recipes
+			// against the fixtures and failed tests that CI passed. It also
+			// keeps `mcpx init --global` out of the real config forever.
+			// Deno and bun cache under HOME too; their variables are passed
+			// through below so a cold cache is not paid per test.
+			"HOME="+filepath.Join(dir, "home"),
+			"DENO_DIR="+toolCache(t, "DENO_DIR", "Library", "Caches", "deno"),
+			"BUN_INSTALL_CACHE_DIR="+toolCache(t, "BUN_INSTALL_CACHE_DIR", ".bun", "install", "cache"),
 			"MCPX_STATE_DIR="+filepath.Join(dir, "state"),
 			"MCPX_CACHE_DIR="+filepath.Join(dir, "cache"),
 			"MCPX_CONFIG="+filepath.Join(dir, ".mcpx.json"),
@@ -94,6 +107,21 @@ func newEnv(t *testing.T, cfgBody string) *env {
 // do. Short enough that a leak clears itself before the next run, long enough
 // that it cannot expire in the middle of a slow test.
 const testIdleExit = "60s"
+
+// toolCache is where deno or bun caches, named absolutely so moving HOME
+// does not move it. A per-test cache is correct but cold, and these runtimes
+// pay for that in downloads on every test that runs a script.
+func toolCache(t *testing.T, env string, parts ...string) string {
+	t.Helper()
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(append([]string{home}, parts...)...)
+}
 
 func repoRoot(t *testing.T) string {
 	t.Helper()

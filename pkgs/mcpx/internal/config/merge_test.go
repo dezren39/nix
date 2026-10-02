@@ -30,11 +30,10 @@ func tree(t *testing.T, files map[string]string) string {
 	// machine leaks into the search path and breaks the source-count
 	// assertion in TestSourcesAreRecordedNearestFirst.
 	//
-	// This closes the $HOME fallback, not the upward walk. When TMPDIR
-	// lives under $HOME, root's ancestors include the real home and the
-	// walk finds that config whatever $HOME is set to -- the walk keys on
-	// the path, not the variable. Isolating that would mean bounding the
-	// walk, which no environment variable does.
+	// This closes the $HOME fallback. The upward walk is closed by
+	// testsupport.TempDir, which never returns a directory under the real
+	// home: when TMPDIR lives there, root's ancestors would include it and
+	// the walk would find that config whatever $HOME is set to.
 	t.Setenv("HOME", filepath.Join(root, "home-empty"))
 	t.Setenv("MCPX_CONFIG", "")
 	return root
