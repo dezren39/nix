@@ -378,7 +378,9 @@ func TestAStreamingCommandWritesToTheFileItWasGiven(t *testing.T) {
 	// avoided.
 	cmd := exec.CommandContext(ctx, e.mcpx, "events", "--kinds", "server", "--since", "0", "-o", out)
 	cmd.Dir, cmd.Env = e.dir, e.envVars
-	var stdout, stderr bytes.Buffer
+	// syncBuffer, not bytes.Buffer: this reads both while the child is still
+	// running, which races os/exec's copier (see syncbuffer_test.go).
+	var stdout, stderr syncBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -494,7 +496,7 @@ func TestAStreamPositionMakesAMissedEventALateOneNotALostOne(t *testing.T) {
 		defer cancel()
 		cmd := exec.CommandContext(ctx, e.mcpx, append(args, "-o", out)...)
 		cmd.Dir, cmd.Env = e.dir, e.envVars
-		var stderr bytes.Buffer
+		var stderr syncBuffer
 		cmd.Stderr = &stderr
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
