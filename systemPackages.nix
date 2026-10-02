@@ -156,6 +156,24 @@
       # The MCP gateway in pkgs/mcpx. Its daemon runs at login from the mcpx
       # launchd agent in configuration.nix; the CLI reaches it from any shell.
       inputs.self.packages.${system}.mcpx
+      # GitHub's official MCP server, run with the token `gh` already holds in
+      # the login keychain, so no token is stored here or in the nix store.
+      # Its hosted server (api.githubcopilot.com/mcp) cannot do mcp-remote's
+      # OAuth -- no dynamic client registration -- which is why it runs locally.
+      # lootbox.config.json starts it by this name's absolute path, since the
+      # launchd agents' PATH does not include the system profile.
+      (pkgs.writeShellApplication {
+        name = "github-mcp";
+        runtimeInputs = [
+          pkgs.gh
+          pkgs.github-mcp-server
+        ];
+        text = ''
+          GITHUB_PERSONAL_ACCESS_TOKEN="$(gh auth token)"
+          export GITHUB_PERSONAL_ACCESS_TOKEN
+          exec github-mcp-server stdio "$@"
+        '';
+      })
       inputs.self.packages.${system}.opencode-share
       inputs.self.packages.${system}.sidepulse
       inputs.self.packages.${system}.sidepulse-setup

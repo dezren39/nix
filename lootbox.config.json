@@ -59,6 +59,14 @@
     "datadog": {
       "command": "mcp-remote",
       "args": ["https://mcp.datadoghq.com/v1/mcp?toolsets=core,workflows"]
+    },
+    "atlassian": {
+      "command": "mcp-remote",
+      "args": ["https://mcp.atlassian.com/v2/mcp?tools=all"]
+    },
+    "github": {
+      "command": "/run/current-system/sw/bin/github-mcp",
+      "args": []
     }
   }
 }
