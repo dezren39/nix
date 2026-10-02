@@ -1232,14 +1232,11 @@ func (e *InvalidResultError) Error() string {
 
 // Close terminates the session.
 func (c *Client) Close() error {
-	c.mu.Lock()
-	already := c.closed
-	if !already {
-		c.closed = true
-		c.recvErr = errors.New("closed by client")
-		close(c.closeCh)
-	}
-	c.mu.Unlock()
+	// Through fail, so what is in flight is answered. Close used to mark the
+	// client closed on its own, and fail -- the only thing that answers
+	// pending requests -- then saw it closed and returned early: every call
+	// waiting on a server being shut down sat until its own deadline.
+	c.fail(errors.New("closed by client"))
 	return c.t.Close()
 }
 
