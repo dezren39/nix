@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -193,7 +194,12 @@ func TestEraCacheAcrossStarts(t *testing.T) {
 			p := newEraPool(s, pool.OpenEraFile(file))
 			startOnce(t, p)
 			p.Close()
-			if got := s.frames(t); len(got) == 0 || got[0] != "server/discover" {
+			// A probe happened: discover was sent. Not that it came first --
+			// after ProbeTimeout (150ms here) initialize goes out alongside
+			// it, and on a loaded machine (the nix build runs every package's
+			// tests at once) the two can reach the server's log in either
+			// order. Trusting the file instead would send initialize alone.
+			if got := s.frames(t); !slices.Contains(got, "server/discover") {
 				t.Errorf("%q: a bad file should mean a probe, got %v", junk, got)
 			}
 			if rec := readEraFile(t, file)[pool.Identity(s.cfg)]; rec.Era != mcpclient.EraLegacy {
