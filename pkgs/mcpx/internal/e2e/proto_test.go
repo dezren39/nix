@@ -638,3 +638,26 @@ func firstN(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
+
+// --mcp-spec / MCPX_MCP_SPEC and spec.lenient reach the daemon's revision
+// policy, which /v1/protocol reports as it is in effect (#307).
+func TestTheDaemonReportsItsRevisionPolicy(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.setenv("MCPX_MCP_SPEC=2024-11-05", "MCPX_SPEC_LENIENT=2026-07-28")
+	e.run("refresh")
+	resp, err := e.socketClient(t).Get("http://mcpx/v1/protocol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body := decodeJSON(t, resp.Body)
+	sp, _ := body["spec"].(map[string]any)
+	order, _ := sp["precedence"].([]any)
+	strict, _ := sp["strict"].(map[string]any)
+	if len(order) != 5 || order[0] != "2024-11-05" || order[1] != "2026-07-28" {
+		t.Errorf("precedence %v, want 2024-11-05 then the rest newest first", order)
+	}
+	if strict["2026-07-28"] != false || strict["2024-11-05"] != true {
+		t.Errorf("strict %v, want 2026-07-28 lenient and the rest strict", strict)
+	}
+}

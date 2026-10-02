@@ -2,6 +2,26 @@
 
 WP6 output 1b. Everything where a message or behaviour legal in one revision is forbidden or required differently in another, plus places where one revision contradicts itself (page vs page, prose vs schema, changelog vs page). Per-area sections are the sweeps' own lists, lightly re-headed; ids refer to `requirements.md`.
 
+## How mcpx chooses (#307)
+
+Where a conflict below is not settled by the peer's stated revision, mcpx is
+meant to decide it by `spec.precedence` (revisions in the order their rules
+win; default newest first, `--mcp-spec <rev>` moves one to the front) and
+`spec.lenient` (revisions not held strictly; default none), through
+`internal/spec`. See [`../protocol.md`](../protocol.md) §1.1.
+
+Decided by those settings today:
+
+- **Progress `message` to a 2024-11-05 client** (2024-11-05's schema has no
+  `message`; every later revision does). Sent by default; stripped only when
+  2024-11-05 is first and strict. `internal/mcpserver/relay.go`.
+- **Headline 2, server-initiated requests from a 2026-07-28 server.** Dropped
+  while 2026-07-28 is strict (default); answered when it is in `spec.lenient`.
+  `internal/mcpclient/client.go`.
+
+Not yet converted -- each is still decided in code: headline items 1, 3, 4,
+5, 6, 7, 8, 9, 10, 11, 12 and 13, and the per-area items in sections A-E.
+
 ## Headline items
 
 1. **Subscription teardown, 2026-07-28 (three sources disagree).** `basic/patterns/cancellation`: a server MUST send `notifications/cancelled` referencing the `subscriptions/listen` id when it tears the stream down, and MUST NOT send `notifications/cancelled` for any other purpose. `basic/patterns/subscriptions`: the server SHOULD send a successful `subscriptions/listen` response to signal a graceful end, and never mentions a cancel. `schema.ts` `CancelledNotification`: *on stdio* the server sends it, solely to end a listen stream; the Streamable HTTP page says `notifications/cancelled` is used only on stdio. Reading that satisfies all three: on stdio, send the cancel (MUST) and, for a graceful end, the result; on HTTP, answer the listen request and close the stream. See C1 in section C.

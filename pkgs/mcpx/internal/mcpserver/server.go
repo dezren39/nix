@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // Backend is what the server exposes. Defined here rather than taken from the
@@ -1194,7 +1195,7 @@ func malformedMeta(req request) *response {
 // 2025-03-26 replaced it, and 2026-07-28 says new implementations SHOULD NOT
 // adopt it. A 2024-11-05 client speaking Streamable HTTP is served; one that
 // only knows HTTP+SSE is not.
-var Supported = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
+var Supported = spec.Revisions
 
 // ModernLatest is the newest per-request-metadata revision mcpx serves.
 // server/discover answers with this one's capability shape.

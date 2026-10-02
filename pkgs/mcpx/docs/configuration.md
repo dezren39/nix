@@ -512,6 +512,14 @@ and a switch to turn the report off would have kept it quiet.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `session.releaseTimeout` | duration | `10s` | client | no | `--session-release-timeout` | `MCPX_SESSION_RELEASE_TIMEOUT` | *(plumbing)* how long releasing a finished session may take |
 
+### spec
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `spec.first` | string | *(empty)* | daemon | no | `--mcp-spec` | `MCPX_MCP_SPEC` | move one MCP revision to the front of spec.precedence |
+| `spec.lenient` | list | *(empty)* | daemon | no | `--spec-lenient` | `MCPX_SPEC_LENIENT` | MCP revisions not held strictly; every revision not listed is strict |
+| `spec.precedence` | list | `2026-07-28,2025-11-25,2025-06-18,2025-03-26,2024-11-05` | daemon | no | `--spec-precedence` | `MCPX_SPEC_PRECEDENCE` | MCP revisions in the order their rules win a conflict, first wins |
+
 ### stats
 
 | setting | kind | default | scope | hot | flag | variable | governs |

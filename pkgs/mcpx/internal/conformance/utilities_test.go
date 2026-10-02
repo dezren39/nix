@@ -11,6 +11,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // unanswered is a legacy stdio session in which mcpx asks its client a
@@ -143,6 +144,10 @@ func (b relayBackend) Call(ctx context.Context, _, tool string, _ json.RawMessag
 // against rev and checked to carry the client's own token.
 func serverRelayedProgress(t *testing.T, rev string) []float64 {
 	t.Helper()
+	// The client's revision first and strict, so a 2024-11-05 client is held
+	// to its own schema: under the default precedence (2026-07-28 first) mcpx
+	// sends progress.message to it, which that schema does not define (#307).
+	t.Cleanup(spec.Set(spec.Must(nil, rev, nil)))
 	p := newPeer(t, rev)
 	var tok any
 	p.on("tools/call", func(pm map[string]any) (any, *rpcError) {

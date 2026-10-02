@@ -17,6 +17,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/mcpheaders"
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // ProtocolVersion is the MCP revision mcpx negotiates.
@@ -460,11 +461,14 @@ func (c *Client) dispatch(origin context.Context, raw []byte) {
 	}
 	if json.Unmarshal(raw, &probe) == nil && probe.Method != "" {
 		if len(probe.ID) > 0 && string(probe.ID) != "null" {
-			if c.modern.Load() {
+			if c.modern.Load() && spec.Current().Strict("2026-07-28") {
 				// 2026-07-28 has no server-to-client requests: a server
 				// asks through input_required results instead (SEP-2260,
 				// SEP-2322). The stdio transport page says the client
-				// MUST NOT answer one, so it is dropped unanswered.
+				// MUST NOT answer one, so it is dropped unanswered --
+				// while 2026-07-28 is held strictly (spec.lenient, #307).
+				// Lenient, it is answered like any legacy server's, for
+				// a server that has not caught up with its own revision.
 				return
 			}
 			c.handleServerRequest(origin, probe.ID, probe.Method, probe.Params)
