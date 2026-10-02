@@ -449,9 +449,19 @@ func TestSchemaCacheSurvivesDaemonRestart(t *testing.T) {
 	}
 	defer os.Rename(moved, e.fake)
 
+	// Every part of the catalogue, not only tools: the cache held tools and
+	// resources and not prompts, so a restarted daemon served none, and
+	// `mcpx prompts` said "No prompts" for a server that publishes one.
+	// Checking one kind is what let that stand.
 	out := e.run("types", "demo")
 	if !strings.Contains(out, "function echo(") {
-		t.Fatalf("cache did not survive a restart:\n%s", out)
+		t.Fatalf("tools did not survive a restart:\n%s", out)
+	}
+	if out := e.run("prompts"); !strings.Contains(out, "demo.summarise") {
+		t.Fatalf("prompts did not survive a restart:\n%s", out)
+	}
+	if out := e.run("resources"); !strings.Contains(out, "demo/") {
+		t.Fatalf("resources did not survive a restart:\n%s", out)
 	}
 }
 
