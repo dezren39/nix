@@ -171,6 +171,12 @@ func run(url, scenario string) error {
 // tools; a client that only called tools left those checks SKIPPED, passing
 // nothing. Only these scenarios get the extra requests, so no other one sees
 // traffic it did not ask for.
+//
+// Two of its checks stay SKIPPED and nothing here should try to fix them:
+// Mcp-Method on initialize and notifications/initialized. mcpx speaks
+// 2026-07-28 to this scenario, and that revision has no handshake, so sending
+// initialize would be a request the server must reject, made only to satisfy
+// the check. See docs/spec/official-suite.md, "Skipped, and why".
 var exercisesEverything = map[string]bool{"http-standard-headers": true}
 
 // readEverything reads every resource and gets every prompt the upstream

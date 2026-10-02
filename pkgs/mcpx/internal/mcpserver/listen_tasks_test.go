@@ -14,6 +14,13 @@ import (
 // subscriptions/listen's taskIds is told which it will hear about, then
 // receives notifications/tasks carrying the DetailedTask tasks/get would
 // answer -- through to the terminal state with its result inlined.
+//
+// This is the only test of this behaviour: the official conformance suite's
+// tasks-status-notifications scenario returns SKIPPED unconditionally ("pending
+// subscriptions/listen rewrite", src/scenarios/server/tasks/notifications.ts),
+// so it is one of the four skipped checks listed in docs/spec/official-suite.md.
+// When the suite is rewritten, that skip should become a pass; if it becomes a
+// failure, this test and the suite disagree about the spec.
 func TestListenDeliversTaskStatusNotifications(t *testing.T) {
 	u := &taskUpstream{fakeBackend: newBackend(), delay: 300 * time.Millisecond,
 		tools: map[string][]mcpserver.Tool{"tasks": {supportTool("slow_compute", "optional")}}}
