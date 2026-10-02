@@ -55,3 +55,7 @@ result
 /result/
 result/
 result
+
+# GitHub access token for Nix fetches lives outside this repo (see nix.conf);
+# never let a copy land here.
+access-tokens*.conf

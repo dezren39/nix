@@ -70,6 +70,31 @@ reclaim_root_owned() {
 reclaim_root_owned
 git add .
 
+# Keep Nix's GitHub token current. nix.conf (this directory, so tracked)
+# `include`s ~/.local/share/nix/access-tokens.conf, which holds the token and
+# must never be inside the repo: `git add .` above would commit it. Rewritten
+# from `gh auth token` on every run, so a rotated gh token cannot leave Nix
+# sending a stale one (a bad token fails every github: fetch with 401, which is
+# worse than the anonymous 60/hour it replaces). If gh is missing or logged
+# out, the old file is left alone.
+refresh_nix_access_token() {
+  local dir="$HOME/.local/share/nix" tok
+  tok=$(command -v gh >/dev/null && gh auth token 2>/dev/null) || tok=""
+  if [[ -z "$tok" ]]; then
+    echo "gh token unavailable; leaving Nix access token as is" >&2
+    return 0
+  fi
+  mkdir -p "$dir" && chmod 700 "$dir"
+  ( umask 077
+    print -r -- "access-tokens = github.com=$tok" >"$dir/access-tokens.conf.tmp" &&
+      mv "$dir/access-tokens.conf.tmp" "$dir/access-tokens.conf" )
+  echo "refreshed Nix GitHub access token"
+}
+# Not traced: the token must not reach the `set -x` log.
+{ set +x; } 2>/dev/null
+refresh_nix_access_token
+set -x
+
 # Phases.
 #
 # `just build`, `just activate` and `just switch` are three entry points into
