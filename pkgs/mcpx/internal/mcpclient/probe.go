@@ -173,8 +173,12 @@ func (c *Client) judge(resp *rpcResponse, tried map[string]int) (verdict, string
 	}
 	chosen := c.newestMutual(*dr.SupportedVersions)
 	if chosen == "" {
-		return isModernError, "", fmt.Errorf("no shared protocol version; the server offers %v and mcpx speaks %v",
+		err := fmt.Errorf("no shared protocol version; the server offers %v and mcpx speaks %v",
 			*dr.SupportedVersions, c.modernVersions)
+		if offersLegacy(*dr.SupportedVersions) {
+			return isLegacy, "", err
+		}
+		return isModernError, "", err
 	}
 	c.metaVersion = chosen
 	c.Negotiated = chosen
@@ -215,8 +219,27 @@ func (c *Client) judgeModernError(e *rpcError, tried map[string]int) (verdict, s
 			}
 		}
 	}
-	return isModernError, "", fmt.Errorf("server/discover: no shared protocol version; the server offers %v and mcpx speaks %v (%w)",
+	err := fmt.Errorf("server/discover: no shared protocol version; the server offers %v and mcpx speaks %v (%w)",
 		d.Supported, c.modernVersions, e)
+	if offersLegacy(d.Supported) {
+		return isLegacy, "", err
+	}
+	return isModernError, "", err
+}
+
+// offersLegacy reports whether a server's supported list names a revision
+// mcpx negotiates through initialize. Such a server knows server/discover
+// well enough to refuse it with UNSUPPORTED_PROTOCOL_VERSION, but the only
+// versions it has are reached the old way -- Datadog's MCP server, on a
+// 2025-11-25 SDK, answers exactly that. Only a list of versions mcpx speaks
+// in neither era is the end of the road.
+func offersLegacy(supported []string) bool {
+	for _, v := range supported {
+		if legacyVersion(v) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) newestMutual(offered []string) string {
