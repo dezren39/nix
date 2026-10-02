@@ -12,6 +12,7 @@
 package elicit
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -313,7 +314,11 @@ func (b *Broker) Respond(a Answer) error {
 		// first answer stands and the caller is told so.
 		return fmt.Errorf("%s was already %s", a.ID, r.State)
 	}
-	if a.Action == Accept && (r.Mode == Form || r.Mode == Sample || r.Mode == Roots) && len(a.Content) == 0 {
+	// JSON null is content by length and nothing by meaning: it unmarshals
+	// into a nil map, and a null sampling answer crashed the daemon on its
+	// way to the server. Refused here, the question stays open for a real one.
+	if a.Action == Accept && (r.Mode == Form || r.Mode == Sample || r.Mode == Roots) &&
+		(len(a.Content) == 0 || string(bytes.TrimSpace(a.Content)) == "null") {
 		return errors.New("an accepted form elicitation needs content")
 	}
 

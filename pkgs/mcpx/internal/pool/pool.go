@@ -384,21 +384,20 @@ func (p *Pool) waitLocked(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("waiting for a free %q instance (max=%d): %w", p.cfg.Name, p.cfg.Max, err)
 	}
-	done := make(chan struct{})
-	stop := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			p.mu.Lock()
-			p.cond.Broadcast()
-			p.mu.Unlock()
-		case <-stop:
-		}
-		close(done)
-	}()
+	// Wake the waiter when ctx ends. AfterFunc's stop does not wait for a
+	// callback already running, and that is the point: this used a goroutine
+	// that took p.mu to broadcast, and waited for it after Wait returned --
+	// holding p.mu. A broadcast from elsewhere racing the cancellation left
+	// the waiter holding the lock while the helper blocked on it, and the
+	// pool was deadlocked for good. A late callback here just broadcasts
+	// once the lock is free, which wakes nobody who minds.
+	stop := context.AfterFunc(ctx, func() {
+		p.mu.Lock()
+		p.cond.Broadcast()
+		p.mu.Unlock()
+	})
 	p.cond.Wait()
-	close(stop)
-	<-done
+	stop()
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("waiting for a free %q instance (max=%d): %w", p.cfg.Name, p.cfg.Max, err)
 	}

@@ -38,7 +38,9 @@ func (r *Registry) InstallHooks(bus *events.Bus, broker *elicit.Broker, roots []
 			// A list change means the cached schema is stale. Dropping it
 			// here is what makes the next catalog reflect reality rather than
 			// whatever was true when the daemon started.
-			if p, ok := r.pools[server]; ok {
+			// Through Pool, which holds r.mu: this runs on an upstream
+			// client's goroutine, any time, and Reload replaces r.pools.
+			if p, ok := r.Pool(server); ok {
 				p.Invalidate()
 			}
 			k := map[string]events.Kind{
@@ -69,6 +71,9 @@ func (r *Registry) InstallHooks(bus *events.Bus, broker *elicit.Broker, roots []
 		Elicit: r.answerServer,
 	}
 	r.upstreamHooks(hooks)
+	// Under r.mu: Reload reads r.hooks and replaces r.pools under it.
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.hooks = hooks
 	seen := map[*pool.Pool]bool{}
 	for _, p := range r.pools {
@@ -222,6 +227,12 @@ func (r *Registry) sampleViaBroker(ctx context.Context, server, key string, para
 	if err := json.Unmarshal(ans.Content, &result); err != nil {
 		return nil, fmt.Errorf("a sampling answer must be a CreateMessageResult: %w", err)
 	}
+	// JSON null unmarshals into a nil map without error, and the writes
+	// below then panicked -- on an upstream client's goroutine, where nothing
+	// recovers, so one POSTed answer took the daemon down.
+	if result == nil {
+		return nil, errors.New("a sampling answer must be a CreateMessageResult, not null")
+	}
 	// The two fields a server relies on. Filled if the answerer left them
 	// out, since a result without a role or a model is rejected by strict
 	// servers for a reason unrelated to its content.
@@ -265,6 +276,10 @@ func (r *Registry) rootsViaBroker(ctx context.Context, server, key string, param
 	var result map[string]any
 	if err := json.Unmarshal(ans.Content, &result); err != nil {
 		return nil, fmt.Errorf("a roots answer must be a ListRootsResult: %w", err)
+	}
+	// null is not a ListRootsResult: relayed, it reached the server as one.
+	if result == nil {
+		return nil, errors.New("a roots answer must be a ListRootsResult, not null")
 	}
 	return result, nil
 }
