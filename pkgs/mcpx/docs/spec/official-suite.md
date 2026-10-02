@@ -74,6 +74,14 @@ day the spec fixes it the test fails and says to remove the entry); and two
 macOS-only filesystem tests, now compiled only on macOS rather than counted
 as skipped on Linux.
 
+**Records.** Each leg keeps two records in a repository variable, each always
+one whole run. *best* is the lowest share of checks that did not pass --
+failed **plus skipped** -- at a total no smaller than the record's; a tie goes
+to the run with more checks passed. *largest* is the run with the most checks.
+Skips count against a run because a skipped check passes nothing: when only
+failures counted, a run that cut skips from 44 to 1 at zero failures tied the
+record and replaced nothing.
+
 Each leg's total is every check the suite recorded, from its `checks.json`
 files, warnings included: the summary line's passed + failed leaves warnings
 out, so a failure that became a warning looked like a smaller run.
