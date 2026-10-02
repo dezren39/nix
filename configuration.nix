@@ -828,5 +828,43 @@ lib.recursiveUpdate {
         StandardOutPath = "/tmp/lootbox.out.log";
       };
     };
+    # The mcpx daemon, started at login and kept running, so the first `mcpx`
+    # command in a shell does not pay for a cold start.
+    #
+    # It reads ~/.config/mcpx/config.json (homeUser.nix, from mcpx.config.nix).
+    # The working directory is $HOME on purpose: mcpx keys a daemon by the set
+    # of config files it finds searching up from where it starts, and a CLI run
+    # from a directory with no project config finds the same set, so it uses
+    # this daemon instead of starting its own.
+    #
+    # The program is a store path, so `just switch` after an mcpx change writes
+    # a new plist and launchd restarts the agent on the new binary.
+    mcpx = {
+      serviceConfig = {
+        EnvironmentVariables.HOME = "/Users/drewry.pope";
+        # The MCP servers it starts, same as lootbox's; mcpx's own wrapper adds
+        # deno, bun, node and git for scripts.
+        EnvironmentVariables.PATH = lib.mkForce (
+          lib.makeBinPath [
+            pkgs.bash
+            pkgs.coreutils
+            pkgs.nodejs
+            inputs.self.packages.${system}.codedb
+            pkgs.codebase-memory-mcp
+            pkgs.fff-mcp
+          ]
+          + ":/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin:/usr/bin:/bin"
+        );
+        KeepAlive = true;
+        RunAtLoad = true;
+        WorkingDirectory = "/Users/drewry.pope";
+        ProgramArguments = [
+          "${inputs.self.packages.${system}.mcpx}/bin/mcpx"
+          "daemon"
+        ];
+        StandardErrorPath = "/tmp/mcpx.err.log";
+        StandardOutPath = "/tmp/mcpx.out.log";
+      };
+    };
   };
 } (import ./nix.settings.nix) # TODO: module nix-settings

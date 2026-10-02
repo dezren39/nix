@@ -17,6 +17,7 @@ import (
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/settings"
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // callParams is a tools/call that reaches the (possibly blocking) backend.
@@ -958,4 +959,25 @@ func httptestServer(t *testing.T, h http.HandlerFunc) string {
 	s := httptest.NewServer(h)
 	t.Cleanup(s.Close)
 	return s.URL
+}
+
+// With 2026-07-28 not held strictly (spec.lenient), a request a 2026-07-28
+// server sends is answered rather than dropped: the opposite of
+// stdio-client-no-responses, which runs under the default (#307).
+func TestLenient2026AnswersServerRequests(t *testing.T) {
+	t.Cleanup(spec.Set(spec.Must(nil, "", []string{"2026-07-28"})))
+	p := newPeer(t, "2026-07-28")
+	dialClient(t, p, clientOpts())
+	before := len(p.sent())
+	p.push(frame(77, "roots/list", nil))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, f := range p.sent()[before:] {
+			if id, _ := f["id"].(float64); id == 77 && f["method"] == nil {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("a lenient client did not answer: %v", p.sent()[before:])
 }

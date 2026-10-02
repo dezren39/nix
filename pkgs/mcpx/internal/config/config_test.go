@@ -467,3 +467,34 @@ func TestAKeyJSONReadsIsNotReportedIgnored(t *testing.T) {
 		t.Errorf("keys json decoded were reported ignored: %+v", c.Ignored)
 	}
 }
+
+// A server's own protocol key overrides upstream.protocol, so it accepts the
+// same aliases and Resolve hands the pool only the canonical name.
+func TestResolveNormalisesAServersProtocolAlias(t *testing.T) {
+	for given, want := range map[string]string{
+		"modern": "prefer-discover", "prefer-newest": "prefer-discover",
+		"legacy": "prefer-initialize", "prefer-session": "prefer-initialize",
+		"force-modern": "force-discover", "force-stateless": "force-discover",
+		"force-legacy": "force-initialize", "Force-Session": "force-initialize",
+		"follow": "follow", "prefer-discover": "prefer-discover",
+	} {
+		c := &config.Config{MCPServers: map[string]*config.Server{
+			"a": {Name: "a", Command: "x", Protocol: given},
+		}}
+		r, err := c.Resolve("a")
+		if err != nil {
+			t.Errorf("%q: %v", given, err)
+			continue
+		}
+		if r.Protocol != want {
+			t.Errorf("%q resolved to %q, want %q", given, r.Protocol, want)
+		}
+	}
+	c := &config.Config{MCPServers: map[string]*config.Server{
+		"a": {Name: "a", Command: "x", Protocol: "newest"},
+	}}
+	_, err := c.Resolve("a")
+	if err == nil || !strings.Contains(err.Error(), "prefer-discover") || !strings.Contains(err.Error(), "force-legacy") {
+		t.Errorf("an unknown protocol should be refused, listing names and aliases: %v", err)
+	}
+}

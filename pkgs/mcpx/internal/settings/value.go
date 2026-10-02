@@ -151,7 +151,8 @@ func (s *Set) SetRuntime(path, raw string) error {
 	if !ok {
 		return fmt.Errorf("unknown setting %q", path)
 	}
-	if err := Validate(*set, raw); err != nil {
+	raw, err := Normalize(*set, raw)
+	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	s.mu.Lock()
@@ -196,7 +197,8 @@ func (s *Set) Apply(path, raw string, origin Origin) error {
 	if !ok {
 		return fmt.Errorf("unknown setting %q", path)
 	}
-	if err := Validate(*set, raw); err != nil {
+	raw, err := Normalize(*set, raw)
+	if err != nil {
 		return fmt.Errorf("%s (from %s): %w", path, origin, err)
 	}
 	s.mu.Lock()
@@ -490,12 +492,44 @@ func Validate(set Setting, raw string) error {
 			return err
 		}
 	case KindEnum:
-		for _, ok := range set.Enum {
-			if strings.EqualFold(raw, ok) {
-				return nil
-			}
+		if _, ok := set.Canonical(raw); !ok {
+			return fmt.Errorf("want one of %s, got %q", set.EnumWords(), raw)
 		}
-		return fmt.Errorf("want one of %s, got %q", strings.Join(set.Enum, ", "), raw)
 	}
 	return nil
 }
+
+// Normalize validates a raw value and returns the spelling every reader
+// should see: for an enum, the declared value an alias or a differently-cased
+// spelling stands for. It is the one place a value is parsed, so nothing
+// downstream compares against an alias.
+func Normalize(set Setting, raw string) (string, error) {
+	if err := Validate(set, raw); err != nil {
+		return raw, err
+	}
+	v, _ := set.Canonical(raw)
+	if set.Kind != KindEnum {
+		return raw, nil
+	}
+	return v, nil
+}
+
+// NormalizePath is Normalize for a setting named by path in Registry(), for a
+// value read outside a Set -- a per-server key that overrides a setting.
+func NormalizePath(path, raw string) (string, error) {
+	registryOnce.Do(func() { registrySchema, registryErr = New(Registry()) })
+	if registryErr != nil {
+		return raw, registryErr
+	}
+	set, ok := registrySchema.Lookup(path)
+	if !ok {
+		return raw, fmt.Errorf("unknown setting %q", path)
+	}
+	return Normalize(*set, raw)
+}
+
+var (
+	registryOnce   sync.Once
+	registrySchema *Schema
+	registryErr    error
+)

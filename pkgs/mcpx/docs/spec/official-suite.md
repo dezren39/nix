@@ -2,8 +2,8 @@
 
 ```
 created:      2026-09-30T12:00:00-05:00
-last-updated: 2026-09-30T23:00:00-05:00
-increment:    3
+last-updated: 2026-10-01T19:30:00-05:00
+increment:    4
 status:       standard
 tags:         area:protocol, area:spec
 description:  what modelcontextprotocol/conformance says about mcpx as a
@@ -23,6 +23,68 @@ for each, selected with `--spec-version`, so those legs are smaller (about 3 and
 carries its schema. Client legs run for all four: frozen sets for the two newest, tagged scenarios (`--suite all --spec-version`) for the two older. A leg's job fails when any
 check fails, lists the failures on the run's summary page, and uploads them as an artifact.
 **It is not a merge block**: no branch protection requires it.
+
+A **spec parity** job compares the revisions mcpx supports (`mcpx protocol
+--json`, `.asServer.supported`) with those the suite knows (its error for an
+unknown `--spec-version` names them all). Neither list is written in this
+repository. A mismatch warns, with a deadline counted from the last match on
+`main` -- 840 hours when only one side has extra revisions, 360 when both do --
+and after it the job fails. Revisions one side is expected to have alone are
+listed at the top of the workflow (`SPEC_PARITY_ALLOW_ONLY_MCPX`,
+`SPEC_PARITY_ALLOW_ONLY_SUITE`); today that is `2024-11-05`, which mcpx serves
+and the suite has never tested. An entry both sides come to have, or that its
+side drops, fails the job at once until it is removed. See
+`scripts/spec-parity.py`.
+
+Each leg's summary shows every status the suite recorded: passed, failed,
+**skipped**, warning and info. A skipped check passes nothing, so the records
+job fails any run with more skipped checks than the record on `main`, and the
+record's skip count only moves down. The table below lists every skip still
+standing, by name; `--suite all` skipped 7 of 280 checks at `650bf19` and 1 of
+280 after `resources/directory/read` landed (`LEGS=server-all
+scripts/conformance.sh`, counted from `checks.json`). The Go tests have the
+same rule, through the repository variable `MCPX_GO_TESTS` written by
+`scripts/gotest-report.py`. The record is 0: every gap whose test was skipped
+has been closed, and the tests that only mean anything on macOS are compiled
+only there rather than counted as skipped on Linux. Both kinds of record keep the **names** of
+what is skipped, so a rise reports exactly which test or check is new.
+
+### Skipped, and why
+
+The aim is zero failed and zero skipped. Every skip still standing is listed
+here with its reason; anything not listed is a regression the records catch.
+
+| where | what | why it stays |
+| --- | --- | --- |
+| client 2026-07-28 | `http-standard-headers` for `initialize` and `notifications/initialized` (2) | A 2026-07-28 client never sends either: the revision removed the handshake. The suite checks the header on every method it knows and has no way to mark these not applicable. Permanent. |
+| server 2026-07-28, `--suite all` | `tasks-status-notifications` (1 each) | The suite skips it unconditionally: `src/scenarios/server/tasks/notifications.ts` returns SKIPPED with "pending subscriptions/listen rewrite". mcpx does deliver task status on a `subscriptions/listen` stream; `TestListenDeliversTaskStatusNotifications` covers it. Until the suite is rewritten. |
+
+Skipped checks: 4 of 1,014, all above. Skipped Go tests: 0.
+
+Exceptions that were skips and are not any more: every conformance gap
+(#200, #201, #203, #209, #212, #77) whose test was skipped while the gap
+stood, all 42 skills checks (the last six, `sep-2640-skills-directory`,
+since mcpx serves `resources/directory/read` and `mcpx-basics` has an
+`examples/` subfolder for the subdirectory check to find), the 2026-07-28 header checks
+for `resources/read` and `prompts/get` (the conformance adapter now reads
+every resource and gets every prompt in that scenario); one Go subtest for a
+method that was never applicable (`initialize` on a legacy connection, now not
+created); the spec example the schema rejects (now asserted rejected, so the
+day the spec fixes it the test fails and says to remove the entry); and two
+macOS-only filesystem tests, now compiled only on macOS rather than counted
+as skipped on Linux.
+
+**Records.** Each leg keeps two records in a repository variable, each always
+one whole run. *best* is the lowest share of checks that did not pass --
+failed **plus skipped** -- at a total no smaller than the record's; a tie goes
+to the run with more checks passed. *largest* is the run with the most checks.
+Skips count against a run because a skipped check passes nothing: when only
+failures counted, a run that cut skips from 44 to 1 at zero failures tied the
+record and replaced nothing.
+
+Each leg's total is every check the suite recorded, from its `checks.json`
+files, warnings included: the summary line's passed + failed leaves warnings
+out, so a failure that became a warning looked like a smaller run.
 
 On `main` each leg's counts are compared with two records kept in the repository variable
 `MCPX_CONFORMANCE_<LEG>` -- the best failed/total ratio and the largest total -- and a run that
@@ -120,7 +182,7 @@ change; the last column is the fixture in pass-through.
 beyond the fixtures: its daemon fronts the upstream with `protocol: follow`,
 so a caller on a pre-2026 revision gets a legacy upstream session and the
 fixture's server-to-client requests (elicitation, sampling) reach it. Under
-the default `modern` those four scenarios fail, because a 2026-07-28 upstream
+the default `prefer-discover` those four scenarios fail, because a 2026-07-28 upstream
 session cannot carry a request to its client. See `docs/spec/era-probe.md`.
 
 Every client failure is an OAuth scenario under the suite's `auth/`; mcpx has

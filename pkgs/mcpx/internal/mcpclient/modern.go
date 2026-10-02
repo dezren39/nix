@@ -346,7 +346,7 @@ func (c *Client) resolveInput(ctx context.Context, params json.RawMessage, ir in
 		wg.Add(1)
 		go func(key, method string, params json.RawMessage) {
 			defer wg.Done()
-			out, rerr := c.answer(withInputKey(ctx, key), method, params)
+			out, rerr := c.answer(withInputRound(withInputKey(ctx, key), len(ir.InputRequests)), method, params)
 			mu.Lock()
 			defer mu.Unlock()
 			if rerr != nil {
@@ -566,4 +566,23 @@ func withInputKey(ctx context.Context, key string) context.Context {
 func InputKey(ctx context.Context) string {
 	k, _ := ctx.Value(inputKeyCtx{}).(string)
 	return k
+}
+
+type inputRoundCtx struct{}
+
+func withInputRound(ctx context.Context, n int) context.Context {
+	return context.WithValue(ctx, inputRoundCtx{}, n)
+}
+
+// InputRound is how many questions the 2026-07-28 result being answered on
+// ctx asked at once -- its inputRequests count -- or 0 when the question did
+// not come from such a result.
+//
+// A gateway relaying the round needs it: the questions are answered
+// concurrently and arrive one at a time, so without knowing how many are
+// coming it can only guess when the round is complete, and a guess is a
+// timeout that is too short on a loaded machine and wasted on a quick one.
+func InputRound(ctx context.Context) int {
+	n, _ := ctx.Value(inputRoundCtx{}).(int)
+	return n
 }

@@ -13,6 +13,24 @@ list:
 update-lootbox:
     nix run .#lootbox-update -- --force
 
+# Opens a browser for the server's OAuth login and keeps the tokens in
+# ~/.mcp-auth, where lootbox and mcpx find them. Press Ctrl-C once it reports
+# it is connected. Needed once per server, and again if its URL changes -- the
+# URL is part of what mcp-remote stores the tokens under.
+#
+# Log in to an mcp-remote MCP server (datadog, atlassian, context7)
+[group('lootbox')]
+mcp-login name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    url=$(jq -r --arg n "{{name}}" '.mcpServers[$n] | select(.command == "mcp-remote") | .args[0] // empty' lootbox.config.json)
+    if [ -z "$url" ]; then
+        echo "{{name}} is not an mcp-remote server in lootbox.config.json; those are:" >&2
+        jq -r '.mcpServers | to_entries[] | select(.value.command == "mcp-remote") | "  " + .key' lootbox.config.json >&2
+        exit 1
+    fi
+    exec "$HOME/.local/share/lootbox/npm/node_modules/.bin/mcp-remote" "$url"
+
 # Start the launchd-managed Lootbox server
 [group('lootbox')]
 lootbox-server:

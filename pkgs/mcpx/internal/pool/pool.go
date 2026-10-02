@@ -798,9 +798,10 @@ func (p *Pool) schemaKey() string {
 
 // SetSchemas seeds the cache from disk so the daemon can answer discovery
 // queries without starting a single child process.
-func (p *Pool) SetSchemas(tools []mcpclient.Tool, resources []mcpclient.Resource, instructions string, at time.Time) {
+func (p *Pool) SetSchemas(tools []mcpclient.Tool, resources []mcpclient.Resource, prompts []mcpclient.Prompt, instructions string, at time.Time) {
 	p.schemaMu.Lock()
-	p.tools, p.resources, p.instructions, p.schemaAt, p.schemaErr = tools, resources, instructions, at, nil
+	p.tools, p.resources, p.prompts = tools, resources, prompts
+	p.instructions, p.schemaAt, p.schemaErr = instructions, at, nil
 	p.schemaMu.Unlock()
 }
 
@@ -816,6 +817,16 @@ func (p *Pool) CachedSchemas() ([]mcpclient.Tool, []mcpclient.Resource, time.Tim
 	p.schemaMu.RLock()
 	defer p.schemaMu.RUnlock()
 	return p.tools, p.resources, p.schemaAt
+}
+
+// CachedAll is everything a catalogue read produced, for the disk cache.
+// Prompts are part of it: a cache that held only tools and resources left a
+// restarted daemon serving no prompts at all, because it counted itself warm
+// and never listed them again.
+func (p *Pool) CachedAll() ([]mcpclient.Tool, []mcpclient.Resource, []mcpclient.Prompt, time.Time) {
+	p.schemaMu.RLock()
+	defer p.schemaMu.RUnlock()
+	return p.tools, p.resources, p.prompts, p.schemaAt
 }
 
 // Invalidate forgets the cached schema, so the next read fetches it afresh.

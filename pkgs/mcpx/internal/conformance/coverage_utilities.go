@@ -77,6 +77,7 @@ func init() {
 			"cancellation-receiver-may-ignore",
 			"cancellation-ignore-invalid",
 			"cancellation-handle-races",
+			"cancellation-log-reasons",
 			"progress-token-string-or-int",
 			"progress-token-unique-sender",
 			"progress-token-unique-client",
@@ -97,12 +98,7 @@ func init() {
 		),
 	)
 	registerGaps(
-		Gap{ID: "cancellation-receiver-should-stop-free-no-response", Side: Client, Issue: "#77", Why: "the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered", Test: "conformance.TestUtilitiesClient"},
-		Gap{ID: "cancellation-processing-should-cease", Side: Client, Revs: []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}, Issue: "#77", Why: "the client has no handler for an inbound notifications/cancelled: the question keeps running and is answered", Test: "conformance.TestUtilitiesClient"},
-		Gap{ID: "progress-track-tokens", Side: Client, Issue: "#212", Why: "every inbound progress notification is passed on, whether or not any request asked for its token", Test: "conformance.TestUtilitiesClient"},
-		Gap{ID: "progress-rate-limit", Side: Client, Issue: "#212", Why: "inbound progress is neither tracked nor throttled", Test: "conformance.TestUtilitiesClient"},
 		Gap{ID: "cancellation-log-reasons", Side: Server, Issue: "#77", Why: "a cancellation reason reaches Server.OnCancel, which nothing outside tests sets; it is never logged"},
-		Gap{ID: "cancellation-log-reasons", Side: Client, Issue: "#77", Why: "the client does not handle inbound cancellations, so has no reason to log"},
 		Gap{ID: "completion-security", Side: Server, Issue: "#213", Why: "completion/complete has no rate limit and no per-caller access control"},
 		Gap{ID: "completion-server-should", Side: Server, Issue: "#213", Why: "values are sorted alphabetically and matched by substring, not ranked by relevance; no rate limit"},
 	)

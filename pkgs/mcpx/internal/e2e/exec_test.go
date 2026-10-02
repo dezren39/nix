@@ -34,6 +34,26 @@ func TestExecWritesArtifactsIntoADirectory(t *testing.T) {
 	}
 }
 
+// A screenshot tool answers with a caption and then the image, as
+// chrome-devtools' take_screenshot does. artifact("shot.png", result) must
+// store the image: the caption is a text block too, and taking the first
+// block with a body stored the caption under a .png name.
+func TestArtifactOfAToolResultPrefersItsMediaOverItsText(t *testing.T) {
+	e := newEnv(t, oneServer)
+	out := filepath.Join(e.dir, "collected")
+	// fakemcp's structured tool returns a text block, then a PNG image.
+	e.run("exec", "--artifacts-dir", out,
+		`const a = await artifact("shot.png", await demo.structured({})); console.log(a.mime)`)
+	body, err := os.ReadFile(filepath.Join(out, "shot.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	png, _ := base64.StdEncoding.DecodeString("iVBORw0KGgo=")
+	if string(body) != string(png) {
+		t.Errorf("stored %q, want the image block's bytes %q", body, png)
+	}
+}
+
 // Two files of one name are two files. Keeping one of them silently is data
 // loss, and overwriting is the easy mistake to make here.
 func TestArtifactNameCollisionsAreSuffixedNotOverwritten(t *testing.T) {

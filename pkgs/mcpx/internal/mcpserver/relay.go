@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // CallRelay is what a client asked of one tools/call that only the upstream
@@ -74,12 +76,46 @@ func (s *Server) withRelay(ctx context.Context, c *Conn, req request, p Peer) co
 		c.mu.Unlock()
 	}
 	if send != nil {
+		version := p.Version
 		r.Notify = func(method string, params json.RawMessage) {
-			_ = send(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+			_ = send(map[string]any{"jsonrpc": "2.0", "method": method, "params": downgradeNotification(method, params, version)})
 		}
 	} else {
 		// Nowhere to deliver: still carry the trace context upstream.
 		r.ProgressToken, r.LogLevel = nil, ""
 	}
 	return context.WithValue(ctx, relayKey{}, r)
+}
+
+// downgradeNotification fits a relayed notification to the client's
+// revision. The upstream may speak a newer one than the client: progress
+// with a message, relayed verbatim to a 2024-11-05 client, is a frame that
+// revision does not define.
+//
+// Only when 2024-11-05 is first in spec.precedence and held strictly. Every
+// 2024-era client in the wild ignores the extra field, and the message is the
+// only human-readable part of a progress report, so under the default
+// (2026-07-28 first) it is sent; a user who wants the 2024-11-05 schema to
+// the letter puts that revision first (#307).
+func downgradeNotification(method string, params json.RawMessage, version string) json.RawMessage {
+	if method != "notifications/progress" || Defines(version, FeatProgressMessage) {
+		return params
+	}
+	// 2024-11-05 has no `message` on progress; every later revision does.
+	// Stripped only when that revision's rule governs (see spec.Governs).
+	if !spec.Current().Governs(version) {
+		return params
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(params, &m) != nil {
+		return params
+	}
+	if _, has := m["message"]; !has {
+		return params
+	}
+	delete(m, "message")
+	if b, err := json.Marshal(m); err == nil {
+		return b
+	}
+	return params
 }

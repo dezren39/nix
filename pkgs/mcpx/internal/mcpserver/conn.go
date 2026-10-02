@@ -438,6 +438,10 @@ type Question struct {
 	// key, when it asked in a 2026-07-28 result. Relayed as the key a modern
 	// client sees, so a server's "user_name" is not renamed on the way.
 	Key string `json:"key,omitempty"`
+	// Round is how many questions the upstream asked in this result, when it
+	// asked in a 2026-07-28 input_required. A relayed round is complete once
+	// that many are open; see viaAsk.
+	Round int `json:"round,omitempty"`
 }
 
 // Sendable reports whether this client may be asked this question.

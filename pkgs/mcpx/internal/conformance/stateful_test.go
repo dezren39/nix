@@ -127,6 +127,14 @@ func TestStatefulServer(t *testing.T) {
 				"arguments": map[string]any{}, "task": map[string]any{}}))
 			res := ss.request(t, rev, "tasks/result", map[string]any{"taskId": asMap(tr["task"])["taskId"]})
 			direct := ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_call", "arguments": map[string]any{}})
+			// tasks/result alone MUST add the related-task _meta; the rest
+			// is the same result.
+			if m := asMap(asMap(res["result"])["_meta"]); m != nil {
+				delete(m, "io.modelcontextprotocol/related-task")
+				if len(m) == 0 {
+					delete(asMap(res["result"]), "_meta")
+				}
+			}
 			a, _ := json.Marshal(res["result"])
 			d, _ := json.Marshal(direct["result"])
 			if errorCode(res) != errorCode(direct) || string(a) != string(d) {
@@ -140,7 +148,8 @@ func TestStatefulServer(t *testing.T) {
 		ss := stdioServer(t, srv)
 		ss.initialize(t, rev)
 		for i := 0; i < 5; i++ {
-			ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_status", "arguments": map[string]any{}, "task": map[string]any{}})
+			ss.request(t, rev, "tools/call", map[string]any{"name": "mcpx_call",
+				"arguments": map[string]any{"namespace": "a", "tool": "b"}, "task": map[string]any{}})
 		}
 		seen, cursor := 0, any(nil)
 		for i := 0; i < 10; i++ {

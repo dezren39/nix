@@ -22,6 +22,7 @@ import (
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/settings"
+	"github.com/dezren39/mcpx/internal/spec"
 )
 
 // newFlagSet creates a command's flag set and registers every setting the
@@ -69,6 +70,9 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 		return err
 	}
 	a.adoptSettings()
+	if err := a.adoptSpec(); err != nil {
+		return err
+	}
 	if parseFlagsHook != nil {
 		return parseFlagsHook(fs)
 	}
@@ -106,6 +110,23 @@ func (a *App) adoptSettings() {
 	} else if dir := set.String("paths.cache"); dir != "" {
 		a.Paths = daemon.PathsAt(a.Paths.State, dir)
 	}
+}
+
+// adoptSpec installs the MCP revision policy (spec.precedence, spec.first,
+// spec.lenient) for this process. Process-wide because the two places that
+// consult it, the server's notification relay and the upstream client's
+// dispatch, are reached from every command that speaks MCP.
+func (a *App) adoptSpec() error {
+	if a == nil {
+		return nil
+	}
+	set := a.Settings()
+	p, err := spec.New(set.List("spec.precedence"), strings.TrimSpace(set.String("spec.first")), set.List("spec.lenient"))
+	if err != nil {
+		return err
+	}
+	spec.Set(p)
+	return nil
 }
 
 // CmdDaemon runs the daemon in the foreground.
@@ -374,6 +395,7 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 		URL         string `json:"url,omitempty"`
 		IdleTimeout string `json:"idleTimeout"`
 		CallTimeout string `json:"callTimeout"`
+		Protocol    string `json:"protocol,omitempty"`
 	}
 	out := struct {
 		Path    string   `json:"path"`
@@ -385,6 +407,7 @@ func (a *App) CmdConfig(ctx context.Context, args []string) error {
 			Name: s.Name, Namespace: s.Namespace,
 			Sharing: string(s.Sharing), Scope: string(s.Scope), Max: s.Max,
 			IdleTimeout: s.IdleTimeout.String(), CallTimeout: s.CallTimeout.String(),
+			Protocol: s.Protocol,
 		}
 		if s.Stdio() {
 			r.Transport, r.Command = "stdio", s.Command
