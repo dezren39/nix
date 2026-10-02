@@ -58,7 +58,7 @@
     },
     "datadog": {
       "command": "mcp-remote",
-      "args": ["https://mcp.datadoghq.com/v1/mcp?toolsets=core,workflows"]
+      "args": ["https://mcp.datadoghq.com/v1/mcp?toolsets=core,workflows,alerting&omit_tools=delete_datadog_workflow"]
     },
     "atlassian": {
       "command": "mcp-remote",
