@@ -651,7 +651,18 @@ lib.recursiveUpdate {
     # rather than read-only store symlinks, so anything that clears caches (./clean
     # wipes ~/Library/Caches outright) can delete them. Re-asserting them on every
     # activation is the point.
-    spotlight_exclude=${./spotlight-exclude-artifacts}
+    # spotlight-exclude-artifacts sources lib/common.sh beside itself, so it is
+    # copied together with lib/. `''${./spotlight-exclude-artifacts}` alone put
+    # the script in the store without its library, and every activation failed
+    # with "/nix/store/lib/common.sh: No such file or directory" (seen in gen
+    # 287 and 288), so no markers were ever re-asserted.
+    spotlight_exclude=${
+      pkgs.runCommandLocal "spotlight-exclude-artifacts" { } ''
+        mkdir -p $out/lib
+        cp ${./spotlight-exclude-artifacts} $out/spotlight-exclude-artifacts
+        cp ${./lib/common.sh} $out/lib/common.sh
+      ''
+    }/spotlight-exclude-artifacts
     git_maintain=${./git-maintain-repos}
     as_user="/bin/launchctl asuser $primary_uid /usr/bin/sudo -u ${config.system.primaryUser}"
     helper_env="/usr/bin/env PATH=/run/current-system/sw/bin:/usr/bin:/bin"
