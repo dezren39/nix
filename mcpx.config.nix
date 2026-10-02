@@ -46,6 +46,20 @@ let
       sharing = "exclusive";
       scope = "session";
     };
+    # Not pooling, but the same per-server mcpx block. Hidden from listings
+    # and refused if called by name. create_repository can make a public
+    # repository (private: false), or one in the personal account when
+    # organization is omitted; a fork of a public repository is public;
+    # delete_repository is irreversible (and needs a delete_repo scope the
+    # gh token lacks today). Kept: merge_pull_request, push_files and the
+    # rest -- branch protection still applies, and no tool force-pushes
+    # (both ref updates hard-code Force: false in github-mcp-server).
+    # Re-allowing create_repository for private repositories only is #355.
+    github.excludeTools = [
+      "create_repository"
+      "fork_repository"
+      "delete_repository"
+    ];
   };
 in
 {
