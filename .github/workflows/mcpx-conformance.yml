@@ -86,6 +86,13 @@ jobs:
             expect: "3 9"
           - leg: client-2025-11-25
             expect: "20 56"
+          # Also 2 SKIPPED, both permanent: http-standard-headers checks the
+          # Mcp-Method header on initialize and notifications/initialized,
+          # which a 2026-07-28 client never sends (the revision removed the
+          # handshake; a 2026-only server rejects initialize). The suite has
+          # no way to mark them not applicable. upstream.protocol
+          # prefer-initialize would send it, and is deliberately not the
+          # default.
           - leg: client-2026-07-28
             expect: "67 68"
     steps:
