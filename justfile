@@ -231,9 +231,15 @@ tidy-check *args:
     nix run .#flake-tidy -- all --check {{args}}
 
 # Run flake-tidy tests
+#
+# `uv sync` then the venv's own interpreter, not `uv run`: `uv run` holds a
+# shared lock on ~/.cache/uv for as long as its command runs, which blocks
+# `uv cache prune` (clean.sh). `&&` so a failed sync stops before testing a
+# stale environment; `.venv/bin/python` because a bare `python` is whatever is
+# first on PATH.
 [group('tidy')]
 tidy-test:
-    cd pkgs/flake-tidy && uv run pytest tests/ -v
+    cd pkgs/flake-tidy && uv sync && .venv/bin/python -m pytest tests/ -v
 
 # =============================================================================
 # Symlinks

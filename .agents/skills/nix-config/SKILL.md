@@ -64,7 +64,8 @@ Where things go:
 
 - **flake-tidy** (Python, ~3300 lines, **~134 pytest tests**) — flake input
   dedup/merge/flatten. `nix run .#flake-tidy -- all|dedup|merge|flatten [--check|--dry-run]`.
-  Tests: `just tidy-test` (`cd pkgs/flake-tidy && uv run pytest tests/ -v`).
+  Tests: `just tidy-test` (`cd pkgs/flake-tidy && uv sync && .venv/bin/python -m pytest tests/ -v`;
+  not `uv run`, which holds uv's cache lock and blocks `clean`).
 - **opencode-share** — share `.opencode` across projects via bindfs. `just share|unshare|share-status`.
 - **symlinker** — bulk symlink manager with undo. Source is `symlinker.sh` at repo
   root (not in the package dir). `just link-git`.
