@@ -1,4 +1,4 @@
-SidePulse patch 8/12 -- local, dezren39/nix#329.
+SidePulse patch 7/11 -- local, dezren39/nix#329.
 Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-328-led-writer-helper.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
@@ -530,7 +530,7 @@ index 79c7f0d..cd74766 100644
  
  
 diff --git a/src/sidepulse/led_status.py b/src/sidepulse/led_status.py
-index cafb2dc..52edb22 100644
+index e2f3968..b39c038 100644
 --- a/src/sidepulse/led_status.py
 +++ b/src/sidepulse/led_status.py
 @@ -22,6 +22,7 @@ class LedDisplayState(str, Enum):
@@ -549,10 +549,10 @@ index cafb2dc..52edb22 100644
  }
  
  
-@@ -36,6 +38,18 @@ ASK_AMBER = "#FF3A00"
- WORKING_CYAN = "#00E5FF"
+@@ -37,6 +39,18 @@ WORKING_CYAN = "#00E5FF"
  KITT_RED = "#FF1800"
  DONE_GREEN = "#00FF66"
+ IDLE_DIM = "#020204"
 +ERROR_RED = "#FF0010"
 +
 +# How far the working animation speeds up as concurrent sessions pile on. The
@@ -568,7 +568,7 @@ index cafb2dc..52edb22 100644
  DEVICE_LED_COUNTS = {
      "sidepulsedot": 2,
      "pulsedot": 2,
-@@ -73,8 +87,74 @@ class LedStatusWrite:
+@@ -74,8 +88,74 @@ class LedStatusWrite:
          return LED_STATE_LABELS[self.state]
  
  
@@ -644,14 +644,14 @@ index cafb2dc..52edb22 100644
          return LedDisplayState.ASK
      if mode in {
          AgentMode.WORKING,
-@@ -92,15 +172,28 @@ def program_for_display_state(
+@@ -93,15 +173,28 @@ def program_for_display_state(
      *,
      led_count: int = 8,
      brightness: int | float = 255,
 +    active_count: int = 1,
  ) -> str:
      if state == LedDisplayState.IDLE:
-         return "off"
+         return apply_brightness(builtin_animation_program("idle-pulse", led_count), brightness)
      if state == LedDisplayState.ASK:
          return apply_brightness(builtin_animation_program("amber-pulse", led_count), brightness)
 +    if state == LedDisplayState.ERROR:
@@ -675,7 +675,7 @@ index cafb2dc..52edb22 100644
      raise ValueError(f"Unknown LED display state: {state}")
  
  
-@@ -111,6 +204,7 @@ def program_for_agent_mode(
+@@ -112,6 +205,7 @@ def program_for_agent_mode(
      brightness: int | float = 255,
      animation_style: str = "default",
      custom_program: str = "",
@@ -683,7 +683,7 @@ index cafb2dc..52edb22 100644
  ) -> str:
      state = display_state_for_mode(mode)
      if animation_style == "custom":
-@@ -129,6 +223,19 @@ def program_for_agent_mode(
+@@ -130,6 +224,19 @@ def program_for_agent_mode(
              LedDisplayState.WORKING,
              led_count=led_count,
              brightness=brightness,
@@ -703,7 +703,7 @@ index cafb2dc..52edb22 100644
          )
      if animation_style == "amber-pulse":
          return program_for_display_state(
-@@ -180,6 +287,7 @@ def program_for_agent_mode(
+@@ -181,6 +288,7 @@ def program_for_agent_mode(
          state,
          led_count=led_count,
          brightness=brightness,
@@ -711,7 +711,7 @@ index cafb2dc..52edb22 100644
      )
  
  
-@@ -250,6 +358,7 @@ def write_mode_to_leds(
+@@ -251,6 +359,7 @@ def write_mode_to_leds(
      brightness: int | float = 255,
      animation_style: str = "default",
      custom_program: str = "",
@@ -719,7 +719,7 @@ index cafb2dc..52edb22 100644
  ) -> LedStatusWrite:
      target = resolve_target_path(device_path=device_path, file_name=file_name)
      state = display_state_for_mode(mode)
-@@ -259,6 +368,7 @@ def write_mode_to_leds(
+@@ -260,6 +369,7 @@ def write_mode_to_leds(
          brightness=brightness,
          animation_style=animation_style,
          custom_program=custom_program,
@@ -727,7 +727,7 @@ index cafb2dc..52edb22 100644
      )
      written_target = write_led_program(
          program,
-@@ -334,7 +444,7 @@ class AgentLedController:
+@@ -335,7 +445,7 @@ class AgentLedController:
          self.brightness = normalize_brightness(brightness)
          self.last_state: LedDisplayState | None = None
          self.last_brightness: int | None = None
@@ -736,7 +736,7 @@ index cafb2dc..52edb22 100644
          self.last_program: str | None = None
          self.last_error: str | None = None
          self.last_target: Path | None = None
-@@ -365,12 +475,23 @@ class AgentLedController:
+@@ -366,12 +476,23 @@ class AgentLedController:
          *,
          animation_style: str = "default",
          custom_program: str = "",
@@ -760,7 +760,7 @@ index cafb2dc..52edb22 100644
          )
          now = time.monotonic()
          if (
-@@ -411,6 +532,7 @@ class AgentLedController:
+@@ -412,6 +533,7 @@ class AgentLedController:
                  brightness=brightness,
                  animation_style=animation_style,
                  custom_program=custom_program,
@@ -1721,7 +1721,7 @@ index 0000000..850aa8c
 +    stale = (status("opencode:session:done", AgentMode.COMPLETED, session_id="done"),)
 +    assert w.newly_completed(fresh + stale) == ("opencode:session:done",)
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index d01ccc0..12236ef 100644
+index 760b4df..3d587e3 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -151,6 +151,7 @@ from sidepulse.settings import (
@@ -1756,7 +1756,7 @@ index d01ccc0..12236ef 100644
          )
          menu = status_bar.build_menu(snapshot, status_bar.STATE_IDLE, target)
          by_title = {
-@@ -5032,7 +5036,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -5034,7 +5038,7 @@ class AgentMonitorTests(unittest.TestCase):
          )
          self.assertEqual(
              program_for_display_state(LedDisplayState.DONE),
@@ -1765,7 +1765,7 @@ index d01ccc0..12236ef 100644
          )
          self.assertIn("#FF3A00 1.6s pulse", program_for_display_state(LedDisplayState.ASK))
          self.assertEqual(
-@@ -5156,7 +5160,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -5158,7 +5162,7 @@ class AgentMonitorTests(unittest.TestCase):
          )
          self.assertEqual(
              builtin_animation_program(AGENT_ANIMATION_PURPLE_COMPLETE, 8),
@@ -1774,7 +1774,7 @@ index d01ccc0..12236ef 100644
          )
          self.assertIn(
              "#FF00FF 220ms ease",
-@@ -5199,7 +5203,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -5201,7 +5205,7 @@ class AgentMonitorTests(unittest.TestCase):
                  AGENT_ANIMATION_PURPLE_ATTENTION,
              ),
              (
@@ -1783,7 +1783,7 @@ index d01ccc0..12236ef 100644
                  AGENT_ANIMATION_EMBER_COMPLETE,
                  AGENT_ANIMATION_PURPLE_COMPLETE,
              ),
-@@ -6520,7 +6524,7 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6522,7 +6526,7 @@ class AgentMonitorTests(unittest.TestCase):
              )
              self.assertEqual(
                  loaded.agent_animation(AgentMode.COMPLETED).style,
@@ -1792,7 +1792,7 @@ index d01ccc0..12236ef 100644
              )
  
              custom_path.write_text("brightness 128\n#123456\n")
-@@ -6550,6 +6554,8 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -6552,6 +6556,8 @@ class AgentMonitorTests(unittest.TestCase):
              AGENT_ANIMATION_CYAN_COMPLETE,
              AGENT_ANIMATION_AMBER_PULSE,
              AGENT_ANIMATION_SOLID_GREEN,

@@ -23,7 +23,6 @@ python3Packages.buildPythonApplication rec {
     ./../../patches/sidepulse-pr-17-status-bar-runtime.patch
     ./../../patches/sidepulse-pr-26-lid-closed-leds.patch
     ./../../patches/sidepulse-pr-28-dnd.patch
-    ./../../patches/sidepulse-pr-29-kitt.patch
     ./../../patches/sidepulse-pr-30-stuck-status.patch
     ./../../patches/sidepulse-dezren39-nix-328-led-writer-helper.patch
     ./../../patches/sidepulse-dezren39-nix-329-led-error-and-concurrency.patch

@@ -1,4 +1,4 @@
-SidePulse patch 10/12 -- local, dezren39/nix#331.
+SidePulse patch 9/11 -- local, dezren39/nix#331.
 Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-330-completion-hold-until-seen.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 

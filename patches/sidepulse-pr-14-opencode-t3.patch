@@ -1,4 +1,4 @@
-SidePulse patch 1/12 -- upstream PR inteliwear/sidepulse#14 "Add OpenCode and T3 Code support" (open).
+SidePulse patch 1/11 -- upstream PR inteliwear/sidepulse#14 "Add OpenCode and T3 Code support" (open).
 Applies to inteliwear/sidepulse 6d55225 directly, at zero fuzz.
 Tracking: dezren39/nix#327.
 

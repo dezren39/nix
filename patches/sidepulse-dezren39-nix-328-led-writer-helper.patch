@@ -1,4 +1,4 @@
-SidePulse patch 7/12 -- local, dezren39/nix#328.
+SidePulse patch 6/11 -- local, dezren39/nix#328.
 Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-30-stuck-status.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
@@ -788,10 +788,10 @@ index 0000000..d46b0af
 +}
 diff --git a/tests/test_led_writer.py b/tests/test_led_writer.py
 new file mode 100644
-index 0000000..1553509
+index 0000000..c6c9e95
 --- /dev/null
 +++ b/tests/test_led_writer.py
-@@ -0,0 +1,411 @@
+@@ -0,0 +1,412 @@
 +"""Tests for the fixed-path native LED writer helper.
 +
 +The helper exists so a Removable Volumes TCC grant can outlive interpreter
@@ -1174,7 +1174,8 @@ index 0000000..1553509
 +            readonly.assert_called_once_with(target, "off")
 +
 +    def test_readonly_failure_after_helper_failure_propagates(self) -> None:
-+        # Old firmware has no STATUS.TXT, so the read-only transport refuses.
++        # Firmware before 1.1 (this machine's Dot reports 1.0.4) is refused by
++        # the read-only transport.
 +        # With the helper also unavailable that refusal is the error raised.
 +        with tempfile.TemporaryDirectory() as tmp:
 +            with (
@@ -1182,7 +1183,7 @@ index 0000000..1553509
 +                self.deny_open(errno.EPERM),
 +                patch(
 +                    "sidepulse.readonly_control.write_readonly_program",
-+                    side_effect=device_writer.DeviceWriteError("no STATUS.TXT"),
++                    side_effect=device_writer.DeviceWriteError("requires firmware 1.1"),
 +                ),
 +                self.assertRaises(device_writer.DeviceWriteError),
 +            ):
@@ -1204,7 +1205,7 @@ index 0000000..1553509
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 636ba87..d01ccc0 100644
+index b1d8445..760b4df 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -4691,6 +4691,12 @@ class AgentMonitorTests(unittest.TestCase):

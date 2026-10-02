@@ -1,4 +1,4 @@
-SidePulse patch 2/12 -- upstream PR inteliwear/sidepulse#17 "Polish local status bar runtime" (open).
+SidePulse patch 2/11 -- upstream PR inteliwear/sidepulse#17 "Polish local status bar runtime" (open).
 Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-14-opencode-t3.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 

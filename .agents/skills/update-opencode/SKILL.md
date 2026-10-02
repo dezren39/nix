@@ -489,7 +489,7 @@ user request to "use just build to commit" is that request.
   `pkgs/opencode2/package.nix` deletes that line inside the fixed-output
   node_modules build; then update `outputHash` from `got:`.
 - **Unrestricted `nix flake update` moves `sidepulse-src`.** Its lock pin is the
-  revision the 12 sidepulse patches target (`patches/sidepulse-pr-*` for
+  revision the sidepulse patches target (`patches/sidepulse-pr-*` for
   upstream PRs, `patches/sidepulse-dezren39-nix-*` for local ones; list in
   `pkgs/sidepulse/default.nix`). If they stop applying, restore the previous
   `sidepulse-src` lock node rather than porting the stack unasked. When asked

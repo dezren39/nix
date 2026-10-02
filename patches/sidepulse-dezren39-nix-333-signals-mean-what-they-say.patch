@@ -1,4 +1,4 @@
-SidePulse patch 12/12 -- local, dezren39/nix#333.
+SidePulse patch 11/11 -- local, dezren39/nix#333.
 Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-332-multi-signal-composition.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
@@ -828,10 +828,10 @@ index 218d525..8f95d96 100644
 +    assert FakeQuartz.kCGEventKeyDown in FakeQuartz.asked
 +    assert FakeQuartz.kCGEventScrollWheel in FakeQuartz.asked
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index cfc89da..3c8af87 100644
+index 9f0ec3d..86e5d6a 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -8526,8 +8526,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -8528,8 +8528,11 @@ class AgentMonitorTests(unittest.TestCase):
              ).snapshot()
  
              self.assertEqual(len(snapshot.statuses), len(providers))
@@ -844,7 +844,7 @@ index cfc89da..3c8af87 100644
              )
              self.assertTrue(all(status.origin == "T3 Code" for status in snapshot.statuses))
              self.assertEqual(
-@@ -9181,9 +9184,14 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -9183,9 +9186,14 @@ class AgentMonitorTests(unittest.TestCase):
              canon("turn.completed", {"state": "failed", "stopReason": "error"})
          )
  
@@ -860,7 +860,7 @@ index cfc89da..3c8af87 100644
          )
          self.assertEqual(
              collector_module.status_from_event(ok_item).mode,
-@@ -9353,9 +9361,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -9355,9 +9363,11 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertIsNone(collector_module.parse_t3code_event_line(canon(None)))
          reached = collector_module.parse_t3code_event_line(canon("primary"))
          self.assertIsNotNone(reached)

@@ -6,7 +6,7 @@ where each patch comes from:
 
 | File name | Source |
 | --- | --- |
-| `sidepulse-pr-N-*.patch` | upstream pull request inteliwear/sidepulse#N (14, 17, 26 open; 28, 29, 30 closed unmerged) |
+| `sidepulse-pr-N-*.patch` | upstream pull request inteliwear/sidepulse#N (14, 17, 26 open; 28, 30 closed unmerged). #29 (idle LEDs off) was dropped 2026-10-02: the same result is the `immediate-off` idle style in settings |
 | `sidepulse-dezren39-nix-N-*.patch` | local, no upstream counterpart; documented in dezren39/nix#N |
 
 The local patches are #328 (fixed-path LED writer helper), #329 (red error

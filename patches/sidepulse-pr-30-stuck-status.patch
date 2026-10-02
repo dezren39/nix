@@ -1,5 +1,5 @@
-SidePulse patch 6/12 -- upstream PR inteliwear/sidepulse#30 "Fix stale and stuck session states in the status bar" (closed unmerged).
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-29-kitt.patch, at zero fuzz.
+SidePulse patch 5/11 -- upstream PR inteliwear/sidepulse#30 "Fix stale and stuck session states in the status bar" (closed unmerged).
+Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-28-dnd.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
@@ -213,7 +213,7 @@ index d5ce2e5..052a274 100644
      )
      return tuple(statuses)
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 81c23da..636ba87 100644
+index f08037b..b1d8445 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -238,6 +238,78 @@ class FakeProcess:

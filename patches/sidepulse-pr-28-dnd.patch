@@ -1,4 +1,4 @@
-SidePulse patch 4/12 -- upstream PR inteliwear/sidepulse#28 "Add manual and scheduled Do Not Disturb mode" (closed unmerged by its author).
+SidePulse patch 4/11 -- upstream PR inteliwear/sidepulse#28 "Add manual and scheduled Do Not Disturb mode" (closed unmerged by its author).
 Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-26-lid-closed-leds.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 

@@ -1,4 +1,4 @@
-SidePulse patch 9/12 -- local, dezren39/nix#330.
+SidePulse patch 8/11 -- local, dezren39/nix#330.
 Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-329-led-error-and-concurrency.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
