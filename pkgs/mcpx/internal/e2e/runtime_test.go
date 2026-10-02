@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -66,6 +67,31 @@ func TestSessionIsolationHoldsOnEveryRuntime(t *testing.T) {
 			}
 			if !strings.Contains(out, `"b"`) {
 				t.Fatalf("%s: session b lost its own state:\n%s", rt, out)
+			}
+		})
+	}
+}
+
+// TestDenoExitWorksOnEveryRuntime: the launcher gives bun and node a Deno
+// global so a script written against Deno.args runs anywhere. A script that
+// reads Deno.args to parse its usage then exits with Deno.exit(2) -- and on
+// bun and node that threw "Deno.exit is not a function" instead of exiting
+// with the code it asked for.
+func TestDenoExitWorksOnEveryRuntime(t *testing.T) {
+	for _, rt := range []string{"deno", "bun", "node"} {
+		t.Run(rt, func(t *testing.T) {
+			if _, err := exec.LookPath(rt); err != nil {
+				t.Skipf("%s not installed", rt)
+			}
+			e := newEnv(t, oneServer)
+			out, err := e.try("exec", "--runtime", rt,
+				`console.log("before"); (globalThis as any).Deno.exit(3); console.log("after");`)
+			var ee *exec.ExitError
+			if !errors.As(err, &ee) || ee.ExitCode() != 3 {
+				t.Fatalf("%s: err = %v, want exit status 3\n%s", rt, err, out)
+			}
+			if !strings.Contains(out, "before") || strings.Contains(out, "after") {
+				t.Fatalf("%s: Deno.exit did not stop the script where it was called:\n%s", rt, out)
 			}
 		})
 	}

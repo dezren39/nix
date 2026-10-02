@@ -2,8 +2,8 @@
 
 ```
 created:      2026-09-30T12:00:00-05:00
-last-updated: 2026-09-30T23:00:00-05:00
-increment:    3
+last-updated: 2026-10-01T19:30:00-05:00
+increment:    4
 status:       standard
 tags:         area:protocol, area:spec
 description:  what modelcontextprotocol/conformance says about mcpx as a
@@ -39,8 +39,10 @@ side drops, fails the job at once until it is removed. See
 Each leg's summary shows every status the suite recorded: passed, failed,
 **skipped**, warning and info. A skipped check passes nothing, so the records
 job fails any run with more skipped checks than the record on `main`, and the
-record's skip count only moves down. At the time of writing, 2026-07-28 skips
-2, `--suite all` 44, and the 2026-07-28 client run 6. The Go tests have the
+record's skip count only moves down. The table below lists every skip still
+standing, by name; `--suite all` skipped 7 of 280 checks at `650bf19` and 1 of
+280 after `resources/directory/read` landed (`LEGS=server-all
+scripts/conformance.sh`, counted from `checks.json`). The Go tests have the
 same rule, through the repository variable `MCPX_GO_TESTS` written by
 `scripts/gotest-report.py` (32 on the Linux runner: 28 recorded gaps or spec
 quirks and two macOS-only tests). Both kinds of record keep the **names** of
@@ -55,13 +57,14 @@ here with its reason; anything not listed is a regression the records catch.
 | --- | --- | --- |
 | client 2026-07-28 | `http-standard-headers` for `initialize` and `notifications/initialized` (2) | A 2026-07-28 client never sends either: the revision removed the handshake. The suite checks the header on every method it knows and has no way to mark these not applicable. Permanent. |
 | server 2026-07-28, `--suite all` | `tasks-status-notifications` (1 each) | The suite skips it unconditionally: `src/scenarios/server/tasks/notifications.ts` returns SKIPPED with "pending subscriptions/listen rewrite". mcpx does deliver task status on a `subscriptions/listen` stream; `TestListenDeliversTaskStatusNotifications` covers it. Until the suite is rewritten. |
-| server `--suite all` | `sep-2640-skills-directory` (6) | `resources/directory/read` is optional, and the scenario needs a skill folder with a subfolder. Every mcpx skill is one `SKILL.md`, so declaring it would fail rather than pass. Recorded in `../in-name-only.md`. |
 
-Skipped checks: 10 of 1,014, all above. Skipped Go tests: 0.
+Skipped checks: 4 of 1,014, all above. Skipped Go tests: 0.
 
 Exceptions that were skips and are not any more: every conformance gap
 (#200, #201, #203, #209, #212, #77) whose test was skipped while the gap
-stood, 36 of the 42 skills checks, the 2026-07-28 header checks
+stood, all 42 skills checks (the last six, `sep-2640-skills-directory`,
+since mcpx serves `resources/directory/read` and `mcpx-basics` has an
+`examples/` subfolder for the subdirectory check to find), the 2026-07-28 header checks
 for `resources/read` and `prompts/get` (the conformance adapter now reads
 every resource and gets every prompt in that scenario); one Go subtest for a
 method that was never applicable (`initialize` on a legacy connection, now not

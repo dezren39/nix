@@ -730,6 +730,8 @@ func (s *Server) handle(ctx context.Context, c *Conn, req request) *response {
 		return s.handleTask(ctx, c, req, peer)
 	case "skills/list", "skills/get":
 		return s.handleSkills(ctx, req)
+	case "resources/directory/read":
+		return s.handleDirectoryRead(ctx, req)
 	case "tools/call":
 		// Finding the tool is the protocol's business, running it the
 		// tool's: an unknown name is -32602, in every revision, before a
@@ -2229,10 +2231,10 @@ func (s *Server) capabilities(ctx context.Context, version string, c *Conn) map[
 			ExtTasks: map[string]any{},
 		}
 		if len(s.skills()) > 0 {
-			// An empty object: skills/list and skills/get, without the
-			// optional resources/directory/read, which mcpx's single-file
-			// skills would give nothing to list.
-			caps["extensions"].(map[string]any)[ExtSkills] = map[string]any{}
+			// directoryRead: resources/directory/read lists any
+			// directory of a served skill. Declared only here, where
+			// skills are served, since it lists nothing else.
+			caps["extensions"].(map[string]any)[ExtSkills] = map[string]any{"directoryRead": true}
 		}
 	}
 	return caps

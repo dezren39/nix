@@ -123,3 +123,155 @@ func TestSkillsListGetRead(t *testing.T) {
 		t.Errorf("skills/get on an unserved uri = %v, want -32602", bad)
 	}
 }
+
+// diskFiles is every file of skill name on disk, keyed by its skill:// URI.
+func diskFiles(t *testing.T, name string) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	root := filepath.Join(skillsDir, name)
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		b, err := os.ReadFile(p)
+		out["skill://mcpx/"+name+"/"+filepath.ToSlash(rel)] = b
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Every file of a skill, not only its SKILL.md, is in its entry with the
+// digest and size of the bytes on disk, and is readable.
+func TestSkillEntriesListEveryFile(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	supporting := 0
+	for name := range diskSkills(t) {
+		want := diskFiles(t, name)
+		supporting += len(want) - 1
+		got := resultOf(t, handle(t, s, "skills/get",
+			modernParams(map[string]any{"uri": "skill://mcpx/" + name + "/SKILL.md"})))["skill"].(map[string]any)["resources"].([]any)
+		if len(got) != len(want) {
+			t.Errorf("%s: entry lists %d files, disk has %d", name, len(got), len(want))
+		}
+		for _, r := range got {
+			m := r.(map[string]any)
+			uri := m["uri"].(string)
+			body, ok := want[uri]
+			sum := sha256.Sum256(body)
+			if !ok || m["digest"] != "sha256:"+hex.EncodeToString(sum[:]) || int(m["size"].(float64)) != len(body) {
+				t.Errorf("%s does not describe a file on disk: %v", uri, m)
+			}
+			c := resultOf(t, handle(t, s, "resources/read", modernParams(map[string]any{"uri": uri})))["contents"].([]any)[0].(map[string]any)
+			if c["text"] != string(body) {
+				t.Errorf("resources/read %s did not return the file on disk", uri)
+			}
+		}
+	}
+	if supporting == 0 {
+		t.Fatal("no skill has a supporting file; this test checks nothing beyond SKILL.md")
+	}
+}
+
+// resources/directory/read, checked against every directory of every skill
+// on disk: its direct children, subdirectories as inode/directory, all of
+// them across pages.
+func TestDirectoryReadListsEveryDirectoryOnDisk(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	caps := resultOf(t, handle(t, s, "server/discover", modernParams(nil)))["capabilities"].(map[string]any)
+	if ext := caps["extensions"].(map[string]any)[mcpserver.ExtSkills].(map[string]any); ext["directoryRead"] != true {
+		t.Fatalf("skills extension = %v, want directoryRead: true", ext)
+	}
+	// One child per page, so every directory with two or more children is
+	// read through nextCursor.
+	s.PageSize = 1
+
+	readAll := func(uri string) map[string]string {
+		t.Helper()
+		out := map[string]string{}
+		params := map[string]any{"uri": uri}
+		for range 1000 {
+			res := resultOf(t, handle(t, s, "resources/directory/read", modernParams(params)))
+			for _, r := range res["resources"].([]any) {
+				m := r.(map[string]any)
+				out[m["uri"].(string)], _ = m["mimeType"].(string)
+			}
+			next, _ := res["nextCursor"].(string)
+			if next == "" {
+				return out
+			}
+			params = map[string]any{"uri": uri, "cursor": next}
+		}
+		t.Fatalf("%s: pagination never ended", uri)
+		return nil
+	}
+
+	dirs, subdirs := 0, 0
+	for name := range diskSkills(t) {
+		root := filepath.Join(skillsDir, name)
+		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err != nil || !d.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(root, p)
+			uri := "skill://mcpx/" + name
+			if rel != "." {
+				uri += "/" + filepath.ToSlash(rel)
+			}
+			ents, err := os.ReadDir(p)
+			if err != nil {
+				return err
+			}
+			want := map[string]bool{}
+			for _, e := range ents {
+				want[uri+"/"+e.Name()] = e.IsDir()
+			}
+			got := readAll(uri)
+			dirs++
+			if len(got) != len(want) {
+				t.Errorf("%s: %d children listed, disk has %d: %v", uri, len(got), len(want), got)
+			}
+			for u, isDir := range want {
+				mt, ok := got[u]
+				switch {
+				case !ok:
+					t.Errorf("%s: child %s missing", uri, u)
+				case isDir && mt != "inode/directory":
+					t.Errorf("%s: subdirectory listed as %q", u, mt)
+				case !isDir && (mt == "" || mt == "inode/directory"):
+					t.Errorf("%s: file listed as %q", u, mt)
+				}
+				if isDir {
+					subdirs++
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if subdirs == 0 {
+		t.Fatal("no skill has a subdirectory; the inode/directory case went untested")
+	}
+	t.Logf("%d directories, %d subdirectories", dirs, subdirs)
+
+	for _, bad := range []string{"skill://mcpx/mcpx-basics/SKILL.md", "skill://mcpx/nope", "demo://greeting", ""} {
+		if c := errCode(handle(t, s, "resources/directory/read", modernParams(map[string]any{"uri": bad}))); c != -32602 {
+			t.Errorf("directory read of %q = %d, want -32602", bad, c)
+		}
+	}
+	// A trailing slash names the same directory.
+	if got := readAll("skill://mcpx/mcpx-basics/"); len(got) == 0 {
+		t.Error("a trailing slash lost the directory")
+	}
+
+	// Declared only where skills are served.
+	s.ExtrasOnly = true
+	if c := errCode(handle(t, s, "resources/directory/read", modernParams(map[string]any{"uri": "skill://mcpx/mcpx-basics"}))); c != -32602 {
+		t.Errorf("ExtrasOnly serves a skill directory: code %d", c)
+	}
+}

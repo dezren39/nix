@@ -1,12 +1,16 @@
 ---
 name: mcpx-basics
-description: Use when reaching an MCP server through mcpx - listing what exists, reading tool signatures, or writing a script that calls tools. Covers why to filter in the script rather than in your context.
+description: Use when reaching an MCP server through mcpx - installing and configuring it for the first time, listing what exists, reading tool signatures, or writing a script that calls tools. Has a getting-started guide and runnable example scripts, and covers why to filter in the script rather than in your context.
 ---
 
 # Reaching MCP servers through mcpx
 
 Tools are not in your context. They are behind `mcpx`, and you get at them by
 writing a script.
+
+New to mcpx -- nothing installed, no config yet? Read `getting-started.md`
+beside this file first. `examples/` holds working scripts; `examples/README.md`
+says what each one shows.
 
 ## The loop
 
@@ -22,13 +26,20 @@ characters; on one you have chosen it is the thing you needed.
 
 ## Writing the script
 
-Tools are bound as async functions under `tools`:
+Tools are bound as async functions under `tools`, and each namespace is also
+a global:
 
 ```ts
-const hits = await tools.fff.grep({ query: "parseConfig" });
-const files = JSON.parse(hits.content[0].text).map((h: any) => h.path);
-console.log(files.slice(0, 10).join("\n"));
+const r = await tools.fs.list_directory({ path: "/abs/path" });
+const ts = r.content.split("\n").filter((l: string) => l.endsWith(".ts"));
+console.log(ts.length, "TypeScript files\n" + ts.slice(0, 10).join("\n"));
 ```
+
+A result arrives **unwrapped**: structured content and JSON-in-text are
+already parsed, plain text is a string. Do not reach into `.content[0].text`;
+the MCP envelope, where image bytes live, is on `.raw`. A tool answering
+`isError` throws `ToolError` (`examples/handle-errors.ts`). Not sure of the
+shape? Print `typeof r` and `Object.keys(r)` before anything else.
 
 **Only what you print comes back.** That is the whole point. A search that
 returns 200KB of JSON costs you nothing if the script prints ten paths.
@@ -39,10 +50,16 @@ tool exists to prevent.
 
 ## Useful built-ins
 
+- `search(words)` and `describe("ns.tool")` find and explain tools without
+  leaving the script (`examples/find-tool.ts`)
+- `call(ns, tool, args)` calls by name, for a tool chosen at run time
+- `artifact(name, data)` keeps a file and returns a small reference
+  (`examples/save-artifact.ts`)
 - `emit(value)` streams a result as the script runs
 - `log.info("msg", { k: v })` writes a structured record
 - `console.log` is stdout, which is the script's answer
 - top-level `await` works
+- `Deno.args` holds `mcpx run` arguments on deno, bun and node alike
 
 ## When something fails
 
