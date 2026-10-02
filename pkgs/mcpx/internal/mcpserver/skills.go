@@ -59,6 +59,8 @@ type skill struct {
 	uri               string // the SKILL.md
 	frontmatter       map[string]any
 	files             []skillFile // SKILL.md first
+	root              string      // skill://mcpx/<name>, the skill's directory
+	dirs              []string    // every directory's URI, root included
 }
 
 // entry is the skill in the shape skills/list and skills/get share.
@@ -117,10 +119,16 @@ func loadSkill(fsys fs.FS, name string) (*skill, error) {
 		return nil, fmt.Errorf("frontmatter has no description")
 	}
 	k := &skill{name: name, description: desc, uri: root + "/SKILL.md", frontmatter: fm,
-		files: []skillFile{{uri: root + "/SKILL.md", mime: "text/markdown", body: md}}}
+		files: []skillFile{{uri: root + "/SKILL.md", mime: "text/markdown", body: md}}, root: root}
 	err = fs.WalkDir(fsys, name, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || p == name+"/SKILL.md" {
+		if err != nil || p == name+"/SKILL.md" {
 			return err
+		}
+		if d.IsDir() {
+			// Recorded separately from the files so an empty directory is
+			// still a directory resources/directory/read can list.
+			k.dirs = append(k.dirs, root+strings.TrimPrefix(p, name))
+			return nil
 		}
 		body, err := fs.ReadFile(fsys, p)
 		if err != nil {
@@ -172,18 +180,25 @@ func (s *Server) skills() []*skill {
 	return ks
 }
 
+// fileRef is a skill file as a resource listing entry. The SKILL.md
+// carries the skill's name and description, as the extension asks.
+func (k *skill) fileRef(i int) ResourceRef {
+	f := k.files[i]
+	size := int64(len(f.body))
+	r := ResourceRef{URI: f.uri, Name: path.Base(f.uri), MimeType: f.mime, Size: &size}
+	if i == 0 {
+		r.Name, r.Description = k.name, k.description
+	}
+	return r
+}
+
 // skillResources is every skill file as a resources/list entry. The SKILL.md
 // carries the skill's name and description, as the extension asks.
 func (s *Server) skillResources() []ResourceRef {
 	var out []ResourceRef
 	for _, k := range s.skills() {
-		for i, f := range k.files {
-			size := int64(len(f.body))
-			r := ResourceRef{URI: f.uri, Name: path.Base(f.uri), MimeType: f.mime, Size: &size}
-			if i == 0 {
-				r.Name, r.Description = k.name, k.description
-			}
-			out = append(out, r)
+		for i := range k.files {
+			out = append(out, k.fileRef(i))
 		}
 	}
 	return out
@@ -245,3 +260,76 @@ func (s *Server) handleSkills(_ context.Context, req request) *response {
 	}
 	return reply(out)
 }
+
+// dirMime marks a directory resource (SEP-2640, Directory Listing).
+const dirMime = "inode/directory"
+
+// handleDirectoryRead answers resources/directory/read: the direct children
+// of a directory inside a served skill, files with the metadata
+// resources/list gives them and subdirectories as inode/directory
+// resources. Not recursive; a client descends by asking again. Anything that
+// is not a served directory -- a file, an unknown URI -- is -32602, the code
+// resources/read uses for an unknown resource.
+func (s *Server) handleDirectoryRead(_ context.Context, req request) *response {
+	fail := func(msg string) *response {
+		return &response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: codeInvalidParams, Message: msg}}
+	}
+	var p struct {
+		URI string `json:"uri"`
+	}
+	if len(req.Params) == 0 || json.Unmarshal(req.Params, &p) != nil || p.URI == "" {
+		return fail("resources/directory/read needs a uri")
+	}
+	// A trailing slash names the same directory.
+	dir := strings.TrimSuffix(p.URI, "/")
+	children, ok := dirChildren(s.skills(), dir)
+	if !ok {
+		return fail(fmt.Sprintf("%q is not a directory this server serves", p.URI))
+	}
+	items, next, err := page(children, req.Params, s.pageSize())
+	if err != nil {
+		return fail(err.Error())
+	}
+	out := map[string]any{"resources": items}
+	if next != "" {
+		out["nextCursor"] = next
+	}
+	return &response{JSONRPC: "2.0", ID: req.ID, Result: out}
+}
+
+// dirChildren lists dir's direct children sorted by URI, or reports false
+// when dir is not a directory of one of ks.
+func dirChildren(ks []*skill, dir string) ([]ResourceRef, bool) {
+	for _, k := range ks {
+		if dir != k.root && !strings.HasPrefix(dir, k.root+"/") {
+			continue
+		}
+		known := false
+		var out []ResourceRef
+		for _, d := range k.dirs {
+			if d == dir {
+				known = true
+			} else if parentURI(d) == dir {
+				out = append(out, ResourceRef{URI: d, Name: path.Base(d), MimeType: dirMime})
+			}
+		}
+		if !known {
+			return nil, false
+		}
+		for i, f := range k.files {
+			if parentURI(f.uri) == dir {
+				out = append(out, k.fileRef(i))
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].URI < out[j].URI })
+		if out == nil {
+			out = []ResourceRef{} // an empty directory is an empty array, not null
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// parentURI is the URI up to its last slash. Not path.Dir, which cleans the
+// scheme's "//" down to one.
+func parentURI(u string) string { return u[:max(strings.LastIndexByte(u, '/'), 0)] }
