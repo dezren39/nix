@@ -622,8 +622,18 @@ lib.recursiveUpdate {
     # Disable Spotlight indexing on /nix (huge read-only store, never useful).
     # /nix is its own APFS volume, so the marker + mdutil cover the whole store,
     # including the nix cache under /nix/var.
+    #
+    # The Determinate installer mounts /nix `nobrowse` (/etc/fstab), and
+    # Spotlight does not manage nobrowse volumes at all: `mdutil -s /nix` says
+    # "unknown indexing state" and `mdutil -i off /nix` fails with -400,
+    # printing both to stdout, so `2>/dev/null` never hid them. Checked
+    # 2026-10-02: the volume has no .Spotlight-V100 and `mdfind -onlyin /nix`
+    # returns nothing inside it. So `-i off` runs only if Spotlight ever
+    # reports indexing enabled there (e.g. the mount option is dropped).
     if [ -d /nix ]; then
-      /usr/bin/mdutil -i off /nix 2>/dev/null || true
+      if /usr/bin/mdutil -s /nix 2>&1 | grep -q "Indexing enabled"; then
+        /usr/bin/mdutil -i off /nix || true
+      fi
       # Marker file tells Spotlight to never index this volume/directory
       /usr/bin/touch /nix/.metadata_never_index 2>/dev/null || true
     fi
