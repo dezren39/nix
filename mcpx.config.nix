@@ -5,7 +5,14 @@
 # in lootbox.config.json; only what differs for mcpx lives here.
 #
 # Plain data, no secrets: every server here runs locally or authenticates on
-# its own (context7 goes through mcp-remote, which does its own OAuth).
+# its own. context7 and datadog go through mcp-remote, which runs the OAuth
+# login in a browser and keeps the tokens in ~/.mcp-auth, so nothing secret
+# is in this repo.
+#
+# datadog: US1 (mcp.datadoghq.com). Toolsets core (logs, metrics, traces,
+# dashboards, monitors, incidents) and workflows; others are listed at
+# https://docs.datadoghq.com/mcp_server/setup#toolsets. Changing the URL,
+# toolsets included, is a new identity to mcp-remote and needs a new login.
 { lib }:
 let
   lootbox = builtins.fromJSON (builtins.readFile ./lootbox.config.json);

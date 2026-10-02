@@ -55,6 +55,10 @@
     "context7": {
       "command": "mcp-remote",
       "args": ["https://mcp.context7.com/mcp"]
+    },
+    "datadog": {
+      "command": "mcp-remote",
+      "args": ["https://mcp.datadoghq.com/v1/mcp?toolsets=core,workflows"]
     }
   }
 }
