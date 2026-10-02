@@ -423,12 +423,11 @@ lib.recursiveUpdate {
     # ];
   };
   nix = {
+    # Determinate Nix owns the daemon and nix.conf. With this false nix-darwin
+    # writes no Nix config, so `nix.settings` and `nix.package` here are inert;
+    # settings go through determinateNix.customSettings (nix.settings.nix), and
+    # the Nix version comes from `sudo determinate-nixd upgrade`.
     enable = false;
-    # package = pkgs.nixVersions.nix_2_24;
-    package = lib.mkForce pkgs.nixVersions.git; # forcing because determinate nix wants an older version, if problems try commenting the above line and reverting to the determinate nix version, probably 2.24.10 or something
-    # package = pkgs.nixVersions.nix_2_25;
-    # package = pkgs.nixVersions.nix_2_26;
-    # package = pkgs.nixVersions.nix_2_42;
   };
   #   configureBuildUsers = true;
   #   extraOptions = ''

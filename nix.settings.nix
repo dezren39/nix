@@ -1,108 +1,82 @@
 {
-  # nix.optimise.automatic = true;
-  nix.settings = {
-    # unfortunately can't import, but this should be equal to flake.nix
-    experimental-features = [
-      "auto-allocate-uids"
-      "ca-derivations"
-      "cgroups"
-      "dynamic-derivations"
-      "fetch-closure"
-      "flakes"
-      "git-hashing"
-      # "local-overlay-store" # look into this
-      # "mounted-ssh-store" # look into this
-      "nix-command"
-      # "no-url-literals" # <- removed no-url-literals for flakehub testing
-      "parse-toml-timestamps"
-      "pipe-operators"
-      "read-only-local-store"
-      "recursive-nix"
-      "verified-fetches"
+  # Nix settings, delivered through the Determinate nix-darwin module.
+  #
+  # Determinate Nix owns the daemon and /etc/nix/nix.conf, so configuration.nix
+  # sets `nix.enable = false` and nix-darwin writes no Nix config at all. This
+  # file used to set `nix.settings`, which was therefore entirely inert: checked
+  # 2026-10-02, `nix config show` reported experimental-features = "fetch-tree
+  # flakes nix-command" and only cache.nixos.org, none of what was listed here.
+  # `determinateNix.customSettings` is the supported path; the module writes it
+  # to /etc/nix/nix.custom.conf, which nix.conf includes. Verify a change with
+  # `nix config show <key>` after `just switch`, not by reading this file.
+  #
+  # The module rejects the settings Determinate manages itself
+  # (bash-prompt-prefix, external-builders, extra-nix-path, netrc-file,
+  # ssl-cert-file, upgrade-nix-store-path-url). Determinate Nix 3 already
+  # enables lazy-trees and parallel evaluation (eval-cores = 0, all cores), and
+  # flakes / nix-command are stable there, so none of those are listed.
+  determinateNix.customSettings = {
+    # Every one of these only *allows* derivations or expressions that opt in;
+    # nothing already building changes. Each name was checked against
+    # `nix __dump-xp-features` on Determinate Nix 3.22.5 (2.35.2), because an
+    # unknown feature is an error. Dropped from the old list: auto-allocate-uids
+    # and cgroups (Linux-only), read-only-local-store (for mounting another
+    # machine's store).
+    extra-experimental-features = [
+      "ca-derivations" # content-addressed outputs: identical results dedupe, rebuilds stop early
+      "recursive-nix" # builds may call nix themselves
+      "dynamic-derivations" # derivations that produce derivations
+      "fetch-closure" # builtins.fetchClosure: pull a prebuilt closure by path
+      "git-hashing" # git tree/blob hashes for store objects
+      "pipe-operators" # |> and <| in the Nix language
+      "parse-toml-timestamps" # builtins.fromTOML keeps timestamps
+      "verified-fetches" # verify signed git commits in fetchGit
+      "parallel-eval" # builtins.parallel (Determinate)
+      "provenance" # record where each store path came from (Determinate)
     ];
-    trusted-users = [ "root" ];
-    #       trusted-users = [ "user" ];
-    use-xdg-base-directories = true;
-    builders-use-substitutes = true;
-    substituters = [
-      # TODO: priority order
-      "https://cache.nixos.org"
-      "https://yazi.cachix.org"
-      # "https://binary.cachix.org"
-      # "https://nix-community.cachix.org"
-      # "https://nix-gaming.cachix.org"
-      # "https://cache.m7.rs"
-      # "https://nrdxp.cachix.org"
-      # "https://numtide.cachix.org"
-      # "https://colmena.cachix.org"
-      # "https://sylvorg.cachix.org"
-    ];
-    trusted-substituters = [
-      "https://cache.nixos.org"
-      "https://yazi.cachix.org"
-      # "https://binary.cachix.org"
-      # "https://nix-community.cachix.org"
-      # "https://nix-gaming.cachix.org"
-      # "https://cache.m7.rs"
-      # "https://nrdxp.cachix.org"
-      # "https://numtide.cachix.org"
-      # "https://colmena.cachix.org"
-      # "https://sylvorg.cachix.org"
-    ];
-    trusted-public-keys = [
-      "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-      "yazi.cachix.org-1:Dcdz63NZKfvUCbDGngQDAZq6kOroIrFoyO064uvLh8k="
-      # "binary.cachix.org-1:66/C28mr67KdifepXFqZc+iSQcLENlwPqoRQNnc3M4I="
-      # "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-      # "nix-gaming.cachix.org-1:nbjlureqMbRAxR1gJ/f3hxemL9svXaZF/Ees8vCUUs4="
-      # "cache.m7.rs:kszZ/NSwE/TjhOcPPQ16IuUiuRSisdiIwhKZCxguaWg="
-      # "nrdxp.cachix.org-1:Fc5PSqY2Jm1TrWfm88l6cvGWwz3s93c6IOifQWnhNW4="
-      # "numtide.cachix.org-1:2ps1kLBUWjxIneOy1Ik6cQjb41X0iXVXeHigGmycPPE="
-      # "colmena.cachix.org-1:7BzpDnjjH8ki2CT3f6GdOk7QAzPOl+1t3LvTLXqYcSg="
-      # "sylvorg.cachix.org-1:xd1jb7cDkzX+D+Wqt6TemzkJH9u9esXEFu1yaR9p8H8="
-    ];
-    extra-substituters = [
-      "https://nixpkgs-terraform.cachix.org"
-      "https://fenix.cachix.org"
-    ];
+
+    # Binary caches. nixpkgs-terraform provides terraform-1.5.7, which is
+    # BSL-licensed and absent from cache.nixos.org: checked 2026-10-02, its out
+    # path is on nixpkgs-terraform.cachix.org and "not valid" on cache.nixos.org,
+    # so without it terraform compiles locally. Dropped: yazi.cachix.org (yazi is
+    # not installed) and fenix.cachix.org (the fenix overlay is applied but no
+    # fenix toolchain is installed; see systemPackages.nix).
+    extra-substituters = [ "https://nixpkgs-terraform.cachix.org" ];
     extra-trusted-public-keys = [
       "nixpkgs-terraform.cachix.org-1:8Sit092rIdAVENA3ZVeH9hzSiqI/jng6JiCrQ1Dmusw="
-      "fenix.cachix.org-1:3P7lGPtYmRiUi/BV0UlR4HWkKGORzmfDIBqtwMnWUiY="
     ];
-    extra-trusted-substituters = [ ];
-    # bash-prompt-prefix = "(nix:$name)\040";
-    # build-users-group = "nixbld";
-    http-connections = 100; # 128 default:25
-    max-substitution-jobs = 64; # 128 default:16
-    # Store:querySubstitutablePaths Store::queryMissing binary-caches-parallel-connections fileTransferSettings.httpConnections
-    keep-outputs = true; # Nice for developers
-    keep-derivations = true; # Idem
-    accept-flake-config = true;
-    #     allow-dirty = false;
-    #     builders-use-substitutes = true;
+
+    # Faster substitution. Defaults are 25 connections and 16 jobs. The
+    # download buffer default is 1 MiB, small enough that large NARs stall with
+    # "download buffer is full"; 256 MiB is only used while downloading.
+    http-connections = 100;
+    max-substitution-jobs = 64;
+    download-buffer-size = 268435456;
+    # If a cache serves a broken substitute, build locally instead of failing.
     fallback = true;
-    log-lines = 128;
-    #     pure-eval = true;
-    # run-diff-hook = true;
-    # secret-key-files
+    # Only matters with remote builders (none today); harmless otherwise.
+    builders-use-substitutes = true;
+
+    # Keep build-time dependencies of live outputs, so GC does not delete what
+    # a dev shell needs and force a re-download. keep-derivations is already
+    # the default; stated so the pair is explicit.
+    keep-outputs = true;
+    keep-derivations = true;
+    # Hard-link identical files as they enter the store. Saves disk, costs a
+    # little I/O per added path.
+    auto-optimise-store = true;
+
+    # Diagnostics.
     show-trace = true;
-    # tarball-ttl = 0;
-    # trace-function-calls = true;
-    trace-verbose = true;
-    # use-xdg-base-directories = true;
-    allow-dirty = true;
-    /*
-      buildMachines = [ ];
-      distributedBuilds = true;
-      # optional, useful when the builder has a faster internet connection than yours
-      extraOptions = ''
-        builders-use-substitutes = true
-      '';
-    */
-    #pure-eval = true;
-    pure-eval = false; # sometimes home-manager needs to change manifest.nix ? idk i just code here
-    restrict-eval = false; # could i even make a conclusive list of domains to allow access to?
-    use-registries = true;
-    #use-cgroups = true;
+    log-lines = 128;
+
+    # Not carried over, deliberately:
+    # - use-xdg-base-directories: moves ~/.nix-profile and ~/.nix-defexpr, a
+    #   migration rather than a setting. Deferred.
+    # - accept-flake-config: lets any flake you run add caches and settings
+    #   without asking.
+    # - trusted-users: being trusted is root-equivalent through the daemon.
+    # - allow-dirty, pure-eval, restrict-eval, use-registries, trace-verbose:
+    #   defaults, or debug-only.
   };
 }
