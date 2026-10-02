@@ -959,7 +959,9 @@ JSONC comments are stripped, string-literal aware.
 
 Per server: `mode`, `max`, `min`, `idleTimeout`, `callTimeout`, `startTimeout`,
 `namespace`, `description`, `tools`, `excludeTools`, `disabled`. A top-level `pool`
-block applies any of them to every server.
+block applies any of them to every server. `tools` and `excludeTools` take exact
+names, globs (`delete_*`) or `/regexps/`, and hide a tool from listings and calls
+alike; see [Hiding tools](configuration.md#hiding-tools).
 
 2026-09-27T05:05:00-05:00
 

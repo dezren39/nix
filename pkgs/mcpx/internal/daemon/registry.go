@@ -188,7 +188,7 @@ func (r *Registry) View(name string) (*config.Resolved, bool) {
 
 // visibleTools applies a view's allow and deny lists to the shared cache.
 func visibleTools(view *config.Resolved, all []mcpclient.Tool) []mcpclient.Tool {
-	if view == nil || (len(view.Tools) == 0 && len(view.ExcludeTools) == 0) {
+	if view == nil || (view.Tools.Empty() && view.ExcludeTools.Empty()) {
 		return all
 	}
 	out := make([]mcpclient.Tool, 0, len(all))
@@ -611,11 +611,21 @@ type UnknownServer struct{ Name string }
 
 func (e UnknownServer) Error() string { return fmt.Sprintf("unknown server or namespace %q", e.Name) }
 
+// HiddenTool is a call to a tool this server's `tools`/`excludeTools`
+// configuration removes. Hiding a tool only from listings left it callable
+// by any script that knew its name, so a deny list denied nothing.
+type HiddenTool struct{ Server, Tool string }
+
+func (e HiddenTool) Error() string {
+	return fmt.Sprintf("tool %q on %q is hidden by its tools/excludeTools configuration", e.Tool, e.Server)
+}
+
 // failureStatus is the HTTP status of a failed upstream request: 400 when
 // the request named nothing, 502 when the server behind it failed.
 func failureStatus(err error) int {
 	var unknown UnknownServer
-	if errors.As(err, &unknown) {
+	var hidden HiddenTool
+	if errors.As(err, &unknown) || errors.As(err, &hidden) {
 		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
@@ -628,7 +638,7 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 	if !ok {
 		return nil, UnknownServer{Name: server}
 	}
-	key, err := r.resolveAndGuard(ctx, p, tool, cc)
+	key, err := r.resolveAndGuard(ctx, p, server, tool, cc)
 	if err != nil {
 		return nil, err
 	}
@@ -644,7 +654,11 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 // consumer policies. Every path that calls a tool goes through it: the ask
 // path once skipped both, so a destructive-tool guard was off for exactly the
 // clients that declared they could answer it.
-func (r *Registry) resolveAndGuard(ctx context.Context, p *pool.Pool, tool string, cc config.CallContext) (string, error) {
+func (r *Registry) resolveAndGuard(ctx context.Context, p *pool.Pool, server, tool string, cc config.CallContext) (string, error) {
+	// The view, not the pool: aliases share one pool and filter differently.
+	if view, ok := r.View(server); ok && !view.VisibleTool(tool) {
+		return "", HiddenTool{Server: server, Tool: tool}
+	}
 	key := r.keyFor(p, cc)
 	// Two policies sit between resolving the instance and using it, and both
 	// are off unless somebody turned them on. See internal/daemon/consumer.go.

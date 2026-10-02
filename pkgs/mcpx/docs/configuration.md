@@ -146,6 +146,47 @@ That was observed: `mcpx servers remove` succeeded, the file was correct, and
 the next `mcpx servers list` showed the removed server. The key is now the
 file *set*, and staleness is handled where it belongs.
 
+### Hiding tools
+
+`tools` (an allowlist) and `excludeTools` (a denylist) go in a server's `mcpx`
+block, or in the top-level `pool` block to apply to every server. A hidden
+tool is left out of every listing -- `mcpx tools`, generated types, search,
+the MCP pass-through -- and a call to it by name is refused with 400.
+
+```json
+{
+  "pool": { "excludeTools": ["delete_*"] },
+  "mcpServers": {
+    "datadog": { "command": "mcp-remote", "args": ["..."],
+      "mcpx": { "excludeTools": ["execute_*", "/^(update|upsert)_.*dashboard/"] } }
+  }
+}
+```
+
+Each entry is one of:
+
+| entry | means | example |
+| --- | --- | --- |
+| `/.../` | a Go regular expression, unanchored as regexps are | `/delete/`, `/^delete_/` |
+| contains `*`, `?` or `[` | a glob over the whole name: `*` any run, `?` one character, `[a-z]` / `[!a-z]` a class | `delete_*`, `*_monitor` |
+| anything else | the exact tool name | `delete_datadog_workflow` |
+
+A pattern that cannot compile is a configuration error naming the field, not
+a rule that silently matches nothing.
+
+`excludeTools` wins over `tools`. A server's own `tools` replaces the pool's;
+`excludeTools` from the pool and the server both apply, so a server that hides
+one more tool does not undo a pool-wide rule. An alias (`aliasOf`) filters
+independently of the server it shares a process with.
+
+Names are the server's own tool names, as `mcpx tools` prints them in its
+`tool` column, not the generated function names.
+
+Some servers can filter on their side too -- Datadog's `omit_tools` URL
+parameter, GitHub's `GITHUB_READ_ONLY` -- which keeps the tool from ever
+reaching mcpx. Those are each server's own convention; this one works for any
+server.
+
 ## Every setting
 
 Everything between the markers below is generated from `settings.Registry()` by
