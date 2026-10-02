@@ -9,6 +9,15 @@
 # login in a browser and keeps the tokens in ~/.mcp-auth, so nothing secret
 # is in this repo.
 #
+# This file is generated into the nix store, so it is read-only: `mcpx servers
+# add` cannot write to it. Add mcpx-only servers here, or in a project's
+# .mcpx.json.
+#
+# github: GitHub's local server with `gh`'s token (see github-mcp in
+# systemPackages.nix). atlassian: Rovo MCP v2 through mcp-remote; ?tools=all
+# lists every tool flat, which Atlassian recommends for gateways, instead of
+# its own discover-then-execute pair.
+#
 # datadog: US1 (mcp.datadoghq.com). Toolsets core (logs, metrics, traces,
 # dashboards, monitors, incidents) and workflows; others are listed at
 # https://docs.datadoghq.com/mcp_server/setup#toolsets. Changing the URL,
