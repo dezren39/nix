@@ -20,7 +20,7 @@
     "npm:class-variance-authority@0.7": "0.7.1",
     "npm:clsx@^2.1.0": "2.1.1",
     "npm:date-fns@^3.3.1": "3.6.0",
-    "npm:lucide-react@0.577": "0.577.0_react@18.3.1",
+    "npm:lucide-react@1": "1.49.0_@types+react@18.3.24_react@18.3.1",
     "npm:postcss@^8.4.35": "8.5.28",
     "npm:react-dom@^18.3.1": "18.3.1_react@18.3.1",
     "npm:react-router-dom@^6.22.3": "6.30.1_react@18.3.1_react-dom@18.3.1",
@@ -987,10 +987,14 @@
         "highlight.js"
       ]
     },
-    "lucide-react@0.577.0_react@18.3.1": {
-      "integrity": "sha512-4LjoFv2eEPwYDPg/CUdBJQSDfPyzXCRrVW1X7jrx/trgxnxkHFjnVZINbzvzxjN70dxychOfg+FTYwBiS3pQ5A==",
+    "lucide-react@1.49.0_@types+react@18.3.24_react@18.3.1": {
+      "integrity": "sha512-ApfaNM4/7jBrVopqLJ84Jz8TMQ1Q1JeZ1PmKh25aeS3E1FTVcMkSh1bEQB7dfzdIrwXRP8p3z4AJjTIHHb5IIA==",
       "dependencies": [
+        "@types/react",
         "react"
+      ],
+      "optionalPeers": [
+        "@types/react"
       ]
     },
     "monaco-editor@0.53.0": {
@@ -1288,7 +1292,7 @@
         "npm:class-variance-authority@0.7",
         "npm:clsx@^2.1.0",
         "npm:date-fns@^3.3.1",
-        "npm:lucide-react@0.577",
+        "npm:lucide-react@1",
         "npm:postcss@^8.4.35",
         "npm:react-dom@^18.3.1",
         "npm:react-router-dom@^6.22.3",
