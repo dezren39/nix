@@ -4,6 +4,34 @@
   pkgs,
   ...
 }:
+let
+  ocPkgs = inputs.self.packages.${system};
+  # What OpenCode goes by on PATH. The package names follow the flake inputs
+  # -- `opencode` is the dev branch (v1), `opencode2` the v2 branch -- but a
+  # shell wants `opencode` to mean the default version, and each version
+  # reachable by number when something has to be pinned to one.
+  #
+  # One derivation rather than installing both packages, because each carries
+  # a bin/ entry the other would collide with here. Both stay reachable as
+  # `nix run .#opencode` / `.#opencode2`, and these symlinks are store
+  # references, so neither is garbage collected.
+  #
+  # Symlinks rather than wrappers: both binaries are already wrapped and their
+  # wrappers hold absolute paths, so the name one is invoked under does not
+  # change what it runs. Checked before this existed -- v2 answers --version
+  # identically through `opencode`, v1 through `opencode1`.
+  #
+  # Note the two read different databases. v1 uses ~/.local/share/opencode/
+  # opencode.db; pkgs/opencode2 sets OPENCODE_DB=opencode-v2.db deliberately,
+  # because v2's migrations drop tables v1 still uses. Set OPENCODE_DB to
+  # override.
+  opencode-cli = pkgs.runCommandLocal "opencode-cli" { meta.mainProgram = "opencode"; } ''
+    mkdir -p $out/bin
+    ln -s ${ocPkgs.opencode}/bin/opencode $out/bin/opencode1
+    ln -s ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode2
+    ln -s ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode
+  '';
+in
 {
   environment.systemPackages =
     with pkgs;
@@ -147,10 +175,10 @@
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
-      # OpenCode v1 and v2 CLIs — defined in flake.nix packages output
-      # Patches: PR #11197, #18879, #20758, #20848
-      inputs.self.packages.${system}.opencode
-      inputs.self.packages.${system}.opencode2
+      # OpenCode under three names on PATH: `opencode` is v2, `opencode1` and
+      # `opencode2` pin a version. Defined in the let block above.
+      # Patches (applied to v1): PR #11197, #18879, #20758, #20848
+      opencode-cli
       # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
       inputs.self.packages.${system}.lootbox-link
       # The MCP gateway in pkgs/mcpx. Its daemon runs at login from the mcpx
