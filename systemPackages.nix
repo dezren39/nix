@@ -13,24 +13,48 @@ let
   #
   # One derivation rather than installing both packages, because each carries
   # a bin/ entry the other would collide with here. Both stay reachable as
-  # `nix run .#opencode` / `.#opencode2`, and these symlinks are store
-  # references, so neither is garbage collected.
+  # `nix run .#opencode` / `.#opencode2`, and the links and wrappers below
+  # name their store paths, so neither is garbage collected.
   #
-  # Symlinks rather than wrappers: both binaries are already wrapped and their
-  # wrappers hold absolute paths, so the name one is invoked under does not
-  # change what it runs. Checked before this existed -- v2 answers --version
-  # identically through `opencode`, v1 through `opencode1`.
+  # Symlink for v1, wrappers for v2: both binaries are already wrapped and
+  # their wrappers hold absolute paths, so the name one is invoked under does
+  # not change what it runs. Checked before this existed -- v2 answers
+  # --version identically through `opencode`, v1 through `opencode1`.
   #
-  # Note the two read different databases. v1 uses ~/.local/share/opencode/
-  # opencode.db; pkgs/opencode2 sets OPENCODE_DB=opencode-v2.db deliberately,
-  # because v2's migrations drop tables v1 still uses. Set OPENCODE_DB to
-  # override.
-  opencode-cli = pkgs.runCommandLocal "opencode-cli" { meta.mainProgram = "opencode"; } ''
-    mkdir -p $out/bin
-    ln -s ${ocPkgs.opencode}/bin/opencode $out/bin/opencode1
-    ln -s ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode2
-    ln -s ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode
-  '';
+  # The wrappers exist only to settle which database v2 opens. v1 uses
+  # ~/.local/share/opencode/opencode.db. pkgs/opencode2 sets
+  # OPENCODE_DB=opencode-v2.db, because when it was written v2's migrations
+  # were expected to drop tables v1 still uses (workspace, session_input,
+  # session_context_epoch, data_migration).
+  #
+  # That is overridden here so `opencode` opens the database that actually
+  # holds the sessions. What changed since: OpenChamber ships its own v2 and
+  # has been running it against opencode.db for days, which imported every v1
+  # session into the session_v2 table -- 27,501 rows beside v1's own 27,496 --
+  # and left all four of those tables intact and populated. Checked before
+  # overriding: the migration set compiled into this v2 is exactly the 48
+  # already applied to opencode.db, newest 20260923013825_project_time_active,
+  # none pending in either direction, so opening it runs nothing new. Pointed
+  # at opencode-v2.db instead, `opencode` starts with no history at all, which
+  # is the one outcome nobody wants from a default.
+  #
+  # --set-default, so OPENCODE_DB from the environment still wins. It beats
+  # the package's own --set-default because this wrapper runs first and the
+  # inner one then finds the variable already set.
+  opencode-cli =
+    pkgs.runCommandLocal "opencode-cli"
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        meta.mainProgram = "opencode";
+      }
+      ''
+        mkdir -p $out/bin
+        ln -s ${ocPkgs.opencode}/bin/opencode $out/bin/opencode1
+        makeWrapper ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode \
+          --set-default OPENCODE_DB opencode.db
+        makeWrapper ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode2 \
+          --set-default OPENCODE_DB opencode.db
+      '';
 in
 {
   environment.systemPackages =
