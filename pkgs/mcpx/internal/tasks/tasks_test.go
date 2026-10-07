@@ -107,3 +107,91 @@ func TestWaitingIsBoundedByTheCallersContext(t *testing.T) {
 		t.Errorf("the task keeps running: %q", snap.Status)
 	}
 }
+
+func TestTaskPersistenceAcrossReopen(t *testing.T) {
+	dbPath := t.TempDir() + "/tasks.db"
+	st1, err := tasks.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	// 1. Completed task
+	t1 := st1.Start(60000, func(ctx context.Context) (any, *tasks.Fault) {
+		return map[string]any{"data": "persisted-result"}, nil
+	})
+	// Wait for t1 to complete
+	_, _, err = st1.Result(context.Background(), t1.TaskID)
+	if err != nil {
+		t.Fatalf("t1 result: %v", err)
+	}
+
+	// 2. Working task that was interrupted
+	t2 := st1.Start(60000, func(ctx context.Context) (any, *tasks.Fault) {
+		<-ctx.Done()
+		return nil, nil
+	})
+
+	_ = st1.Close()
+
+	// Reopen in new store instance
+	st2, err := tasks.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open reopen failed: %v", err)
+	}
+	defer st2.Close()
+
+	// t1 should still exist and be completed with its result
+	snap1, ok := st2.Get(t1.TaskID)
+	if !ok {
+		t.Fatalf("t1 missing after reopen")
+	}
+	if snap1.Status != tasks.Completed {
+		t.Errorf("t1 status = %q, want completed", snap1.Status)
+	}
+	res, fault, err := st2.Result(context.Background(), t1.TaskID)
+	if err != nil || fault != nil {
+		t.Errorf("t1 result err=%v fault=%v", err, fault)
+	}
+	if m, _ := res.(map[string]any); m["data"] != "persisted-result" {
+		t.Errorf("t1 result data = %v", res)
+	}
+
+	// t2 (which was working when st1 was closed) should be marked failed due to daemon restart
+	snap2, ok := st2.Get(t2.TaskID)
+	if !ok {
+		t.Fatalf("t2 missing after reopen")
+	}
+	if snap2.Status != tasks.Failed {
+		t.Errorf("t2 status = %q, want failed", snap2.Status)
+	}
+	if !strings.Contains(snap2.StatusMessage, "daemon restarted") {
+		t.Errorf("t2 statusMessage = %q", snap2.StatusMessage)
+	}
+}
+
+func TestCooperativeCancellationHandshake(t *testing.T) {
+	st := tasks.New()
+	cooperativeCalled := false
+	var cancelReason string
+
+	task := st.Start(0, func(ctx context.Context) (any, *tasks.Fault) {
+		<-ctx.Done()
+		return nil, nil
+	})
+
+	st.SetTaskCancel(task.TaskID, func(ctx context.Context, reason string) {
+		cooperativeCalled = true
+		cancelReason = reason
+	})
+
+	snap, ok := st.CancelWithReason(task.TaskID, "user aborted run")
+	if !ok || snap.Status != tasks.Cancelled {
+		t.Fatalf("cancel returned %+v", snap)
+	}
+	if !cooperativeCalled {
+		t.Error("expected cooperative cancel hook to be called")
+	}
+	if cancelReason != "user aborted run" {
+		t.Errorf("expected reason 'user aborted run', got %q", cancelReason)
+	}
+}
