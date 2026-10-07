@@ -202,7 +202,7 @@ func handCommands() []Command {
 		},
 		{
 			Name: "search", Group: "discovery",
-			Usage: "<words>", Summary: "find tools by name and description",
+			Usage: "[--semantic] <words>", Summary: "find tools by name and description (keyword or semantic)",
 		},
 		{
 			Name: "call", Group: "discovery",

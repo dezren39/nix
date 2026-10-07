@@ -459,8 +459,12 @@ func (c *Client) Globals(ctx context.Context, ns []string, prof Profile) (string
 }
 
 // Search ranks tools against a query.
-func (c *Client) Search(ctx context.Context, q string, limit int) ([]daemon.ToolInfo, error) {
-	b, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/search?q=%s&limit=%d", urlEscape(q), limit), nil)
+func (c *Client) Search(ctx context.Context, q string, limit int, semantic ...bool) ([]daemon.ToolInfo, error) {
+	semQ := ""
+	if len(semantic) > 0 && semantic[0] {
+		semQ = "&semantic=true"
+	}
+	b, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/search?q=%s&limit=%d%s", urlEscape(q), limit, semQ), nil)
 	if err != nil {
 		return nil, err
 	}

@@ -590,12 +590,22 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
-		// The caller's own effective value, sent with the request, so
-		// `mcpx search --limit 5` against a daemon started without it still
-		// returns five.
-		limit = s.callSettings(r).Int("search.limit")
+		cs := s.callSettings(r)
+		if cs != nil {
+			limit = cs.Int("search.limit")
+		} else {
+			limit = defaults.SearchLimit
+		}
 	}
-	writeJSON(w, 200, s.reg.Search(r.URL.Query().Get("q"), limit))
+	semStr := r.URL.Query().Get("semantic")
+	semantic := semStr == "true" || semStr == "1"
+	if !semantic {
+		cs := s.callSettings(r)
+		if cs != nil {
+			semantic = cs.Bool("search.semantic")
+		}
+	}
+	writeJSON(w, 200, s.reg.SearchSemantic(r.URL.Query().Get("q"), limit, semantic))
 }
 
 func (s *Server) handleTypes(w http.ResponseWriter, r *http.Request) {

@@ -399,6 +399,7 @@ func Ops() []Op {
 			Params: []Param{
 				{Name: "q", In: InQuery, Type: "string", Required: true, Desc: "what to match against tool names and descriptions"},
 				{Name: "limit", In: InQuery, Type: "integer", Desc: "how many results to return"},
+				{Name: "semantic", In: InQuery, Type: "boolean", Desc: "rank results using local dense vector embeddings"},
 			},
 		},
 		{

@@ -176,6 +176,12 @@ func limitSettings() []Setting {
 				"without it.",
 		},
 		{
+			Path: "search.semantic", Kind: KindBool, Default: "false",
+			Scope: ScopeCall, Hot: true,
+			Commands: []string{"search"},
+			Name:     "Semantic search", Short: "rank search results using local dense vector embeddings",
+		},
+		{
 			Path: "completion.maxValues", Kind: KindInt, Default: defaults.Num(defaults.CompletionValues),
 			Scope: ScopeDaemon, Hot: true, Plumbing: true,
 			Name: "Completion values", Short: "how many completions one reply carries",

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/catalog"
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/defaults"
@@ -55,6 +56,8 @@ type Registry struct {
 	// arrive from any pool at any time, and a table created lazily would be
 	// read by that goroutine while another wrote it.
 	asks *askTable
+
+	testTools []ToolInfo
 
 	logf     func(string, ...any)
 	degraded sync.Map
@@ -374,12 +377,16 @@ type ToolInfo struct {
 
 // Tools returns every cached tool, optionally restricted to namespaces.
 func (r *Registry) Tools(namespaces []string) []ToolInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.testTools) > 0 {
+		return append([]ToolInfo(nil), r.testTools...)
+	}
+
 	want := map[string]bool{}
 	for _, n := range namespaces {
 		want[n] = true
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 
 	var out []ToolInfo
 	for _, name := range r.order {
@@ -413,8 +420,16 @@ func (r *Registry) Tools(namespaces []string) []ToolInfo {
 // the tool name outrank description hits, which is enough to let an agent find
 // the right tool without loading every schema.
 func (r *Registry) Search(query string, limit int) []ToolInfo {
+	return r.SearchSemantic(query, limit, false)
+}
+
+// SearchSemantic ranks tools against a query, optionally using local dense vector embeddings.
+func (r *Registry) SearchSemantic(query string, limit int, semantic bool) []ToolInfo {
 	terms := strings.Fields(strings.ToLower(query))
 	all := r.Tools(nil)
+	if len(all) == 0 {
+		return nil
+	}
 	if len(terms) == 0 {
 		if limit > 0 && len(all) > limit {
 			all = all[:limit]
@@ -422,12 +437,42 @@ func (r *Registry) Search(query string, limit int) []ToolInfo {
 		return all
 	}
 
-	scored := rank(all, terms, true)
-	if len(scored) == 0 {
-		// Every term must match by default, which narrows well but dead-ends on
-		// a query like "screenshot click" where the terms name different tools.
-		// Fall back to any-term matching rather than reporting nothing.
-		scored = rank(all, terms, false)
+	if !semantic {
+		scored := rank(all, terms, true)
+		if len(scored) == 0 {
+			scored = rank(all, terms, false)
+		}
+		sort.SliceStable(scored, func(i, j int) bool {
+			if scored[i].Score != scored[j].Score {
+				return scored[i].Score > scored[j].Score
+			}
+			return scored[i].Function < scored[j].Function
+		})
+		if limit > 0 && len(scored) > limit {
+			scored = scored[:limit]
+		}
+		return scored
+	}
+
+	queryVec := catalog.Embed(query)
+	keywordScores := make(map[string]int)
+	for _, t := range rank(all, terms, false) {
+		keywordScores[t.Function] = t.Score
+	}
+
+	scored := make([]ToolInfo, 0, len(all))
+	for _, t := range all {
+		tVec := catalog.Embed(t.Namespace + " " + t.Tool + " " + t.Description)
+		sim := queryVec.CosineSimilarity(tVec)
+		kwScore := keywordScores[t.Function]
+		// Combined hybrid score: 60% semantic cosine, 40% keyword
+		combined := float32(kwScore)*0.4 + (sim*100.0)*0.6
+		if combined > 15.0 || kwScore > 0 {
+			tCopy := t
+			tCopy.Score = int(combined)
+			tCopy.InputSchema = nil
+			scored = append(scored, tCopy)
+		}
 	}
 	sort.SliceStable(scored, func(i, j int) bool {
 		if scored[i].Score != scored[j].Score {

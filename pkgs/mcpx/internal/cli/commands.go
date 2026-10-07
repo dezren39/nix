@@ -289,6 +289,7 @@ func (a *App) setOutputFormat(f logging.Format) {
 // CmdSearch ranks tools across every namespace.
 func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	fs := newFlagSet("search")
+	semantic := fs.Bool("semantic", false, "rank tools with local semantic vector search")
 	// -n, --limit and --search-limit are one setting, declared once. The
 	// value is sent only when somebody actually chose it: a client's
 	// inherited default must not override what the daemon is configured
@@ -301,7 +302,7 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 		limit = a.Settings().Int("search.limit")
 	}
 	if fs.NArg() == 0 {
-		return errors.New("usage: mcpx search <query>")
+		return errors.New("usage: mcpx search [--semantic] <query>")
 	}
 	c, err := a.ensure(ctx)
 	if err != nil {
@@ -315,7 +316,8 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
-	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit)
+	useSemantic := *semantic || a.Settings().Bool("search.semantic")
+	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit, useSemantic)
 	if err != nil {
 		return err
 	}

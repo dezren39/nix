@@ -454,6 +454,7 @@ export const OPS: Record<string, OpSpec> = {
     params: {
       q: { in: "query", required: true },
       limit: { in: "query" },
+      semantic: { in: "query" },
     },
     response: "json",
   },
@@ -1030,7 +1031,7 @@ export class DaemonOps {
   /**
    * Rank tools against a query. `GET /v1/search`.
    */
-  search(args: { q: string; limit?: number }, opts: CallOptions = {}): Promise<unknown> {
+  search(args: { q: string; limit?: number; semantic?: boolean }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("search", args, opts) as Promise<unknown>
   }
 
