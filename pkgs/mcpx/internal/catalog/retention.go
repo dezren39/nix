@@ -54,7 +54,7 @@ func NewWorkingSet(maxTools int, stickyWindow time.Duration, pinned []string) *W
 		maxTools = 24
 	}
 	if stickyWindow <= 0 {
-		stickyWindow = 2 * time.Hour
+		stickyWindow = time.Duration(120) * time.Minute
 	}
 	ws := &WorkingSet{
 		maxTools:     maxTools,

@@ -162,6 +162,15 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  chat_completions: {
+    method: "POST",
+    path: "/v1/chat/completions",
+    params: {
+      model: { in: "body" },
+      messages: { in: "body", required: true },
+    },
+    response: "json",
+  },
   client_module: {
     method: "GET",
     path: "/v1/client.ts",
@@ -192,6 +201,12 @@ export const OPS: Record<string, OpSpec> = {
     path: "/v1/daemon/restart",
     params: {},
     response: "json",
+  },
+  dashboard: {
+    method: "GET",
+    path: "/v1/dashboard",
+    params: {},
+    response: "response",
   },
   diagnose: {
     method: "POST",
@@ -307,6 +322,12 @@ export const OPS: Record<string, OpSpec> = {
       record: { in: "body", required: true },
     },
     wrap: "record",
+    response: "json",
+  },
+  metrics_tokens: {
+    method: "GET",
+    path: "/v1/metrics/tokens",
+    params: {},
     response: "json",
   },
   namespaces: {
@@ -810,6 +831,13 @@ export class DaemonOps {
   }
 
   /**
+   * OpenAI-compatible LLM chat completions endpoint. `POST /v1/chat/completions`.
+   */
+  chatCompletions(args: { model?: string; messages: unknown[] }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("chat_completions", args, opts) as Promise<unknown>
+  }
+
+  /**
    * The generated TypeScript client. `GET /v1/client.ts`.
    */
   clientModule(args: { ns?: string; session?: string; profile?: string; skipDefault?: "0" | "1"; allProfiles?: "0" | "1" } = {}, opts: CallOptions = {}): Promise<Response> {
@@ -830,6 +858,13 @@ export class DaemonOps {
    */
   daemonRestart(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("daemon_restart", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Live web dashboard HTML. `GET /v1/dashboard`.
+   */
+  dashboard(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<Response> {
+    return this.invoke("dashboard", args, opts) as Promise<Response>
   }
 
   /**
@@ -911,6 +946,13 @@ export class DaemonOps {
    */
   logRecord(args: { level?: "debug" | "info" | "warn" | "error"; record: Record<string, unknown> }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("log_record", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Token economics telemetry summary. `GET /v1/metrics/tokens`.
+   */
+  metricsTokens(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("metrics_tokens", args, opts) as Promise<unknown>
   }
 
   /**

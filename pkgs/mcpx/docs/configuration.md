@@ -281,6 +281,7 @@ and a switch to turn the report off would have kept it quiet.
 | `catalog.bias` | list | *(empty)* | call | yes | `--catalog-bias`, `--bias` | `MCPX_CATALOG_BIAS` | words that pull matching tools toward the front |
 | `catalog.budget` | int | `2000` | call | yes | `--catalog-budget`, `--budget` | `MCPX_CATALOG_BUDGET` | token ceiling for the catalog listing |
 | `catalog.instructions` | bool | `true` | call | yes | `--catalog-instructions` | `MCPX_CATALOG_INSTRUCTIONS` | include each server's own instructions |
+| `catalog.pinnedTools` | list | *(empty)* | daemon | no | `--catalog-pinned-tools` | `MCPX_CATALOG_PINNED_TOOLS` | tools always exposed in reactive mode |
 
 ### completion
 
@@ -539,6 +540,13 @@ and a switch to turn the report off would have kept it quiet.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `repair.autonomy` | enum | `advise` | call | yes | `--repair-autonomy` | `MCPX_REPAIR_AUTONOMY` | how far mcpx goes about a failed call: off attaches nothing, advise attaches diagnostics |
 
+### retention
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `retention.maxTools` | int | `24` | daemon | no | `--retention-max-tools` | `MCPX_RETENTION_MAX_TOOLS` | maximum active tools in reactive working set |
+| `retention.stickyWindow` | duration | `2h` | daemon | no | `--retention-sticky-window` | `MCPX_RETENTION_STICKY_WINDOW` | duration explicitly requested tools remain retained |
+
 ### script
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -563,6 +571,13 @@ and a switch to turn the report off would have kept it quiet.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `search.limit` | int | `20` | call | yes | `--search-limit`, `--limit`, `--n` | `MCPX_SEARCH_LIMIT` | how many tools a search returns |
+| `search.semantic` | bool | `false` | call | yes | `--search-semantic` | `MCPX_SEARCH_SEMANTIC` | rank search results using local dense vector embeddings |
+
+### serve
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `serve.mode` | string | `code-mode` | daemon | no | `--serve-mode`, `--mode` | `MCPX_SERVE_MODE` | server mode: code-mode, reactive, or full |
 
 ### session
 

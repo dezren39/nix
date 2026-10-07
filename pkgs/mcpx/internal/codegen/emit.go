@@ -156,7 +156,6 @@ func Module(nss []Namespace, endpoint, session string) string {
 	}
 
 	b.WriteString("export const tools = {\n")
-	b.WriteString("  batch,\n")
 	for _, ns := range nss {
 		fmt.Fprintf(&b, "  %s,\n", ns.Name)
 	}

@@ -388,6 +388,21 @@ func handCommands() []Command {
 				"produced it, so it teaches its own scriptable form.",
 		},
 		{
+			Name: "dashboard", Group: "inspection",
+			Usage:   "[--open]",
+			Summary: "open or show the live web dashboard",
+			Detail: "Serves an interactive web dashboard for monitoring server pools, " +
+				"live instances, tool semantic search, and token economics telemetry.",
+		},
+		{
+			Name: "proxy", Group: "running",
+			Usage:   "[--port <port>] [--upstream <url>]",
+			Summary: "run or print the OpenAI-compatible LLM reverse proxy",
+			Detail: "Exposes a transparent OpenAI-compatible /v1/chat/completions endpoint " +
+				"that extracts user prompts, semantically discovers tools from upstream MCP " +
+				"servers, and injects them dynamically while recording token savings.",
+		},
+		{
 			Name: "log", Aliases: []string{"logs"}, Group: "inspection",
 			Usage:   "[--since d] [--chain id] [--follow] | sql '<query>' | record '<json>'",
 			Summary: "query the structured log, or add to it",

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
@@ -109,6 +111,8 @@ type Server struct {
 	// first use, because a daemon that never runs one should carry nothing.
 	taskOnce sync.Once
 	tasks    *tasks.Store
+
+	tokenStore *logstore.TokenStore
 
 	// consumer holds the policy and the schema history behind the things
 	// mcpx asks for itself. See internal/daemon/consumer.go.
@@ -196,6 +200,7 @@ func NewServer(opts Options) (*Server, error) {
 	reg.UseSettings(opts.Settings)
 	reg.InstallHooks(srv.Events, broker, nil)
 	srv.initConsumer()
+	srv.tokenStore, _ = logstore.NewTokenStore(filepath.Join(opts.Paths.State, "tokens.db"))
 	if opts.Config != nil {
 		srv.contentHash = ContentFingerprint(opts.Config.Sources)
 		srv.stamp = stampConfig(opts.Config.Sources)
@@ -416,6 +421,9 @@ func (s *Server) shutdown() error {
 		_ = s.httpSrv.Shutdown(ctx)
 	}
 	s.reg.Close()
+	if s.tokenStore != nil {
+		_ = s.tokenStore.Close()
+	}
 	_ = os.Remove(s.paths.Socket)
 	_ = os.Remove(s.paths.Info)
 	s.logger.Printf("stopped")
@@ -504,6 +512,10 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/session/release", s.handleRelease)
 	mux.HandleFunc("POST /v1/refresh", s.handleRefresh)
 	mux.HandleFunc("POST /v1/restart", s.handleRestart)
+	mux.HandleFunc("GET /dashboard", s.handleDashboard)
+	mux.HandleFunc("GET /v1/dashboard", s.handleDashboard)
+	mux.HandleFunc("GET /v1/metrics/tokens", s.handleMetricsTokens)
+	mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	mux.HandleFunc("POST /v1/daemon/restart", s.handleDaemonRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	s.routesExec(mux)
@@ -789,7 +801,7 @@ type batchReq struct {
 
 func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
 	var req batchReq
-	var limit int64 = 10 << 20
+	limit := defaults.HTTPCallBodyLimit
 	if s.set != nil {
 		limit = s.set.Bytes("http.callBodyLimit")
 	}

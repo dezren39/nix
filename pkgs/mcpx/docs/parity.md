@@ -32,7 +32,7 @@ and costs an agent the ability to restart a server that has wedged. What they
 carry instead is a description that says so and MCP annotations
 (`readOnlyHint`, `destructiveHint`) for a client that wants to scope on them.
 
-## /v1 operations (62)
+## /v1 operations (65)
 
 | Operation | Route | CLI | MCP tool | Plugin | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -49,9 +49,11 @@ carry instead is a description that says so and MCP annotations
 | `call_path` | `POST /v1/call/{server}/{tool}` | `mcpx call` | `mcpx_call` | `ops.callPath()` |  |
 | `catalog` | `GET /v1/catalog` | `mcpx catalog` | `mcpx_catalog` | `ops.catalog()` |  |
 | `catalog_history` | `GET /v1/catalog/history` | `mcpx history` *generated* | `mcpx_catalog_history` | `ops.catalogHistory()` |  |
+| `chat_completions` | `POST /v1/chat/completions` | `mcpx proxy` | `mcpx_chat_completions` | `ops.chatCompletions()` |  |
 | `client_module` | `GET /v1/client.ts` | `mcpx client` | `mcpx_client_module` | `ops.clientModule()` |  |
 | `complete` | `POST /v1/complete` | `mcpx complete` *generated* | `mcpx_complete` | `ops.complete()`, `complete()` |  |
 | `daemon_restart` | `POST /v1/daemon/restart` | `mcpx restart` | `mcpx_daemon_restart` | `ops.daemonRestart()` | Privileged. Destructive. |
+| `dashboard` | `GET /v1/dashboard` | `mcpx dashboard` | `mcpx_dashboard` | `ops.dashboard()` |  |
 | `diagnose` | `POST /v1/diagnose` | `mcpx diagnose` | `mcpx_diagnose` | `ops.diagnose()` |  |
 | `elicit_list` | `GET /v1/elicit` | `mcpx elicit list` | `mcpx_elicit_list` | `ops.elicitList()`, `pendingElicitations()` |  |
 | `elicit_get` | `GET /v1/elicit/{id}` | `mcpx elicit show` | `mcpx_elicit_get` | `ops.elicitGet()` |  |
@@ -63,6 +65,7 @@ carry instead is a description that says so and MCP annotations
 | `intent` | `POST /v1/intent` | `mcpx prompt` | `mcpx_intent` | `ops.intent()` |  |
 | `log_query` | `GET /v1/log` | `mcpx log` | `mcpx_log_query` | `ops.logQuery()`, `logQuery()` |  |
 | `log_record` | `POST /v1/log` | `mcpx log record` | `mcpx_log_record` | `ops.logRecord()`, `record()` | Privileged. |
+| `metrics_tokens` | `GET /v1/metrics/tokens` | `mcpx metrics tokens` *generated* | `mcpx_metrics_tokens` | `ops.metricsTokens()` |  |
 | `namespaces` | `GET /v1/namespaces` | `mcpx ls` | `mcpx_namespaces` | `ops.namespaces()`, `namespaces()` |  |
 | `openapi` | `GET /v1/openapi.json` | `mcpx openapi` | `mcpx_openapi` | `ops.openapi()` |  |
 | `prompt_get` | `POST /v1/prompt` | `mcpx prompts` | `mcpx_prompt_get` | `ops.promptGet()` |  |
@@ -99,7 +102,7 @@ carry instead is a description that says so and MCP annotations
 | `tool_invoke` | `POST /v1/tools/{tool}` | `mcpx tool invoke` *generated* | `mcpx_tool_invoke` | `ops.toolInvoke()` |  |
 | `types` | `GET /v1/types` | `mcpx types` | `mcpx_types` | `ops.types()`, `types()` |  |
 
-## CLI commands (53)
+## CLI commands (56)
 
 Every command the binary dispatches, with the operations it reaches. A command
 that reaches none says why: those are decisions, not gaps.
@@ -119,6 +122,7 @@ that reaches none says why: those are decisions, not gaps.
 | `config` | – | Reads the configuration files on the caller's search path; `settings` is the running daemon's view. |
 | `daemon` | – | Starts a daemon, which a daemon's own API cannot do. |
 | `daemons` | – | Reads every daemon's info file on this machine; one daemon cannot see the others. |
+| `dashboard` | `dashboard` |  |
 | `diagnose` | `diagnose` |  |
 | `doctor` | – | Checks this machine: binaries on PATH, permissions, configuration files. |
 | `elicit` | `elicit_list`, `elicit_get`, `elicit_answer` |  |
@@ -133,10 +137,12 @@ that reaches none says why: those are decisions, not gaps.
 | `log` / `logs` | `log_query`, `log_record` |  |
 | `ls` / `list` / `namespaces` | `namespaces` |  |
 | `man` | – | Text about the binary, produced by the binary. |
+| `metrics` | `metrics_tokens` | Generated from the operation table. |
 | `openapi` | `openapi` |  |
 | `prompt` | `intent` |  |
 | `prompts` | `prompt_get`, `prompts` |  |
 | `protocol` | `protocol` | Generated from the operation table. |
+| `proxy` | `chat_completions` |  |
 | `recipes` | `recipes_list`, `recipe_get`, `recipe_save`, `recipe_run` |  |
 | `refresh` | `refresh` |  |
 | `registry` | `registry_search` |  |

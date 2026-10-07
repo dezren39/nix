@@ -576,6 +576,30 @@ func Ops() []Op {
 			Admin: true, Mutating: true, Destructive: true,
 		},
 		{
+			Name: "dashboard", Method: "GET", Path: "/v1/dashboard",
+			Command: "dashboard",
+			Text:    true,
+			Summary: "Live web dashboard HTML",
+			Description: "Single-page dashboard application displaying active pools and token economics telemetry.",
+		},
+		{
+			Name: "metrics_tokens", Method: "GET", Path: "/v1/metrics/tokens",
+			Summary: "Token economics telemetry summary",
+			Description: "Aggregated stats on prompt turns, baseline tool schema tokens, injected tokens, and tokens saved.",
+		},
+		{
+			Name: "chat_completions", Method: "POST", Path: "/v1/chat/completions",
+			Command: "proxy",
+			Summary: "OpenAI-compatible LLM chat completions endpoint",
+			Description: "Proxies chat completions requests while dynamically injecting semantically discovered tools.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "model", In: InBody, Type: "string", Desc: "the model ID"},
+				{Name: "messages", In: InBody, Type: "array", Required: true, Desc: "the list of chat messages",
+					Schema: `{"type":"array","items":{"type":"object"}}`},
+			},
+		},
+		{
 			Name: "openapi", Method: "GET", Path: "/v1/openapi.json",
 			Command:     "openapi",
 			Summary:     "This API, as an OpenAPI 3.1 document",

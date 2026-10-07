@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mcpx Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --heading: #f0f6fc;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --purple: #bc8cff;
+      --orange: #d29922;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+    }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--card-bg);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.3rem;
+      color: var(--heading);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .badge {
+      background-color: var(--accent);
+      color: #000;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: var(--green);
+      display: inline-block;
+      margin-right: 6px;
+    }
+    main {
+      padding: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .metric-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+    .metric-title {
+      font-size: 0.85rem;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    .metric-val {
+      font-size: 1.8rem;
+      font-weight: bold;
+      color: var(--heading);
+    }
+    .metric-sub {
+      font-size: 0.8rem;
+      color: var(--green);
+      margin-top: 0.3rem;
+    }
+    .section-title {
+      color: var(--heading);
+      font-size: 1.1rem;
+      margin: 1.5rem 0 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background-color: #21262d;
+      color: var(--heading);
+      font-size: 0.85rem;
+    }
+    tr:last-child td { border-bottom: none; }
+    .search-box {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 0.6rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    button {
+      padding: 0.6rem 1.2rem;
+      background-color: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.9; }
+    .results {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 2rem;
+      display: none;
+    }
+    .tool-item {
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .tool-item:last-child { border-bottom: none; }
+    .tool-name { font-weight: 600; color: var(--accent); }
+    .tool-desc { font-size: 0.85rem; color: #8b949e; margin-top: 0.2rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span class="status-dot"></span>mcpx Dashboard <span class="badge">{{VERSION}}</span></h1>
+    <div><span id="daemon-status">Connected</span></div>
+  </header>
+  <main>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-title">Total Turns</div>
+        <div class="metric-val" id="m-turns">0</div>
+        <div class="metric-sub">Active Sessions</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Tokens Saved</div>
+        <div class="metric-val" id="m-saved" style="color:var(--green)">0</div>
+        <div class="metric-sub" id="m-savings-pct">0% Savings</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Injected vs Baseline</div>
+        <div class="metric-val" id="m-ratio">0 / 0</div>
+        <div class="metric-sub">Prompt Tokens</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Configured Pools</div>
+        <div class="metric-val" id="m-pools">0</div>
+        <div class="metric-sub">Upstream MCP Servers</div>
+      </div>
+    </div>
+
+    <div class="section-title">
+      <span>Interactive Tool Search</span>
+    </div>
+    <div class="search-box">
+      <input type="text" id="query-input" placeholder="Type natural language query (e.g. click element, git status)...">
+      <button onclick="runSearch()">Semantic Search</button>
+    </div>
+    <div class="results" id="search-results"></div>
+
+    <div class="section-title">
+      <span>Active Server Pools</span>
+    </div>
+    <table id="pool-table">
+      <thead>
+        <tr>
+          <th>Namespace</th>
+          <th>Server</th>
+          <th>Tools</th>
+          <th>State</th>
+          <th>Live Instances</th>
+        </tr>
+      </thead>
+      <tbody id="pool-tbody">
+        <tr><td colspan="5" style="text-align:center; color:#8b949e">Loading server status...</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script>
+    async function loadMetrics() {
+      try {
+        const res = await fetch('/v1/metrics/tokens');
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('m-turns').innerText = data.totalTurns || 0;
+          document.getElementById('m-saved').innerText = (data.totalTokensSaved || 0).toLocaleString();
+          document.getElementById('m-savings-pct').innerText = (data.savingsPercentage || 0).toFixed(1) + '% Savings';
+          document.getElementById('m-ratio').innerText = (data.totalInjectedTokens || 0).toLocaleString() + ' / ' + (data.totalBaselineTokens || 0).toLocaleString();
+        }
+      } catch(e) {}
+    }
+
+    async function loadPools() {
+      try {
+        const res = await fetch('/v1/status');
+        if (res.ok) {
+          const pools = await res.json();
+          const tbody = document.getElementById('pool-tbody');
+          document.getElementById('m-pools').innerText = pools.length;
+          if (pools.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">No servers configured</td></tr>';
+            return;
+          }
+          tbody.innerHTML = pools.map(p => `
+            <tr>
+              <td><strong>${p.namespace || p.server}</strong></td>
+              <td>${p.server}</td>
+              <td>${p.tools || 0}</td>
+              <td><span style="color:${p.live > 0 ? 'var(--green)' : 'var(--text)'}">${p.live > 0 ? 'running' : 'idle'}</span></td>
+              <td>${p.live || 0}</td>
+            </tr>
+          `).join('');
+        }
+      } catch(e) {}
+    }
+
+    async function runSearch() {
+      const q = document.getElementById('query-input').value.trim();
+      if (!q) return;
+      const resBox = document.getElementById('search-results');
+      resBox.style.display = 'block';
+      resBox.innerHTML = 'Searching...';
+      try {
+        const res = await fetch('/v1/search?q=' + encodeURIComponent(q) + '&semantic=true');
+        const items = await res.json();
+        if (!items || items.length === 0) {
+          resBox.innerHTML = '<em>No tools found matching query.</em>';
+          return;
+        }
+        resBox.innerHTML = items.map(t => `
+          <div class="tool-item">
+            <div class="tool-name">${t.function} (Score: ${t.score || 0})</div>
+            <div class="tool-desc">${t.description || ''}</div>
+          </div>
+        `).join('');
+      } catch(e) {
+        resBox.innerHTML = 'Error searching: ' + e;
+      }
+    }
+
+    document.getElementById('query-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runSearch();
+    });
+
+    loadMetrics();
+    loadPools();
+    setInterval(() => { loadMetrics(); loadPools(); }, 3000);
+  </script>
+</body>
+</html>
