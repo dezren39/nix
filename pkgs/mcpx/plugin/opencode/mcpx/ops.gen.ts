@@ -187,6 +187,12 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  daemon_restart: {
+    method: "POST",
+    path: "/v1/daemon/restart",
+    params: {},
+    response: "json",
+  },
   diagnose: {
     method: "POST",
     path: "/v1/diagnose",
@@ -814,6 +820,15 @@ export class DaemonOps {
    */
   complete(args: { server: string; ref: Record<string, unknown>; argument: Record<string, unknown>; arguments?: Record<string, unknown>; session?: string; context?: Record<string, unknown> }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("complete", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Restart the mcpx daemon. `POST /v1/daemon/restart`.
+   * Privileged: it changes the daemon rather than reading it.
+   * Destructive: it cannot be undone, and other callers are affected.
+   */
+  daemonRestart(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("daemon_restart", args, opts) as Promise<unknown>
   }
 
   /**

@@ -690,6 +690,12 @@ func (c *Client) Shutdown(ctx context.Context) error {
 	return err
 }
 
+// RestartDaemon asks the daemon to restart itself.
+func (c *Client) RestartDaemon(ctx context.Context) error {
+	_, err := c.do(ctx, http.MethodPost, "/v1/daemon/restart", nil)
+	return err
+}
+
 // Endpoint returns the daemon's loopback base URL.
 func (c *Client) Endpoint(ctx context.Context) (string, error) {
 	b, err := c.do(ctx, http.MethodGet, "/v1/health", nil)

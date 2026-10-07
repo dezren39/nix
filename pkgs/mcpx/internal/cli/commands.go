@@ -1300,8 +1300,33 @@ func (a *App) CmdRefresh(ctx context.Context, args []string) error {
 func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	fs := newFlagSet("restart")
 	lazy := fs.Bool("lazy", false, "stop only; the next call starts a fresh instance")
+	daemon := fs.Bool("daemon", false, "restart the mcpx daemon itself")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	if *daemon {
+		c := a.Client()
+		if !c.Ping(ctx) {
+			fmt.Println("daemon: not running; starting...")
+			if _, err := a.ensure(ctx); err != nil {
+				return err
+			}
+			fmt.Println("daemon started")
+			return nil
+		}
+		if err := c.RestartDaemon(ctx); err != nil {
+			return fmt.Errorf("restart daemon: %w", err)
+		}
+		time.Sleep(defaults.DaemonRestartSettle * 2)
+		if err := waitUntilStarted(ctx, c); err != nil {
+			if _, err2 := a.ensure(ctx); err2 == nil {
+				fmt.Println("daemon restarted")
+				return nil
+			}
+			return err
+		}
+		fmt.Println("daemon restarted")
+		return nil
 	}
 	c, err := a.ensure(ctx)
 	if err != nil {
@@ -1411,6 +1436,17 @@ func waitUntilStopped(ctx context.Context, c *Client) error {
 		time.Sleep(defaults.DaemonRestartSettle)
 	}
 	return errors.New("daemon did not stop")
+}
+
+// waitUntilStarted polls until the daemon answers health pings.
+func waitUntilStarted(ctx context.Context, c *Client) error {
+	for i := 0; i < 50; i++ {
+		if c.Ping(ctx) {
+			return nil
+		}
+		time.Sleep(defaults.DaemonRestartSettle)
+	}
+	return errors.New("daemon did not come back up")
 }
 
 // CmdDaemons lists every daemon this user has running.

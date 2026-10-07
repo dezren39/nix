@@ -330,7 +330,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	defer saveT.Stop()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
 	for {
@@ -338,6 +338,18 @@ func (s *Server) Serve(ctx context.Context) error {
 		case <-ctx.Done():
 			return s.shutdown()
 		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				s.logger.Printf("received SIGHUP, reloading configuration")
+				s.reloadMu.Lock()
+				added, removed, err := s.reloadConfig()
+				s.reloadMu.Unlock()
+				if err != nil {
+					s.logger.Printf("SIGHUP reload error: %v", err)
+				} else {
+					s.logger.Printf("SIGHUP reload successful: %d added, %d removed", len(added), len(removed))
+				}
+				continue
+			}
 			s.logger.Printf("received %s, shutting down", sig)
 			return s.shutdown()
 		case err := <-errCh:
@@ -492,6 +504,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/session/release", s.handleRelease)
 	mux.HandleFunc("POST /v1/refresh", s.handleRefresh)
 	mux.HandleFunc("POST /v1/restart", s.handleRestart)
+	mux.HandleFunc("POST /v1/daemon/restart", s.handleDaemonRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	s.routesExec(mux)
 	s.routesSettings(mux)
@@ -964,6 +977,47 @@ func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"status": "stopping"})
 	go func() {
 		time.Sleep(defaults.DaemonRestartSettle)
+		p, _ := os.FindProcess(os.Getpid())
+		_ = p.Signal(syscall.SIGTERM)
+	}()
+}
+
+func (s *Server) handleDaemonRestart(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, 200, map[string]any{"status": "restarting"})
+	go func() {
+		time.Sleep(defaults.DaemonRestartSettle)
+		if s.reg != nil {
+			if err := s.reg.SaveCache(); err != nil && s.logger != nil {
+				s.logger.Printf("save cache before restart: %v", err)
+			}
+		}
+		execPath, err := os.Executable()
+		if err == nil {
+			if s.httpSrv != nil {
+				grace := defaults.HTTPShutdownGrace
+				if s.set != nil {
+					grace = s.set.Duration("http.shutdownGrace")
+				}
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), grace)
+				_ = s.httpSrv.Shutdown(shutdownCtx)
+				cancel()
+			}
+			if s.reg != nil {
+				s.reg.Close()
+			}
+			if s.paths.Socket != "" {
+				_ = os.Remove(s.paths.Socket)
+			}
+			if s.paths.Info != "" {
+				_ = os.Remove(s.paths.Info)
+			}
+			if s.logger != nil {
+				s.logger.Printf("re-executing daemon: %s", execPath)
+			}
+			if execErr := syscall.Exec(execPath, os.Args, os.Environ()); execErr != nil && s.logger != nil {
+				s.logger.Printf("re-exec failed: %v", execErr)
+			}
+		}
 		p, _ := os.FindProcess(os.Getpid())
 		_ = p.Signal(syscall.SIGTERM)
 	}()

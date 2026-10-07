@@ -568,6 +568,13 @@ func Ops() []Op {
 			Admin: true, Mutating: true, Destructive: true,
 		},
 		{
+			Name: "daemon_restart", Method: "POST", Path: "/v1/daemon/restart",
+			Command: "restart",
+			Summary: "Restart the mcpx daemon",
+			Description: "Gracefully reloads or restarts the mcpx daemon process itself.",
+			Admin: true, Mutating: true, Destructive: true,
+		},
+		{
 			Name: "openapi", Method: "GET", Path: "/v1/openapi.json",
 			Command:     "openapi",
 			Summary:     "This API, as an OpenAPI 3.1 document",

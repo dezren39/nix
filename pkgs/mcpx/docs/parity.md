@@ -32,7 +32,7 @@ and costs an agent the ability to restart a server that has wedged. What they
 carry instead is a description that says so and MCP annotations
 (`readOnlyHint`, `destructiveHint`) for a client that wants to scope on them.
 
-## /v1 operations (61)
+## /v1 operations (62)
 
 | Operation | Route | CLI | MCP tool | Plugin | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -51,6 +51,7 @@ carry instead is a description that says so and MCP annotations
 | `catalog_history` | `GET /v1/catalog/history` | `mcpx history` *generated* | `mcpx_catalog_history` | `ops.catalogHistory()` |  |
 | `client_module` | `GET /v1/client.ts` | `mcpx client` | `mcpx_client_module` | `ops.clientModule()` |  |
 | `complete` | `POST /v1/complete` | `mcpx complete` *generated* | `mcpx_complete` | `ops.complete()`, `complete()` |  |
+| `daemon_restart` | `POST /v1/daemon/restart` | `mcpx restart` | `mcpx_daemon_restart` | `ops.daemonRestart()` | Privileged. Destructive. |
 | `diagnose` | `POST /v1/diagnose` | `mcpx diagnose` | `mcpx_diagnose` | `ops.diagnose()` |  |
 | `elicit_list` | `GET /v1/elicit` | `mcpx elicit list` | `mcpx_elicit_list` | `ops.elicitList()`, `pendingElicitations()` |  |
 | `elicit_get` | `GET /v1/elicit/{id}` | `mcpx elicit show` | `mcpx_elicit_get` | `ops.elicitGet()` |  |
@@ -141,7 +142,7 @@ that reaches none says why: those are decisions, not gaps.
 | `registry` | `registry_search` |  |
 | `resolve` | `resolve` | Generated from the operation table. |
 | `resources` | `resource_read`, `resource_templates`, `resources` |  |
-| `restart` | `restart` |  |
+| `restart` | `daemon_restart`, `restart` |  |
 | `run` | – | Resolves a script name against the caller's search path, which only the caller has; the source itself runs anywhere through `exec`. |
 | `schema` | – | Reshapes what `tools` and `types` return into JSON Schema, OpenAPI or MCP form; the data is those operations', the conversion is local. |
 | `scripts` | – | Lists the caller's script search path. |
