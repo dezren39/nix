@@ -15,6 +15,7 @@
       --green: #3fb950;
       --purple: #bc8cff;
       --orange: #d29922;
+      --red: #f85149;
     }
     body {
       margin: 0;
@@ -91,7 +92,7 @@
     .section-title {
       color: var(--heading);
       font-size: 1.1rem;
-      margin: 1.5rem 0 1rem;
+      margin: 2rem 0 1rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -103,11 +104,13 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       overflow: hidden;
+      margin-bottom: 1.5rem;
     }
     th, td {
       padding: 0.75rem 1rem;
       text-align: left;
       border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
     }
     th {
       background-color: #21262d;
@@ -154,6 +157,25 @@
     .tool-item:last-child { border-bottom: none; }
     .tool-name { font-weight: 600; color: var(--accent); }
     .tool-desc { font-size: 0.85rem; color: #8b949e; margin-top: 0.2rem; }
+    .badge-tag {
+      background-color: #21262d;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .badge-error {
+      color: var(--red);
+      font-weight: bold;
+    }
+    .grid-two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 800px) {
+      .grid-two { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -211,6 +233,82 @@
         <tr><td colspan="5" style="text-align:center; color:#8b949e">Loading server status...</td></tr>
       </tbody>
     </table>
+
+    <div class="section-title">
+      <span>Tool Reliability & Error Rates</span>
+    </div>
+    <table id="calls-table">
+      <thead>
+        <tr>
+          <th>Tool</th>
+          <th>Server</th>
+          <th>Calls</th>
+          <th>Errors</th>
+          <th>Error Rate</th>
+          <th>P50 Latency</th>
+          <th>Max Latency</th>
+        </tr>
+      </thead>
+      <tbody id="calls-tbody">
+        <tr><td colspan="7" style="text-align:center; color:#8b949e">No tool executions recorded yet</td></tr>
+      </tbody>
+    </table>
+
+    <div class="grid-two">
+      <div>
+        <div class="section-title">
+          <span>Correlated Tool Pairs (Co-Occurring in Sessions)</span>
+        </div>
+        <table id="correlations-table">
+          <thead>
+            <tr>
+              <th>Tool A</th>
+              <th>Tool B</th>
+              <th>Co-Occurrences</th>
+            </tr>
+          </thead>
+          <tbody id="correlations-tbody">
+            <tr><td colspan="3" style="text-align:center; color:#8b949e">No correlation data yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <div class="section-title">
+          <span>Tool Usage Over Time (Timeline)</span>
+        </div>
+        <table id="timeline-table">
+          <thead>
+            <tr>
+              <th>Time Window</th>
+              <th>Calls</th>
+              <th>Errors</th>
+              <th>Success Rate</th>
+            </tr>
+          </thead>
+          <tbody id="timeline-tbody">
+            <tr><td colspan="4" style="text-align:center; color:#8b949e">No timeline data yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-title">
+      <span>Common Error Shapes & Recurring Failures</span>
+    </div>
+    <table id="errors-table">
+      <thead>
+        <tr>
+          <th>Error Shape / Template</th>
+          <th>Occurrences</th>
+          <th>Servers</th>
+          <th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody id="errors-tbody">
+        <tr><td colspan="4" style="text-align:center; color:#8b949e">No error shapes logged</td></tr>
+      </tbody>
+    </table>
   </main>
 
   <script>
@@ -251,6 +349,78 @@
       } catch(e) {}
     }
 
+    async function loadToolMetrics() {
+      try {
+        const res = await fetch('/v1/metrics/tools');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // 1. Tool Reliability / Error Rates
+        const cBody = document.getElementById('calls-tbody');
+        if (data.calls && data.calls.length > 0) {
+          cBody.innerHTML = data.calls.map(c => `
+            <tr>
+              <td><strong>${c.tool}</strong></td>
+              <td><span class="badge-tag">${c.server}</span></td>
+              <td>${c.calls}</td>
+              <td><span class="${c.errors > 0 ? 'badge-error' : ''}">${c.errors}</span></td>
+              <td><span style="color:${c.errorRate > 0.05 ? 'var(--red)' : 'var(--green)'}">${(c.errorRate * 100).toFixed(1)}%</span></td>
+              <td>${c.p50Ms >= 0 ? c.p50Ms.toFixed(1) + 'ms' : '-'}</td>
+              <td>${c.maxMs >= 0 ? c.maxMs.toFixed(1) + 'ms' : '-'}</td>
+            </tr>
+          `).join('');
+        }
+
+        // 2. Correlated Tool Pairs
+        const corrBody = document.getElementById('correlations-tbody');
+        if (data.correlations && data.correlations.length > 0) {
+          corrBody.innerHTML = data.correlations.map(cr => `
+            <tr>
+              <td><code>${cr.toolA}</code></td>
+              <td><code>${cr.toolB}</code></td>
+              <td><strong>${cr.count}</strong> sessions</td>
+            </tr>
+          `).join('');
+        }
+
+        // 3. Usage Timeline
+        const tlBody = document.getElementById('timeline-tbody');
+        if (data.timeline && data.timeline.length > 0) {
+          tlBody.innerHTML = data.timeline.map(t => {
+            const successPct = t.calls > 0 ? (((t.calls - t.errors) / t.calls) * 100).toFixed(1) : 100;
+            return `
+              <tr>
+                <td>${t.timeBucket}</td>
+                <td><strong>${t.calls}</strong></td>
+                <td><span class="${t.errors > 0 ? 'badge-error' : ''}">${t.errors}</span></td>
+                <td><span style="color:${successPct < 90 ? 'var(--red)' : 'var(--green)'}">${successPct}%</span></td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        // 4. Common Error Shapes
+        const eBody = document.getElementById('errors-tbody');
+        if (data.errors && data.errors.length > 0) {
+          eBody.innerHTML = data.errors.map(er => `
+            <tr>
+              <td><code>${escapeHTML(er.message)}</code></td>
+              <td><span class="badge-error">${er.count}</span></td>
+              <td>${er.servers ? er.servers.split(',').map(s => `<span class="badge-tag">${s}</span>`).join(' ') : '-'}</td>
+              <td>${er.lastSeen ? new Date(er.lastSeen).toLocaleTimeString() : '-'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch(e) {}
+    }
+
+    function escapeHTML(str) {
+      if (!str) return '';
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag] || tag));
+    }
+
     async function runSearch() {
       const q = document.getElementById('query-input').value.trim();
       if (!q) return;
@@ -281,7 +451,12 @@
 
     loadMetrics();
     loadPools();
-    setInterval(() => { loadMetrics(); loadPools(); }, 3000);
+    loadToolMetrics();
+    setInterval(() => {
+      loadMetrics();
+      loadPools();
+      loadToolMetrics();
+    }, 3000);
   </script>
 </body>
 </html>

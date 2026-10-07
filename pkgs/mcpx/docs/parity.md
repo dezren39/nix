@@ -32,7 +32,7 @@ and costs an agent the ability to restart a server that has wedged. What they
 carry instead is a description that says so and MCP annotations
 (`readOnlyHint`, `destructiveHint`) for a client that wants to scope on them.
 
-## /v1 operations (65)
+## /v1 operations (66)
 
 | Operation | Route | CLI | MCP tool | Plugin | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -66,6 +66,7 @@ carry instead is a description that says so and MCP annotations
 | `log_query` | `GET /v1/log` | `mcpx log` | `mcpx_log_query` | `ops.logQuery()`, `logQuery()` |  |
 | `log_record` | `POST /v1/log` | `mcpx log record` | `mcpx_log_record` | `ops.logRecord()`, `record()` | Privileged. |
 | `metrics_tokens` | `GET /v1/metrics/tokens` | `mcpx metrics tokens` *generated* | `mcpx_metrics_tokens` | `ops.metricsTokens()` |  |
+| `metrics_tools` | `GET /v1/metrics/tools` | `mcpx metrics tools` *generated* | `mcpx_metrics_tools` | `ops.metricsTools()` |  |
 | `namespaces` | `GET /v1/namespaces` | `mcpx ls` | `mcpx_namespaces` | `ops.namespaces()`, `namespaces()` |  |
 | `openapi` | `GET /v1/openapi.json` | `mcpx openapi` | `mcpx_openapi` | `ops.openapi()` |  |
 | `prompt_get` | `POST /v1/prompt` | `mcpx prompts` | `mcpx_prompt_get` | `ops.promptGet()` |  |
@@ -137,7 +138,7 @@ that reaches none says why: those are decisions, not gaps.
 | `log` / `logs` | `log_query`, `log_record` |  |
 | `ls` / `list` / `namespaces` | `namespaces` |  |
 | `man` | – | Text about the binary, produced by the binary. |
-| `metrics` | `metrics_tokens` | Generated from the operation table. |
+| `metrics` | `metrics_tokens`, `metrics_tools` | Generated from the operation table. |
 | `openapi` | `openapi` |  |
 | `prompt` | `intent` |  |
 | `prompts` | `prompt_get`, `prompts` |  |

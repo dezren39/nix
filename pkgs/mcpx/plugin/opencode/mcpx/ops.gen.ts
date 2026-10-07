@@ -330,6 +330,12 @@ export const OPS: Record<string, OpSpec> = {
     params: {},
     response: "json",
   },
+  metrics_tools: {
+    method: "GET",
+    path: "/v1/metrics/tools",
+    params: {},
+    response: "json",
+  },
   namespaces: {
     method: "GET",
     path: "/v1/namespaces",
@@ -953,6 +959,13 @@ export class DaemonOps {
    */
   metricsTokens(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("metrics_tokens", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Tool call telemetry, error rates, correlations and timelines. `GET /v1/metrics/tools`.
+   */
+  metricsTools(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("metrics_tools", args, opts) as Promise<unknown>
   }
 
   /**

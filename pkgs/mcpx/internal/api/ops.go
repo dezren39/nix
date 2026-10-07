@@ -588,6 +588,11 @@ func Ops() []Op {
 			Description: "Aggregated stats on prompt turns, baseline tool schema tokens, injected tokens, and tokens saved.",
 		},
 		{
+			Name: "metrics_tools", Method: "GET", Path: "/v1/metrics/tools",
+			Summary: "Tool call telemetry, error rates, correlations and timelines",
+			Description: "Aggregated stats on tool call volume, error rates, error shapes, correlated tool pairs, and usage over time.",
+		},
+		{
 			Name: "chat_completions", Method: "POST", Path: "/v1/chat/completions",
 			Command: "proxy",
 			Summary: "OpenAI-compatible LLM chat completions endpoint",

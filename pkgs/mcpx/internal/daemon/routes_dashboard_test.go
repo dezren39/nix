@@ -63,3 +63,27 @@ func TestHandleMetricsTokens(t *testing.T) {
 		t.Errorf("expected 700 tokens saved, got %d", sum.TotalTokensSaved)
 	}
 }
+
+func TestHandleMetricsTools(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/v1/metrics/tools", nil)
+	w := httptest.NewRecorder()
+
+	s.handleMetricsTools(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		Calls        []logstore.CallStat          `json:"calls"`
+		Errors       []logstore.ErrorStat         `json:"errors"`
+		Correlations []logstore.ToolCorrelation   `json:"correlations"`
+		Timeline     []logstore.ToolTimelinePoint `json:"timeline"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Calls == nil || resp.Errors == nil || resp.Correlations == nil || resp.Timeline == nil {
+		t.Errorf("expected non-nil slices in response")
+	}
+}

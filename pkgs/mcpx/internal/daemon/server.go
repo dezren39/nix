@@ -515,6 +515,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /dashboard", s.handleDashboard)
 	mux.HandleFunc("GET /v1/dashboard", s.handleDashboard)
 	mux.HandleFunc("GET /v1/metrics/tokens", s.handleMetricsTokens)
+	mux.HandleFunc("GET /v1/metrics/tools", s.handleMetricsTools)
 	mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	mux.HandleFunc("POST /v1/daemon/restart", s.handleDaemonRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
