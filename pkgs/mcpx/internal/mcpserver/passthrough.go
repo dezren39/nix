@@ -46,9 +46,9 @@ type passLookup struct {
 }
 
 // toolsVary reports whether tools/list can change while the server runs:
-// only in pass-through mode, where it is the upstreams' list. That is what
+// only in pass-through mode or reactive mode, where tools can change dynamically. That is what
 // decides tools.listChanged and whether a listen agrees to toolsListChanged.
-func (s *Server) toolsVary() bool { return len(s.Passthrough) > 0 }
+func (s *Server) toolsVary() bool { return len(s.Passthrough) > 0 || s.Reactive }
 
 // withPass resolves the pass-through list for the rest of this request.
 func (s *Server) withPass(ctx context.Context) context.Context {
@@ -117,9 +117,8 @@ func (s *Server) lookupPass(ctx context.Context) *passLookup {
 	return l
 }
 
-// surface is what tools/list offers: the pass-through upstreams' tools first,
-// then every gateway tool whose name no upstream took.
-func (s *Server) surface(ctx context.Context) ([]Tool, error) {
+// allAvailableTools returns all available tools from pass-through upstreams and gateway extras.
+func (s *Server) allAvailableTools(ctx context.Context) ([]Tool, error) {
 	pass, err := s.passTools(ctx)
 	if err != nil {
 		return nil, err
@@ -138,6 +137,16 @@ func (s *Server) surface(ctx context.Context) ([]Tool, error) {
 		}
 	}
 	return out, nil
+}
+
+// surface is what tools/list offers: the pass-through upstreams' tools first,
+// then every gateway tool whose name no upstream took. In reactive mode, it
+// offers request_tools, batch_call, pinned tools, and active retained tools.
+func (s *Server) surface(ctx context.Context) ([]Tool, error) {
+	if s.Reactive {
+		return s.reactiveSurface(ctx)
+	}
+	return s.allAvailableTools(ctx)
 }
 
 // isPassTool reports whether name is served by a pass-through upstream.

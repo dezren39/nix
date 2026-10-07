@@ -282,6 +282,27 @@ func serviceSettings() []Setting {
 				"instead, so the two cases cannot be confused for each other.",
 		},
 		{
+			Path: "serve.mode", Kind: KindString, Default: "code-mode",
+			Scope: ScopeDaemon, Commands: []string{"serve"},
+			FlagAliases: []string{"mode"},
+			Name:        "Serve mode", Short: "server mode: code-mode, reactive, or full",
+		},
+		{
+			Path: "catalog.pinnedTools", Kind: KindList, Default: "",
+			Scope: ScopeDaemon,
+			Name:  "Pinned tools", Short: "tools always exposed in reactive mode",
+		},
+		{
+			Path: "retention.maxTools", Kind: KindInt, Default: "24",
+			Scope: ScopeDaemon,
+			Name:  "Max tools retention", Short: "maximum active tools in reactive working set",
+		},
+		{
+			Path: "retention.stickyWindow", Kind: KindDuration, Default: "2h",
+			Scope: ScopeDaemon,
+			Name:  "Sticky retention window", Short: "duration explicitly requested tools remain retained",
+		},
+		{
 			Path: "daemon.warm", Kind: KindBool, Default: "true",
 			Scope: ScopeDaemon, Commands: []string{"daemon"},
 			FlagAliases: []string{"warm"},

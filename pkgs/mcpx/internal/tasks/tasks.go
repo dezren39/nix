@@ -52,7 +52,7 @@ type Task struct {
 	fault    *Fault
 	cancel   context.CancelFunc
 	done     chan struct{}
-	OnCancel func(ctx context.Context, reason string)
+	OnCancel func(ctx context.Context, reason string) `json:"-"`
 }
 
 // Statuses, from the specification.

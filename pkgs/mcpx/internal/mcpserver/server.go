@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/catalog"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/spec"
 )
@@ -240,6 +241,15 @@ type Server struct {
 	// UpstreamSkills returns skills discovered from upstream servers to relay.
 	UpstreamSkills func() []*UpstreamSkill
 
+	// Reactive enables Mode 2 dynamic tool discovery (request_tools + working set).
+	Reactive bool
+	// PinnedTools are tools always exposed in reactive mode.
+	PinnedTools []string
+	// ReactiveWorkingSet is the bounded tool retention manager for reactive mode.
+	ReactiveWorkingSet *catalog.WorkingSet
+	// SearchTools is called by request_tools to find tools across the catalog.
+	SearchTools func(ctx context.Context, query string) ([]Tool, error)
+
 	mu sync.Mutex
 
 	// Notify is where pushed notifications come from. Nil means mcpx never
@@ -314,11 +324,16 @@ func (s *Server) WithExtras(extras []Extra) *Server {
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
-		Notify:          s.Notify,
-		Ask:             s.Ask,
-		ExtrasOnly:      s.ExtrasOnly,
-		OwnInstructions: s.OwnInstructions,
-		extras:          sortedExtras(append(append([]Extra(nil), s.extras...), extras...)),
+		Notify:             s.Notify,
+		Ask:                s.Ask,
+		ExtrasOnly:         s.ExtrasOnly,
+		OwnInstructions:    s.OwnInstructions,
+		Reactive:           s.Reactive,
+		PinnedTools:        s.PinnedTools,
+		ReactiveWorkingSet: s.ReactiveWorkingSet,
+		SearchTools:        s.SearchTools,
+		UpstreamSkills:     s.UpstreamSkills,
+		extras:             sortedExtras(append(append([]Extra(nil), s.extras...), extras...)),
 	}
 }
 
@@ -1337,6 +1352,9 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 		return s.callExtra(ctx, name, raw)
 	}
 	switch name {
+	case "request_tools":
+		return s.executeRequestTools(ctx, raw)
+
 	case "mcpx_namespaces":
 		return s.backend.Namespaces(ctx)
 
@@ -2628,6 +2646,12 @@ func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
 // its, otherwise the gateway's. Every route that calls a tool by name goes
 // through here, so pass-through cannot reach one route and miss another.
 func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	if s.ReactiveWorkingSet != nil {
+		s.ReactiveWorkingSet.Touch("", name)
+	}
+	if name == "request_tools" {
+		return s.executeRequestTools(ctx, args)
+	}
 	pass, err := s.routesToPass(ctx, name)
 	if err != nil {
 		return "", err

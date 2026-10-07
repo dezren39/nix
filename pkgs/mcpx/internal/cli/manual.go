@@ -433,7 +433,7 @@ func handCommands() []Command {
 		{
 			Name: "serve", Group: "daemon",
 			Local:   "It is the MCP surface: a stdio shim over the daemon, which serves the same tools at `/mcp` itself.",
-			Usage:   "[--tools]",
+			Usage:   "[--mode code-mode|reactive|full] [--tools]",
 			Summary: "speak MCP over stdio, for a host that spawns its servers",
 			Detail: "A thin shim over the daemon: every tool it lists is answered by " +
 				"the daemon, which is started if it is not running. HTTP is served " +

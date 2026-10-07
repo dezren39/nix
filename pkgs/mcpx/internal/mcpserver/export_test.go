@@ -1,6 +1,9 @@
 package mcpserver
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Exported for the tests in this package's external test file. They exercise
 // the two things that have no other way in: the downgrade at the edge, which
@@ -28,6 +31,18 @@ func (s *Server) ConnForTest(id string) *Conn { return s.newConn(id, nil) }
 
 // ConnWithSend is a connection whose frames go to send, as stdio's do.
 func (s *Server) ConnWithSend(id string, send func(any) error) *Conn { return s.newConn(id, send) }
+
+func (s *Server) SurfaceForTest(ctx context.Context) ([]Tool, error) { return s.surface(ctx) }
+
+func (s *Server) InvokeForTest(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	return s.invoke(ctx, name, args)
+}
+
+func (s *Server) SetDefaultConnForTest(c *Conn) {
+	s.mu.Lock()
+	s.def = c
+	s.mu.Unlock()
+}
 
 // ParamsFor renders a question for a client's revision.
 func (q Question) ParamsFor(p Peer) (json.RawMessage, error) { return q.paramsFor(p) }
