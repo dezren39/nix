@@ -487,6 +487,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/client.ts", s.handleClient)
 	mux.HandleFunc("GET /v1/globals.d.ts", s.handleGlobals)
 	mux.HandleFunc("POST /v1/call", s.handleCall)
+	mux.HandleFunc("POST /v1/batch", s.handleBatch)
 	mux.HandleFunc("POST /v1/resource", s.handleResource)
 	mux.HandleFunc("POST /v1/session/release", s.handleRelease)
 	mux.HandleFunc("POST /v1/refresh", s.handleRefresh)
@@ -744,6 +745,140 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})
+}
+
+type batchCallReqItem struct {
+	Server    string          `json:"server"`
+	Namespace string          `json:"namespace"`
+	Tool      string          `json:"tool"`
+	Name      string          `json:"name"`
+	Args      json.RawMessage `json:"args"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+type batchReq struct {
+	Calls       []batchCallReqItem `json:"calls"`
+	StopOnError *bool              `json:"stopOnError"`
+	Parallel    bool               `json:"parallel"`
+	Context     config.CallContext `json:"context"`
+	Session     string             `json:"session"`
+}
+
+func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
+	var req batchReq
+	var limit int64 = 10 << 20
+	if s.set != nil {
+		limit = s.set.Bytes("http.callBodyLimit")
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(&req); err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	if len(req.Calls) == 0 {
+		writeJSON(w, 200, map[string]any{"results": []any{}})
+		return
+	}
+
+	stopOnErr := true
+	if req.StopOnError != nil {
+		stopOnErr = *req.StopOnError
+	}
+
+	cc := callContext(r, req.Context, req.Session)
+	ctx := withRun(withCallSettings(withClientCaps(r.Context(), r), s.callSettings(r)), r.Header.Get("X-Mcpx-Run"))
+
+	results := make([]map[string]any, len(req.Calls))
+
+	runOne := func(ctx context.Context, i int, item batchCallReqItem) (map[string]any, error) {
+		server := item.Server
+		if server == "" {
+			server = item.Namespace
+		}
+		tool := item.Tool
+		if tool == "" {
+			tool = item.Name
+		}
+		if server == "" && strings.Contains(tool, ".") {
+			server, tool, _ = strings.Cut(tool, ".")
+		}
+		if server == "" || tool == "" {
+			return map[string]any{
+				"index":   i,
+				"server":  server,
+				"tool":    tool,
+				"status":  "error",
+				"error":   "server and tool are required",
+				"isError": true,
+			}, errors.New("server and tool are required")
+		}
+
+		rawArgs := item.Args
+		if len(rawArgs) == 0 {
+			rawArgs = item.Arguments
+		}
+		var args any = map[string]any{}
+		if len(rawArgs) > 0 {
+			if err := json.Unmarshal(rawArgs, &args); err != nil {
+				return map[string]any{
+					"index":   i,
+					"server":  server,
+					"tool":    tool,
+					"status":  "error",
+					"error":   fmt.Sprintf("args: %v", err),
+					"isError": true,
+				}, err
+			}
+		}
+
+		start := time.Now()
+		res, err := s.reg.Call(ctx, server, tool, cc, args)
+		dur := time.Since(start).Truncate(time.Millisecond)
+
+		if err != nil {
+			return map[string]any{
+				"index":      i,
+				"server":     server,
+				"tool":       tool,
+				"status":     "error",
+				"error":      err.Error(),
+				"isError":    true,
+				"durationMs": dur.Milliseconds(),
+			}, err
+		}
+
+		return map[string]any{
+			"index":      i,
+			"server":     server,
+			"tool":       tool,
+			"status":     "success",
+			"result":     res,
+			"durationMs": dur.Milliseconds(),
+		}, nil
+	}
+
+	if req.Parallel {
+		var wg sync.WaitGroup
+		wg.Add(len(req.Calls))
+		for i, item := range req.Calls {
+			go func(i int, item batchCallReqItem) {
+				defer wg.Done()
+				res, _ := runOne(ctx, i, item)
+				results[i] = res
+			}(i, item)
+		}
+		wg.Wait()
+	} else {
+		for i, item := range req.Calls {
+			res, err := runOne(ctx, i, item)
+			results[i] = res
+			if stopOnErr && err != nil {
+				results = results[:i+1]
+				break
+			}
+		}
+	}
+
+	writeJSON(w, 200, map[string]any{"results": results})
 }
 
 type resourceReq struct {

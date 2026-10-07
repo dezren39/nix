@@ -275,3 +275,69 @@ func TestDirectoryReadListsEveryDirectoryOnDisk(t *testing.T) {
 		t.Errorf("ExtrasOnly serves a skill directory: code %d", c)
 	}
 }
+
+func TestUpstreamSkillsRelayedInListAndGet(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	s.UpstreamSkills = func() []*mcpserver.UpstreamSkill {
+		return []*mcpserver.UpstreamSkill{
+			{
+				Namespace:   "github",
+				Name:        "pr-reviewer",
+				Description: "reviews pull requests",
+				Frontmatter: map[string]any{"name": "pr-reviewer", "role": "reviewer"},
+				Files: []mcpserver.UpstreamSkillFile{
+					{
+						Path:     "SKILL.md",
+						MimeType: "text/markdown; charset=utf-8",
+						Body:     []byte("---\nname: pr-reviewer\n---\n# PR Reviewer"),
+					},
+					{
+						Path:     "prompts/review.md",
+						MimeType: "text/markdown; charset=utf-8",
+						Body:     []byte("# Review Prompt"),
+					},
+				},
+			},
+		}
+	}
+
+	// 1. Check skills/list
+	list := resultOf(t, handle(t, s, "skills/list", modernParams(nil)))
+	entries, _ := list["skills"].([]any)
+	foundUpstream := false
+	for _, e := range entries {
+		ent := e.(map[string]any)
+		if ent["uri"] == "skill://github/pr-reviewer/SKILL.md" {
+			foundUpstream = true
+			res := ent["resources"].([]any)
+			if len(res) != 2 {
+				t.Fatalf("upstream skill resources length = %d, want 2", len(res))
+			}
+		}
+	}
+	if !foundUpstream {
+		t.Fatal("upstream skill was not found in skills/list")
+	}
+
+	// 2. Check skills/get
+	getRes := resultOf(t, handle(t, s, "skills/get", modernParams(map[string]any{"uri": "skill://github/pr-reviewer/SKILL.md"})))
+	skillEntry := getRes["skill"].(map[string]any)
+	if skillEntry["uri"] != "skill://github/pr-reviewer/SKILL.md" {
+		t.Errorf("skills/get uri = %v, want skill://github/pr-reviewer/SKILL.md", skillEntry["uri"])
+	}
+
+	// 3. Check resources/read
+	readRes := resultOf(t, handle(t, s, "resources/read", modernParams(map[string]any{"uri": "skill://github/pr-reviewer/SKILL.md"})))
+	contents := readRes["contents"].([]any)[0].(map[string]any)
+	if contents["text"] != "---\nname: pr-reviewer\n---\n# PR Reviewer" {
+		t.Errorf("resources/read text = %v, unexpected", contents["text"])
+	}
+
+	// 4. Check resources/directory/read
+	dirRes := resultOf(t, handle(t, s, "resources/directory/read", modernParams(map[string]any{"uri": "skill://github/pr-reviewer"})))
+	dirResources := dirRes["resources"].([]any)
+	if len(dirResources) == 0 {
+		t.Fatalf("resources/directory/read for upstream skill returned 0 items")
+	}
+}
+

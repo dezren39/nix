@@ -501,6 +501,47 @@ func (c *Client) Call(ctx context.Context, server, tool string, cc config.CallCo
 	return &out, json.Unmarshal(b, &out)
 }
 
+// BatchCallItem is one call to be executed in a batch.
+type BatchCallItem struct {
+	Server    string          `json:"server,omitempty"`
+	Namespace string          `json:"namespace,omitempty"`
+	Tool      string          `json:"tool"`
+	Name      string          `json:"name,omitempty"`
+	Args      json.RawMessage `json:"args,omitempty"`
+}
+
+// BatchResultItem is the result of one call in a batch.
+type BatchResultItem struct {
+	Index      int             `json:"index"`
+	Server     string          `json:"server,omitempty"`
+	Tool       string          `json:"tool"`
+	Status     string          `json:"status"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	IsError    bool            `json:"isError,omitempty"`
+	DurationMs int64           `json:"durationMs,omitempty"`
+}
+
+// BatchResponse is the response to /v1/batch.
+type BatchResponse struct {
+	Results []BatchResultItem `json:"results"`
+}
+
+// Batch invokes multiple tools in a single turn.
+func (c *Client) Batch(ctx context.Context, calls []BatchCallItem, stopOnError bool, parallel bool, cc config.CallContext) (*BatchResponse, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/batch", map[string]any{
+		"calls":       calls,
+		"stopOnError": stopOnError,
+		"parallel":    parallel,
+		"context":     cc,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out BatchResponse
+	return &out, json.Unmarshal(b, &out)
+}
+
 // CallRelayed is Call for mcpx's MCP server, relaying what its client asked
 // of the call to the upstream and handing the upstream's progress and log
 // messages to notify as they arrive. A call that produced none is answered

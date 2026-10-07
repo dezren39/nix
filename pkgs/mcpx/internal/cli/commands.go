@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -398,6 +399,103 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	// script must not read a failed tool as a success.
 	if failed {
 		return fmt.Errorf("%s.%s reported an error (isError)", ns, tool)
+	}
+	return nil
+}
+
+// CmdBatch invokes multiple tools in a single turn without starting a JavaScript runtime.
+func (a *App) CmdBatch(ctx context.Context, args []string) error {
+	fs := newFlagSet("batch")
+	session := fs.String("session", "", "session key for stateful servers")
+	raw := fs.Bool("raw", false, "print the full JSON response")
+	cmdJSON := fs.String("c", "", "inline JSON calls array or object")
+	file := fs.String("file", "", "path to JSON file containing calls")
+	parallel := fs.Bool("parallel", false, "execute calls concurrently")
+	stopOnError := fs.Bool("stop-on-error", true, "stop on first error")
+	if err := parseFlags(a, fs, args); err != nil {
+		return err
+	}
+
+	var data []byte
+	if *cmdJSON != "" {
+		data = []byte(*cmdJSON)
+	} else if *file != "" {
+		var err error
+		data, err = os.ReadFile(*file)
+		if err != nil {
+			return err
+		}
+	} else if fs.NArg() > 0 {
+		arg0 := fs.Arg(0)
+		if strings.HasPrefix(strings.TrimSpace(arg0), "[") || strings.HasPrefix(strings.TrimSpace(arg0), "{") {
+			data = []byte(arg0)
+		} else {
+			var err error
+			data, err = os.ReadFile(arg0)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		return errors.New("usage: mcpx batch [-c '<json>' | --file <path> | <file.json>]")
+	}
+
+	var calls []BatchCallItem
+	if bytes.HasPrefix(bytes.TrimSpace(data), []byte("[")) {
+		if err := json.Unmarshal(data, &calls); err != nil {
+			return fmt.Errorf("parsing calls array: %w", err)
+		}
+	} else {
+		var obj struct {
+			Calls       []BatchCallItem `json:"calls"`
+			Parallel    *bool           `json:"parallel"`
+			StopOnError *bool           `json:"stopOnError"`
+		}
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return fmt.Errorf("parsing batch JSON: %w", err)
+		}
+		calls = obj.Calls
+		if obj.Parallel != nil && !*parallel {
+			*parallel = *obj.Parallel
+		}
+		if obj.StopOnError != nil && *stopOnError {
+			*stopOnError = *obj.StopOnError
+		}
+	}
+
+	c, err := a.ensure(ctx)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Batch(ctx, calls, *stopOnError, *parallel, a.callContext(*session, *session))
+	if err != nil {
+		if a.JSON {
+			a.outCallFailure(err)
+		}
+		return err
+	}
+
+	if *raw || a.JSON {
+		return a.out(resp)
+	}
+
+	hasError := false
+	for _, res := range resp.Results {
+		if res.IsError {
+			hasError = true
+			fmt.Printf("✗ [%s.%s] error: %s\n", res.Server, res.Tool, res.Error)
+		} else {
+			text, failed := renderResult(res.Result)
+			if failed {
+				hasError = true
+				fmt.Printf("✗ [%s.%s] failed: %s\n", res.Server, res.Tool, text)
+			} else {
+				fmt.Printf("✓ [%s.%s]: %s\n", res.Server, res.Tool, text)
+			}
+		}
+	}
+	if hasError {
+		return errors.New("one or more batch calls failed")
 	}
 	return nil
 }

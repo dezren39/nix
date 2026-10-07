@@ -169,15 +169,85 @@ func frontmatter(md []byte) (map[string]any, error) {
 	return fm, nil
 }
 
-// skills is what this server serves: mcpx's own skills, unless the server
-// offers only contributed tools, in which case the skills -- which describe
-// the mcpx_* tools -- would describe tools that are not there.
+// UpstreamSkill represents a skill contributed by an upstream server.
+type UpstreamSkill struct {
+	Namespace   string         `json:"namespace"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Frontmatter map[string]any `json:"frontmatter,omitempty"`
+	Files       []UpstreamSkillFile `json:"files,omitempty"`
+}
+
+// UpstreamSkillFile is a single file belonging to an upstream skill.
+type UpstreamSkillFile struct {
+	Path     string `json:"path"`
+	MimeType string `json:"mimeType,omitempty"`
+	Body     []byte `json:"body"`
+}
+
+func convertUpstreamSkill(us *UpstreamSkill) *skill {
+	if us == nil || us.Name == "" {
+		return nil
+	}
+	authority := us.Namespace
+	if authority == "" {
+		authority = "upstream"
+	}
+	root := "skill://" + authority + "/" + us.Name
+	k := &skill{
+		name:        us.Name,
+		description: us.Description,
+		uri:         root + "/SKILL.md",
+		frontmatter: us.Frontmatter,
+		root:        root,
+	}
+	k.dirs = append(k.dirs, root)
+	dirSeen := map[string]bool{root: true}
+
+	for _, f := range us.Files {
+		rel := strings.TrimPrefix(f.Path, "/")
+		fileURI := root + "/" + rel
+		m := f.MimeType
+		if m == "" {
+			m = mime.TypeByExtension(path.Ext(rel))
+			if m == "" {
+				m = "text/markdown; charset=utf-8"
+			}
+		}
+		k.files = append(k.files, skillFile{
+			uri:  fileURI,
+			mime: m,
+			body: f.Body,
+		})
+		parent := path.Dir(rel)
+		for parent != "." && parent != "/" && parent != "" {
+			dirURI := root + "/" + parent
+			if !dirSeen[dirURI] {
+				dirSeen[dirURI] = true
+				k.dirs = append(k.dirs, dirURI)
+			}
+			parent = path.Dir(parent)
+		}
+	}
+	sort.Strings(k.dirs)
+	return k
+}
+
+// skills is what this server serves: mcpx's own skills, plus any upstream skills.
 func (s *Server) skills() []*skill {
 	if s.ExtrasOnly {
 		return nil
 	}
 	ks, _ := ownSkills()
-	return ks
+	out := append([]*skill(nil), ks...)
+	if s.UpstreamSkills != nil {
+		for _, us := range s.UpstreamSkills() {
+			if k := convertUpstreamSkill(us); k != nil {
+				out = append(out, k)
+			}
+		}
+	}
+	return out
 }
 
 // fileRef is a skill file as a resource listing entry. The SKILL.md

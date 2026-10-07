@@ -25,6 +25,7 @@ func (a *App) handWritten() map[string]Handler {
 		"catalog":    a.CmdCatalog,
 		"search":     a.CmdSearch,
 		"call":       a.CmdCall,
+		"batch":      a.CmdBatch,
 		"run":        a.CmdRun,
 		"exec":       a.CmdExec,
 		"client":     a.CmdClient,

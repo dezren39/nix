@@ -460,6 +460,19 @@ func Ops() []Op {
 			}, callContextParams()...),
 		},
 		{
+			Name: "batch", Method: "POST", Path: "/v1/batch",
+			Command: "batch",
+			Summary: "Execute multiple tool calls in a single turn",
+			Description: "Executes multiple calls sequentially or in parallel, returning all results in a single response.",
+			CoveredBy: "mcpx_batch", Mutating: true,
+			Params: append([]Param{
+				{Name: "calls", In: InBody, Type: "array", Required: true, Desc: "list of tool calls to execute",
+					Schema: `{"type":"array","items":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]}}`},
+				{Name: "stopOnError", In: InBody, Type: "boolean", Desc: "stop execution on first failure (default true)"},
+				{Name: "parallel", In: InBody, Type: "boolean", Desc: "execute calls concurrently (default false)"},
+			}, callContextParams()...),
+		},
+		{
 			Name: "resource_read", Method: "POST", Path: "/v1/resource",
 			Command:  "resources",
 			Summary:  "Read one resource from one server",

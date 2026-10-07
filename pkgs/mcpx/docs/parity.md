@@ -32,7 +32,7 @@ and costs an agent the ability to restart a server that has wedged. What they
 carry instead is a description that says so and MCP annotations
 (`readOnlyHint`, `destructiveHint`) for a client that wants to scope on them.
 
-## /v1 operations (60)
+## /v1 operations (61)
 
 | Operation | Route | CLI | MCP tool | Plugin | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -44,6 +44,7 @@ carry instead is a description that says so and MCP annotations
 | `ask_poll` | `GET /v1/ask/{id}` | `mcpx ask poll` *generated* | `mcpx_ask_poll` | `ops.askPoll()` |  |
 | `ask_abandon` | `POST /v1/ask/{id}/abandon` | `mcpx ask abandon` *generated* | `mcpx_ask_abandon` | `ops.askAbandon()` | Privileged. Destructive. |
 | `ask_answers` | `POST /v1/ask/{id}/answers` | `mcpx ask answers` *generated* | `mcpx_ask_answers` | `ops.askAnswers()` | Privileged. |
+| `batch` | `POST /v1/batch` | `mcpx batch` | `mcpx_batch` | `ops.batch()` |  |
 | `call` | `POST /v1/call` | `mcpx call` | `mcpx_call` | `ops.call()`, `call()`, `callAsTask()` |  |
 | `call_path` | `POST /v1/call/{server}/{tool}` | `mcpx call` | `mcpx_call` | `ops.callPath()` |  |
 | `catalog` | `GET /v1/catalog` | `mcpx catalog` | `mcpx_catalog` | `ops.catalog()` |  |
@@ -97,7 +98,7 @@ carry instead is a description that says so and MCP annotations
 | `tool_invoke` | `POST /v1/tools/{tool}` | `mcpx tool invoke` *generated* | `mcpx_tool_invoke` | `ops.toolInvoke()` |  |
 | `types` | `GET /v1/types` | `mcpx types` | `mcpx_types` | `ops.types()`, `types()` |  |
 
-## CLI commands (52)
+## CLI commands (53)
 
 Every command the binary dispatches, with the operations it reaches. A command
 that reaches none says why: those are decisions, not gaps.
@@ -108,6 +109,7 @@ that reaches none says why: those are decisions, not gaps.
 | `api` | – | OpenAPI declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83). |
 | `artifact` / `artifacts` | `artifacts_list`, `artifact_put`, `artifact_delete`, `artifact_get` | Generated from the operation table. |
 | `ask` | `ask_begin`, `ask_poll`, `ask_abandon`, `ask_answers` | Generated from the operation table. |
+| `batch` | `batch` |  |
 | `call` | `call`, `call_path` |  |
 | `catalog` | `catalog` |  |
 | `client` | `client_module` |  |
@@ -157,13 +159,15 @@ that reaches none says why: those are decisions, not gaps.
 | `tui` | – | An interactive interface over the reads above; it consumes the API rather than extending it. |
 | `types` | `types` |  |
 
-## Hand-written MCP tools (10)
+## Hand-written MCP tools (12)
 
 The tools mcpx offered before the operation table existed. Where one already
 covers an operation, no second tool is generated for it.
 
 | Tool | Covers | Summary |
 | --- | --- | --- |
+| `batch_call` | – | Alias for mcpx_batch. |
+| `mcpx_batch` | `batch` | Execute one or more tools in a single turn. |
 | `mcpx_call` | `call`, `call_path` | Call one tool on one server. |
 | `mcpx_catalog` | `catalog` | Every namespace with as many tool signatures as fit a token budget. |
 | `mcpx_exec` | `exec` | Run TypeScript against every server at once. |

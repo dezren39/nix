@@ -104,6 +104,18 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  batch: {
+    method: "POST",
+    path: "/v1/batch",
+    params: {
+      calls: { in: "body", required: true },
+      stopOnError: { in: "body" },
+      parallel: { in: "body" },
+      session: { in: "body" },
+      context: { in: "body" },
+    },
+    response: "json",
+  },
   call: {
     method: "POST",
     path: "/v1/call",
@@ -753,6 +765,13 @@ export class DaemonOps {
    */
   askPoll(args: { id: string; waitMs?: number }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("ask_poll", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Execute multiple tool calls in a single turn. `POST /v1/batch`.
+   */
+  batch(args: { calls: unknown[]; stopOnError?: boolean; parallel?: boolean; session?: string; context?: Record<string, unknown> }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("batch", args, opts) as Promise<unknown>
   }
 
   /**

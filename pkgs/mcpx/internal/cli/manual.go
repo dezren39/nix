@@ -210,6 +210,11 @@ func handCommands() []Command {
 			Summary: "call one tool directly, without writing a script",
 		},
 		{
+			Name: "batch", Group: "discovery",
+			Usage:   "[-c '<json>' | --file <path> | <file.json>]",
+			Summary: "execute multiple tool calls in a single turn",
+		},
+		{
 			Name: "client", Group: "discovery",
 			Summary: "print the generated TypeScript client",
 		},

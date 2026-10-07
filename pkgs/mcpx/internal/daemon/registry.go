@@ -578,9 +578,10 @@ func (r *Registry) CodegenNamespaces(names []string, prof config.Profile) ([]cod
 				matchedTool[name+"."+t.Name] = true
 			}
 			cn.Tools = append(cn.Tools, codegen.Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				InputSchema: t.InputSchema,
+				Name:         t.Name,
+				Description:  t.Description,
+				InputSchema:  t.InputSchema,
+				OutputSchema: t.OutputSchema,
 			})
 		}
 		out = append(out, cn)
