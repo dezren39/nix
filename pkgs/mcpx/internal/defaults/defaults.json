@@ -250,5 +250,9 @@
     "sessionDeleteTimeout": "5s",
     "listPageLimit": 100,
     "versionAttempts": 2
+  },
+  "embeddings": {
+    "remoteTimeout": "10s",
+    "searchTimeout": "2s"
   }
 }

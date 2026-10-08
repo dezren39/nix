@@ -63,6 +63,7 @@ func (a *App) handWritten() map[string]Handler {
 		"servers":    a.CmdServers,
 		"dashboard":  a.CmdDashboard,
 		"proxy":      a.CmdProxy,
+		"embeddings": a.CmdEmbeddings,
 	}
 }
 

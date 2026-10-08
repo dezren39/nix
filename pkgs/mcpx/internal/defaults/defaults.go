@@ -326,7 +326,17 @@ type Defaults struct {
 		// VersionAttempts bounds how often a probe offers one version.
 		VersionAttempts int `json:"versionAttempts"`
 	} `json:"upstream"`
+	Embeddings struct {
+		RemoteTimeout string `json:"remoteTimeout"`
+		SearchTimeout string `json:"searchTimeout"`
+	} `json:"embeddings"`
 }
+
+// Embeddings defaults.
+var (
+	EmbeddingsRemoteTimeout = mustDur(builtin.Embeddings.RemoteTimeout, "embeddings.remoteTimeout")
+	EmbeddingsSearchTimeout = mustDur(builtin.Embeddings.SearchTimeout, "embeddings.searchTimeout")
+)
 
 // Upstream connection defaults.
 var (

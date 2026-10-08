@@ -200,6 +200,26 @@ func (idx *VectorIndex) IndexTool(key, text string) Vector {
 	return vec
 }
 
+// Put stores an explicit vector for a key in memory and on disk.
+func (idx *VectorIndex) Put(key string, vec Vector) error {
+	idx.mu.Lock()
+	idx.vectors[key] = vec
+	idx.mu.Unlock()
+
+	if idx.db != nil {
+		blob := make([]byte, len(vec)*4)
+		for i, v := range vec {
+			binary.LittleEndian.PutUint32(blob[i*4:(i+1)*4], math.Float32bits(v))
+		}
+		_, err := idx.db.Exec(`
+			INSERT OR REPLACE INTO tool_embeddings (key, vector)
+			VALUES (?, ?)
+		`, key, blob)
+		return err
+	}
+	return nil
+}
+
 // Get retrieves the vector for a key if indexed.
 func (idx *VectorIndex) Get(key string) (Vector, bool) {
 	idx.mu.RLock()

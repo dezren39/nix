@@ -303,6 +303,32 @@ func serviceSettings() []Setting {
 			Name:  "Sticky retention window", Short: "duration explicitly requested tools remain retained",
 		},
 		{
+			Path: "embeddings.backend", Kind: KindString, Default: "auto",
+			Scope: ScopeDaemon, Hot: true,
+			Enum: []string{"auto", "local", "remote", "wasm"},
+			Name: "Embeddings backend", Short: "which embedding engine to use (auto, local, remote, wasm)",
+		},
+		{
+			Path: "embeddings.url", Kind: KindString, Default: "",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "Remote embeddings URL", Short: "OpenAI-compatible embeddings endpoint URL",
+		},
+		{
+			Path: "embeddings.apiKey", Kind: KindString, Default: "",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "Remote embeddings API key", Short: "API key for remote embeddings endpoint",
+		},
+		{
+			Path: "embeddings.model", Kind: KindString, Default: "text-embedding-3-small",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "Remote embeddings model", Short: "model name for remote embeddings endpoint",
+		},
+		{
+			Path: "embeddings.wasmPath", Kind: KindString, Default: "",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "WASM model path", Short: "path to compiled WebAssembly neural embedding model",
+		},
+		{
 			Path: "daemon.warm", Kind: KindBool, Default: "true",
 			Scope: ScopeDaemon, Commands: []string{"daemon"},
 			FlagAliases: []string{"warm"},

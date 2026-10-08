@@ -245,6 +245,29 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  embeddings: {
+    method: "POST",
+    path: "/v1/embeddings",
+    params: {
+      input: { in: "body", required: true },
+      model: { in: "body" },
+    },
+    response: "json",
+  },
+  embeddings_export: {
+    method: "GET",
+    path: "/v1/embeddings/export",
+    params: {},
+    response: "json",
+  },
+  embeddings_import: {
+    method: "POST",
+    path: "/v1/embeddings/import",
+    params: {
+      content: { in: "body", required: true, raw: true },
+    },
+    response: "json",
+  },
   events: {
     method: "GET",
     path: "/v1/events",
@@ -900,6 +923,27 @@ export class DaemonOps {
    */
   elicitList(args: { session?: string; audience?: string } = {}, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("elicit_list", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Compute vector embeddings for text. `POST /v1/embeddings`.
+   */
+  embeddings(args: { input: string; model?: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("embeddings", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Export cached vector embeddings. `GET /v1/embeddings/export`.
+   */
+  embeddingsExport(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("embeddings_export", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Import pre-computed vector embeddings. `POST /v1/embeddings/import`.
+   */
+  embeddingsImport(args: { content: BodyInit }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("embeddings_import", args, opts) as Promise<unknown>
   }
 
   /**

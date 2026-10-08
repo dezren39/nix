@@ -403,6 +403,14 @@ func handCommands() []Command {
 				"servers, and injects them dynamically while recording token savings.",
 		},
 		{
+			Name: "embeddings", Group: "running",
+			Usage:   "test <text> | export [--output <path>] | import <file.json>",
+			Summary: "test, export, or import vector embeddings",
+			Detail: "Interacts with the daemon vector embeddings engine and index. " +
+				"Exports or imports pre-computed vector JSON representations across environments, " +
+				"or tests embedding representations across local, WASM, or remote backends.",
+		},
+		{
 			Name: "log", Aliases: []string{"logs"}, Group: "inspection",
 			Usage:   "[--since d] [--chain id] [--follow] | sql '<query>' | record '<json>'",
 			Summary: "query the structured log, or add to it",

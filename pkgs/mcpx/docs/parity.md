@@ -32,7 +32,7 @@ and costs an agent the ability to restart a server that has wedged. What they
 carry instead is a description that says so and MCP annotations
 (`readOnlyHint`, `destructiveHint`) for a client that wants to scope on them.
 
-## /v1 operations (66)
+## /v1 operations (69)
 
 | Operation | Route | CLI | MCP tool | Plugin | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -58,6 +58,9 @@ carry instead is a description that says so and MCP annotations
 | `elicit_list` | `GET /v1/elicit` | `mcpx elicit list` | `mcpx_elicit_list` | `ops.elicitList()`, `pendingElicitations()` |  |
 | `elicit_get` | `GET /v1/elicit/{id}` | `mcpx elicit show` | `mcpx_elicit_get` | `ops.elicitGet()` |  |
 | `elicit_answer` | `POST /v1/elicit/{id}/{action}` | `mcpx elicit answer` | `mcpx_elicit_answer` | `ops.elicitAnswer()`, `answer()` | Privileged. |
+| `embeddings` | `POST /v1/embeddings` | `mcpx embeddings` | `mcpx_embeddings` | `ops.embeddings()` |  |
+| `embeddings_export` | `GET /v1/embeddings/export` | `mcpx embeddings export` | `mcpx_embeddings_export` | `ops.embeddingsExport()` |  |
+| `embeddings_import` | `POST /v1/embeddings/import` | `mcpx embeddings import` | `mcpx_embeddings_import` | `ops.embeddingsImport()` |  |
 | `events` | `GET /v1/events` | `mcpx events` *generated* | none: a stream; MCP carries it as `subscriptions/listen` | `ops.events()` | Never ends; read it until you are done. |
 | `exec` | `POST /v1/exec` | `mcpx exec` | `mcpx_exec` | `ops.exec()`, `exec()` | Privileged. |
 | `globals` | `GET /v1/globals.d.ts` | `mcpx globals` *generated* | `mcpx_globals` | `ops.globals()` |  |
@@ -103,7 +106,7 @@ carry instead is a description that says so and MCP annotations
 | `tool_invoke` | `POST /v1/tools/{tool}` | `mcpx tool invoke` *generated* | `mcpx_tool_invoke` | `ops.toolInvoke()` |  |
 | `types` | `GET /v1/types` | `mcpx types` | `mcpx_types` | `ops.types()`, `types()` |  |
 
-## CLI commands (56)
+## CLI commands (57)
 
 Every command the binary dispatches, with the operations it reaches. A command
 that reaches none says why: those are decisions, not gaps.
@@ -127,6 +130,7 @@ that reaches none says why: those are decisions, not gaps.
 | `diagnose` | `diagnose` |  |
 | `doctor` | – | Checks this machine: binaries on PATH, permissions, configuration files. |
 | `elicit` | `elicit_list`, `elicit_get`, `elicit_answer` |  |
+| `embeddings` | `embeddings`, `embeddings_export`, `embeddings_import` |  |
 | `events` | `events` | Generated from the operation table. |
 | `exec` | `exec` |  |
 | `explore` | – | An interactive interface over the reads above; it consumes the API rather than extending it. |

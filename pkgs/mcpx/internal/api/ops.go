@@ -605,6 +605,34 @@ func Ops() []Op {
 			},
 		},
 		{
+			Name: "embeddings", Method: "POST", Path: "/v1/embeddings",
+			Command: "embeddings",
+			Summary: "Compute vector embeddings for text",
+			Description: "OpenAI-compatible vector embedding endpoint using pure-Go, WASM, or remote engines.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "input", In: InBody, Type: "string", Required: true, Desc: "input text string or array of strings"},
+				{Name: "model", In: InBody, Type: "string", Desc: "the model ID"},
+			},
+		},
+		{
+			Name: "embeddings_export", Method: "GET", Path: "/v1/embeddings/export",
+			Command: "embeddings export",
+			Summary: "Export cached vector embeddings",
+			Description: "Exports all computed and indexed tool vector embeddings as JSON.",
+		},
+		{
+			Name: "embeddings_import", Method: "POST", Path: "/v1/embeddings/import",
+			Command: "embeddings import",
+			Summary: "Import pre-computed vector embeddings",
+			Description: "Imports pre-computed tool vector embeddings from JSON payload.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "content", In: InBody, Type: "string", Required: true, Raw: true,
+					Desc: "the JSON payload, sent as the whole request body"},
+			},
+		},
+		{
 			Name: "openapi", Method: "GET", Path: "/v1/openapi.json",
 			Command:     "openapi",
 			Summary:     "This API, as an OpenAPI 3.1 document",

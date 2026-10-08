@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -47,6 +48,9 @@ type Registry struct {
 	pools map[string]*pool.Pool
 	views map[string]*config.Resolved
 	order []string
+
+	vectorIdx *catalog.VectorIndex
+	embedder  catalog.Embedder
 
 	sessMu sync.Mutex
 	leases map[string]*leaseState
@@ -136,6 +140,13 @@ func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*R
 		asks:   newAskTable(),
 		logf:   logf,
 	}
+	if paths.State != "" {
+		dbPath := filepath.Join(paths.State, "embeddings.db")
+		if vIdx, err := catalog.NewVectorIndex(dbPath); err == nil {
+			r.vectorIdx = vIdx
+		}
+	}
+	r.embedder = &catalog.SubwordEmbedder{}
 	seen := map[string]string{}
 	// Servers whose process definition and leasing are identical share one
 	// pool. That is what makes an alias cheap: a second view over the same
@@ -454,15 +465,37 @@ func (r *Registry) SearchSemantic(query string, limit int, semantic bool) []Tool
 		return scored
 	}
 
-	queryVec := catalog.Embed(query)
+	embedder := r.Embedder()
+	ctx, cancel := context.WithTimeout(context.Background(), defaults.EmbeddingsSearchTimeout)
+	defer cancel()
+
+	queryVec, err := embedder.Embed(ctx, query)
+	if err != nil || len(queryVec) == 0 {
+		queryVec = catalog.Embed(query)
+	}
+
 	keywordScores := make(map[string]int)
 	for _, t := range rank(all, terms, false) {
 		keywordScores[t.Function] = t.Score
 	}
 
+	vIdx := r.VectorIndex()
 	scored := make([]ToolInfo, 0, len(all))
 	for _, t := range all {
-		tVec := catalog.Embed(t.Namespace + " " + t.Tool + " " + t.Description)
+		var tVec catalog.Vector
+		if vIdx != nil {
+			tVec, _ = vIdx.Get(t.Function)
+		}
+		if len(tVec) == 0 {
+			var err error
+			tVec, err = embedder.Embed(ctx, t.Namespace+" "+t.Tool+" "+t.Description)
+			if err != nil || len(tVec) == 0 {
+				tVec = catalog.Embed(t.Namespace + " " + t.Tool + " " + t.Description)
+			}
+			if vIdx != nil && len(tVec) > 0 {
+				_ = vIdx.Put(t.Function, tVec)
+			}
+		}
 		sim := queryVec.CosineSimilarity(tVec)
 		kwScore := keywordScores[t.Function]
 		// Combined hybrid score: 60% semantic cosine, 40% keyword
@@ -1020,11 +1053,46 @@ func (r *Registry) Restart(ctx context.Context, name string, lazy bool) ([]Serve
 	return out, nil
 }
 
+// VectorIndex returns the underlying persistent vector index if initialized.
+func (r *Registry) VectorIndex() *catalog.VectorIndex {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.vectorIdx
+}
+
+// Embedder returns the active embedding model engine.
+func (r *Registry) Embedder() catalog.Embedder {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.embedder == nil {
+		return &catalog.SubwordEmbedder{}
+	}
+	return r.embedder
+}
+
 // UseSettings gives the registry the daemon's resolved configuration.
 //
 // Separate from NewRegistry for the same reason InstallHooks is: a registry
 // built for a test should work without one.
-func (r *Registry) UseSettings(set *settings.Set) { r.set = set }
+func (r *Registry) UseSettings(set *settings.Set) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.set = set
+	if set != nil {
+		backend := set.String("embeddings.backend")
+		var remote *catalog.RemoteEmbedder
+		if u := set.String("embeddings.url"); u != "" {
+			remote = catalog.NewRemoteEmbedder(u, set.String("embeddings.apiKey"), set.String("embeddings.model"))
+		}
+		var wasm *catalog.WasmEmbedder
+		if p := set.String("embeddings.wasmPath"); p != "" {
+			if w, err := catalog.NewWasmEmbedder(context.Background(), p); err == nil {
+				wasm = w
+			}
+		}
+		r.embedder = catalog.NewCascadeEmbedder(backend, remote, wasm)
+	}
+}
 
 func (r *Registry) leaseTTL() time.Duration {
 	if r.set == nil {
@@ -1042,8 +1110,12 @@ func (r *Registry) Close() {
 	for _, p := range r.pools {
 		pools = append(pools, p)
 	}
+	vIdx := r.vectorIdx
 	r.mu.RUnlock()
 	for _, p := range pools {
 		p.Close()
+	}
+	if vIdx != nil {
+		_ = vIdx.Close()
 	}
 }
