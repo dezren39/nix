@@ -641,6 +641,9 @@ func Ops() []Op {
 			Params: []Param{
 				{Name: "traceId", In: InBody, Type: "string", Required: true, Desc: "the interaction trace ID"},
 				{Name: "score", In: InBody, Type: "number", Required: true, Desc: "primary score between 0.0 (bad) and 1.0 (good)"},
+				{Name: "target", In: InBody, Type: "string", Desc: "feedback target: 'retrieval' (search relevance) or 'execution' (tool runtime success)"},
+				{Name: "retrievalScore", In: InBody, Type: "number", Desc: "retrieval relevance score between 0.0 and 1.0"},
+				{Name: "executionScore", In: InBody, Type: "number", Desc: "execution reliability score between 0.0 and 1.0"},
 				{Name: "notes", In: InBody, Type: "string", Desc: "commentary or feedback explanation"},
 			},
 		},
@@ -652,6 +655,7 @@ func Ops() []Op {
 			Params: []Param{
 				{Name: "q", In: InQuery, Type: "string", Desc: "search text across inputs, outputs, and feedback notes"},
 				{Name: "source", In: InQuery, Type: "string", Desc: "filter by source ('proxy', 'call', etc.)"},
+				{Name: "target", In: InQuery, Type: "string", Desc: "filter by feedback target ('retrieval' or 'execution')"},
 				{Name: "hasFeedback", In: InQuery, Type: "string", Desc: "filter by feedback status: '1' (rated), '0' (unrated)"},
 			},
 		},

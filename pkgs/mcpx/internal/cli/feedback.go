@@ -19,6 +19,9 @@ import (
 func (a *App) CmdFeedback(ctx context.Context, args []string) error {
 	fs := newFlagSet("feedback")
 	scoreVal := fs.Float64("score", 1.0, "primary feedback score between 0.0 (bad) and 1.0 (good)")
+	targetVal := fs.String("target", "", "feedback target: 'retrieval' (search relevance) or 'execution' (tool runtime success)")
+	retrievalScoreVal := fs.Float64("retrieval-score", -1, "retrieval relevance score between 0.0 and 1.0")
+	executionScoreVal := fs.Float64("execution-score", -1, "execution reliability score between 0.0 and 1.0")
 	notesVal := fs.String("notes", "", "optional commentary, correction, or feedback reasoning")
 	scoresJSON := fs.String("scores", "", "optional JSON map of multi-dimensional scores (e.g. '{\"relevance\":1.0,\"accuracy\":0.8}')")
 	if err := parseFlags(a, fs, args); err != nil {
@@ -27,7 +30,7 @@ func (a *App) CmdFeedback(ctx context.Context, args []string) error {
 
 	remaining := fs.Args()
 	if len(remaining) == 0 {
-		return fmt.Errorf("usage: mcpx feedback <trace-id> [--score <0.0-1.0>] [--notes <text>] [--scores <json>]")
+		return fmt.Errorf("usage: mcpx feedback <trace-id> [--score <0.0-1.0>] [--target <retrieval|execution>] [--retrieval-score <0.0-1.0>] [--execution-score <0.0-1.0>] [--notes <text>] [--scores <json>]")
 	}
 	traceID := remaining[0]
 
@@ -47,12 +50,23 @@ func (a *App) CmdFeedback(ctx context.Context, args []string) error {
 		return err
 	}
 
-	bodyData, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"traceId": traceID,
 		"score":   *scoreVal,
 		"scores":  scoresMap,
 		"notes":   *notesVal,
-	})
+	}
+	if *targetVal != "" {
+		payload["target"] = *targetVal
+	}
+	if *retrievalScoreVal >= 0 {
+		payload["retrievalScore"] = *retrievalScoreVal
+	}
+	if *executionScoreVal >= 0 {
+		payload["executionScore"] = *executionScoreVal
+	}
+
+	bodyData, _ := json.Marshal(payload)
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(ep, "/")+"/v1/feedback", bytes.NewReader(bodyData))
 	if err != nil {
@@ -71,7 +85,22 @@ func (a *App) CmdFeedback(ctx context.Context, args []string) error {
 		return fmt.Errorf("feedback submission failed (status %d): %s", resp.StatusCode, string(b))
 	}
 
-	fmt.Printf("Feedback recorded successfully for trace %q (score: %.2f).\n", traceID, *scoreVal)
+	var details []string
+	if *targetVal != "" {
+		details = append(details, fmt.Sprintf("target: %s", *targetVal))
+	}
+	if *retrievalScoreVal >= 0 {
+		details = append(details, fmt.Sprintf("retrieval: %.2f", *retrievalScoreVal))
+	}
+	if *executionScoreVal >= 0 {
+		details = append(details, fmt.Sprintf("execution: %.2f", *executionScoreVal))
+	}
+	detailStr := ""
+	if len(details) > 0 {
+		detailStr = fmt.Sprintf(" [%s]", strings.Join(details, ", "))
+	}
+
+	fmt.Printf("Feedback recorded successfully for trace %q (score: %.2f%s).\n", traceID, *scoreVal, detailStr)
 	return nil
 }
 
@@ -81,9 +110,11 @@ func (a *App) CmdInteractions(ctx context.Context, args []string) error {
 	query := fs.String("q", "", "search text across inputs, outputs, and feedback notes")
 	source := fs.String("source", "", "filter by source ('proxy', 'call', etc.)")
 	session := fs.String("session", "", "filter by session ID")
+	target := fs.String("target", "", "filter by target ('retrieval' or 'execution')")
 	hasFeedback := fs.String("feedback", "", "filter feedback status: 'yes' (rated), 'no' (unrated), or empty")
 	minScore := fs.Float64("min-score", -1, "minimum score filter")
 	maxScore := fs.Float64("max-score", -1, "maximum score filter")
+	sortBy := fs.String("sort-by", "", "sort order ('time', 'score', 'retrieval', 'execution')")
 	limit := fs.Int("limit", 20, "maximum number of results")
 	showID := fs.String("show", "", "inspect full details of a specific trace ID")
 	if err := parseFlags(a, fs, args); err != nil {
@@ -130,6 +161,15 @@ func (a *App) CmdInteractions(ctx context.Context, args []string) error {
 		if len(rec.ToolsUsed) > 0 {
 			fmt.Printf("Tools Used:   %s\n", strings.Join(rec.ToolsUsed, ", "))
 		}
+		if rec.Target != "" {
+			fmt.Printf("Target:       %s\n", rec.Target)
+		}
+		if rec.RetrievalScore != nil {
+			fmt.Printf("Retrieval:    %.2f\n", *rec.RetrievalScore)
+		}
+		if rec.ExecutionScore != nil {
+			fmt.Printf("Execution:    %.2f\n", *rec.ExecutionScore)
+		}
 		if rec.Score != nil {
 			fmt.Printf("Score:        %.2f\n", *rec.Score)
 		} else {
@@ -159,6 +199,9 @@ func (a *App) CmdInteractions(ctx context.Context, args []string) error {
 	if *session != "" {
 		params.Set("sessionId", *session)
 	}
+	if *target != "" {
+		params.Set("target", *target)
+	}
 	if *hasFeedback == "yes" || *hasFeedback == "true" || *hasFeedback == "1" {
 		params.Set("hasFeedback", "1")
 	} else if *hasFeedback == "no" || *hasFeedback == "false" || *hasFeedback == "0" {
@@ -169,6 +212,9 @@ func (a *App) CmdInteractions(ctx context.Context, args []string) error {
 	}
 	if *maxScore >= 0 {
 		params.Set("maxScore", strconv.FormatFloat(*maxScore, 'f', 2, 64))
+	}
+	if *sortBy != "" {
+		params.Set("sortBy", *sortBy)
 	}
 	if *limit > 0 {
 		params.Set("limit", strconv.Itoa(*limit))
@@ -199,24 +245,28 @@ func (a *App) CmdInteractions(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%-14s  %-19s  %-7s  %-8s  %-30s  %s\n", "TRACE ID", "TIMESTAMP", "SOURCE", "SCORE", "TOOLS", "INPUT PREVIEW")
-	fmt.Println(strings.Repeat("-", 100))
+	fmt.Printf("%-14s  %-19s  %-7s  %-10s  %-8s  %-26s  %s\n", "TRACE ID", "TIMESTAMP", "SOURCE", "TARGET", "SCORE", "TOOLS", "INPUT PREVIEW")
+	fmt.Println(strings.Repeat("-", 106))
 	for _, it := range list {
 		scoreStr := "-"
 		if it.Score != nil {
 			scoreStr = fmt.Sprintf("%.2f", *it.Score)
 		}
+		targetStr := "-"
+		if it.Target != "" {
+			targetStr = it.Target
+		}
 		toolsStr := strings.Join(it.ToolsUsed, ",")
-		if len(toolsStr) > 28 {
-			toolsStr = toolsStr[:25] + "..."
+		if len(toolsStr) > 24 {
+			toolsStr = toolsStr[:21] + "..."
 		}
 		inputPreview := strings.ReplaceAll(it.Input, "\n", " ")
 		if len(inputPreview) > 30 {
 			inputPreview = inputPreview[:27] + "..."
 		}
 		tsStr := it.Timestamp.Format("2006-01-02 15:04:05")
-		fmt.Printf("%-14s  %-19s  %-7s  %-8s  %-30s  %s\n", it.TraceID, tsStr, it.Source, scoreStr, toolsStr, inputPreview)
+		fmt.Printf("%-14s  %-19s  %-7s  %-10s  %-8s  %-26s  %s\n", it.TraceID, tsStr, it.Source, targetStr, scoreStr, toolsStr, inputPreview)
 	}
-	fmt.Printf("\nUse `mcpx interactions --show <trace-id>` to inspect details or `mcpx feedback <trace-id> --score <0.0-1.0>` to rate.\n")
+	fmt.Printf("\nUse `mcpx interactions --show <trace-id>` to inspect details or `mcpx feedback <trace-id> [--target <retrieval|execution>] --score <0.0-1.0>` to rate.\n")
 	return nil
 }

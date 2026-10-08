@@ -507,7 +507,8 @@ func (r *Registry) SearchSemantic(query string, limit int, semantic bool) []Tool
 		// Combined hybrid score: 60% semantic cosine, 40% keyword
 		combined := float32(kwScore)*0.4 + (sim*100.0)*0.6
 		if fb := r.FeedbackStore(); fb != nil {
-			combined *= fb.ToolFeedbackAdjustment(t.Function)
+			execMult, retrMult := fb.ToolFeedbackAdjustment(t.Function)
+			combined = combined * retrMult * (0.5 + 0.5*execMult)
 		}
 		if combined > 15.0 || kwScore > 0 {
 			tCopy := t

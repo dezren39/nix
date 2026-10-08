@@ -314,6 +314,11 @@
       <span>Interaction History & Feedback Ratings</span>
       <div style="font-size:0.8rem; font-weight:normal; display:flex; gap:0.5rem; align-items:center;">
         <input type="text" id="fb-filter-q" placeholder="Filter interactions..." style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.5rem;" oninput="loadInteractions()">
+        <select id="fb-filter-target" style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.4rem;" onchange="loadInteractions()">
+          <option value="">All Targets</option>
+          <option value="retrieval">Retrieval</option>
+          <option value="execution">Execution</option>
+        </select>
         <select id="fb-filter-status" style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.4rem;" onchange="loadInteractions()">
           <option value="">All Feedback</option>
           <option value="0">Unrated Only</option>
@@ -327,6 +332,7 @@
           <th>Trace ID</th>
           <th>Timestamp</th>
           <th>Source</th>
+          <th>Target</th>
           <th>Tools</th>
           <th>Score</th>
           <th>Feedback</th>
@@ -334,7 +340,7 @@
         </tr>
       </thead>
       <tbody id="interactions-tbody">
-        <tr><td colspan="7" style="text-align:center; color:#8b949e">Loading interactions...</td></tr>
+        <tr><td colspan="8" style="text-align:center; color:#8b949e">Loading interactions...</td></tr>
       </tbody>
     </table>
   </main>
@@ -480,9 +486,11 @@
     async function loadInteractions() {
       try {
         const q = (document.getElementById('fb-filter-q') || {}).value || '';
+        const target = (document.getElementById('fb-filter-target') || {}).value || '';
         const status = (document.getElementById('fb-filter-status') || {}).value || '';
         let url = '/v1/interactions?limit=30';
         if (q) url += '&q=' + encodeURIComponent(q);
+        if (target !== '') url += '&target=' + encodeURIComponent(target);
         if (status !== '') url += '&hasFeedback=' + status;
 
         const res = await fetch(url);
@@ -490,7 +498,7 @@
           const list = await res.json();
           const tbody = document.getElementById('interactions-tbody');
           if (!list || list.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#8b949e">No interactions recorded yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#8b949e">No interactions recorded yet</td></tr>';
             return;
           }
           tbody.innerHTML = list.map(it => {
@@ -501,6 +509,13 @@
                   : `<span class="badge" style="background:var(--red); color:#fff;">${it.score.toFixed(2)}</span>`)
               : `<span class="badge-tag">unrated</span>`;
 
+            let targetBadge = '<span style="color:#8b949e">-</span>';
+            if (it.target === 'retrieval') {
+              targetBadge = '<span class="badge" style="background:#1f6feb; color:#fff;">retrieval</span>';
+            } else if (it.target === 'execution') {
+              targetBadge = '<span class="badge" style="background:#8957e5; color:#fff;">execution</span>';
+            }
+
             const tools = (it.toolsUsed || []).map(t => `<span class="badge-tag">${escapeHTML(t)}</span>`).join(' ') || '-';
             const feedbackText = it.feedbackNotes ? `<em>${escapeHTML(it.feedbackNotes)}</em>` : (hasScore ? 'Rated' : '-');
 
@@ -509,6 +524,7 @@
                 <td><code>${escapeHTML(it.traceId)}</code></td>
                 <td>${new Date(it.timestamp).toLocaleTimeString()}</td>
                 <td><span class="badge-tag">${escapeHTML(it.source)}</span></td>
+                <td>${targetBadge}</td>
                 <td>${tools}</td>
                 <td>${scoreBadge}</td>
                 <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${feedbackText}</td>
@@ -523,7 +539,11 @@
     }
 
     async function promptFeedback(traceId) {
-      const scoreStr = prompt('Enter quality score (1 for good, 0 for bad, or 0.0 - 1.0):', '1.0');
+      const targetChoice = prompt('Feedback target:\nType "retrieval" (search relevance / right tool selected)\nor "execution" (tool runtime success / crash / error)\nor press Enter for general:', 'retrieval');
+      if (targetChoice === null) return;
+      const target = (targetChoice.trim().toLowerCase() === 'retrieval' || targetChoice.trim().toLowerCase() === 'execution') ? targetChoice.trim().toLowerCase() : '';
+
+      const scoreStr = prompt(`Enter ${target ? target + ' ' : ''}score (1 for good, 0 for bad, or 0.0 - 1.0):`, '1.0');
       if (scoreStr === null) return;
       const score = parseFloat(scoreStr);
       if (isNaN(score)) {
@@ -532,10 +552,16 @@
       }
       const notes = prompt('Optional feedback notes / commentary:', '') || '';
       try {
+        const payload = {traceId: traceId, score: score, notes: notes};
+        if (target) {
+          payload.target = target;
+          if (target === 'retrieval') payload.retrievalScore = score;
+          if (target === 'execution') payload.executionScore = score;
+        }
         const res = await fetch('/v1/feedback', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({traceId: traceId, score: score, notes: notes})
+          body: JSON.stringify(payload)
         });
         if (res.ok) {
           loadInteractions();

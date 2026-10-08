@@ -11,10 +11,13 @@ import (
 )
 
 type feedbackSubmitReq struct {
-	TraceID string             `json:"traceId"`
-	Score   float64            `json:"score"`
-	Scores  map[string]float64 `json:"scores,omitempty"`
-	Notes   string             `json:"notes,omitempty"`
+	TraceID        string             `json:"traceId"`
+	Score          float64            `json:"score"`
+	Target         string             `json:"target,omitempty"`
+	RetrievalScore *float64           `json:"retrievalScore,omitempty"`
+	ExecutionScore *float64           `json:"executionScore,omitempty"`
+	Scores         map[string]float64 `json:"scores,omitempty"`
+	Notes          string             `json:"notes,omitempty"`
 }
 
 // handleFeedbackSubmit implements POST /v1/feedback.
@@ -35,16 +38,36 @@ func (s *Server) handleFeedbackSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := fbStore.ProvideFeedback(req.TraceID, req.Score, req.Scores, req.Notes); err != nil {
+	params := logstore.FeedbackParams{
+		TraceID:        req.TraceID,
+		Score:          req.Score,
+		Target:         req.Target,
+		RetrievalScore: req.RetrievalScore,
+		ExecutionScore: req.ExecutionScore,
+		Scores:         req.Scores,
+		Notes:          req.Notes,
+	}
+
+	if err := fbStore.ProvideFeedback(params); err != nil {
 		writeErr(w, http.StatusInternalServerError, fmt.Errorf("failed to save feedback: %w", err))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"status":  "ok",
 		"traceId": req.TraceID,
 		"score":   req.Score,
-	})
+	}
+	if req.Target != "" {
+		resp["target"] = req.Target
+	}
+	if req.RetrievalScore != nil {
+		resp["retrievalScore"] = *req.RetrievalScore
+	}
+	if req.ExecutionScore != nil {
+		resp["executionScore"] = *req.ExecutionScore
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleInteractionsList implements GET /v1/interactions.
@@ -60,6 +83,7 @@ func (s *Server) handleInteractionsList(w http.ResponseWriter, r *http.Request) 
 		Query:     q.Get("q"),
 		Source:    q.Get("source"),
 		SessionID: q.Get("sessionId"),
+		Target:    q.Get("target"),
 		SortBy:    q.Get("sortBy"),
 		SortDesc:  q.Get("desc") != "0",
 	}

@@ -296,6 +296,9 @@ export const OPS: Record<string, OpSpec> = {
     params: {
       traceId: { in: "body", required: true },
       score: { in: "body", required: true },
+      target: { in: "body" },
+      retrievalScore: { in: "body" },
+      executionScore: { in: "body" },
       notes: { in: "body" },
     },
     response: "json",
@@ -342,6 +345,7 @@ export const OPS: Record<string, OpSpec> = {
     params: {
       q: { in: "query" },
       source: { in: "query" },
+      target: { in: "query" },
       hasFeedback: { in: "query" },
     },
     response: "json",
@@ -993,7 +997,7 @@ export class DaemonOps {
   /**
    * Submit quality feedback for a trace. `POST /v1/feedback`.
    */
-  feedback(args: { traceId: string; score: number; notes?: string }, opts: CallOptions = {}): Promise<unknown> {
+  feedback(args: { traceId: string; score: number; target?: string; retrievalScore?: number; executionScore?: number; notes?: string }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("feedback", args, opts) as Promise<unknown>
   }
 
@@ -1028,7 +1032,7 @@ export class DaemonOps {
   /**
    * List and filter past interaction traces. `GET /v1/interactions`.
    */
-  interactionsList(args: { q?: string; source?: string; hasFeedback?: string } = {}, opts: CallOptions = {}): Promise<unknown> {
+  interactionsList(args: { q?: string; source?: string; target?: string; hasFeedback?: string } = {}, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("interactions_list", args, opts) as Promise<unknown>
   }
 

@@ -12,19 +12,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// TargetType defines what the feedback is evaluating.
+const (
+	TargetExecution = "execution" // bad/good tool runtime execution (crashes, errors, slow, wrong params)
+	TargetRetrieval = "retrieval" // bad/good search matching from input (irrelevant tool chosen, false positive/negative)
+)
+
 // InteractionRecord represents an input/output turn or tool execution with its trace ID and feedback.
 type InteractionRecord struct {
-	TraceID     string    `json:"traceId"`
-	Timestamp   time.Time `json:"timestamp"`
-	SessionID   string    `json:"sessionId,omitempty"`
-	Source      string    `json:"source"` // "proxy", "call", "task", etc.
-	Input       string    `json:"input"`
-	Output      string    `json:"output,omitempty"`
-	ToolsUsed   []string  `json:"toolsUsed,omitempty"`
-	Score       *float64  `json:"score,omitempty"`       // primary score (e.g. 1.0 = good, 0.0 = bad)
-	ScoresJSON  string    `json:"scoresJson,omitempty"`  // multi-dimension representation (e.g. {"relevance": 1.0, "latency": 0.8})
-	FeedbackNotes string  `json:"feedbackNotes,omitempty"`
-	FeedbackAt  *time.Time `json:"feedbackAt,omitempty"`
+	TraceID          string     `json:"traceId"`
+	Timestamp        time.Time  `json:"timestamp"`
+	SessionID        string     `json:"sessionId,omitempty"`
+	Source           string     `json:"source"` // "proxy", "call", "task", etc.
+	Input            string     `json:"input"`
+	Output           string     `json:"output,omitempty"`
+	ToolsUsed        []string   `json:"toolsUsed,omitempty"`
+	Score            *float64   `json:"score,omitempty"`            // primary score (e.g. 1.0 = good, 0.0 = bad)
+	Target           string     `json:"target,omitempty"`           // "retrieval" vs "execution"
+	RetrievalScore   *float64   `json:"retrievalScore,omitempty"`   // score for search / tool match relevance
+	ExecutionScore   *float64   `json:"executionScore,omitempty"`   // score for tool runtime behavior
+	ScoresJSON       string     `json:"scoresJson,omitempty"`       // multi-dimension representation (e.g. {"relevance": 1.0, "latency": 0.8})
+	FeedbackNotes    string     `json:"feedbackNotes,omitempty"`
+	FeedbackAt       *time.Time `json:"feedbackAt,omitempty"`
 }
 
 // InteractionFilter defines parameters for filtering interaction history.
@@ -32,13 +41,25 @@ type InteractionFilter struct {
 	Query       string // search across input, output, or feedback notes
 	Source      string
 	SessionID   string
+	Target      string // "retrieval", "execution"
 	HasFeedback *bool  // true = has feedback, false = lacks feedback, nil = any
 	MinScore    *float64
 	MaxScore    *float64
 	Limit       int
 	Offset      int
-	SortBy      string // "timestamp", "score"
+	SortBy      string // "timestamp", "score", "retrieval", "execution"
 	SortDesc    bool
+}
+
+// FeedbackParams carries inputs when providing feedback.
+type FeedbackParams struct {
+	TraceID        string             `json:"traceId"`
+	Score          float64            `json:"score"`
+	Target         string             `json:"target,omitempty"` // "retrieval", "execution", or empty (sets primary)
+	RetrievalScore *float64           `json:"retrievalScore,omitempty"`
+	ExecutionScore *float64           `json:"executionScore,omitempty"`
+	Scores         map[string]float64 `json:"scores,omitempty"`
+	Notes          string             `json:"notes,omitempty"`
 }
 
 // FeedbackStore persists interactions and feedback in SQLite.
@@ -63,12 +84,18 @@ func NewFeedbackStore(path string) (*FeedbackStore, error) {
 			output_text TEXT,
 			tools_used TEXT,
 			score REAL,
+			target TEXT,
+			retrieval_score REAL,
+			execution_score REAL,
 			scores_json TEXT,
 			feedback_notes TEXT,
 			feedback_ts_unix_ms INTEGER
 		);
 		CREATE INDEX IF NOT EXISTS idx_interactions_ts ON interactions(ts_unix_ms);
 		CREATE INDEX IF NOT EXISTS idx_interactions_score ON interactions(score);
+		CREATE INDEX IF NOT EXISTS idx_interactions_target ON interactions(target);
+		CREATE INDEX IF NOT EXISTS idx_interactions_retrieval ON interactions(retrieval_score);
+		CREATE INDEX IF NOT EXISTS idx_interactions_execution ON interactions(execution_score);
 		CREATE INDEX IF NOT EXISTS idx_interactions_source ON interactions(source);
 		CREATE INDEX IF NOT EXISTS idx_interactions_session ON interactions(session_id);
 	`)
@@ -99,40 +126,66 @@ func (fs *FeedbackStore) RecordInteraction(rec InteractionRecord) error {
 	_, err := fs.db.Exec(`
 		INSERT INTO interactions (
 			trace_id, ts_unix_ms, session_id, source, input_text, output_text,
-			tools_used, score, scores_json, feedback_notes, feedback_ts_unix_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			tools_used, score, target, retrieval_score, execution_score, scores_json, feedback_notes, feedback_ts_unix_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(trace_id) DO UPDATE SET
 			output_text = COALESCE(excluded.output_text, interactions.output_text),
 			tools_used = CASE WHEN excluded.tools_used != '' THEN excluded.tools_used ELSE interactions.tools_used END,
 			score = COALESCE(excluded.score, interactions.score),
+			target = COALESCE(excluded.target, interactions.target),
+			retrieval_score = COALESCE(excluded.retrieval_score, interactions.retrieval_score),
+			execution_score = COALESCE(excluded.execution_score, interactions.execution_score),
 			scores_json = COALESCE(excluded.scores_json, interactions.scores_json),
 			feedback_notes = COALESCE(excluded.feedback_notes, interactions.feedback_notes),
 			feedback_ts_unix_ms = COALESCE(excluded.feedback_ts_unix_ms, interactions.feedback_ts_unix_ms)
 	`, rec.TraceID, tsMs, rec.SessionID, rec.Source, rec.Input, rec.Output,
-		toolsStr, rec.Score, rec.ScoresJSON, rec.FeedbackNotes, fbMs)
+		toolsStr, rec.Score, rec.Target, rec.RetrievalScore, rec.ExecutionScore, rec.ScoresJSON, rec.FeedbackNotes, fbMs)
 	return err
 }
 
-// ProvideFeedback updates scores and notes for a specific trace ID.
-func (fs *FeedbackStore) ProvideFeedback(traceID string, score float64, scores map[string]float64, notes string) error {
+// ProvideFeedback updates scores, target distinction, and notes for a specific trace ID.
+func (fs *FeedbackStore) ProvideFeedback(params FeedbackParams) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
 	var scoresJSON string
-	if len(scores) > 0 {
-		b, _ := json.Marshal(scores)
+	if len(params.Scores) > 0 {
+		b, _ := json.Marshal(params.Scores)
 		scoresJSON = string(b)
 	}
 
 	nowMs := time.Now().UnixMilli()
+	target := params.Target
+	if target == "" {
+		if params.RetrievalScore != nil && params.ExecutionScore == nil {
+			target = TargetRetrieval
+		} else if params.ExecutionScore != nil && params.RetrievalScore == nil {
+			target = TargetExecution
+		}
+	}
+
+	retrievalScore := params.RetrievalScore
+	executionScore := params.ExecutionScore
+	if retrievalScore == nil && target == TargetRetrieval {
+		v := params.Score
+		retrievalScore = &v
+	}
+	if executionScore == nil && target == TargetExecution {
+		v := params.Score
+		executionScore = &v
+	}
+
 	res, err := fs.db.Exec(`
 		UPDATE interactions SET
 			score = ?,
+			target = COALESCE(NULLIF(?, ''), target),
+			retrieval_score = COALESCE(?, retrieval_score),
+			execution_score = COALESCE(?, execution_score),
 			scores_json = COALESCE(NULLIF(?, ''), scores_json),
 			feedback_notes = ?,
 			feedback_ts_unix_ms = ?
 		WHERE trace_id = ?
-	`, score, scoresJSON, notes, nowMs, traceID)
+	`, params.Score, target, retrievalScore, executionScore, scoresJSON, params.Notes, nowMs, params.TraceID)
 	if err != nil {
 		return err
 	}
@@ -141,9 +194,9 @@ func (fs *FeedbackStore) ProvideFeedback(traceID string, score float64, scores m
 		// If trace record wasn't present beforehand, insert stub
 		_, err = fs.db.Exec(`
 			INSERT INTO interactions (
-				trace_id, ts_unix_ms, source, input_text, score, scores_json, feedback_notes, feedback_ts_unix_ms
-			) VALUES (?, ?, 'feedback', '', ?, ?, ?, ?)
-		`, traceID, nowMs, score, scoresJSON, notes, nowMs)
+				trace_id, ts_unix_ms, source, input_text, score, target, retrieval_score, execution_score, scores_json, feedback_notes, feedback_ts_unix_ms
+			) VALUES (?, ?, 'feedback', '', ?, ?, ?, ?, ?, ?, ?)
+		`, params.TraceID, nowMs, params.Score, target, retrievalScore, executionScore, scoresJSON, params.Notes, nowMs)
 		return err
 	}
 	return nil
@@ -156,7 +209,8 @@ func (fs *FeedbackStore) Get(traceID string) (*InteractionRecord, error) {
 
 	row := fs.db.QueryRow(`
 		SELECT trace_id, ts_unix_ms, session_id, source, input_text, output_text,
-		       tools_used, score, scores_json, feedback_notes, feedback_ts_unix_ms
+		       tools_used, score, target, retrieval_score, execution_score,
+		       scores_json, feedback_notes, feedback_ts_unix_ms
 		FROM interactions WHERE trace_id = ?
 	`, traceID)
 
@@ -164,11 +218,11 @@ func (fs *FeedbackStore) Get(traceID string) (*InteractionRecord, error) {
 	var tsMs int64
 	var fbMs sql.NullInt64
 	var toolsStr sql.NullString
-	var sessID, outText, sJSON, notes sql.NullString
-	var sc sql.NullFloat64
+	var sessID, outText, tgt, sJSON, notes sql.NullString
+	var sc, rSc, eSc sql.NullFloat64
 
 	err := row.Scan(&rec.TraceID, &tsMs, &sessID, &rec.Source, &rec.Input, &outText,
-		&toolsStr, &sc, &sJSON, &notes, &fbMs)
+		&toolsStr, &sc, &tgt, &rSc, &eSc, &sJSON, &notes, &fbMs)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +240,17 @@ func (fs *FeedbackStore) Get(traceID string) (*InteractionRecord, error) {
 	if sc.Valid {
 		v := sc.Float64
 		rec.Score = &v
+	}
+	if tgt.Valid {
+		rec.Target = tgt.String
+	}
+	if rSc.Valid {
+		v := rSc.Float64
+		rec.RetrievalScore = &v
+	}
+	if eSc.Valid {
+		v := eSc.Float64
+		rec.ExecutionScore = &v
 	}
 	if sJSON.Valid {
 		rec.ScoresJSON = sJSON.String
@@ -216,6 +281,10 @@ func (fs *FeedbackStore) List(filter InteractionFilter) ([]InteractionRecord, er
 		where = append(where, "session_id = ?")
 		args = append(args, filter.SessionID)
 	}
+	if filter.Target != "" {
+		where = append(where, "target = ?")
+		args = append(args, filter.Target)
+	}
 	if filter.HasFeedback != nil {
 		if *filter.HasFeedback {
 			where = append(where, "score IS NOT NULL")
@@ -243,9 +312,15 @@ func (fs *FeedbackStore) List(filter InteractionFilter) ([]InteractionRecord, er
 	}
 
 	orderBy := "ts_unix_ms"
-	if filter.SortBy == "score" {
+	switch filter.SortBy {
+	case "score":
 		orderBy = "score"
+	case "retrieval":
+		orderBy = "retrieval_score"
+	case "execution":
+		orderBy = "execution_score"
 	}
+
 	dir := "DESC"
 	if !filter.SortDesc && filter.SortBy != "" {
 		dir = "ASC"
@@ -265,7 +340,8 @@ func (fs *FeedbackStore) List(filter InteractionFilter) ([]InteractionRecord, er
 
 	query := fmt.Sprintf(`
 		SELECT trace_id, ts_unix_ms, session_id, source, input_text, output_text,
-		       tools_used, score, scores_json, feedback_notes, feedback_ts_unix_ms
+		       tools_used, score, target, retrieval_score, execution_score,
+		       scores_json, feedback_notes, feedback_ts_unix_ms
 		FROM interactions
 		%s
 		ORDER BY %s %s
@@ -284,11 +360,11 @@ func (fs *FeedbackStore) List(filter InteractionFilter) ([]InteractionRecord, er
 		var tsMs int64
 		var fbMs sql.NullInt64
 		var toolsStr sql.NullString
-		var sessID, outText, sJSON, notes sql.NullString
-		var sc sql.NullFloat64
+		var sessID, outText, tgt, sJSON, notes sql.NullString
+		var sc, rSc, eSc sql.NullFloat64
 
 		if err := rows.Scan(&rec.TraceID, &tsMs, &sessID, &rec.Source, &rec.Input, &outText,
-			&toolsStr, &sc, &sJSON, &notes, &fbMs); err == nil {
+			&toolsStr, &sc, &tgt, &rSc, &eSc, &sJSON, &notes, &fbMs); err == nil {
 			rec.Timestamp = time.UnixMilli(tsMs)
 			if sessID.Valid {
 				rec.SessionID = sessID.String
@@ -302,6 +378,17 @@ func (fs *FeedbackStore) List(filter InteractionFilter) ([]InteractionRecord, er
 			if sc.Valid {
 				v := sc.Float64
 				rec.Score = &v
+			}
+			if tgt.Valid {
+				rec.Target = tgt.String
+			}
+			if rSc.Valid {
+				v := rSc.Float64
+				rec.RetrievalScore = &v
+			}
+			if eSc.Valid {
+				v := eSc.Float64
+				rec.ExecutionScore = &v
 			}
 			if sJSON.Valid {
 				rec.ScoresJSON = sJSON.String
@@ -319,29 +406,74 @@ func (fs *FeedbackStore) List(filter InteractionFilter) ([]InteractionRecord, er
 	return out, nil
 }
 
-// ToolFeedbackAdjustment computes the feedback multiplier for a given tool based on past interactions.
-func (fs *FeedbackStore) ToolFeedbackAdjustment(tool string) float32 {
+// ToolFeedbackAdjustment computes the feedback multipliers for tool execution and retrieval.
+// Returns (executionMultiplier, retrievalMultiplier).
+func (fs *FeedbackStore) ToolFeedbackAdjustment(tool string) (execMult float32, retrMult float32) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
-	// Find interactions where tool was used and feedback score was recorded
-	likePattern := "%" + tool + "%"
-	row := fs.db.QueryRow(`
-		SELECT COUNT(*), AVG(score)
-		FROM interactions
-		WHERE tools_used LIKE ? AND score IS NOT NULL
-	`, likePattern)
+	execMult = 1.0
+	retrMult = 1.0
 
-	var count int
-	var avgScore sql.NullFloat64
-	if err := row.Scan(&count, &avgScore); err != nil || count == 0 || !avgScore.Valid {
-		return 1.0 // neutral
+	likePattern := "%" + tool + "%"
+
+	// 1. Tool execution score: how reliably this tool executes
+	rowExec := fs.db.QueryRow(`
+		SELECT COUNT(*), AVG(COALESCE(execution_score, score))
+		FROM interactions
+		WHERE tools_used LIKE ? AND (execution_score IS NOT NULL OR target = 'execution' OR (target IS NULL AND score IS NOT NULL))
+	`, likePattern)
+	var eCount int
+	var eAvg sql.NullFloat64
+	if err := rowExec.Scan(&eCount, &eAvg); err == nil && eCount > 0 && eAvg.Valid {
+		// Multiplier range: 0.5 (bad execution) -> 1.5 (flawless execution)
+		execMult = 0.5 + float32(eAvg.Float64)
 	}
 
-	// Average score scale: 0.0 (bad) -> 1.0 (good)
-	// Multiplier range: 0.5 (consistently bad) -> 1.5 (consistently good)
-	val := float32(avgScore.Float64)
-	return 0.5 + val
+	// 2. Retrieval relevance score: how relevant this tool is when recommended for queries
+	rowRetr := fs.db.QueryRow(`
+		SELECT COUNT(*), AVG(COALESCE(retrieval_score, score))
+		FROM interactions
+		WHERE tools_used LIKE ? AND (retrieval_score IS NOT NULL OR target = 'retrieval')
+	`, likePattern)
+	var rCount int
+	var rAvg sql.NullFloat64
+	if err := rowRetr.Scan(&rCount, &rAvg); err == nil && rCount > 0 && rAvg.Valid {
+		// Multiplier range: 0.5 (irrelevant recommendation) -> 1.5 (consistently relevant recommendation)
+		retrMult = 0.5 + float32(rAvg.Float64)
+	}
+
+	return execMult, retrMult
+}
+
+// FindCorrelatedQueries returns user queries that resulted in high retrieval feedback for a tool.
+func (fs *FeedbackStore) FindCorrelatedQueries(tool string, minScore float64) []string {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	likePattern := "%" + tool + "%"
+	rows, err := fs.db.Query(fmt.Sprintf(`
+		SELECT input_text
+		FROM interactions
+		WHERE tools_used LIKE ?
+		  AND (retrieval_score >= ? OR (target = 'retrieval' AND score >= ?))
+		  AND input_text != ''
+		ORDER BY ts_unix_ms DESC
+		LIMIT %d
+	`, defaults.RegistryLimit), likePattern, minScore, minScore)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var queries []string
+	for rows.Next() {
+		var q string
+		if err := rows.Scan(&q); err == nil && strings.TrimSpace(q) != "" {
+			queries = append(queries, strings.TrimSpace(q))
+		}
+	}
+	return queries
 }
 
 // Close closes the underlying database.
