@@ -520,6 +520,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/embeddings", s.handleEmbeddings)
 	mux.HandleFunc("GET /v1/embeddings/export", s.handleEmbeddingsExport)
 	mux.HandleFunc("POST /v1/embeddings/import", s.handleEmbeddingsImport)
+	mux.HandleFunc("POST /v1/feedback", s.handleFeedbackSubmit)
+	mux.HandleFunc("GET /v1/interactions", s.handleInteractionsList)
+	mux.HandleFunc("GET /v1/interactions/{id}", s.handleInteractionGet)
 	mux.HandleFunc("POST /v1/daemon/restart", s.handleDaemonRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	s.routesExec(mux)
@@ -778,12 +781,32 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	res, err := s.reg.Call(ctx, req.Server, req.Tool, cc, args)
 	dur := time.Since(start).Truncate(time.Millisecond)
+
+	toolKey := req.Server + ":" + req.Tool
+	var inBytes, outBytes []byte
+	inBytes, _ = json.Marshal(args)
+	if err == nil {
+		outBytes, _ = json.Marshal(res)
+	}
+
+	if fb := s.reg.FeedbackStore(); fb != nil {
+		_ = fb.RecordInteraction(logstore.InteractionRecord{
+			TraceID:   cc.CallID,
+			Timestamp: start,
+			SessionID: cc.SessionID,
+			Source:    "call",
+			Input:     string(inBytes),
+			Output:    string(outBytes),
+			ToolsUsed: []string{toolKey},
+		})
+	}
+
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
 		reply(w, failureStatus(err), callErrorBody(err))
 		return
 	}
-	reply(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})
+	reply(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds(), "traceId": cc.CallID})
 }
 
 type batchCallReqItem struct {

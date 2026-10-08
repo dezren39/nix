@@ -154,17 +154,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		apiKey = strings.TrimPrefix(authHdr, "Bearer ")
 	}
 
-	// 5. Proxy to upstream if configured
-	if upstreamURL != "" {
-		s.proxyToUpstream(w, r, upstreamURL, apiKey, req)
-		return
-	}
-
-	// 6. If no upstream URL configured, return OpenAI-compatible intercept response
 	toolNames := make([]string, 0, len(req.Tools))
 	for _, t := range req.Tools {
 		toolNames = append(toolNames, t.Function.Name)
 	}
+
+	// 5. Proxy to upstream if configured
+	if upstreamURL != "" {
+		s.proxyToUpstream(w, r, upstreamURL, apiKey, req, turnID, query, toolNames)
+		return
+	}
+
+	// 6. If no upstream URL configured, return OpenAI-compatible intercept response
 
 	resp := map[string]any{
 		"id":      "chatcmpl-" + turnID,
@@ -195,10 +196,23 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			"active_tools":    toolNames,
 		},
 	}
+
+	if fb := s.reg.FeedbackStore(); fb != nil {
+		outStr := fmt.Sprintf("mcpx reverse proxy: semantically injected %d tools for query %q.", len(discovered), query)
+		_ = fb.RecordInteraction(logstore.InteractionRecord{
+			TraceID:   turnID,
+			Timestamp: time.Now(),
+			Source:    "proxy",
+			Input:     query,
+			Output:    outStr,
+			ToolsUsed: toolNames,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) proxyToUpstream(w http.ResponseWriter, r *http.Request, upstreamURL, apiKey string, req chatCompletionReq) {
+func (s *Server) proxyToUpstream(w http.ResponseWriter, r *http.Request, upstreamURL, apiKey string, req chatCompletionReq, turnID, query string, toolNames []string) {
 	targetURL := strings.TrimRight(upstreamURL, "/")
 	if !strings.HasSuffix(targetURL, "/chat/completions") {
 		targetURL += "/chat/completions"
@@ -227,13 +241,28 @@ func (s *Server) proxyToUpstream(w http.ResponseWriter, r *http.Request, upstrea
 	}
 	defer resp.Body.Close()
 
+	var buf bytes.Buffer
+	rdr := io.TeeReader(resp.Body, &buf)
+
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}
 	}
+	w.Header().Set("X-Mcpx-Trace-Id", turnID)
 	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	_, _ = io.Copy(w, rdr)
+
+	if fb := s.reg.FeedbackStore(); fb != nil {
+		_ = fb.RecordInteraction(logstore.InteractionRecord{
+			TraceID:   turnID,
+			Timestamp: time.Now(),
+			Source:    "proxy",
+			Input:     query,
+			Output:    buf.String(),
+			ToolsUsed: toolNames,
+		})
+	}
 }
 
 func extractUserQuery(msgs []chatMessage) string {

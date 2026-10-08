@@ -32,7 +32,7 @@ and costs an agent the ability to restart a server that has wedged. What they
 carry instead is a description that says so and MCP annotations
 (`readOnlyHint`, `destructiveHint`) for a client that wants to scope on them.
 
-## /v1 operations (69)
+## /v1 operations (72)
 
 | Operation | Route | CLI | MCP tool | Plugin | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -63,9 +63,12 @@ carry instead is a description that says so and MCP annotations
 | `embeddings_import` | `POST /v1/embeddings/import` | `mcpx embeddings import` | `mcpx_embeddings_import` | `ops.embeddingsImport()` |  |
 | `events` | `GET /v1/events` | `mcpx events` *generated* | none: a stream; MCP carries it as `subscriptions/listen` | `ops.events()` | Never ends; read it until you are done. |
 | `exec` | `POST /v1/exec` | `mcpx exec` | `mcpx_exec` | `ops.exec()`, `exec()` | Privileged. |
+| `feedback` | `POST /v1/feedback` | `mcpx feedback` | `mcpx_feedback` | `ops.feedback()` |  |
 | `globals` | `GET /v1/globals.d.ts` | `mcpx globals` *generated* | `mcpx_globals` | `ops.globals()` |  |
 | `health` | `GET /v1/health` | `mcpx health` *generated* | `mcpx_health` | `ops.health()`, `health()` |  |
 | `intent` | `POST /v1/intent` | `mcpx prompt` | `mcpx_intent` | `ops.intent()` |  |
+| `interactions_list` | `GET /v1/interactions` | `mcpx interactions` | `mcpx_interactions_list` | `ops.interactionsList()` |  |
+| `interactions_get` | `GET /v1/interactions/{id}` | `mcpx interactions show` | `mcpx_interactions_get` | `ops.interactionsGet()` |  |
 | `log_query` | `GET /v1/log` | `mcpx log` | `mcpx_log_query` | `ops.logQuery()`, `logQuery()` |  |
 | `log_record` | `POST /v1/log` | `mcpx log record` | `mcpx_log_record` | `ops.logRecord()`, `record()` | Privileged. |
 | `metrics_tokens` | `GET /v1/metrics/tokens` | `mcpx metrics tokens` *generated* | `mcpx_metrics_tokens` | `ops.metricsTokens()` |  |
@@ -106,7 +109,7 @@ carry instead is a description that says so and MCP annotations
 | `tool_invoke` | `POST /v1/tools/{tool}` | `mcpx tool invoke` *generated* | `mcpx_tool_invoke` | `ops.toolInvoke()` |  |
 | `types` | `GET /v1/types` | `mcpx types` | `mcpx_types` | `ops.types()`, `types()` |  |
 
-## CLI commands (57)
+## CLI commands (59)
 
 Every command the binary dispatches, with the operations it reaches. A command
 that reaches none says why: those are decisions, not gaps.
@@ -134,11 +137,13 @@ that reaches none says why: those are decisions, not gaps.
 | `events` | `events` | Generated from the operation table. |
 | `exec` | `exec` |  |
 | `explore` | – | An interactive interface over the reads above; it consumes the API rather than extending it. |
+| `feedback` | `feedback` |  |
 | `globals` | `globals` | Generated from the operation table. |
 | `health` | `health` | Generated from the operation table. |
 | `help` | – | Text about the binary, produced by the binary. |
 | `history` | `catalog_history` | Generated from the operation table. |
 | `init` | – | Writes a file into the current directory. |
+| `interactions` | `interactions_list`, `interactions_get` |  |
 | `log` / `logs` | `log_query`, `log_record` |  |
 | `ls` / `list` / `namespaces` | `namespaces` |  |
 | `man` | – | Text about the binary, produced by the binary. |

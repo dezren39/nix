@@ -633,6 +633,38 @@ func Ops() []Op {
 			},
 		},
 		{
+			Name: "feedback", Method: "POST", Path: "/v1/feedback",
+			Command: "feedback",
+			Summary: "Submit quality feedback for a trace",
+			Description: "Attaches a score and feedback notes to an interaction trace ID for adaptive routing.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "traceId", In: InBody, Type: "string", Required: true, Desc: "the interaction trace ID"},
+				{Name: "score", In: InBody, Type: "number", Required: true, Desc: "primary score between 0.0 (bad) and 1.0 (good)"},
+				{Name: "notes", In: InBody, Type: "string", Desc: "commentary or feedback explanation"},
+			},
+		},
+		{
+			Name: "interactions_list", Method: "GET", Path: "/v1/interactions",
+			Command: "interactions",
+			Summary: "List and filter past interaction traces",
+			Description: "Returns history of inputs, outputs, tools used, and recorded feedback scores.",
+			Params: []Param{
+				{Name: "q", In: InQuery, Type: "string", Desc: "search text across inputs, outputs, and feedback notes"},
+				{Name: "source", In: InQuery, Type: "string", Desc: "filter by source ('proxy', 'call', etc.)"},
+				{Name: "hasFeedback", In: InQuery, Type: "string", Desc: "filter by feedback status: '1' (rated), '0' (unrated)"},
+			},
+		},
+		{
+			Name: "interactions_get", Method: "GET", Path: "/v1/interactions/{id}",
+			Command: "interactions show",
+			Summary: "Inspect a specific interaction trace",
+			Description: "Returns full details of an interaction by its trace ID.",
+			Params: []Param{
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the interaction trace ID"},
+			},
+		},
+		{
 			Name: "openapi", Method: "GET", Path: "/v1/openapi.json",
 			Command:     "openapi",
 			Summary:     "This API, as an OpenAPI 3.1 document",

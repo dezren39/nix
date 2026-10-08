@@ -290,6 +290,16 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  feedback: {
+    method: "POST",
+    path: "/v1/feedback",
+    params: {
+      traceId: { in: "body", required: true },
+      score: { in: "body", required: true },
+      notes: { in: "body" },
+    },
+    response: "json",
+  },
   globals: {
     method: "GET",
     path: "/v1/globals.d.ts",
@@ -315,6 +325,24 @@ export const OPS: Record<string, OpSpec> = {
       autonomy: { in: "body" },
       placeholders: { in: "body" },
       session: { in: "body" },
+    },
+    response: "json",
+  },
+  interactions_get: {
+    method: "GET",
+    path: "/v1/interactions/{id}",
+    params: {
+      id: { in: "path", required: true },
+    },
+    response: "json",
+  },
+  interactions_list: {
+    method: "GET",
+    path: "/v1/interactions",
+    params: {
+      q: { in: "query" },
+      source: { in: "query" },
+      hasFeedback: { in: "query" },
     },
     response: "json",
   },
@@ -963,6 +991,13 @@ export class DaemonOps {
   }
 
   /**
+   * Submit quality feedback for a trace. `POST /v1/feedback`.
+   */
+  feedback(args: { traceId: string; score: number; notes?: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("feedback", args, opts) as Promise<unknown>
+  }
+
+  /**
    * Ambient declarations for the installed globals. `GET /v1/globals.d.ts`.
    */
   globals(args: { ns?: string; profile?: string; skipDefault?: "0" | "1"; allProfiles?: "0" | "1" } = {}, opts: CallOptions = {}): Promise<Response> {
@@ -981,6 +1016,20 @@ export class DaemonOps {
    */
   intent(args: { prompt: string; autonomy?: "propose" | "run"; placeholders?: Record<string, unknown>; session?: string }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("intent", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Inspect a specific interaction trace. `GET /v1/interactions/{id}`.
+   */
+  interactionsGet(args: { id: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("interactions_get", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * List and filter past interaction traces. `GET /v1/interactions`.
+   */
+  interactionsList(args: { q?: string; source?: string; hasFeedback?: string } = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("interactions_list", args, opts) as Promise<unknown>
   }
 
   /**

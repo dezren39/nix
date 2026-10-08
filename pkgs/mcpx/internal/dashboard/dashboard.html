@@ -309,6 +309,34 @@
         <tr><td colspan="4" style="text-align:center; color:#8b949e">No error shapes logged</td></tr>
       </tbody>
     </table>
+
+    <div class="section-title">
+      <span>Interaction History & Feedback Ratings</span>
+      <div style="font-size:0.8rem; font-weight:normal; display:flex; gap:0.5rem; align-items:center;">
+        <input type="text" id="fb-filter-q" placeholder="Filter interactions..." style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.5rem;" oninput="loadInteractions()">
+        <select id="fb-filter-status" style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.4rem;" onchange="loadInteractions()">
+          <option value="">All Feedback</option>
+          <option value="0">Unrated Only</option>
+          <option value="1">Rated Only</option>
+        </select>
+      </div>
+    </div>
+    <table id="interactions-table">
+      <thead>
+        <tr>
+          <th>Trace ID</th>
+          <th>Timestamp</th>
+          <th>Source</th>
+          <th>Tools</th>
+          <th>Score</th>
+          <th>Feedback</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="interactions-tbody">
+        <tr><td colspan="7" style="text-align:center; color:#8b949e">Loading interactions...</td></tr>
+      </tbody>
+    </table>
   </main>
 
   <script>
@@ -449,13 +477,85 @@
       if (e.key === 'Enter') runSearch();
     });
 
+    async function loadInteractions() {
+      try {
+        const q = (document.getElementById('fb-filter-q') || {}).value || '';
+        const status = (document.getElementById('fb-filter-status') || {}).value || '';
+        let url = '/v1/interactions?limit=30';
+        if (q) url += '&q=' + encodeURIComponent(q);
+        if (status !== '') url += '&hasFeedback=' + status;
+
+        const res = await fetch(url);
+        if (res.ok) {
+          const list = await res.json();
+          const tbody = document.getElementById('interactions-tbody');
+          if (!list || list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#8b949e">No interactions recorded yet</td></tr>';
+            return;
+          }
+          tbody.innerHTML = list.map(it => {
+            const hasScore = it.score !== null && it.score !== undefined;
+            const scoreBadge = hasScore
+              ? (it.score >= 0.7
+                  ? `<span class="badge" style="background:var(--green); color:#fff;">${it.score.toFixed(2)}</span>`
+                  : `<span class="badge" style="background:var(--red); color:#fff;">${it.score.toFixed(2)}</span>`)
+              : `<span class="badge-tag">unrated</span>`;
+
+            const tools = (it.toolsUsed || []).map(t => `<span class="badge-tag">${escapeHTML(t)}</span>`).join(' ') || '-';
+            const feedbackText = it.feedbackNotes ? `<em>${escapeHTML(it.feedbackNotes)}</em>` : (hasScore ? 'Rated' : '-');
+
+            return `
+              <tr>
+                <td><code>${escapeHTML(it.traceId)}</code></td>
+                <td>${new Date(it.timestamp).toLocaleTimeString()}</td>
+                <td><span class="badge-tag">${escapeHTML(it.source)}</span></td>
+                <td>${tools}</td>
+                <td>${scoreBadge}</td>
+                <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${feedbackText}</td>
+                <td>
+                  <button style="padding:0.2rem 0.4rem; font-size:0.75rem; background:#21262d; border:1px solid #30363d; color:var(--text); border-radius:4px; cursor:pointer;" onclick="promptFeedback('${it.traceId}')">Rate</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch(e) {}
+    }
+
+    async function promptFeedback(traceId) {
+      const scoreStr = prompt('Enter quality score (1 for good, 0 for bad, or 0.0 - 1.0):', '1.0');
+      if (scoreStr === null) return;
+      const score = parseFloat(scoreStr);
+      if (isNaN(score)) {
+        alert('Invalid numeric score');
+        return;
+      }
+      const notes = prompt('Optional feedback notes / commentary:', '') || '';
+      try {
+        const res = await fetch('/v1/feedback', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({traceId: traceId, score: score, notes: notes})
+        });
+        if (res.ok) {
+          loadInteractions();
+        } else {
+          alert('Failed to save feedback: ' + (await res.text()));
+        }
+      } catch(e) {
+        alert('Error: ' + e);
+      }
+    }
+
     loadMetrics();
     loadPools();
     loadToolMetrics();
+    loadInteractions();
     setInterval(() => {
       loadMetrics();
       loadPools();
       loadToolMetrics();
+      loadInteractions();
     }, 3000);
   </script>
 </body>

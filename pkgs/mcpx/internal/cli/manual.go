@@ -411,6 +411,20 @@ func handCommands() []Command {
 				"or tests embedding representations across local, WASM, or remote backends.",
 		},
 		{
+			Name: "feedback", Group: "running",
+			Usage:   "<trace-id> [--score <0.0-1.0>] [--notes <text>] [--scores <json>]",
+			Summary: "submit feedback on past tool executions or model completions",
+			Detail: "Attaches quality scores and reasoning to a specific interaction trace ID, " +
+				"dynamically tuning future semantic routing and tool recommendation rankings.",
+		},
+		{
+			Name: "interactions", Group: "inspection",
+			Usage:   "[--q <query>] [--source <source>] [--feedback yes|no] [--show <trace-id>]",
+			Summary: "search, filter, and inspect interaction history and feedback",
+			Detail: "Searches past inputs, model outputs, tools used, and recorded feedback scores. " +
+				"Enables discovering unrated queries or inspecting full input/output logs.",
+		},
+		{
 			Name: "log", Aliases: []string{"logs"}, Group: "inspection",
 			Usage:   "[--since d] [--chain id] [--follow] | sql '<query>' | record '<json>'",
 			Summary: "query the structured log, or add to it",

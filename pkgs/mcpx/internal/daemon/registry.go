@@ -20,6 +20,7 @@ import (
 	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
+	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/settings"
@@ -49,8 +50,9 @@ type Registry struct {
 	views map[string]*config.Resolved
 	order []string
 
-	vectorIdx *catalog.VectorIndex
-	embedder  catalog.Embedder
+	vectorIdx     *catalog.VectorIndex
+	embedder      catalog.Embedder
+	feedbackStore *logstore.FeedbackStore
 
 	sessMu sync.Mutex
 	leases map[string]*leaseState
@@ -144,6 +146,10 @@ func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*R
 		dbPath := filepath.Join(paths.State, "embeddings.db")
 		if vIdx, err := catalog.NewVectorIndex(dbPath); err == nil {
 			r.vectorIdx = vIdx
+		}
+		fbPath := filepath.Join(paths.State, "feedback.db")
+		if fb, err := logstore.NewFeedbackStore(fbPath); err == nil {
+			r.feedbackStore = fb
 		}
 	}
 	r.embedder = &catalog.SubwordEmbedder{}
@@ -500,6 +506,9 @@ func (r *Registry) SearchSemantic(query string, limit int, semantic bool) []Tool
 		kwScore := keywordScores[t.Function]
 		// Combined hybrid score: 60% semantic cosine, 40% keyword
 		combined := float32(kwScore)*0.4 + (sim*100.0)*0.6
+		if fb := r.FeedbackStore(); fb != nil {
+			combined *= fb.ToolFeedbackAdjustment(t.Function)
+		}
 		if combined > 15.0 || kwScore > 0 {
 			tCopy := t
 			tCopy.Score = int(combined)
@@ -1060,6 +1069,13 @@ func (r *Registry) VectorIndex() *catalog.VectorIndex {
 	return r.vectorIdx
 }
 
+// FeedbackStore returns the underlying feedback and interaction store if initialized.
+func (r *Registry) FeedbackStore() *logstore.FeedbackStore {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.feedbackStore
+}
+
 // Embedder returns the active embedding model engine.
 func (r *Registry) Embedder() catalog.Embedder {
 	r.mu.RLock()
@@ -1111,11 +1127,15 @@ func (r *Registry) Close() {
 		pools = append(pools, p)
 	}
 	vIdx := r.vectorIdx
+	fb := r.feedbackStore
 	r.mu.RUnlock()
 	for _, p := range pools {
 		p.Close()
 	}
 	if vIdx != nil {
 		_ = vIdx.Close()
+	}
+	if fb != nil {
+		_ = fb.Close()
 	}
 }
