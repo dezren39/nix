@@ -108,4 +108,24 @@ func TestReactiveToolDiscovery(t *testing.T) {
 	if clickRes != "clicked" {
 		t.Fatalf("expected 'clicked', got %s", clickRes)
 	}
+
+	// Verify that browser_click was auto-activated into the surface working set
+	tools3, err := s.SurfaceForTest(ctx)
+	if err != nil {
+		t.Fatalf("surface failed: %v", err)
+	}
+	hasBrowserClick := false
+	for _, t := range tools3 {
+		if t.Name == "browser_click" {
+			hasBrowserClick = true
+			break
+		}
+	}
+	if !hasBrowserClick {
+		t.Fatalf("expected browser_click to be auto-activated into surface after unadvertised invocation")
+	}
+
+	if len(notifications) < 2 {
+		t.Fatalf("expected at least 2 notifications after auto-activation, got %d", len(notifications))
+	}
 }

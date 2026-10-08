@@ -498,3 +498,82 @@ func TestResolveNormalisesAServersProtocolAlias(t *testing.T) {
 		t.Errorf("an unknown protocol should be refused, listing names and aliases: %v", err)
 	}
 }
+
+func TestPreconditionsGating(t *testing.T) {
+	// 1. Server-level missing secret
+	r := &config.Resolved{
+		Server:          &config.Server{Name: "test-server"},
+		RequiresSecrets: []string{"NON_EXISTENT_TEST_ENV_VAR_XYZ"},
+	}
+	ok, reason := r.PassesPreconditions("foo", nil)
+	if ok || !strings.Contains(reason, "NON_EXISTENT_TEST_ENV_VAR_XYZ") {
+		t.Fatalf("expected failure due to missing secret, got ok=%v, reason=%q", ok, reason)
+	}
+	if r.VisibleTool("foo") {
+		t.Fatal("expected foo to not be visible when secret precondition fails")
+	}
+
+	// 2. Server-level satisfied secret
+	t.Setenv("TEST_EXISTING_ENV_VAR", "secret-value")
+	r.RequiresSecrets = []string{"TEST_EXISTING_ENV_VAR"}
+	ok, reason = r.PassesPreconditions("foo", nil)
+	if !ok {
+		t.Fatalf("expected preconditions to pass, got reason: %s", reason)
+	}
+	if !r.VisibleTool("foo") {
+		t.Fatal("expected foo to be visible when preconditions pass")
+	}
+
+	// 3. Server-level required server
+	r.RequiresServers = []string{"auth-server"}
+	isActive := false
+	serverChecker := func(srv string) bool {
+		return srv == "auth-server" && isActive
+	}
+	ok, reason = r.PassesPreconditions("foo", serverChecker)
+	if ok || !strings.Contains(reason, "auth-server") {
+		t.Fatalf("expected failure when dependent server inactive, got ok=%v, reason=%q", ok, reason)
+	}
+
+	isActive = true
+	ok, reason = r.PassesPreconditions("foo", serverChecker)
+	if !ok {
+		t.Fatalf("expected preconditions to pass when dependent server active, got reason: %s", reason)
+	}
+
+	// 4. Tool-level precondition
+	r.RequiresSecrets = nil
+	r.RequiresServers = nil
+	r.Preconditions = map[string]config.Precondition{
+		"export_csv": {RequiresSecret: "CSV_EXPORT_TOKEN"},
+	}
+
+	// normal tool passes
+	ok, _ = r.PassesPreconditions("read_data", nil)
+	if !ok {
+		t.Fatal("read_data should pass preconditions")
+	}
+	if !r.VisibleTool("read_data") {
+		t.Fatal("read_data should be visible")
+	}
+
+	// gated tool fails initially
+	ok, reason = r.PassesPreconditions("export_csv", nil)
+	if ok || !strings.Contains(reason, "CSV_EXPORT_TOKEN") {
+		t.Fatalf("export_csv should fail without CSV_EXPORT_TOKEN, got ok=%v, reason=%q", ok, reason)
+	}
+	if r.VisibleTool("export_csv") {
+		t.Fatal("export_csv should not be visible when missing secret")
+	}
+
+	// gated tool passes once secret is set
+	t.Setenv("CSV_EXPORT_TOKEN", "12345")
+	ok, _ = r.PassesPreconditions("export_csv", nil)
+	if !ok {
+		t.Fatal("export_csv should pass once secret is set")
+	}
+	if !r.VisibleTool("export_csv") {
+		t.Fatal("export_csv should be visible once secret is set")
+	}
+}
+

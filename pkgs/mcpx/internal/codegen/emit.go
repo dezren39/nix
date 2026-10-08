@@ -160,6 +160,21 @@ func Module(nss []Namespace, endpoint, session string) string {
 		fmt.Fprintf(&b, "  %s,\n", ns.Name)
 	}
 	b.WriteString("};\n\n")
+	b.WriteString(`Object.setPrototypeOf(tools, new Proxy({} as any, {
+  get(_target, prop, _receiver) {
+    for (const ns of Object.values(tools)) {
+      if (typeof ns === "object" && ns !== null && typeof prop === "string" && prop in (ns as any)) {
+        return (ns as any)[prop];
+      }
+    }
+    if (typeof prop === "string" && prop !== "then" && prop !== "catch") {
+      return (args: any) => __call("", prop, args ?? {});
+    }
+    return undefined;
+  }
+}));
+
+`)
 
 	// Metadata for search() and describe(), emitted as data rather than
 	// reconstructed from the functions. A function cannot be asked what its
@@ -1279,12 +1294,20 @@ export function installGlobals(): void {
   g.search ??= search;
   g.transport ??= transport;
   g.describe ??= describe;
-  for (const [name, ns] of Object.entries(tools)) g[name] ??= ns;
+  for (const [name, ns] of Object.entries(tools)) {
+    g[name] ??= ns;
+    if (typeof ns === "object" && ns !== null) {
+      for (const [fnName, fn] of Object.entries(ns)) g[fnName] ??= fn;
+    }
+  }
 }
 
 /** Call any tool by name, including ones added after this client was generated. */
-export async function call(server: string, tool: string, args?: unknown): Promise<ToolResult> {
-  return __call(server, tool, args ?? {});
+export async function call(serverOrTool: string, toolOrArgs?: any, args?: unknown): Promise<ToolResult> {
+  if (arguments.length === 1 || (arguments.length === 2 && (typeof toolOrArgs === "object" || toolOrArgs === undefined))) {
+    return __call("", serverOrTool, toolOrArgs ?? {});
+  }
+  return __call(serverOrTool, String(toolOrArgs), args ?? {});
 }
 
 /** Execute multiple tool calls in a single turn. */

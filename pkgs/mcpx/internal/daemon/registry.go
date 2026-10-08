@@ -723,6 +723,45 @@ func failureStatus(err error) int {
 // Call dispatches a tool call, resolving the server's scope against the
 // caller's context to pick the instance.
 func (r *Registry) Call(ctx context.Context, server, tool string, cc config.CallContext, args any) (json.RawMessage, error) {
+	if server == "" {
+		if idx := strings.IndexAny(tool, ":."); idx > 0 {
+			candServer := tool[:idx]
+			candTool := tool[idx+1:]
+			if _, ok := r.Pool(candServer); ok {
+				server = candServer
+				tool = candTool
+			}
+		}
+	}
+	if server == "" {
+		r.mu.RLock()
+		for _, name := range r.order {
+			view := r.views[name]
+			if view != nil && view.VisibleTool(tool) {
+				server = name
+				break
+			}
+		}
+		if server == "" {
+			for _, name := range r.order {
+				p := r.pools[name]
+				if p != nil {
+					tools, _, _ := p.CachedSchemas()
+					for _, t := range tools {
+						if t.Name == tool {
+							server = name
+							break
+						}
+					}
+					if server != "" {
+						break
+					}
+				}
+			}
+		}
+		r.mu.RUnlock()
+	}
+
 	p, ok := r.Pool(server)
 	if !ok {
 		return nil, UnknownServer{Name: server}
@@ -745,8 +784,13 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 // clients that declared they could answer it.
 func (r *Registry) resolveAndGuard(ctx context.Context, p *pool.Pool, server, tool string, cc config.CallContext) (string, error) {
 	// The view, not the pool: aliases share one pool and filter differently.
-	if view, ok := r.View(server); ok && !view.VisibleTool(tool) {
-		return "", HiddenTool{Server: server, Tool: tool}
+	if view, ok := r.View(server); ok {
+		if !view.VisibleTool(tool) {
+			if ok, reason := view.PassesPreconditions(tool, func(s string) bool { _, exists := r.Pool(s); return exists }); !ok {
+				return "", fmt.Errorf("tool %q failed preconditions: %s", tool, reason)
+			}
+			return "", HiddenTool{Server: server, Tool: tool}
+		}
 	}
 	key := r.keyFor(p, cc)
 	// Two policies sit between resolving the instance and using it, and both

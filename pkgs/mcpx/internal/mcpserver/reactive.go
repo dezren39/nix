@@ -168,4 +168,12 @@ func (s *Server) NotifyToolsListChanged() {
 	if conn != nil {
 		conn.push("notifications/tools/list_changed", map[string]any{})
 	}
+
+	s.sessMu.Lock()
+	for _, sc := range s.sessions {
+		if sc != nil {
+			sc.push("notifications/tools/list_changed", map[string]any{})
+		}
+	}
+	s.sessMu.Unlock()
 }

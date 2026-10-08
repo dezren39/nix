@@ -2639,6 +2639,23 @@ func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
 			return true, nil
 		}
 	}
+	// On-demand auto-adaptation: if in reactive mode and tool exists in allAvailableTools,
+	// seamlessly adapt the working set, notify clients/sessions, and allow the call!
+	if s.Reactive {
+		avail, aerr := s.allAvailableTools(ctx)
+		if aerr == nil {
+			for _, t := range avail {
+				if t.Name == name {
+					if s.ReactiveWorkingSet == nil {
+						s.ReactiveWorkingSet = catalog.NewWorkingSet(24, 2*time.Hour, s.PinnedTools)
+					}
+					s.ReactiveWorkingSet.Add("", name, catalog.OriginSticky)
+					s.NotifyToolsListChanged()
+					return true, nil
+				}
+			}
+		}
+	}
 	return false, nil
 }
 
@@ -2646,7 +2663,14 @@ func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
 // its, otherwise the gateway's. Every route that calls a tool by name goes
 // through here, so pass-through cannot reach one route and miss another.
 func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) (string, error) {
-	if s.ReactiveWorkingSet != nil {
+	if s.Reactive && s.ReactiveWorkingSet != nil {
+		if !s.ReactiveWorkingSet.Contains("", name) {
+			s.ReactiveWorkingSet.Add("", name, catalog.OriginSticky)
+			s.NotifyToolsListChanged()
+		} else {
+			s.ReactiveWorkingSet.Touch("", name)
+		}
+	} else if s.ReactiveWorkingSet != nil {
 		s.ReactiveWorkingSet.Touch("", name)
 	}
 	if name == "request_tools" {
