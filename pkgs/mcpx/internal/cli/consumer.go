@@ -15,20 +15,31 @@ import (
 
 	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/recipes"
+	"github.com/dezren39/mcpx/internal/scripting"
 )
 
 // ---- client methods ----
 
 // DiagnoseResult is what POST /v1/diagnose answers.
 type DiagnoseResult struct {
-	Diagnostics []diagnose.Diagnostic `json:"diagnostics"`
-	Fatal       bool                  `json:"fatal"`
+	Valid          bool                            `json:"valid"`
+	Diagnostics    []diagnose.Diagnostic           `json:"diagnostics"`
+	Fatal          bool                            `json:"fatal"`
+	Questions      []scripting.ClarificationQuestion `json:"questions,omitempty"`
+	SuggestedFixes []string                        `json:"suggestedFixes,omitempty"`
+	Repaired       string                          `json:"repaired,omitempty"`
+	RepairedValid  bool                            `json:"repairedValid,omitempty"`
 }
 
 // Diagnose asks the daemon to explain a script.
 func (c *Client) Diagnose(ctx context.Context, source, session string) (*DiagnoseResult, error) {
+	return c.DiagnoseWithRepair(ctx, source, session, false)
+}
+
+// DiagnoseWithRepair asks the daemon to diagnose and optionally repair a script.
+func (c *Client) DiagnoseWithRepair(ctx context.Context, source, session string, repair bool) (*DiagnoseResult, error) {
 	b, err := c.do(ctx, "POST", "/v1/diagnose",
-		map[string]string{"source": source, "session": session})
+		map[string]any{"source": source, "session": session, "repair": repair})
 	if err != nil {
 		return nil, err
 	}

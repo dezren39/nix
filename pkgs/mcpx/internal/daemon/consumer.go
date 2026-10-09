@@ -20,6 +20,7 @@ import (
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/recipes"
 	"github.com/dezren39/mcpx/internal/runner"
+	"github.com/dezren39/mcpx/internal/scripting"
 	"github.com/dezren39/mcpx/internal/searchpath"
 	"github.com/dezren39/mcpx/internal/settings"
 )
@@ -600,6 +601,20 @@ func prelude(nss []codegen.Namespace) string {
 // having is that tool schemas stay out of a model's context, so a generation
 // request sends the slice of the catalog the existing search ranked for this
 // request, inside a budget, and nothing else.
+func (s *Server) resolveProvider() scripting.Provider {
+	if s.set == nil {
+		return scripting.ResolveProvider(scripting.ProviderConfig{}, nil)
+	}
+	cfg := scripting.ProviderConfig{
+		Type:    s.set.String("repair.provider"),
+		BaseURL: s.set.String("repair.url"),
+		APIKey:  s.set.String("repair.apiKey"),
+		Model:   s.set.String("repair.model"),
+		Command: s.set.String("repair.command"),
+	}
+	return scripting.ResolveProvider(cfg, nil)
+}
+
 func (s *Server) generate(ctx context.Context, prompt, session string) (string, string, error) {
 	nss, err := s.reg.CodegenNamespaces(nil, config.Profile{All: true})
 	if err != nil {
@@ -614,6 +629,23 @@ func (s *Server) generate(ctx context.Context, prompt, session string) (string, 
 		"namespace; call it directly, import nothing, and end by logging or " +
 		"returning the result. Answer with the program only, no prose and no " +
 		"code fences.\n\n" + slice
+
+	prov := s.resolveProvider()
+	if prov != nil {
+		text, perr := prov.Complete(ctx, scripting.CompletionRequest{
+			SystemPrompt: system,
+			UserPrompt:   prompt,
+			MaxTokens:    s.policyFor(ctx).PromptMaxTokens,
+			Temperature:  0.2,
+		})
+		if perr == nil && strings.TrimSpace(text) != "" {
+			return stripFences(text), "provider:" + prov.Name(), nil
+		}
+	}
+
+	if s.reg.broker == nil {
+		return "", "", errNoSampler
+	}
 
 	params, _ := json.Marshal(map[string]any{
 		"messages": []any{map[string]any{

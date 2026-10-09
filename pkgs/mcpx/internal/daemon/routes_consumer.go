@@ -17,6 +17,7 @@ import (
 	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/recipes"
+	"github.com/dezren39/mcpx/internal/scripting"
 	"github.com/dezren39/mcpx/internal/settings"
 )
 
@@ -39,6 +40,7 @@ func (s *Server) handleDiagnose(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Source  string `json:"source"`
 		Session string `json:"session"`
+		Repair  bool   `json:"repair"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -49,17 +51,30 @@ func (s *Server) handleDiagnose(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.warmIfCold(r.Context())
-	ds := diagnose.Script(req.Source, s.reg.DiagnoseCatalog())
-	// The session was decoded and discarded, so the parameter's own
-	// description -- "for the record" -- described a record nothing wrote.
-	// A diagnostic run is worth one line: it is what a later failure gets
-	// compared against, and without the session it cannot be joined to the
-	// run it was diagnosing.
-	s.recordDiagnosis(req.Session, len(ds), anyFatal(ds))
-	writeJSON(w, 200, map[string]any{
-		"diagnostics": nonNilDiagnostics(ds),
-		"fatal":       anyFatal(ds),
-	})
+	cat := s.reg.DiagnoseCatalog()
+	val := scripting.Validate(req.Source, &cat)
+	s.recordDiagnosis(req.Session, len(val.Diagnostics), val.HasFatal())
+
+	resp := map[string]any{
+		"valid":          val.Valid,
+		"diagnostics":    nonNilDiagnostics(val.Diagnostics),
+		"fatal":          val.HasFatal(),
+		"questions":      val.Questions,
+		"suggestedFixes": val.SuggestedFixes,
+	}
+
+	if req.Repair && val.HasFatal() {
+		prov := s.resolveProvider()
+		if prov != nil {
+			rep, rerr := scripting.Repair(r.Context(), req.Source, nil, val.Diagnostics, &cat, prov)
+			if rerr == nil && rep != nil {
+				resp["repaired"] = rep.RepairedSource
+				resp["repairedValid"] = !rep.Validation.HasFatal()
+			}
+		}
+	}
+
+	writeJSON(w, 200, resp)
 }
 
 // recordDiagnosis writes one line about a diagnostic run. Silent when the
@@ -390,7 +405,8 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, out)
 		return
 	}
-	if pol.PromptSample != "ask" || s.reg.broker == nil {
+	prov := s.resolveProvider()
+	if (pol.PromptSample != "ask" || s.reg.broker == nil) && prov == nil {
 		out.Model = "none"
 		out.Message = "no recipe matched, and generating one is off " +
 			"(prompt.sample is " + pol.PromptSample + "). " +
@@ -414,9 +430,22 @@ func (s *Server) handleIntent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out.Generated = true
-	out.Model = "sampling"
+	if strings.HasPrefix(id, "provider:") {
+		out.Model = id
+	} else {
+		out.Model = "sampling"
+	}
 	out.Source = source
-	out.Diagnostics = nonNilDiagnostics(diagnose.Script(source, s.reg.DiagnoseCatalog()))
+	cat := s.reg.DiagnoseCatalog()
+	val := scripting.Validate(source, &cat)
+	out.Diagnostics = nonNilDiagnostics(val.Diagnostics)
+	if val.HasFatal() && prov != nil {
+		if rep, rerr := scripting.Repair(r.Context(), source, nil, val.Diagnostics, &cat, prov); rerr == nil && rep != nil {
+			out.Source = rep.RepairedSource
+			source = rep.RepairedSource
+			out.Diagnostics = nonNilDiagnostics(rep.Validation.Diagnostics)
+		}
+	}
 	if anyFatal(out.Diagnostics) {
 		out.Message = "the generated script does not match the tools as they are; " +
 			"it is returned unrun so it can be corrected"

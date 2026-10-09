@@ -40,7 +40,6 @@ func isolate(t *testing.T) string {
 	if real, rerr := filepath.EvalSymlinks(home); rerr == nil {
 		home = real
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 	t.Setenv("MCPX_CONFIG", "")

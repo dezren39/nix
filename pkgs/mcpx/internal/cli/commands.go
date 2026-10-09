@@ -21,6 +21,7 @@ import (
 	"github.com/dezren39/mcpx/internal/artifacts"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/preflight"
@@ -605,6 +606,12 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		"run the script with no launcher: no globals, no capture, no wrapper")
 	typecheck := fs.String("typecheck", "",
 		"check the program before running it: off, on, strict")
+	promptFlag := fs.String("prompt", "",
+		"synthesize and execute a script from a natural language prompt")
+	validateFlag := fs.Bool("validate", false,
+		"validate script structure, tool signatures, and syntax without executing")
+	repairFlag := fs.Bool("repair", false,
+		"automatically attempt script repair using configured model if execution fails")
 
 	allowRepeat := newRepeatable()
 	fs.Var(allowRepeat, "allow-repeat",
@@ -627,6 +634,75 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
+
+	if *promptFlag != "" {
+		c, err := a.ensure(ctx)
+		if err != nil {
+			return err
+		}
+		sessionKey := *session
+		if sessionKey == "" {
+			sessionKey = os.Getenv("MCPX_SESSION_ID")
+		}
+		res, err := c.Intent(ctx, *promptFlag, "run", nil, sessionKey)
+		if err != nil {
+			return err
+		}
+		return a.showResolution(res)
+	}
+
+	if *validateFlag {
+		if fs.NArg() == 0 {
+			if inline {
+				return errors.New("usage: mcpx exec --validate '<typescript>'")
+			}
+			return errors.New("usage: mcpx run --validate <script.ts>")
+		}
+		src := ""
+		if inline {
+			src = fs.Arg(0)
+		} else {
+			p, rerr := resolveScript(fs.Arg(0))
+			if rerr != nil {
+				return rerr
+			}
+			b, rerr := os.ReadFile(p)
+			if rerr != nil {
+				return rerr
+			}
+			src = string(b)
+		}
+		c, err := a.ensure(ctx)
+		if err != nil {
+			return err
+		}
+		diagRes, err := c.DiagnoseWithRepair(ctx, src, *session, *repairFlag)
+		if err != nil {
+			return err
+		}
+		if a.JSON {
+			return a.out(diagRes)
+		}
+		fmt.Printf("mcpx: valid=%v fatal=%v\n", diagRes.Valid, diagRes.Fatal)
+		if len(diagRes.Diagnostics) > 0 {
+			fmt.Println(diagnose.Render(diagRes.Diagnostics))
+		}
+		if len(diagRes.Questions) > 0 {
+			fmt.Println("\nClarifying questions:")
+			for _, q := range diagRes.Questions {
+				fmt.Printf("  ? [%s] %s\n", q.Field, q.Question)
+			}
+		}
+		if diagRes.Repaired != "" {
+			fmt.Println("\nRepaired script (validation passed):")
+			fmt.Println(diagRes.Repaired)
+		}
+		if diagRes.Fatal {
+			return errors.New("script failed validation")
+		}
+		return nil
+	}
+
 	if fs.NArg() == 0 {
 		if inline {
 			return errors.New("usage: mcpx exec '<typescript>'")
@@ -909,7 +985,19 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		diagSource = sourceOfScript(opts.File)
 	}
 	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
-		return derr
+		if *repairFlag {
+			diagRes, rerr := c.DiagnoseWithRepair(ctx, diagSource, sessionKey, true)
+			if rerr == nil && diagRes.Repaired != "" && diagRes.RepairedValid {
+				fmt.Fprintln(os.Stderr, "mcpx: script had fatal diagnostics; automatically repaired and verified with model provider")
+				opts.Source = diagRes.Repaired
+				opts.File = ""
+				diagSource = opts.Source
+			} else {
+				return derr
+			}
+		} else {
+			return derr
+		}
 	}
 	for k, v := range shape.env {
 		opts.Env[k] = v
