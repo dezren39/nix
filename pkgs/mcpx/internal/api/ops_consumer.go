@@ -26,6 +26,8 @@ func consumerOps() []Op {
 					Desc: "the script to check"},
 				{Name: "session", In: InBody, Type: "string",
 					Desc: "the caller's session id, for the record"},
+				{Name: "repair", In: InBody, Type: "boolean",
+					Desc: "attempt automatic script repair if errors are detected"},
 			},
 		},
 		{

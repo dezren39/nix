@@ -623,6 +623,33 @@ func (r *Registry) CodegenNamespaces(names []string, prof config.Profile) ([]cod
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if len(r.testTools) > 0 {
+		byNS := map[string][]codegen.Tool{}
+		for _, t := range r.testTools {
+			if len(sels) > 0 && !whole[t.Namespace] && (tools[t.Namespace] == nil || !tools[t.Namespace][t.Tool]) {
+				continue
+			}
+			byNS[t.Namespace] = append(byNS[t.Namespace], codegen.Tool{
+				Name:        t.Tool,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+			})
+		}
+		var nsList []string
+		for ns := range byNS {
+			nsList = append(nsList, ns)
+		}
+		sort.Strings(nsList)
+		var out []codegen.Namespace
+		for _, ns := range nsList {
+			out = append(out, codegen.Namespace{
+				Name:  ns,
+				Tools: byNS[ns],
+			})
+		}
+		return out, nil
+	}
+
 	matchedNS := map[string]bool{}
 	matchedTool := map[string]bool{}
 	var out []codegen.Namespace

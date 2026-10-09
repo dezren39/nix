@@ -223,9 +223,6 @@ func ResolveProvider(cfg ProviderConfig, fallbackFn func(ctx context.Context, re
 	}
 
 	// 2. Environment variables (Local Qwen / Ollama / OpenAI / etc.)
-	if url := os.Getenv("MCPX_REPAIR_URL"); url != "" {
-		return NewOpenAICompatibleProvider("mcpx-repair-env", url, os.Getenv("MCPX_REPAIR_KEY"), os.Getenv("MCPX_REPAIR_MODEL"), defaults.CallTimeout)
-	}
 	if url := os.Getenv("OPENAI_BASE_URL"); url != "" {
 		return NewOpenAICompatibleProvider("openai-base-env", url, os.Getenv("OPENAI_API_KEY"), os.Getenv("OPENAI_MODEL"), defaults.CallTimeout)
 	}

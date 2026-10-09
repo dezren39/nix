@@ -193,6 +193,21 @@ func (r *Registry) DiagnoseTools() []diagnose.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var out []diagnose.Tool
+	if len(r.testTools) > 0 {
+		for _, t := range r.testTools {
+			fn := t.Function
+			if fn == "" {
+				fn = codegen.ToolFuncName(t.Tool)
+			}
+			out = append(out, diagnose.Tool{
+				Namespace: t.Namespace,
+				Name:      t.Tool,
+				Func:      fn,
+				Shape:     diagnose.ShapeOf(t.InputSchema),
+			})
+		}
+		return out
+	}
 	for _, name := range r.order {
 		p := r.pools[name]
 		view := r.views[name]
@@ -605,12 +620,18 @@ func (s *Server) resolveProvider() scripting.Provider {
 	if s.set == nil {
 		return scripting.ResolveProvider(scripting.ProviderConfig{}, nil)
 	}
+	getString := func(key string) string {
+		if v, ok := s.set.Value(key); ok {
+			return v.Raw
+		}
+		return ""
+	}
 	cfg := scripting.ProviderConfig{
-		Type:    s.set.String("repair.provider"),
-		BaseURL: s.set.String("repair.url"),
-		APIKey:  s.set.String("repair.apiKey"),
-		Model:   s.set.String("repair.model"),
-		Command: s.set.String("repair.command"),
+		Type:    getString("repair.provider"),
+		BaseURL: getString("repair.url"),
+		APIKey:  getString("repair.apiKey"),
+		Model:   getString("repair.model"),
+		Command: getString("repair.command"),
 	}
 	return scripting.ResolveProvider(cfg, nil)
 }

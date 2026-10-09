@@ -214,6 +214,7 @@ export const OPS: Record<string, OpSpec> = {
     params: {
       source: { in: "body", required: true },
       session: { in: "body" },
+      repair: { in: "body" },
     },
     response: "json",
   },
@@ -931,7 +932,7 @@ export class DaemonOps {
   /**
    * Explain what is wrong with a script, deterministically. `POST /v1/diagnose`.
    */
-  diagnose(args: { source: string; session?: string }, opts: CallOptions = {}): Promise<unknown> {
+  diagnose(args: { source: string; session?: string; repair?: boolean }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("diagnose", args, opts) as Promise<unknown>
   }
 
