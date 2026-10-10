@@ -149,6 +149,11 @@ rec {
       url = "github:inteliwear/sidepulse/main";
       flake = false;
     };
+    code = {
+      url = "github:developing-today/code";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs-unstable.follows = "nixpkgs";
+    };
     # nixpkgs-helium = {
     #   # https://github.com/NixOS/nixpkgs/pull/498572
     #   url = "github:Nytelife26/nixpkgs/helium/init";
@@ -412,6 +417,7 @@ rec {
           inherit pkgs;
           symlinkerSrc = ./symlinker.sh;
         };
+        mcpx = inputs.code.packages.${system}.mcpx;
       })
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin (rec {
         sidepulse-unwrapped = pkgs.callPackage ./pkgs/sidepulse {
@@ -514,6 +520,10 @@ rec {
         symlinker = {
           type = "app";
           program = "${selfPkgs.symlinker}/bin/symlinker";
+        };
+        mcpx = {
+          type = "app";
+          program = "${selfPkgs.mcpx}/bin/mcpx";
         };
       })
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {

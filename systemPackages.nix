@@ -205,6 +205,9 @@ in
       opencode-cli
       # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
       inputs.self.packages.${system}.lootbox-link
+      # The MCP gateway in code/mcpx. Its daemon runs at login from the mcpx
+      # launchd agent in configuration.nix; the CLI reaches it from any shell.
+      inputs.code.packages.${system}.mcpx
       # GitHub's official MCP server, run with the token `gh` already holds in
       # the login keychain, so no token is stored here or in the nix store.
       # Its hosted server (api.githubcopilot.com/mcp) cannot do mcp-remote's
