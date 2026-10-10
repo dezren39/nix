@@ -14,7 +14,7 @@ update-lootbox:
     nix run .#lootbox-update -- --force
 
 # Opens a browser for the server's OAuth login and keeps the tokens in
-# ~/.mcp-auth, where lootbox and mcpx find them. Press Ctrl-C once it reports
+# ~/.mcp-auth, where lootbox finds them. Press Ctrl-C once it reports
 # it is connected. Needed once per server, and again if its URL changes -- the
 # URL is part of what mcp-remote stores the tokens under.
 #

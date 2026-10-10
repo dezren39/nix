@@ -68,8 +68,7 @@
 
   # Merge on a divergent pull. Chosen on conflict count alone.
   #
-  # Measured on 2026-09-30 with local main diverged 6/53 from origin, carrying
-  # a merge commit that resolved 38 add/add conflicts under pkgs/mcpx:
+  # a merge commit that resolved 38 add/add conflicts:
   #
   #   merge  origin/main -> main :  0 conflicts
   #   rebase main -> origin/main : 35 conflicts on the 1st of 6 commits

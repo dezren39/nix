@@ -14,7 +14,7 @@ bug; every claim relayed unchecked was wrong.
 diagnosable by reading code. A confident, specific, wrong diagnosis cost a day: the real cause was a
 lazy `restart` publishing one event, found by instrumenting a CI run, not by reasoning.
 
-**Never test a system against itself.** Driving mcpx's own `server/discover` against mcpx proved both
+**Never test a system against itself.** Driving a server's own discovery against itself proved both
 halves agreed, not that either was right — they shared the same wrong field name. Test against the
 schema, the spec, or a reference implementation.
 
@@ -67,7 +67,7 @@ hand-pinned commit (`requirements.md:7` said `05c78b2`) and a hand-kept PR list 
 the staleness disclosure itself went stale. The worst case is a conformance matrix reporting `tested:`
 and `**gap**` for the same requirement from the same commit — it gets cited as evidence.
 
-"The document says X, the code does Y" is this codebase's signature defect (mcpx #177). When you find
+"The document says X, the code does Y" is this codebase's signature defect. When you find
 one, write the guard that would have caught it.
 
 ## Delegation
@@ -218,18 +218,3 @@ route ignored the new mode entirely. Its commit had a one-line message and no ev
 - **A mutation that cannot trigger proves nothing.** A `break` on a map filled by goroutines never
   fired, so the test "passed" with the fix removed. Make the mutation undo the fix's actual mechanism.
 
-## mcpx specifics
-
-- The signature defect is **declared but not delivered** (#177): a flag parsed and dropped, a
-  capability advertised and never sent, a setting read but inert. `consumed_test.go` proves a setting
-  is *read*, not that reading it changes anything.
-- The daemon is keyed by its **config file set**. Three separate bugs came from this; environment
-  differences that should produce different daemons do not.
-- On macOS `/tmp` is a symlink to `/private/tmp` and the product canonicalises paths, so a test using
-  `os.MkdirTemp("/tmp", …)` passes on Linux CI and fails on every Mac. Four test files hit this.
-- `nix build`'s `checkPhase` has had a hand-maintained package list that drifted from the packages
-  that have tests. CI runs `go test ./...` and does not.
-- The official conformance suite ships its own fixture server. Running it against a different server
-  measures nothing. **A falling score can mean the code got more correct** — it has, twice.
-- Under parallel agents, load averages above 150 push `internal/e2e` past its default timeout. Raise
-  `-timeout`; do not read it as a failure.
