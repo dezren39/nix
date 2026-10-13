@@ -208,6 +208,13 @@ in
       # The MCP gateway in pkgs/mcpx. Its daemon runs at login from the mcpx
       # launchd agent in configuration.nix; the CLI reaches it from any shell.
       inputs.self.packages.${system}.mcpx
+      # Atlassian's Teamwork Graph CLI (twg) — prebuilt binary, pinned in
+      # pkgs/twg-cli/hashes.json. Not an MCP server itself (the Atlassian MCP
+      # server is already configured above as "atlassian" in
+      # lootbox.config.json/mcpx.config.nix); twg is a standalone CLI an agent
+      # shells out to. First run needs `twg setup` (OAuth login) and
+      # `twg doctor` interactively — not something Nix can do at build time.
+      inputs.self.packages.${system}.twg-cli
       # GitHub's official MCP server, run with the token `gh` already holds in
       # the login keychain, so no token is stored here or in the nix store.
       # Its hosted server (api.githubcopilot.com/mcp) cannot do mcp-remote's

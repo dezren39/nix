@@ -180,6 +180,7 @@ rec {
     nix.inputs.nixpkgs-regression.follows = "nixpkgs-23-11";
     nix.inputs.git-hooks-nix.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     nix.inputs.flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs-lib";
+    nix.inputs.bdwgc.follows = "bdwgc";
     nixpkgs-hoisted.url = "github:nixos/nixpkgs/nixos-25.11";
     nixpkgs-23-11.url = "github:NixOS/nixpkgs";
     nixpkgs-23_05.url = "github:nixos/nixpkgs/nixos-23.05-small";
@@ -202,6 +203,8 @@ rec {
     nixpkgs-regression-hoisted.follows = "nixpkgs-23-11";
     rust-analyzer-src.url = "github:rust-lang/rust-analyzer/nightly";
     rust-analyzer-src.flake = false;
+    bdwgc.url = "github:DeterminateSystems/bdwgc/user-defined-stacks";
+    bdwgc.flake = false;
   };
   outputs = inputs: rec {
     eachSystem =
@@ -392,6 +395,7 @@ rec {
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
         mcpx = pkgs.callPackage ./pkgs/mcpx/package.nix { inherit bun-bin; };
+        twg-cli = pkgs.callPackage ./pkgs/twg-cli/package.nix { };
         lootbox-update = import ./pkgs/lootbox-update {
           inherit pkgs;
           lootboxSrc = pkgs.fetchFromGitHub {

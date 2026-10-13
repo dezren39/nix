@@ -2,537 +2,108 @@
   "$schema": "https://opencode.ai/config.json",
   "autoupdate": false,
   "plugin": [
-    // "@tarquinen/opencode-dcp@latest", // causes large GitHub API request counts — use manual /compact instead
-    // "opencode-working-memory@latest",
-    // "octto@latest",
-    // "@forks.developing.today/octto@latest",
-    // "micode@latest", // forces context7 MCP server with no opt-out: https://github.com/vtemian/micode/issues/49
-    // "opencode-scheduler@latest",
-    // "@openspoon/subtask2@latest",
-    //"@tmegit/opencode-worktree-session@latest",
     "@mohak34/opencode-notifier@latest",
     "opencode-pty@latest",
-    //"opencode-devcontainers@latest",
-    // "opencode-dir",
-    // "opencode-pilot@latest",
     "@franlol/opencode-md-table-formatter@latest",
-    // "@ramtinj95/opencode-tokenscope" — NOT installable from this array. It is a
-    // locally-installed plugin: run the upstream tokenscope install steps
-    // (https://github.com/ramtinj95/opencode-tokenscope) which drop it into
-    // ~/.config/opencode/plugin/, where opencode auto-discovers it. Its
-    // tokenscope-config.json and command/tokenscope.md are intentionally NOT
-    // tracked in this repo; install the plugin to make them available.
-    // "true-mem@latest",
-    // "@knikolov/opencode-plugin-simple-memory@latest",
-    // "opencode-mem@latest",
-    "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz",
-    // plugins/tool-definitions.ts is NOT listed here. A relative spec resolves
-    // against dirname() of the config file opencode loaded (config/plugin.ts:48),
-    // which is ~/.config/opencode, not this repo. It is symlinked into
-    // ~/.config/opencode/plugin/ instead, where opencode auto-discovers it —
-    // the same mechanism tokenscope uses above. Relink with:
-    //   ln -sfn ~/.config/nix/plugins/tool-definitions.ts \
-    //           ~/.config/opencode/plugin/tool-definitions.ts
+    "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz"
   ],
-  // Provider/model restrictions disabled — every authenticated provider and every
-  // model it exposes is allowed through. Re-enable any line below to pin again.
-  // "enabled_providers": ["github-copilot"],
   "default_agent": "build",
-  // plan is a built-in primary agent. agents/plan.md was an empty stub that
-  // never loaded, so disable the built-in explicitly rather than leaving a
-  // dead file implying it was handled.
-  "agent": { "plan": { "disable": true } },
-  // Delegation topology. Enforced per-agent by the `task` rulesets in
-  // agents/*.md, since opencode has no per-agent depth setting — subagent_depth
-  // below is global. Tiers descend strictly, so the edge set is acyclic and
-  // recursion terminates structurally rather than by exhausting a counter:
-  //
-  //   tier 0  build, plan                      (primary)
-  //   tier 1  general, custom, explore
-  //   tier 2  general-2wide, custom-2wide, explore-2wide
-  //   tier 3  general-wide, custom-wide, explore-wide
-  //   tier 4  general-deep, custom-deep, explore-deep
-  //
-  // The `-2wide` / `-wide` / `-deep` suffixes ARE the tier, and the rulesets
-  // match on them rather than on agent names: tier 2 allows `"*-wide"` and
-  // `"*-deep"`, tier 3 allows `"*-deep"` and `"explore*"`, tier 4 allows only
-  // `"explore*"`. Wildcard.match compiles `*` to `.*` anchored at both ends
-  // (util/wildcard.ts:3-13), so `"*-wide"` matches general-wide but not
-  // general-2wide, and `"explore-*"` matches the variants but not explore
-  // itself. Name a new worker with the right suffix and it slots in with no
-  // edits elsewhere; name it anything else and nothing can reach it.
-  //
-  // An agent may call anything in a strictly lower tier, across families —
-  // general-2wide may call custom-wide. Two carve-outs: toplevel general and
-  // custom do not call each other or themselves, and the explore family is a
-  // closed descending chain (everything may call into it; it never calls out).
-  // explore-deep is the only terminal node.
-  //
-  // build and plan carry no `task` rule of their own: the shared default
-  // `"*": allow` (agent/agent.ts:119) already lets them reach every subagent,
-  // which is the orchestrator role. Built-in plan additionally denies `general`
-  // (agent/agent.ts:163-165). Every agent below them is deny-by-default with
-  // explicit allows, so adding a global `task: { x: "deny" }` here still holds
-  // everywhere except explore, whose `"*": allow` is needed to clear the
-  // built-in read-only ruleset and shadows it.
-  //
-  // Longest chain is build -> general -> custom-2wide -> custom-wide ->
-  // custom-deep -> explore -> explore-2wide -> explore-wide -> explore-deep,
-  // which puts the deepest task call at depth 7 and needs subagent_depth >= 8.
-  // 10 is a backstop for agents added outside this topology, not a control —
-  // the edge set is what bounds recursion. Default is 1, which rejects any task
-  // call from inside a subagent at task.ts:111 before the permission check runs.
-  //
-  // Nothing tells an agent how deep it currently is — depth is computed only
-  // inside the task call (task.ts:104-110) and surfaces as a tool error. The
-  // topology is what keeps agents from discovering the limit by hitting it.
+  "agent": {
+    "plan": {
+      "disable": true
+    }
+  },
   "subagent_depth": 10,
-  // Last-resort default, read only at provider.ts:2010 (`if (cfg.model)`).
-  // Unreachable today: every agent in agents/*.md pins claude-opus-5.5 except the
-  // custom family, which inherits the caller's model by design
-  // (task.ts:181-184), and default_agent is build, which pins. Set anyway so an
-  // agent added later without a `model:` can't fall through to the
-  // family-priority picker.
   "model": "github-copilot/claude-opus-5.5",
-  // "small_model": "github-copilot/gpt-5.6-terra",
-  // Fallback for `small: true` calls (title generation). Unused in practice —
-  // agent.title sets its own model, which takes precedence at prompt.ts:216.
-  // Set anyway so a future small-call path can't silently fall through to the
-  // family-priority picker: ["gemini-flash", "gpt-nano", "claude-haiku"].
   "small_model": "github-copilot/claude-opus-5.5",
-  // "provider": {
-  //   "github-copilot": {
-      // Disable models per policy: any gpt < 5.6, any claude < 4.8, and all Gemini,
-      // Kimi, and MAI models.
-      // Blacklist entries are exact upstream (models.dev) model ids; unknown ids are
-      // harmless no-ops. Kept enabled: gpt-5.6-{sol,terra,luna}, claude-fable-5,
-      // claude-sonnet-5, and claude-opus-5.
-      // "blacklist": [
-        // gpt < 5.6
-        // "gpt-4.1",
-        // "gpt-5-mini",
-        // "gpt-5.2",
-        // "gpt-5.2-codex",
-        // "gpt-5.3-codex",
-        // "gpt-5.4",
-        // "gpt-5.4-mini",
-        // "gpt-5.4-nano",
-        // "gpt-5.5",
-        // claude < 4.8 (incl. opencode-generated `-fast` mode variants)
-        // "claude-haiku-4.5",
-        // "claude-opus-4.5",
-        // "claude-opus-4.6",
-        // "claude-opus-4.6-fast",
-        // "claude-opus-4.7",
-        // "claude-opus-4.7-fast",
-        // "claude-opus-4.8",
-        // "claude-opus-4.8-fast",
-        // "claude-sonnet-4",
-        // "claude-sonnet-4.5",
-        // "claude-sonnet-4.6",
-        // gemini < 3.1
-        // "gemini-2.5-pro",
-        // "gemini-3-flash-preview",
-        // disabled model families
-        // "gemini-3.1-pro-preview",
-        // "gemini-3.5-flash",
-        // "kimi-k2.7-code",
-        // "mai-code-1-flash-picker",
-      // ],
-      // "models": {
-        // "claude-opus-5": {},
-        // ---------------------------------------------------------------
-        // Model-limit shaping DISABLED — use each model's upstream (models.dev)
-        // limits. Kept commented for reference / easy re-enable. The trailing
-        // comments are GitHub Copilot premium-request cost multipliers, not
-        // opencode settings.
-        // ---------------------------------------------------------------
-        // "claude-haiku-4.5": {
-        //   "limit": { "context": 200000, "output": 64000 }, // 0.33x
-        // },
-        // "claude-opus-4.5": {
-        //   "limit": { "context": 200000, "output": 32000 }, // 3x
-        // },
-        // "claude-opus-4.6": {
-        //   "limit": { "context": 200000, "output": 32000 }, // 3x
-        // },
-        // "claude-opus-4.7": {
-        //   "limit": { "context": 200000, "output": 32000 },
-        // },
-        // "claude-opus-4.8": {
-        //   "limit": { "context": 200000, "output": 32000 },
-        // },
-        // "claude-sonnet-4": {
-        //   "limit": { "context": 216000, "output": 16000 }, // 1x
-        // },
-        // "claude-sonnet-4.5": {
-        //   "limit": { "context": 200000, "output": 32000 }, // 1x
-        // },
-        // "claude-sonnet-4.6": {
-        //   "limit": { "context": 200000, "output": 32000 }, // 1x
-        // },
-        // "gemini-2.5-pro": {
-        //   "limit": { "context": 173000, "output": 64000 }, // 1x
-        // },
-        // "gemini-3-flash-preview": {
-        //   "limit": { "context": 173000, "output": 64000 }, // 0.33x
-        // },
-        // "gemini-3-pro-preview": {
-        //   "limit": { "context": 200000, "output": 64000 }, // 1x
-        // },
-        // "gemini-3.1-pro-preview": {
-        //   "limit": { "context": 200000, "output": 64000 }, // 1x
-        // },
-        // "gpt-4.1": {
-        //   "limit": { "context": 128000, "output": 16384 }, // 0x
-        // },
-        // "gpt-4o": {
-        //   "limit": { "context": 128000, "output": 4096 }, // 0x
-        // },
-        // "gpt-5-mini": {
-        //   "limit": { "context": 264000, "output": 64000 }, // 0x
-        // },
-        // "gpt-5.1": {
-        //   "limit": { "context": 264000, "output": 64000 }, // 1x
-        // },
-        // "gpt-5.1-codex": {
-        //   "limit": { "context": 400000, "output": 128000 }, // 1x
-        // },
-        // "gpt-5.1-codex-max": {
-        //   "limit": { "context": 400000, "output": 128000 }, // 1x
-        // },
-        // "gpt-5.2": {
-        //   "limit": { "context": 400000, "output": 128000 }, // 1x
-        // },
-        // "gpt-5.2-codex": {
-        //   "limit": { "context": 400000, "output": 128000 }, // 1x
-        // },
-        // "gpt-5.3-codex": {
-        //   "limit": { "context": 400000, "output": 128000 }, // 1x
-        // },
-        // "gpt-5.4": {
-        //   "limit": { "context": 400000, "output": 128000 }, // 1x
-        // },
-        // "grok-code-fast-1": {
-        //   "limit": { "context": 256000, "output": 64000 }, // 0.25x
-        // },
-      // },
-    // },
-  // },
   "permission": {
-    // read/lsp denied globally: `cat -n` covers reading, and codedb +
-    // codebase-memory cover what lsp answered (definitions, callers, call
-    // graph). Denying with pattern "*" is what actually removes a tool from the
-    // request - permission/index.ts:204-213 requires the last matching rule to
-    // be `"*": deny` before session/llm/request.ts:207 drops it.
     "read": "deny",
     "lsp": "deny",
-    // A literal `todowrite` key here satisfies subagent-permissions.ts:19, which
-    // tests `rule.permission === "todowrite"` with `===`. Without it every
-    // subagent session gets an injected `todowrite: deny *`. One global line
-    // replaces a per-agent frontmatter entry on all 12.
     "todowrite": "allow",
     "edit": "allow",
     "external_directory": "allow",
-    // ─────────────────────────────────────────────────────────────────────
-    // bash rules. Read this before editing — the matcher is not a glob and
-    // the ordering rule is not "deny wins".
-    //
-    // HOW MATCHING WORKS (opencode 1.18.31, verified against source):
-    //
-    // 1. The command is parsed with tree-sitter-bash and EVERY `command` node
-    //    is matched independently (tool/shell.ts:123, :392-411). `a && b` is
-    //    two patterns, not one string. Each must pass. `cd`-family commands
-    //    produce no pattern at all (shell.ts:28, :407).
-    //    Not re-parsed: the quoted payload of `bash -c "..."` / `sh -c` and
-    //    anything behind `eval` — hence the wrapper asks in the ASK block.
-    //
-    // 2. The pattern is NOT a glob. util/wildcard.ts:3-13 rewrites it to a
-    //    regex: `*` -> `.*` with the dotAll flag (so it spans spaces AND
-    //    newlines, and ignores `/`), `?` -> exactly one char, and
-    //    `. + ^ $ { } ( ) | [ ] \` are ESCAPED TO LITERALS — `[abc]` is not a
-    //    character class and `.` is a literal dot. Anchored `^...$`, i.e.
-    //    always a full-string match against the sub-command. Case-SENSITIVE
-    //    on darwin/linux (`"s"`), case-insensitive only on win32 (`"si"`).
-    //    Special case (wildcard.ts:11): a pattern ending in `" *"` becomes
-    //    `( .*)?`, so `"git stash *"` also matches a bare `git stash`. That is
-    //    why the anchored rules below are written with a trailing `" *"`.
-    //
-    // 3. LAST MATCHING RULE WINS — `findLast`, permission/index.ts:28-38. It
-    //    is NOT "deny beats ask". A later `ask` silently DOWNGRADES an earlier
-    //    `deny` when both match the same sub-command. Measured on the previous
-    //    version of this block, where `*git stash*: ask` sat after
-    //    `*git reset --hard*: deny`:
-    //        node t.mjs 'git reset --hard'                    -> deny
-    //        node t.mjs 'git reset --hard' 'git stash pop'    -> ask
-    //    Adding a second string turned a hard deny into a prompt. Hence the
-    //    block is now ordered BY SEVERITY: catch-all allow, then every ASK,
-    //    then every DENY, then the anchored read-only allow-backs.
-    //    Unmatched defaults to `ask` (index.ts:35-37).
-    //
-    // WHY THE RULES ARE ANCHORED (`git x *`, not `*git x*`):
-    //    Because the pattern is the verbatim source text of the sub-command,
-    //    a leading `*` matches the string ANYWHERE — including inside an
-    //    argument. The previous unanchored block produced these, all measured:
-    //        grep -rn "git reset --hard" AGENTS.md     -> deny
-    //        echo "run git restore to undo"            -> deny
-    //        rg "git stash" docs/                      -> ask
-    //        git config --get remote.origin.url        -> deny   (a pure read)
-    //        git stash list / git stash show -p        -> ask    (pure reads)
-    //    i.e. grepping the house rules that document these commands was
-    //    blocked, and so was reading the remote URL that worktrees.md tells
-    //    every session to check before pushing. Anchoring fixes all of them.
-    //    KNOWN GAP, accepted: anchoring means an env-var prefix
-    //    (`FOO=1 git reset --hard`, which shell.ts keeps in the pattern text)
-    //    or `sudo git ...` slips past. `bash -c`/`sh -c`/`eval` are covered
-    //    explicitly below; the env-prefix form is rare enough to live with.
-    //
-    // WHY THE ALLOW-BACKS MUST STAY ANCHORED AND LAST:
-    //    They are last so they beat the denies above them, which is only safe
-    //    because they are anchored and exact. An unanchored
-    //    `"*git stash list*": "allow"` in that position would allow
-    //    `git reset --hard && echo git stash list`. Never add a leading `*`
-    //    to anything in the allow-back block.
-    //
-    // ANSWERING "always" CAN OUTRANK A DENY:
-    //    Session approvals are appended as a later ruleset into the same
-    //    `findLast` (index.ts:145-151, :73), and the stored pattern is a
-    //    DERIVED PREFIX, not the command you approved — permission/arity.ts:83
-    //    sets `git: 2`, so "always" on `git branch -d x` stores `git branch *`
-    //    and unlocks `git branch -D` / `git branch -f` for the rest of the
-    //    session. (`git stash` is arity 3 at arity.ts:86, so `git stash list`
-    //    stores the harmless `git stash list *`.) Prefer answering "once", and
-    //    encode standing allowances here rather than by clicking always.
-    //
-    // The original motivation for the block, still the worst case it guards:
-    // worktrees share one `origin` with their parent clone, so a single
-    // `git remote set-url` silently retargets EVERY worktree at once. That has
-    // already happened here: origin was repointed at an unrelated repository
-    // mid-session, and a push from any of ~57 worktrees would have gone to the
-    // wrong place. No session has a legitimate reason to rewrite a remote.
-    // ─────────────────────────────────────────────────────────────────────
     "bash": {
       "*": "allow",
-
-      // ══ ASK ═══════════════════════════════════════════════════════════
-      // Must precede every deny: a later ask downgrades an earlier deny.
-
-      // Not re-parsed by tree-sitter (shell.ts:392-411), so the payload is one
-      // opaque token and no rule below can see into it. Gate the wrapper
-      // itself rather than pretending the contents are matched.
       "bash -c *": "ask",
       "sh -c *": "ask",
       "zsh -c *": "ask",
       "eval *": "ask",
-      // Adding a remote is occasionally legitimate (a fork), but it is also how
-      // a wrong push target gets introduced. Make it a conscious decision.
       "git remote add *": "ask",
-      // Recoverable, but in a shared worktree it makes work vanish from under
-      // whoever else is in there. `list`/`show` are allowed back at the bottom;
-      // `drop`/`clear` are denied below.
       "git stash *": "ask",
-      // Can orphan commits that were never pushed. `--delete` is the long form
-      // the old `-d`/`-D` rules missed entirely (literal match: "branch --d"
-      // never contains "branch -d").
       "git branch -d*": "ask",
       "git branch -D*": "ask",
       "git branch --delete*": "ask",
-      // Unforced `remove` still deletes a worktree holding unpushed commits.
-      // `prune` unregisters any worktree whose directory is merely unreachable
-      // right now — exactly the macOS /var sweep scenario in worktrees.md.
       "git worktree remove *": "ask",
       "git worktree prune *": "ask",
-      // Refspec deletion: `git push origin :branch` removes a remote branch.
-      // The " :" is load-bearing — `HEAD:main` and `refs/heads/a:refs/heads/b`
-      // are ordinary pushes and stay allowed.
       "git push* :*": "ask",
-      // Removes files from the worktree as well as the index.
       "git rm *": "ask",
       "git tag -d*": "ask",
-      // AGENTS.md already forbids amending unless explicitly requested.
       "git commit*--amend*": "ask",
-
-      // ══ DENY ══════════════════════════════════════════════════════════
-      // Destructive operations the house rules forbid. Placed after every ask
-      // so nothing can downgrade them.
-
-      // Rewriting or removing a configured remote.
       "git remote set-url*": "deny",
       "git remote remove*": "deny",
       "git remote rename*": "deny",
       "git remote rm*": "deny",
-      // Same class of hazard via config rather than the porcelain command.
-      // `--remove-section remote.origin` nukes the remote the url rule guards.
       "git config*remote.*url*": "deny",
       "git config*--remove-section*": "deny",
       "git config*--unset*": "deny",
-      // Rewriting published history. `--force-with-lease` is included on
-      // purpose: safer than `--force`, still a remote history rewrite.
-      // `--delete`/`-d`/`--mirror`/`--prune` destroy branches on the remote —
-      // the "messing up another branch" case, previously fully allowed.
       "git push*--force*": "deny",
       "git push*-f *": "deny",
       "git push*--delete*": "deny",
       "git push*-d *": "deny",
       "git push*--mirror*": "deny",
       "git push*--prune*": "deny",
-      // `--merge` and `--keep` also discard working-tree changes; only `--hard`
-      // was covered before.
+      "git reset --hard origin/main*": "ask",
+      "git reset --hard */origin/main*": "ask",
       "git reset --hard*": "deny",
       "git reset --merge*": "deny",
       "git reset --keep*": "deny",
-      // Discarding uncommitted work. This is the exact mechanism that silently
-      // destroyed a regression test in a shared worktree — recovered only
-      // because a reviewer noticed it missing from the diff. `git checkout` on a
-      // BRANCH stays allowed; only the forms that overwrite the working tree
-      // are blocked. `--ours`/`--theirs` do the same thing mid-conflict.
-      // `git restore` has no allow-back: `git reset <path>` is the permitted
-      // equivalent for unstaging, and it does not touch the working tree.
       "git checkout -- *": "deny",
       "git checkout .*": "deny",
       "git checkout --ours*": "deny",
       "git checkout --theirs*": "deny",
       "git restore *": "deny",
-      // Forced branch switches discard every uncommitted change in the tree.
-      // Plain `git checkout <branch>` REFUSES when that would lose work, which
-      // is the safety these flags turn off — so the unforced forms stay allowed
-      // and only the override is blocked. `git switch` is the modern spelling of
-      // the same hazard and needs the same treatment.
       "git checkout -f*": "deny",
       "git checkout --force*": "deny",
       "git switch*--discard-changes*": "deny",
       "git switch -f*": "deny",
       "git switch --force*": "deny",
-      // Reset an EXISTING branch pointer to another commit. Silent, instant,
-      // and aimed at a branch you may not be on — the sharpest edge of the
-      // "don't mess up another branch" rule, and previously allowed outright.
-      // `-b`/`-c` (create new) stay allowed; only the capital re-point forms go.
       "git checkout -B*": "deny",
       "git switch -C*": "deny",
       "git branch -f*": "deny",
       "git branch --force*": "deny",
-      // Deletes untracked files outright. In a shared tree those untracked files
-      // are frequently another agent's in-flight work.
       "git clean*-f*": "deny",
       "git clean*-x*": "deny",
-      // Plumbing that moves or deletes ANY ref, including a branch nobody is
-      // on, with no porcelain safety check. `update-ref -d refs/heads/x` is a
-      // branch deletion that bypasses every `git branch` rule above.
       "git update-ref *": "deny",
       "git symbolic-ref *": "deny",
-      // The recovery net. Every "it's recoverable" justification above depends
-      // on the reflog and on unreachable objects surviving; these remove both.
       "git reflog expire*": "deny",
       "git gc*--prune*": "deny",
       "git prune *": "deny",
-      // Wholesale history rewrite.
       "git filter-branch*": "deny",
       "git filter-repo*": "deny",
-      // Blows away submodule working trees.
       "git submodule deinit*": "deny",
       "git submodule*--force*": "deny",
-      // The two stash operations that are not reversible by re-applying —
-      // unlike pop/apply, which only need the stash to still exist.
       "git stash drop*": "deny",
       "git stash clear*": "deny",
-
-      // ══ ALLOW-BACK ════════════════════════════════════════════════════
-      // Read-only forms swept up by the rules above. LAST so they win, and
-      // ANCHORED with no leading `*` so they can only ever match when that
-      // exact command is what is being run. Do not add a leading `*` here.
-
       "git stash list *": "allow",
       "git stash show *": "allow",
       "git config --get *": "allow",
       "git config --get-regexp *": "allow",
-      "git config --list *": "allow",
+      "git config --list *": "allow"
     },
-    // plan_enter/plan_exit only exist to suggest switching to/from the plan
-    // agent (tool/plan-enter.txt). Unused here, and the shared defaults already
-    // deny them for every agent except build and plan, so denying globally just
-    // drops the two descriptions from build's payload (~297 tokens).
     "plan_enter": "deny",
     "plan_exit": "deny",
-    // Gate the `custom` delegate. task.ts:120-122 passes the subagent_type as
-    // the permission pattern, so this matches per-agent. Enforced, not
-    // advisory: the model cannot invoke custom without an explicit approval.
-    // Replying "always" allows it for the rest of the session only — that lives
-    // in an in-memory approved list (permission/index.ts:146), never persisted.
     "task": {
-      "custom": "ask",
-    },
+      "custom": "ask"
+    }
   },
-  // Agents are defined in agents/*.md (frontmatter = the same ConfigAgentV1
-  // schema as this file). Install with ./symlink-agents, which links
-  // ~/.opencode/agents -> this repo's agents/ so they are tracked in git.
-  //
-  // Why markdown rather than here: explore/compaction/title/summary each carry
-  // a built-in prompt, and the merge is `item.prompt = value.prompt ?? item.prompt`.
-  // A markdown body is assigned unconditionally (config/agent.ts:27), so those
-  // four keep their prompt verbatim in the file; build/general/custom have empty
-  // bodies and fall through to the model's default prompt.
-
-  // "agent": {
-  // "build": {
-  //   "mode": "subagent",
-  //   "model": "github-copilot/claude-opus-4.8",
-  // },
-  // "plan": {
-  //   "mode": "subagent",
-  //   "model": "github-copilot/claude-opus-4.8",
-  // },
-  // "octto": {
-  //   "variant": "thinking",
-  //   "model": "github-copilot/claude-opus-4.8",
-  // },
-  // "bootstrapper": {
-  //   "variant": "thinking",
-  //   "model": "github-copilot/claude-opus-4.8",
-  // },
-  // "probe": {
-  //   "variant": "thinking",
-  //   "model": "github-copilot/claude-opus-4.8",
-  // },
-  //   "compaction": {
-  //     "model": "github-copilot/gpt-5.4",
-  //     "threshold": 0.5,
-  //   },
-  //   "title": {
-  //     "model": "github-copilot/gpt-5.4",
-  //   },
-  //   "summary": {
-  //     "model": "github-copilot/gpt-5.4",
-  //   },
-  // },
   "instructions": [
     "~/.config/opencode/instructions/lootbox.md",
-    // Worktrees must not be created under /var/folders/.../T/ — macOS sweeps it
-    // and has already destroyed ~3000 tracked files mid-session. The environment
-    // block advertises that path as "pre-approved", which is about permissions,
-    // not durability; agents were taking it as a worktree location.
     "~/.config/opencode/instructions/worktrees.md",
-    // Append-only session recordings. The moments an agent stops to explain to
-    // the user — a fix that made things worse, a test that could never fail, a
-    // number it got wrong, a brief it followed too literally — are exactly the
-    // ones lost when the session ends. This asks for a JSON line alongside the
-    // explanation. Deliberately schema-free (`sentiment` is `any`): the cost of
-    // a malformed line is a later normalisation pass, the cost of a rejected
-    // line is the observation itself. See dezren39/nix for the tooling issue.
     "~/.config/opencode/instructions/recordings.md",
-    // Preferred and disfavoured ways of working, written from a long
-    // multi-agent session: verify rather than relay, measure in the
-    // environment that fails, every fix gets a test that fails without it,
-    // fix small things rather than filing them, fan out for breadth and never
-    // for depth, one PR per batch, review an agent's diff yourself, and write
-    // to the user without labels only you understand. Every rule in it cost
-    // time or produced a wrong answer first.
-    "~/.config/opencode/instructions/work-strategies.md",
-    // subagents.md archived to instructions/archive/ — it named agents
-    // (explore/general/plan) that the trimmed agent set no longer defines, so it
-    // was describing a topology that does not exist. Re-add only if rewritten
-    // to match the current agents.
+    "~/.config/opencode/instructions/work-strategies.md"
   ],
   "compaction": {
-    "reserved": 8192,
+    "reserved": 8192
   },
+  "warming": true
 }

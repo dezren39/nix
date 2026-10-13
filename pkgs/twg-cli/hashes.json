@@ -1,0 +1,9 @@
+{
+  "version": "1.3.5",
+  "hashes": {
+    "aarch64-darwin": "bc8d9e07ba9275c2dffeda555f301828782c4972a9387dc221fe3cd3e9e33098",
+    "x86_64-darwin": "11e7d286ebb2734ec2f4452b42b13754c5eb65b2fbaa8afe9c8a06cb1e9da08a",
+    "aarch64-linux": "b226f6e52f8137a2a3562c172d3a8b608a72bbb9078af845c3618468ea1170f0",
+    "x86_64-linux": "d66d93220f440f006279c6687274ed4c924835da4ec205cc818bc17f6dd91c08"
+  }
+}
