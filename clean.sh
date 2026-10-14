@@ -85,12 +85,44 @@ OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
                     Measured 0 MB of reclaim across the largest repos here:
                     almost nothing is held by reflog alone. Without it, gc
                     still expires at git's defaults (90d / 30d unreachable).
+  --opencode-root-scratch
+                    Also sweep ~/.local/share/opencode itself for stray
+                    one-off dirs sessions sometimes drop there directly
+                    (gated the same as tmp/opencode: idle age +
+                    clean/pushed). Off by default: the protected-name list
+                    this checks against can go stale as opencode adds new
+                    top-level files, so this is opt-in and worth a --dry-run
+                    first.
 
 TUNABLES (environment)
   ARTIFACT_STALE_DAYS       default 1   repo/worktree idle period before artifacts
                                         are removed (paired with a clean-tree check)
   HOME_ARTIFACT_STALE_DAYS  default 7   same, for artifact dirs directly in ~, where
                                         no repository gate applies
+  COLIMA_STOPPED_STALE_DAYS default 10  a STOPPED, non-default colima profile
+                                        whose disk file hasn't been written to in
+                                        this long is deleted on mtime alone (no
+                                        live daemon to verify emptiness); `default`
+                                        is never considered regardless of age
+  OPENCODE_TMP_STALE_DAYS       default 7   age gate for loose entries in
+                                        ~/.local/share/opencode/tmp/opencode,
+                                        git-gated like HOME_ARTIFACT_STALE_DAYS
+  OPENCODE_WORKTREE_STALE_DAYS  default 7   same, for
+                                        ~/.local/share/opencode/worktree
+  OPENCODE_ROOT_STALE_DAYS      default 7   same, for stray entries dropped
+                                        directly in ~/.local/share/opencode
+                                        (app's own files/dirs are protected;
+                                        requires --opencode-root-scratch)
+  OPENCODE_TIDY_PROTECT_DAYS    default 1   tmp/opencode tidy pass: a dir with
+                                        any file modified within this window
+                                        (anywhere in its subtree) is entirely
+                                        skipped, never partially reorganised
+  OPENCODE_TIDY_LARGE_MB        default 200 tmp/opencode tidy pass: postgres
+                                        data dirs (by PG_VERSION marker) and
+                                        anything at or above this size inside
+                                        an eligible leaf dir are deleted
+                                        outright before the remainder is
+                                        archived into _loose/<year>/<month>/
   CACHE_STALE_DAYS     default 3   age gate for nix caches / flake GC roots
   LOG_STALE_DAYS       default 0   0 = drop all logs, N = keep last N days
 EOF
@@ -111,6 +143,7 @@ while [ $# -gt 0 ]; do
     --tmpdir)         CLEAN_TMPDIR=1 ;;
     --expire-reflog)  EXPIRE_REFLOG=1 ;;
     --docker-age)     DOCKER_AGE_DAYS="${2:-30}"; shift ;;
+    --opencode-root-scratch) CLEAN_OPENCODE_ROOT=1 ;;
     --no-sudo)        USE_SUDO=0 ;;
     --no-git-maintenance|--no-maintenance|--no-git) DO_MAINTENANCE=0 ;;
     --quick)          MAINT_DEPTH="--quick" ;;
@@ -224,8 +257,15 @@ if [ "$EUID" -ne 0 ]; then
       ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}" LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}" \
       CACHE_STALE_DAYS="${CACHE_STALE_DAYS:-3}" \
       HOME_ARTIFACT_STALE_DAYS="${HOME_ARTIFACT_STALE_DAYS:-7}" \
+      COLIMA_STOPPED_STALE_DAYS="${COLIMA_STOPPED_STALE_DAYS:-10}" \
+      OPENCODE_TMP_STALE_DAYS="${OPENCODE_TMP_STALE_DAYS:-7}" \
+      OPENCODE_WORKTREE_STALE_DAYS="${OPENCODE_WORKTREE_STALE_DAYS:-7}" \
+      OPENCODE_ROOT_STALE_DAYS="${OPENCODE_ROOT_STALE_DAYS:-7}" \
+      OPENCODE_TIDY_PROTECT_DAYS="${OPENCODE_TIDY_PROTECT_DAYS:-1}" \
+      OPENCODE_TIDY_LARGE_MB="${OPENCODE_TIDY_LARGE_MB:-200}" \
       CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" DOCKER_AGE_DAYS="$DOCKER_AGE_DAYS" \
-      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS \
+      CLEAN_OPENCODE_ROOT="$CLEAN_OPENCODE_ROOT" \
+      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,COLIMA_STOPPED_STALE_DAYS,OPENCODE_TMP_STALE_DAYS,OPENCODE_WORKTREE_STALE_DAYS,OPENCODE_ROOT_STALE_DAYS,OPENCODE_TIDY_PROTECT_DAYS,OPENCODE_TIDY_LARGE_MB,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS,CLEAN_OPENCODE_ROOT \
         "$0" "$@"
     exit $?
   fi
@@ -252,6 +292,10 @@ ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}"
 HOME_ARTIFACT_STALE_DAYS="${HOME_ARTIFACT_STALE_DAYS:-7}"
 CACHE_STALE_DAYS="${CACHE_STALE_DAYS:-3}"
 LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}"
+# A stopped, non-default colima VM whose disk has not been written to in this
+# long is reclaimed on mtime alone -- see the colima block below for why that
+# is sound even without a live daemon to ask.
+COLIMA_STOPPED_STALE_DAYS="${COLIMA_STOPPED_STALE_DAYS:-10}"
 
 # shellcheck source=lib/common.sh
 . "$SELF_DIR/lib/common.sh"
@@ -349,8 +393,21 @@ if have colima && have docker; then
     fi
 
     if [ "$reachable" = "0" ]; then
-      info "colima[$prof]: daemon not reachable -- cannot verify it is empty, leaving it alone"
-      info "              (\`colima start -p $prof\` if you want this VM reclaimed)"
+      # Can't verify emptiness without starting the VM -- but a STOPPED,
+      # non-default profile whose disk has not been written to in
+      # COLIMA_STOPPED_STALE_DAYS is unambiguous: nothing has run inside it
+      # (writes touch the disk file) in that whole window, verified or not.
+      # `default` is never considered here regardless of age -- it is the
+      # one profile virtually everything assumes exists.
+      disk_mtime="$(date -r "$disk" +%s 2>/dev/null || echo 0)"
+      cutoff=$(( $(date +%s) - COLIMA_STOPPED_STALE_DAYS * 86400 ))
+      if [ "$prof" != "default" ] && [ "$disk_mtime" -gt 0 ] && [ "$disk_mtime" -lt "$cutoff" ]; then
+        echo "🐳 colima[$prof]: stopped, disk untouched >${COLIMA_STOPPED_STALE_DAYS}d ($(human_size $((size_kb * 1024)))) — deleting"
+        run as_user colima delete -f -p "$prof" || warn "colima delete -p $prof failed"
+      else
+        info "colima[$prof]: daemon not reachable -- cannot verify it is empty, leaving it alone"
+        info "              (\`colima start -p $prof\` if you want this VM reclaimed)"
+      fi
     elif [ "${nc:-1}" = "0" ] && [ "${nv:-1}" = "0" ] && [ "$size_kb" -gt 1048576 ]; then
       echo "🐳 colima[$prof]: $(human_size $((size_kb * 1024))) of disk, 0 containers, 0 volumes — recreating"
       run as_user colima stop -p "$prof"      || warn "colima stop -p $prof failed"
@@ -983,6 +1040,282 @@ if [ -z "$TARGET_PATH" ]; then
     fi
   done
 fi
+
+# --- opencode scratch dirs: tmp/opencode entries & worktree/ ---------------
+# ~/.local/share/opencode/tmp/opencode is a flat scratch space every session
+# writes loose files and directories into (probe scripts, screenshots, ad hoc
+# `initdb` postgres clusters, source checkouts...) with nothing to prune it.
+# ~/.local/share/opencode/worktree holds one directory per git worktree a
+# session created; sessions end without removing them. Measured here: 231
+# worktree dirs (59 GB) and 678 tmp/opencode entries (45 GB), almost none
+# touched by any automated cleanup before this.
+#
+# Both are gated the same way repo_is_idle gates artifact dirs: a dirty
+# working tree or commits not yet pushed upstream mean "someone is mid-task"
+# and must block deletion regardless of age. Only entries that are git repos
+# get that check -- most tmp/opencode entries are plain scratch files with no
+# .git, where mtime is the only signal available. Age is checked last, and
+# deliberately on its own env vars: these are session work products a user
+# might still want to reference, not pure build cache, so the default window
+# is wider than ARTIFACT_STALE_DAYS.
+OPENCODE_TMP_STALE_DAYS="${OPENCODE_TMP_STALE_DAYS:-7}"
+OPENCODE_WORKTREE_STALE_DAYS="${OPENCODE_WORKTREE_STALE_DAYS:-7}"
+
+opencode_entry_is_idle() {
+  local path="$1" days="$2" up
+  if [ -e "$path/.git" ]; then
+    git_tree_is_clean "$path" || return 1
+    up="$(as_user git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+    if [ -n "$up" ]; then
+      [ -z "$(as_user git -C "$path" log '@{u}..HEAD' --oneline 2>/dev/null)" ] || return 1
+    fi
+  fi
+  if [ -d "$path" ]; then
+    [ -z "$(find "$path" -mindepth 1 \( "${CACHE_EXPR[@]}" -o "${RISK_EXPR[@]}" -o -name .git \) -prune -o \
+        -type f -mtime "-${days}" -print -quit 2>/dev/null)" ]
+  else
+    [ -z "$(find "$path" -maxdepth 0 -mtime "-${days}" -print -quit 2>/dev/null)" ]
+  fi
+}
+
+# A caller-new worktree or tmp entry is never at risk: `git worktree add` /
+# `git checkout` stamp every file they write with the CURRENT time (noted
+# above repo_is_idle), so a tree materialised minutes ago has nothing older
+# than the staleness window and opencode_entry_is_idle's mtime probe finds
+# that immediately and blocks it -- regardless of how clean or "even with
+# main" it is. Age is necessary as well as git-clean for exactly this reason.
+#
+# Every deletion is logged by path (not just counted) so a run is auditable
+# after the fact: `grep '^  removing:' <clean output>`.
+clean_opencode_scratch_dir() {
+  local base="$1" days="$2" label="$3" n=0 freed_kb=0 entry k
+  [ -d "$base" ] || return 0
+  for entry in "$base"/*; do
+    [ -e "$entry" ] || continue
+    if opencode_entry_is_idle "$entry" "$days"; then
+      k="$(du -sk "$entry" 2>/dev/null | cut -f1)"
+      if [ "$DRY_RUN" = "1" ]; then echo "  would remove: ${entry/#$CALLER_USER_HOME/\~} ($(( ${k:-0} / 1024 )) MB)"
+      else echo "  removing: ${entry/#$CALLER_USER_HOME/\~} ($(( ${k:-0} / 1024 )) MB)"; del "$entry"; fi
+      n=$((n + 1)); freed_kb=$((freed_kb + ${k:-0}))
+    fi
+  done
+  info "$label: removed $n entries older than ${days}d ($((freed_kb / 1024)) MB)"
+}
+
+# Stray one-off dirs sessions sometimes drop directly in opencode/ itself
+# (ad hoc postgres clusters, recovery dumps...) rather than under tmp/ --
+# same idle gate, scoped away from the app's own structural files/dirs so a
+# future opencode release adding a new top-level file is never swept blind.
+OPENCODE_ROOT_STALE_DAYS="${OPENCODE_ROOT_STALE_DAYS:-7}"
+OPENCODE_ROOT_PROTECTED=(
+  .DS_Store "$SPOTLIGHT_MARKER" .opencode
+  account.json auth.json backups
+  opencode.db opencode.db-shm opencode.db-wal
+  opencode-v2.db opencode-v2.db-shm opencode-v2.db-wal
+  opencode-next.db opencode-next.db-shm opencode-next.db-wal
+  log repos shell snapshot storage tmp tool-output worktree
+)
+clean_opencode_root_scratch() {
+  local base="$1" days="$2" n=0 freed_kb=0 entry name p skip k
+  [ -d "$base" ] || return 0
+  for entry in "$base"/*; do
+    [ -e "$entry" ] || continue
+    name="$(basename "$entry")"
+    skip=0
+    for p in "${OPENCODE_ROOT_PROTECTED[@]}"; do [ "$name" = "$p" ] && skip=1 && break; done
+    [ "$skip" = "1" ] && continue
+    if opencode_entry_is_idle "$entry" "$days"; then
+      k="$(du -sk "$entry" 2>/dev/null | cut -f1)"
+      if [ "$DRY_RUN" = "1" ]; then echo "  would remove: ${entry/#$CALLER_USER_HOME/\~} ($(( ${k:-0} / 1024 )) MB)"
+      else echo "  removing: ${entry/#$CALLER_USER_HOME/\~} ($(( ${k:-0} / 1024 )) MB)"; del "$entry"; fi
+      n=$((n + 1)); freed_kb=$((freed_kb + ${k:-0}))
+    fi
+  done
+  info "opencode/ root: removed $n stray entries older than ${days}d ($((freed_kb / 1024)) MB)"
+}
+
+# Tidy only, never a deletion decision in the git-gated sense -- but unlike a
+# plain rename, this DOES delete the heaviest content outright (postgres data
+# dirs, anything oversized) before archiving what's left, so it still needs
+# the same "nothing touched recently, nowhere" guarantee repo_is_idle relies
+# on elsewhere.
+#
+# tmp/opencode is a flat mix of real scratch directories (worktree-like
+# checkouts, projects someone is mid-task in) and loose plain files (probe
+# scripts, .out/.log/.png captures, patches) scattered at every depth, not
+# just the top level. Three rules, in order:
+#
+#   1. A directory that IS a git repo/worktree (has .git at its own root) is
+#      never touched by tidy at all -- it is left for the existing idle +
+#      age gate in clean_opencode_scratch_dir to judge on its own schedule.
+#   2. Otherwise, if ANY file anywhere in its subtree was modified within
+#      OPENCODE_TIDY_PROTECT_DAYS, the WHOLE directory is skipped -- an
+#      active task's directory is never partially reorganised.
+#   3. Otherwise, any worktree buried somewhere inside is judged by
+#      OPENCODE_WORKTREE_STALE_DAYS -- the same gate the top-level worktree/
+#      sweep uses -- not the (much shorter) tidy window above, since a
+#      worktree someone is still using can easily outlast it. If that
+#      worktree is still kept (dirty, unpushed, or inside its own stale
+#      window), it protects the WHOLE containing directory: nothing here is
+#      purged or archived. If every nested worktree found is idle by that
+#      same rule, it is removed outright (same as an idle top-level
+#      worktree) and the directory proceeds as a normal leaf.
+#   4. A leaf with no kept worktree inside it is true scratch: oversized/
+#      postgres content is deleted from it outright, then the (now much
+#      smaller) remainder is archived as a single unit into
+#      _loose/<year>/<month>/.
+#
+# Loose plain files sitting directly in tmp/opencode's own root are filed
+# into _loose/<year>/<month>/ the same way, individually.
+#
+# Bucketing never changes when something becomes eligible for deletion: the
+# age gate elsewhere keys off each file's own mtime recursively, never a
+# container directory's, and `date -r` (used throughout here) reads a FILE's
+# own mtime -- never today's date -- so re-running this never reshuffles
+# anything already filed and an archived leaf still ages out normally.
+OPENCODE_TIDY_PROTECT_DAYS="${OPENCODE_TIDY_PROTECT_DAYS:-1}"
+OPENCODE_TIDY_LARGE_MB="${OPENCODE_TIDY_LARGE_MB:-200}"
+
+tidy_dir_has_recent_file() {
+  # .git internals are excluded: `git status` (run by opencode_entry_is_idle,
+  # by clean.sh's own repo maintenance, by anything) touches .git/index's
+  # mtime on every invocation, read-only or not. Counting that would make any
+  # directory holding a repo look "recently modified" indefinitely, on a
+  # timer reset by code that has nothing to do with this directory's own
+  # content.
+  [ -n "$(find "$1" -mindepth 1 -name .git -prune -o -type f -mtime "-${OPENCODE_TIDY_PROTECT_DAYS}" -print -quit 2>/dev/null)" ]
+}
+
+# initdb always writes PG_VERSION at a postgres data dir's root, regardless
+# of what the dir is named (pgdata, pgm2, heron-once-pg's data dir, ...) or
+# how big it got -- a much more reliable signal than name or size alone.
+tidy_purge_postgres_dirs() {
+  local root="$1" marker pgdir
+  while IFS= read -r marker; do
+    [ -n "$marker" ] || continue
+    pgdir="$(dirname "$marker")"
+    if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir): ${pgdir/#$CALLER_USER_HOME/\~}"
+    else echo "  removing (postgres data dir): ${pgdir/#$CALLER_USER_HOME/\~}"; del "$pgdir"; fi
+  done < <(find "$root" -name PG_VERSION -type f 2>/dev/null)
+}
+# One level deep only, deliberately: venvs/build caches/binary dumps are
+# almost always the scratch dir's direct children, and a full recursive du
+# over everything already-kept would be O(n^2) for no real benefit here.
+tidy_purge_large_entries() {
+  local root="$1" limit_kb=$(( OPENCODE_TIDY_LARGE_MB * 1024 )) entry k
+  for entry in "$root"/*; do
+    [ -e "$entry" ] || continue
+    k="$(du -sk "$entry" 2>/dev/null | cut -f1)"
+    if [ "${k:-0}" -ge "$limit_kb" ]; then
+      if [ "$DRY_RUN" = "1" ]; then echo "  would remove (>${OPENCODE_TIDY_LARGE_MB}MB): ${entry/#$CALLER_USER_HOME/\~} ($(( k / 1024 )) MB)"
+      else echo "  removing (>${OPENCODE_TIDY_LARGE_MB}MB): ${entry/#$CALLER_USER_HOME/\~} ($(( k / 1024 )) MB)"; del "$entry"; fi
+    fi
+  done
+}
+
+tidy_newest_file_in() {
+  local f newest="" newest_t=0 t
+  while IFS= read -r -d '' f; do
+    t="$(date -r "$f" +%s 2>/dev/null)" || continue
+    if [ "${t:-0}" -gt "$newest_t" ]; then newest_t="$t"; newest="$f"; fi
+  done < <(find "$1" -type f -print0 2>/dev/null)
+  printf '%s' "$newest"
+}
+
+tidy_file_to_bucket() {
+  local entry="$1" bucket_root="$2" year month dest
+  year="$(date -r "$entry" +%Y 2>/dev/null || echo unknown)"
+  month="$(date -r "$entry" +%m 2>/dev/null || echo unknown)"
+  dest="$bucket_root/$year/$month"
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  would file away: ${entry/#$CALLER_USER_HOME/\~} -> ${dest/#$CALLER_USER_HOME/\~}/"
+  else
+    mkdir -p "$dest" && mv "$entry" "$dest/" 2>/dev/null
+  fi
+}
+tidy_dir_to_bucket() {
+  local dir="$1" bucket_root="$2" ref year month dest
+  ref="$(tidy_newest_file_in "$dir")"
+  [ -z "$ref" ] && ref="$dir"   # nothing left inside after purging: use its own mtime
+  year="$(date -r "$ref" +%Y 2>/dev/null || echo unknown)"
+  month="$(date -r "$ref" +%m 2>/dev/null || echo unknown)"
+  dest="$bucket_root/$year/$month"
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  would archive: ${dir/#$CALLER_USER_HOME/\~} -> ${dest/#$CALLER_USER_HOME/\~}/$(basename "$dir")/"
+  else
+    mkdir -p "$dest" && mv "$dir" "$dest/" 2>/dev/null
+  fi
+}
+
+tidy_classify_and_place() {
+  local dir="$1" bucket_root="$2" g wt kept_worktree="" idle_worktrees=()
+  tidy_dir_has_recent_file "$dir" && return 0   # rule 2, tidy's own protect window
+
+  # Rule 3, worktree-bearing case: a nested worktree's own kept/idle status
+  # is judged by OPENCODE_WORKTREE_STALE_DAYS (the same gate the top-level
+  # worktree/ sweep uses), not OPENCODE_TIDY_PROTECT_DAYS -- a worktree
+  # someone is still using can easily be older than the tidy window without
+  # being done. If ANY nested worktree is still kept (dirty, unpushed, or
+  # not yet past its own stale window), it protects this WHOLE directory --
+  # nothing here is purged, archived, or otherwise reorganised.
+  while IFS= read -r g; do
+    [ -n "$g" ] || continue
+    wt="${g%/.git}"
+    if opencode_entry_is_idle "$wt" "$OPENCODE_WORKTREE_STALE_DAYS"; then
+      idle_worktrees+=("$wt")
+    else
+      kept_worktree="$wt"; break
+    fi
+  done < <(find "$dir" -mindepth 1 -name .git -print 2>/dev/null)
+
+  if [ -n "$kept_worktree" ]; then
+    return 0   # a kept worktree inside: leave this entire directory alone
+  fi
+  # Every nested worktree found (if any) is idle by its own rules -- it is no
+  # longer protecting anything, so it is removed the same way an idle
+  # top-level worktree would be, and this directory proceeds as a normal leaf.
+  for wt in "${idle_worktrees[@]}"; do
+    if [ "$DRY_RUN" = "1" ]; then echo "  would remove (idle nested worktree): ${wt/#$CALLER_USER_HOME/\~}"
+    else echo "  removing (idle nested worktree): ${wt/#$CALLER_USER_HOME/\~}"; del "$wt"; fi
+  done
+
+  # rule 3, plain leaf: purge the heavy stuff, archive the rest as one unit
+  tidy_purge_postgres_dirs "$dir"
+  tidy_purge_large_entries "$dir"
+  tidy_dir_to_bucket "$dir" "$bucket_root"
+}
+
+tidy_opencode_loose_files() {
+  local base="$1" bucket_root="$2" entry name
+  [ -d "$base" ] || return 0
+  for entry in "$base"/*; do
+    [ -e "$entry" ] || continue
+    [ "$entry" = "$bucket_root" ] && continue
+    name="$(basename "$entry")"
+    if [ -f "$entry" ]; then
+      [ "$name" = "$SPOTLIGHT_MARKER" ] && continue
+      tidy_file_to_bucket "$entry" "$bucket_root"
+    elif [ -d "$entry" ]; then
+      [ -e "$entry/.git" ] && continue           # rule 1
+      tidy_classify_and_place "$entry" "$bucket_root"
+    fi
+  done
+}
+
+if [ -z "$TARGET_PATH" ]; then
+  echo "🗂  opencode scratch dirs (tmp/opencode >${OPENCODE_TMP_STALE_DAYS}d, worktree >${OPENCODE_WORKTREE_STALE_DAYS}d)"
+  OC_SHARE="$CALLER_USER_HOME/.local/share/opencode"
+  tidy_opencode_loose_files "$OC_SHARE/tmp/opencode" "$OC_SHARE/tmp/opencode/_loose"
+  clean_opencode_scratch_dir "$OC_SHARE/tmp/opencode" "$OPENCODE_TMP_STALE_DAYS" "tmp/opencode"
+  clean_opencode_scratch_dir "$OC_SHARE/worktree" "$OPENCODE_WORKTREE_STALE_DAYS" "worktree"
+  if [ "${CLEAN_OPENCODE_ROOT:-0}" = "1" ]; then
+    echo "🗂  opencode/ root scratch (--opencode-root-scratch, >${OPENCODE_ROOT_STALE_DAYS}d)"
+    clean_opencode_root_scratch "$OC_SHARE" "$OPENCODE_ROOT_STALE_DAYS"
+  else
+    info "opencode/ root scratch skipped (pass --opencode-root-scratch to sweep it, --dry-run first recommended)"
+  fi
+fi
+
 
 # Recovery only: caller-repository maintenance runs as CALLER_USER, so this
 # should be redundant. Limit any repair to Git metadata, never source trees.
