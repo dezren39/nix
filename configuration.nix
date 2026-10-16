@@ -31,6 +31,13 @@ lib.recursiveUpdate {
     # lootbox ephemeral dirs (scripts are fine)
     .lootbox/cache/
     .lootbox/tmp/
+
+    # Session/worktree bootstrap sentinel -- dropped by whatever set up the
+    # worktree (uv sync / bun install done), never created by any repo's own
+    # scripts (grepped operations-portal; zero hits). Found untracked in 19 of
+    # 34 ~/.local/share/opencode/worktree checkouts, which is exactly what was
+    # keeping clean.sh's clean-tree gate from ever seeing them as idle.
+    .bootstrap-done
   '';
 
   # System gitconfig at /etc/gitconfig, generated from the SAME single source of
