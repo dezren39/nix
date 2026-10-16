@@ -102,8 +102,10 @@ OTHER
 
 DEFAULT SCAN SET (--auto), mirroring clean.sh's rules
   1. ~/.local/share/opencode/worktree                 (deep)
-  2. ~/<dir> where the name is all digits or contains "git"   (deep)
-  3. every dir/symlinked dir directly in ~, whatever its name, tested for being
+  2. /private/var/folders/*/*/T/opencode               (deep; second opencode
+     scratch root some sandboxed contexts use instead of ~/.local/share)
+  3. ~/<dir> where the name is all digits or contains "git"   (deep)
+  4. every dir/symlinked dir directly in ~, whatever its name, tested for being
      a repo; if it is one, its .git/ and .worktrees/ are also scanned
   Symlinked roots are resolved to physical paths first, so a repo reachable as
   both ~/foo and ~/git/foo is reported once.
@@ -255,6 +257,15 @@ consider() {
 # ---------------------------------------------------------------------------
 seed_auto() {
   scan_deep "$(canon "$SCAN_HOME/.local/share/opencode/worktree")"
+  # Second opencode scratch root: some sandboxed contexts default it to
+  # $TMPDIR instead of ~/.local/share, so the SAME worktrees/artifacts turn up
+  # a second time at /private/var/folders/*/*/T/opencode -- see clean.sh's
+  # "short-lived scratch" and "opencode scratch dirs" sections for why this
+  # one in particular earned a named root instead of being left to --tmpdir.
+  local _vf
+  for _vf in /private/var/folders/*/*/T/opencode; do
+    [ -d "$_vf" ] && scan_deep "$(canon "$_vf")"
+  done
   local d b
   for d in "$SCAN_HOME"/*/; do
     d="${d%/}"; b="$(basename "$d")"
@@ -295,7 +306,7 @@ if [ "$DRY_RUN" = "1" ]; then
   echo "  bare repos: $([ "$INCLUDE_BARE" = 1 ] && echo included || echo skipped)"
   echo "  home:       $SCAN_HOME"
   if [ "$MODE" = "auto" ]; then
-    echo "  roots:      ~/.local/share/opencode/worktree, ~/<numeric|*git*>, every repo directly in ~"
+    echo "  roots:      ~/.local/share/opencode/worktree, /private/var/folders/*/*/T/opencode, ~/<numeric|*git*>, every repo directly in ~"
   else
     printf '  roots:      %s\n' "${PATHS[@]}"
   fi

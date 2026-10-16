@@ -125,6 +125,25 @@ TUNABLES (environment)
                                         archived into _loose/<year>/<month>/
   CACHE_STALE_DAYS     default 3   age gate for nix caches / flake GC roots
   LOG_STALE_DAYS       default 0   0 = drop all logs, N = keep last N days
+  SHORT_SCRATCH_STALE_HOURS default 8   age gate (hours) for tool-prefixed
+                                        single-run fixture dirs in
+                                        ~/.local/share/opencode/tmp AND
+                                        /private/var/folders/*/*/T (always
+                                        on, not behind --tmpdir)
+  PG_SCRATCH_STALE_HOURS    default 8   age gate (hours) for ad hoc postgres
+                                        data dirs (by PG_VERSION marker),
+                                        found at the top of either scratch
+                                        root above OR inside any discovered
+                                        repo/worktree; paired with an lsof
+                                        open-handle check either way, so a
+                                        running cluster stays safe regardless
+  ACTIVE_ARTIFACT_STALE_HOURS default 8 age gate (hours) for a cache artifact
+                                        (.venv, node_modules, .cache, ...)
+                                        inside a repo/worktree whose SOURCE
+                                        is dirty or recently touched -- the
+                                        repo being active no longer protects
+                                        its build caches once they're this
+                                        stale and nothing has them open
 EOF
 }
 
@@ -287,6 +306,12 @@ as_user_have() { sudo -u "$CALLER_USER" env HOME="$CALLER_USER_HOME" sh -c "comm
 # "someone is mid-task" signal, so mtime only has to catch a tree edited very
 # recently. Artifacts pruned here are all regenerable and all gitignored.
 ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}"
+# Scope-independent (not just inside DO_CACHES): the per-repo postgres-dir
+# sweep in HALF 2 needs this too, and --no-system runs HALF 2 without ever
+# entering HALF 1. Left unset there, the arithmetic below would silently
+# evaluate to 0 -- `-mmin -0` matches nothing, which reads as "stale" and
+# would prune every postgres dir found regardless of real activity.
+PG_SCRATCH_STALE_HOURS="${PG_SCRATCH_STALE_HOURS:-8}"
 # Artifact dirs sitting directly in ~ are NOT inside any repo, so no git gate
 # applies and mtime is the only evidence available. Keeps the old 7 days.
 HOME_ARTIFACT_STALE_DAYS="${HOME_ARTIFACT_STALE_DAYS:-7}"
@@ -817,6 +842,135 @@ if [ -d "$OPS_LOG_DIR" ]; then
   fi
 fi
 
+echo "🧹 short-lived scratch (tool-prefixed single-run dirs, 2 locations)"
+# Same junk, two unrelated locations: ~/.local/share/opencode/tmp (opencode's
+# own scratch convention) and /private/var/folders/*/*/T (the real $TMPDIR,
+# otherwise reached only by the opt-in --tmpdir wipe below). Whichever TMPDIR
+# a given subprocess inherits decides which pile it lands in, so both need
+# the same sweep. Hundreds of single-run fixture/profile/build dirs
+# accumulate in each (mcpx-fake-NNNN, mw_ctrl_test_XXXXXXXX,
+# telemetry_test_XXXXXXXX, playwright-artifacts-XXXXXX,
+# openchamber-*-XXXXXX...), each named by a tool whose own lifecycle is
+# "create at process start, delete at process end" -- a Go t.TempDir(), a
+# Python tempfile.mkdtemp(), a Playwright/OpenChamber artifact dir. One
+# surviving past a few hours means the process that made it crashed or was
+# killed before its own cleanup ran; nothing legitimate holds these open for
+# half a day. That is what makes an ON-BY-DEFAULT short TTL safe here, unlike
+# --tmpdir (which cannot tell a crashed process's leftovers from a live one's
+# and so stays opt-in and all-or-nothing).
+#
+# Matched by NAME PREFIX only. Generic mktemp output (tmp.XXXXXXXX,
+# tmpXXXXXXXX) and short/generic prefixes (oc-XXXXXX, seen holding what looks
+# like a sandboxed throwaway $HOME) carry no reliably-unique tool identity,
+# so "safe to delete" cannot be inferred from the name alone -- those are
+# left for --tmpdir / manual review rather than risking a false match.
+SHORT_SCRATCH_STALE_HOURS="${SHORT_SCRATCH_STALE_HOURS:-8}"
+SHORT_SCRATCH_GLOBS=(
+  'mcpx-fake-*' 'mcpx-inline-*' 'mcpx-task-*' 'mcpx-run-*' 'mcpx-keep-*'
+  'mw_ctrl_test_*' 'telemetry_test_*' 'telemetry_init_*'
+  'playwright-artifacts-*' 'playwright_chromiumdev_profile-*' 'puppeteer_dev_chrome_profile-*'
+  'chrome-*-profile' 'sbm-*' 'openchamber-*'
+  'go-build*' 'node-compile-cache' 'bunx-*'
+  'nix-shell.*' 'nix-develop-*'
+)
+
+# `keep` in the name is a deliberate do-not-touch signal (e.g. a one-off
+# someone named mcpx-keep-run to hold onto on purpose), EXCEPT
+# mcpx-keep-<digits> itself: despite the name, that is the same disposable
+# fixture as mcpx-fake/-task/-run under a different label.
+short_scratch_is_kept() {
+  case "$1" in
+    mcpx-keep-[0-9]*) return 1 ;; # not actually protected
+    *keep*) return 0 ;;           # protected
+    *) return 1 ;;
+  esac
+}
+
+# sweep_short_lived_scratch BASE -- stale by TOP-LEVEL mtime only, in ONE find
+# pass across the whole directory, not a `find` per entry. Measured at
+# ~/.local/share/opencode/tmp: >12,000 entries, and a per-entry `find -mmin
+# -quit` subprocess (cheap on its own) turned into minutes of pure fork
+# overhead at that count. A single pass costs under a tenth of a second for
+# the same answer: which top-level names were touched inside the window,
+# checked once, then looked up in bash for every glob match.
+#
+# Own-mtime, not contents: these fixtures are written once at creation and
+# abandoned, not rewritten in place, so a directory's own mtime (bumped by
+# adding/removing/renaming entries inside it) is sufficient evidence here.
+# The postgres-cluster sweep below needs the stronger contents-aware check
+# instead, because postgres rewrites existing files without renaming them.
+_ss_total_removed=0
+sweep_short_lived_scratch() {
+  local base="$1" removed=0
+  [ -d "$base" ] || return 0
+  local -A fresh=()
+  local f entry name g match
+  while IFS= read -r -d '' f; do
+    fresh["${f##*/}"]=1
+  done < <(find "$base" -maxdepth 1 -mindepth 1 -mmin "-$((SHORT_SCRATCH_STALE_HOURS * 60))" -print0 2>/dev/null)
+  for entry in "$base"/*; do
+    [ -e "$entry" ] || continue
+    name="${entry##*/}"
+    short_scratch_is_kept "$name" && continue
+    [ -n "${fresh[$name]:-}" ] && continue   # touched inside the window: keep
+    match=0
+    for g in "${SHORT_SCRATCH_GLOBS[@]}"; do
+      # shellcheck disable=SC2053
+      [[ "$name" == $g ]] && { match=1; break; }
+    done
+    [ "$match" = 1 ] || continue
+    del "$entry"; removed=$((removed + 1))
+  done
+  # Stale uv cache locks: a crashed `uv` leaves one of these behind, which is
+  # exactly what makes the `uv cache prune` tier above wait out its own
+  # UV_LOCK_TIMEOUT instead of running.
+  while IFS= read -r lock; do
+    del "$lock"; removed=$((removed + 1))
+  done < <(find "$base" -maxdepth 1 -name 'uv-*.lock' -mmin "+$((SHORT_SCRATCH_STALE_HOURS * 60))" 2>/dev/null)
+  _ss_total_removed=$((_ss_total_removed + removed))
+  [ "$removed" -gt 0 ] && info "short-lived scratch (${base/#$CALLER_USER_HOME/\~}): removed $removed entries older than ${SHORT_SCRATCH_STALE_HOURS}h"
+}
+sweep_short_lived_scratch "$CALLER_USER_HOME/.local/share/opencode/tmp"
+for _vf_t in /private/var/folders/*/*/T; do
+  [ -d "$_vf_t" ] || continue
+  sweep_short_lived_scratch "$_vf_t"
+done
+[ "$_ss_total_removed" -eq 0 ] && info "short-lived scratch: nothing older than ${SHORT_SCRATCH_STALE_HOURS}h in either location"
+
+# Ad hoc postgres data dirs (by PG_VERSION marker -- same signal
+# tidy_purge_postgres_dirs uses for tmp/opencode) landing directly in either
+# scratch root above, e.g. a stray `heron-once-pg`. Same 8h window as the
+# test fixtures above, by request -- not left at a longer "idle overnight"
+# default, on the theory that a RUNNING postgres keeps this safe regardless:
+# checkpointer writes WAL/data files every few minutes by default even with
+# zero query traffic, so a live cluster's own mtime almost never goes 8h
+# stale in the first place, and the lsof open-handle check below catches the# rest (the listening socket file alone counts as an open handle). The
+# window only bites a cluster whose postgres process is actually gone.
+# Checked recursively, unlike the sweep above: postgres rewrites existing
+# files (WAL, data pages) without renaming them, so the cluster directory's
+# own mtime can go stale while writes are still landing inside it. There are
+# at most a handful of these on a whole machine, so a `find` + `lsof` per
+# match costs nothing.
+PG_SCRATCH_STALE_HOURS="${PG_SCRATCH_STALE_HOURS:-8}"
+sweep_ad_hoc_postgres_dirs() {
+  local base="$1" marker pgdir
+  [ -d "$base" ] || return 0
+  while IFS= read -r marker; do
+    pgdir="$(dirname "$marker")"
+    case "$pgdir" in "$base/opencode"/*) continue ;; esac # owned by the tidy pass, not here
+    if [ -z "$(find "$pgdir" -type f -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
+       [ -z "$(lsof +D "$pgdir" 2>/dev/null | head -1)" ]; then
+      if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir, idle >${PG_SCRATCH_STALE_HOURS}h): ${pgdir/#$CALLER_USER_HOME/\~}"
+      else echo "  removing (postgres data dir, idle >${PG_SCRATCH_STALE_HOURS}h): ${pgdir/#$CALLER_USER_HOME/\~}"; del "$pgdir"; fi
+    fi
+  done < <(find "$base" -maxdepth 2 -name PG_VERSION -type f 2>/dev/null)
+}
+sweep_ad_hoc_postgres_dirs "$CALLER_USER_HOME/.local/share/opencode/tmp"
+for _vf_t in /private/var/folders/*/*/T; do
+  [ -d "$_vf_t" ] || continue
+  sweep_ad_hoc_postgres_dirs "$_vf_t"
+done
+
 echo "🧻 /private/var/folders"
 # OPT-IN (--tmpdir). This is the LIVE per-user temp directory: $TMPDIR resolves
 # into it, and processes running right now hold state there. Measured 349 MB
@@ -915,6 +1069,34 @@ repo_is_idle() {
       -type f -mtime "-${ARTIFACT_STALE_DAYS}" -print -quit 2>/dev/null)" ]
 }
 
+# A dirty/active OWNING repo still protects its SOURCE from repo_is_idle, but
+# a cache-type artifact (.venv, node_modules, __pycache__, ...) is never
+# source -- it is what repo_is_idle's own comment already says, gitignored
+# and incapable of holding tracked work. So an artifact gets a second,
+# independent path to deletion even when its owning repo reads as active:
+# its OWN contents are stale, AND nothing has it open right now.
+#
+# Deliberately its OWN window, not ARTIFACT_STALE_DAYS: that one also decides
+# whether the REPO is idle (gates the --deep git-maintenance downgrade and
+# the fully-idle artifact path), a slower-moving signal worth keeping at a
+# day. A build cache sitting untouched in an otherwise-dirty repo is safe to
+# reclaim much sooner than that -- hours, not days.
+ACTIVE_ARTIFACT_STALE_HOURS="${ACTIVE_ARTIFACT_STALE_HOURS:-8}"
+#
+# The second check matters specifically because staleness alone is not
+# enough evidence for .venv/node_modules the way it is for source files: a
+# long-running `uv run` dev server can hold a venv open for days without ever
+# touching a file inside it, so an mtime check alone would delete out from
+# under a live process. lsof's cost is proportional to system-wide open
+# files, not the target directory's size, so this stays cheap whether the
+# artifact is a two-file cache or a 50,000-file venv.
+artifact_is_prunable() {
+  local path="$1"
+  [ -n "$(find "$path" -type f -mmin "-$((ACTIVE_ARTIFACT_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] && return 1
+  [ -n "$(lsof +D "$path" 2>/dev/null | head -1)" ] && return 1
+  return 0
+}
+
 # Spotlight markers are non-destructive and reversible, so they are applied
 # regardless of staleness -- and re-applied to the empty stub left behind after
 # a delete, so the directory is already excluded when a build regenerates it.
@@ -975,8 +1157,13 @@ while IFS=$'\t' read -r tag reason status path; do
         fi
         if [ "${IDLE_CACHE[$owner_repo]}" = "idle" ]; then
           del_and_stub "$path"; PRUNED=$((PRUNED + 1))
+        elif artifact_is_prunable "$path"; then
+          # Repo is dirty or recently touched, but THIS artifact (not source)
+          # is independently stale and nothing has it open: uncommitted work
+          # in the repo is not a reason to keep its .venv/node_modules too.
+          del_and_stub "$path"; PRUNED=$((PRUNED + 1))
         else
-          mark_dir "$path"       # active repo: mark but never delete
+          mark_dir "$path"       # active repo, artifact itself not safely prunable: mark but never delete
         fi
       else
         # No owning repo/worktree: a plain directory tree. There is no git
@@ -1020,6 +1207,31 @@ while IFS=$'\t' read -r kind path; do
 done < <(awk -F'\t' '$1=="repo"||$1=="worktree"{print $1"\t"$2}' "$DISCOVERY_FILE")
 
 echo "   $TRASHED .trash removed, $PRUNED artifact dirs pruned ($NONGIT outside any repo), $MARKED marked, $SKIPPED_TRACKED tracked skipped"
+
+# Ad hoc postgres data dirs INSIDE a discovered repo or worktree (by
+# PG_VERSION marker, same signal as the top-level scratch sweep above). Not
+# name-based like CACHE_NAMES -- there is no one conventional name (seen:
+# heron-once-pg, pgnative/data, pgdata), only the marker file every initdb
+# cluster writes -- so this is its own pass over $OWNERS_FILE rather than
+# something git-discover-repos's name list can express. Gated the same way
+# the main artifact loop now is: the repo being dirty is not a reason to keep
+# a postgres cluster nobody has touched in PG_SCRATCH_STALE_HOURS and nothing
+# has open. maxdepth 4 is a cost bound (a cluster buried deeper than that
+# inside a worktree would be unusual), not a correctness one.
+_repo_pg_removed=0
+while IFS= read -r _owner; do
+  [ -d "$_owner" ] || continue
+  while IFS= read -r _marker; do
+    _pgdir="$(dirname "$_marker")"
+    if [ -z "$(find "$_pgdir" -type f -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
+       [ -z "$(lsof +D "$_pgdir" 2>/dev/null | head -1)" ]; then
+      if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"
+      else echo "  removing (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"; del "$_pgdir"; fi
+      _repo_pg_removed=$((_repo_pg_removed + 1))
+    fi
+  done < <(find "$_owner" -maxdepth 4 -name PG_VERSION -type f 2>/dev/null)
+done < "$OWNERS_FILE"
+[ "$_repo_pg_removed" -gt 0 ] && info "postgres data dirs inside repos/worktrees: removed $_repo_pg_removed"
 
 # --- Artifact dirs directly in ~, outside any repo --------------------------
 # ~/.cache is deliberately skipped: it is the shared XDG cache (uv, nix, gh,
@@ -1308,6 +1520,24 @@ if [ -z "$TARGET_PATH" ]; then
   tidy_opencode_loose_files "$OC_SHARE/tmp/opencode" "$OC_SHARE/tmp/opencode/_loose"
   clean_opencode_scratch_dir "$OC_SHARE/tmp/opencode" "$OPENCODE_TMP_STALE_DAYS" "tmp/opencode"
   clean_opencode_scratch_dir "$OC_SHARE/worktree" "$OPENCODE_WORKTREE_STALE_DAYS" "worktree"
+
+  # Second junk drawer: some sandboxed contexts default opencode's scratch
+  # root to $TMPDIR instead of ~/.local/share/opencode, so the SAME pattern --
+  # loose probe scripts, patches, dumped JSON, and live git worktrees -- piles
+  # up again at /private/var/folders/*/*/T/opencode, untouched by anything
+  # above or by --tmpdir (which wipes the whole var/folders tree rather than
+  # reasoning about what's inside it). Found here holding real worktrees from
+  # `git worktree list` (mainwt, remove-sqlite/...) alongside ~900 loose
+  # files, so it gets the identical worktree-aware tidy pass, not a blind
+  # sweep: tidy_opencode_loose_files skips anything with its own .git, and
+  # clean_opencode_scratch_dir's idle check (clean tree, nothing unpushed,
+  # past the age window) is what actually decides a worktree's fate.
+  for _vf_oc in /private/var/folders/*/*/T/opencode; do
+    [ -d "$_vf_oc" ] || continue
+    tidy_opencode_loose_files "$_vf_oc" "$_vf_oc/_loose"
+    clean_opencode_scratch_dir "$_vf_oc" "$OPENCODE_TMP_STALE_DAYS" "/private/var/folders T/opencode"
+  done
+
   if [ "${CLEAN_OPENCODE_ROOT:-0}" = "1" ]; then
     echo "🗂  opencode/ root scratch (--opencode-root-scratch, >${OPENCODE_ROOT_STALE_DAYS}d)"
     clean_opencode_root_scratch "$OC_SHARE" "$OPENCODE_ROOT_STALE_DAYS"
