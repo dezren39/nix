@@ -179,18 +179,33 @@ lib.recursiveUpdate {
         _HIHideMenuBar = true;
       };
 
-      # dock = {
-      # https://github.com/dustinlyons/nixos-config/blob/main/modules/darwin/home-manager.nix#L70
-      #   autohide = true;
-      #   show-recents = true;
-      #   launchanim = true;
-      #   mouse-over-hilite-stack = true;
-      #   orientation = "bottom";
-      #   tilesize = 48;
-      # };
+      # Matches what was already live on this machine (set manually, probably
+      # through System Settings at some point): codified here so it survives
+      # a fresh install or full reset instead of only existing by accident.
+      # mouse-over-hilite-stack and orientation are left out deliberately --
+      # both were unset live, meaning they already sit at the OS default
+      # (orientation bottom, no hover-highlight), so forcing a value here
+      # would be a no-op at best and a silent behavior change if that default
+      # ever shifts upstream.
+      dock = {
+        autohide = true;
+        show-recents = false;
+        launchanim = false;
+        tilesize = 16;
+      };
 
       finder = {
         _FXShowPosixPathInTitle = false;
+        # Path bar: a breadcrumb trail along the bottom of every Finder window
+        # showing the full path to the current folder (click any segment to
+        # jump there) -- the closest match to Explorer's address bar, though
+        # it's read-only rather than an editable/typeable field.
+        ShowPathbar = true;
+        # Status bar: item count and free space, same row.
+        ShowStatusBar = true;
+        # Default view for any folder that has no per-folder override saved
+        # (see the Pictures/Movies icon-view override in postActivation).
+        FXPreferredViewStyle = "Nlsv"; # List view
       };
 
       trackpad = {
@@ -203,6 +218,67 @@ lib.recursiveUpdate {
       # =====================================================================
       CustomUserPreferences = {
         "com.apple.Spotlight" = {
+          # Results from Clipboard (macOS Tahoe 26.1+): System Settings has no
+          # documented defaults key, found by diffing `defaults read` across
+          # every domain before/after toggling it manually. PasteboardHistoryEnabled
+          # is the on/off switch; PasteboardHistoryTimeout is retention in
+          # seconds (1800 = 30 min, 28800 = 8 hours [default], 604800 = 7 days,
+          # the three choices System Settings itself offers). Some users report
+          # the GUI toggle reverting to on after reboot on 26.1/26.2 -- unclear
+          # whether nix-darwin's activation script re-asserting this on every
+          # rebuild helps or fights that same reset; worth checking after a
+          # `darwin-rebuild switch` + reboot if it still misbehaves.
+          PasteboardHistoryEnabled = true;
+          PasteboardHistoryTimeout = 604800;
+
+          # macOS 26.1's granular "Results from Apps" / "Results from System" /
+          # "Results from File Providers" / "Show Related Content" toggles
+          # (System Settings > Spotlight) are NOT the `orderedItems` list
+          # below -- that is the older, coarser content-TYPE category list
+          # (documents, PDFs, music...) and both mechanisms are active
+          # simultaneously on this OS version. This one is an inverted
+          # disable-list: an identifier's PRESENCE here means its toggle is
+          # OFF; an identifier's ABSENCE means ON (the default for anything
+          # Spotlight has never been told about). Confirmed by diffing this
+          # exact array against a screenshot of System Settings with every
+          # item off except "Apps" (System) and Clipboard (handled above) --
+          # "Apps" has no entry here, matching its default-on state.
+          #
+          # Caveat inherent to the disable-list model, not fixable from nix:
+          # a newly installed app is not in this list, so it starts enabled
+          # in Spotlight until someone turns it off in System Settings and
+          # this array is recaptured (same `defaults read com.apple.Spotlight`
+          # diff used to find this key in the first place).
+          EnabledPreferenceRules = [
+            "Custom.relatedContents" # Show Related Content
+            "FileProvider.com.microsoft.OneDrive.FileProvider/OneDrive - Vertex, Inc"
+            "com.apple.AppStore"
+            "com.apple.iBooksX" # Books
+            "com.apple.calculator"
+            "com.apple.iCal" # Calendar
+            "com.apple.AddressBook" # Contacts
+            "com.apple.Dictionary"
+            "com.apple.freeform"
+            "com.apple.mail"
+            "com.microsoft.Excel"
+            "com.apple.Notes"
+            "com.microsoft.OneDrive"
+            "com.apple.Photos"
+            "com.apple.podcasts"
+            "com.apple.reminders"
+            "com.apple.Safari"
+            "com.apple.shortcuts"
+            "com.apple.systempreferences" # System Settings
+            "com.apple.tips"
+            "com.apple.VoiceMemos"
+            "com.microsoft.rdc.macos" # Windows App
+            "System.files"
+            "System.folders"
+            "System.iphoneApps"
+            "System.menuItems"
+            # System.apps deliberately absent: that is the one left on.
+          ];
+
           orderedItems = [
             {
               enabled = true;
@@ -293,6 +369,32 @@ lib.recursiveUpdate {
               name = "MENU_SPOTLIGHT_SUGGESTIONS";
             }
           ];
+        };
+
+        # Screenshots: keep the Desktop clean by redirecting saves into their
+        # own folder (nix-darwin has no typed `screencapture` option, so this
+        # goes through the same raw CustomUserPreferences path as Spotlight
+        # above). The directory itself has to exist before screencapture will
+        # honor `location` -- created in homeUser.nix's activation.
+        "com.apple.screencapture" = {
+          location = "~/Pictures/Screenshots";
+        };
+
+        # "Help Apple Improve Search" (System Settings > Spotlight, bottom of
+        # the page): found the same way as everything else here, by diffing
+        # `defaults read` across every domain before/after flipping the
+        # toggle. 0 = never asked, 1 = opted in, 2 = opted out (off, this
+        # setting). Lives in a different domain than the rest of Spotlight's
+        # settings because it's actually a Siri/assistant data-sharing
+        # preference, not a Spotlight one.
+        "com.apple.assistant.support" = {
+          "Search Queries Data Sharing Status" = 2;
+        };
+
+        # Pin new documents' Save dialog to default to local disk, not
+        # iCloud Drive.
+        NSGlobalDomain = {
+          NSDocumentSaveNewDocumentsToCloud = false;
         };
       };
     };
@@ -608,6 +710,42 @@ lib.recursiveUpdate {
       /usr/bin/sudo -u ${config.system.primaryUser} \
         /usr/bin/launchctl asuser "$primary_uid_browser" \
         ${pkgs.duti}/bin/duti -s app.zen-browser.zen public.html all 2>/dev/null || true
+    fi
+
+    # =====================================================================
+    # Finder per-folder view: Pictures/Movies default to icon view (thumbnails)
+    # =====================================================================
+    # system.defaults.finder.FXPreferredViewStyle above sets the GLOBAL
+    # default (list view) for any folder that has no saved view of its own.
+    # There is no `defaults write` equivalent for a single folder -- macOS
+    # stores a per-folder override in that folder's .DS_Store, and the only
+    # way to write one is to have Finder itself open the folder and set its
+    # view, exactly like a user choosing View > as Icons would. Gated behind
+    # a marker so it only runs once per machine instead of flashing Finder
+    # windows open/closed on every rebuild; delete the marker to re-apply.
+    #
+    # Requires Finder to grant Automation access to whatever runs this
+    # (System Settings > Privacy & Security > Automation) -- on a
+    # Jamf-managed Mac that may be blocked by MDM profile, in which case this
+    # silently no-ops via `|| true` and the folders keep whatever view they
+    # already have.
+    finder_view_marker="/var/lib/.finder-pictures-movies-icon-view-applied"
+    if [ ! -e "$finder_view_marker" ]; then
+      primary_uid_finder=$(/usr/bin/id -u ${config.system.primaryUser})
+      /bin/launchctl asuser "$primary_uid_finder" \
+        /usr/bin/sudo -u ${config.system.primaryUser} /usr/bin/osascript -e '
+        tell application "Finder"
+          repeat with targetFolder in {(path to pictures folder), (path to movies folder)}
+            open targetFolder
+            set current view of container window of targetFolder to icon view
+            set opts to the icon view options of container window of targetFolder
+            set shows icon preview of opts to true
+            close container window of targetFolder
+          end repeat
+        end tell
+        ' >/dev/null 2>&1 \
+        && /usr/bin/touch "$finder_view_marker" \
+        || echo "Finder automation unavailable; skipped Pictures/Movies view override" >&2
     fi
 
     # Run the guarded Colima startup check after every switch.

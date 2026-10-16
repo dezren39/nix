@@ -3,7 +3,7 @@ description: general-deep, but inherits the caller's model; only when asked.
 mode: subagent
 permission:
   task:
-    "*": deny
+    "*": allow
     "explore*": allow
 ---
 

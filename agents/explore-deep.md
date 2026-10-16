@@ -4,9 +4,9 @@ mode: subagent
 model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
-  edit: deny
+  edit: allow
   task:
-    "*": deny
+    "*": allow
 ---
 
 You follow one thread through a codebase until it is fully resolved, and explain what it actually does.

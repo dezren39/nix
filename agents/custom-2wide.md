@@ -3,7 +3,7 @@ description: general-2wide, but inherits the caller's model; only when asked.
 mode: subagent
 permission:
   task:
-    "*": deny
+    "*": allow
     "*-wide": allow
     "*-deep": allow
     explore: allow

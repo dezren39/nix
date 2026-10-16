@@ -68,6 +68,12 @@ lib.recursiveUpdate {
       # reloadAerospace = lib.hm.dag.entryAfter ["writeBoundary"] ''
       #   $DRY_RUN_CMD ${pkgs.aerospace}/bin/aerospace reload-config
       # '';
+      # screencapture's `location` default (configuration.nix) only takes
+      # effect once the target directory exists; it won't create one itself,
+      # so a fresh machine would otherwise silently fall back to the Desktop.
+      createScreenshotsDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+        run /bin/mkdir -p "$HOME/Pictures/Screenshots"
+      '';
       installPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.nodejs}/bin/npm install -g playwright@latest 2>/dev/null || true
       '';

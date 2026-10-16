@@ -3,7 +3,7 @@ description: Same as general, but inherits the caller's model instead of a pinne
 mode: subagent
 permission:
   task:
-    "*": deny
+    "*": allow
     "*-2wide": allow
     "*-wide": allow
     "*-deep": allow

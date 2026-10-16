@@ -5,7 +5,7 @@ model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   task:
-    "*": deny
+    "*": allow
     "*-2wide": allow
     "*-wide": allow
     "*-deep": allow

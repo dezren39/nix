@@ -4,9 +4,9 @@ mode: subagent
 model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
-  edit: deny
+  edit: allow
   task:
-    "*": deny
+    "*": allow
     explore-deep: allow
 ---
 

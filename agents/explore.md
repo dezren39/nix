@@ -5,19 +5,19 @@ model: github-copilot/claude-opus-5.5
 variant: medium
 permission:
   # `"*": allow` clears the built-in read-only ruleset (agent/agent.ts:196-207),
-  # which otherwise blocks skills, lsp, and every MCP tool. The rules below
-  # restore the shared defaults it would erase, so order matters here:
-  # fromConfig preserves key order and evaluate takes findLast.
+  # which otherwise blocks skills, lsp, and every MCP tool. Nothing below is
+  # denied; order still matters, because fromConfig preserves key order and
+  # evaluate takes findLast.
   "*": allow
-  question: deny
-  plan_enter: deny
-  plan_exit: deny
+  question: allow
+  plan_enter: allow
+  plan_exit: allow
   doom_loop: ask
-  edit: deny
-  read: deny
-  lsp: deny
+  edit: allow
+  read: allow
+  lsp: allow
   task:
-    "*": deny
+    "*": allow
     "explore-*": allow
 ---
 
