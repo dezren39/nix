@@ -603,7 +603,7 @@ func (p *Pool) startLane(ctx context.Context, legacy bool) (*Instance, error) {
 	}
 	if err != nil {
 		_ = tr.Close()
-		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, err)
+		return nil, fmt.Errorf("server %q: %w", p.cfg.Name, p.oauthWaitError(err))
 	}
 	if cl.CachedEraWrong {
 		lifecycle("server.era.stale", map[string]any{
