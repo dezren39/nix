@@ -564,7 +564,32 @@ openchamber-status:
 # After the first switch to the fork build: point the live OpenCode config
 # back at this repo's opencode.jsonc (temporarily a plain copy of the old v1
 # config so the old OpenChamber.app's upstream OpenCode kept working)
+#
+# Refuses before that switch: this repo's config routes every agent through
+# opencode-route/* pools (experimental.model_routes), which only the fork
+# implements, and the live server re-reads the file as soon as it changes --
+# linking early would leave it with models it cannot resolve. The deploy link
+# below exists only once the switch has installed the fork. FORCE=1 overrides.
+#
+# The live file it replaces is a hand-edited plain copy with no other home, so
+# it is kept as opencode.jsonc.bak.<timestamp> next to it, never overwritten.
+
+# Point the live OpenCode config at this repo's opencode.jsonc (after the fork switch)
 [group('opencode')]
 opencode-config-link:
-    ln -sfn "{{ justfile_directory() }}/opencode.jsonc" "$HOME/.config/opencode/opencode.jsonc"
-    ls -la "$HOME/.config/opencode/opencode.jsonc"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$HOME/.config/opencode/opencode.jsonc"
+    deploy="$HOME/.local/state/openchamber/bin/opencode"
+    if [ ! -e "$deploy" ] && [ "${FORCE:-0}" != "1" ]; then
+        echo "refusing: $deploy does not exist, so the fork OpenCode is not deployed yet." >&2
+        echo "Run the darwin-rebuild switch first (FORCE=1 to link anyway)." >&2
+        exit 1
+    fi
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+        backup="$target.bak.$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+        cp -p "$target" "$backup"
+        echo "backed up the live config to $backup"
+    fi
+    ln -sfn "{{ justfile_directory() }}/opencode.jsonc" "$target"
+    ls -la "$target"
