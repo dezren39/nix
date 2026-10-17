@@ -171,6 +171,13 @@
   //   "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz"
   "plugins": ["@mohak34/opencode-notifier@latest"],
 
+  // Extra skill directories (`~/` is expanded). ~/git/cairn
+  // (github.com/dezren39/cairn) holds prompts, goals and agent practices as
+  // Agent Skills: agent-practices, prompt-writer, stage-goals,
+  // research-capture, skill-writer. Its skills refer to its own files by
+  // paths under ~/git/cairn, so keep the clone there.
+  "skills": ["~/git/cairn/.agents/skills"],
+
   "instructions": [
     "~/.config/opencode/instructions/lootbox.md",
     "~/.config/opencode/instructions/worktrees.md",
