@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -165,6 +166,12 @@ func main() {
 	defer app.CloseInline()
 
 	if err := h(ctx, rest); err != nil {
+		// Help was asked for and already printed; it is not a failure.
+		// Commands reached without the dispatch table (a script file named
+		// on the command line) can still return this directly.
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		var ec cli.ExitCoder
 		if errors.As(err, &ec) {
 			fmt.Fprintln(os.Stderr, "mcpx:", err)

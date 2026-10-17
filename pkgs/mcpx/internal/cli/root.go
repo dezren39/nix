@@ -38,6 +38,11 @@ import (
 func newFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	// Nil rather than the package default, so parseFlags can tell a usage
+	// a caller chose (the generated commands set one) from none at all and
+	// install the command's help as the usage. The flag package falls back
+	// to its default when Usage is nil and nothing installs one.
+	fs.Usage = nil
 	flagSetCommand[fs] = name
 	return fs
 }
@@ -63,6 +68,39 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 			return err
 		}
 	}
+	// `--help` after a subcommand must behave like `mcpx help <cmd>` (#368).
+	// Left to the flag package it prints "Usage of <cmd>:" followed by every
+	// setting bound above -- hundreds of plumbing flags that bury the
+	// command's own flags -- because the registry binds them all to this
+	// flag set. So a help flag in flag position is answered from the same
+	// declarations `help` uses, and the flag package's usage is replaced
+	// with that text too, so a parse error cannot resurrect the dump.
+	// A caller that set its own usage (the generated operation commands,
+	// whose usage names the one operation) keeps it: the parser prints it
+	// on a help flag and parseFlags passes the resulting ErrHelp through.
+	customUsage := fs.Usage != nil
+	if !customUsage {
+		fs.Usage = func() {
+			if a != nil {
+				if text, herr := a.helpText(cmd); herr == nil {
+					fmt.Fprint(fs.Output(), text)
+					return
+				}
+			}
+			fmt.Fprintf(fs.Output(), "mcpx %s\n\n  run `mcpx help %s` for this command's help\n",
+				fs.Name(), firstWord(fs.Name()))
+		}
+	}
+	if wantsHelp(fs, args) && !customUsage {
+		delete(flagSetCommand, fs)
+		if a != nil {
+			if err := a.helpFor(cmd); err == nil {
+				return flag.ErrHelp
+			}
+		}
+		fs.Usage()
+		return flag.ErrHelp
+	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -78,6 +116,62 @@ func parseFlags(a *App, fs *flag.FlagSet, args []string) error {
 		return parseFlagsHook(fs)
 	}
 	return nil
+}
+
+// isHelpToken reports whether one argument is the help flag in any of the
+// spellings the flag package itself treats as a help request.
+func isHelpToken(arg string) bool {
+	name := strings.TrimLeft(arg, "-")
+	if name == arg {
+		return false // no dashes: not a flag at all
+	}
+	if i := strings.IndexByte(name, '='); i >= 0 {
+		name = name[:i]
+	}
+	return name == "h" || name == "help"
+}
+
+// wantsHelp reports whether args ask for help in flag position: before the
+// first positional argument and before "--", the only places the flag
+// package would act on it. A value a valued flag consumes is not a help
+// request (`--session --help` names a session), and a help flag after a
+// positional belongs to whatever that positional is (`mcpx run x.ts
+// --help` is the script's argument), so the walk mirrors the parser's:
+// boolean flags consume nothing, other flags consume their next argument,
+// and an unknown flag ends the walk so the parser can report it.
+func wantsHelp(fs *flag.FlagSet, args []string) bool {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" || arg == "-" || !strings.HasPrefix(arg, "-") {
+			return false
+		}
+		if isHelpToken(arg) {
+			// A command that defines its own -h/--help flag owns it.
+			name := strings.TrimLeft(arg, "-")
+			if j := strings.IndexByte(name, '='); j >= 0 {
+				name = name[:j]
+			}
+			return fs.Lookup(name) == nil
+		}
+		if strings.Contains(arg, "=") {
+			continue
+		}
+		f := fs.Lookup(strings.TrimLeft(arg, "-"))
+		if f == nil {
+			return false
+		}
+		if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); !ok || !bf.IsBoolFlag() {
+			i++ // skip this flag's value
+		}
+	}
+	return false
+}
+
+func firstWord(s string) string {
+	if f := strings.Fields(s); len(f) > 0 {
+		return f[0]
+	}
+	return s
 }
 
 // parseFlagsHook lets a test stop a command the moment its flags are folded
@@ -555,6 +649,20 @@ func (a *App) CmdHelp(_ context.Context, args []string) error {
 // it. Both come from the same declarations the program runs on, so help
 // cannot describe a flag that does not exist or omit one that does.
 func (a *App) helpFor(name string) error {
+	text, err := a.helpText(name)
+	if err != nil {
+		return err
+	}
+	fmt.Print(text)
+	return nil
+}
+
+// helpText is helpFor as a string, so a flag set's usage can carry the same
+// text instead of the flag package's dump of every bound setting. A name
+// that names no command as a whole is retried by its first word: flag sets
+// for a subcommand are named for both words ("log record"), and the help
+// that covers them is the parent command's.
+func (a *App) helpText(name string) (string, error) {
 	var found *Command
 	for _, c := range Commands() {
 		if c.Name == name {
@@ -568,29 +676,33 @@ func (a *App) helpFor(name string) error {
 			}
 		}
 	}
-	if found == nil {
-		return fmt.Errorf("no command %q; run `mcpx help` for the list", name)
+	if found == nil && firstWord(name) != name {
+		return a.helpText(firstWord(name))
 	}
+	if found == nil {
+		return "", fmt.Errorf("no command %q; run `mcpx help` for the list", name)
+	}
+	var b strings.Builder
 	usageLine := found.Usage
 	if usageLine != "" {
 		usageLine = " " + usageLine
 	}
-	fmt.Printf("mcpx %s%s\n\n  %s\n", found.Name, usageLine, found.Summary)
+	fmt.Fprintf(&b, "mcpx %s%s\n\n  %s\n", found.Name, usageLine, found.Summary)
 	if len(found.Aliases) > 0 {
-		fmt.Printf("  also: %s\n", strings.Join(found.Aliases, ", "))
+		fmt.Fprintf(&b, "  also: %s\n", strings.Join(found.Aliases, ", "))
 	}
 	if found.Detail != "" {
-		fmt.Printf("\n%s\n", wrapAt(found.Detail, 76, "  "))
+		fmt.Fprintf(&b, "\n%s\n", wrapAt(found.Detail, 76, "  "))
 	}
 	if len(found.Examples) > 0 {
-		fmt.Println("\nEXAMPLES")
+		b.WriteString("\nEXAMPLES\n")
 		for _, ex := range found.Examples {
-			fmt.Printf("  %s\n", ex)
+			fmt.Fprintf(&b, "  %s\n", ex)
 		}
 	}
 	sch, err := settings.New(settings.Registry())
 	if err != nil {
-		return err
+		return "", err
 	}
 	applicable := sch.ForCommand(found.Name)
 	var lines []string
@@ -601,11 +713,11 @@ func (a *App) helpFor(name string) error {
 		lines = append(lines, fmt.Sprintf("  --%-26s %s", set.FlagName(), set.Short))
 	}
 	if len(lines) > 0 {
-		fmt.Println("\nSETTINGS (also readable from config and the environment)")
-		fmt.Println(strings.Join(lines, "\n"))
-		fmt.Println("\n  mcpx config --schema   shows every setting with its variable")
+		b.WriteString("\nSETTINGS (also readable from config and the environment)\n")
+		b.WriteString(strings.Join(lines, "\n"))
+		b.WriteString("\n\n  mcpx config --schema   shows every setting with its variable\n")
 	}
-	return nil
+	return b.String(), nil
 }
 
 // wrapAt is a plain greedy wrap. Help that runs off the side of a terminal is
