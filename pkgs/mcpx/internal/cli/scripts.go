@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -268,6 +269,87 @@ func resolveScript(arg string) (string, error) {
 	}
 	return "", fmt.Errorf("no script named %q; looked in:\n%s\nCreate one with:\n  mkdir -p %s && $EDITOR %s",
 		arg, path.Describe(), ScriptsDirName, filepath.Join(ScriptsDirName, arg+ScriptExt))
+}
+
+// paramDeclHead matches the head of one `@param` declaration line, the
+// same spelling internal/recipes parses. Only the head is needed here:
+// whether a script declares any holes at all, not what they are.
+var paramDeclHead = regexp.MustCompile(`^\s*(?://|#|\*)\s*@param\s+[A-Za-z_]`)
+
+// declaresParams reports whether a script declares recipe holes. A bare
+// `@name` in a body is not enough -- an ordinary script may contain one
+// for its own reasons -- but a declaration is a recipe saying so.
+func declaresParams(src string) bool {
+	for _, line := range strings.Split(src, "\n") {
+		if paramDeclHead.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// onScriptPath reports whether file lives in one of the script search
+// directories, which is what makes it findable as a recipe by name.
+func onScriptPath(file string) bool {
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return false
+	}
+	dir := filepath.Dir(abs)
+	for _, d := range scriptSearchDirs() {
+		if ad, err := filepath.Abs(d); err == nil && ad == dir {
+			return true
+		}
+	}
+	return false
+}
+
+// refuseRecipeHoles stops `mcpx run <recipe>` before the runtime does.
+//
+// A recipe's @param holes are filled only by `recipes run`, which
+// substitutes the values before anything executes. `run` executes the
+// file as written, so a hole reaches the JavaScript parser untouched and
+// the run dies with "SyntaxError: Expression expected" -- a message that
+// names neither the hole nor the command that fills it (#367). Say which
+// command fills them instead. A script that cannot be resolved or read
+// is left alone: the run's own error paths report those.
+func refuseRecipeHoles(arg string) error {
+	file, err := resolveScript(arg)
+	if err != nil {
+		return nil
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	src := string(b)
+	if !declaresParams(src) {
+		return nil
+	}
+	name := strings.TrimSuffix(filepath.Base(file),
+		filepath.Ext(file))
+	rec := recipes.Parse(name, file, src)
+	if len(rec.Placeholders) == 0 {
+		return nil
+	}
+	var assign []string
+	for _, p := range rec.Placeholders {
+		if p.Required {
+			assign = append(assign, p.Name+"=<value>")
+		} else {
+			assign = append(assign, "["+p.Name+"=<value>]")
+		}
+	}
+	head := fmt.Sprintf("%s is a recipe, not a plain script: it declares @param holes (%s) "+
+		"that `mcpx run` does not fill, so a hole would reach the runtime as-is and fail "+
+		"with a syntax error.", name, placeholderNames(rec))
+	if onScriptPath(file) {
+		return fmt.Errorf("%s\nRun it with:\n  mcpx recipes run %s %s",
+			head, name, strings.Join(assign, " "))
+	}
+	return fmt.Errorf("%s\nSave it as a recipe, then run it with values:\n"+
+		"  mcpx recipes save %s %s\n  mcpx recipes run %s %s",
+		head, name, file, name, strings.Join(assign, " "))
 }
 
 // ScriptEntry is one discoverable script.
