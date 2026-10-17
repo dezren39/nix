@@ -727,9 +727,10 @@ lib.recursiveUpdate {
     # Requires Finder to grant Automation access to whatever runs this
     # (System Settings > Privacy & Security > Automation) -- on a
     # Jamf-managed Mac that may be blocked by MDM profile, in which case this
-    # silently no-ops via `|| true` and the folders keep whatever view they
-    # already have.
-    finder_view_marker="/var/lib/.finder-pictures-movies-icon-view-applied"
+    # prints a warning, leaves no marker (so it retries next switch), and the
+    # folders keep whatever view they already have.
+    # /var/db rather than /var/lib: the latter is not part of stock macOS.
+    finder_view_marker="/var/db/.nix-darwin-finder-media-icon-view"
     if [ ! -e "$finder_view_marker" ]; then
       primary_uid_finder=$(/usr/bin/id -u ${config.system.primaryUser})
       /bin/launchctl asuser "$primary_uid_finder" \
@@ -737,10 +738,11 @@ lib.recursiveUpdate {
         tell application "Finder"
           repeat with targetFolder in {(path to pictures folder), (path to movies folder)}
             open targetFolder
-            set current view of container window of targetFolder to icon view
-            set opts to the icon view options of container window of targetFolder
-            set shows icon preview of opts to true
-            close container window of targetFolder
+            tell front Finder window
+              set current view to icon view
+              set shows icon preview of its icon view options to true
+              close
+            end tell
           end repeat
         end tell
         ' >/dev/null 2>&1 \
