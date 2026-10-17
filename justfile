@@ -560,3 +560,11 @@ openchamber-status:
       | awk '{print "  " $1, $2, $NF}' | grep -E '/opencode[^/]*\.db$' | sort -u
     echo "== database"
     just --justfile {{ justfile() }} opencode-db-check | sed 's/^/  /'
+
+# After the first switch to the fork build: point the live OpenCode config
+# back at this repo's opencode.jsonc (temporarily a plain copy of the old v1
+# config so the old OpenChamber.app's upstream OpenCode kept working)
+[group('opencode')]
+opencode-config-link:
+    ln -sfn "{{ justfile_directory() }}/opencode.jsonc" "$HOME/.config/opencode/opencode.jsonc"
+    ls -la "$HOME/.config/opencode/opencode.jsonc"
