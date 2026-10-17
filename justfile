@@ -562,7 +562,7 @@ openchamber-status:
     just --justfile {{ justfile() }} opencode-db-check | sed 's/^/  /'
 
 # After the first switch to the fork build: point the live OpenCode config
-# back at this repo's opencode.jsonc (temporarily a plain copy of the old v1
+# back at this repo's opencode-global.jsonc (temporarily a plain copy of the old v1
 # config so the old OpenChamber.app's upstream OpenCode kept working)
 #
 # Refuses before that switch: this repo's config routes every agent through
@@ -574,7 +574,7 @@ openchamber-status:
 # The live file it replaces is a hand-edited plain copy with no other home, so
 # it is kept as opencode.jsonc.bak.<timestamp> next to it, never overwritten.
 
-# Point the live OpenCode config at this repo's opencode.jsonc (after the fork switch)
+# Point the live OpenCode config at this repo's opencode-global.jsonc (after the fork switch)
 [group('opencode')]
 opencode-config-link:
     #!/usr/bin/env bash
@@ -591,5 +591,5 @@ opencode-config-link:
         cp -p "$target" "$backup"
         echo "backed up the live config to $backup"
     fi
-    ln -sfn "{{ justfile_directory() }}/opencode.jsonc" "$target"
+    ln -sfn "{{ justfile_directory() }}/opencode-global.jsonc" "$target"
     ls -la "$target"

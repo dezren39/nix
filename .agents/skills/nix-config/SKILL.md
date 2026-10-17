@@ -76,7 +76,8 @@ Where things go:
 
 ## OpenCode / Copilot / lootbox
 
-- Config: `opencode.jsonc` (v2-native; github-copilot only; every model is a
+- Config: `opencode-global.jsonc` (linked as ~/.config/opencode/opencode.jsonc;
+  not named opencode.jsonc so the project walk does not load it twice; v2-native; github-copilot only; every model is a
   pool in `experimental.model_routes`: capability pools frontier / fast-strong /
   balanced / very-fast and family pools opus / sonnet / sol / luna / terra with
   the effort as variant; agents build, general, explore, quick, balanced, deep).
@@ -116,7 +117,7 @@ automatically. Currently shipped: **nix-config** (this skill) and
 ## Gotchas
 
 - `.opencode` at repo root is a **symlink** into OneDrive that loops back — real
-  tracked content lives at the repo root (`instructions/`, `opencode.jsonc`, etc.).
+  tracked content lives at the repo root (`instructions/`, `opencode-global.jsonc`, etc.).
 - CI is only a `/oc` comment-triggered OpenCode bot (`.github/workflows/opencode.yml`);
   there is no build/test pipeline — run `just fmt`, `just tidy-check`, and
   `just tidy-test` locally.

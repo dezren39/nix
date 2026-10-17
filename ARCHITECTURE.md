@@ -30,7 +30,7 @@ openchamber.nix        OpenChamber server launchd agent + desktop client (§5)
 instructions/          OpenCode instruction files (lootbox.md, subagents.md)
 commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)
-opencode.jsonc         OpenCode v2 config (Copilot model pools, agents, permissions)
+opencode-global.jsonc  OpenCode v2 global config, linked as ~/.config/opencode/opencode.jsonc
 tui.jsonc              v1 TUI config; v2 ignores it (v2 reads ~/.config/opencode/cli.json)
 sounds/                Star Trek notification sounds (opencode-notifier)
 themes/ vibrant-ink.json   Active TUI theme
@@ -156,7 +156,11 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 
 ## 5. OpenCode integration
 
-- **`opencode.jsonc`** — v2-native config, `github-copilot` only. Every model is
+- **`opencode-global.jsonc`** — v2-native config, linked as
+  `~/.config/opencode/opencode.jsonc` by `just opencode-config-link`. Named so
+  OpenCode's project walk (which loads `opencode.json`/`opencode.jsonc` from
+  every directory up to the root) does not load it a second time as a project
+  config for sessions inside this repo. `github-copilot` only. Every model is
   a pool (`experimental.model_routes`, shown as `opencode-route/<id>`):
   capability pools `frontier`, `fast-strong`, `balanced`, `very-fast`
   (round-robin, sticky per session, grouped by Artificial Analysis
