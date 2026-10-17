@@ -1,4 +1,4 @@
-SidePulse patch 5/11 -- upstream PR inteliwear/sidepulse#30 "Fix stale and stuck session states in the status bar" (closed unmerged).
+SidePulse patch 5/12 -- upstream PR inteliwear/sidepulse#30 "Fix stale and stuck session states in the status bar" (closed unmerged).
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-pr-28-dnd.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 

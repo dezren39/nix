@@ -468,6 +468,8 @@ rec {
               cp "$HOME/.config/opencode/plugins/sidepulse.js" first-opencode.js
               ${selfPkgs.sidepulse-unwrapped}/bin/sidepulse agent-monitor install opencode
               cmp first-opencode.js "$HOME/.config/opencode/plugins/sidepulse.js"
+              # The OpenCode v2 loader rejects v1's bare exported function.
+              grep -F 'export default {' first-opencode.js
 
               touch "$out"
             '';

@@ -1,4 +1,4 @@
-SidePulse patch 11/11 -- local, dezren39/nix#333.
+SidePulse patch 11/12 -- local, dezren39/nix#333.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-332-multi-signal-composition.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 

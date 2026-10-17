@@ -1,5 +1,6 @@
 {
   lib,
+  nodejs,
   python3Packages,
   sidepulseSrc,
   writableTmpDirAsHomeHook,
@@ -30,6 +31,7 @@ python3Packages.buildPythonApplication rec {
     ./../../patches/sidepulse-dezren39-nix-331-errors-and-prompts-persist.patch
     ./../../patches/sidepulse-dezren39-nix-332-multi-signal-composition.patch
     ./../../patches/sidepulse-dezren39-nix-333-signals-mean-what-they-say.patch
+    ./../../patches/sidepulse-dezren39-nix-378-opencode-v2-plugin.patch
   ];
 
   # WebKit is not imported and ScriptingBridge is guarded as an optional
@@ -51,6 +53,9 @@ python3Packages.buildPythonApplication rec {
   nativeCheckInputs = [
     python3Packages.pytestCheckHook
     python3Packages.pyobjc-framework-WebKit
+    # Drives the generated OpenCode v2 plugin through a fake plugin context;
+    # those tests skip themselves without node.
+    nodejs
     # Upstream's device_write_lock (05bc5ed) keeps its lock files under
     # ~/.cache/sidepulse; the sandbox's /homeless-shelter is read-only.
     writableTmpDirAsHomeHook

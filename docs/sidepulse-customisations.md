@@ -10,8 +10,9 @@ where each patch comes from:
 | `sidepulse-dezren39-nix-N-*.patch` | local, no upstream counterpart; documented in dezren39/nix#N |
 
 The local patches are #328 (fixed-path LED writer helper), #329 (red error
-signal, error latch, completion pulse, concurrency tempo), and #330–#333, which
-this page covers along with the live configuration they work with. Until
+signal, error latch, completion pulse, concurrency tempo), #330–#333, and #378
+(the generated OpenCode plugin in the v2 shape), which this page covers along
+with the live configuration they work with. Until
 2026-10-01 the local patches were also named `sidepulse-pr-31` … `-36`, numbers
 that belong to unrelated upstream PRs. Porting history: dezren39/nix#327.
 
@@ -282,6 +283,49 @@ on the next refresh. Green now tracks the completion signal and nothing else.
 - The timed 4-second pulse survives only where presence genuinely cannot be
   read, and that is now decided by trying to read it rather than by a setting.
 
+## dezren39/nix#378 — the OpenCode plugin in the v2 shape
+
+`patches/sidepulse-dezren39-nix-378-opencode-v2-plugin.patch`
+
+`opencode_plugin_source()` (from PR #14, `src/sidepulse/install.py`) wrote an
+OpenCode v1 plugin: a bare exported function returning `event` and
+`tool.execute.*` handlers. OpenCode here is v2 (developing-today/opencode),
+whose loader rejects that shape, and v2 no longer publishes `message.updated`,
+`session.updated`, `session.status` or `session.idle`. This patch makes the
+generator emit `export default { id: "sidepulse", setup(ctx) }`: events come
+from `ctx.event.subscribe` (resubscribing when the stream drops), the prompt
+from `ctx.session.hook("prompt")` and tool signals from
+`ctx.tool.hook("execute.before" / "execute.after")`. The socket and JSONL code,
+the payload shape and the `sidepulse-opencode-plugin` marker are unchanged.
+
+Every v2 event is reported under the v1 name SidePulse already maps, so the
+receiving side is untouched:
+
+| v2 source | Reported as |
+| --- | --- |
+| prompt hook | `session.status` with `sidepulse_user_prompt` |
+| `session.execution.started`, `session.retry.scheduled` | `session.status` |
+| `session.execution.succeeded`, `session.execution.interrupted` | `session.idle` |
+| `session.execution.failed` | `session.error` (error type `aborted` → `session.idle`) |
+| `session.tool.failed` | `session.next.tool.failed` |
+| `session.created`, `session.deleted`, `permission.asked`, `permission.replied` | unchanged |
+| tool hooks | `tool.execute.before` / `tool.execute.after` |
+
+This replaces the v1 mechanics described under #331's "Error capture widened":
+`session.execution.failed` only fires when a run actually failed, so the
+`ContextOverflowError` / `StructuredOutputError` split and the `message.updated`
+watch are no longer needed. `session.step.failed` is not forwarded, because a
+failed step is retried or ends the run, which already arrives as
+`execution.failed`. Subagent lineage comes from `parentID` on
+`session.created` / `session.forked`, with one `ctx.session.get` per session
+first seen mid-run.
+
+`SIDEPULSE_OPENCODE_LOG` overrides the generated log path, for scratch runs and
+tests; provider detection reads the path from either plugin form. The tests
+that asserted on v1 source now assert on the v2 shape, and the node-driven
+plugin tests run the generated file through a fake v2 `ctx` (the package adds
+`nodejs` to its check inputs so they run in the build).
+
 ## Current configuration
 
 Device is a SidePulse Dot (2 LEDs) at `/Volumes/PulseDot`, brightness 255, DND
@@ -363,7 +407,7 @@ completions nobody had looked at.
 ## Verification
 
 Every patch is checked by `nix build .#sidepulse` running the upstream suite
-plus the tests each patch adds. Current totals: **665 passed, 6 skipped, 34
+plus the tests each patch adds. Current totals: **870 passed, 3 skipped, 34
 deselected**, with no additions to `disabledTests` — the new tests run in the
 sandbox unmodified because their decision logic never touches AppKit.
 
@@ -373,6 +417,7 @@ sandbox unmodified because their decision logic never touches AppKit.
 | 34 | `tests/test_awaiting_human.py` |
 | 35 | `tests/test_multi_signal.py` |
 | 36 | additions to `tests/test_led_signals.py`, plus rewrites of the four assertions that encoded the old rules |
+| 378 | v2 runtime tests in `tests/test_sidepulse.py` (event and hook mapping, log override, detection of both plugin forms), plus rewrites of the v1-source assertions in `tests/test_led_signals.py` and `tests/test_awaiting_human.py` |
 
 `checks.aarch64-darwin.sidepulse-wrapper` additionally verifies the CLI wrapper
 and hook-install idempotency.

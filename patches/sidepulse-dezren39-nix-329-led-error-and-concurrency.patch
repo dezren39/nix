@@ -1,4 +1,4 @@
-SidePulse patch 7/11 -- local, dezren39/nix#329.
+SidePulse patch 7/12 -- local, dezren39/nix#329.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-328-led-writer-helper.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 

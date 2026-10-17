@@ -1,0 +1,916 @@
+SidePulse patch 12/12 -- local, dezren39/nix#378.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-333-signals-mean-what-they-say.patch, at zero fuzz.
+Tracking: dezren39/nix#327.
+
+diff --git a/src/sidepulse/install.py b/src/sidepulse/install.py
+index e234725..115648e 100644
+--- a/src/sidepulse/install.py
++++ b/src/sidepulse/install.py
+@@ -232,13 +232,16 @@ def install_opencode_hooks(
+ def opencode_plugin_source(log_path: Path) -> str:
+     encoded_log = json.dumps(str(log_path.expanduser()))
+     socket_timeout_ms = int(HOOK_EVENT_SEND_TIMEOUT_SECONDS * 1000)
+-    return f'''// sidepulse-opencode-plugin
++    return f'''// sidepulse-opencode-plugin (OpenCode v2 plugin shape)
+ import {{ appendFile, mkdir }} from "node:fs/promises"
+ import {{ connect }} from "node:net"
+ import {{ homedir }} from "node:os"
+ import {{ dirname, join }} from "node:path"
+ 
+-const SIDEPULSE_LOG = {encoded_log}
++// SIDEPULSE_OPENCODE_LOG exists only so the plugin can be exercised in a scratch
++// environment without appending to the real recovery log.
++const SIDEPULSE_LOG =
++  process.env.SIDEPULSE_OPENCODE_LOG || {encoded_log}
+ const SIDEPULSE_SOCKET_NAME = "events.sock"
+ const SIDEPULSE_SOCKET_TIMEOUT_MS = {socket_timeout_ms}
+ const SIDEPULSE_MAX_EVENT_BYTES = {MAX_EVENT_BYTES}
+@@ -334,34 +337,57 @@ async function appendSidePulseLog(payload) {{
+     // Monitoring must never interrupt an OpenCode session.
+   }}
+ }}
+-
+ function firstString(...values) {{
+   return values.find((value) => typeof value === "string" && value.length > 0)
+ }}
+ 
++// v2 events are `{{ id, created, type, location: {{ directory }}, data }}`. Every
++// session-scoped event carries `data.sessionID`; the v1 `properties.info.id`
++// shapes are gone.
+ function sessionId(event) {{
+-  const p = event?.properties ?? {{}}
+-  return firstString(p.sessionID, p.sessionId, p.session_id, p.id, p.info?.id, p.session?.id)
++  const d = event?.data ?? {{}}
++  return firstString(d.sessionID, d.sessionId, d.session_id)
+ }}
+ 
+-// Task-tool subagents are full OpenCode sessions carrying `info.parentID`, so
++// Task-tool subagents are full OpenCode sessions carrying `parentID`, so
+ // without this they arrive indistinguishable from top-level work and inflate
+ // every "how much is running" signal. SidePulse already excludes rows keyed
+ // `<provider>:agent:<id>`, and it derives that key from `agent_id`, so tagging
+ // a child session is all it takes to have it treated as a subagent.
+ //
+-// `session.updated` is the reliable source rather than `session.created`: it
+-// fires on every touch and always carries a complete `info`, so a subagent
+-// resumed by task_id (which publishes no `created`) is still classified.
++// v1 read lineage from `session.updated`, which v2 no longer publishes. In v2
++// `session.created` (and `session.forked`) carry `parentID` directly. A subagent
++// resumed by task_id publishes no `created` in this process, so an unknown
++// session is looked up once through `ctx.session.get` and cached.
+ const parentBySession = new Map()
++const lineageLookups = new Map()
+ 
+ function rememberLineage(event) {{
+-  const info = event?.properties?.info
+-  if (!info || typeof info.id !== "string") return
+-  const parent = typeof info.parentID === "string" && info.parentID.length > 0
+-    ? info.parentID
+-    : null
+-  parentBySession.set(info.id, parent)
++  if (event?.type !== "session.created" && event?.type !== "session.forked") return
++  const id = sessionId(event)
++  if (!id) return
++  const parentID = event.data?.parentID
++  parentBySession.set(id, typeof parentID === "string" && parentID.length > 0 ? parentID : null)
++}}
++
++function resolveLineage(ctx, sessionID) {{
++  if (!sessionID || parentBySession.has(sessionID)) return Promise.resolve()
++  let pending = lineageLookups.get(sessionID)
++  if (!pending) {{
++    pending = Promise.resolve()
++      .then(() => ctx.session.get({{ sessionID }}))
++      .then((info) => {{
++        const parentID = info?.parentID ?? info?.data?.parentID
++        parentBySession.set(sessionID, typeof parentID === "string" && parentID.length > 0 ? parentID : null)
++      }})
++      .catch(() => {{
++        // Unknown stays unknown (top-level); see agentIdFor.
++      }})
++      .finally(() => lineageLookups.delete(sessionID))
++    lineageLookups.set(sessionID, pending)
++  }}
++  // Never let a slow lookup hold up a hook the session is waiting on.
++  return Promise.race([pending, new Promise((resolve) => setTimeout(resolve, SIDEPULSE_SOCKET_TIMEOUT_MS).unref?.())])
+ }}
+ 
+ function agentIdFor(sessionID) {{
+@@ -375,104 +401,62 @@ function parentOf(sessionID) {{
+   return parentBySession.get(sessionID) || undefined
+ }}
+ 
+-// A human actually typing is a different thing from the session becoming busy,
+-// which happens constantly and for many reasons. SidePulse uses this to decide
+-// that a failure has been seen and dealt with, so it must only fire for real
+-// input. `message.updated` carries the authored message, and role is the
+-// discriminator.
+-function isUserPrompt(event) {{
+-  if (event?.type !== "message.updated") return false
+-  const info = event.properties?.info
+-  return info?.role === "user" || info?.type === "user"
+-}}
+-
+-// Errors that must not light the device red, split by which event carried
+-// them, because the same error name means different things on each.
++// Errors that must not light the device red.
+ //
+-// `session.error` fires for `ContextOverflowError` in *both* the fatal and the
+-// recoverable case, and the recoverable one is the common one: the session hit
+-// the window, auto-compaction takes over, the run continues. Treating that as
+-// a failure would light red every time a long session compacted. Only the
+-// fatal variant also records the error on the assistant message, so it is
+-// ignored here and caught below on `message.updated`, where it is unambiguous.
++// v1 had to split this by carrier because `session.error` fired for both the
++// recoverable and the fatal `ContextOverflowError`. In v2 the terminal outcome
++// of a run is a single event: `session.execution.failed` only fires when the run
++// actually failed (a recoverable overflow compacts and the run continues, so it
++// never reaches it), and it also covers the v1 `StructuredOutputError` case that
++// only showed up on the assistant message. So no overflow filter is needed.
+ //
+-// `MessageAbortedError` is the user pressing escape, on either event. That is
+-// an instruction, not a failure, and a signal that now persists until
+-// acknowledged must not fire every time somebody interrupts an agent.
+-const SESSION_ERROR_IGNORED = new Set(["ContextOverflowError", "MessageAbortedError"])
+-const MESSAGE_ERROR_IGNORED = new Set(["MessageAbortedError"])
++// `aborted` is the user pressing escape (v1 `MessageAbortedError`). That is an
++// instruction, not a failure, and a signal that persists until acknowledged
++// must not fire every time somebody interrupts an agent. User interrupts mostly
++// arrive as `session.execution.interrupted` anyway; this catches the rest.
++const ERROR_IGNORED = new Set(["aborted"])
+ 
+-function errorName(error) {{
+-  return typeof error?.name === "string" ? error.name : undefined
+-}}
+-
+-function isReportableError(error, ignored) {{
++function isReportableError(error) {{
+   if (!error) return false
+-  const name = errorName(error)
+-  // An unnamed error is still an error; only known-benign names are dropped.
+-  return !name || !ignored.has(name)
++  // An untyped error is still an error; only known-benign types are dropped.
++  return typeof error.type !== "string" || !ERROR_IGNORED.has(error.type)
+ }}
+ 
+-// A failure recorded on the assistant message itself.
++// v2 event type -> the v1 event_name vocabulary SidePulse already maps, so the
++// receiving side needs no change.
+ //
+-// This is not redundant with `session.error`. `StructuredOutputError` sets the
+-// message error and never publishes `session.error` at all, so a subscriber
+-// watching only that event reports the run as having finished normally. The
+-// fatal half of `ContextOverflowError` arrives here too, which is what makes
+-// ignoring it on `session.error` safe.
++// v2 core no longer publishes `session.status` / `session.idle` (they remain in
++// the schema for old TUIs only). The run lifecycle replaces them:
++// execution.started is busy, retry.scheduled is still work in flight (v1 kept
++// retry as busy), and succeeded / interrupted are idle.
+ //
+-// `message.updated` is otherwise far too noisy to forward - it fires on every
+-// token - so the error field is the whole filter.
+-function assistantErrorEvent(event) {{
+-  if (event?.type !== "message.updated") return undefined
+-  const info = event.properties?.info
+-  if (info?.role !== "assistant") return undefined
+-  return isReportableError(info?.error, MESSAGE_ERROR_IGNORED) ? info.error : undefined
+-}}
+-
++// Not forwarded: `session.step.failed` (v1 `session.next.step.failed`). A failed
++// step is either retried or ends the run, and the run's end already arrives as
++// `session.execution.failed`; forwarding both would light red during retries.
++// `message.updated` and `session.updated` no longer exist on the v2 stream, and
++// the token stream (`session.text.delta` etc.) is never forwarded.
+ function eventName(event) {{
+-  if (event?.type === "session.status") {{
+-    const status = event.properties?.status?.type ?? event.properties?.status
+-    // The status union is idle | busy | retry. Retry is still work in flight,
+-    // just degraded, so it stays busy rather than reading as finished.
+-    if (status === "idle") return "session.idle"
+-    if (status === "busy" || status === "retry") return "session.status"
+-    // An unrecognised status must not be guessed into "busy"; dropping it
+-    // leaves the previous state standing, which is the conservative choice.
+-    return undefined
++  switch (event?.type) {{
++    case "session.created":
++    case "session.deleted":
++    case "permission.asked":
++    case "permission.replied":
++      return event.type
++    case "session.execution.started":
++    case "session.retry.scheduled":
++      return "session.status"
++    case "session.execution.succeeded":
++    case "session.execution.interrupted":
++      return "session.idle"
++    case "session.execution.failed":
++      return isReportableError(event.data?.error) ? "session.error" : "session.idle"
++    case "session.tool.failed":
++      return "session.next.tool.failed"
++    default:
++      return undefined
+   }}
+-  if (
+-    event?.type === "session.error" &&
+-    !isReportableError(event.properties?.error, SESSION_ERROR_IGNORED)
+-  ) {{
+-    return undefined
+-  }}
+-  return event?.type
+ }}
+ 
+-// `tool.execute.before` / `tool.execute.after` are NOT bus events - they are
+-// separate plugin hooks. Subscribing to them as events, as this plugin used to,
+-// could never fire, which is why no OpenCode session ever reached TOOL_RUNNING.
+-// Only these are forwarded. `session.updated` is read for context above -
+-// lineage - but never forwarded itself: it accounts for hundreds of thousands
+-// of events per day and none of them change what the LEDs should show.
+-// `message.updated` is read for two narrow things, user prompts and assistant
+-// errors, and is never forwarded wholesale for the same reason.
+-//
+-// `session.next.*` are the second, newer session runner. Forwarding both
+-// pipelines is deliberate: whichever one is live, a stopped run reports it.
+-const FORWARDED_EVENTS = [
+-  "session.created",
+-  "session.status",
+-  "session.idle",
+-  "session.error",
+-  "session.next.step.failed",
+-  "session.next.tool.failed",
+-  "session.deleted",
+-  "permission.asked",
+-  "permission.replied",
+-]
+-
+ // The pid of the process that owns these sessions.
+ //
+ // A prompt and a failure are questions put to a human, and SidePulse holds
+@@ -494,99 +478,121 @@ async function emit(payload) {{
+   await Promise.all([appendSidePulseLog(payload), notifySidePulse(payload)])
+ }}
+ 
+-export const SidePulsePlugin = async ({{ directory, worktree }}) => {{
+-  const cwd = firstString(worktree, directory)
++function sessionPayload(event_name, session_id, fields) {{
+   return {{
+-    event: async ({{ event }}) => {{
+-      // Lineage is recorded before the filter so that `session.updated`, which
++    event_name,
++    session_id,
++    agent_id: agentIdFor(session_id),
++    parent_session_id: parentOf(session_id),
++    ...fields,
++    timestamp: new Date().toISOString(),
++    ...ORIGIN,
++  }}
++}}
++
++// v2 plugin shape: a default export with an `id` and a `setup(ctx)` that wires
++// subscriptions and hooks and returns a cleanup. v1 exported a bare async
++// function returning `{{ event, "tool.execute.before", ... }}`, which the v2
++// loader rejects outright.
++export default {{
++  id: "sidepulse",
++  async setup(ctx) {{
++    // One v2 server serves many directories; prefer the event's own location
++    // and fall back to the location the plugin was activated in.
++    const fallbackCwd = firstString(ctx.location?.directory)
++    const cwdOf = (event) => firstString(event?.location?.directory, fallbackCwd)
++    const controller = new AbortController()
++
++    async function handle(event) {{
++      // Lineage is recorded before the filter so that `session.forked`, which
+       // is never forwarded itself, still teaches us who the parents are.
+       rememberLineage(event)
+-
+-      // A genuine user prompt. Reported as a busy-equivalent so the mode is
+-      // unchanged, but flagged so SidePulse can treat it as "the human has
+-      // responded" and retire any latched error for this session and its
+-      // subagents.
+-      if (isUserPrompt(event)) {{
+-        const promptSession = sessionId(event)
+-        await emit({{
+-          event_name: "session.status",
+-          session_id: promptSession,
+-          agent_id: agentIdFor(promptSession),
+-          parent_session_id: parentOf(promptSession),
+-          sidepulse_user_prompt: true,
+-          cwd,
+-          timestamp: new Date().toISOString(),
+-          ...ORIGIN,
+-        }})
+-        return
+-      }}
+-
+-      // A failure the session recorded on its own message. Reported under the
+-      // same event name as `session.error` so SidePulse needs no new mapping,
+-      // and harmlessly duplicated when both fire for one failure - the mode is
+-      // identical either way.
+-      const assistantError = assistantErrorEvent(event)
+-      if (assistantError) {{
+-        const errorSession = sessionId(event)
+-        await emit({{
+-          event_name: "session.error",
+-          session_id: errorSession,
+-          agent_id: agentIdFor(errorSession),
+-          parent_session_id: parentOf(errorSession),
+-          message: firstString(assistantError.data?.message, errorName(assistantError)),
+-          cwd,
+-          timestamp: new Date().toISOString(),
+-          ...ORIGIN,
+-        }})
+-        return
+-      }}
+-
+       const name = eventName(event)
+-      if (!name || !FORWARDED_EVENTS.includes(name)) return
+-
+-      const properties = event.properties ?? {{}}
++      if (!name) return
+       const session_id = sessionId(event)
+-      await emit({{
+-        event_name: name,
+-        session_id,
+-        agent_id: agentIdFor(session_id),
+-        parent_session_id: parentOf(session_id),
+-        cwd: firstString(properties.cwd, properties.directory, cwd),
+-        tool_name: firstString(properties.tool, properties.toolName),
+-        message: firstString(properties.message, properties.error?.message),
+-        timestamp: new Date().toISOString(),
+-        ...ORIGIN,
+-      }})
+-    }},
++      if (event.type !== "session.created" && event.type !== "session.deleted") {{
++        await resolveLineage(ctx, session_id)
++      }}
++      const d = event.data ?? {{}}
++      await emit(
++        sessionPayload(name, session_id, {{
++          cwd: cwdOf(event),
++          tool_name: firstString(d.tool, d.toolName, d.name, d.action),
++          message: firstString(d.message, d.error?.message),
++        }}),
++      )
++      if (event.type === "session.deleted") parentBySession.delete(session_id)
++    }}
++
++    // The v2 stream fails (rather than blocking the bus) when a consumer falls
++    // behind, so resubscribe until cleanup instead of going silent forever.
++    ;(async () => {{
++      while (!controller.signal.aborted) {{
++        try {{
++          for await (const event of ctx.event.subscribe({{ signal: controller.signal }})) {{
++            try {{
++              await handle(event)
++            }} catch {{
++              // Monitoring must never interrupt an OpenCode session.
++            }}
++          }}
++        }} catch {{
++          // Stream ended or overflowed; fall through to resubscribe.
++        }}
++        if (!controller.signal.aborted) await new Promise((resolve) => setTimeout(resolve, 1000))
++      }}
++    }})()
++
++    const registrations = []
++
++    // A human actually typing is a different thing from the session becoming
++    // busy, which happens constantly and for many reasons. SidePulse uses this to
++    // decide that a failure has been seen and dealt with, so it must only fire
++    // for real input. v1 inferred it from `message.updated` with role user; v2
++    // has a dedicated `session.prompt` hook that runs once per submitted prompt.
++    // Reported as a busy-equivalent so the mode is unchanged, but flagged so
++    // SidePulse can retire any latched error for this session and its subagents.
++    registrations.push(
++      await ctx.session.hook("prompt", async (input) => {{
++        try {{
++          await resolveLineage(ctx, input?.sessionID)
++          await emit(
++            sessionPayload("session.status", input?.sessionID, {{
++              sidepulse_user_prompt: true,
++              cwd: fallbackCwd,
++            }}),
++          )
++        }} catch {{
++          // Monitoring must never interrupt an OpenCode session.
++        }}
++      }}),
++    )
+ 
+     // These are the real tool signals. Without them nothing ever distinguishes
+     // "the model is thinking" from "a tool is running", so SidePulse's
+-    // TOOL_RUNNING mode was unreachable for OpenCode.
+-    "tool.execute.before": async (input) => {{
+-      await emit({{
+-        event_name: "tool.execute.before",
+-        session_id: input?.sessionID,
+-        agent_id: agentIdFor(input?.sessionID),
+-        parent_session_id: parentOf(input?.sessionID),
+-        cwd,
+-        tool_name: input?.tool,
+-        timestamp: new Date().toISOString(),
+-        ...ORIGIN,
+-      }})
+-    }},
+-    "tool.execute.after": async (input) => {{
+-      await emit({{
+-        event_name: "tool.execute.after",
+-        session_id: input?.sessionID,
+-        agent_id: agentIdFor(input?.sessionID),
+-        parent_session_id: parentOf(input?.sessionID),
+-        cwd,
+-        tool_name: input?.tool,
+-        timestamp: new Date().toISOString(),
+-        ...ORIGIN,
+-      }})
+-    }},
+-  }}
++    // TOOL_RUNNING mode was unreachable for OpenCode. In v2 they are
++    // `ctx.tool.hook("execute.before" | "execute.after")`, still emitted under
++    // the v1 names.
++    for (const [hook, name] of [
++      ["execute.before", "tool.execute.before"],
++      ["execute.after", "tool.execute.after"],
++    ]) {{
++      registrations.push(
++        await ctx.tool.hook(hook, async (input) => {{
++          try {{
++            await emit(sessionPayload(name, input?.sessionID, {{ cwd: fallbackCwd, tool_name: input?.tool }}))
++          }} catch {{
++            // Monitoring must never interrupt an OpenCode session.
++          }}
++        }}),
++      )
++    }}
++
++    return async () => {{
++      controller.abort()
++      await Promise.allSettled(registrations.map((registration) => registration.dispose()))
++    }}
++  }},
+ }}
+ '''
+ 
+diff --git a/src/sidepulse/providers.py b/src/sidepulse/providers.py
+index 6be1d7c..a4c21b1 100644
+--- a/src/sidepulse/providers.py
++++ b/src/sidepulse/providers.py
+@@ -450,7 +450,13 @@ def detect_opencode_config(home: Path | None = None) -> ProviderConfig:
+         return ProviderConfig("opencode", config_path, True, False, (), ())
+     enabled = "sidepulse-opencode-plugin" in text
+     paths = list(extract_log_paths_from_command(text))
+-    match = re.search(r'const SIDEPULSE_LOG = ("(?:[^"\\]|\\.)*")', text)
++    # The v2 plugin lets SIDEPULSE_OPENCODE_LOG override the generated path, so
++    # the literal is the fallback of an `||`; older plugins assign it directly.
++    match = re.search(
++        r'const SIDEPULSE_LOG =\s*(?:process\.env\.SIDEPULSE_OPENCODE_LOG\s*\|\|\s*)?'
++        r'("(?:[^"\\]|\\.)*")',
++        text,
++    )
+     if match:
+         try:
+             paths.append(Path(json.loads(match.group(1))).expanduser())
+diff --git a/tests/test_awaiting_human.py b/tests/test_awaiting_human.py
+index 80aa2ac..1a23767 100644
+--- a/tests/test_awaiting_human.py
++++ b/tests/test_awaiting_human.py
+@@ -195,34 +195,36 @@ class OpenCodeErrorSurfaceTests(unittest.TestCase):
+ 
+         return opencode_plugin_source(Path("/tmp/sidepulse-test.jsonl"))
+ 
+-    def test_both_session_runners_report_failures(self):
+-        # OpenCode has two session pipelines; only one publishes
+-        # `session.error`. Forwarding just that one loses every failure on the
+-        # other.
++    def event_mapping(self) -> str:
+         source = self.plugin_source()
+-        for event in ("session.error", "session.next.step.failed", "session.next.tool.failed"):
+-            self.assertIn(event, source, event)
++        return source.split("function eventName(event) {")[1].split("\n}\n")[0]
+ 
+-    def test_assistant_message_errors_are_watched(self):
+-        # StructuredOutputError never publishes `session.error` at all - it is
+-        # only ever recorded on the assistant message - so a session.error-only
+-        # subscriber reports a failed run as a clean finish.
+-        source = self.plugin_source()
+-        self.assertIn("assistantErrorEvent", source)
+-        self.assertIn('info?.role !== "assistant"', source)
++    def test_run_and_tool_failures_are_reported(self):
++        # In OpenCode v2 the end of a failed run is one event,
++        # `session.execution.failed`, which also covers the v1 cases that only
++        # marked the assistant message (StructuredOutputError, the fatal half of
++        # ContextOverflowError). A recoverable overflow compacts and carries on,
++        # so it never gets there. Tool failures keep their v1 name.
++        mapping = self.event_mapping()
++        failed = mapping.split('case "session.execution.failed":')[1].split("case ")[0]
++        self.assertIn('"session.error"', failed)
++        tool = mapping.split('case "session.tool.failed":')[1].split("case ")[0]
++        self.assertIn('"session.next.tool.failed"', tool)
++
++    def test_failed_steps_are_not_forwarded(self):
++        # A failed step is retried or ends the run, which already arrives as
++        # `session.execution.failed`; forwarding both would light red on retries.
++        self.assertNotIn("session.step.failed", self.event_mapping())
+ 
+     def test_deliberate_interrupts_are_not_failures(self):
+         # Pressing escape is an instruction. With failures now persisting until
+         # acknowledged, treating it as an error would light red on every
+         # interrupt.
+-        self.assertIn("MessageAbortedError", self.plugin_source())
+-
+-    def test_recoverable_context_overflow_is_not_a_failure(self):
+-        # Auto-compaction publishes session.error and then carries on; only the
+-        # fatal variant also marks the assistant message.
+         source = self.plugin_source()
+-        self.assertIn("SESSION_ERROR_IGNORED", source)
+-        self.assertIn("ContextOverflowError", source)
++        self.assertIn('const ERROR_IGNORED = new Set(["aborted"])', source)
++        mapping = self.event_mapping()
++        idle = mapping.split('return "session.idle"')[0]
++        self.assertIn('case "session.execution.interrupted":', idle)
+ 
+     def record(self, canonical: str):
+         from sidepulse.models import HookEvent
+diff --git a/tests/test_led_signals.py b/tests/test_led_signals.py
+index 8f95d96..f69c041 100644
+--- a/tests/test_led_signals.py
++++ b/tests/test_led_signals.py
+@@ -275,42 +275,52 @@ def plugin_source() -> str:
+     return opencode_plugin_source(_P("/tmp/sidepulse-test/opencode.jsonl"))
+ 
+ 
++def plugin_event_mapping() -> str:
++    """The body of the plugin's v2 event type -> SidePulse event name switch."""
++    src = plugin_source()
++    return src.split("function eventName(event) {")[1].split("\n}\n")[0]
++
++
+ def test_plugin_tags_child_sessions_so_sidepulse_treats_them_as_subagents():
+     """A Task subagent is a full session; only agent_id marks it as nested."""
+     src = plugin_source()
+     assert "parentBySession" in src
+-    assert "info.parentID" in src
++    # v2 carries `parentID` on session.created / session.forked.
++    assert "event.data?.parentID" in src
+     assert "agent_id: agentIdFor(" in src
+ 
+ 
+-def test_plugin_learns_lineage_from_any_event_carrying_info():
++def test_plugin_learns_lineage_from_every_event_and_looks_up_unknown_sessions():
+     # A subagent resumed by task_id publishes no session.created, so relying on
+     # it alone would leave those sessions counted as top-level. Lineage is read
+-    # from every event, before the forwarding filter can discard it.
++    # before the forwarding filter can discard the event, and a session never
++    # seen created is looked up once through the v2 session API.
+     src = plugin_source()
+-    body = src.split("event: async ({ event }) => {")[1]
+-    assert body.index("rememberLineage(event)") < body.index("FORWARDED_EVENTS")
++    body = src.split("async function handle(event) {")[1]
++    assert body.index("rememberLineage(event)") < body.index("eventName(event)")
++    assert "ctx.session.get({ sessionID })" in src
+ 
+ 
+ def test_plugin_no_longer_subscribes_to_tool_events_as_bus_events():
+     """tool.execute.* are hooks, not events; subscribing could never fire."""
+-    src = plugin_source()
+-    forwarded = src.split("const FORWARDED_EVENTS = [")[1].split("]")[0]
+-    assert "tool.execute" not in forwarded
++    assert "tool.execute" not in plugin_event_mapping()
+ 
+ 
+ def test_plugin_registers_real_tool_hooks():
+     src = plugin_source()
+-    assert '"tool.execute.before": async (input)' in src
+-    assert '"tool.execute.after": async (input)' in src
++    assert "ctx.tool.hook(hook," in src
++    assert '["execute.before", "tool.execute.before"]' in src
++    assert '["execute.after", "tool.execute.after"]' in src
+     assert "tool_name: input?.tool" in src
+ 
+ 
+-def test_plugin_treats_retry_as_still_working_and_drops_unknown_status():
+-    src = plugin_source()
+-    assert 'status === "busy" || status === "retry"' in src
+-    # The unknown-status arm must return undefined rather than defaulting busy.
+-    assert "return undefined" in src
++def test_plugin_treats_retry_as_still_working_and_drops_unknown_events():
++    mapping = plugin_event_mapping()
++    busy = mapping.split('return "session.status"')[0]
++    assert 'case "session.execution.started":' in busy
++    assert 'case "session.retry.scheduled":' in busy
++    # Anything unrecognised must return undefined rather than defaulting busy.
++    assert "default:\n      return undefined" in mapping
+ 
+ 
+ def test_sidepulse_maps_the_tool_events_the_plugin_now_emits():
+@@ -502,17 +512,18 @@ def test_completion_forgets_sessions_that_disappear():
+ 
+ 
+ def test_plugin_flags_only_real_user_messages():
++    """v2's prompt hook runs once per submitted prompt, never for busy churn."""
+     src = plugin_source()
+-    assert 'info?.role === "user"' in src
+-    assert "sidepulse_user_prompt: true" in src
++    prompt = src.split('ctx.session.hook("prompt"')[1].split("ctx.tool.hook")[0]
++    assert "sidepulse_user_prompt: true" in prompt
++    assert src.count("sidepulse_user_prompt") == 1
+ 
+ 
+ def test_plugin_does_not_forward_high_volume_context_events():
+-    """message.updated/session.updated are read for context, never forwarded."""
+-    src = plugin_source()
+-    forwarded = src.split("const FORWARDED_EVENTS = [")[1].split("]")[0]
+-    assert "message.updated" not in forwarded
+-    assert "session.updated" not in forwarded
++    """Message, session-info and token-stream events are never forwarded."""
++    mapping = plugin_event_mapping()
++    for event in ("message.updated", "session.updated", "session.text.delta"):
++        assert event not in mapping, event
+ 
+ 
+ def test_plugin_forwards_parent_session_id():
+diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
+index f94b1d0..51b4258 100644
+--- a/tests/test_sidepulse.py
++++ b/tests/test_sidepulse.py
+@@ -221,6 +221,72 @@ from sidepulse.status_bar_launch import (
+ )
+ 
+ 
++def opencode_v2_plugin_runner(
++    events: list[dict],
++    after: str = "",
++    parents: dict[str, str] | None = None,
++    prelude: str = "",
++) -> str:
++    """A node script that drives the generated plugin through a fake v2 `ctx`.
++
++    The fake event stream yields `events`, then blocks until cleanup, so the
++    plugin's own resubscribe loop is exercised without spinning. The stream only
++    asks for the next event once the previous one has been handled, so `drained`
++    resolving means every event has been written. `after` runs next, with the
++    registered hooks in `hooks.session` / `hooks.tool`. `parents` answers
++    `ctx.session.get` lineage lookups.
++    """
++
++    return (
++        'import plugin from "./sidepulse.mjs"\n'
++        + prelude
++        + f"const events = {json.dumps(events)}\n"
++        + f"const parents = {json.dumps(parents or {})}\n"
++        + """const hooks = { session: {}, tool: {} }
++let drained
++const drainedPromise = new Promise((resolve) => (drained = resolve))
++const ctx = {
++  location: { directory: "/tmp/project" },
++  event: {
++    async *subscribe({ signal }) {
++      for (const event of events) yield event
++      drained()
++      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }))
++    },
++  },
++  session: {
++    hook: async (name, fn) => {
++      hooks.session[name] = fn
++      return { dispose: async () => {} }
++    },
++    get: async ({ sessionID }) => ({ id: sessionID, parentID: parents[sessionID] }),
++  },
++  tool: {
++    hook: async (name, fn) => {
++      hooks.tool[name] = fn
++      return { dispose: async () => {} }
++    },
++  },
++}
++if (plugin.id !== "sidepulse" || typeof plugin.setup !== "function") process.exit(5)
++const cleanup = await plugin.setup(ctx)
++await drainedPromise
++"""
++        + after
++        + "await cleanup()\n"
++    )
++
++
++def opencode_v2_event(event_type: str, session_id: str, **data: object) -> dict:
++    return {
++        "id": f"evt_{event_type}_{session_id}",
++        "created": 0,
++        "type": event_type,
++        "location": {"directory": "/tmp/project"},
++        "data": {"sessionID": session_id, **data},
++    }
++
++
+ class FakeProcess:
+     def __init__(self) -> None:
+         self.terminated = False
+@@ -557,9 +623,19 @@ class AgentMonitorTests(unittest.TestCase):
+         source = opencode_plugin_source(Path("/tmp/state/opencode.jsonl"))
+ 
+         # The JSONL log stays the recovery/reconciliation source.
+-        self.assertIn('const SIDEPULSE_LOG = "/tmp/state/opencode.jsonl"', source)
++        # SIDEPULSE_OPENCODE_LOG only redirects it for scratch runs and tests.
++        self.assertIn(
++            'const SIDEPULSE_LOG =\n  process.env.SIDEPULSE_OPENCODE_LOG || "/tmp/state/opencode.jsonl"',
++            source,
++        )
+         self.assertIn("appendFile(SIDEPULSE_LOG", source)
+ 
++        # OpenCode v2 loads `export default { id, setup }` and rejects v1's bare
++        # exported function.
++        self.assertIn('export default {\n  id: "sidepulse",\n  async setup(ctx) {', source)
++        self.assertNotIn("export const SidePulsePlugin", source)
++        self.assertTrue(source.startswith("// sidepulse-opencode-plugin"))
++
+         # ...and every event is also pushed live to the hook event socket, using the
+         # same wire format and candidate paths as sidepulse.ipc.send_hook_event.
+         self.assertIn('from "node:net"', source)
+@@ -601,10 +677,12 @@ class AgentMonitorTests(unittest.TestCase):
+ 
+             runner = base / "run-plugin.mjs"
+             runner.write_text(
+-                'import { SidePulsePlugin } from "./sidepulse.mjs"\n'
+-                'const hooks = await SidePulsePlugin({directory: "/tmp/project", worktree: "/tmp/project"})\n'
+-                'await hooks.event({event: {type: "session.status", properties: {sessionID: "open-session", status: {type: "busy"}}}})\n'
+-                'await hooks.event({event: {type: "session.idle", properties: {sessionID: "open-session"}}})\n'
++                opencode_v2_plugin_runner(
++                    [
++                        opencode_v2_event("session.execution.started", "open-session"),
++                        opencode_v2_event("session.execution.succeeded", "open-session"),
++                    ]
++                )
+             )
+             # A real home would let the plugin reach the developer's own status bar.
+             env = {
+@@ -648,10 +726,12 @@ class AgentMonitorTests(unittest.TestCase):
+             try:
+                 runner = base / "run-plugin.mjs"
+                 runner.write_text(
+-                    'import { SidePulsePlugin } from "./sidepulse.mjs"\n'
+-                    'const hooks = await SidePulsePlugin({directory: "/tmp/project", worktree: "/tmp/project"})\n'
+-                    'await hooks.event({event: {type: "session.status", properties: {sessionID: "live-session", status: {type: "busy"}}}})\n'
+-                    'await hooks.event({event: {type: "session.idle", properties: {sessionID: "live-session"}}})\n'
++                    opencode_v2_plugin_runner(
++                        [
++                            opencode_v2_event("session.execution.started", "live-session"),
++                            opencode_v2_event("session.execution.succeeded", "live-session"),
++                        ]
++                    )
+                 )
+                 env = {
+                     **os.environ,
+@@ -710,12 +790,14 @@ class AgentMonitorTests(unittest.TestCase):
+ 
+                 runner = base / "run-plugin.mjs"
+                 runner.write_text(
+-                    'import { SidePulsePlugin } from "./sidepulse.mjs"\n'
+-                    'process.on("unhandledRejection", (error) => { console.error("unhandled", error); process.exit(3) })\n'
+-                    'process.on("uncaughtException", (error) => { console.error("uncaught", error); process.exit(4) })\n'
+-                    'const hooks = await SidePulsePlugin({directory: "/tmp/project", worktree: "/tmp/project"})\n'
+-                    'await hooks.event({event: {type: "session.idle", properties: {sessionID: "lonely-session"}}})\n'
+-                    'console.log("survived")\n'
++                    opencode_v2_plugin_runner(
++                        [opencode_v2_event("session.execution.succeeded", "lonely-session")],
++                        prelude=(
++                            'process.on("unhandledRejection", (error) => { console.error("unhandled", error); process.exit(3) })\n'
++                            'process.on("uncaughtException", (error) => { console.error("uncaught", error); process.exit(4) })\n'
++                        ),
++                        after='console.log("survived")\n',
++                    )
+                 )
+                 env = {
+                     **os.environ,
+@@ -738,6 +820,130 @@ class AgentMonitorTests(unittest.TestCase):
+                 logged = [json.loads(line) for line in log.read_text().splitlines()]
+                 self.assertEqual([item["event_name"] for item in logged], ["session.idle"])
+ 
++    @unittest.skipUnless(shutil.which("node"), "Node is required for OpenCode plugin test")
++    def test_opencode_plugin_maps_v2_events_and_hooks_to_sidepulse_names(self) -> None:
++        from sidepulse.providers import canonical_event_name
++
++        with tempfile.TemporaryDirectory() as tmp:
++            base = Path(tmp)
++            plugin = base / "sidepulse.mjs"
++            installed_log = base / "installed" / "opencode.jsonl"
++            redirected_log = base / "redirected" / "opencode.jsonl"
++            install_opencode_hooks(log_path=installed_log, config_path=plugin)
++
++            event = opencode_v2_event
++            runner = base / "run-plugin.mjs"
++            runner.write_text(
++                opencode_v2_plugin_runner(
++                    [
++                        event("session.created", "parent"),
++                        event("session.created", "child", parentID="parent"),
++                        event("session.execution.started", "parent"),
++                        event("session.retry.scheduled", "parent"),
++                        # High-volume and superseded events are never forwarded.
++                        event("message.updated", "parent"),
++                        event("session.text.delta", "parent", delta="hi"),
++                        event("session.step.failed", "parent"),
++                        event("session.forked", "fork", parentID="parent"),
++                        event("session.tool.failed", "child", tool="bash"),
++                        event(
++                            "session.execution.failed",
++                            "child",
++                            error={"type": "provider", "message": "boom"},
++                        ),
++                        event("session.execution.failed", "parent", error={"type": "aborted"}),
++                        event("session.execution.interrupted", "parent"),
++                        event("permission.asked", "parent"),
++                        event("permission.replied", "parent"),
++                        # Lineage for a session first seen mid-run comes from ctx.session.get.
++                        event("session.execution.succeeded", "resumed"),
++                        event("session.execution.succeeded", "fork"),
++                        event("session.deleted", "child"),
++                    ],
++                    parents={"resumed": "parent"},
++                    after=(
++                        'await hooks.session.prompt({ sessionID: "parent" })\n'
++                        'await hooks.tool["execute.before"]({ sessionID: "parent", tool: "bash" })\n'
++                        'await hooks.tool["execute.after"]({ sessionID: "parent", tool: "bash" })\n'
++                    ),
++                )
++            )
++            env = {
++                **os.environ,
++                "HOME": str(base / "home"),
++                "XDG_STATE_HOME": str(base / "home" / "state"),
++                "SIDEPULSE_OPENCODE_LOG": str(redirected_log),
++            }
++            for key in ("T3CODE_HOME", "T3_CODE", "T3CODE", "T3_MCP_BEARER_TOKEN"):
++                env.pop(key, None)
++            completed = subprocess.run(
++                [shutil.which("node"), str(runner)],
++                check=False,
++                stdout=subprocess.PIPE,
++                stderr=subprocess.PIPE,
++                text=True,
++                timeout=60,
++                env=env,
++            )
++            self.assertEqual(completed.returncode, 0, completed.stderr)
++
++            self.assertEqual(installed_log.read_text(), "")
++            logged = [json.loads(line) for line in redirected_log.read_text().splitlines()]
++            self.assertEqual(
++                [(item["event_name"], item["session_id"]) for item in logged],
++                [
++                    ("session.created", "parent"),
++                    ("session.created", "child"),
++                    ("session.status", "parent"),
++                    ("session.status", "parent"),
++                    ("session.next.tool.failed", "child"),
++                    ("session.error", "child"),
++                    ("session.idle", "parent"),
++                    ("session.idle", "parent"),
++                    ("permission.asked", "parent"),
++                    ("permission.replied", "parent"),
++                    ("session.idle", "resumed"),
++                    ("session.idle", "fork"),
++                    ("session.deleted", "child"),
++                    ("session.status", "parent"),
++                    ("tool.execute.before", "parent"),
++                    ("tool.execute.after", "parent"),
++                ],
++            )
++            for item in logged:
++                self.assertIsNotNone(canonical_event_name(item["event_name"]), item)
++                self.assertEqual(item["cwd"], "/tmp/project")
++                self.assertEqual(item["agent_origin"], "OpenCode")
++                self.assertIsInstance(item["agent_pid"], int)
++
++            # Child sessions are tagged as subagents, top-level ones are not.
++            by_session = {item["session_id"]: item for item in logged}
++            for child in ("child", "resumed", "fork"):
++                self.assertEqual(by_session[child]["agent_id"], child)
++                self.assertEqual(by_session[child]["parent_session_id"], "parent")
++            self.assertNotIn("agent_id", by_session["parent"])
++
++            self.assertEqual(logged[4]["tool_name"], "bash")
++            self.assertEqual(logged[5]["message"], "boom")
++            self.assertTrue(logged[13]["sidepulse_user_prompt"])
++            self.assertEqual(logged[14]["tool_name"], "bash")
++            self.assertTrue(all("sidepulse_user_prompt" not in item for item in logged[:13]))
++
++    def test_opencode_detection_reads_the_v2_log_override_fallback(self) -> None:
++        with tempfile.TemporaryDirectory() as tmp:
++            home = Path(tmp)
++            plugin = home / ".config" / "opencode" / "plugins" / "sidepulse.js"
++            plugin.parent.mkdir(parents=True)
++            log = home / "state with space" / 'quote"d' / "opencode.jsonl"
++            plugin.write_text(opencode_plugin_source(log))
++            self.assertEqual(detect_opencode_config(home).log_paths, (log,))
++
++            # Plugins generated before the v2 port assign the path directly.
++            plugin.write_text(
++                f"// sidepulse-opencode-plugin\nconst SIDEPULSE_LOG = {json.dumps(str(log))}\n"
++            )
++            self.assertEqual(detect_opencode_config(home).log_paths, (log,))
++
+     def test_grok_log_line_normalizes_camel_case_payload(self) -> None:
+         record = parse_log_line(
+             "grok",

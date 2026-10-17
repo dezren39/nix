@@ -1,4 +1,4 @@
-SidePulse patch 10/11 -- local, dezren39/nix#332.
+SidePulse patch 10/12 -- local, dezren39/nix#332.
 Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-331-errors-and-prompts-persist.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
