@@ -796,6 +796,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return serr
 	}
 
+	// A recipe's @param holes are filled by `recipes run`, not here, and
+	// both run paths (local and on the daemon) would otherwise hand the
+	// raw holes to the runtime as a syntax error (#367).
+	if !inline && fs.NArg() > 0 {
+		if herr := refuseRecipeHoles(fs.Arg(0)); herr != nil {
+			return herr
+		}
+	}
+
 	if elsewhere {
 		return a.execOnDaemon(ctx, c, fs, inline, ns, sessionKey, eo,
 			execRemoteFlags{timeout: *timeout, runtime: *rt, permissions: *perms,
