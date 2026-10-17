@@ -1,5 +1,5 @@
 SidePulse patch 2/11 -- upstream PR inteliwear/sidepulse#17 "Polish local status bar runtime" (open).
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-14-opencode-t3.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-pr-14-opencode-t3.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/src/sidepulse/audit.py b/src/sidepulse/audit.py
@@ -427,7 +427,7 @@ index 063e3ab..d108639 100644
      if systemctl is None:
          return False
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index 06906a3..344d005 100644
+index 89e8350..16211b3 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -64,7 +64,16 @@ try:
@@ -546,7 +546,7 @@ index 06906a3..344d005 100644
      @objc.IBAction
      def refreshHistoryChart_(self, _sender):
          self.refresh_history_chart()
-@@ -2073,6 +2126,7 @@ class StatusBarController(NSObject):
+@@ -2076,6 +2129,7 @@ class StatusBarController(NSObject):
          if not SIDEPULSE_NOTCH_FEATURE_ENABLED:
              try:
                  self.settings = self.settings.with_virtual_status_device(False)
@@ -554,7 +554,7 @@ index 06906a3..344d005 100644
                  save_settings(self.settings)
              except Exception as exc:
                  self.set_settings_message(f"Could not disable SidePulse Notch: {exc}")
-@@ -3347,8 +3401,14 @@ class StatusBarController(NSObject):
+@@ -3350,8 +3404,14 @@ class StatusBarController(NSObject):
              )
          ]
          if not devices:
@@ -569,7 +569,7 @@ index 06906a3..344d005 100644
          self.led_animation_token += 1
          token = self.led_animation_token
          duration = animation.duration_seconds + LID_ANIMATION_RESTORE_FUDGE_SECONDS
-@@ -4030,6 +4090,8 @@ def choose_debug_export_path(format_name: str) -> Path | None:
+@@ -4033,6 +4093,8 @@ def choose_debug_export_path(format_name: str) -> Path | None:
      panel.setNameFieldStringValue_(f"sidepulse-agent-debug.{extension}")
      if hasattr(panel, "setAllowedFileTypes_"):
          panel.setAllowedFileTypes_([extension])
@@ -578,7 +578,7 @@ index 06906a3..344d005 100644
      if panel.runModal() != 1:
          return None
      url = panel.URL()
-@@ -5084,6 +5146,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -5087,6 +5149,7 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
      debug_log_status = add_label(diagnostics_tab, "", 32, 360, 588, 22)
      add_button(diagnostics_tab, "Export CSV", 32, 318, 110, 28, target, "exportDebugCsv:")
      add_button(diagnostics_tab, "Export HTML", 152, 318, 120, 28, target, "exportDebugHtml:")
@@ -586,7 +586,7 @@ index 06906a3..344d005 100644
      add_separator(diagnostics_tab, 24, 280, tab_width - 48)
      add_label(diagnostics_tab, "Settings File", 24, 246, 240, 24)
      settings_path = add_label(diagnostics_tab, "", 32, 208, 588, 22)
-@@ -5836,9 +5899,12 @@ def open_terminal_setup_command(command: str, *, filename: str = "install-sleep-
+@@ -5839,9 +5902,12 @@ def open_terminal_setup_command(command: str, *, filename: str = "install-sleep-
              'echo "macOS may ask for your administrator password."',
              'echo ""',
              command,
@@ -1018,7 +1018,7 @@ index 0000000..1f3014c
 +if __name__ == "__main__":  # pragma: no cover
 +    unittest.main()
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 12f0742..882083e 100644
+index 71b9791..a8fd091 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -24,6 +24,7 @@ from sidepulse.audit import (

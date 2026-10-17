@@ -7,11 +7,11 @@
 
 python3Packages.buildPythonApplication rec {
   pname = "sidepulse-unwrapped";
-  version = "0.1.0.dev20260930";
+  version = "0.1.0.dev20261013";
   pyproject = true;
 
   # `sidepulse-src` follows upstream main while flake.lock pins the compatible
-  # revision used by this ordered patch stack (6d55225, 2026-09-30). Patches
+  # revision used by this ordered patch stack (ffb1d3c, 2026-10-13). Patches
   # named `sidepulse-pr-N` carry upstream PR inteliwear/sidepulse#N; patches
   # named `sidepulse-dezren39-nix-N` are local and documented in
   # dezren39/nix#N. Each patch's header records its source and base, and all

@@ -214,6 +214,12 @@ in
     # atuin: SQLite-backed shell history — Ctrl+R only (up arrow = normal shell behavior)
     atuin = {
       enable = true;
+      # atuin 18.23.0's PTY e2e tests (tests/e2e_*.rs) time out in the darwin
+      # Nix sandbox -- "timed out waiting for shell session ID" / "...captured
+      # output", with a different subset failing each run -- and neither
+      # nixpkgs-unstable nor nixos-unstable has a cached darwin build, so the
+      # local build fails. Drop this override once cache.nixos.org has one.
+      package = pkgs.atuin.overrideAttrs { doCheck = false; };
       enableZshIntegration = true;
       enableBashIntegration = true;
       enableFishIntegration = true;

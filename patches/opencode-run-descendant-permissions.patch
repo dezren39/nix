@@ -1,140 +1,102 @@
-diff --git i/packages/opencode/src/cli/cmd/run.ts w/packages/opencode/src/cli/cmd/run.ts
-index cccc25501..a432bb13b 100644
---- i/packages/opencode/src/cli/cmd/run.ts
-+++ w/packages/opencode/src/cli/cmd/run.ts
-@@ -37,6 +37,33 @@ function pick(value: string | undefined): ModelInput | undefined {
-   } as ModelInput
- }
+diff --git a/packages/cli/src/run/noninteractive.ts b/packages/cli/src/run/noninteractive.ts
+index f4c56b8..46df159 100644
+--- a/packages/cli/src/run/noninteractive.ts
++++ b/packages/cli/src/run/noninteractive.ts
+@@ -7,6 +7,7 @@ import type {
+   SessionMessageInfo,
+   ToolContent,
+ } from "@opencode/client/promise"
++import { isSessionNotFoundError } from "@opencode/client/promise"
+ import { SessionMessage } from "@opencode/schema/session-message"
+ import { EOL } from "node:os"
+ import { readFile } from "node:fs/promises"
+@@ -140,20 +141,59 @@ export async function runNonInteractivePrompt(input: Input) {
  
-+function clientErrorStatus(error: unknown): number | undefined {
-+  if (!(error instanceof Error) || typeof error.cause !== "object" || error.cause === null) return undefined
-+  if (!("status" in error.cause) || typeof error.cause.status !== "number") return undefined
-+  return error.cause.status
-+}
-+
-+export async function isSessionInTree(
-+  parent: (sessionID: string) => Promise<string | undefined>,
-+  targetID: string,
-+  sessions: Set<string>,
-+): Promise<boolean> {
-+  if (sessions.has(targetID)) return true
-+  const lineage: string[] = []
-+  const seen = new Set<string>()
-+  let current = targetID
-+  while (!sessions.has(current)) {
-+    if (seen.has(current)) return false
-+    seen.add(current)
-+    lineage.push(current)
-+    const parentID = await parent(current)
-+    if (!parentID) return false
-+    current = parentID
+   // Subagents run in child sessions; their asks and questions belong to this run too. Other
+   // sessions on a shared server (e.g. the TUI's) must be left alone.
+-  const owned = new Map<string, Promise<boolean>>([[input.sessionID, Promise.resolve(true)]])
++  // Lineage is learned from session.created events and, for anything missed, by walking
++  // parentID. Each lookup is time-bounded and the walk is cycle-safe. A failed lookup
++  // rejects instead of reading as "unrelated": an ignored request from a descendant
++  // would leave this run blocked forever, so the caller aborts the run instead.
++  const owned = new Set([input.sessionID])
++  const unrelated = new Set<string>([GLOBAL_FORM_SESSION_ID])
++  const walking = new Map<string, Promise<boolean>>()
++  const parentOf = async (sessionID: string) => {
++    try {
++      const session = await input.client.session.get({ sessionID }, { signal: AbortSignal.timeout(10_000) })
++      return session.parentID
++    } catch (error) {
++      if (isSessionNotFoundError(error)) return undefined
++      throw error
++    }
 +  }
-+  lineage.forEach((id) => sessions.add(id))
-+  return true
-+}
-+
- function resolveRunInput(value?: string, piped?: string): string | undefined {
-   if (!value) {
-     return piped
-@@ -690,6 +717,8 @@ export const RunCommand = effectCmd({
-           return false
-         }
+   const ownsSession = (sessionID: string): Promise<boolean> => {
+-    const known = owned.get(sessionID)
+-    if (known) return known
+-    const result =
+-      sessionID === GLOBAL_FORM_SESSION_ID
+-        ? Promise.resolve(false)
+-        : input.client.session
+-            .get({ sessionID })
+-            .then((session) => (session.parentID ? ownsSession(session.parentID) : false))
+-            .catch(() => false)
+-    owned.set(sessionID, result)
++    if (owned.has(sessionID)) return Promise.resolve(true)
++    if (unrelated.has(sessionID)) return Promise.resolve(false)
++    const pending = walking.get(sessionID)
++    if (pending) return pending
++    const result = (async () => {
++      const lineage: string[] = []
++      const seen = new Set<string>()
++      let current = sessionID
++      while (!owned.has(current)) {
++        if (seen.has(current) || unrelated.has(current)) {
++          lineage.forEach((id) => unrelated.add(id))
++          return false
++        }
++        seen.add(current)
++        lineage.push(current)
++        const parentID = await parentOf(current)
++        if (!parentID) {
++          lineage.forEach((id) => unrelated.add(id))
++          return false
++        }
++        current = parentID
++      }
++      lineage.forEach((id) => owned.add(id))
++      return true
++    })().finally(() => walking.delete(sessionID))
++    walking.set(sessionID, result)
+     return result
+   }
++  const ownsSessionOrAbort = (sessionID: string) =>
++    ownsSession(sessionID).catch(async (error) => {
++      admission?.abort(error)
++      await input.client.session
++        .interrupt({ sessionID: input.sessionID }, { signal: AbortSignal.timeout(5_000) })
++        .catch(() => {})
++      throw error
++    })
  
-+        const requestAbort = new AbortController()
-+
-         // Consume one subscribed event stream for the active session and mirror it
-         // to stdout/UI. `client` is passed explicitly because attach mode may
-         // rebind the SDK to the session's directory after the subscription is
-@@ -697,11 +726,24 @@ export const RunCommand = effectCmd({
-         async function loop(client: OpencodeClient, events: Awaited<ReturnType<typeof sdk.event.subscribe>>) {
-           const toggles = new Map<string, boolean>()
-           const sessions = new Set([sessionID])
-+          const parent = async (id: string): Promise<string | undefined> => {
-+            try {
-+              const result = await client.session.get(
-+                { sessionID: id },
-+                { throwOnError: true, signal: AbortSignal.timeout(10_000) },
-+              )
-+              return result.data.parentID
-+            } catch (error) {
-+              if (clientErrorStatus(error) === 404) return undefined
-+              throw error
-+            }
-+          }
-           let error: string | undefined
+   const replyPermission = async (request: {
+     id: string
+@@ -218,14 +258,16 @@ export async function runNonInteractivePrompt(input: Input) {
+       }
+       const event = next.value
  
-           for await (const event of events.stream) {
--            if (event.type === "session.created" && event.properties.info.parentID) {
--              if (sessions.has(event.properties.info.parentID)) sessions.add(event.properties.info.id)
-+            if (event.type === "session.created" || event.type === "session.updated") {
-+              const info = event.properties.info
-+              if (info.parentID && sessions.has(info.parentID)) sessions.add(info.id)
-             }
- 
-             if (
-@@ -800,7 +842,14 @@ export const RunCommand = effectCmd({
- 
-             if (event.type === "permission.asked") {
-               const permission = event.properties
--              if (!sessions.has(permission.sessionID)) continue
-+              const related = await isSessionInTree(parent, permission.sessionID, sessions).catch(async (error) => {
-+                requestAbort.abort(error)
-+                await client.session
-+                  .abort({ sessionID }, { throwOnError: true, signal: AbortSignal.timeout(5_000) })
-+                  .catch(() => undefined)
-+                throw error
-+              })
-+              if (!related) continue
- 
-               if (auto) {
-                 await client.permission.reply({
-@@ -843,14 +892,17 @@ export const RunCommand = effectCmd({
-           }
- 
-           if (args.command) {
--            const result = await client.session.command({
--              sessionID,
--              agent,
--              model: args.model,
--              command: args.command,
--              arguments: message,
--              variant: args.variant,
--            })
-+            const result = await client.session.command(
-+              {
-+                sessionID,
-+                agent,
-+                model: args.model,
-+                command: args.command,
-+                arguments: message,
-+                variant: args.variant,
-+              },
-+              { signal: requestAbort.signal },
-+            )
-             if (result.error) {
-               if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
-               process.exitCode = 1
-@@ -861,13 +913,16 @@ export const RunCommand = effectCmd({
-           }
- 
-           const model = pick(args.model)
--          const result = await client.session.prompt({
--            sessionID,
--            agent,
--            model,
--            variant: args.variant,
--            parts: [...files, { type: "text", text: message }],
--          })
-+          const result = await client.session.prompt(
-+            {
-+              sessionID,
-+              agent,
-+              model,
-+              variant: args.variant,
-+              parts: [...files, { type: "text", text: message }],
-+            },
-+            { signal: requestAbort.signal },
-+          )
-           if (result.error) {
-             if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
-             process.exitCode = 1
+-      if (event.type === "permission.asked" && submitted && (await ownsSession(event.data.sessionID))) {
++      if (event.type === "session.created" && event.data.parentID && owned.has(event.data.parentID))
++        owned.add(event.data.sessionID)
++      if (event.type === "permission.asked" && submitted && (await ownsSessionOrAbort(event.data.sessionID))) {
+         await replyPermission(event.data)
+         continue
+       }
+       if (
+         event.type === "form.created" &&
+         submitted &&
+-        ((await ownsSession(event.data.form.sessionID)) ||
++        ((await ownsSessionOrAbort(event.data.form.sessionID)) ||
+           (!input.attached &&
+             event.data.form.sessionID === GLOBAL_FORM_SESSION_ID &&
+             sameLocation(event.location, input.location)))

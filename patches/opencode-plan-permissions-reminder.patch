@@ -1,60 +1,36 @@
-diff --git a/packages/opencode/src/session/prompt/plan-mode.txt b/packages/opencode/src/session/prompt/plan-mode.txt
-index 2057f36d7..cef09ef20 100644
---- a/packages/opencode/src/session/prompt/plan-mode.txt
-+++ b/packages/opencode/src/session/prompt/plan-mode.txt
-@@ -1,9 +1,14 @@
- <system-reminder>
--Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
-+Plan mode is active and is read-only by default through its permission rules.
-+The resolved Plan permissions are authoritative: you MAY perform any path or
-+action they allow, including configured overrides, and MUST NOT perform actions
-+they deny. This reminder does not supersede those permissions.
+diff --git a/packages/core/src/plugin/plan.ts b/packages/core/src/plugin/plan.ts
+index ef9ed24..80fe6ca 100644
+--- a/packages/core/src/plugin/plan.ts
++++ b/packages/core/src/plugin/plan.ts
+@@ -12,12 +12,14 @@ import { Permission } from "../permission.js"
+ const plan = Agent.ID.make("plan")
  
- ## Plan File Info:
- ${planInfo}
--You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
-+You should build your plan incrementally by writing to or editing this file.
-+Other paths and actions may also be used when the resolved Plan permissions
-+allow them.
+ const enter = (directory: string) => `<system-reminder>
+-You are in Plan mode. Discuss the plan with the user directly in the conversation. Do not create or update plan files unless the user explicitly asks you to; when they do, write them only in:
++You are in Plan mode. Plan is read-only by default through its permission rules. The resolved Plan permissions are authoritative: you MAY perform any path or action they allow, including configured overrides, and MUST NOT perform actions they deny. This reminder does not supersede those permissions.
++
++Discuss the plan with the user directly in the conversation. Do not create or update plan files unless the user explicitly asks you to; when they do, write them in:
+ ${directory}
  
- ## Plan Workflow
+-Do not modify any other files or ask a subagent to do so.
++Other paths and actions, including asking a subagent to modify files, may be used only when the resolved Plan permissions allow them.
  
-@@ -54,7 +59,7 @@ Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's inten
- 3. Use question tool to clarify any remaining questions with the user
+-You remain in Plan mode until the user switches agents. If the user asks you to implement changes, do not do so. Tell them they need to switch agents.
++You remain in Plan mode until the user switches agents. If the user asks you to implement changes beyond what the resolved Plan permissions allow, do not do so. Tell them they need to switch agents.
+ </system-reminder>`
  
- ### Phase 4: Final Plan
--Goal: Write your final plan to the plan file (the only file you can edit).
-+Goal: Write your final plan to the plan file.
- - Include only your recommended approach, not all alternatives
- - Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
- - Include the paths of critical files to be modified
-diff --git a/packages/opencode/src/session/prompt/plan.txt b/packages/opencode/src/session/prompt/plan.txt
-index 1806e0eba..ac7858d04 100644
---- a/packages/opencode/src/session/prompt/plan.txt
-+++ b/packages/opencode/src/session/prompt/plan.txt
-@@ -1,12 +1,10 @@
- <system-reminder>
- # Plan Mode - System Reminder
- 
--CRITICAL: Plan mode ACTIVE - you are in READ-ONLY phase. STRICTLY FORBIDDEN:
--ANY file edits, modifications, or system changes. Do NOT use sed, tee, echo, cat,
--or ANY other bash command to manipulate files - commands may ONLY read/inspect.
--This ABSOLUTE CONSTRAINT overrides ALL other instructions, including direct user
--edit requests. You may ONLY observe, analyze, and plan. Any modification attempt
--is a critical violation. ZERO exceptions.
-+Plan mode is active and is read-only by default through its permission rules.
-+The resolved Plan permissions are authoritative: you MAY perform any path or
-+action they allow, including configured overrides, and MUST NOT perform actions
-+they deny. This reminder does not supersede those permissions.
- 
- ---
- 
-@@ -22,5 +20,7 @@ Ask the user clarifying questions or ask for their opinion when weighing tradeof
- 
- ## Important
- 
--The user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
-+The user indicated that they do not want you to execute beyond what the resolved
-+Plan permissions allow. Plan is read-only by default, but you MAY perform any
-+path or action those permissions allow, including configured overrides.
- </system-reminder>
+ const leave = `<system-reminder>
+diff --git a/packages/core/test/plugin/plan.test.ts b/packages/core/test/plugin/plan.test.ts
+index b8b5a9a..98f2ae1 100644
+--- a/packages/core/test/plugin/plan.test.ts
++++ b/packages/core/test/plugin/plan.test.ts
+@@ -162,7 +162,8 @@ describe("plan plugin reminders", () => {
+       expect(persisted[0]).toContain("You are in Plan mode")
+       expect(persisted[0]).toContain("Do not create or update plan files unless the user explicitly asks you to")
+       expect(persisted[0]).toContain(planDirectory)
+-      expect(persisted[0]).toContain("Do not modify any other files")
++      expect(persisted[0]).toContain("The resolved Plan permissions are authoritative")
++      expect(persisted[0]).not.toContain("Do not modify any other files")
+       expect(persisted[1]).toContain("NO LONGER in Plan mode")
+     }),
+   )

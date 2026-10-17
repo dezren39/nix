@@ -1,5 +1,5 @@
 SidePulse patch 5/11 -- upstream PR inteliwear/sidepulse#30 "Fix stale and stuck session states in the status bar" (closed unmerged).
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-28-dnd.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-pr-28-dnd.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
@@ -130,7 +130,7 @@ index 30fc320..1215a2b 100644
      record: HookEvent,
      pending_permissions_by_key: dict[str, set[str]],
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index d5ce2e5..052a274 100644
+index f777d5d..b237c2a 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -816,6 +816,15 @@ class StatusBarController(NSObject):
@@ -192,7 +192,7 @@ index d5ce2e5..052a274 100644
      @objc.IBAction
      def openDeepLink_(self, sender):
          url = sender.representedObject()
-@@ -7014,7 +7043,10 @@ def recent_statuses(
+@@ -7012,7 +7041,10 @@ def recent_statuses(
  
  
  def menu_statuses(snapshot, settings=None) -> tuple[AgentStatus, ...]:
@@ -204,7 +204,7 @@ index d5ce2e5..052a274 100644
      now = snapshot.collected_at
      retention_seconds = (
          settings.recent_session_retention_seconds
-@@ -7025,6 +7057,7 @@ def menu_statuses(snapshot, settings=None) -> tuple[AgentStatus, ...]:
+@@ -7023,6 +7055,7 @@ def menu_statuses(snapshot, settings=None) -> tuple[AgentStatus, ...]:
          status
          for status in getattr(snapshot, "stale_statuses", ())
          if status.mode == AgentMode.COMPLETED
@@ -213,7 +213,7 @@ index d5ce2e5..052a274 100644
      )
      return tuple(statuses)
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index f08037b..b1d8445 100644
+index f2891c2..66d3053 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -238,6 +238,78 @@ class FakeProcess:

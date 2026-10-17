@@ -1,121 +1,74 @@
-diff --git a/packages/tui/src/routes/session/question.tsx b/packages/tui/src/routes/session/question.tsx
-index 59eea0c..a5a1a73 100644
---- a/packages/tui/src/routes/session/question.tsx
-+++ b/packages/tui/src/routes/session/question.tsx
-@@ -134,6 +134,57 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
-     pick(opt.label)
+diff --git a/packages/tui/src/routes/session/form.tsx b/packages/tui/src/routes/session/form.tsx
+index 4fa58ec..9d221b1 100644
+--- a/packages/tui/src/routes/session/form.tsx
++++ b/packages/tui/src/routes/session/form.tsx
+@@ -448,6 +448,27 @@ export function FormPrompt(props: { form: FormWithLocation }) {
+     if (!single()) selectTab((store.tab + direction + tabs()) % tabs())
    }
  
-+  // Commit the custom "Type your own answer" text. Shared by the textarea's
-+  // onSubmit prop and the declarative return binding. The textarea's onSubmit
-+  // is the primary path: a focused @opentui textarea consumes Enter internally
-+  // (inserting a newline / firing onSubmit) before the key ever reaches the
-+  // question-mode keymap, so the `key: "return"` binding below never fires
-+  // while editing. Wiring onSubmit — the same approach the working run-mode
-+  // footer (cli/cmd/run/footer.question.tsx) uses — is what actually lets a
-+  // typed custom answer be submitted. Terminal-agnostic: it fixes the "Enter
-+  // does nothing but add newlines" trap on Kitty-keyboard terminals (Ghostty,
-+  // kitty, WezTerm) where Enter arrives as an enhanced CSI-u sequence.
++  // Commit the edited answer. Shared by the textareas' onSubmit prop and the
++  // editing layer's return binding: a focused textarea can consume Enter (for
++  // example as an enhanced CSI-u sequence on Kitty-keyboard terminals) before
++  // it reaches the form keymap, so onSubmit is what reliably submits.
 +  function commitEdit() {
 +    const text = textarea?.plainText?.trim() ?? ""
-+    const prev = store.custom[store.tab]
-+
-+    if (!text) {
-+      if (prev) {
-+        const inputs = [...store.custom]
-+        inputs[store.tab] = ""
-+        setStore("custom", inputs)
-+
-+        const answers = [...store.answers]
-+        answers[store.tab] = (answers[store.tab] ?? []).filter((x) => x !== prev)
-+        setStore("answers", answers)
-+      }
-+      setStore("editing", false)
++    const current = answerField()
++    if (!current) return
++    if (textual()) {
++      submitInput(text)
 +      return
 +    }
-+
-+    if (multi()) {
-+      const inputs = [...store.custom]
-+      inputs[store.tab] = text
-+      setStore("custom", inputs)
-+
-+      const existing = store.answers[store.tab] ?? []
-+      const next = [...existing]
-+      if (prev) {
-+        const index = next.indexOf(prev)
-+        if (index !== -1) next.splice(index, 1)
-+      }
-+      if (!next.includes(text)) next.push(text)
-+      const answers = [...store.answers]
-+      answers[store.tab] = next
-+      setStore("answers", answers)
-+      setStore("editing", false)
++    const wasMulti = multi()
++    if (!commitInput(text) || wasMulti || !text) return
++    if (single()) {
++      replySingle(current, text)
 +      return
 +    }
-+
-+    pick(text, true)
-+    setStore("editing", false)
++    selectTab(store.tab + 1)
 +  }
 +
-   onMount(() => {
-     const popMode = modeStack.push(QUESTION_MODE)
-     onCleanup(popMode)
-@@ -182,46 +233,10 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
-         key: "return",
-         desc: "Submit answer edit",
-         group: "Question",
--        cmd: () => {
+   function selectTabFromMouse(target?: FormField) {
+     const targetIndex = () => {
+       const index = target ? fields().findIndex((field) => field === target) : fields().length
+@@ -629,22 +650,9 @@ export function FormPrompt(props: { form: FormWithLocation }) {
+         bind: "return",
+         title: "Submit answer edit",
+         group: "Form",
+-        run: () => {
 -          const text = textarea?.plainText?.trim() ?? ""
--          const prev = store.custom[store.tab]
--
--          if (!text) {
--            if (prev) {
--              const inputs = [...store.custom]
--              inputs[store.tab] = ""
--              setStore("custom", inputs)
--
--              const answers = [...store.answers]
--              answers[store.tab] = (answers[store.tab] ?? []).filter((x) => x !== prev)
--              setStore("answers", answers)
--            }
--            setStore("editing", false)
+-          const current = answerField()
+-          if (!current) return
+-          if (textual()) {
+-            submitInput(text)
 -            return
 -          }
--
--          if (multi()) {
--            const inputs = [...store.custom]
--            inputs[store.tab] = text
--            setStore("custom", inputs)
--
--            const existing = store.answers[store.tab] ?? []
--            const next = [...existing]
--            if (prev) {
--              const index = next.indexOf(prev)
--              if (index !== -1) next.splice(index, 1)
--            }
--            if (!next.includes(text)) next.push(text)
--            const answers = [...store.answers]
--            answers[store.tab] = next
--            setStore("answers", answers)
--            setStore("editing", false)
+-          const wasMulti = multi()
+-          if (!commitInput(text) || wasMulti || !text) return
+-          if (single()) {
+-            replySingle(current, text)
 -            return
 -          }
--
--          pick(text, true)
--          setStore("editing", false)
+-          selectTab(store.tab + 1)
 -        },
-+        // Fallback only. On terminals without the Kitty keyboard protocol the
-+        // textarea may let Enter propagate here; on Kitty-keyboard terminals it
-+        // is consumed by the textarea (see commitEdit / the onSubmit prop).
-+        cmd: () => commitEdit(),
++        // Fallback for when the focused textarea lets Enter reach the keymap;
++        // the textareas' onSubmit is the primary path (see commitEdit).
++        run: () => commitEdit(),
        },
-       ...tuiConfig.keybinds.get("app.exit"),
      ],
-@@ -481,6 +496,7 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
-                         focusedTextColor={theme.text}
-                         cursorColor={theme.primary}
-                         cursorStyle={tuiConfig.cursor}
-+                        onSubmit={() => commitEdit()}
-                       />
-                     </box>
-                   </Show>
+   }))
+@@ -929,6 +937,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
+                   textColor={theme.text.base}
+                   focusedTextColor={theme.text.base}
+                   cursorColor={theme.text.base}
++                  onSubmit={() => commitEdit()}
+                 />
+               </box>
+             </Show>
+@@ -1073,6 +1082,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
+                               if (!current || !textarea || textarea.isDestroyed) return
+                               updateCustom(current, typeof value === "string" ? value : textarea.plainText)
+                             }}
++                            onSubmit={() => commitEdit()}
+                           />
+                         </Show>
+                       </box>

@@ -1,12 +1,12 @@
 SidePulse patch 4/11 -- upstream PR inteliwear/sidepulse#28 "Add manual and scheduled Do Not Disturb mode" (closed unmerged by its author).
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-26-lid-closed-leds.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-pr-26-lid-closed-leds.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/README.md b/README.md
-index cca734d..51803c8 100644
+index 2af4d15..aea3858 100644
 --- a/README.md
 +++ b/README.md
-@@ -737,6 +737,16 @@ from Finder or Spotlight. Check **Show menu bar icon** to restore it.
+@@ -759,6 +759,16 @@ from Finder or Spotlight. Check **Show menu bar icon** to restore it.
  Running `sidepulse status-bar` (or `sidepulse status-bar start`) also restores
  the icon immediately. Automatic starts at login retain your visibility preference.
  
@@ -169,7 +169,7 @@ index 64a2dd1..5c391ea 100644
      if isinstance(value, (int, float)):
          return max(0.0, float(value))
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index 91185a5..d5ce2e5 100644
+index 3bd760a..f777d5d 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -8,7 +8,7 @@ import subprocess
@@ -333,7 +333,7 @@ index 91185a5..d5ce2e5 100644
          for provider in ("codex", "claude", "grok", "opencode"):
              popup = self.settings_fields.get(f"{provider}_session_opener")
              if popup is not None:
-@@ -2202,7 +2310,7 @@ class StatusBarController(NSObject):
+@@ -2205,7 +2313,7 @@ class StatusBarController(NSObject):
          except Exception as exc:
              self.set_settings_message(f"Could not save SidePulse Notch: {exc}")
              return
@@ -342,7 +342,7 @@ index 91185a5..d5ce2e5 100644
              self.virtual_status_device.show()
          else:
              self.virtual_status_device.hide()
-@@ -2845,6 +2953,84 @@ class StatusBarController(NSObject):
+@@ -2848,6 +2956,84 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          self.refresh_(None)
  
@@ -427,7 +427,7 @@ index 91185a5..d5ce2e5 100644
      def read_battery_snapshot(self) -> BatterySnapshot | None:
          try:
              snapshot = read_battery_snapshot(
-@@ -3235,6 +3421,17 @@ class StatusBarController(NSObject):
+@@ -3238,6 +3424,17 @@ class StatusBarController(NSObject):
              mode = AgentMode.IDLE_READY
              battery_snapshot = None
              display_kind = LED_DISPLAY_AGENT
@@ -445,7 +445,7 @@ index 91185a5..d5ce2e5 100644
  
          self.sync_virtual_status_device(mode, battery_snapshot)
  
-@@ -3265,6 +3462,45 @@ class StatusBarController(NSObject):
+@@ -3268,6 +3465,45 @@ class StatusBarController(NSObject):
              self.last_battery_snapshot,
              self.active_led_display_kind(self.last_battery_snapshot),
          )
@@ -491,7 +491,7 @@ index 91185a5..d5ce2e5 100644
  
      def sync_virtual_status_device(
          self,
-@@ -3329,6 +3565,9 @@ class StatusBarController(NSObject):
+@@ -3332,6 +3568,9 @@ class StatusBarController(NSObject):
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
      ) -> None:
@@ -501,7 +501,7 @@ index 91185a5..d5ce2e5 100644
          devices = [
              device for device in self.status_bar_devices()
              if device.connected and device.device_id != VIRTUAL_DEVICE_ID
-@@ -3441,7 +3680,7 @@ class StatusBarController(NSObject):
+@@ -3444,7 +3683,7 @@ class StatusBarController(NSObject):
          *,
          animation: LedAnimationSetting | None = None,
      ) -> None:
@@ -510,7 +510,7 @@ index 91185a5..d5ce2e5 100644
              return
          if animation is None:
              state = (
-@@ -3545,6 +3784,7 @@ class StatusBarController(NSObject):
+@@ -3548,6 +3787,7 @@ class StatusBarController(NSObject):
  
      def connect_device(self) -> None:
          self.leds_enabled = True
@@ -518,7 +518,7 @@ index 91185a5..d5ce2e5 100644
          self.status_bar_devices()
          self.reset_led_controllers_for_display_change()
          self.last_led_error = None
-@@ -3553,6 +3793,7 @@ class StatusBarController(NSObject):
+@@ -3556,6 +3796,7 @@ class StatusBarController(NSObject):
  
      def disconnect_device(self) -> None:
          self.leds_enabled = False
@@ -526,7 +526,7 @@ index 91185a5..d5ce2e5 100644
          targets = self.current_led_targets()
          if not targets:
              targets = [
-@@ -3930,6 +4171,21 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -3933,6 +4174,21 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
      lid_idle.setTarget_(target)
      lid_idle.setState_(1 if target.settings.lid_closed_led_idle_enabled else 0)
      menu.addItem_(lid_idle)
@@ -548,7 +548,7 @@ index 91185a5..d5ce2e5 100644
  
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Closed-Lid Sleep Prevention"))
-@@ -5073,6 +5329,53 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -5076,6 +5332,53 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "setLidClosedLedIdleFromCheckbox:",
      )
  
@@ -602,7 +602,7 @@ index 91185a5..d5ce2e5 100644
      add_label(agent_animations_tab, "Profile", 32, 360, 56, 24)
      animation_profile = add_agent_animation_profile_popup(
          agent_animations_tab,
-@@ -5294,6 +5597,9 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -5297,6 +5600,9 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "status_history_status": history_status,
          "status_history_chart": history_chart,
          "agent_animation_profile": animation_profile,
@@ -612,7 +612,7 @@ index 91185a5..d5ce2e5 100644
          "message": message,
          "settings_path": settings_path,
          **{
-@@ -5312,6 +5618,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -5315,6 +5621,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "battery_power_preview": battery_power_preview,
          "delete_agent_animation_profile": delete_animation_profile,
          "lid_closed_led_idle": lid_closed_led_idle,
@@ -622,7 +622,7 @@ index 91185a5..d5ce2e5 100644
      return window
  
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 570b7af..f08037b 100644
+index 08c2693..f2891c2 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -172,6 +172,8 @@ from sidepulse.settings import (
@@ -830,7 +830,7 @@ index 570b7af..f08037b 100644
      def test_settings_migrates_missing_agent_list_timing_to_defaults(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index 35cf05a..0a4555b 100644
+index 1e78772..7c4ec74 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
 @@ -991,6 +991,15 @@ class WindowBuildTests(StatusBarTestCase):

@@ -193,11 +193,11 @@ rec {
     nixpkgs-hoisted-4.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs-hoisted-5.follows = "nixpkgs-23-11";
     systems-hoisted.url = "github:nix-systems/default-darwin";
-    determinate-nixd-aarch64-darwin.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/macOS";
+    determinate-nixd-aarch64-darwin.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.23.2/macOS";
     determinate-nixd-aarch64-darwin.flake = false;
-    determinate-nixd-aarch64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/aarch64-linux";
+    determinate-nixd-aarch64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.23.2/aarch64-linux";
     determinate-nixd-aarch64-linux.flake = false;
-    determinate-nixd-x86_64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.17.2/x86_64-linux";
+    determinate-nixd-x86_64-linux.url = "file+https://install.determinate.systems/determinate-nixd/tag/v3.23.2/x86_64-linux";
     determinate-nixd-x86_64-linux.flake = false;
     nixpkgs-23-11-hoisted.follows = "nixpkgs-23-11";
     nixpkgs-regression-hoisted.follows = "nixpkgs-23-11";
@@ -262,8 +262,6 @@ rec {
       ./patches/opencode-compact-tui.patch
       ./patches/opencode-scroll-autofollow.patch
       ./patches/opencode-plan-permissions-reminder.patch
-      ./patches/opencode-hidden-agent-variants.patch
-      ./patches/opencode-agent-variant-defaults.patch
       ./patches/opencode-run-descendant-permissions.patch
       ./patches/opencode-nested-subagent-prompts.patch
       ./patches/opencode-question-submit-exit.patch
@@ -288,7 +286,7 @@ rec {
             rev = builtins.substring 0 7 inputs.opencode.rev;
           }
           // pkgs.lib.optionalAttrs (system == "aarch64-darwin") {
-            hash = "sha256-7B4h5fGOvFuFu5aa5uzzzkLb/98kG/oxr5uYJebFJrI=";
+            hash = "sha256-fanwMo2ZxvtYFY2Swv09b5x9CqVRz1Nx1dtaEA+RXDM=";
           }
         );
         # opencode resolves these once at startup (effect/runtime-flags.ts), and
@@ -354,6 +352,10 @@ rec {
             node_modules = opencodeNodeModules;
           }).overrideAttrs
             (old: {
+              # Upstream takes src from node_modules.nix, whose fileset omits the
+              # repo-root script/ directory that packages/cli/script/build.ts
+              # imports (../../../script/native-arch) as of 07bbd0f.
+              src = opencodeSrc;
               # Upstream builds with makeBinaryWrapper, whose wrapProgram is the
               # C implementation and rejects `--run` ("makeCWrapper: Unknown
               # argument --run"). The TMPDIR flag above needs runtime shell
@@ -364,19 +366,25 @@ rec {
               nativeBuildInputs =
                 (old.nativeBuildInputs or [ ])
                 ++ [ pkgs.makeShellWrapper ]
-                # build.ts ad-hoc re-signs the darwin binary with
-                # `codesign --force --sign -` (anomalyco/opencode#52183), and
-                # upstream's nix/opencode.nix does not provide codesign.
-                # sigtool's codesign implements that ad-hoc mode and spawns
-                # codesign_allocate, which cctools provides.
+                # The darwin binary needs an ad-hoc re-sign: as built, the binary
+                # from `bun build --compile` fails `codesign --verify` (its
+                # linker signature no longer matches). Through 1ddb087 build.ts did this
+                # (anomalyco/opencode#52183); the v2 build.ts on dev (07bbd0f)
+                # does not, so postFixup does it. sigtool's codesign implements
+                # the ad-hoc mode and spawns codesign_allocate, from cctools.
                 ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
                   pkgs.darwin.sigtool
                   pkgs.cctools
                 ];
-              postFixup = (old.postFixup or "") + ''
-                wrapProgram $out/bin/opencode \
-                  ${pkgs.lib.concatStringsSep " \\\n  " opencodeEnvFlags}
-              '';
+              postFixup =
+                (old.postFixup or "")
+                + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+                  codesign --force --sign - $out/bin/.opencode-wrapped
+                ''
+                + ''
+                  wrapProgram $out/bin/opencode \
+                    ${pkgs.lib.concatStringsSep " \\\n  " opencodeEnvFlags}
+                '';
             });
 
         opencode2 = pkgs.callPackage ./pkgs/opencode2/package.nix {

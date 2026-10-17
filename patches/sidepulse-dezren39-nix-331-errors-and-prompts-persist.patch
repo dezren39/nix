@@ -1,5 +1,5 @@
 SidePulse patch 9/11 -- local, dezren39/nix#331.
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-330-completion-hold-until-seen.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-330-completion-hold-until-seen.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
@@ -428,7 +428,7 @@ index deb8c02..37f3509 100644
              "permission_replied": "PostToolUse",
              "tool_execute_before": "PreToolUse",
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index 4a318e4..6579d20 100644
+index 8fa922b..8909057 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -110,6 +110,7 @@ from .collector import (
@@ -439,7 +439,7 @@ index 4a318e4..6579d20 100644
      read_recent_lines,
  )
  from .device_writer import (
-@@ -3515,11 +3516,23 @@ class StatusBarController(NSObject):
+@@ -3518,11 +3519,23 @@ class StatusBarController(NSObject):
          still visible. It is held until the user is visibly back at a terminal
          rather than timed out blind, so this can outlast the old fixed pulse by
          minutes - see `pollCompletionHold_`.

@@ -87,12 +87,10 @@ Where things go:
   `.lootbox/scripts/`. Nix provides Deno/codedb/fff-mcp; a pinned updater builds
   Lootbox and npm MCP CLIs. `just lootbox-server|-kill|-restart|-check|update-lootbox`.
 - The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with
-  eleven patches, applied in `opencodePatches` order:
+  nine patches, applied in `opencodePatches` order:
   `patches/opencode-compact-tui.patch`,
   `patches/opencode-scroll-autofollow.patch`,
   `patches/opencode-plan-permissions-reminder.patch`,
-  `patches/opencode-hidden-agent-variants.patch`,
-  `patches/opencode-agent-variant-defaults.patch`,
   `patches/opencode-run-descendant-permissions.patch`,
   `patches/opencode-nested-subagent-prompts.patch`,
   `patches/opencode-question-submit-exit.patch`,

@@ -1,12 +1,12 @@
 SidePulse patch 1/11 -- upstream PR inteliwear/sidepulse#14 "Add OpenCode and T3 Code support" (open).
-Applies to inteliwear/sidepulse 6d55225 directly, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c directly, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/README.md b/README.md
-index 95f90f3..d3d3308 100644
+index 6e21ee2..5ab44f9 100644
 --- a/README.md
 +++ b/README.md
-@@ -353,7 +353,7 @@ SidePulse Pro and SidePulse Dot.
+@@ -370,7 +370,7 @@ SidePulse Pro and SidePulse Dot.
  
  #### AI Agent Monitoring
  
@@ -15,7 +15,7 @@ index 95f90f3..d3d3308 100644
  translate the current agent state into a small, glanceable LED status.
  
  Agent status modes:
-@@ -433,6 +433,21 @@ The monitor currently supports:
+@@ -450,6 +450,21 @@ The monitor currently supports:
  | Codex | `~/.codex/config.toml` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/codex.jsonl` |
  | Claude | `~/.claude/settings.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/claude.jsonl` |
  | Grok | `~/.grok/hooks/sidepulse.json` | `${XDG_STATE_HOME:-~/.local/state}/sidepulse/agent-monitor/grok.jsonl` |
@@ -37,7 +37,7 @@ index 95f90f3..d3d3308 100644
  
  #### Local reply classifier (Apple Silicon)
  
-@@ -509,10 +524,11 @@ sidepulse setup
+@@ -526,10 +541,11 @@ sidepulse setup
  ```
  
  `sidepulse setup` installs or refreshes all supported agent hooks, including
@@ -53,7 +53,7 @@ index 95f90f3..d3d3308 100644
  To skip the status-bar app but still install hooks and SidePulse Pro Eject Prevention, use
  `sidepulse setup --no-status-bar`.
  
-@@ -571,6 +587,7 @@ sidepulse agent-monitor install claude
+@@ -593,6 +609,7 @@ sidepulse agent-monitor install claude
  sidepulse agent-monitor install grok
  sidepulse agent-monitor install cursor
  sidepulse agent-monitor install junie
@@ -61,7 +61,7 @@ index 95f90f3..d3d3308 100644
  ```
  
  Each hook invokes a small, standard-library-only Python entry point. It writes
-@@ -748,7 +765,7 @@ firmware/websim `sdled.wasm` engine, then AppKit only draws the returned RGB
+@@ -770,7 +787,7 @@ firmware/websim `sdled.wasm` engine, then AppKit only draws the returned RGB
  frames.
  
  Open `Settings...` from the dropdown to manage agent integrations. The settings
@@ -71,7 +71,7 @@ index 95f90f3..d3d3308 100644
  live updates from the local hook event socket. Settings are stored at
  `${XDG_CONFIG_HOME:-~/.config}/sidepulse/agent-monitor/settings.json`.
 diff --git a/src/sidepulse/cli.py b/src/sidepulse/cli.py
-index 04413da..1347c05 100644
+index ea184a5..45eb420 100644
 --- a/src/sidepulse/cli.py
 +++ b/src/sidepulse/cli.py
 @@ -38,11 +38,13 @@ from .install import (
@@ -128,7 +128,7 @@ index 04413da..1347c05 100644
      return results
  
  
-@@ -1473,6 +1480,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
+@@ -1475,6 +1482,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
              results.append(uninstall_grok_hooks(log_path=log_path, dry_run=args.dry_run))
          else:
              results.append(uninstall_junie_hooks(log_path=log_path, dry_run=args.dry_run))
@@ -1926,7 +1926,7 @@ index 528ae2a..d849e61 100644
              return "Open in Codex"
          if provider == "claude":
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index f804066..06906a3 100644
+index 7373556..89e8350 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -93,7 +93,15 @@ from .audit import (
@@ -2177,12 +2177,12 @@ index f804066..06906a3 100644
          action = "installed" if install else "removed"
          if not result.changed:
              action = "already installed" if install else "already removed"
--        self.set_settings_message(f"{provider.title()} hooks {action}.")
-+        self.set_settings_message(f"{provider_label(provider)} hooks {action}.")
-         self.reload_monitor()
-         self.refresh_settings_window()
-         self.refresh_(None)
-@@ -2156,6 +2268,8 @@ class StatusBarController(NSObject):
+-        message = f"{provider.title()} hooks {action}."
++        message = f"{provider_label(provider)} hooks {action}."
+         if provider == "codex" and install and result.changed:
+             message += " Restart Codex to activate them in new sessions."
+         self.set_settings_message(message)
+@@ -2159,6 +2271,8 @@ class StatusBarController(NSObject):
          kind, value = target
          if kind == "url":
              open_url(value)
@@ -2191,7 +2191,7 @@ index f804066..06906a3 100644
          elif kind == "terminal":
              open_terminal_command(
                  value,
-@@ -3802,7 +3916,7 @@ def build_brightness_slider_item(
+@@ -3805,7 +3919,7 @@ def build_brightness_slider_item(
  
  def build_setup_window(target: StatusBarController) -> NSWindow:
      width = 620
@@ -2200,7 +2200,7 @@ index f804066..06906a3 100644
      style = (
          NSWindowStyleMaskTitled
          | NSWindowStyleMaskClosable
-@@ -3819,8 +3933,21 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3822,8 +3936,21 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
      window.center()
      content = window.contentView()
  
@@ -2224,7 +2224,7 @@ index f804066..06906a3 100644
  
      launch = add_checkbox(
          content,
-@@ -3871,6 +3998,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3874,6 +4001,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
          "launch_status": launch_status,
          "eject_status": eject_status,
          "sleep_status": sleep_status,
@@ -2232,7 +2232,7 @@ index f804066..06906a3 100644
          "message": message,
      }
      target.setup_buttons = {
-@@ -3878,6 +4006,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
+@@ -3881,6 +4009,7 @@ def build_setup_window(target: StatusBarController) -> NSWindow:
          "eject_guard": eject_guard,
          "eject_guard_uninstall": eject_uninstall,
          "sleep_helper": sleep_helper,
@@ -2240,7 +2240,7 @@ index f804066..06906a3 100644
      }
      return window
  
-@@ -4647,6 +4776,14 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4650,6 +4779,14 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
      value_width = primary_action_x - value_x - 5
  
      add_label(agents_tab, "Agent Hooks", section_x, 398, 200, 24)
@@ -2255,7 +2255,7 @@ index f804066..06906a3 100644
  
      def add_hook_row(
          title: str,
-@@ -4682,16 +4819,19 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4685,16 +4822,19 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "Codex", 364, "installCodexHooks:", "uninstallCodexHooks:"
      )
      claude_status = add_hook_row(
@@ -2279,7 +2279,7 @@ index f804066..06906a3 100644
      )
  
      add_separator(agents_tab, section_x, 246, tab_width - 48)
-@@ -4956,6 +5096,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
+@@ -4959,6 +5099,8 @@ def build_settings_window(target: StatusBarController) -> NSWindow:
          "grok_hook_status": grok_status,
          "cursor_hook_status": cursor_status,
          "junie_hook_status": junie_status,
@@ -2288,7 +2288,7 @@ index f804066..06906a3 100644
          "debug_log_status": debug_log_status,
          "codex_session_opener": codex_opener,
          "claude_session_opener": claude_opener,
-@@ -5463,7 +5605,10 @@ def provider_open_action_label(provider: str, action: str, settings=None) -> str
+@@ -5466,7 +5608,10 @@ def provider_open_action_label(provider: str, action: str, settings=None) -> str
          return "VS Code"
      if action == SESSION_OPEN_TERMINAL:
          return "Resume in Terminal"
@@ -2300,7 +2300,7 @@ index f804066..06906a3 100644
  
  
  def refresh_provider_opener_popup(popup, provider: str, action: str, settings) -> None:
-@@ -5906,16 +6051,53 @@ def build_session_menu_item(
+@@ -5909,16 +6054,53 @@ def build_session_menu_item(
      return item
  
  
@@ -2355,7 +2355,7 @@ index f804066..06906a3 100644
  def build_session_options_menu(
      status: AgentStatus,
      now: datetime,
-@@ -6051,6 +6233,8 @@ def session_origin_icon_for_status(status: AgentStatus):
+@@ -6054,6 +6236,8 @@ def session_origin_icon_for_status(status: AgentStatus):
      host_icon = host_icon_for_origin(status.origin)
      if host_icon is None:
          return provider_icon
@@ -2364,7 +2364,7 @@ index f804066..06906a3 100644
      return composite_app_icons(host_icon, provider_icon)
  
  
-@@ -6096,7 +6280,16 @@ def host_icon_for_origin(origin: str | None):
+@@ -6094,7 +6278,16 @@ def host_icon_for_origin(origin: str | None):
      if normalized in _origin_icon_cache:
          return _origin_icon_cache[normalized]
      image = None
@@ -2382,7 +2382,7 @@ index f804066..06906a3 100644
          image = first_app_icon(
              (
                  "/Applications/Visual Studio Code.app",
-@@ -6353,7 +6546,7 @@ def session_title_collision_keys(statuses: list[AgentStatus]) -> set[tuple[str,
+@@ -6351,7 +6544,7 @@ def session_title_collision_keys(statuses: list[AgentStatus]) -> set[tuple[str,
  def session_title_collision_key(status: AgentStatus) -> tuple[str, str]:
      return (
          status.provider.lower(),
@@ -2391,7 +2391,7 @@ index f804066..06906a3 100644
      )
  
  
-@@ -6407,6 +6600,9 @@ def session_detail_for_status(status: AgentStatus, now: datetime) -> str:
+@@ -6405,6 +6598,9 @@ def session_detail_for_status(status: AgentStatus, now: datetime) -> str:
          details.append(status.origin)
      if status.tool_name:
          details.append(status.tool_name)
@@ -2401,7 +2401,7 @@ index f804066..06906a3 100644
      return " · ".join(details)
  
  
-@@ -6511,6 +6707,22 @@ def open_url(url: str) -> None:
+@@ -6509,6 +6705,22 @@ def open_url(url: str) -> None:
          NSWorkspace.sharedWorkspace().openURL_(ns_url)
  
  
@@ -2438,7 +2438,7 @@ index 5eb5889..e4205ce 100644
  
  
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 9d407a1..12f0742 100644
+index 9d407a1..71b9791 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -4,6 +4,8 @@ import json
@@ -2953,7 +2953,7 @@ index 9d407a1..12f0742 100644
      def test_codex_transcript_fallback_marks_recent_user_turn_active(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
              root = Path(tmp)
-@@ -7563,6 +7964,897 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -7563,6 +7964,901 @@ class AgentMonitorTests(unittest.TestCase):
              self.assertEqual(snapshot.aggregate.mode, AgentMode.COMPLETED)
              self.assertEqual(snapshot.statuses[0].event_name, "Stop")
  
@@ -2998,6 +2998,10 @@ index 9d407a1..12f0742 100644
 +            snapshot = AgentMonitor(
 +                sources=(SourceSpec("t3code", root),),
 +                stale_after_seconds=3600,
++                # IDLE_VISIBLE_SECONDS defaults to 0, so an idle row is only
++                # visible while its timestamp is not yet in the past; pin a
++                # window so this does not race the wall clock.
++                idle_visible_seconds=3600,
 +            ).snapshot()
 +
 +            self.assertEqual(len(snapshot.statuses), len(providers))
@@ -3851,7 +3855,7 @@ index 9d407a1..12f0742 100644
      def test_claude_transcript_fallback_marks_tool_calls_running(self) -> None:
          with tempfile.TemporaryDirectory() as tmp:
              root = Path(tmp)
-@@ -8299,6 +9591,57 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
+@@ -8299,6 +9595,57 @@ team id YOUR_TEAM_ID, push key '/path/to/AuthKey_YOUR_KEY_ID.p8'
              default_session_open_action(status_for("codex", "Codex UI")),
              SESSION_OPEN_APP,
          )
@@ -3910,7 +3914,7 @@ index 9d407a1..12f0742 100644
      def test_claude_session_actions_build_app_link_and_resume_command(self) -> None:
          status = AgentStatus(
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index b61bc46..6b52581 100644
+index 531fd1d..09e1264 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
 @@ -95,6 +95,7 @@ def make_status(
@@ -3929,7 +3933,7 @@ index b61bc46..6b52581 100644
      )
  
  
-@@ -1220,5 +1222,35 @@ class PureUiLogicTests(unittest.TestCase):
+@@ -1230,5 +1232,35 @@ class PureUiLogicTests(unittest.TestCase):
          )
  
  

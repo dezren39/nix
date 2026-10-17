@@ -1,5 +1,5 @@
 SidePulse patch 11/11 -- local, dezren39/nix#333.
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-332-multi-signal-composition.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-332-multi-signal-composition.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/src/sidepulse/collector.py b/src/sidepulse/collector.py
@@ -443,7 +443,7 @@ index c62fbcb..aade410 100644
  # How the device behaves when several signals are true at once. Defaults to the
  # historical behaviour - paint the most urgent one and drop the rest - so the
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index ba56e2c..3c31002 100644
+index c74a383..053af5f 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -962,18 +962,18 @@ class StatusBarController(NSObject):
@@ -476,7 +476,7 @@ index ba56e2c..3c31002 100644
              return
  
          self.last_snapshot = snapshot
-@@ -3574,6 +3574,14 @@ class StatusBarController(NSObject):
+@@ -3577,6 +3577,14 @@ class StatusBarController(NSObject):
              return AgentMode.BLOCKED_ERROR
          if time.monotonic() < self.completion_pulse_until and not mode_awaits_a_human(mode):
              return AgentMode.COMPLETED
@@ -491,7 +491,7 @@ index ba56e2c..3c31002 100644
          return mode
  
      def note_completions(self, snapshot) -> None:
-@@ -3584,14 +3592,30 @@ class StatusBarController(NSObject):
+@@ -3587,14 +3595,30 @@ class StatusBarController(NSObject):
          )
          if not finished:
              return
@@ -524,7 +524,7 @@ index ba56e2c..3c31002 100644
          # Re-arm from zero: typing that was already in progress when the run
          # finished is not acknowledgement of a result the user cannot have
          # read yet.
-@@ -3600,7 +3624,10 @@ class StatusBarController(NSObject):
+@@ -3603,7 +3627,10 @@ class StatusBarController(NSObject):
          )
          self.attention_watcher.reset()
          self.start_completion_hold_timer()
@@ -536,7 +536,7 @@ index ba56e2c..3c31002 100644
  
      def start_completion_hold_timer(self) -> None:
          if self.completion_hold_timer is not None:
-@@ -3859,7 +3886,14 @@ class StatusBarController(NSObject):
+@@ -3862,7 +3889,14 @@ class StatusBarController(NSObject):
              signals.add(SIGNAL_ERROR)
          if AgentMode.WAITING_FOR_INPUT in modes:
              signals.add(SIGNAL_ASK)
@@ -828,10 +828,10 @@ index 218d525..8f95d96 100644
 +    assert FakeQuartz.kCGEventKeyDown in FakeQuartz.asked
 +    assert FakeQuartz.kCGEventScrollWheel in FakeQuartz.asked
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 9f0ec3d..86e5d6a 100644
+index 49751e9..f94b1d0 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
-@@ -8528,8 +8528,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -8532,8 +8532,11 @@ class AgentMonitorTests(unittest.TestCase):
              ).snapshot()
  
              self.assertEqual(len(snapshot.statuses), len(providers))
@@ -844,7 +844,7 @@ index 9f0ec3d..86e5d6a 100644
              )
              self.assertTrue(all(status.origin == "T3 Code" for status in snapshot.statuses))
              self.assertEqual(
-@@ -9183,9 +9186,14 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -9187,9 +9190,14 @@ class AgentMonitorTests(unittest.TestCase):
              canon("turn.completed", {"state": "failed", "stopReason": "error"})
          )
  
@@ -860,7 +860,7 @@ index 9f0ec3d..86e5d6a 100644
          )
          self.assertEqual(
              collector_module.status_from_event(ok_item).mode,
-@@ -9355,9 +9363,11 @@ class AgentMonitorTests(unittest.TestCase):
+@@ -9359,9 +9367,11 @@ class AgentMonitorTests(unittest.TestCase):
          self.assertIsNone(collector_module.parse_t3code_event_line(canon(None)))
          reached = collector_module.parse_t3code_event_line(canon("primary"))
          self.assertIsNotNone(reached)

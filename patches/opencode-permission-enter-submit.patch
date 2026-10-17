@@ -1,17 +1,15 @@
 diff --git a/packages/tui/src/routes/session/permission.tsx b/packages/tui/src/routes/session/permission.tsx
-index e0fcda5..8699794 100644
+index 999d10b..b74083b 100644
 --- a/packages/tui/src/routes/session/permission.tsx
 +++ b/packages/tui/src/routes/session/permission.tsx
-@@ -509,6 +509,12 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
-           focusedTextColor={theme.text}
-           cursorColor={theme.primary}
-           cursorStyle={tuiConfig.cursor}
-+          // A focused @opentui textarea consumes Enter internally before the
-+          // key reaches the `key: "return"` binding above, so on Kitty-keyboard
-+          // terminals (Ghostty, kitty, WezTerm) the reject reason could never be
-+          // confirmed. Wire onSubmit — the same fix as question.tsx and the
-+          // run-mode footers — so Enter submits the rejection.
+@@ -360,6 +360,10 @@ function RejectPrompt(props: {
+           focusedTextColor={theme.text.base}
+           cursorColor={theme.text.base}
+           cursorStyle={config.cursor}
++          // A focused textarea can consume Enter (e.g. as an enhanced CSI-u
++          // sequence on Kitty-keyboard terminals) before the `return` binding
++          // above sees it, so wire onSubmit to confirm the rejection too.
 +          onSubmit={() => props.onConfirm(input.plainText)}
          />
-         <box flexDirection="row" gap={2} flexShrink={0}>
-           <text fg={theme.text}>
+         <box
+           id="session.permission.reject.actions"

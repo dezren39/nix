@@ -1,5 +1,5 @@
 SidePulse patch 6/11 -- local, dezren39/nix#328.
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-pr-30-stuck-status.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-pr-30-stuck-status.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/pyproject.toml b/pyproject.toml
@@ -16,7 +16,7 @@ index 8ac1322..a3e8c11 100644
  [tool.setuptools_scm]
  fallback_version = "0"
 diff --git a/src/sidepulse/cli.py b/src/sidepulse/cli.py
-index 1347c05..a3f9da0 100644
+index 45eb420..48791e3 100644
 --- a/src/sidepulse/cli.py
 +++ b/src/sidepulse/cli.py
 @@ -1104,6 +1104,21 @@ def cmd_sidepulse_setup(args: argparse.Namespace) -> int:
@@ -1205,7 +1205,7 @@ index 0000000..c6c9e95
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index b1d8445..760b4df 100644
+index 66d3053..5eaff49 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -4691,6 +4691,12 @@ class AgentMonitorTests(unittest.TestCase):

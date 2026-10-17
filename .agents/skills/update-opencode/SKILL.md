@@ -16,14 +16,19 @@ Start by reading:
 1. `flake.nix`, especially `inputs.opencode`, `opencodePatches`, and `mkPackages`.
 2. `flake.lock`, to record the old OpenCode revision.
 3. Every patch listed in `opencodePatches`, in application order.
-4. `tui.jsonc`, because active patches can add configuration consumed there.
+4. `tui.jsonc` and the user's `~/.config/opencode/cli.json`, because active
+   patches can add configuration consumed there. Since `dev` became the v2 CLI
+   (07bbd0f), the TUI reads `cli.json` (schema `packages/tui/src/config/index.tsx`,
+   migrated once from a legacy `tui.json` if `cli.json` is absent); `tui.jsonc`
+   is no longer read by `.#opencode`.
 5. `ARCHITECTURE.md`, for the current package and patch layout.
 
 The configured input currently tracks `github:anomalyco/opencode/dev`. "Newest"
 means the head resolved by the input URL and ref that are actually present in
 `flake.nix`; do not silently switch repository, branch, or source.
 
-Only patches listed in `opencodePatches` are active. Root-level OpenCode patch
+Only patches listed in `opencodePatches` are active. Retired patch files may stay
+in `patches/` for reference; see "Retired patches" below. Root-level OpenCode patch
 files are historical/reference snapshots and must not be activated, regenerated,
 deleted, or treated as build inputs unless the user separately requests that.
 
@@ -93,8 +98,17 @@ Required behavior:
   padding, and gaps.
 - User, assistant, reasoning, text, task, tool, diff, question, and revert blocks
   retain the patch's compact spacing.
-- The sidebar defaults to hidden rather than automatic.
+- The sidebar defaults to hidden rather than automatic. Since v2 this is the
+  `session.sidebar` config default (`component/session-frame.tsx` and the
+  `dialog-config.tsx` default), not a kv signal.
 - Permission and sidebar vertical scrollbars remain hidden.
+
+v2 layout: message rendering is split across `routes/session/index.tsx`,
+`message-parts.tsx` (text, reasoning, `InlineToolRow`) and `group-view.tsx`;
+per-row spacing lives on `SessionRowView`'s `marginTop`. The prompt metadata
+row is `component/prompt/metadata.tsx`. Horizontal `gap`s between tokens in a
+single row, the turn-token debug block, the queued-prompt dock and the
+composer panel are intentionally left at upstream spacing.
 
 This is a behavioral density policy, not a blind global replacement of every
 spacing value in upstream. Port all existing patch targets and inspect nearby
@@ -117,13 +131,18 @@ Required behavior:
 
 - TUI config accepts `auto_scroll_tolerance` as an integer greater than or equal
   to zero. It must be part of the schema because unknown fields are stripped.
+  Since v2 it is a top-level key of `~/.config/opencode/cli.json`.
 - An omitted value defaults to `0`, meaning exactly at the bottom.
 - The current viewport position is sampled while rendering.
 - Auto-follow disengages after the user scrolls above the configured tolerance.
 - Auto-follow re-engages when the viewport returns within tolerance.
 - Frame callbacks or equivalent observers are cleaned up with the component.
 - The session scrollbox uses dynamic sticky behavior, not unconditional
-  `stickyScroll={true}`.
+  `stickyScroll={true}`. v2 already gates it on message navigation
+  (`!navigationMessage() && !navigationSlack()`); the patch ANDs
+  `stickToBottom()` into that expression. OpenTUI's own manual-scroll tracking
+  re-engages at one line from the bottom, which is why the configurable
+  tolerance is still patched.
 - `tui.jsonc` remains valid and its value retains the documented semantics.
 
 Likely upstream-equivalence signals that require the human gate:
@@ -136,17 +155,22 @@ Likely upstream-equivalence signals that require the human gate:
 
 Intent: Plan remains read-only by default through its resolved permission rules,
 while configured Plan permission overrides are not contradicted by injected
-legacy or experimental reminder text.
+reminder text.
+
+Since v2 there is a single reminder: the `enter` template in
+`packages/core/src/plugin/plan.ts` (the v1 `plan.txt`/`plan-mode.txt` are gone).
+The patch also updates `packages/core/test/plugin/plan.test.ts`, which asserts
+on the reminder text.
 
 Required behavior:
 
-- Both `plan.txt` and `plan-mode.txt` state that resolved Plan permissions are
-  authoritative.
+- The Plan reminder states that resolved Plan permissions are authoritative.
 - Allowed paths and actions may be used, including configured overrides.
 - Denied paths and actions remain prohibited.
 - Neither reminder claims its text supersedes resolved permissions.
-- The experimental reminder does not claim the generated plan file is the only
-  writable path, but still directs the agent to maintain that plan file.
+- The reminder does not claim the plan directory is the only writable path, but
+  keeps upstream's plan-file workflow (discuss in conversation; write plan files
+  under the plan directory only when asked).
 - Plan's built-in permission defaults and lifecycle orchestration remain
   unchanged.
 
@@ -157,49 +181,19 @@ Likely upstream-equivalence signals that require the human gate:
   permission rules;
 - the hardcoded read-only reminder is replaced by permission-aware instructions.
 
-### `patches/opencode-hidden-agent-variants.patch`
-
-Intent: hidden/internal agents with an explicitly configured variant use that
-variant instead of inheriting the originating user turn's variant. This allows
-compaction and title generation to select independent reasoning effort.
-
-Required behavior:
-
-- A hidden agent with an explicit variant resolves options from that variant.
-- A hidden agent without an explicit variant preserves upstream inheritance.
-- Non-hidden agents preserve upstream user-turn variant behavior.
-- Small hidden calls, including title generation, may use an explicit variant.
-- Compaction message metadata records its effective configured variant.
-
-Likely upstream-equivalence signals that require the human gate:
-
-- request preparation natively gives internal agent variants precedence;
-- compaction and title expose another supported independent effort setting;
-- compaction no longer derives its variant from the originating user message.
-
-### `patches/opencode-agent-variant-defaults.patch`
-
-Intent: a visible agent's configured variant is the initial TUI selection when
-the user has not saved an explicit preference for that model.
-
-Required behavior:
-
-- A saved per-model variant, including explicit `default`, takes precedence.
-- Without a saved preference, an agent using its configured model uses its
-  configured variant.
-- An agent-level variant does not apply after selecting a different model.
-- Changing the TUI variant continues to persist the explicit per-model choice.
-
-Likely upstream-equivalence signals that require the human gate:
-
-- the TUI natively falls back to the active agent's configured variant;
-- variant persistence becomes agent-aware while preserving explicit choices.
-
 ### `patches/opencode-run-descendant-permissions.patch`
 
 Intent: port anomalyco/opencode#36898 so headless `opencode run` applies its
 existing `--auto` approve or non-auto reject policy to permission requests from
 any descendant Task session, rather than ignoring the request and hanging.
+
+Since v2 the code is `packages/cli/src/run/noninteractive.ts`. Upstream already
+walks `parentID` (`ownsSession`) for permissions and forms, so the patch is a
+reduced hardening of that walk: cycle-safe, 10 s bounded lookups, settled
+results cached, `session.created` events seed descendants, and a failed lookup
+aborts admission, makes a 5 s bounded `session.interrupt`, and rethrows (the
+upstream walk swallowed failures as "unrelated" and hung). v2 `run` has no
+separate command request, so only prompt admission observes the abort.
 
 Required behavior:
 
@@ -223,6 +217,14 @@ Intent: port the runtime portions of anomalyco/opencode#36046 so permission and
 question prompts from nested subagent chains are visible in the root TUI and the
 interactive CLI footer tracks the full descendant tree.
 
+Since v2 upstream covers most of this: the TUI collects prompts over
+`data.session.family(root)` (cycle-safe, root-keyed) and the mini footer
+(`packages/tui/src/mini/stream-v2.subagent.ts`) discovers descendants
+recursively. The remaining patch is one effect in `routes/session/index.tsx`
+that also syncs each descendant's children, because the root sync lists only
+direct children and deeper subagents created before the view attached were
+otherwise never registered.
+
 Required behavior:
 
 - TUI permission/question collection traverses the full root-session subtree.
@@ -243,6 +245,17 @@ Likely upstream-equivalence signals that require the human gate:
 Intent: make the `question` tool prompt escapable and multi-select questions
 submittable. Upstream `dev` leaves multi-select impossible to submit from the
 keyboard and swallows ctrl+c while the custom-answer textarea is focused.
+
+Since v2 the question prompt is the form prompt,
+`packages/tui/src/routes/session/form.tsx` (anomalyco/opencode#42493 landed).
+Upstream now clears `editing` in `selectTab`, lets `tab` advance multi-select,
+binds `space` to toggle, and its editing layer has no `confirm()` gate. The
+reduced patch keeps the remaining behavior: the editing layer's first command
+is `app.exit` → dismiss (so ctrl+c dismisses rather than clears, and ctrl+d
+works while editing), multi-select `return` advances to the next field except
+on the "Type your own answer" row, and the footer shows `space toggle` and
+`enter next`. Names below that predate v2 (`reject()`, `useBindings`,
+`tuiConfig.keybinds.get`) map to `cancel`, `Keymap.createLayer` and command ids.
 
 Required behavior:
 
@@ -279,7 +292,12 @@ Likely upstream-equivalence signals that require the human gate:
 
 Applied immediately after `opencode-question-submit-exit.patch` and generated
 against its post-image. Repairs a separate Enter-handling defect in the same
-component.
+component. Since v2 it targets `form.tsx`: `commitEdit()` is the editing
+layer's former inline `return` body, and both the textual-field and
+custom-answer textareas pass `onSubmit={() => commitEdit()}`. v2 routes
+focused-textarea keys through a keymap-managed textarea layer, which may make
+this redundant; it is kept because the `onSubmit` path is cheap and was not
+verified interactively.
 
 Intent: a focused `@opentui` textarea consumes Enter internally before the key
 reaches the question-mode keymap, so the declarative `key: "return"` binding in
@@ -319,11 +337,32 @@ Upstream-equivalence signal: that textarea gains `onSubmit` upstream.
 
 ### `patches/opencode-numpad-enter.patch`
 
-Intent: keypad Enter (`kpenter`) acts like `return` everywhere Enter confirms —
-run-mode footers (command, permission, question), the TUI dialogs it touches,
-`config/keybind.ts`, and the permission/question routes. Read the patch for the
-full target list. Upstream-equivalence signal: keybind parsing treats `kpenter`
-as `return` globally.
+Intent: keypad Enter (`kpenter`) acts like `return` everywhere Enter confirms.
+Since v2 this is one binding expander in `packages/tui/src/context/keymap.tsx`
+that gives every bare `return` binding a `kpenter` twin (covering all keymap
+layers, config keybinds and the managed textarea layer), plus the raw
+`event.name === "return"` checks in the mini footers (`footer.command.tsx`,
+`footer.permission.tsx`, `footer.form.tsx`). Upstream-equivalence signal: the
+keymap or OpenTUI treats `kpenter` as `return` globally.
+
+## Retired patches
+
+These files remain in `patches/` but are not in `opencodePatches`. They were
+retired at 07bbd0f (dev became the v2 CLI) because upstream implements the
+same behavior for every configuration v2 can express:
+
+- `opencode-hidden-agent-variants.patch`: v2 agents carry the variant inside
+  their model ref (`model#variant`, or legacy `model` + `variant` migrated by
+  `core/src/config/plugin/agent.ts`). Compaction resolves the compaction
+  agent's own model ref (`core/src/session/compaction.ts`) and title uses
+  `agent.model?.variant` (`core/src/session/context.ts`), so a configured
+  hidden-agent variant already wins; agents without one inherit as before. v2
+  drops a `variant` with no `model` ("omitted unsupported legacy model
+  variant"), so the v1 variant-without-model case can no longer be configured.
+- `opencode-agent-variant-defaults.patch`: `preferredSelection` in
+  `packages/tui/src/context/local.tsx` already orders saved per-model variant
+  (including explicit `default`), then the agent's configured variant when its
+  model matches, then the configured default model's variant.
 
 ## Update workflow
 
@@ -389,13 +428,14 @@ Useful searches include:
 
 ```bash
 rg 'stickyScroll|scrollTop|scrollHeight|setFrameCallback' packages/tui
-rg 'scroll_acceleration|auto_scroll|tolerance' packages/tui
+rg 'auto_scroll|tolerance|scroll: Schema' packages/tui/src/config
 rg 'paddingLeft|paddingRight|paddingTop|paddingBottom|marginTop|gap=' packages/tui/src
-rg 'kv\.signal<"auto" \| "hide">\("sidebar"' packages/tui
-rg 'only file|supersedes|resolved Plan permissions' packages/opencode/src/session/prompt
-rg 'variantName|agent\.variant|userMessage\.model\.variant' packages/opencode/src/session
-rg 'isSessionInTree|permission\.sessionID !== sessionID' packages/opencode/src/cli/cmd/run.ts
-rg 'collectDescendantSessions|collectSubtree|knownSession' packages/opencode/src/cli/cmd/run packages/tui/src/routes/session
+rg 'session\?\.sidebar' packages/tui/src
+rg 'const enter =|resolved Plan permissions' packages/core/src/plugin/plan.ts
+rg 'agent\.model|variant' packages/core/src/session/compaction.ts packages/core/src/session/context.ts
+rg 'ownsSession|parentOf' packages/cli/src/run/noninteractive.ts
+rg 'family\(|descendantSessionIDs' packages/tui/src/routes/session/index.tsx packages/client/src/solid/data.ts
+rg 'kpenter' packages/tui/src
 ```
 
 ### 5. Regenerate the smallest correct patches
@@ -472,6 +512,15 @@ unless the user asks. Do not commit or push unless explicitly requested — a
 user request to "use just build to commit" is that request.
 
 ## Recurring failure modes
+
+- **`dev` replaced by the v2 CLI (1ddb087 → 07bbd0f).** `packages/opencode`
+  was deleted; the build is `packages/cli`, server logic is `packages/core`,
+  run mode is `packages/cli/src/run` plus `packages/tui/src/mini`, and
+  question prompts are `routes/session/form.tsx`. Nix reports only the first
+  failing file; apply every patch with GNU patch in a scratch tree to see the
+  real extent. Each patch was ported or retired by behavior, not by hunk.
+  `.#opencode` and `.#opencode2` now build the same CLI from different
+  branches.
 
 - **`opencode-node_modules` hash mismatch on aarch64-darwin.** `flake.nix`
   overrides upstream's `nix/hashes.json` hash for `aarch64-darwin` because

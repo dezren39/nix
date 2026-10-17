@@ -187,11 +187,10 @@ Applied to the opencode build (`patches/`, via `opencodePatches`):
   scroll (auto-follow only when near bottom).
 - **opencode-plan-permissions-reminder.patch** — makes legacy and experimental Plan
   reminders honor resolved Plan permissions while preserving read-only defaults.
-- **opencode-hidden-agent-variants.patch** — makes an explicitly configured hidden
-  agent variant authoritative, allowing compaction and title generation to use
-  independent reasoning effort.
-- **opencode-agent-variant-defaults.patch** — makes a visible agent's configured
-  variant the TUI default when no explicit per-model preference has been saved.
+- *Retired at 07bbd0f (dev became v2, upstream-equivalent; files kept in
+  `patches/` for reference, no longer in `opencodePatches`):*
+  **opencode-hidden-agent-variants.patch** and
+  **opencode-agent-variant-defaults.patch**.
 - **opencode-run-descendant-permissions.patch** — ports anomalyco/opencode#36898 so
   headless `opencode run` approves or rejects permission requests from any
   descendant Task session instead of hanging.

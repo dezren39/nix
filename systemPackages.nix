@@ -7,9 +7,16 @@
 let
   ocPkgs = inputs.self.packages.${system};
   # What OpenCode goes by on PATH. The package names follow the flake inputs
-  # -- `opencode` is the dev branch (v1), `opencode2` the v2 branch -- but a
+  # -- `opencode` is the dev branch, `opencode2` the v2 branch -- but a
   # shell wants `opencode` to mean the default version, and each version
   # reachable by number when something has to be pinned to one.
+  #
+  # Since 07bbd0f (2026-10-16) dev is itself the v2 CLI (packages/cli, not
+  # packages/opencode), so `opencode1` is no longer v1: it is dev-branch v2,
+  # and at that rev carries one migration the v2 branch lacks
+  # (20261010180456_project_time_archived). Running `opencode1` against
+  # opencode.db applies it; `opencode` (v2 branch) then sees an extra applied
+  # migration it does not know about.
   #
   # One derivation rather than installing both packages, because each carries
   # a bin/ entry the other would collide with here. Both stay reachable as

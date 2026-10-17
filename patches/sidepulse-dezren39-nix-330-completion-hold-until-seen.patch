@@ -1,5 +1,5 @@
 SidePulse patch 8/11 -- local, dezren39/nix#330.
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-329-led-error-and-concurrency.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-329-led-error-and-concurrency.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/src/sidepulse/completion.py b/src/sidepulse/completion.py
@@ -350,7 +350,7 @@ index 197fe4e..8e5aada 100644
      if isinstance(value, str) and value in SLEEP_PREVENTION_CHOICES:
          return value
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index e7923aa..4a318e4 100644
+index 2bfd3d4..8fa922b 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -150,7 +150,13 @@ from .led_status import (
@@ -390,7 +390,7 @@ index e7923aa..4a318e4 100644
          self.stop_event_server()
          self.closed_lid_awake.release()
          self.keep_awake.release()
-@@ -3496,9 +3510,11 @@ class StatusBarController(NSObject):
+@@ -3499,9 +3513,11 @@ class StatusBarController(NSObject):
          failing session has moved on and the aggregate has drifted back to
          working or idle.
  
@@ -404,7 +404,7 @@ index e7923aa..4a318e4 100644
          """
  
          if self.error_latch.active:
-@@ -3508,15 +3524,86 @@ class StatusBarController(NSObject):
+@@ -3511,15 +3527,86 @@ class StatusBarController(NSObject):
          return mode
  
      def note_completions(self, snapshot) -> None:

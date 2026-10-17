@@ -1,32 +1,41 @@
 diff --git a/packages/tui/src/config/index.tsx b/packages/tui/src/config/index.tsx
-index bde0bfb07..9379d60a3 100644
+index 953d597..2122596 100644
 --- a/packages/tui/src/config/index.tsx
 +++ b/packages/tui/src/config/index.tsx
-@@ -69,6 +69,10 @@ export const Info = Schema.Struct({
-   prompt: Schema.optional(Prompt),
-   scroll_speed: Schema.optional(ScrollSpeed).annotate({ description: "TUI scroll speed" }),
-   scroll_acceleration: Schema.optional(ScrollAcceleration),
+@@ -96,6 +96,10 @@ export const Info = Schema.Struct({
+       }),
+     }),
+   ).annotate({ description: "Scrolling behavior" }),
 +  auto_scroll_tolerance: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))).annotate({
 +    description:
 +      "Lines from the bottom within which the session view auto-follows streamed output (0 = only when exactly at bottom)",
 +  }),
-   diff_style: Schema.optional(DiffStyle),
-   cursor: Schema.optional(Cursor),
-   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable or disable mouse capture (default: true)" }),
+   attention: Schema.optional(
+     Schema.Struct({
+       notifications: Schema.optional(Schema.Boolean).annotate({ description: "Show system notifications" }),
 diff --git a/packages/tui/src/routes/session/index.tsx b/packages/tui/src/routes/session/index.tsx
-index 78c2d0bad..a2f5b1181 100644
+index 8a0817f..f5afa8a 100644
 --- a/packages/tui/src/routes/session/index.tsx
 +++ b/packages/tui/src/routes/session/index.tsx
-@@ -354,6 +354,23 @@ export function Session() {
+@@ -10,6 +10,7 @@ import {
+   onCleanup,
+   Show,
+   Switch,
++  untrack,
+   type Accessor,
+ } from "solid-js"
+ import path from "node:path"
+@@ -623,6 +624,24 @@ export function Session(props: {
+   })
    const dialog = useDialog()
    const renderer = useRenderer()
- 
++
 +  // Auto-follow (sticky-to-bottom) is only enabled while the user is within
 +  // `auto_scroll_tolerance` lines of the bottom. Scrolling up (wheel or PgUp)
 +  // disengages auto-follow so streamed output does not yank the viewport down;
 +  // returning to within tolerance of the bottom re-engages it.
-+  // Tolerance is configurable via tui config `auto_scroll_tolerance` (default 0 = must be exactly at bottom).
-+  const autoScrollTolerance = createMemo(() => tuiConfig.auto_scroll_tolerance ?? 0)
++  // Tolerance is configurable via config `auto_scroll_tolerance` (default 0 = must be exactly at bottom).
++  const autoScrollTolerance = createMemo(() => config.auto_scroll_tolerance ?? 0)
 +  const [stickToBottom, setStickToBottom] = createSignal(true)
 +  const stickToBottomFrame = () => {
 +    if (!scroll || scroll.isDestroyed) return
@@ -38,15 +47,15 @@ index 78c2d0bad..a2f5b1181 100644
 +  renderer.setFrameCallback(stickToBottomCallback)
 +  onCleanup(() => renderer.removeFrameCallback(stickToBottomCallback))
 +
-   event.on("session.status", (evt) => {
-     if (evt.properties.sessionID !== route.sessionID) return
-     if (evt.properties.status.type !== "retry") return
-@@ -1190,7 +1207,7 @@ export function Session() {
-                     foregroundColor: theme.border,
+   const runPendingAction = createSingleFlight<string>()
+   const mutatePending = async (action: PendingAction, inboxID: string, failureLabel?: string) => {
+     const result = await runPendingAction(inboxID, async () => {
+@@ -1407,7 +1426,7 @@ export function Session(props: {
+                     foregroundColor: theme.border.base,
                    },
                  }}
--                stickyScroll={true}
-+                stickyScroll={stickToBottom()}
+-                stickyScroll={!navigationMessage() && !navigationSlack()}
++                stickyScroll={stickToBottom() && !navigationMessage() && !navigationSlack()}
                  stickyStart="bottom"
                  flexGrow={1}
                  scrollAcceleration={scrollAcceleration()}

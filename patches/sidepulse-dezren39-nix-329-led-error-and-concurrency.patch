@@ -1,5 +1,5 @@
 SidePulse patch 7/11 -- local, dezren39/nix#329.
-Applies to inteliwear/sidepulse 6d55225 after sidepulse-dezren39-nix-328-led-writer-helper.patch, at zero fuzz.
+Applies to inteliwear/sidepulse ffb1d3c after sidepulse-dezren39-nix-328-led-writer-helper.patch, at zero fuzz.
 Tracking: dezren39/nix#327.
 
 diff --git a/profiles/cyan.json b/profiles/cyan.json
@@ -872,7 +872,7 @@ index 5c391ea..197fe4e 100644
          return AGENT_ANIMATION_LID_OPEN
      if key == ANIMATION_STATE_LID_CLOSED:
 diff --git a/src/sidepulse/status_bar.py b/src/sidepulse/status_bar.py
-index 052a274..e7923aa 100644
+index b237c2a..2bfd3d4 100644
 --- a/src/sidepulse/status_bar.py
 +++ b/src/sidepulse/status_bar.py
 @@ -145,10 +145,13 @@ from .led_status import (
@@ -961,7 +961,7 @@ index 052a274..e7923aa 100644
      @objc.IBAction
      def toggleBatteryLedDisplay_(self, _sender):
          self.set_battery_led_display(self.settings.led_display != LED_DISPLAY_BATTERY)
-@@ -2190,6 +2225,21 @@ class StatusBarController(NSObject):
+@@ -2193,6 +2228,21 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          self.refresh_(None)
  
@@ -983,7 +983,7 @@ index 052a274..e7923aa 100644
      def clear_agents(self) -> None:
          try:
              cleared = self.monitor.clear_statuses()
-@@ -2308,9 +2358,10 @@ class StatusBarController(NSObject):
+@@ -2311,9 +2361,10 @@ class StatusBarController(NSObject):
          self.refresh_settings_window()
          if self.last_snapshot is not None:
              self.sync_leds(
@@ -995,7 +995,7 @@ index 052a274..e7923aa 100644
              )
  
      def set_virtual_status_device(self, enabled: bool) -> None:
-@@ -3437,11 +3488,42 @@ class StatusBarController(NSObject):
+@@ -3440,11 +3491,42 @@ class StatusBarController(NSObject):
              return LED_DISPLAY_BATTERY
          return LED_DISPLAY_AGENT
  
@@ -1038,7 +1038,7 @@ index 052a274..e7923aa 100644
      ) -> None:
          if not self.leds_enabled:
              return
-@@ -3457,7 +3539,7 @@ class StatusBarController(NSObject):
+@@ -3460,7 +3542,7 @@ class StatusBarController(NSObject):
              self.reset_led_controllers_for_display_change()
              log_status_bar(f"dnd={'active' if dnd_active else 'inactive'}")
  
@@ -1047,7 +1047,7 @@ index 052a274..e7923aa 100644
              self.virtual_status_device.hide()
              self.sync_dnd_leds()
              return
-@@ -3478,7 +3560,7 @@ class StatusBarController(NSObject):
+@@ -3481,7 +3563,7 @@ class StatusBarController(NSObject):
          self.led_sync_in_flight = True
          thread = threading.Thread(
              target=self.sync_leds_worker,
@@ -1056,7 +1056,7 @@ index 052a274..e7923aa 100644
              daemon=True,
          )
          thread.start()
-@@ -3487,9 +3569,10 @@ class StatusBarController(NSObject):
+@@ -3490,9 +3572,10 @@ class StatusBarController(NSObject):
          if self.last_snapshot is None:
              return
          self.sync_leds(
@@ -1068,7 +1068,7 @@ index 052a274..e7923aa 100644
          )
      def sync_dnd_leds(self) -> None:
          if self.led_sync_in_flight:
-@@ -3582,9 +3665,10 @@ class StatusBarController(NSObject):
+@@ -3585,9 +3668,10 @@ class StatusBarController(NSObject):
          mode: AgentMode,
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
@@ -1080,7 +1080,7 @@ index 052a274..e7923aa 100644
          finally:
              self.led_sync_in_flight = False
  
-@@ -3593,8 +3677,9 @@ class StatusBarController(NSObject):
+@@ -3596,8 +3680,9 @@ class StatusBarController(NSObject):
          mode: AgentMode,
          battery_snapshot: BatterySnapshot | None,
          display_kind: str,
@@ -1091,7 +1091,7 @@ index 052a274..e7923aa 100644
              self.sync_dnd_leds_now()
              return
          devices = [
-@@ -3643,6 +3728,7 @@ class StatusBarController(NSObject):
+@@ -3646,6 +3731,7 @@ class StatusBarController(NSObject):
                              brightness=255,
                              animation_style=animation.style,
                              custom_program=animation.custom_program,
@@ -1099,7 +1099,7 @@ index 052a274..e7923aa 100644
                          )
                      except DeviceWriteError as exc:
                          active_errors[device.device_id] = str(exc)
-@@ -3685,6 +3771,7 @@ class StatusBarController(NSObject):
+@@ -3688,6 +3774,7 @@ class StatusBarController(NSObject):
                      mode,
                      animation_style=animation.style,
                      custom_program=animation.custom_program,
@@ -1107,7 +1107,7 @@ index 052a274..e7923aa 100644
                  )
                  label = f"{device.name} {result.label}"
  
-@@ -4174,6 +4261,18 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
+@@ -4177,6 +4264,18 @@ def build_menu(snapshot, state: StatusBarState, target: StatusBarController) ->
          clear_agents.setTarget_(target)
          menu.addItem_(clear_agents)
  
@@ -1126,7 +1126,7 @@ index 052a274..e7923aa 100644
      menu.addItem_(NSMenuItem.separatorItem())
      menu.addItem_(disabled_menu_item("Devices"))
      devices = target.status_bar_devices()
-@@ -5918,6 +6017,8 @@ def agent_animation_label(settings: AgentMonitorSettings, animation_id: str) ->
+@@ -5921,6 +6020,8 @@ def agent_animation_label(settings: AgentMonitorSettings, animation_id: str) ->
          AGENT_ANIMATION_CYAN_COMPLETE: "Cyan Complete",
          AGENT_ANIMATION_AMBER_PULSE: "Amber Pulse",
          AGENT_ANIMATION_SOLID_GREEN: "Solid Green",
@@ -1721,7 +1721,7 @@ index 0000000..850aa8c
 +    stale = (status("opencode:session:done", AgentMode.COMPLETED, session_id="done"),)
 +    assert w.newly_completed(fresh + stale) == ("opencode:session:done",)
 diff --git a/tests/test_sidepulse.py b/tests/test_sidepulse.py
-index 760b4df..3d587e3 100644
+index 5eaff49..02ebef6 100644
 --- a/tests/test_sidepulse.py
 +++ b/tests/test_sidepulse.py
 @@ -151,6 +151,7 @@ from sidepulse.settings import (
@@ -1802,7 +1802,7 @@ index 760b4df..3d587e3 100644
              AGENT_ANIMATION_KITT_RED,
              AGENT_ANIMATION_EMBER_IDLE,
 diff --git a/tests/test_status_bar_ui.py b/tests/test_status_bar_ui.py
-index 0a4555b..03e6ea5 100644
+index 7c4ec74..5dbe7ab 100644
 --- a/tests/test_status_bar_ui.py
 +++ b/tests/test_status_bar_ui.py
 @@ -953,6 +953,8 @@ class WindowBuildTests(StatusBarTestCase):
@@ -1814,7 +1814,7 @@ index 0a4555b..03e6ea5 100644
                      "KITT Scanner",
                      "KITT Scanner Red",
                      "Ember Idle",
-@@ -1322,7 +1324,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
+@@ -1332,7 +1334,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
          seen = []
          done = threading.Event()
  
@@ -1823,7 +1823,7 @@ index 0a4555b..03e6ea5 100644
              seen.append((mode, battery_snapshot, display_kind))
              done.set()
  
-@@ -1346,7 +1348,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
+@@ -1356,7 +1358,7 @@ class LidClosedLedIdleTests(StatusBarTestCase):
          seen = []
          done = threading.Event()
  
