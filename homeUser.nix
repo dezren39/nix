@@ -9,7 +9,12 @@
 }:
 let
   # The activation helper defaults to all providers; this config uses OpenCode only.
-  sidepulseProviders = [ "opencode" ];
+  # TEMPORARILY EMPTY: `sidepulse setup opencode` still generates the v1 plugin,
+  # and ~/.config/opencode/plugins/sidepulse.js is now a symlink to this repo's
+  # v2 port (plugins/sidepulse.js), so setup would write the v1 source through
+  # the symlink on every switch. Restore [ "opencode" ] once the sidepulse patch
+  # stack generates the v2 plugin itself.
+  sidepulseProviders = [ ];
   mkSidePulseActivation =
     {
       providers ? [ "all" ],
