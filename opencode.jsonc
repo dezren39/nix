@@ -1,114 +1,257 @@
 {
+  // OpenCode v2 config (developing-today/opencode). Native v2 keys only: v1's
+  // `agent`, `permission`, `plugin`, `autoupdate`, `small_model` and
+  // `compaction.reserved` are gone or renamed, and v2 no longer reads
+  // tui.jsonc (terminal UI settings live in ~/.config/opencode/cli.json).
   "$schema": "https://opencode.ai/config.json",
-  "autoupdate": false,
-  "plugin": [
-    "@mohak34/opencode-notifier@latest",
-    "opencode-pty@latest",
-    "@franlol/opencode-md-table-formatter@latest",
-    "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz"
-  ],
+  "update": "disable",
+  "warming": true,
+  "compaction": { "buffer": 8192 },
+
+  // Every model below is a pool (experimental.model_routes), shown in pickers
+  // as opencode-route/<id>. Only github-copilot is configured today; adding a
+  // provider (e.g. anthropic) later means adding targets, not rewiring agents.
+  "model": "opencode-route/fast-strong",
   "default_agent": "build",
-  "agent": {
-    "plan": {
-      "disable": true
-    }
-  },
-  // v2 reads the depth limit only from experimental.subagent_depth; a
-  // top-level subagent_depth is dropped with a diagnostic and the limit
-  // silently falls back to 1 (core/src/tool/plugin/subagent.ts).
-  "experimental": {
-    "subagent_depth": 10
-  },
-  "model": "github-copilot/claude-opus-5.5",
-  "small_model": "github-copilot/claude-opus-5.5",
-  "permission": {
-    "read": "allow",
-    "lsp": "ask",
-    "todowrite": "allow",
-    "edit": "allow",
-    "external_directory": "allow",
-    "bash": {
-      "*": "allow",
-      "bash -c *": "ask",
-      "sh -c *": "ask",
-      "zsh -c *": "ask",
-      "eval *": "ask",
-      "git remote add *": "ask",
-      "git stash *": "ask",
-      "git branch -d*": "ask",
-      "git branch -D*": "ask",
-      "git branch --delete*": "ask",
-      "git worktree remove *": "ask",
-      "git worktree prune *": "ask",
-      "git push* :*": "ask",
-      "git rm *": "ask",
-      "git tag -d*": "ask",
-      "git commit*--amend*": "ask",
-      "git remote set-url*": "ask",
-      "git remote remove*": "ask",
-      "git remote rename*": "ask",
-      "git remote rm*": "ask",
-      "git config*remote.*url*": "ask",
-      "git config*--remove-section*": "ask",
-      "git config*--unset*": "ask",
-      "git push*--force*": "ask",
-      "git push*-f *": "ask",
-      "git push*--delete*": "ask",
-      "git push*-d *": "ask",
-      "git push*--mirror*": "ask",
-      "git push*--prune*": "ask",
-      "git reset --hard origin/main*": "ask",
-      "git reset --hard */origin/main*": "ask",
-      "git reset --hard*": "ask",
-      "git reset --merge*": "ask",
-      "git reset --keep*": "ask",
-      "git checkout -- *": "ask",
-      "git checkout .*": "ask",
-      "git checkout --ours*": "ask",
-      "git checkout --theirs*": "ask",
-      "git restore *": "ask",
-      "git checkout -f*": "ask",
-      "git checkout --force*": "ask",
-      "git switch*--discard-changes*": "ask",
-      "git switch -f*": "ask",
-      "git switch --force*": "ask",
-      "git checkout -B*": "ask",
-      "git switch -C*": "ask",
-      "git branch -f*": "ask",
-      "git branch --force*": "ask",
-      "git clean*-f*": "ask",
-      "git clean*-x*": "ask",
-      "git update-ref *": "ask",
-      "git symbolic-ref *": "ask",
-      "git reflog expire*": "ask",
-      "git gc*--prune*": "ask",
-      "git prune *": "ask",
-      "git filter-branch*": "ask",
-      "git filter-repo*": "ask",
-      "git submodule deinit*": "ask",
-      "git submodule*--force*": "ask",
-      "git stash drop*": "ask",
-      "git stash clear*": "ask",
-      "git stash list *": "allow",
-      "git stash show *": "allow",
-      "git config --get *": "allow",
-      "git config --get-regexp *": "allow",
-      "git config --list *": "allow"
+
+  "agents": {
+    // build: the one primary agent.
+    "build": { "model": "opencode-route/fast-strong" },
+    // Built-in subagents, re-pointed at pools.
+    "general": { "model": "opencode-route/fast-strong" },
+    "explore": { "model": "opencode-route/very-fast" },
+    // Extra subagents, one per capability pool, so the build agent can pick a
+    // speed/strength trade-off per task.
+    "deep": {
+      "mode": "subagent",
+      "model": "opencode-route/frontier",
+      "description": "Slowest, strongest models (Opus/Sonnet 5.5 at max and xhigh, GPT-6.1 Sol xhigh). Use for hard design, debugging or review problems where quality matters more than minutes. Expect long runs."
     },
-    "plan_enter": "ask",
-    "plan_exit": "ask",
-    "task": {
-      "custom": "ask"
+    "balanced": {
+      "mode": "subagent",
+      "model": "opencode-route/balanced",
+      "description": "Mid-speed, mid-strength general-purpose agent (Sonnet 5.5 medium, Opus 5.5 low, GPT-6.1 Sol low, Terra high). Use for routine multi-step implementation where fast-strong would be overkill."
+    },
+    "quick": {
+      "mode": "subagent",
+      "model": "opencode-route/very-fast",
+      "description": "Fastest general-purpose agent with full tools (Luna low/medium, Terra low, Sonnet 5.5 low, Haiku). Use for small, well-specified edits and mechanical batch work."
+    },
+    // Hidden helpers. title is left unset on purpose: with no model, the
+    // Copilot provider names sessions with GitHub's free utility model.
+    "compaction": { "model": "opencode-route/balanced" },
+    "summary": { "model": "opencode-route/very-fast" },
+    "plan": { "disabled": true }
+  },
+
+  "experimental": {
+    "subagent_depth": 10,
+
+    // Two kinds of pools.
+    //
+    // Capability pools (round-robin, sticky per session, fail over in order):
+    // grouped by Artificial Analysis Intelligence Index, Coding Agent Index and
+    // their task times (2026-10):
+    //   Sonnet 5.5 max 0.684 / 5245s   Opus 5.5 max 0.660 / 3867s
+    //   GPT-6.1 Sol xhigh 0.629 / 931s  Sol medium 0.614 / 651s  Sol low 0.572
+    //   Sonnet 5.5 high 0.550 / 735s    Sonnet 5.5 medium 0.459 / 510s
+    //   GPT-6 Luna max 0.411; Intelligence Index: Opus 5.5 max 58, Opus 5.5
+    //   medium 51 (~200s/task), GPT-6 Sol high 42 (~100s), GPT-6 Luna high 33.
+    // Family pools (fixed order, newest first, the previous generation as
+    // failover): pick the effort as the variant, e.g. opencode-route/sonnet#high.
+    //
+    // firstTokenTimeoutMs defaults to 10s, which reasoning-heavy variants
+    // routinely exceed before their first output token (AA measures minutes
+    // for max effort), so it is raised or disabled per pool.
+    "model_routes": {
+      "frontier": {
+        "name": "Frontier (strongest, slow)",
+        "autonomy": "rules",
+        "selection": "round-robin",
+        "health": { "firstTokenTimeoutMs": false },
+        "targets": [
+          "github-copilot/claude-opus-5.5#max",
+          "github-copilot/claude-sonnet-5.5#max",
+          "github-copilot/claude-opus-5.5#xhigh",
+          "github-copilot/claude-sonnet-5.5#xhigh",
+          "github-copilot/gpt-6.1-sol#xhigh"
+        ]
+      },
+      "fast-strong": {
+        "name": "Fast and strong",
+        "autonomy": "rules",
+        "selection": "round-robin",
+        "health": { "firstTokenTimeoutMs": 180000 },
+        "targets": [
+          "github-copilot/gpt-6.1-sol#medium",
+          "github-copilot/gpt-6.1-sol#high",
+          "github-copilot/claude-sonnet-5.5#high",
+          "github-copilot/claude-opus-5.5#medium",
+          "github-copilot/gpt-6.1-sol#xhigh"
+        ]
+      },
+      "balanced": {
+        "name": "Balanced (medium speed)",
+        "autonomy": "rules",
+        "selection": "round-robin",
+        "health": { "firstTokenTimeoutMs": 120000 },
+        "targets": [
+          "github-copilot/claude-sonnet-5.5#medium",
+          "github-copilot/gpt-6.1-sol#low",
+          "github-copilot/claude-opus-5.5#low",
+          "github-copilot/gpt-5.6-terra#high",
+          "github-copilot/gpt-6-sol#medium"
+        ]
+      },
+      "very-fast": {
+        "name": "Very fast",
+        "autonomy": "rules",
+        "selection": "round-robin",
+        "health": { "firstTokenTimeoutMs": 60000 },
+        "targets": [
+          "github-copilot/gpt-6-luna#low",
+          "github-copilot/gpt-6-luna#medium",
+          "github-copilot/gpt-5.6-terra#low",
+          "github-copilot/claude-sonnet-5.5#low",
+          "github-copilot/gpt-6.1-sol#none",
+          "github-copilot/claude-haiku-4.5#high"
+        ]
+      },
+
+      "opus": {
+        "name": "Claude Opus",
+        "autonomy": "fixed",
+        "health": { "firstTokenTimeoutMs": false },
+        "targets": [
+          { "model": "github-copilot/claude-opus-5.5", "defaultVariant": "medium" },
+          { "model": "github-copilot/claude-opus-5", "defaultVariant": "medium" }
+        ]
+      },
+      "sonnet": {
+        "name": "Claude Sonnet",
+        "autonomy": "fixed",
+        "health": { "firstTokenTimeoutMs": false },
+        "targets": [
+          { "model": "github-copilot/claude-sonnet-5.5", "defaultVariant": "medium" },
+          { "model": "github-copilot/claude-sonnet-5", "defaultVariant": "medium" }
+        ]
+      },
+      "sol": {
+        "name": "GPT Sol",
+        "autonomy": "fixed",
+        "health": { "firstTokenTimeoutMs": false },
+        "targets": [
+          { "model": "github-copilot/gpt-6.1-sol", "defaultVariant": "medium" },
+          { "model": "github-copilot/gpt-6-sol", "defaultVariant": "medium" }
+        ]
+      },
+      "luna": {
+        "name": "GPT Luna",
+        "autonomy": "fixed",
+        "health": { "firstTokenTimeoutMs": false },
+        "targets": [
+          { "model": "github-copilot/gpt-6-luna", "defaultVariant": "medium" },
+          { "model": "github-copilot/gpt-5.6-luna", "defaultVariant": "medium" }
+        ]
+      },
+      "terra": {
+        "name": "GPT Terra",
+        "autonomy": "fixed",
+        "health": { "firstTokenTimeoutMs": false },
+        "targets": [{ "model": "github-copilot/gpt-5.6-terra", "defaultVariant": "medium" }]
+      }
     }
   },
+
+  // v1 plugins that v2's loader rejects ("must export a default definition
+  // with an id and an effect or setup function"); each failed on every load.
+  // Re-enable once ported to v2's { id, setup } shape:
+  //   "opencode-pty@latest",
+  //   "@franlol/opencode-md-table-formatter@latest",
+  //   "opencode-auto-continue@https://github.com/developing-today/opencode-auto-continue/archive/refs/tags/latest.tar.gz"
+  "plugins": ["@mohak34/opencode-notifier@latest"],
+
   "instructions": [
     "~/.config/opencode/instructions/lootbox.md",
     "~/.config/opencode/instructions/worktrees.md",
     "~/.config/opencode/instructions/recordings.md",
     "~/.config/opencode/instructions/work-strategies.md"
   ],
-  "compaction": {
-    "reserved": 8192
-  },
-  "warming": true
+
+  // Ordered rules; for the same action, later rules override earlier ones.
+  // Migrated from v1 by v2's own normalizer (bash -> shell). Dropped as inert
+  // in v2: lsp, plan_enter, plan_exit, and the rule for the removed `custom`
+  // subagent.
+  "permissions": [
+    {"action":"read","resource":"*","effect":"allow"},
+    {"action":"todowrite","resource":"*","effect":"allow"},
+    {"action":"edit","resource":"*","effect":"allow"},
+    {"action":"external_directory","resource":"*","effect":"allow"},
+    {"action":"shell","resource":"*","effect":"allow"},
+    {"action":"shell","resource":"bash -c *","effect":"ask"},
+    {"action":"shell","resource":"sh -c *","effect":"ask"},
+    {"action":"shell","resource":"zsh -c *","effect":"ask"},
+    {"action":"shell","resource":"eval *","effect":"ask"},
+    {"action":"shell","resource":"git remote add *","effect":"ask"},
+    {"action":"shell","resource":"git stash *","effect":"ask"},
+    {"action":"shell","resource":"git branch -d*","effect":"ask"},
+    {"action":"shell","resource":"git branch -D*","effect":"ask"},
+    {"action":"shell","resource":"git branch --delete*","effect":"ask"},
+    {"action":"shell","resource":"git worktree remove *","effect":"ask"},
+    {"action":"shell","resource":"git worktree prune *","effect":"ask"},
+    {"action":"shell","resource":"git push* :*","effect":"ask"},
+    {"action":"shell","resource":"git rm *","effect":"ask"},
+    {"action":"shell","resource":"git tag -d*","effect":"ask"},
+    {"action":"shell","resource":"git commit*--amend*","effect":"ask"},
+    {"action":"shell","resource":"git remote set-url*","effect":"ask"},
+    {"action":"shell","resource":"git remote remove*","effect":"ask"},
+    {"action":"shell","resource":"git remote rename*","effect":"ask"},
+    {"action":"shell","resource":"git remote rm*","effect":"ask"},
+    {"action":"shell","resource":"git config*remote.*url*","effect":"ask"},
+    {"action":"shell","resource":"git config*--remove-section*","effect":"ask"},
+    {"action":"shell","resource":"git config*--unset*","effect":"ask"},
+    {"action":"shell","resource":"git push*--force*","effect":"ask"},
+    {"action":"shell","resource":"git push*-f *","effect":"ask"},
+    {"action":"shell","resource":"git push*--delete*","effect":"ask"},
+    {"action":"shell","resource":"git push*-d *","effect":"ask"},
+    {"action":"shell","resource":"git push*--mirror*","effect":"ask"},
+    {"action":"shell","resource":"git push*--prune*","effect":"ask"},
+    {"action":"shell","resource":"git reset --hard origin/main*","effect":"ask"},
+    {"action":"shell","resource":"git reset --hard */origin/main*","effect":"ask"},
+    {"action":"shell","resource":"git reset --hard*","effect":"ask"},
+    {"action":"shell","resource":"git reset --merge*","effect":"ask"},
+    {"action":"shell","resource":"git reset --keep*","effect":"ask"},
+    {"action":"shell","resource":"git checkout -- *","effect":"ask"},
+    {"action":"shell","resource":"git checkout .*","effect":"ask"},
+    {"action":"shell","resource":"git checkout --ours*","effect":"ask"},
+    {"action":"shell","resource":"git checkout --theirs*","effect":"ask"},
+    {"action":"shell","resource":"git restore *","effect":"ask"},
+    {"action":"shell","resource":"git checkout -f*","effect":"ask"},
+    {"action":"shell","resource":"git checkout --force*","effect":"ask"},
+    {"action":"shell","resource":"git switch*--discard-changes*","effect":"ask"},
+    {"action":"shell","resource":"git switch -f*","effect":"ask"},
+    {"action":"shell","resource":"git switch --force*","effect":"ask"},
+    {"action":"shell","resource":"git checkout -B*","effect":"ask"},
+    {"action":"shell","resource":"git switch -C*","effect":"ask"},
+    {"action":"shell","resource":"git branch -f*","effect":"ask"},
+    {"action":"shell","resource":"git branch --force*","effect":"ask"},
+    {"action":"shell","resource":"git clean*-f*","effect":"ask"},
+    {"action":"shell","resource":"git clean*-x*","effect":"ask"},
+    {"action":"shell","resource":"git update-ref *","effect":"ask"},
+    {"action":"shell","resource":"git symbolic-ref *","effect":"ask"},
+    {"action":"shell","resource":"git reflog expire*","effect":"ask"},
+    {"action":"shell","resource":"git gc*--prune*","effect":"ask"},
+    {"action":"shell","resource":"git prune *","effect":"ask"},
+    {"action":"shell","resource":"git filter-branch*","effect":"ask"},
+    {"action":"shell","resource":"git filter-repo*","effect":"ask"},
+    {"action":"shell","resource":"git submodule deinit*","effect":"ask"},
+    {"action":"shell","resource":"git submodule*--force*","effect":"ask"},
+    {"action":"shell","resource":"git stash drop*","effect":"ask"},
+    {"action":"shell","resource":"git stash clear*","effect":"ask"},
+    {"action":"shell","resource":"git stash list *","effect":"allow"},
+    {"action":"shell","resource":"git stash show *","effect":"allow"},
+    {"action":"shell","resource":"git config --get *","effect":"allow"},
+    {"action":"shell","resource":"git config --get-regexp *","effect":"allow"},
+    {"action":"shell","resource":"git config --list *","effect":"allow"}
+  ]
 }

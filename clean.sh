@@ -33,6 +33,14 @@ USE_SUDO=""          # empty = decide from --dry-run
 CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
 DOCKER_AGE_DAYS="${DOCKER_AGE_DAYS:-}"  # set = age-scoped docker prune, VM preserved
+PRUNE_UNKNOWN_SCRATCH="${PRUNE_UNKNOWN_SCRATCH:-0}" # opt-in: delete, not just flag, the name-blind catch-all
+UNKNOWN_SCRATCH_MIN_MB="${UNKNOWN_SCRATCH_MIN_MB:-500}"
+UNKNOWN_SCRATCH_STALE_DAYS="${UNKNOWN_SCRATCH_STALE_DAYS:-7}"
+# Collects every name-blind catch-all hit (flagged or, with
+# --prune-unknown-scratch, deleted) for the report printed at the very end.
+# A plain array, not a file: this runs once per invocation, in one process,
+# no subshell boundary separates the sweep from the final report.
+UNKNOWN_SCRATCH_HITS=()
 
 usage() {
   cat <<'EOF'
@@ -93,6 +101,15 @@ OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
                     this checks against can go stale as opencode adds new
                     top-level files, so this is opt-in and worth a --dry-run
                     first.
+  --prune-unknown-scratch
+                    Without this flag, large+old scratch entries that match
+                    NO known name pattern (generic mktemp output, random
+                    throwaway dirs) are only FLAGGED -- reported in a list at
+                    the end, never deleted, because "looks generic and old"
+                    is weaker evidence than a known tool's own naming
+                    convention. Pass this to actually delete what the flagged
+                    report would have listed (still gated on age, size, and
+                    no open handle -- see UNKNOWN_SCRATCH_* below).
 
 TUNABLES (environment)
   ARTIFACT_STALE_DAYS       default 1   repo/worktree idle period before artifacts
@@ -144,6 +161,16 @@ TUNABLES (environment)
                                         repo being active no longer protects
                                         its build caches once they're this
                                         stale and nothing has them open
+  UNKNOWN_SCRATCH_MIN_MB   default 500  size floor (MB) for the name-blind
+                                        catch-all in the two scratch roots --
+                                        below this, "generic and old" isn't
+                                        worth a report entry
+  UNKNOWN_SCRATCH_STALE_DAYS default 7  age floor (days, own mtime + no open
+                                        handle) for that same catch-all;
+                                        matches the worktree-removal window,
+                                        not the 8h tool-fixture windows above,
+                                        since a generic name carries no tool
+                                        lifecycle evidence to lean on
 EOF
 }
 
@@ -163,6 +190,7 @@ while [ $# -gt 0 ]; do
     --expire-reflog)  EXPIRE_REFLOG=1 ;;
     --docker-age)     DOCKER_AGE_DAYS="${2:-30}"; shift ;;
     --opencode-root-scratch) CLEAN_OPENCODE_ROOT=1 ;;
+    --prune-unknown-scratch) PRUNE_UNKNOWN_SCRATCH=1 ;;
     --no-sudo)        USE_SUDO=0 ;;
     --no-git-maintenance|--no-maintenance|--no-git) DO_MAINTENANCE=0 ;;
     --quick)          MAINT_DEPTH="--quick" ;;
@@ -361,6 +389,25 @@ if have docker; then
     run docker container prune --force || warn "docker container prune failed"
     run docker builder prune --force   || warn "docker builder prune failed"
     run docker system prune --force --all --volumes || warn "docker system prune failed"
+    # Belt and suspenders on the volume side: measured here, `system prune
+    # --volumes` (and even a standalone `docker volume prune --force`) left a
+    # compose-labeled, zero-container, zero-byte volume in place while
+    # reporting "Total reclaimed space: 0B" -- a `docker volume rm` on the
+    # same volume name succeeded immediately. Whatever `dangling=true` the
+    # prune commands use internally, it isn't catching every volume `docker
+    # volume ls -f dangling=true` itself lists. This also matters beyond the
+    # volume's own bytes: the colima recreate check below requires zero
+    # volumes, and one leftover (however small) was blocking a 100 GB+ sparse
+    # VM disk from ever being offered for recreation. Not run in the
+    # age-scoped branch above: that one already removes dangling volumes
+    # directly, but filtered by age -- doing it again here unconditionally
+    # would defeat --docker-age's whole point for volumes specifically.
+    _dangling_removed=0
+    while IFS= read -r _v; do
+      [ -n "$_v" ] || continue
+      run docker volume rm "$_v" >/dev/null 2>&1 && _dangling_removed=$((_dangling_removed + 1))
+    done < <(docker volume ls -q -f dangling=true 2>/dev/null)
+    [ "$_dangling_removed" -gt 0 ] && info "docker: removed $_dangling_removed dangling volume(s) system prune left behind"
   fi
 else
   info "docker not installed, skipping"
@@ -866,10 +913,11 @@ echo "🧹 short-lived scratch (tool-prefixed single-run dirs, 2 locations)"
 # left for --tmpdir / manual review rather than risking a false match.
 SHORT_SCRATCH_STALE_HOURS="${SHORT_SCRATCH_STALE_HOURS:-8}"
 SHORT_SCRATCH_GLOBS=(
-  'mcpx-fake-*' 'mcpx-inline-*' 'mcpx-task-*' 'mcpx-run-*' 'mcpx-keep-*'
+  'mcpx-fake-*' 'mcpx-inline-*' 'mcpx-task-*' 'mcpx-run-*' 'mcpx-keep-*' 'mcpx-bin-*'
   'mw_ctrl_test_*' 'telemetry_test_*' 'telemetry_init_*'
   'playwright-artifacts-*' 'playwright_chromiumdev_profile-*' 'puppeteer_dev_chrome_profile-*'
   'chrome-*-profile' 'sbm-*' 'openchamber-*'
+  'e2e_*' 'integration_*' 'opencode-*' 'v8-compile-cache-*'
   'go-build*' 'node-compile-cache' 'bunx-*'
   'nix-shell.*' 'nix-develop-*'
 )
@@ -937,6 +985,60 @@ for _vf_t in /private/var/folders/*/*/T; do
 done
 [ "$_ss_total_removed" -eq 0 ] && info "short-lived scratch: nothing older than ${SHORT_SCRATCH_STALE_HOURS}h in either location"
 
+# Name-blind catch-all: generic mktemp output (tmp.XXXXXXXX), random
+# throwaway dirs (oc-XXXXXX), anything SHORT_SCRATCH_GLOBS above doesn't
+# recognize. FLAGGED ONLY by default -- a known tool's own naming convention
+# is real evidence an entry is disposable; "big and old" alone is weaker
+# evidence, so this reports instead of deleting unless
+# --prune-unknown-scratch says otherwise. Gated on size
+# (UNKNOWN_SCRATCH_MIN_MB) + age (UNKNOWN_SCRATCH_STALE_DAYS -- deliberately
+# the slower, days-based window shared with whole-worktree removal, not the
+# hours-based windows above: a nameless entry carries no tool-lifecycle
+# evidence to justify a short fuse) + no open handle, same discipline as
+# every other sweep in this file. Every hit, flagged or deleted, is recorded
+# for the report printed at the very end.
+unknown_scratch_is_known() {
+  local name="$1" g
+  short_scratch_is_kept "$name" && return 0   # mcpx-keep-style: not ours to judge
+  for g in "${SHORT_SCRATCH_GLOBS[@]}"; do
+    # shellcheck disable=SC2053
+    [[ "$name" == $g ]] && return 0
+  done
+  return 1
+}
+sweep_unknown_large_scratch() {
+  local base="$1" entry name size_kb size_mb age_cutoff_min created modified status
+  [ -d "$base" ] || return 0
+  age_cutoff_min=$((UNKNOWN_SCRATCH_STALE_DAYS * 1440))
+  for entry in "$base"/*; do
+    [ -e "$entry" ] || continue
+    name="${entry##*/}"
+    [ "$name" = "opencode" ] && continue   # owned by the git-aware tidy pass, not this
+    unknown_scratch_is_known "$name" && continue
+    size_kb=$(du -sk "$entry" 2>/dev/null | cut -f1); size_kb=${size_kb:-0}
+    size_mb=$((size_kb / 1024))
+    [ "$size_mb" -ge "$UNKNOWN_SCRATCH_MIN_MB" ] || continue
+    [ -n "$(find "$entry" -maxdepth 0 -mmin "-${age_cutoff_min}" -print 2>/dev/null)" ] && continue  # too fresh
+    [ -n "$(lsof +D "$entry" 2>/dev/null | head -1)" ] && continue  # something has it open
+    created="$(stat -c '%w' "$entry" 2>/dev/null)"; created="${created%%.*}"
+    modified="$(stat -c '%y' "$entry" 2>/dev/null)"; modified="${modified%%.*}"
+    if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
+      status="deleted"
+      if [ "$DRY_RUN" = "1" ]; then echo "  would remove (unknown, ${size_mb} MB, >${UNKNOWN_SCRATCH_STALE_DAYS}d): ${entry/#$CALLER_USER_HOME/\~}"; status="would delete"
+      else del "$entry"; fi
+    else
+      status="flagged only"
+    fi
+    UNKNOWN_SCRATCH_HITS+=("$entry"$'\t'"${size_mb} MB"$'\t'"${created:-unknown}"$'\t'"${modified:-unknown}"$'\t'"$status")
+  done
+}
+sweep_unknown_large_scratch "$CALLER_USER_HOME/.local/share/opencode/tmp"
+for _vf_t in /private/var/folders/*/*/T; do
+  [ -d "$_vf_t" ] || continue
+  sweep_unknown_large_scratch "$_vf_t"
+done
+[ "${#UNKNOWN_SCRATCH_HITS[@]}" -gt 0 ] && info "unknown-scratch catch-all: ${#UNKNOWN_SCRATCH_HITS[@]} entries >=${UNKNOWN_SCRATCH_MIN_MB}MB and >${UNKNOWN_SCRATCH_STALE_DAYS}d old (see report at the end)$([ "$PRUNE_UNKNOWN_SCRATCH" != "1" ] && echo " -- flagged only, pass --prune-unknown-scratch to delete")"
+
 # Ad hoc postgres data dirs (by PG_VERSION marker -- same signal
 # tidy_purge_postgres_dirs uses for tmp/opencode) landing directly in either
 # scratch root above, e.g. a stray `heron-once-pg`. Same 8h window as the
@@ -958,7 +1060,7 @@ sweep_ad_hoc_postgres_dirs() {
   while IFS= read -r marker; do
     pgdir="$(dirname "$marker")"
     case "$pgdir" in "$base/opencode"/*) continue ;; esac # owned by the tidy pass, not here
-    if [ -z "$(find "$pgdir" -type f -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
+    if [ -z "$(find "$pgdir" -type f -not -name "$SPOTLIGHT_MARKER" -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
        [ -z "$(lsof +D "$pgdir" 2>/dev/null | head -1)" ]; then
       if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir, idle >${PG_SCRATCH_STALE_HOURS}h): ${pgdir/#$CALLER_USER_HOME/\~}"
       else echo "  removing (postgres data dir, idle >${PG_SCRATCH_STALE_HOURS}h): ${pgdir/#$CALLER_USER_HOME/\~}"; del "$pgdir"; fi
@@ -1090,9 +1192,18 @@ ACTIVE_ARTIFACT_STALE_HOURS="${ACTIVE_ARTIFACT_STALE_HOURS:-8}"
 # under a live process. lsof's cost is proportional to system-wide open
 # files, not the target directory's size, so this stays cheap whether the
 # artifact is a two-file cache or a 50,000-file venv.
+#
+# Excludes the Spotlight marker itself from the staleness check: the first
+# time this artifact was judged not-yet-prunable, mark_dir() touched
+# .metadata_never_index inside it -- a file this script wrote, not evidence
+# of anyone using the artifact. Without the exclusion, that one touch would
+# make the directory look "recently modified" for a full
+# ACTIVE_ARTIFACT_STALE_HOURS after every mark, purely because of the
+# bookkeeping file clean.sh itself left behind. Verified against a real
+# worktree's .venv: its only file inside the window was its own marker.
 artifact_is_prunable() {
   local path="$1"
-  [ -n "$(find "$path" -type f -mmin "-$((ACTIVE_ARTIFACT_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] && return 1
+  [ -n "$(find "$path" -type f -not -name "$SPOTLIGHT_MARKER" -mmin "-$((ACTIVE_ARTIFACT_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] && return 1
   [ -n "$(lsof +D "$path" 2>/dev/null | head -1)" ] && return 1
   return 0
 }
@@ -1223,7 +1334,7 @@ while IFS= read -r _owner; do
   [ -d "$_owner" ] || continue
   while IFS= read -r _marker; do
     _pgdir="$(dirname "$_marker")"
-    if [ -z "$(find "$_pgdir" -type f -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
+    if [ -z "$(find "$_pgdir" -type f -not -name "$SPOTLIGHT_MARKER" -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
        [ -z "$(lsof +D "$_pgdir" 2>/dev/null | head -1)" ]; then
       if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"
       else echo "  removing (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"; del "$_pgdir"; fi
@@ -1622,6 +1733,20 @@ if [ "$DO_MAINTENANCE" = "1" ] && [ "$n_repos" -gt 0 ]; then
   DOWNGRADED=0
   while IFS= read -r repo; do
     [ -d "$repo" ] || continue
+    # Stale worktree ADMIN entries (the worktree's own directory is gone, but
+    # its registration under .git/worktrees/ survives) are invisible to
+    # everything above -- they are not a repo, not a worktree with a living
+    # directory, just dead metadata that accumulates forever otherwise.
+    # Surfaced here as "could not resolve gitdir" warnings from
+    # repair_git_ownership before this fix. Safe by git's own default: it
+    # only removes an entry whose working directory is confirmably gone.
+    if [ "$DRY_RUN" = "1" ]; then
+      _wtp_out="$(as_user git -C "$repo" worktree prune -n -v 2>&1)"
+      [ -n "$_wtp_out" ] && echo "  would prune worktree admin entries in ${repo/#$CALLER_USER_HOME/\~}:"$'\n'"$_wtp_out"
+    else
+      _wtp_out="$(as_user git -C "$repo" worktree prune -v 2>&1)"
+      [ -n "$_wtp_out" ] && info "${repo/#$CALLER_USER_HOME/\~}: $_wtp_out"
+    fi
     depth="$MAINT_DEPTH"
     if [ "$depth" = "--deep" ] && ! repo_tree_group_is_idle "$repo"; then
       depth="--safe"; DOWNGRADED=$((DOWNGRADED + 1))
@@ -1660,3 +1785,22 @@ echo "📏 Free disk after clean:  $(human_size "$DISK_FREE_END")"
 RECLAIMED=$(( DISK_FREE_END - ${DISK_FREE_START:-0} ))
 if (( RECLAIMED > 0 )); then echo "✅ Reclaimed: $(human_size "$RECLAIMED")"
 else echo "⚠️  No net disk reclaimed ($(human_size $(( -RECLAIMED ))) more used)"; fi
+
+# --- Unknown-scratch catch-all report, always last -------------------------
+# Printed regardless of --prune-unknown-scratch: without it these are the
+# candidates nobody has acted on yet; with it, this is the record of what
+# just got deleted (size/dates captured before the delete, since the path is
+# gone by the time this prints).
+if [ "${#UNKNOWN_SCRATCH_HITS[@]}" -gt 0 ]; then
+  echo ""
+  if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
+    echo "🗒️  Unknown-scratch catch-all -- deleted (name matched no known pattern):"
+  else
+    echo "🗒️  Unknown-scratch catch-all -- FLAGGED ONLY, not deleted (pass --prune-unknown-scratch to delete):"
+  fi
+  printf '%-10s  %-20s  %-20s  %s\n' "SIZE" "CREATED" "MODIFIED" "PATH"
+  for _hit in "${UNKNOWN_SCRATCH_HITS[@]}"; do
+    IFS=$'\t' read -r _h_path _h_size _h_created _h_modified _h_status <<<"$_hit"
+    printf '%-10s  %-20s  %-20s  %s  [%s]\n' "$_h_size" "$_h_created" "$_h_modified" "${_h_path/#$CALLER_USER_HOME/\~}" "$_h_status"
+  done
+fi

@@ -76,11 +76,12 @@ Where things go:
 
 ## OpenCode / Copilot / lootbox
 
-- Config: `opencode.jsonc` (github-copilot only; Build uses GPT-5.6 Sol xhigh,
-  Plan uses Claude Fable 5 high, native subagents and compaction use GPT-5.6 Sol
-  medium, title uses GPT-5.6 Luna medium, and the top-level small model is Terra), v2
-  ignores `tui.jsonc` (it reads `~/.config/opencode/cli.json`). Instructions:
-  `instructions/lootbox.md`, `instructions/subagents.md`.
+- Config: `opencode.jsonc` (v2-native; github-copilot only; every model is a
+  pool in `experimental.model_routes`: capability pools frontier / fast-strong /
+  balanced / very-fast and family pools opus / sonnet / sol / luna / terra with
+  the effort as variant; agents build, general, explore, quick, balanced, deep).
+  The fork's built-in `routing-config` skill documents every routing key. v2
+  ignores `tui.jsonc` (it reads `~/.config/opencode/cli.json`).
 - **Tooling is subagent-first** and routed through the local **lootbox** MCP server
   (port 9420, launchd-managed). Namespaces: `mcp_codedb`, `mcp_fff`,
   `mcp_chrome_devtools`, `mcp_context7`. Write reusable `.ts` scripts to

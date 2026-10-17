@@ -30,7 +30,7 @@ openchamber.nix        OpenChamber server launchd agent + desktop client (§5)
 instructions/          OpenCode instruction files (lootbox.md, subagents.md)
 commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)
-opencode.jsonc         OpenCode config (Copilot-only, model policy, plugins)
+opencode.jsonc         OpenCode v2 config (Copilot model pools, agents, permissions)
 tui.jsonc              v1 TUI config; v2 ignores it (v2 reads ~/.config/opencode/cli.json)
 sounds/                Star Trek notification sounds (opencode-notifier)
 themes/ vibrant-ink.json   Active TUI theme
@@ -156,15 +156,20 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 
 ## 5. OpenCode integration
 
-- **`opencode.jsonc`** — `github-copilot` only. Build uses GPT-5.6 Sol xhigh,
-  Plan uses Claude Fable 5 high, native subagents and compaction use GPT-5.6 Sol
-  medium, and title generation uses GPT-5.6 Luna medium. The top-level small
-  model remains GPT-5.6 Terra. Uses
-  upstream model metadata and blacklists GPT < 5.6, Claude < 4.8, and Gemini <
-  3.1. Loads instructions
-  `.opencode/instructions/{lootbox,subagents}.md`. Plugins (npm): opencode-notifier,
-  plannotator, opencode-pty, md-table-formatter, opencode-auto-continue (GitHub
-  tarball). `compaction.reserved = 8192`.
+- **`opencode.jsonc`** — v2-native config, `github-copilot` only. Every model is
+  a pool (`experimental.model_routes`, shown as `opencode-route/<id>`):
+  capability pools `frontier`, `fast-strong`, `balanced`, `very-fast`
+  (round-robin, sticky per session, grouped by Artificial Analysis
+  Intelligence/Coding Agent index and task time), and family pools `opus`,
+  `sonnet`, `sol`, `luna`, `terra` (newest first, previous generation as
+  failover; pick effort as the variant, e.g. `opencode-route/sonnet#high`).
+  Agents: `build` (fast-strong); subagents `general` (fast-strong), `explore`
+  and `quick` (very-fast), `balanced`, `deep` (frontier); `compaction`
+  balanced, `summary` very-fast, `title` unset (Copilot's free utility model),
+  `plan` disabled. The old `agents/*.md` prompts and tiers are gone.
+  Instructions: `instructions/{lootbox,worktrees,recordings,work-strategies}.md`.
+  Plugins: opencode-notifier only (the v1 plugins fail v2's loader; listed in
+  the file for when they are ported). `compaction.buffer = 8192`.
 - **`tui.jsonc`** — v1 TUI config; v2 does not read it (`~/.config/opencode/cli.json`
   instead). Kept only until it is clear nothing else reads it.
 - **`instructions/`** — `lootbox.md` (all MCP tooling via local lootbox server on
