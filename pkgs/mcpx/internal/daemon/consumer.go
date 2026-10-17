@@ -20,6 +20,7 @@ import (
 	"github.com/dezren39/mcpx/internal/pool"
 	"github.com/dezren39/mcpx/internal/recipes"
 	"github.com/dezren39/mcpx/internal/runner"
+	"github.com/dezren39/mcpx/internal/scripting"
 	"github.com/dezren39/mcpx/internal/searchpath"
 	"github.com/dezren39/mcpx/internal/settings"
 )
@@ -192,6 +193,21 @@ func (r *Registry) DiagnoseTools() []diagnose.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var out []diagnose.Tool
+	if len(r.testTools) > 0 {
+		for _, t := range r.testTools {
+			fn := t.Function
+			if fn == "" {
+				fn = codegen.ToolFuncName(t.Tool)
+			}
+			out = append(out, diagnose.Tool{
+				Namespace: t.Namespace,
+				Name:      t.Tool,
+				Func:      fn,
+				Shape:     diagnose.ShapeOf(t.InputSchema),
+			})
+		}
+		return out
+	}
 	for _, name := range r.order {
 		p := r.pools[name]
 		view := r.views[name]
@@ -600,6 +616,26 @@ func prelude(nss []codegen.Namespace) string {
 // having is that tool schemas stay out of a model's context, so a generation
 // request sends the slice of the catalog the existing search ranked for this
 // request, inside a budget, and nothing else.
+func (s *Server) resolveProvider() scripting.Provider {
+	if s.set == nil {
+		return scripting.ResolveProvider(scripting.ProviderConfig{}, nil)
+	}
+	getString := func(key string) string {
+		if v, ok := s.set.Value(key); ok {
+			return v.Raw
+		}
+		return ""
+	}
+	cfg := scripting.ProviderConfig{
+		Type:    getString("repair.provider"),
+		BaseURL: getString("repair.url"),
+		APIKey:  getString("repair.apiKey"),
+		Model:   getString("repair.model"),
+		Command: getString("repair.command"),
+	}
+	return scripting.ResolveProvider(cfg, nil)
+}
+
 func (s *Server) generate(ctx context.Context, prompt, session string) (string, string, error) {
 	nss, err := s.reg.CodegenNamespaces(nil, config.Profile{All: true})
 	if err != nil {
@@ -614,6 +650,23 @@ func (s *Server) generate(ctx context.Context, prompt, session string) (string, 
 		"namespace; call it directly, import nothing, and end by logging or " +
 		"returning the result. Answer with the program only, no prose and no " +
 		"code fences.\n\n" + slice
+
+	prov := s.resolveProvider()
+	if prov != nil {
+		text, perr := prov.Complete(ctx, scripting.CompletionRequest{
+			SystemPrompt: system,
+			UserPrompt:   prompt,
+			MaxTokens:    s.policyFor(ctx).PromptMaxTokens,
+			Temperature:  0.2,
+		})
+		if perr == nil && strings.TrimSpace(text) != "" {
+			return stripFences(text), "provider:" + prov.Name(), nil
+		}
+	}
+
+	if s.reg.broker == nil {
+		return "", "", errNoSampler
+	}
 
 	params, _ := json.Marshal(map[string]any{
 		"messages": []any{map[string]any{

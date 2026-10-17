@@ -73,6 +73,66 @@ func (a *App) runsRemotely(c *Client, where string) (bool, error) {
 	}
 }
 
+// refuseIfUnready is the check a local run passes before it starts. The daemon
+// checks what it is asked to run, but a script run here is started by this
+// process, and a script that starts and then meets a server waiting for a
+// secret fails part way through: the failure the secrets check exists to
+// prevent.
+//
+// The text checked is everything the run executes: the snippet with its prefix
+// and suffix, or the file, and the phases that run around either. A file that
+// cannot be found or read is left to the run, which reports the error itself.
+func (a *App) refuseIfUnready(ctx context.Context, c *Client, inline bool, shape scriptShape, args []string) error {
+	var parts []string
+	if inline {
+		parts = append(parts, shape.inlineSource(args))
+	} else if len(args) > 0 {
+		file, err := resolveScript(args[0])
+		if err != nil {
+			return nil
+		}
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil
+		}
+		parts = append(parts, string(b))
+	}
+	parts = append(parts, shape.before...)
+	parts = append(parts, shape.onSuccess...)
+	parts = append(parts, shape.onError...)
+	if !inline {
+		parts = append(parts, shape.prefix...)
+		parts = append(parts, shape.suffix...)
+	}
+
+	raw, err := c.Do(ctx, http.MethodPost, "/v1/preflight", mustMarshal(map[string]string{
+		"source": strings.Join(parts, "\n"),
+	}))
+	if err != nil {
+		return err
+	}
+	var rep struct {
+		Ready   bool `json:"ready"`
+		Missing []struct {
+			Server  string   `json:"server"`
+			Secrets []string `json:"secrets"`
+		} `json:"missing"`
+		Requests []string `json:"requests"`
+	}
+	if err := json.Unmarshal(raw, &rep); err != nil {
+		return err
+	}
+	if rep.Ready {
+		return nil
+	}
+	waiting := make([]string, 0, len(rep.Missing))
+	for _, m := range rep.Missing {
+		waiting = append(waiting, m.Server+" needs "+strings.Join(m.Secrets, ", "))
+	}
+	return fmt.Errorf("the script was not started: %s. Give each value with `mcpx secrets set <NAME>`; "+
+		"requests %s wait for them", strings.Join(waiting, "; "), strings.Join(rep.Requests, ", "))
+}
+
 // artifactOptions turns the resolved flags into the wire form.
 func (e execOptions) artifactOptions(cwd string) *execsvc.ArtifactOptions {
 	if e.ArtifactsDir == "" && e.Delivery == "" {

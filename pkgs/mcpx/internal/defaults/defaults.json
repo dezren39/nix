@@ -28,6 +28,9 @@
     "reapInterval": "30s",
     "saveInterval": "5m"
   },
+  "secrets": {
+    "requestRetention": "10m"
+  },
   "cli": {
     "cellWidth": 60,
     "usageColumn": 30
@@ -79,7 +82,8 @@
     "taskTTL": "10m",
     "taskResultWait": "2m",
     "statsTop": 20,
-    "registryLimit": 20
+    "registryLimit": 20,
+    "handoffRetryInterval": "10ms"
   },
   "resolve": {
     "dialTimeout": "200ms"
@@ -188,6 +192,12 @@
     "registryNameFallback": 10,
     "leaseTTL": "30m",
     "socketProbeTimeout": "500ms",
+    "takeoverTimeout": "15s",
+    "takeoverMaxFrame": "16MB",
+    "takeoverPoll": "5ms",
+    "execHashMax": "1MB",
+    "execCheckInterval": "30s",
+    "execDrainTimeout": "10s",
     "warmTimeout": "3m",
     "refreshTimeout": "3m",
     "inlineStartTimeout": "5s",
@@ -250,5 +260,9 @@
     "sessionDeleteTimeout": "5s",
     "listPageLimit": 100,
     "versionAttempts": 2
+  },
+  "embeddings": {
+    "remoteTimeout": "10s",
+    "searchTimeout": "2s"
   }
 }

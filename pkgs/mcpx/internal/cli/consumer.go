@@ -15,20 +15,31 @@ import (
 
 	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/recipes"
+	"github.com/dezren39/mcpx/internal/scripting"
 )
 
 // ---- client methods ----
 
 // DiagnoseResult is what POST /v1/diagnose answers.
 type DiagnoseResult struct {
-	Diagnostics []diagnose.Diagnostic `json:"diagnostics"`
-	Fatal       bool                  `json:"fatal"`
+	Valid          bool                            `json:"valid"`
+	Diagnostics    []diagnose.Diagnostic           `json:"diagnostics"`
+	Fatal          bool                            `json:"fatal"`
+	Questions      []scripting.ClarificationQuestion `json:"questions,omitempty"`
+	SuggestedFixes []string                        `json:"suggestedFixes,omitempty"`
+	Repaired       string                          `json:"repaired,omitempty"`
+	RepairedValid  bool                            `json:"repairedValid,omitempty"`
 }
 
 // Diagnose asks the daemon to explain a script.
 func (c *Client) Diagnose(ctx context.Context, source, session string) (*DiagnoseResult, error) {
+	return c.DiagnoseWithRepair(ctx, source, session, false)
+}
+
+// DiagnoseWithRepair asks the daemon to diagnose and optionally repair a script.
+func (c *Client) DiagnoseWithRepair(ctx context.Context, source, session string, repair bool) (*DiagnoseResult, error) {
 	b, err := c.do(ctx, "POST", "/v1/diagnose",
-		map[string]string{"source": source, "session": session})
+		map[string]any{"source": source, "session": session, "repair": repair})
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +161,7 @@ func (c *Client) resolution(ctx context.Context, path string, body any) (*Resolu
 func (a *App) CmdDiagnose(ctx context.Context, args []string) error {
 	fs := newFlagSet("diagnose")
 	session := fs.String("session", "", "session key")
+	repair := fs.Bool("repair", false, "attempt automatic script repair via model provider if fatal diagnostics are found")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
@@ -171,7 +183,7 @@ func (a *App) CmdDiagnose(ctx context.Context, args []string) error {
 	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
-	res, err := c.Diagnose(ctx, source, *session)
+	res, err := c.DiagnoseWithRepair(ctx, source, *session, *repair)
 	if err != nil {
 		return err
 	}
@@ -183,6 +195,19 @@ func (a *App) CmdDiagnose(ctx context.Context, args []string) error {
 		return nil
 	}
 	fmt.Println(diagnose.Render(res.Diagnostics))
+	if len(res.Questions) > 0 {
+		fmt.Println("\nClarifying questions:")
+		for _, q := range res.Questions {
+			fmt.Printf("  ? [%s] %s\n", q.Field, q.Question)
+		}
+	}
+	if res.Repaired != "" {
+		fmt.Println("\nRepaired script (validation passed):")
+		fmt.Println(res.Repaired)
+		if res.RepairedValid {
+			return nil
+		}
+	}
 	if res.Fatal {
 		return errors.New("the script does not match the tools it calls")
 	}

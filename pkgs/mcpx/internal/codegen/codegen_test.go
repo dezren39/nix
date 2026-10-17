@@ -338,3 +338,30 @@ func TestToolMetadataNeverEmitsNull(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputSchemaTypeGeneration(t *testing.T) {
+	outSchema := `{"type":"object","properties":{"status":{"type":"string"},"count":{"type":"number"}}}`
+	n := codegen.Namespace{
+		Name:   "worker",
+		Server: "worker-srv",
+		Tools: []codegen.Tool{
+			{
+				Name:         "do_job",
+				Description:  "perform background job",
+				InputSchema:  json.RawMessage(`{"type":"object","properties":{"jobId":{"type":"string"}}}`),
+				OutputSchema: json.RawMessage(outSchema),
+			},
+		},
+	}
+
+	decls := codegen.Declarations([]codegen.Namespace{n})
+	if !strings.Contains(decls, "Promise<Attached<{") || !strings.Contains(decls, "status?: string") || !strings.Contains(decls, "count?: number") {
+		t.Fatalf("declarations missing typed return signature:\n%s", decls)
+	}
+
+	mod := codegen.Module([]codegen.Namespace{n}, "http://127.0.0.1:1234", "sess-1")
+	if !strings.Contains(mod, "Promise<Attached<{") || !strings.Contains(mod, "export type Attached<T, R = RawToolResult> = T & { raw: R };") {
+		t.Fatalf("module missing typed return signature or Attached export:\n%s", mod)
+	}
+}
+

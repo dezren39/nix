@@ -288,12 +288,13 @@ func TestEveryDeclaredRouteAnswersOverTheSocket(t *testing.T) {
 	// The parity test proves a route is declared; this proves it is served.
 	// A declaration matching a route that 404s is a specification that lies.
 	e := newEnv(t, oneServer)
+	e.withoutModelCLIs(t)
 	e.run("ls")
 	c := e.socketClient(t)
 
 	for _, op := range api.Ops() {
-		if op.Streams || op.Name == "shutdown" || op.Name == "restart" || op.Name == "refresh" {
-			// Streaming never ends; the other three would take the daemon
+		if op.Streams || op.Name == "shutdown" || op.Name == "restart" || op.Name == "daemon_restart" || op.Name == "refresh" {
+			// Streaming never ends; the other four would take the daemon
 			// out from under the rest of this test.
 			continue
 		}

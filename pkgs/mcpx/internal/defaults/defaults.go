@@ -50,6 +50,9 @@ type Defaults struct {
 		ReapInterval string `json:"reapInterval"`
 		SaveInterval string `json:"saveInterval"`
 	} `json:"daemon"`
+	Secrets struct {
+		RequestRetention string `json:"requestRetention"`
+	} `json:"secrets"`
 	// Plumbing are internals. They are here rather than inline so that a
 	// number nobody expected to matter can still be changed without a
 	// rebuild, and so that every constant in the program has one home.
@@ -75,6 +78,7 @@ type Defaults struct {
 		TaskResultWait       string `json:"taskResultWait"`
 		StatsTop             int    `json:"statsTop"`
 		RegistryLimit        int    `json:"registryLimit"`
+		HandoffRetryInterval string `json:"handoffRetryInterval"`
 	} `json:"plumbing"`
 	// Resolve governs GET /v1/resolve, which answers "which daemon serves
 	// this directory" for a caller that has no mcpx binary.
@@ -220,6 +224,12 @@ type Defaults struct {
 		RegistryNameFallback int    `json:"registryNameFallback"`
 		LeaseTTL             string `json:"leaseTTL"`
 		SocketProbeTimeout   string `json:"socketProbeTimeout"`
+		TakeoverTimeout      string `json:"takeoverTimeout"`
+		TakeoverMaxFrame     string `json:"takeoverMaxFrame"`
+		TakeoverPoll         string `json:"takeoverPoll"`
+		ExecHashMax          string `json:"execHashMax"`
+		ExecCheckInterval    string `json:"execCheckInterval"`
+		ExecDrainTimeout     string `json:"execDrainTimeout"`
 		WarmTimeout          string `json:"warmTimeout"`
 		RefreshTimeout       string `json:"refreshTimeout"`
 		InlineStartTimeout   string `json:"inlineStartTimeout"`
@@ -326,7 +336,17 @@ type Defaults struct {
 		// VersionAttempts bounds how often a probe offers one version.
 		VersionAttempts int `json:"versionAttempts"`
 	} `json:"upstream"`
+	Embeddings struct {
+		RemoteTimeout string `json:"remoteTimeout"`
+		SearchTimeout string `json:"searchTimeout"`
+	} `json:"embeddings"`
 }
+
+// Embeddings defaults.
+var (
+	EmbeddingsRemoteTimeout = mustDur(builtin.Embeddings.RemoteTimeout, "embeddings.remoteTimeout")
+	EmbeddingsSearchTimeout = mustDur(builtin.Embeddings.SearchTimeout, "embeddings.searchTimeout")
+)
 
 // Upstream connection defaults.
 var (
@@ -455,8 +475,9 @@ var (
 	LogIncludes = builtin.Logging.Include
 	LogTrace    = builtin.Logging.Trace
 
-	ReapInterval = mustDur(builtin.Daemon.ReapInterval, "daemon.reapInterval")
-	SaveInterval = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
+	ReapInterval           = mustDur(builtin.Daemon.ReapInterval, "daemon.reapInterval")
+	SaveInterval           = mustDur(builtin.Daemon.SaveInterval, "daemon.saveInterval")
+	SecretRequestRetention = mustDur(builtin.Secrets.RequestRetention, "secrets.requestRetention")
 
 	ShutdownGrace        = mustDur(builtin.Plumbing.ShutdownGrace, "plumbing.shutdownGrace")
 	StdioExitGrace       = mustDur(builtin.Plumbing.StdioExitGrace, "plumbing.stdioExitGrace")
@@ -481,6 +502,9 @@ var (
 	TaskResultWait     = mustDur(builtin.Plumbing.TaskResultWait, "plumbing.taskResultWait")
 	StatsTop           = builtin.Plumbing.StatsTop
 	RegistryLimit      = builtin.Plumbing.RegistryLimit
+	// HandoffRetryInterval is how often a takeover re-checks pools that were
+	// busy with in-flight calls.
+	HandoffRetryInterval = mustDur(builtin.Plumbing.HandoffRetryInterval, "plumbing.handoffRetryInterval")
 
 	// ResolveDialTimeout bounds the liveness check /v1/resolve makes against
 	// the socket it is about to name. It is a local connect on a unix
@@ -662,14 +686,26 @@ var (
 	RegistryNameFallback = builtin.Limits.RegistryNameFallback
 	LeaseTTL             = mustDur(builtin.Limits.LeaseTTL, "limits.leaseTTL")
 	SocketProbeTimeout   = mustDur(builtin.Limits.SocketProbeTimeout, "limits.socketProbeTimeout")
-	WarmTimeout          = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")
-	RefreshTimeout       = mustDur(builtin.Limits.RefreshTimeout, "limits.refreshTimeout")
-	InlineStartTimeout   = mustDur(builtin.Limits.InlineStartTimeout, "limits.inlineStartTimeout")
-	InlineStartPoll      = mustDur(builtin.Limits.InlineStartPoll, "limits.inlineStartPoll")
-	InlineProbeTimeout   = mustDur(builtin.Limits.InlineProbeTimeout, "limits.inlineProbeTimeout")
-	DoctorTimeout        = mustDur(builtin.Limits.DoctorTimeout, "limits.doctorTimeout")
-	ReleaseTimeout       = mustDur(builtin.Limits.ReleaseTimeout, "limits.releaseTimeout")
-	FollowBacklog        = builtin.Limits.FollowBacklog
+	TakeoverTimeout      = mustDur(builtin.Limits.TakeoverTimeout, "limits.takeoverTimeout")
+	TakeoverMaxFrame     = mustBytes(builtin.Limits.TakeoverMaxFrame, "limits.takeoverMaxFrame")
+	TakeoverPoll         = mustDur(builtin.Limits.TakeoverPoll, "limits.takeoverPoll")
+	// ExecHashMax is the largest executable whose contents are hashed to
+	// tell whether a stdio server's binary changed. Larger files are told
+	// apart by device, inode, size and mtime instead.
+	ExecHashMax = mustBytes(builtin.Limits.ExecHashMax, "limits.execHashMax")
+	// ExecCheckInterval is how often a pool with a live child re-stats the
+	// executable behind it. ExecDrainTimeout bounds how long a child being
+	// replaced waits for calls already running on it.
+	ExecCheckInterval  = mustDur(builtin.Limits.ExecCheckInterval, "limits.execCheckInterval")
+	ExecDrainTimeout   = mustDur(builtin.Limits.ExecDrainTimeout, "limits.execDrainTimeout")
+	WarmTimeout        = mustDur(builtin.Limits.WarmTimeout, "limits.warmTimeout")
+	RefreshTimeout     = mustDur(builtin.Limits.RefreshTimeout, "limits.refreshTimeout")
+	InlineStartTimeout = mustDur(builtin.Limits.InlineStartTimeout, "limits.inlineStartTimeout")
+	InlineStartPoll    = mustDur(builtin.Limits.InlineStartPoll, "limits.inlineStartPoll")
+	InlineProbeTimeout = mustDur(builtin.Limits.InlineProbeTimeout, "limits.inlineProbeTimeout")
+	DoctorTimeout      = mustDur(builtin.Limits.DoctorTimeout, "limits.doctorTimeout")
+	ReleaseTimeout     = mustDur(builtin.Limits.ReleaseTimeout, "limits.releaseTimeout")
+	FollowBacklog      = builtin.Limits.FollowBacklog
 
 	DirMode       = mustMode(builtin.Files.DirMode, "files.dirMode")
 	PublicDirMode = mustMode(builtin.Files.PublicDirMode, "files.publicDirMode")

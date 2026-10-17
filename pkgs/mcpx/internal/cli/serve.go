@@ -16,6 +16,7 @@ import (
 
 	"github.com/dezren39/mcpx/internal/adapter"
 	"github.com/dezren39/mcpx/internal/artifacts"
+	"github.com/dezren39/mcpx/internal/catalog"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
 	"github.com/dezren39/mcpx/internal/defaults"
@@ -547,6 +548,7 @@ func (a *App) MCPServer(ctx context.Context) (*mcpserver.Server, error) {
 func (a *App) CmdServe(ctx context.Context, args []string) error {
 	fs := newFlagSet("serve")
 	transport := fs.String("transport", "stdio", "stdio; HTTP is served by the daemon at "+defaults.ProtoMCPPath)
+	mode := fs.String("mode", "", "server mode: code-mode, reactive, or full")
 	printTools := fs.Bool("tools", false, "print the exposed tool list and exit")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
@@ -555,6 +557,14 @@ func (a *App) CmdServe(ctx context.Context, args []string) error {
 	srv, err := a.MCPServer(ctx)
 	if err != nil {
 		return err
+	}
+	serverMode := firstSet(*mode, a.Settings().String("serve.mode"), "code-mode")
+	if serverMode == "reactive" {
+		srv.Reactive = true
+		srv.PinnedTools = a.Settings().List("catalog.pinnedTools")
+		maxTools := a.Settings().Int("retention.maxTools")
+		stickyWindow := a.Settings().Duration("retention.stickyWindow")
+		srv.ReactiveWorkingSet = catalog.NewWorkingSet(maxTools, stickyWindow, srv.PinnedTools)
 	}
 	if *printTools {
 		return a.out(srv.Tools())

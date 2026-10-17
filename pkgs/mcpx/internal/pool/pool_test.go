@@ -392,6 +392,7 @@ func TestRestartStopsEverything(t *testing.T) {
 	if n := p.Restart(ctx, true).Stopped; n != 2 {
 		t.Fatalf("restart should stop 2 instances, stopped %d", n)
 	}
+	p.WaitDrained()
 	if st := p.Status(); st.Live != 0 {
 		t.Fatalf("%d instances survived restart", st.Live)
 	}
@@ -446,6 +447,7 @@ func TestRestartReplacesEachInstanceUnderItsKey(t *testing.T) {
 
 	// With nothing running, a scoped pool has no caller to start one for.
 	p.Restart(ctx, true)
+	p.WaitDrained()
 	if res := p.Restart(ctx, false); len(res.Started) != 0 || res.Note == "" {
 		t.Fatalf("scoped pool with nothing running: %+v", res)
 	}

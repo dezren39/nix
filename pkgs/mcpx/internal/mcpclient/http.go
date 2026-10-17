@@ -584,6 +584,34 @@ func (t *HTTPTransport) Close() error {
 	return nil
 }
 
+// HTTPHandoff is an upstream session as a successor process resumes it.
+type HTTPHandoff struct {
+	SessionID  string `json:"sessionId"`
+	Negotiated string `json:"negotiated,omitempty"`
+}
+
+// Handoff reports the session this transport holds, if the upstream issued one.
+func (t *HTTPTransport) Handoff() HTTPHandoff {
+	t.sessionMu.RLock()
+	defer t.sessionMu.RUnlock()
+	return HTTPHandoff{SessionID: t.sessionID, Negotiated: t.negotiated}
+}
+
+// Resume continues a session a predecessor process established. Nothing is
+// sent until the next request.
+func (t *HTTPTransport) Resume(h HTTPHandoff) {
+	t.sessionMu.Lock()
+	t.sessionID, t.negotiated = h.SessionID, h.Negotiated
+	t.sessionMu.Unlock()
+}
+
+// Abandon stops the transport without ending the upstream session, for a
+// session a successor process now holds.
+func (t *HTTPTransport) Abandon() {
+	t.closeOnce.Do(func() { close(t.closed) })
+	t.hc.CloseIdleConnections()
+}
+
 // Info describes the endpoint.
 func (t *HTTPTransport) Info() string { return t.url }
 

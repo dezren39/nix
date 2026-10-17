@@ -58,14 +58,14 @@ Hooks invoked under bun with fake `client`/`ctx` against a scratch daemon; not l
 
 | what | state | evidence | issue |
 | --- | --- | --- | --- |
-| `pool.max`/`pool.idleTimeout` via `settings set` ("hot: yes") | partial | "applied to the running daemon", but `status` unchanged (`rp … 1/4`) and no reaping after 33s until a config-file edit reloaded. Handler only `SetRuntime` (`routes_settings.go:225-231`); pool reads them in `reloadConfig` → `ApplyPoolSettings` (`:555`). Test only checks persistence (`e2e/settings_test.go:76`) | |
+| `pool.max`/`pool.idleTimeout` via `settings set` ("hot: yes") | partial | A pool.* change now reloads: `handleSettingsSet` → `applyPoolRuntime` (`routes_settings.go:183`, `:268`) → `reloadConfig`, which calls `ApplyPoolSettings` (`routes_settings.go:659`, `config/poolsettings.go:36`). `pool.max` reaching live pools is pinned by `e2e/poolmax_test.go` `TestASettingsSetOnTheRunningDaemonReachesEveryLivePool`. `pool.idleTimeout` is in `PoolID` (`config.go:472`), so its pool is replaced; reaping after the change is not re-measured. A change whose reload fails is rolled back (`routes_settings.go:280`), pinned by `e2e/poolreload_test.go` | |
 | `min` ("keep started even when idle") | partial | `min:2` → `mn … 0/4` after a reap tick; `cfg.Min` read only in reap guard (`pool.go:992`); nothing pre-starts. No test sets it | |
 | `call` scope (and session fallback) frees instances when the call ends | partial | after 4 `mcpx call ca.state`, `ca#6`/`ca#7` still live, idle 55s; only exec/run call `ReleaseCaller` (`commands.go:595`, `routes_exec.go:202`), not `CmdCall` | |
 | `pid` scope from the CLI | partial | key is the mcpx client's own `os.Getpid()` (`commands.go:1521`) → two calls, two pids: per-call, not per calling program | #211 |
 | Identically defined servers share one process | partial | `z` and `g` same command → same `PoolID` (`config.go:357-382`); `z.open "from-z"` then `g.state` → `seen:["from-z"]`. Undocumented | |
 | Schema history on reload / `servers add` | partial | only `Warm` calls `ObserveCatalog` (`registry.go:300`, `consumer.go:93`); added server showed `No tools.` in `history` until a second `refresh` | |
 | Config reload failure | partial | bad file logged at INFO ("could not be loaded"), hidden by `log --level warn`; old config kept silently | |
-| Per-server pool setting change restarts its processes | minimal | `max`/`min`/`idleTimeout`/timeouts/`sharing`/`scope` hashed into `PoolID` (`config.go:379-381`) → new pool, old closed, state lost; observed `cw` back with 0 tools/instances. Undocumented | |
+| Per-server pool setting change restarts its processes | minimal | `max`/`min`/`idleTimeout`/timeouts/`sharing`/`scope` hashed into `PoolID` (`config.go:494-496`) → new pool, old drained (`reload.go:101`, `pool.go:1384`: calls in flight finish on the old child, up to `limits.execDrainTimeout`), state lost; observed `cw` back with 0 tools/instances. Undocumented | |
 | shared/exclusive; global/cwd/session/parent-session/repo/worktree; `max`; idle TTL; `restart` (all/one/`--lazy`); `stop --all`; `servers add/remove` live; file reload; `refresh` | works | distinct pids per cwd/session/worktree, shared per repo; exclusive queued 3s; `idleTimeout:3s` reaped; `servers add` callable with existing pid unchanged | |
 
 ## Diagnostics (`diagnose`, `log`, `stats`, `doctor`)

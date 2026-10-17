@@ -468,6 +468,12 @@ func callTool(r req) map[string]any {
 	switch p.Name {
 	case "echo":
 		msg, _ := p.Arguments["message"].(string)
+		// MCPX_REPORT_ENV names a variable of this process's environment,
+		// and echo answers with its value. It is how a test sees what a
+		// secret was delivered as, which the server cannot otherwise say.
+		if name := os.Getenv("MCPX_REPORT_ENV"); name != "" {
+			return ok(r.ID, textResult(os.Getenv(name)))
+		}
 		return ok(r.ID, textResult(msg))
 	case "open":
 		v, _ := p.Arguments["value"].(string)

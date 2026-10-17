@@ -121,7 +121,7 @@ func (s *Server) handleCallReporting(w http.ResponseWriter, r *http.Request, req
 			dur := time.Since(start).Truncate(time.Millisecond)
 			if o.err != nil {
 				s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, o.err)
-				writeJSON(w, failureStatus(o.err), callErrorBody(o.err))
+				writeJSON(w, failureStatus(o.err), failureBody(o.err))
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"result": o.res, "durationMs": dur.Milliseconds()})

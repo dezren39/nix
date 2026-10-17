@@ -16,6 +16,8 @@ lib.recursiveUpdate {
     ./casks.nix
     ./masApps.nix
     ./services.nix
+    # OpenChamber server agent + desktop client; see the header there.
+    ./openchamber.nix
     # ./home.nix
   ];
 
@@ -71,42 +73,14 @@ lib.recursiveUpdate {
   environment.variables.GIT_CONFIG_SYSTEM = "/etc/gitconfig"; # List packages installed in system profile. To search by name, run:
   # $ nix-env -qaP | grep wget
 
-  # opencode clamps output tokens to OUTPUT_TOKEN_MAX = 32_000
-  # (provider/transform.ts:18), which is half what Opus 5 actually supports.
-  # Thinking counts against max_tokens, so at high effort that makes
-  # stop_reason: "max_tokens" twice as likely as it needs to be.
-  #
-  # The value is applied as Math.min(model.limit.output, this), so an absurdly
-  # large number simply means "every model gets its own native ceiling" —
-  # 64k for Opus 5, 128k for the gpt-5.x family — with no way to exceed it.
-  #
-  # Note this does NOT disturb the compaction reserve: that is
-  # `Math.min(COMPACTION_BUFFER, maxOutputTokens(...))` (session/overflow.ts:14),
-  # so it stays pinned at 20_000 either way.
-  environment.variables.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = "999999999";
-
-  # bash tool default timeout, applied at tool/shell.ts:347 as
-  # `flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000`. The 120s default kills most
-  # `nix build` invocations mid-flight. 300s is not enough for a cold opencode
-  # rebuild either, but it covers the common cases; pass an explicit longer
-  # timeout on the call for anything genuinely slow.
-  environment.variables.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS = "300000";
-
-  # Swap pyright for Astral's `ty` (lsp/lsp.ts:98-106 deletes whichever server
-  # the flag does not select). This only affects the diagnostics the LSP service
-  # attaches after an edit (tool/edit.ts:197-201) — the `lsp` tool itself is
-  # denied in opencode.jsonc, and the service runs independently of it.
-  # Upstream still calls ty experimental and recommends pyright for production;
-  # unset this to go back.
-  environment.variables.OPENCODE_EXPERIMENTAL_LSP_TY = "1";
-
-  # These duplicate homeUser.nix sessionVariables on purpose. home-manager
-  # writes to a profile script that only a login shell sources, so anything
-  # started outside one — a GUI terminal with login shells off, a launchd job,
-  # a detached process — silently loses them, and opencode resolves these flags
-  # once at startup. environment.variables covers system shells; the launchd
-  # block below covers GUI/agent contexts.
-  environment.variables.OPENCODE_EXPERIMENTAL = "1";
+  # The one OpenCode database, for every opencode and OpenChamber however
+  # started (shell, launchd, GUI, `nix run`). The opencode wrapper forces the
+  # same absolute path (flake.nix mkPackages); this covers OpenChamber's own
+  # server, which reads OPENCODE_DB directly for route stats and the v1 top-up,
+  # and anything that reaches the fork's binary without the wrapper. Mirrored in
+  # launchd.user.envVariables and homeUser.nix sessionVariables because each
+  # reaches a context the others do not.
+  environment.variables.OPENCODE_DB = "/Users/drewry.pope/.local/share/opencode/opencode.db";
 
   nixpkgs = {
     # TODO: module nixpkgs
@@ -885,9 +859,7 @@ lib.recursiveUpdate {
 
   # TODO: module launchd
   # `launchctl setenv` equivalent: reaches GUI and launchd-started processes,
-  # which never source a shell profile. opencode reads its runtime flags once at
-  # startup (effect/runtime-flags.ts), so a process launched outside a login
-  # shell silently loses background subagents, websearch, and the token caps.
+  # which never source a shell profile -- OpenChamber.app among them.
   #
   # Mirrors homeUser.nix sessionVariables and the environment.variables above.
   # launchd does NOT expand shell syntax, so GOPATH/GOBIN are written out with
@@ -901,10 +873,13 @@ lib.recursiveUpdate {
     GIT_CONFIG_SYSTEM = "/etc/gitconfig";
     GOPATH = "/Users/drewry.pope/go";
     GOBIN = "/Users/drewry.pope/go/bin";
-    OPENCODE_EXPERIMENTAL = "1";
-    OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = "999999999";
-    OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS = "300000";
-    OPENCODE_EXPERIMENTAL_LSP_TY = "1";
+    OPENCODE_DB = "/Users/drewry.pope/.local/share/opencode/opencode.db";
+    # Makes any OpenChamber desktop app a client of the openchamber agent's
+    # server (launchd.user.agents.openchamber) instead of starting a server
+    # and OpenCode of its own: one server, one OpenCode, one database, and the
+    # sessions keep running when the window is closed or the app crashes.
+    OPENCHAMBER_SERVER_URL = "http://127.0.0.1:3000";
+    OPENCHAMBER_SKIP_LOCAL_SERVER = "1";
   };
 
   launchd.user.agents = {

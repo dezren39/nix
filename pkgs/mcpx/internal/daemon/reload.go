@@ -32,11 +32,12 @@ func (r *Registry) Reload(cfg *config.Config) (added, removed []string, err erro
 
 	// Index the pools in use by their process identity, not by name, so a
 	// rename that changes nothing about the child process keeps the child.
+	// The identity a pool was made with is what it is matched on: a binary
+	// that has since been replaced no longer matches, and its pool is
+	// replaced, which is a restart of that one server and nothing else.
 	byPoolID := map[string]*pool.Pool{}
-	for name, p := range r.pools {
-		if view, ok := r.views[name]; ok {
-			byPoolID[view.PoolID()] = p
-		}
+	for _, p := range r.pools {
+		byPoolID[p.PoolID()] = p
 	}
 
 	pools := make(map[string]*pool.Pool, len(servers))
@@ -52,8 +53,9 @@ func (r *Registry) Reload(cfg *config.Config) (added, removed []string, err erro
 				prev, s.Name, s.Namespace)
 		}
 		seen[s.Namespace] = s.Name
+		r.bindSecrets(s)
 
-		id := s.PoolID()
+		id := s.ProcessID()
 		p, kept := byPoolID[id]
 		if !kept {
 			p, kept = fresh[id]
@@ -92,9 +94,11 @@ func (r *Registry) Reload(cfg *config.Config) (added, removed []string, err erro
 	r.pools, r.views, r.order = pools, views, order
 	r.hash = HashConfig(mustJSON(cfg.MCPServers))
 
+	// Drained, not closed: a call running on an orphan finishes on it, as it
+	// does on a lazy restart. Close would cut one that ran past its grace.
 	go func() {
 		for _, p := range orphans {
-			p.Close()
+			p.CloseDrained()
 		}
 	}()
 	return added, removed, nil

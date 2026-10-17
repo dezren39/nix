@@ -176,6 +176,12 @@ func limitSettings() []Setting {
 				"without it.",
 		},
 		{
+			Path: "search.semantic", Kind: KindBool, Default: "false",
+			Scope: ScopeCall, Hot: true,
+			Commands: []string{"search"},
+			Name:     "Semantic search", Short: "rank search results using local dense vector embeddings",
+		},
+		{
 			Path: "completion.maxValues", Kind: KindInt, Default: defaults.Num(defaults.CompletionValues),
 			Scope: ScopeDaemon, Hot: true, Plumbing: true,
 			Name: "Completion values", Short: "how many completions one reply carries",
@@ -276,6 +282,53 @@ func serviceSettings() []Setting {
 				"instead, so the two cases cannot be confused for each other.",
 		},
 		{
+			Path: "serve.mode", Kind: KindString, Default: "code-mode",
+			Scope: ScopeDaemon, Commands: []string{"serve"},
+			FlagAliases: []string{"mode"},
+			Name:        "Serve mode", Short: "server mode: code-mode, reactive, or full",
+		},
+		{
+			Path: "catalog.pinnedTools", Kind: KindList, Default: "",
+			Scope: ScopeDaemon,
+			Name:  "Pinned tools", Short: "tools always exposed in reactive mode",
+		},
+		{
+			Path: "retention.maxTools", Kind: KindInt, Default: "24",
+			Scope: ScopeDaemon,
+			Name:  "Max tools retention", Short: "maximum active tools in reactive working set",
+		},
+		{
+			Path: "retention.stickyWindow", Kind: KindDuration, Default: "2h",
+			Scope: ScopeDaemon,
+			Name:  "Sticky retention window", Short: "duration explicitly requested tools remain retained",
+		},
+		{
+			Path: "embeddings.backend", Kind: KindString, Default: "auto",
+			Scope: ScopeDaemon, Hot: true,
+			Enum: []string{"auto", "local", "remote", "wasm"},
+			Name: "Embeddings backend", Short: "which embedding engine to use (auto, local, remote, wasm)",
+		},
+		{
+			Path: "embeddings.url", Kind: KindString, Default: "",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "Remote embeddings URL", Short: "OpenAI-compatible embeddings endpoint URL",
+		},
+		{
+			Path: "embeddings.apiKey", Kind: KindString, Default: "",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "Remote embeddings API key", Short: "API key for remote embeddings endpoint",
+		},
+		{
+			Path: "embeddings.model", Kind: KindString, Default: "text-embedding-3-small",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "Remote embeddings model", Short: "model name for remote embeddings endpoint",
+		},
+		{
+			Path: "embeddings.wasmPath", Kind: KindString, Default: "",
+			Scope: ScopeDaemon, Hot: true,
+			Name: "WASM model path", Short: "path to compiled WebAssembly neural embedding model",
+		},
+		{
 			Path: "daemon.warm", Kind: KindBool, Default: "true",
 			Scope: ScopeDaemon, Commands: []string{"daemon"},
 			FlagAliases: []string{"warm"},
@@ -314,6 +367,11 @@ func serviceSettings() []Setting {
 			Path: "daemon.socketProbeTimeout", Kind: KindDuration, Default: defaults.Str(defaults.SocketProbeTimeout),
 			Scope: ScopeDaemon, Plumbing: true,
 			Name: "Stale socket probe", Short: "how long a socket left by a crashed daemon is given to answer",
+		},
+		{
+			Path: "daemon.takeoverTimeout", Kind: KindDuration, Default: defaults.Str(defaults.TakeoverTimeout),
+			Scope: ScopeDaemon, Plumbing: true,
+			Name: "Takeover timeout", Short: "how long a handoff may take, and how long the old daemon waits for its successor to hang up",
 		},
 		{
 			Path: "daemon.inlineStartTimeout", Kind: KindDuration, Default: defaults.Str(defaults.InlineStartTimeout),

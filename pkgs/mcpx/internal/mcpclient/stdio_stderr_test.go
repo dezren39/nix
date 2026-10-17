@@ -26,9 +26,13 @@ func TestAFailedWriteCarriesStderrTheChildHadNotPrintedYet(t *testing.T) {
 	// Spelled into the command line it would appear in t.label, which is in
 	// the error text either way -- an assertion that passes with and without
 	// the fix proves nothing.
+	// The shell gives its own stdin to /dev/null before it forks the
+	// grandchild. Without that, the grandchild inherits the pipe for the
+	// instant between its fork and its own redirect, and a write made just
+	// after the parent is reaped can land in that pipe instead of failing.
 	tr, err := NewStdio(StdioOptions{
 		Command:    "sh",
-		Args:       []string{"-c", "( sleep 0.4; echo \"$MCPX_TEST_MARKER\" >&2 ) & exit 3"},
+		Args:       []string{"-c", "exec 0</dev/null; ( sleep 0.4; echo \"$MCPX_TEST_MARKER\" >&2 ) & exit 3"},
 		Env:        map[string]string{"MCPX_TEST_MARKER": marker},
 		InheritEnv: true,
 	})

@@ -14,9 +14,14 @@
 # .mcpx.json.
 #
 # github: GitHub's local server with `gh`'s token (see github-mcp in
-# systemPackages.nix). atlassian: Rovo MCP v2 through mcp-remote; ?tools=all
-# lists every tool flat, which Atlassian recommends for gateways, instead of
-# its own discover-then-execute pair.
+# systemPackages.nix). aws: AWS's managed MCP server through
+# mcp-proxy-for-aws, which signs with SigV4 from the default AWS profile
+# (`aws configure sso` then `aws sso login`); without credentials it fails
+# when called and the other servers are unaffected. aws-knowledge is AWS's
+# credential-free docs server; AWS recommends dropping it once aws works,
+# since aws has the same documentation tools. atlassian: Rovo MCP v2
+# through mcp-remote; ?tools=all lists every tool flat, which Atlassian
+# recommends for gateways, instead of its own discover-then-execute pair.
 #
 # datadog: US1 (mcp.datadoghq.com), toolsets:
 #   core      logs, metrics, traces, spans, RUM, monitors, incidents, hosts,
@@ -63,6 +68,13 @@ let
       sharing = "exclusive";
       scope = "session";
     };
+    playwright = {
+      sharing = "exclusive";
+      scope = "session";
+    };
+    # uvx resolves and downloads the proxy on first start, which can outlast
+    # the default 60s start timeout.
+    aws.startTimeout = "180s";
     # Not pooling, but the same per-server mcpx block. Hidden from listings
     # and refused if called by name. create_repository can make a public
     # repository (private: false), or one in the personal account when

@@ -65,6 +65,7 @@ var allowed = map[string]string{
 	"0o644": "config file mode, read from defaults.Files",
 	"0o755": "world-readable directory mode, read from defaults.Files",
 	"0o777": "a mask, not a mode",
+	"0o111": "the execute bits, a mask for checking a file is runnable",
 
 	// Unit definitions, not defaults. A kibibyte is 1024 by arithmetic; a
 	// configuration key that said otherwise would be describing a different

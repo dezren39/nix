@@ -100,8 +100,48 @@ func TestEveryNonStreamingOpIsReachableAsAnMCPTool(t *testing.T) {
 			}
 			continue
 		}
+		if op.NoTool != "" {
+			// The exemption is for an operation MCP must not carry. It is
+			// honoured only when the tool really is absent.
+			if tools[op.ToolName()] {
+				t.Errorf("%s says it has no MCP tool (%s), but %s is listed", op.Name, op.NoTool, op.ToolName())
+			}
+			continue
+		}
 		if !tools[op.ToolName()] {
 			t.Errorf("%s (%s) has no MCP tool; expected %s", op.Name, op.Route(), op.ToolName())
+		}
+	}
+}
+
+// TestTheOnlyOperationCarryingASecretIsNotATool holds the one exemption that
+// matters. A value sent as a tool argument is in the model's context, so the
+// operation that accepts one must never become a tool, while the operations
+// around it must.
+func TestTheOnlyOperationCarryingASecretIsNotATool(t *testing.T) {
+	srv := mcpserver.New(nil, "mcpx", "test").WithExtras(mcpserver.OpTools(nil))
+	tools := map[string]bool{}
+	for _, tool := range srv.Tools() {
+		tools[tool.Name] = true
+	}
+	set, ok := api.ByName("secrets_set")
+	if !ok {
+		t.Fatal("secrets_set is not declared")
+	}
+	if set.NoTool == "" {
+		t.Error("secrets_set takes a value and must say why it has no MCP tool")
+	}
+	if tools["mcpx_secrets_set"] {
+		t.Error("mcpx_secrets_set is a tool: a secret's value would travel through the model's context")
+	}
+	for _, name := range []string{"mcpx_secrets_list", "mcpx_secrets_unset", "mcpx_secret_requests_list", "mcpx_preflight"} {
+		if !tools[name] {
+			t.Errorf("%s should be a tool: it carries no value", name)
+		}
+	}
+	for _, op := range api.Ops() {
+		if op.NoTool != "" && op.Name != "secrets_set" {
+			t.Errorf("%s has no MCP tool; only secrets_set may", op.Name)
 		}
 	}
 }

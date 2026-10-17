@@ -1,6 +1,6 @@
 ---
 name: nix-config
-description: Use when working in the ~/.config/nix nix-darwin flake repo (rebuilding the Mac system, editing configuration.nix/homePrograms.nix/systemPackages.nix, homebrew brews/casks/masApps, custom pkgs/ like flake-tidy or opencode-share, opencode/Copilot patches, or the justfile workflow). Gets an agent caught up on this repo's structure, standards, tooling, and available skills before making changes.
+description: Use when working in the ~/.config/nix nix-darwin flake repo (rebuilding the Mac system, editing configuration.nix/homePrograms.nix/systemPackages.nix, homebrew brews/casks/masApps, custom pkgs/ like flake-tidy or opencode-share, the OpenCode/OpenChamber fork inputs and their launchd server, or the justfile workflow). Gets an agent caught up on this repo's structure, standards, tooling, and available skills before making changes.
 ---
 
 # nix-config: repo orientation for agents
@@ -78,29 +78,29 @@ Where things go:
 
 - Config: `opencode.jsonc` (github-copilot only; Build uses GPT-5.6 Sol xhigh,
   Plan uses Claude Fable 5 high, native subagents and compaction use GPT-5.6 Sol
-  medium, title uses GPT-5.6 Luna medium, and the top-level small model is Terra), TUI
-  `tui.jsonc` (`auto_scroll_tolerance` is a custom patched key). Instructions:
+  medium, title uses GPT-5.6 Luna medium, and the top-level small model is Terra), v2
+  ignores `tui.jsonc` (it reads `~/.config/opencode/cli.json`). Instructions:
   `instructions/lootbox.md`, `instructions/subagents.md`.
 - **Tooling is subagent-first** and routed through the local **lootbox** MCP server
   (port 9420, launchd-managed). Namespaces: `mcp_codedb`, `mcp_fff`,
   `mcp_chrome_devtools`, `mcp_context7`. Write reusable `.ts` scripts to
   `.lootbox/scripts/`. Nix provides Deno/codedb/fff-mcp; a pinned updater builds
   Lootbox and npm MCP CLIs. `just lootbox-server|-kill|-restart|-check|update-lootbox`.
-- The `opencode` derivation is patched in `flake.nix` (`opencodePatches`) with
-  nine patches, applied in `opencodePatches` order:
-  `patches/opencode-compact-tui.patch`,
-  `patches/opencode-scroll-autofollow.patch`,
-  `patches/opencode-plan-permissions-reminder.patch`,
-  `patches/opencode-run-descendant-permissions.patch`,
-  `patches/opencode-nested-subagent-prompts.patch`,
-  `patches/opencode-question-submit-exit.patch`,
-  `patches/opencode-question-enter-submit.patch` (these two are a pair — the
-  second is generated against the first's post-image),
-  `patches/opencode-permission-enter-submit.patch`, and
-  `patches/opencode-numpad-enter.patch`. The root `*.patch` files (Copilot
-  Business/Enterprise, compaction, OpenAI response-id, edit-read) are NOT applied —
-  they're local reference snapshots (already carried by the `anomalyco/opencode/dev`
-  input). Read them before touching opencode auth/session/TUI behavior.
+- **OpenCode and OpenChamber come from forks we own** (developing-today/opencode,
+  developing-today/openchamber; `main`; openchamber's `opencode` input follows
+  ours). Nothing is patched here: fix the fork, push to its `main`, then re-pin
+  upward (opencode -> openchamber lock -> this repo's lock). Procedure: the
+  `update-opencode` skill. `flake.nix` wraps the fork's opencode only to force
+  `OPENCODE_DB=~/.local/share/opencode/opencode.db` (the one database every
+  opencode/OpenChamber must use) and a durable `TMPDIR`.
+- `openchamber.nix`: launchd agent `org.nixos.openchamber` keeps `openchamber
+  serve` up on 127.0.0.1:3000 (port of developing-today/code's systemd model);
+  the desktop app is its client. mcpx (`pkgs/mcpx`, vendored verbatim from
+  developing-today/code) runs as launchd agent `org.nixos.mcpx`; servers come
+  from `lootbox.config.json` via `mcpx.config.nix`.
+- Database tools: `just opencode-db-backup` (instant APFS clone),
+  `opencode-db-check`, `opencode-db-pending` (migrations a new build would
+  apply; refuses if the DB is ahead of the build).
 - Slash commands live in `commands/` (`/gha-fix`, `/gha-why`). Run
   `./symlink-commands` to install them globally; use `--dry-run` to preview.
 
@@ -110,7 +110,7 @@ Repo-local agent skills live in `.agents/skills/<name>/SKILL.md` (a plain
 git-tracked directory, same layout as the global `~/.agents/skills` that opencode
 auto-scans on boot — not a symlink). Add new skills there; opencode picks them up
 automatically. Currently shipped: **nix-config** (this skill) and
-**update-opencode** (updates the flake input and preserves active patch behavior).
+**update-opencode** (updates and repairs the OpenCode/OpenChamber fork stack, forks first).
 
 ## Gotchas
 

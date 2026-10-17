@@ -81,9 +81,23 @@ func settingsOps() []Op {
 			Command: "servers list",
 			Summary: "Every configured server as it is written in the configuration",
 			Description: "The entries themselves -- command, arguments, environment " +
-				"keys, URL -- and which file each came from. /v1/namespaces is the " +
-				"same servers seen from the other side, with tool counts and live " +
-				"instances.",
+				"keys, URL -- and which file each came from, with whether each can run " +
+				"now: the secrets it requires, those with no value, and active. " +
+				"/v1/namespaces is the same servers seen from the other side, with tool " +
+				"counts and live instances.",
+		},
+		{
+			Name: "servers_get", Method: "GET", Path: "/v1/servers/{name}",
+			Command: "servers show",
+			Summary: "One configured server, and whether it can run now",
+			Description: "The entry servers_list shows, for one server. A server is inactive " +
+				"while a secret it requires has no value, or while a server it requires " +
+				"is inactive; its calls are then refused with secret_required before " +
+				"anything runs.",
+			Params: []Param{
+				{Name: "name", In: InPath, Type: "string", Required: true,
+					Desc: "the server's name in the configuration"},
+			},
 		},
 		{
 			Name: "servers_add", Method: "POST", Path: "/v1/servers",

@@ -31,6 +31,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/catalog"
+	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/spec"
 )
@@ -237,6 +239,18 @@ type Server struct {
 	// own names alongside, and ahead of, the gateway's; see passthrough.go.
 	Passthrough []string
 
+	// UpstreamSkills returns skills discovered from upstream servers to relay.
+	UpstreamSkills func() []*UpstreamSkill
+
+	// Reactive enables Mode 2 dynamic tool discovery (request_tools + working set).
+	Reactive bool
+	// PinnedTools are tools always exposed in reactive mode.
+	PinnedTools []string
+	// ReactiveWorkingSet is the bounded tool retention manager for reactive mode.
+	ReactiveWorkingSet *catalog.WorkingSet
+	// SearchTools is called by request_tools to find tools across the catalog.
+	SearchTools func(ctx context.Context, query string) ([]Tool, error)
+
 	mu sync.Mutex
 
 	// Notify is where pushed notifications come from. Nil means mcpx never
@@ -311,11 +325,16 @@ func (s *Server) WithExtras(extras []Extra) *Server {
 		// Notify comes along. Dropping it silently turned off every push
 		// capability the moment a single extra tool existed, and a client
 		// cannot detect a server that declared nothing.
-		Notify:          s.Notify,
-		Ask:             s.Ask,
-		ExtrasOnly:      s.ExtrasOnly,
-		OwnInstructions: s.OwnInstructions,
-		extras:          sortedExtras(append(append([]Extra(nil), s.extras...), extras...)),
+		Notify:             s.Notify,
+		Ask:                s.Ask,
+		ExtrasOnly:         s.ExtrasOnly,
+		OwnInstructions:    s.OwnInstructions,
+		Reactive:           s.Reactive,
+		PinnedTools:        s.PinnedTools,
+		ReactiveWorkingSet: s.ReactiveWorkingSet,
+		SearchTools:        s.SearchTools,
+		UpstreamSkills:     s.UpstreamSkills,
+		extras:             sortedExtras(append(append([]Extra(nil), s.extras...), extras...)),
 	}
 }
 
@@ -470,7 +489,8 @@ func (s *Server) Tools() []Tool {
 			Name: "mcpx_catalog",
 			Description: "Every namespace with as many tool signatures as fit a token " +
 				"budget. Round-robins across servers so a large one cannot crowd out " +
-				"a small one. Use this when you do not yet know which server you want.",
+				"a small one. Use this when you do not yet know which server you want. " +
+				codegen.CanonicalSentence,
 			InputSchema: schema(`{"type":"object","properties":{
 				"budget":{"type":"integer","description":"approximate token ceiling (default 2000)"},
 				"bias":{"type":"string","description":"words that pull matching tools toward the front"}
@@ -480,7 +500,8 @@ func (s *Server) Tools() []Tool {
 			Name: "mcpx_types",
 			Description: "Full TypeScript signatures for named namespaces, including each " +
 				"server's own guidance. Ask for this once you know which server you " +
-				"want; it is large, which is why it is not the default.",
+				"want; it is large, which is why it is not the default. " +
+				codegen.CanonicalSentence,
 			InputSchema: schema(`{"type":"object","properties":{
 				"namespaces":{"type":"array","items":{"type":"string"},
 					"description":"namespace names, or namespace.tool for one tool"}
@@ -489,7 +510,8 @@ func (s *Server) Tools() []Tool {
 		{
 			Name: "mcpx_search",
 			Description: "Find tools by name and description across every server. " +
-				"Cheaper than the catalog when you already know roughly what you want.",
+				"Cheaper than the catalog when you already know roughly what you want. " +
+				codegen.CanonicalSentence,
 			InputSchema: schema(`{"type":"object","properties":{
 				"query":{"type":"string"},
 				"limit":{"type":"integer","description":"default 20"}
@@ -558,6 +580,37 @@ func (s *Server) Tools() []Tool {
 			Description: "The daemon, its pools and live instances. Use it when a call " +
 				"behaves oddly and you want to know whether the server is even up.",
 			InputSchema: schema(`{"type":"object","properties":{},"additionalProperties":false}`),
+		},
+		{
+			Name: "mcpx_batch",
+			Description: "Execute one or more tools in a single turn. " +
+				"Accepts any tool name (e.g. namespace.tool or bare tool name), reducing round trips.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"calls":{"type":"array","description":"List of tools to execute","items":{"type":"object","properties":{
+					"namespace":{"type":"string"},
+					"tool":{"type":"string"},
+					"name":{"type":"string"},
+					"arguments":{"type":"object","description":"arguments for the tool"},
+					"args":{"type":"object","description":"alias for arguments"}
+				},"required":["tool"]}},
+				"stopOnError":{"type":"boolean","description":"stop execution on first failure (default true)"},
+				"parallel":{"type":"boolean","description":"execute calls concurrently (default false)"}
+			},"required":["calls"],"additionalProperties":false}`),
+		},
+		{
+			Name: "batch_call",
+			Description: "Alias for mcpx_batch. Execute one or more tools in a single turn.",
+			InputSchema: schema(`{"type":"object","properties":{
+				"calls":{"type":"array","description":"List of tools to execute","items":{"type":"object","properties":{
+					"namespace":{"type":"string"},
+					"tool":{"type":"string"},
+					"name":{"type":"string"},
+					"arguments":{"type":"object","description":"arguments for the tool"},
+					"args":{"type":"object","description":"alias for arguments"}
+				},"required":["tool"]}},
+				"stopOnError":{"type":"boolean","description":"stop execution on first failure (default true)"},
+				"parallel":{"type":"boolean","description":"execute calls concurrently (default false)"}
+			},"required":["calls"],"additionalProperties":false}`),
 		},
 	}
 	for _, e := range s.extras {
@@ -1303,6 +1356,9 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 		return s.callExtra(ctx, name, raw)
 	}
 	switch name {
+	case "request_tools":
+		return s.executeRequestTools(ctx, raw)
+
 	case "mcpx_namespaces":
 		return s.backend.Namespaces(ctx)
 
@@ -1408,8 +1464,153 @@ func (s *Server) dispatch(ctx context.Context, name string, raw json.RawMessage)
 
 	case "mcpx_status":
 		return s.backend.Status(ctx)
+
+	case "mcpx_batch", "batch_call":
+		var p struct {
+			Calls []struct {
+				Namespace string          `json:"namespace"`
+				Tool      string          `json:"tool"`
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+				Args      json.RawMessage `json:"args"`
+			} `json:"calls"`
+			StopOnError *bool `json:"stopOnError"`
+			Parallel    bool  `json:"parallel"`
+		}
+		if err := arg(&p); err != nil {
+			return "", err
+		}
+		if len(p.Calls) == 0 {
+			return `{"results":[]}`, nil
+		}
+		stopOnErr := true
+		if p.StopOnError != nil {
+			stopOnErr = *p.StopOnError
+		}
+		items := make([]batchCallItem, len(p.Calls))
+		for i, c := range p.Calls {
+			items[i] = batchCallItem{
+				Namespace: c.Namespace,
+				Tool:      c.Tool,
+				Name:      c.Name,
+				Arguments: c.Arguments,
+				Args:      c.Args,
+			}
+		}
+		return s.executeBatch(ctx, items, stopOnErr, p.Parallel)
 	}
 	return s.callExtra(ctx, name, raw)
+}
+
+type batchCallItem struct {
+	Namespace string          `json:"namespace"`
+	Tool      string          `json:"tool"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+	Args      json.RawMessage `json:"args"`
+}
+
+type batchItemResult struct {
+	Index   int    `json:"index"`
+	Tool    string `json:"tool"`
+	Status  string `json:"status"`
+	Result  any    `json:"result,omitempty"`
+	Error   string `json:"error,omitempty"`
+	IsError bool   `json:"isError,omitempty"`
+}
+
+func (s *Server) executeBatch(ctx context.Context, calls []batchCallItem, stopOnError bool, parallel bool) (string, error) {
+	results := make([]batchItemResult, len(calls))
+
+	runOne := func(ctx context.Context, i int, call batchCallItem) (batchItemResult, error) {
+		toolName := call.Tool
+		if toolName == "" {
+			toolName = call.Name
+		}
+		ns := call.Namespace
+		if ns == "" && strings.Contains(toolName, ".") {
+			ns, toolName, _ = strings.Cut(toolName, ".")
+		}
+		args := call.Arguments
+		if len(args) == 0 {
+			args = call.Args
+		}
+		if len(args) == 0 {
+			args = json.RawMessage(`{}`)
+		}
+
+		if toolName == "mcpx_batch" || toolName == "batch_call" {
+			return batchItemResult{
+				Index:   i,
+				Tool:    toolName,
+				Status:  "error",
+				Error:   "nested batch calls are not supported",
+				IsError: true,
+			}, errors.New("nested batch calls are not supported")
+		}
+
+		var out string
+		var err error
+		if ns != "" {
+			out, err = s.backend.Call(ctx, ns, toolName, args)
+		} else {
+			out, err = s.invoke(ctx, toolName, args)
+		}
+
+		if err != nil {
+			return batchItemResult{
+				Index:   i,
+				Tool:    toolName,
+				Status:  "error",
+				Error:   err.Error(),
+				IsError: true,
+			}, err
+		}
+
+		var parsed any
+		if json.Unmarshal([]byte(out), &parsed) == nil {
+			return batchItemResult{
+				Index:  i,
+				Tool:   toolName,
+				Status: "success",
+				Result: parsed,
+			}, nil
+		}
+		return batchItemResult{
+			Index:  i,
+			Tool:   toolName,
+			Status: "success",
+			Result: out,
+		}, nil
+	}
+
+	if parallel {
+		var wg sync.WaitGroup
+		wg.Add(len(calls))
+		for i, call := range calls {
+			go func(i int, call batchCallItem) {
+				defer wg.Done()
+				res, _ := runOne(ctx, i, call)
+				results[i] = res
+			}(i, call)
+		}
+		wg.Wait()
+	} else {
+		for i, call := range calls {
+			res, err := runOne(ctx, i, call)
+			results[i] = res
+			if stopOnError && err != nil {
+				results = results[:i+1]
+				break
+			}
+		}
+	}
+
+	b, err := json.Marshal(map[string]any{"results": results})
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // instructions is what initialize says this server is for.
@@ -2442,6 +2643,23 @@ func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
 			return true, nil
 		}
 	}
+	// On-demand auto-adaptation: if in reactive mode and tool exists in allAvailableTools,
+	// seamlessly adapt the working set, notify clients/sessions, and allow the call!
+	if s.Reactive {
+		avail, aerr := s.allAvailableTools(ctx)
+		if aerr == nil {
+			for _, t := range avail {
+				if t.Name == name {
+					if s.ReactiveWorkingSet == nil {
+						s.ReactiveWorkingSet = catalog.NewWorkingSet(24, 2*time.Hour, s.PinnedTools)
+					}
+					s.ReactiveWorkingSet.Add("", name, catalog.OriginSticky)
+					s.NotifyToolsListChanged()
+					return true, nil
+				}
+			}
+		}
+	}
 	return false, nil
 }
 
@@ -2449,6 +2667,19 @@ func (s *Server) hasTool(ctx context.Context, name string) (bool, error) {
 // its, otherwise the gateway's. Every route that calls a tool by name goes
 // through here, so pass-through cannot reach one route and miss another.
 func (s *Server) invoke(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	if s.Reactive && s.ReactiveWorkingSet != nil {
+		if !s.ReactiveWorkingSet.Contains("", name) {
+			s.ReactiveWorkingSet.Add("", name, catalog.OriginSticky)
+			s.NotifyToolsListChanged()
+		} else {
+			s.ReactiveWorkingSet.Touch("", name)
+		}
+	} else if s.ReactiveWorkingSet != nil {
+		s.ReactiveWorkingSet.Touch("", name)
+	}
+	if name == "request_tools" {
+		return s.executeRequestTools(ctx, args)
+	}
 	pass, err := s.routesToPass(ctx, name)
 	if err != nil {
 		return "", err

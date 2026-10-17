@@ -1,11 +1,14 @@
 {
   lib,
-  buildGoModule,
+  # Built with the highest released Go toolchain (1.27.x); go.mod's `go`
+  # directive tracks it, so buildGo127Module rather than plain buildGoModule.
+  buildGo127Module,
   # Runtimes mcpx can use for `mcpx run` / `mcpx exec`. It picks the first one
   # present on PATH in this order, so the wrapper below pins a known-good set
   # rather than depending on whatever the calling shell happens to have.
   deno,
-  bun-bin,
+  bun,
+  bun-bin ? bun,
   nodejs,
   # git is the fallback for the `repo` and `worktree` scopes: mcpx reads .git
   # itself and only asks git about layouts it does not vouch for
@@ -15,7 +18,7 @@
   makeBinaryWrapper,
   installShellFiles,
 }:
-buildGoModule {
+buildGo127Module {
   pname = "mcpx";
   version = "0.1.0";
 
@@ -52,7 +55,7 @@ buildGoModule {
   #
   # Everything else -- the MCP client, the process pools, the JSON Schema to
   # TypeScript compiler, the CLI -- is standard library.
-  vendorHash = "sha256-zu4iT7AAVQVivrviTVCl3w1kgwNQCeX0hyWCmH0tUHE=";
+  vendorHash = "sha256-akA2jS8EwkJufn5OtK3DeYHyu2qlWq4SKDhYMEmi/eU=";
 
   subPackages = [ "cmd/mcpx" ];
 

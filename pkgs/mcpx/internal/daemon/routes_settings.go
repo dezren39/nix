@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -34,6 +36,7 @@ func (s *Server) routesSettings(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/settings/{path}", s.handleSettingsSet)
 	mux.HandleFunc("DELETE /v1/settings/{path}", s.handleSettingsUnset)
 	mux.HandleFunc("GET /v1/servers", s.handleServersList)
+	mux.HandleFunc("GET /v1/servers/{name}", s.handleServerGet)
 	mux.HandleFunc("POST /v1/servers", s.handleServersAdd)
 	mux.HandleFunc("DELETE /v1/servers/{name}", s.handleServersRemove)
 }
@@ -211,14 +214,28 @@ func (s *Server) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		persist = "runtime"
 	}
 
+	// The file and the runtime value change together or not at all. Holding the
+	// reload lock keeps the config watcher and any other reload from reading the
+	// file between this write and its rollback, which would apply a value this
+	// request is about to refuse.
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
+	var file *fileState
 	if persist != "runtime" {
 		path, err := config.ResolveWritePath(config.WriteScope(persist), "")
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := config.SetKey(path, decl.Path, settings.TypedValue(*decl, req.Value)); err != nil {
+		prior, err := captureFile(path)
+		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		file = &prior
+		if err := config.SetKey(path, decl.Path, settings.TypedValue(*decl, req.Value)); err != nil {
+			s.refused(w, http.StatusInternalServerError, err, file)
 			return
 		}
 		out["written"] = path
@@ -229,8 +246,14 @@ func (s *Server) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 	// the old value until a restart, which reads as the write having failed.
 	switch {
 	case decl.Hot || decl.Scope == settings.ScopeCall:
+		prev, had := s.set.RuntimeOverride(decl.Path)
 		if err := s.set.SetRuntime(decl.Path, req.Value); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+			s.refused(w, http.StatusBadRequest, err, file)
+			return
+		}
+		if err := s.applyPoolRuntime(decl.Path); err != nil {
+			s.restoreRuntime(decl.Path, prev, had)
+			s.refused(w, http.StatusInternalServerError, reloadFailed(decl.Path, err), file)
 			return
 		}
 		out["applied"] = true
@@ -249,13 +272,148 @@ func (s *Server) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// applyPoolRuntime makes a runtime change to a pool setting reach the pools
+// that are already running.
+//
+// ApplyPoolSettings folds the pool knobs into the configuration, and that runs
+// only when a configuration is loaded. Without a reload the change was stored
+// and reported as applied while every running pool kept the value it started
+// with. A reload treats these knobs like an edit to the file: each pool's
+// identity includes them, so the affected servers are replaced. A change to
+// any pool.* setting therefore restarts the servers that inherit it.
+func (s *Server) applyPoolRuntime(path string) error {
+	if !strings.HasPrefix(path, "pool.") {
+		return nil
+	}
+	_, _, err := s.reloadConfig()
+	return err
+}
+
+// restoreRuntime undoes a runtime change that could not be reloaded: the
+// override it replaced comes back, or the one it added is removed. Without
+// this the refused value would stay in force and be applied by whichever
+// later reload happened to run next.
+func (s *Server) restoreRuntime(path, prev string, had bool) {
+	if !had {
+		s.set.ClearRuntime(path)
+		return
+	}
+	if err := s.set.SetRuntime(path, prev); err != nil {
+		s.logger.Printf("restoring %s after a failed reload: %v", path, err)
+	}
+}
+
+// reloadFailed is the error a caller sees when a runtime change was refused.
+func reloadFailed(path string, err error) error {
+	return fmt.Errorf("%s: the configuration could not be reloaded, so the runtime value was rolled back: %w", path, err)
+}
+
+// refused answers a change that was not applied. When the change was also
+// written to a file, that file goes back to what it held before, so the file
+// and the daemon agree again. A file holding a value the daemon refused is the
+// disagreement this exists to prevent: the next reload that read it would apply
+// the value.
+func (s *Server) refused(w http.ResponseWriter, status int, err error, file *fileState) {
+	if file != nil {
+		if rerr := file.restore(); rerr != nil {
+			s.logger.Printf("restoring %s after a refused change: %v", file.target, rerr)
+			writeErr(w, status, fmt.Errorf("%w; %s could not be restored and still holds the refused value: %v",
+				err, file.target, rerr))
+			return
+		}
+		err = fmt.Errorf("%w; %s was restored to its previous contents", err, file.target)
+	}
+	writeErr(w, status, err)
+}
+
+// fileState is a configuration file as it was before a write: its bytes and
+// mode, or that there was no file. A refused write is rolled back to it.
+type fileState struct {
+	target  string // the file written, with symlinks resolved
+	existed bool
+	data    []byte
+	mode    fs.FileMode
+}
+
+func captureFile(path string) (fileState, error) {
+	target := path
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		target = resolved
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fileState{}, err
+	}
+	st, err := os.Stat(target)
+	if errors.Is(err, fs.ErrNotExist) {
+		return fileState{target: target}, nil
+	}
+	if err != nil {
+		return fileState{}, err
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return fileState{}, err
+	}
+	return fileState{target: target, existed: true, data: data, mode: st.Mode().Perm()}, nil
+}
+
+// restore puts the file back as it was captured: the same bytes and mode, or
+// no file at all. The bytes go to a temporary file beside the target and are
+// renamed over it, so a failure partway leaves the refused contents or the
+// captured ones, never a truncated file.
+func (f fileState) restore() error {
+	if !f.existed {
+		if err := os.Remove(f.target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(f.target), "."+filepath.Base(f.target)+".restore-*")
+	if err != nil {
+		return err
+	}
+	if err := writeTemp(tmp, f.data, f.mode); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), f.target); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+// writeTemp writes and closes a file that restore is about to rename into place.
+func writeTemp(f *os.File, data []byte, mode fs.FileMode) error {
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(mode); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 func (s *Server) handleSettingsUnset(w http.ResponseWriter, r *http.Request) {
 	decl, _, err := s.lookupSetting(r.PathValue("path"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
-	had := s.set.ClearRuntime(decl.Path)
+	prev, had := s.set.RuntimeOverride(decl.Path)
+	if had {
+		s.set.ClearRuntime(decl.Path)
+		if err := s.applyPoolRuntime(decl.Path); err != nil {
+			s.restoreRuntime(decl.Path, prev, true)
+			writeErr(w, http.StatusInternalServerError, reloadFailed(decl.Path, err))
+			return
+		}
+	}
 	v, _ := s.set.Value(decl.Path)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": decl.Path, "removed": had, "value": v.Raw, "source": v.Origin.String(),
@@ -279,37 +437,84 @@ type serverRecord struct {
 	Disabled  bool              `json:"disabled,omitempty"`
 	From      string            `json:"from,omitempty"`
 	Extra     map[string]string `json:"-"`
+	// RequiresSecrets is what the configuration says this server needs.
+	// MissingSecrets is the part of it with no value. Active is false while
+	// either holds, or while a server it requires cannot run.
+	RequiresSecrets []string `json:"requiresSecrets"`
+	MissingSecrets  []string `json:"missingSecrets"`
+	Active          bool     `json:"active"`
+}
+
+// serverRecords is every configured server, as the configuration writes it,
+// with what it needs and whether it can run now.
+func (s *Server) serverRecords() ([]serverRecord, error) {
+	out := []serverRecord{}
+	cfg := s.reg.Config()
+	if cfg == nil {
+		return out, nil
+	}
+	resolved, err := cfg.ResolveAll()
+	if err != nil {
+		return nil, err
+	}
+	for _, sv := range resolved {
+		// These are fresh views, so they need the daemon's values bound in
+		// before they can say whether anything is missing.
+		s.reg.bindSecrets(sv)
+		rec := serverRecord{
+			Name: sv.Name, Namespace: sv.Namespace,
+			Sharing: string(sv.Sharing), Scope: string(sv.Scope), Max: sv.Max,
+			From: cfg.Origin[sv.Name],
+		}
+		if sv.Stdio() {
+			rec.Transport, rec.Command, rec.Args = "stdio", sv.Command, sv.Args
+		} else {
+			rec.Transport, rec.URL = sv.Transport, sv.URL
+		}
+		// Keys, never values. A server's environment is where its API
+		// tokens are, and an endpoint that lists configured servers is
+		// not a place to leak one.
+		rec.EnvKeys = sortedKeys(sv.Env)
+		rec.Headers = sortedKeys(sv.Headers)
+		rec.RequiresSecrets = nonNil(sv.SecretNames())
+		rec.MissingSecrets = nonNil(sv.MissingSecrets())
+		blocker, _ := s.reg.blocked(sv)
+		rec.Active = blocker == nil
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+func nonNil(list []string) []string {
+	if list == nil {
+		return []string{}
+	}
+	return list
 }
 
 func (s *Server) handleServersList(w http.ResponseWriter, _ *http.Request) {
-	cfg := s.reg.Config()
-	out := []serverRecord{}
-	if cfg != nil {
-		resolved, err := cfg.ResolveAll()
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		for _, sv := range resolved {
-			rec := serverRecord{
-				Name: sv.Name, Namespace: sv.Namespace,
-				Sharing: string(sv.Sharing), Scope: string(sv.Scope), Max: sv.Max,
-				From: cfg.Origin[sv.Name],
-			}
-			if sv.Stdio() {
-				rec.Transport, rec.Command, rec.Args = "stdio", sv.Command, sv.Args
-			} else {
-				rec.Transport, rec.URL = sv.Transport, sv.URL
-			}
-			// Keys, never values. A server's environment is where its API
-			// tokens are, and an endpoint that lists configured servers is
-			// not a place to leak one.
-			rec.EnvKeys = sortedKeys(sv.Env)
-			rec.Headers = sortedKeys(sv.Headers)
-			out = append(out, rec)
-		}
+	out, err := s.serverRecords()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"servers": out})
+}
+
+func (s *Server) handleServerGet(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	out, err := s.serverRecords()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, rec := range out {
+		if rec.Name == name {
+			writeJSON(w, http.StatusOK, rec)
+			return
+		}
+	}
+	writeErr(w, http.StatusNotFound, fmt.Errorf("no configured server named %q", name))
 }
 
 func sortedKeys(m map[string]string) []string {

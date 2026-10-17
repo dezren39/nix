@@ -874,3 +874,57 @@ func modernWith(caps string, extra map[string]any) map[string]any {
 	}
 	return p
 }
+
+func TestBatchExecution(t *testing.T) {
+	b := newBackend()
+	s := mcpserver.New(b, "mcpx", "test")
+
+	// 1. Successful batch call
+	req := mcpserver.Request(1, "tools/call", map[string]any{
+		"name": "mcpx_batch",
+		"arguments": map[string]any{
+			"calls": []map[string]any{
+				{"namespace": "alpha", "tool": "one"},
+				{"tool": "alpha.two"},
+			},
+		},
+	})
+	res := s.Handle(context.Background(), req)
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	resBytes, _ := json.Marshal(res.Result)
+	if !strings.Contains(string(resBytes), "called alpha.one") || !strings.Contains(string(resBytes), "called alpha.two") {
+		t.Fatalf("expected both calls executed: %s", string(resBytes))
+	}
+
+	// 2. Alias batch_call works
+	req2 := mcpserver.Request(2, "tools/call", map[string]any{
+		"name": "batch_call",
+		"arguments": map[string]any{
+			"calls": []map[string]any{
+				{"namespace": "alpha", "tool": "three"},
+			},
+		},
+	})
+	res2 := s.Handle(context.Background(), req2)
+	if res2.Error != nil {
+		t.Fatalf("unexpected error: %v", res2.Error)
+	}
+
+	// 3. Parallel batch
+	req3 := mcpserver.Request(3, "tools/call", map[string]any{
+		"name": "batch_call",
+		"arguments": map[string]any{
+			"parallel": true,
+			"calls": []map[string]any{
+				{"namespace": "alpha", "tool": "p1"},
+				{"namespace": "alpha", "tool": "p2"},
+			},
+		},
+	})
+	res3 := s.Handle(context.Background(), req3)
+	if res3.Error != nil {
+		t.Fatalf("unexpected error: %v", res3.Error)
+	}
+}

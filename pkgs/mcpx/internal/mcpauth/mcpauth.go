@@ -89,8 +89,17 @@ type Resolved struct {
 	Missing []string
 }
 
-// Resolve turns a declaration into headers, query parameters and environment.
+// Resolve turns a declaration into headers, query parameters and environment,
+// reading the variables it names from the daemon's environment.
 func (a *Auth) Resolve() (*Resolved, error) {
+	return a.ResolveWith(os.Getenv)
+}
+
+// ResolveWith is Resolve reading each variable through get. A caller that
+// holds a value in memory for a name, as the daemon does for a secret, answers
+// for it here, so the credential a server is given is the one it was waiting
+// for.
+func (a *Auth) ResolveWith(get func(name string) string) (*Resolved, error) {
 	out := &Resolved{
 		Headers: map[string]string{},
 		Query:   map[string]string{},
@@ -105,7 +114,7 @@ func (a *Auth) Resolve() (*Resolved, error) {
 			return ""
 		}
 		expanded := os.Expand(v, func(name string) string {
-			got := os.Getenv(name)
+			got := get(name)
 			if got == "" {
 				out.Missing = append(out.Missing, name)
 			}
@@ -119,7 +128,7 @@ func (a *Auth) Resolve() (*Resolved, error) {
 			// An empty value means "pass mine through". That is the shape
 			// that keeps a secret out of the configuration file, so it is
 			// worth supporting explicitly rather than by accident.
-			if got := os.Getenv(k); got != "" {
+			if got := get(k); got != "" {
 				out.Env[k] = got
 			} else {
 				out.Missing = append(out.Missing, k)

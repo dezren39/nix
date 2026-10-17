@@ -22,13 +22,17 @@ argument for the registry existing. The question is therefore not "is this path
 string mentioned anywhere" but "does anything read the **resolved value**".
 
 Those are not the same question, and the difference is where the interesting
-half of the findings came from. `pool.max` was read — from a config file,
-through `config.Config.Pool`, which the JSON decoder fills. `MCPX_POOL_MAX` and
-`--pool-max` landed in the resolved `Set` and nothing on that path ever looked
-at it. Grepping for `"pool.max"` finds a match in `internal/defaults` (an error
-label) and calls it live. A user who set the variable, saw nothing change,
-moved it into their config file and saw it work would reasonably conclude the
-variable name was wrong rather than that the layer was.
+half of the findings came from. `pool.max` was read from a config file, through `config.Config.Pool`, which
+the JSON decoder fills. `MCPX_POOL_MAX` and `--pool-max` landed in the resolved
+`Set`, and nothing on that path looked at them. Grepping for `"pool.max"` finds
+a match in `internal/defaults` (an error label) and calls it live. A user who
+set the variable, saw nothing change, moved it into their config file and saw it
+work would reasonably conclude the variable name was wrong rather than that the
+layer was. That is fixed now: `config.ApplyPoolSettings`
+(`internal/config/poolsettings.go:36`) copies every layer of the resolved `Set`
+into `Config.Pool`, and a runtime change through `settings set` reloads the
+pools (`internal/daemon/routes_settings.go:268`), so the change reaches pools
+that are already running.
 
 So the audit looked for one specific shape: the path handed to an accessor on a
 resolved `Set` — `set.Int("pool.max")`, `a.Settings().Bool(...)`,
@@ -50,7 +54,7 @@ path-string grep called dead that the accessor scan cleared.
 
 | setting | layer | verdict | evidence | fix |
 | --- | --- | --- | --- | --- |
-| `pool.max` `pool.min` `pool.sharing` `pool.scope` `pool.idleTimeout` `pool.callTimeout` `pool.startTimeout` | settings | partially dead — file only | `config.Config.Pool` filled by the decoder (`config.go:174`); `Resolve` picks from it (`config.go:448-476`); no accessor anywhere | `config.ApplyPoolSettings` folds the resolved value into `Config.Pool` — the layer beneath a server's own `mcpx` block, so a per-server choice still wins. Called at the five places a config is loaded next to a resolved set. |
+| `pool.max` `pool.min` `pool.sharing` `pool.scope` `pool.idleTimeout` `pool.callTimeout` `pool.startTimeout` | settings | was partially dead — file only; wired | `config.Config.Pool` filled by the decoder (`config.go:174`); `Resolve` picks from it (`config.go:616`, the `pick` for `max`); no accessor read the resolved `Set` until `ApplyPoolSettings` (`poolsettings.go:36`) | `config.ApplyPoolSettings` folds the resolved value into `Config.Pool` — the layer beneath a server's own `mcpx` block, so a per-server choice still wins. Called at the five places a config is loaded next to a resolved set (`internal/daemon/routes_settings.go:659`, `internal/cli/root.go:157`, `internal/cli/root.go:392`, `internal/cli/connect.go:216`, `internal/cli/doctor.go:97`). A runtime change through `settings set` or `settings unset` reloads them (`routes_settings.go:268`), and a reload that fails is rolled back (`routes_settings.go:280`). |
 | `logging.maxBytes` `logging.maxLines` `logging.maxAge` `logging.keep` | settings | dead | every `NewFileSink` call passed `FileOptions{Dir: dir}` and nothing else (`cli/root.go`, `cli/commands.go`, `cli/logs.go`); `file.go:87-96` fell back to the built-in constants | `cli.fileOptions` builds the whole policy from the set; both durable sinks use it |
 | `logging.file` | settings | dead | nothing decided whether to open a sink at all | guards sink creation in the daemon and in `run`/`exec` |
 | `logging.include` | settings | partially dead — flag and file only | `os.Getenv("MCPX_INCLUDE")`, a name the registry does not own (`root.go:157`) | reads `set.List("logging.include")` |

@@ -13,7 +13,12 @@
       "disable": true
     }
   },
-  "subagent_depth": 10,
+  // v2 reads the depth limit only from experimental.subagent_depth; a
+  // top-level subagent_depth is dropped with a diagnostic and the limit
+  // silently falls back to 1 (core/src/tool/plugin/subagent.ts).
+  "experimental": {
+    "subagent_depth": 10
+  },
   "model": "github-copilot/claude-opus-5.5",
   "small_model": "github-copilot/claude-opus-5.5",
   "permission": {

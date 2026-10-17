@@ -171,6 +171,7 @@ func TestPromptSaysPlainlyThatThereIsNoModel(t *testing.T) {
 	// The default. mcpx has no model, most callers cannot answer sampling,
 	// and pretending otherwise costs the whole deadline to discover.
 	e := newEnv(t, oneServer)
+	called := e.withoutModelCLIs(t)
 	writeRecipe(t, e, "say", sayRecipe)
 	e.run("ls")
 	out := e.run("prompt", "rotate the database credentials")
@@ -179,6 +180,11 @@ func TestPromptSaysPlainlyThatThereIsNoModel(t *testing.T) {
 	}
 	if !strings.Contains(out, "prompt.sample") {
 		t.Fatalf("it should say why no script was written:\n%s", out)
+	}
+	// A CLI on the machine is not permission to ask it: with the default
+	// prompt.sample=never no model CLI runs, whatever is installed.
+	if _, err := os.Stat(called); err == nil {
+		t.Fatal("a model CLI was run although prompt.sample is never")
 	}
 }
 

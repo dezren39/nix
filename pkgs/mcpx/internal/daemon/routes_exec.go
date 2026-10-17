@@ -223,6 +223,12 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("source is required"))
 		return
 	}
+	// Before any run path below, so a script that reaches a server waiting for
+	// a secret is refused now and not after its first statement has run.
+	if refusal := s.refuseUnreadyScript(req); refusal != nil {
+		writeJSON(w, http.StatusConflict, refusal.Body())
+		return
+	}
 	svc := s.ExecService()
 
 	// A task is a handle now and the result later, which is the right shape
@@ -268,6 +274,23 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest,
 			fmt.Errorf("output must be text, structured or stream, not %q", req.Options.Output))
 	}
+}
+
+// refuseUnreadyScript runs the preflight on the script a request names, and
+// returns the refusal when a server it reaches cannot run. A file is read the
+// way the runner will read it, from where the daemon runs, so the check and
+// the run see the same text. A file that cannot be read is left to the run,
+// which reports the error itself.
+func (s *Server) refuseUnreadyScript(req execReq) *SecretRequired {
+	src := req.Source
+	if src == "" && req.File != "" {
+		b, err := os.ReadFile(req.File)
+		if err != nil {
+			return nil
+		}
+		src = string(b)
+	}
+	return s.reg.refuseScript(src)
 }
 
 // execStream writes frames as they happen.

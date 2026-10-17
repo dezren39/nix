@@ -104,6 +104,18 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  batch: {
+    method: "POST",
+    path: "/v1/batch",
+    params: {
+      calls: { in: "body", required: true },
+      stopOnError: { in: "body" },
+      parallel: { in: "body" },
+      session: { in: "body" },
+      context: { in: "body" },
+    },
+    response: "json",
+  },
   call: {
     method: "POST",
     path: "/v1/call",
@@ -150,6 +162,15 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  chat_completions: {
+    method: "POST",
+    path: "/v1/chat/completions",
+    params: {
+      model: { in: "body" },
+      messages: { in: "body", required: true },
+    },
+    response: "json",
+  },
   client_module: {
     method: "GET",
     path: "/v1/client.ts",
@@ -175,12 +196,25 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  daemon_restart: {
+    method: "POST",
+    path: "/v1/daemon/restart",
+    params: {},
+    response: "json",
+  },
+  dashboard: {
+    method: "GET",
+    path: "/v1/dashboard",
+    params: {},
+    response: "response",
+  },
   diagnose: {
     method: "POST",
     path: "/v1/diagnose",
     params: {
       source: { in: "body", required: true },
       session: { in: "body" },
+      repair: { in: "body" },
     },
     response: "json",
   },
@@ -212,6 +246,29 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  embeddings: {
+    method: "POST",
+    path: "/v1/embeddings",
+    params: {
+      input: { in: "body", required: true },
+      model: { in: "body" },
+    },
+    response: "json",
+  },
+  embeddings_export: {
+    method: "GET",
+    path: "/v1/embeddings/export",
+    params: {},
+    response: "json",
+  },
+  embeddings_import: {
+    method: "POST",
+    path: "/v1/embeddings/import",
+    params: {
+      content: { in: "body", required: true, raw: true },
+    },
+    response: "json",
+  },
   events: {
     method: "GET",
     path: "/v1/events",
@@ -231,6 +288,19 @@ export const OPS: Record<string, OpSpec> = {
       source: { in: "body" },
       file: { in: "body" },
       options: { in: "body" },
+    },
+    response: "json",
+  },
+  feedback: {
+    method: "POST",
+    path: "/v1/feedback",
+    params: {
+      traceId: { in: "body", required: true },
+      score: { in: "body", required: true },
+      target: { in: "body" },
+      retrievalScore: { in: "body" },
+      executionScore: { in: "body" },
+      notes: { in: "body" },
     },
     response: "json",
   },
@@ -259,6 +329,25 @@ export const OPS: Record<string, OpSpec> = {
       autonomy: { in: "body" },
       placeholders: { in: "body" },
       session: { in: "body" },
+    },
+    response: "json",
+  },
+  interactions_get: {
+    method: "GET",
+    path: "/v1/interactions/{id}",
+    params: {
+      id: { in: "path", required: true },
+    },
+    response: "json",
+  },
+  interactions_list: {
+    method: "GET",
+    path: "/v1/interactions",
+    params: {
+      q: { in: "query" },
+      source: { in: "query" },
+      target: { in: "query" },
+      hasFeedback: { in: "query" },
     },
     response: "json",
   },
@@ -291,6 +380,18 @@ export const OPS: Record<string, OpSpec> = {
     wrap: "record",
     response: "json",
   },
+  metrics_tokens: {
+    method: "GET",
+    path: "/v1/metrics/tokens",
+    params: {},
+    response: "json",
+  },
+  metrics_tools: {
+    method: "GET",
+    path: "/v1/metrics/tools",
+    params: {},
+    response: "json",
+  },
   namespaces: {
     method: "GET",
     path: "/v1/namespaces",
@@ -305,6 +406,14 @@ export const OPS: Record<string, OpSpec> = {
     method: "GET",
     path: "/v1/openapi.json",
     params: {},
+    response: "json",
+  },
+  preflight: {
+    method: "POST",
+    path: "/v1/preflight",
+    params: {
+      source: { in: "body", required: true },
+    },
     response: "json",
   },
   prompt_get: {
@@ -386,6 +495,12 @@ export const OPS: Record<string, OpSpec> = {
     },
     response: "json",
   },
+  reload: {
+    method: "POST",
+    path: "/v1/reload",
+    params: {},
+    response: "json",
+  },
   resolve: {
     method: "GET",
     path: "/v1/resolve",
@@ -436,6 +551,52 @@ export const OPS: Record<string, OpSpec> = {
     params: {
       q: { in: "query", required: true },
       limit: { in: "query" },
+      semantic: { in: "query" },
+    },
+    response: "json",
+  },
+  secret_request_decline: {
+    method: "DELETE",
+    path: "/v1/secret-requests/{id}",
+    params: {
+      id: { in: "path", required: true },
+    },
+    response: "json",
+  },
+  secret_request_get: {
+    method: "GET",
+    path: "/v1/secret-requests/{id}",
+    params: {
+      id: { in: "path", required: true },
+    },
+    response: "json",
+  },
+  secret_requests_list: {
+    method: "GET",
+    path: "/v1/secret-requests",
+    params: {},
+    response: "json",
+  },
+  secrets_list: {
+    method: "GET",
+    path: "/v1/secrets",
+    params: {},
+    response: "json",
+  },
+  secrets_set: {
+    method: "PUT",
+    path: "/v1/secrets/{name}",
+    params: {
+      name: { in: "path", required: true },
+      value: { in: "body", required: true },
+    },
+    response: "json",
+  },
+  secrets_unset: {
+    method: "DELETE",
+    path: "/v1/secrets/{name}",
+    params: {
+      name: { in: "path", required: true },
     },
     response: "json",
   },
@@ -453,6 +614,14 @@ export const OPS: Record<string, OpSpec> = {
       mcpx: { in: "body" },
       scope: { in: "body" },
       replace: { in: "body" },
+    },
+    response: "json",
+  },
+  servers_get: {
+    method: "GET",
+    path: "/v1/servers/{name}",
+    params: {
+      name: { in: "path", required: true },
     },
     response: "json",
   },
@@ -756,6 +925,13 @@ export class DaemonOps {
   }
 
   /**
+   * Execute multiple tool calls in a single turn. `POST /v1/batch`.
+   */
+  batch(args: { calls: unknown[]; stopOnError?: boolean; parallel?: boolean; session?: string; context?: Record<string, unknown> }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("batch", args, opts) as Promise<unknown>
+  }
+
+  /**
    * Call one tool on one server. `POST /v1/call`.
    */
   call(args: { server: string; tool: string; args?: Record<string, unknown>; task?: Record<string, unknown>; session?: string; context?: Record<string, unknown> }, opts: CallOptions = {}): Promise<unknown> {
@@ -784,6 +960,13 @@ export class DaemonOps {
   }
 
   /**
+   * OpenAI-compatible LLM chat completions endpoint. `POST /v1/chat/completions`.
+   */
+  chatCompletions(args: { model?: string; messages: unknown[] }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("chat_completions", args, opts) as Promise<unknown>
+  }
+
+  /**
    * The generated TypeScript client. `GET /v1/client.ts`.
    */
   clientModule(args: { ns?: string; session?: string; profile?: string; skipDefault?: "0" | "1"; allProfiles?: "0" | "1" } = {}, opts: CallOptions = {}): Promise<Response> {
@@ -798,9 +981,25 @@ export class DaemonOps {
   }
 
   /**
+   * Restart the mcpx daemon. `POST /v1/daemon/restart`.
+   * Privileged: it changes the daemon rather than reading it.
+   * Destructive: it cannot be undone, and other callers are affected.
+   */
+  daemonRestart(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("daemon_restart", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Live web dashboard HTML. `GET /v1/dashboard`.
+   */
+  dashboard(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<Response> {
+    return this.invoke("dashboard", args, opts) as Promise<Response>
+  }
+
+  /**
    * Explain what is wrong with a script, deterministically. `POST /v1/diagnose`.
    */
-  diagnose(args: { source: string; session?: string }, opts: CallOptions = {}): Promise<unknown> {
+  diagnose(args: { source: string; session?: string; repair?: boolean }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("diagnose", args, opts) as Promise<unknown>
   }
 
@@ -827,6 +1026,27 @@ export class DaemonOps {
   }
 
   /**
+   * Compute vector embeddings for text. `POST /v1/embeddings`.
+   */
+  embeddings(args: { input: string; model?: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("embeddings", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Export cached vector embeddings. `GET /v1/embeddings/export`.
+   */
+  embeddingsExport(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("embeddings_export", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Import pre-computed vector embeddings. `POST /v1/embeddings/import`.
+   */
+  embeddingsImport(args: { content: BodyInit }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("embeddings_import", args, opts) as Promise<unknown>
+  }
+
+  /**
    * Server-sent event stream. `GET /v1/events`.
    * A stream: read the response body until you are done with it.
    */
@@ -840,6 +1060,13 @@ export class DaemonOps {
    */
   exec(args: { source?: string; file?: string; options?: Record<string, unknown> } = {}, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("exec", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Submit quality feedback for a trace. `POST /v1/feedback`.
+   */
+  feedback(args: { traceId: string; score: number; target?: string; retrievalScore?: number; executionScore?: number; notes?: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("feedback", args, opts) as Promise<unknown>
   }
 
   /**
@@ -864,6 +1091,20 @@ export class DaemonOps {
   }
 
   /**
+   * Inspect a specific interaction trace. `GET /v1/interactions/{id}`.
+   */
+  interactionsGet(args: { id: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("interactions_get", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * List and filter past interaction traces. `GET /v1/interactions`.
+   */
+  interactionsList(args: { q?: string; source?: string; target?: string; hasFeedback?: string } = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("interactions_list", args, opts) as Promise<unknown>
+  }
+
+  /**
    * Query the durable log. `GET /v1/log`.
    */
   logQuery(args: { since?: string; until?: string; level?: "debug" | "info" | "warn" | "error"; event?: string; server?: string; tool?: string; session?: string; trace?: string; chain?: string; grep?: string; limit?: number; reverse?: "0" | "1" } = {}, opts: CallOptions = {}): Promise<unknown> {
@@ -879,6 +1120,20 @@ export class DaemonOps {
   }
 
   /**
+   * Token economics telemetry summary. `GET /v1/metrics/tokens`.
+   */
+  metricsTokens(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("metrics_tokens", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Tool call telemetry, error rates, correlations and timelines. `GET /v1/metrics/tools`.
+   */
+  metricsTools(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("metrics_tools", args, opts) as Promise<unknown>
+  }
+
+  /**
    * Every configured server, with tool counts. `GET /v1/namespaces`.
    */
   namespaces(args: { profile?: string; skipDefault?: "0" | "1"; allProfiles?: "0" | "1" } = {}, opts: CallOptions = {}): Promise<unknown> {
@@ -890,6 +1145,13 @@ export class DaemonOps {
    */
   openapi(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("openapi", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Check a script's servers are ready before running it. `POST /v1/preflight`.
+   */
+  preflight(args: { source: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("preflight", args, opts) as Promise<unknown>
   }
 
   /**
@@ -957,6 +1219,14 @@ export class DaemonOps {
   }
 
   /**
+   * Re-read the configuration and swap server pools without restarting unchanged servers. `POST /v1/reload`.
+   * Privileged: it changes the daemon rather than reading it.
+   */
+  reload(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("reload", args, opts) as Promise<unknown>
+  }
+
+  /**
    * Which daemon serves a directory. `GET /v1/resolve`.
    */
   resolve(args: { dir: string }, opts: CallOptions = {}): Promise<unknown> {
@@ -996,8 +1266,54 @@ export class DaemonOps {
   /**
    * Rank tools against a query. `GET /v1/search`.
    */
-  search(args: { q: string; limit?: number }, opts: CallOptions = {}): Promise<unknown> {
+  search(args: { q: string; limit?: number; semantic?: boolean }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("search", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Decline a secret request. `DELETE /v1/secret-requests/{id}`.
+   * Privileged: it changes the daemon rather than reading it.
+   */
+  secretRequestDecline(args: { id: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("secret_request_decline", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * One secret request, and whether it is still waiting. `GET /v1/secret-requests/{id}`.
+   */
+  secretRequestGet(args: { id: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("secret_request_get", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Requests waiting for a person to give secrets. `GET /v1/secret-requests`.
+   */
+  secretRequestsList(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("secret_requests_list", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Which secrets servers need, and which of them have a value. `GET /v1/secrets`.
+   */
+  secretsList(args: Record<string, never> = {}, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("secrets_list", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Give a secret a value, in memory only. `PUT /v1/secrets/{name}`.
+   * Privileged: it changes the daemon rather than reading it.
+   */
+  secretsSet(args: { name: string; value: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("secrets_set", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * Forget a runtime value for a secret. `DELETE /v1/secrets/{name}`.
+   * Privileged: it changes the daemon rather than reading it.
+   * Destructive: it cannot be undone, and other callers are affected.
+   */
+  secretsUnset(args: { name: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("secrets_unset", args, opts) as Promise<unknown>
   }
 
   /**
@@ -1006,6 +1322,13 @@ export class DaemonOps {
    */
   serversAdd(args: { name: string; command?: string; args?: unknown[]; env?: Record<string, unknown>; url?: string; headers?: Record<string, unknown>; transport?: "stdio" | "http" | "sse"; mcpx?: Record<string, unknown>; scope?: "project" | "user"; replace?: boolean }, opts: CallOptions = {}): Promise<unknown> {
     return this.invoke("servers_add", args, opts) as Promise<unknown>
+  }
+
+  /**
+   * One configured server, and whether it can run now. `GET /v1/servers/{name}`.
+   */
+  serversGet(args: { name: string }, opts: CallOptions = {}): Promise<unknown> {
+    return this.invoke("servers_get", args, opts) as Promise<unknown>
   }
 
   /**

@@ -17,9 +17,10 @@ import (
 
 // Tool is the codegen view of an MCP tool.
 type Tool struct {
-	Name        string
-	Description string
-	InputSchema json.RawMessage
+	Name         string
+	Description  string
+	InputSchema  json.RawMessage
+	OutputSchema json.RawMessage
 }
 
 // Namespace groups tools under one TypeScript identifier.
@@ -94,6 +95,25 @@ func ArgsTypeFor(raw json.RawMessage, indent string) (ts string, optional bool) 
 	}
 	r := &renderer{root: &s, seen: map[string]bool{}}
 	return r.render(&s, indent), len(s.Required) == 0
+}
+
+// ResultTypeFor renders the return type expression for a tool. If outputSchema
+// is present and non-empty, it renders the schema and wraps it in Attached<...>;
+// otherwise it falls back to ToolResult.
+func ResultTypeFor(raw json.RawMessage, indent string) string {
+	if len(raw) == 0 {
+		return "ToolResult"
+	}
+	var s schema
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "ToolResult"
+	}
+	r := &renderer{root: &s, seen: map[string]bool{}}
+	res := r.render(&s, indent)
+	if res == "unknown" || res == "" {
+		return "ToolResult"
+	}
+	return "Attached<" + res + ">"
 }
 
 func (r *renderer) render(s *schema, indent string) string {

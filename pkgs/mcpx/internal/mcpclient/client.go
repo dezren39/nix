@@ -88,6 +88,11 @@ type Client struct {
 	// modern mirrors Era == EraModern for the read loop, which runs while
 	// connect is still deciding and so cannot read Era without a race.
 	modern atomic.Bool
+	// detaching is set while Detach has the transport; the read loop then
+	// ends without failing the session.
+	detaching atomic.Bool
+	// loopDone is closed when the read loop returns.
+	loopDone chan struct{}
 	// Negotiated is the version actually in use.
 	Negotiated string
 	// onElicit answers server-initiated requests.
@@ -273,6 +278,7 @@ func newClient(ctx context.Context, t Transport, o Options) (*Client, error) {
 		roots:          append([]Root(nil), o.Roots...),
 		modernVersions: o.ModernVersions,
 		probeTimeout:   o.ProbeTimeout,
+		loopDone:       make(chan struct{}),
 	}
 	if len(c.modernVersions) == 0 {
 		c.modernVersions = ModernVersions
@@ -419,6 +425,7 @@ type contextReceiver interface {
 }
 
 func (c *Client) recvLoop() {
+	defer close(c.loopDone)
 	cr, _ := c.t.(contextReceiver)
 	for {
 		var (
@@ -432,6 +439,9 @@ func (c *Client) recvLoop() {
 			raw, err = c.t.Recv()
 		}
 		if err != nil {
+			if c.detaching.Load() {
+				return
+			}
 			c.fail(err)
 			return
 		}

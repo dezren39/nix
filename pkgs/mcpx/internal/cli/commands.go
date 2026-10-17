@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/settings"
+	"github.com/dezren39/mcpx/plugin/opencode/skills"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,6 +23,7 @@ import (
 	"github.com/dezren39/mcpx/internal/artifacts"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/execsvc"
 	"github.com/dezren39/mcpx/internal/logging"
 	"github.com/dezren39/mcpx/internal/preflight"
@@ -288,6 +292,7 @@ func (a *App) setOutputFormat(f logging.Format) {
 // CmdSearch ranks tools across every namespace.
 func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	fs := newFlagSet("search")
+	semantic := fs.Bool("semantic", false, "rank tools with local semantic vector search")
 	// -n, --limit and --search-limit are one setting, declared once. The
 	// value is sent only when somebody actually chose it: a client's
 	// inherited default must not override what the daemon is configured
@@ -300,7 +305,7 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 		limit = a.Settings().Int("search.limit")
 	}
 	if fs.NArg() == 0 {
-		return errors.New("usage: mcpx search <query>")
+		return errors.New("usage: mcpx search [--semantic] <query>")
 	}
 	c, err := a.ensure(ctx)
 	if err != nil {
@@ -314,7 +319,8 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 	if err := a.ensureAnySchemas(ctx, c); err != nil {
 		return err
 	}
-	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit)
+	useSemantic := *semantic || a.Settings().Bool("search.semantic")
+	hits, err := c.Search(ctx, strings.Join(fs.Args(), " "), limit, useSemantic)
 	if err != nil {
 		return err
 	}
@@ -327,9 +333,16 @@ func (a *App) CmdSearch(ctx context.Context, args []string) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "FUNCTION\tDESCRIPTION")
+	fmt.Fprintln(tw, "CALL\tNATIVE\tDESCRIPTION")
 	for _, h := range hits {
-		fmt.Fprintf(tw, "%s\t%s\n", h.Function, truncate(oneLine(h.Description), 90))
+		call, native := h.Call, h.Native
+		if call == "" {
+			// A daemon older than the call form still answers with the
+			// function alone, which spells the same identifier.
+			call = "tools." + h.Function + "(args)"
+			native = strings.Replace(h.Function, ".", "_", 1)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", call, native, truncate(oneLine(h.Description), 90))
 	}
 	tw.Flush()
 	return nil
@@ -398,6 +411,103 @@ func (a *App) CmdCall(ctx context.Context, args []string) error {
 	// script must not read a failed tool as a success.
 	if failed {
 		return fmt.Errorf("%s.%s reported an error (isError)", ns, tool)
+	}
+	return nil
+}
+
+// CmdBatch invokes multiple tools in a single turn without starting a JavaScript runtime.
+func (a *App) CmdBatch(ctx context.Context, args []string) error {
+	fs := newFlagSet("batch")
+	session := fs.String("session", "", "session key for stateful servers")
+	raw := fs.Bool("raw", false, "print the full JSON response")
+	cmdJSON := fs.String("c", "", "inline JSON calls array or object")
+	file := fs.String("file", "", "path to JSON file containing calls")
+	parallel := fs.Bool("parallel", false, "execute calls concurrently")
+	stopOnError := fs.Bool("stop-on-error", true, "stop on first error")
+	if err := parseFlags(a, fs, args); err != nil {
+		return err
+	}
+
+	var data []byte
+	if *cmdJSON != "" {
+		data = []byte(*cmdJSON)
+	} else if *file != "" {
+		var err error
+		data, err = os.ReadFile(*file)
+		if err != nil {
+			return err
+		}
+	} else if fs.NArg() > 0 {
+		arg0 := fs.Arg(0)
+		if strings.HasPrefix(strings.TrimSpace(arg0), "[") || strings.HasPrefix(strings.TrimSpace(arg0), "{") {
+			data = []byte(arg0)
+		} else {
+			var err error
+			data, err = os.ReadFile(arg0)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		return errors.New("usage: mcpx batch [-c '<json>' | --file <path> | <file.json>]")
+	}
+
+	var calls []BatchCallItem
+	if bytes.HasPrefix(bytes.TrimSpace(data), []byte("[")) {
+		if err := json.Unmarshal(data, &calls); err != nil {
+			return fmt.Errorf("parsing calls array: %w", err)
+		}
+	} else {
+		var obj struct {
+			Calls       []BatchCallItem `json:"calls"`
+			Parallel    *bool           `json:"parallel"`
+			StopOnError *bool           `json:"stopOnError"`
+		}
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return fmt.Errorf("parsing batch JSON: %w", err)
+		}
+		calls = obj.Calls
+		if obj.Parallel != nil && !*parallel {
+			*parallel = *obj.Parallel
+		}
+		if obj.StopOnError != nil && *stopOnError {
+			*stopOnError = *obj.StopOnError
+		}
+	}
+
+	c, err := a.ensure(ctx)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Batch(ctx, calls, *stopOnError, *parallel, a.callContext(*session, *session))
+	if err != nil {
+		if a.JSON {
+			a.outCallFailure(err)
+		}
+		return err
+	}
+
+	if *raw || a.JSON {
+		return a.out(resp)
+	}
+
+	hasError := false
+	for _, res := range resp.Results {
+		if res.IsError {
+			hasError = true
+			fmt.Printf("✗ [%s.%s] error: %s\n", res.Server, res.Tool, res.Error)
+		} else {
+			text, failed := renderResult(res.Result)
+			if failed {
+				hasError = true
+				fmt.Printf("✗ [%s.%s] failed: %s\n", res.Server, res.Tool, text)
+			} else {
+				fmt.Printf("✓ [%s.%s]: %s\n", res.Server, res.Tool, text)
+			}
+		}
+	}
+	if hasError {
+		return errors.New("one or more batch calls failed")
 	}
 	return nil
 }
@@ -505,6 +615,12 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		"run the script with no launcher: no globals, no capture, no wrapper")
 	typecheck := fs.String("typecheck", "",
 		"check the program before running it: off, on, strict")
+	promptFlag := fs.String("prompt", "",
+		"synthesize and execute a script from a natural language prompt")
+	validateFlag := fs.Bool("validate", false,
+		"validate script structure, tool signatures, and syntax without executing")
+	repairFlag := fs.Bool("repair", false,
+		"automatically attempt script repair using configured model if execution fails")
 
 	allowRepeat := newRepeatable()
 	fs.Var(allowRepeat, "allow-repeat",
@@ -527,6 +643,75 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
 	}
+
+	if *promptFlag != "" {
+		c, err := a.ensure(ctx)
+		if err != nil {
+			return err
+		}
+		sessionKey := *session
+		if sessionKey == "" {
+			sessionKey = os.Getenv("MCPX_SESSION_ID")
+		}
+		res, err := c.Intent(ctx, *promptFlag, "run", nil, sessionKey)
+		if err != nil {
+			return err
+		}
+		return a.showResolution(res)
+	}
+
+	if *validateFlag {
+		if fs.NArg() == 0 {
+			if inline {
+				return errors.New("usage: mcpx exec --validate '<typescript>'")
+			}
+			return errors.New("usage: mcpx run --validate <script.ts>")
+		}
+		src := ""
+		if inline {
+			src = fs.Arg(0)
+		} else {
+			p, rerr := resolveScript(fs.Arg(0))
+			if rerr != nil {
+				return rerr
+			}
+			b, rerr := os.ReadFile(p)
+			if rerr != nil {
+				return rerr
+			}
+			src = string(b)
+		}
+		c, err := a.ensure(ctx)
+		if err != nil {
+			return err
+		}
+		diagRes, err := c.DiagnoseWithRepair(ctx, src, *session, *repairFlag)
+		if err != nil {
+			return err
+		}
+		if a.JSON {
+			return a.out(diagRes)
+		}
+		fmt.Printf("mcpx: valid=%v fatal=%v\n", diagRes.Valid, diagRes.Fatal)
+		if len(diagRes.Diagnostics) > 0 {
+			fmt.Println(diagnose.Render(diagRes.Diagnostics))
+		}
+		if len(diagRes.Questions) > 0 {
+			fmt.Println("\nClarifying questions:")
+			for _, q := range diagRes.Questions {
+				fmt.Printf("  ? [%s] %s\n", q.Field, q.Question)
+			}
+		}
+		if diagRes.Repaired != "" {
+			fmt.Println("\nRepaired script (validation passed):")
+			fmt.Println(diagRes.Repaired)
+		}
+		if diagRes.Fatal {
+			return errors.New("script failed validation")
+		}
+		return nil
+	}
+
 	if fs.NArg() == 0 {
 		if inline {
 			return errors.New("usage: mcpx exec '<typescript>'")
@@ -612,6 +797,11 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		return a.execOnDaemon(ctx, c, fs, inline, ns, sessionKey, eo,
 			execRemoteFlags{timeout: *timeout, runtime: *rt, permissions: *perms,
 				export: *export, session: sessionKey, shape: shape})
+	}
+	// This process is about to start the script, so it checks first. The
+	// daemon would refuse a script it was asked to run; this one is not asked.
+	if err := a.refuseIfUnready(ctx, c, inline, shape, fs.Args()); err != nil {
+		return err
 	}
 
 	// The session is deliberately not baked into the generated module: several
@@ -809,7 +999,19 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 		diagSource = sourceOfScript(opts.File)
 	}
 	if derr := a.diagnoseBeforeRun(ctx, c, diagSource, sessionKey); derr != nil {
-		return derr
+		if *repairFlag {
+			diagRes, rerr := c.DiagnoseWithRepair(ctx, diagSource, sessionKey, true)
+			if rerr == nil && diagRes.Repaired != "" && diagRes.RepairedValid {
+				fmt.Fprintln(os.Stderr, "mcpx: script had fatal diagnostics; automatically repaired and verified with model provider")
+				opts.Source = diagRes.Repaired
+				opts.File = ""
+				diagSource = opts.Source
+			} else {
+				return derr
+			}
+		} else {
+			return derr
+		}
 	}
 	for k, v := range shape.env {
 		opts.Env[k] = v
@@ -1197,13 +1399,59 @@ func (a *App) CmdRefresh(ctx context.Context, args []string) error {
 	return a.CmdLs(ctx, nil)
 }
 
+// CmdReload tells the running daemon to reload its configuration.
+func (a *App) CmdReload(ctx context.Context, args []string) error {
+	c, err := a.ensure(ctx)
+	if err != nil {
+		return err
+	}
+	start := time.Now()
+	res, err := c.Reload(ctx)
+	if err != nil {
+		return err
+	}
+	if a.JSON {
+		return a.out(res)
+	}
+	added, _ := res["added"].([]any)
+	removed, _ := res["removed"].([]any)
+	fmt.Printf("reloaded in %s: %d added, %d removed\n",
+		time.Since(start).Truncate(time.Millisecond), len(added), len(removed))
+	return a.CmdLs(ctx, nil)
+}
+
 // CmdRestart restarts running instances and waits for the replacements, or
-// with --lazy only stops them.
+// with --lazy starts nothing and does not wait for calls in flight.
 func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	fs := newFlagSet("restart")
-	lazy := fs.Bool("lazy", false, "stop only; the next call starts a fresh instance")
+	lazy := fs.Bool("lazy", false, "do not wait: the next call starts a fresh instance; calls in flight finish on the old one")
+	daemon := fs.Bool("daemon", false, "restart the mcpx daemon itself")
 	if err := parseFlags(a, fs, args); err != nil {
 		return err
+	}
+	if *daemon {
+		c := a.Client()
+		if !c.Ping(ctx) {
+			fmt.Println("daemon: not running; starting...")
+			if _, err := a.ensure(ctx); err != nil {
+				return err
+			}
+			fmt.Println("daemon started")
+			return nil
+		}
+		if err := c.RestartDaemon(ctx); err != nil {
+			return fmt.Errorf("restart daemon: %w", err)
+		}
+		time.Sleep(defaults.DaemonRestartSettle * 2)
+		if err := waitUntilStarted(ctx, c); err != nil {
+			if _, err2 := a.ensure(ctx); err2 == nil {
+				fmt.Println("daemon restarted")
+				return nil
+			}
+			return err
+		}
+		fmt.Println("daemon restarted")
+		return nil
 	}
 	c, err := a.ensure(ctx)
 	if err != nil {
@@ -1223,6 +1471,11 @@ func (a *App) CmdRestart(ctx context.Context, args []string) error {
 	}
 	if *lazy {
 		fmt.Printf("stopped %d instance(s) for %s\n", res.Stopped, label)
+		for _, s := range res.Servers {
+			if s.Note != "" {
+				fmt.Printf("  %s: %s\n", s.Server, s.Note)
+			}
+		}
 		return nil
 	}
 	fmt.Printf("restarted %d instance(s) for %s (stopped %d)\n", res.Started, label, res.Stopped)
@@ -1313,6 +1566,17 @@ func waitUntilStopped(ctx context.Context, c *Client) error {
 		time.Sleep(defaults.DaemonRestartSettle)
 	}
 	return errors.New("daemon did not stop")
+}
+
+// waitUntilStarted polls until the daemon answers health pings.
+func waitUntilStarted(ctx context.Context, c *Client) error {
+	for i := 0; i < 50; i++ {
+		if c.Ping(ctx) {
+			return nil
+		}
+		time.Sleep(defaults.DaemonRestartSettle)
+	}
+	return errors.New("daemon did not come back up")
 }
 
 // CmdDaemons lists every daemon this user has running.
@@ -1482,6 +1746,172 @@ func (a *App) CmdScripts(ctx context.Context, args []string) error {
 	fmt.Println("\nRun one with: mcpx run <name>")
 	return nil
 }
+
+type SkillInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func (a *App) CmdSkills(ctx context.Context, args []string) error {
+	var toDir, agent string
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--to" && i+1 < len(args) {
+			toDir = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--to=") {
+			toDir = strings.TrimPrefix(arg, "--to=")
+		} else if arg == "--agent" && i+1 < len(args) {
+			agent = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--agent=") {
+			agent = strings.TrimPrefix(arg, "--agent=")
+		} else if !strings.HasPrefix(arg, "-") {
+			rest = append(rest, arg)
+		}
+	}
+
+	entries, err := fs.ReadDir(skills.FS, ".")
+	if err != nil {
+		return fmt.Errorf("reading embedded skills: %w", err)
+	}
+
+	var available []SkillInfo
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		desc := ""
+		if data, err := fs.ReadFile(skills.FS, name+"/SKILL.md"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			inDesc := false
+			for _, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "description:") {
+					desc = strings.TrimSpace(strings.TrimPrefix(trimmed, "description:"))
+					desc = strings.Trim(desc, `>-"' `)
+					if desc != "" {
+						break
+					}
+					inDesc = true
+					continue
+				}
+				if inDesc {
+					if strings.HasPrefix(trimmed, "---") || (strings.Contains(line, ":") && !strings.HasPrefix(line, " ")) {
+						break
+					}
+					desc += " " + trimmed
+				}
+			}
+		}
+		available = append(available, SkillInfo{Name: name, Description: strings.TrimSpace(desc)})
+	}
+
+	subcmd := "list"
+	targetSkills := []string{}
+	if len(rest) > 0 {
+		subcmd = rest[0]
+		targetSkills = rest[1:]
+	}
+
+	if subcmd == "list" {
+		if a.JSON {
+			return a.out(available)
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "SKILL\tDESCRIPTION")
+		for _, s := range available {
+			fmt.Fprintf(tw, "%s\t%s\n", s.Name, truncate(oneLine(s.Description), 60))
+		}
+		tw.Flush()
+		fmt.Println("\nInstall with: mcpx skills install [--agent opencode|claude|codex|agy] [--to <dir>]")
+		return nil
+	}
+
+	if subcmd == "install" {
+		dest := toDir
+		if dest == "" {
+			switch agent {
+			case "claude":
+				if st, err := os.Stat(".claude"); err == nil && st.IsDir() {
+					dest = ".claude/skills"
+				} else {
+					dest = filepath.Join(os.Getenv("HOME"), ".claude", "skills")
+				}
+			case "codex":
+				if st, err := os.Stat(".codex"); err == nil && st.IsDir() {
+					dest = ".codex/skills"
+				} else {
+					dest = filepath.Join(os.Getenv("HOME"), ".codex", "skills")
+				}
+			case "agy":
+				if st, err := os.Stat(".agents"); err == nil && st.IsDir() {
+					dest = ".agents/skills"
+				} else {
+					dest = filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity", "skills")
+				}
+			default:
+				if st, err := os.Stat(".opencode"); err == nil && st.IsDir() {
+					dest = ".opencode/skills"
+				} else if st, err := os.Stat(".agents"); err == nil && st.IsDir() {
+					dest = ".agents/skills"
+				} else {
+					dest = filepath.Join(os.Getenv("HOME"), ".config", "opencode", "skills")
+				}
+			}
+		}
+
+		shouldInstall := func(name string) bool {
+			if len(targetSkills) == 0 {
+				return true
+			}
+			for _, t := range targetSkills {
+				if t == name {
+					return true
+				}
+			}
+			return false
+		}
+
+		count := 0
+		for _, s := range available {
+			if !shouldInstall(s.Name) {
+				continue
+			}
+			skillDir := filepath.Join(dest, s.Name)
+			err := fs.WalkDir(skills.FS, s.Name, func(p string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				rel, _ := filepath.Rel(s.Name, p)
+				targetPath := filepath.Join(skillDir, rel)
+				if d.IsDir() {
+					return os.MkdirAll(targetPath, 0755)
+				}
+				data, err := fs.ReadFile(skills.FS, p)
+				if err != nil {
+					return err
+				}
+				if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+					return err
+				}
+				return os.WriteFile(targetPath, data, 0644)
+			})
+			if err != nil {
+				return fmt.Errorf("installing skill %s: %w", s.Name, err)
+			}
+			count++
+			fmt.Printf("✓ Installed %s to %s\n", s.Name, skillDir)
+		}
+		fmt.Printf("Installed %d skill(s) into %s\n", count, dest)
+		return nil
+	}
+
+	return fmt.Errorf("unknown skills command %q (use 'list' or 'install')", subcmd)
+}
+
 
 func mustGetwd() string {
 	wd, err := os.Getwd()

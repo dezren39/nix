@@ -100,6 +100,17 @@ way to see whether you are sharing or not.
   schema and is authoritative.
 - Wedged server — `mcpx restart <namespace>`.
 
+## Secrets
+
+A server that needs a secret nobody has given it is refused, and a script that
+reaches it is not started. The refusal names the secret and a request id.
+`mcpx secrets requests` lists what is waiting.
+
+Do not ask the person to paste a secret into the conversation, and do not put one
+in a tool argument or on a command line. Ask them to give it through OpenChamber
+or to run `mcpx secrets set <NAME>` themselves, then try again. `mcpx secrets list`
+shows which names have a value.
+
 ## Do not
 
 - Do not add these servers to your own MCP config. The point is that they are

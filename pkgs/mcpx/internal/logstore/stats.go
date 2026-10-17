@@ -527,3 +527,86 @@ func firstNonEmpty(v ...string) string {
 	}
 	return ""
 }
+
+// ToolCorrelation represents two tools frequently called within the same session.
+type ToolCorrelation struct {
+	ToolA string `json:"toolA"`
+	ToolB string `json:"toolB"`
+	Count int    `json:"count"`
+}
+
+// Correlations finds tools that are commonly used together in sessions.
+func (s *Store) Correlations(q Query, maxRows int) ([]ToolCorrelation, error) {
+	n := maxRows
+	if n <= 0 {
+		n = 20
+	}
+	where, args, err := q.where()
+	if err != nil {
+		return nil, err
+	}
+	whereClause := " WHERE a.event = 'mcp.call' AND b.event = 'mcp.call' AND ifnull(a.session,'') != '' AND ifnull(a.tool,'') != '' AND ifnull(b.tool,'') != '' AND a.tool < b.tool "
+	if where != "" {
+		whereClause += " AND " + strings.TrimPrefix(where, " WHERE ")
+	}
+	rows, err := s.db.Query(`SELECT a.tool, b.tool, count(*) AS cnt
+		FROM records a
+		JOIN records b ON a.session = b.session
+		`+whereClause+`
+		GROUP BY a.tool, b.tool
+		ORDER BY cnt DESC LIMIT ?`, append(args, n)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ToolCorrelation
+	for rows.Next() {
+		var tc ToolCorrelation
+		if err := rows.Scan(&tc.ToolA, &tc.ToolB, &tc.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, tc)
+	}
+	return out, rows.Err()
+}
+
+// ToolTimelinePoint represents call and error counts over time.
+type ToolTimelinePoint struct {
+	TimeBucket string `json:"timeBucket"`
+	Calls      int    `json:"calls"`
+	Errors     int    `json:"errors"`
+}
+
+// Timeline aggregates calls and errors over hourly buckets.
+func (s *Store) Timeline(q Query, maxPoints int) ([]ToolTimelinePoint, error) {
+	n := maxPoints
+	if n <= 0 {
+		n = 24
+	}
+	where, args, err := q.where()
+	if err != nil {
+		return nil, err
+	}
+	whereClause := " WHERE event = 'mcp.call' "
+	if where != "" {
+		whereClause += " AND " + strings.TrimPrefix(where, " WHERE ")
+	}
+	rows, err := s.db.Query(`SELECT strftime('%Y-%m-%d %H:00', ts_unix_ms / 1000, 'unixepoch') AS bucket,
+		count(*), count(CASE WHEN ok = 0 THEN 1 END)
+		FROM records `+whereClause+`
+		GROUP BY bucket
+		ORDER BY bucket DESC LIMIT ?`, append(args, n)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ToolTimelinePoint
+	for rows.Next() {
+		var p ToolTimelinePoint
+		if err := rows.Scan(&p.TimeBucket, &p.Calls, &p.Errors); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}

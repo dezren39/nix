@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/settings"
 )
 
@@ -129,6 +130,13 @@ func handCommands() []Command {
 				"marked, because otherwise the shadowing is invisible.",
 		},
 		{
+			Name: "skills", Group: "running",
+			Local:   "Manages embedded agent skills.",
+			Usage:   "[list|install] [--agent <name>] [--to <dir>]",
+			Summary: "list or install embedded mcpx agent skills",
+			Detail: "Lists available agent skills embedded with mcpx or installs them into the target agent configuration.",
+		},
+		{
 			Name: "recipes", Group: "running",
 			Usage:   "[list|show|match|save|run] [<name>] [key=value...]",
 			Summary: "saved scripts that declare their own holes",
@@ -193,21 +201,31 @@ func handCommands() []Command {
 			Detail: "Round-robins across servers so a large server cannot crowd out a " +
 				"small one, and lists every namespace even when the budget runs " +
 				"out mid-way, because knowing a server exists is worth more than " +
-				"knowing three more of another server's tools.",
+				"knowing three more of another server's tools. " + codegen.CanonicalSentence,
 		},
 		{
 			Name: "types", Group: "discovery",
 			Usage:   "<namespace>[.<tool>]",
 			Summary: "print the TypeScript signature of a namespace or tool",
+			Detail: "Prints each tool's signature as a script declares it, with the form " +
+				"a script calls it in and its native name. " + codegen.CanonicalSentence,
 		},
 		{
 			Name: "search", Group: "discovery",
-			Usage: "<words>", Summary: "find tools by name and description",
+			Usage:   "[--semantic] <words>",
+			Summary: "find tools by name and description (keyword or semantic)",
+			Detail: "Ranks tools by their names and descriptions, and shows each one's call " +
+				"form and native name. " + codegen.CanonicalSentence,
 		},
 		{
 			Name: "call", Group: "discovery",
 			Usage:   "<namespace>.<tool> [json]",
 			Summary: "call one tool directly, without writing a script",
+		},
+		{
+			Name: "batch", Group: "discovery",
+			Usage:   "[-c '<json>' | --file <path> | <file.json>]",
+			Summary: "execute multiple tool calls in a single turn",
 		},
 		{
 			Name: "client", Group: "discovery",
@@ -227,8 +245,24 @@ func handCommands() []Command {
 			Summary: "re-read tool schemas from every server",
 		},
 		{
+			Name: "reload", Group: "daemon",
+			Summary: "re-read configuration and reload daemon without restarting unchanged servers",
+		},
+		{
+			Name: "upgrade", Group: "daemon",
+			Local:   "Replaces the running daemon with another binary, a decision for whoever runs the CLI rather than a tool a model can call.",
+			Summary: "hand the running daemon over to this binary",
+			Detail: "Run from the new build. The running daemon starts this binary as its " +
+				"own child with --takeover, so the successor inherits the service's notify " +
+				"socket and stays in the unit's cgroup. The old daemon hands its listeners " +
+				"and stdio children across and exits once the successor has committed. " +
+				"With no daemon running this exits non-zero and changes nothing, so a " +
+				"start is the fallback. A daemon already running this binary answers " +
+				"\"already current\".",
+		},
+		{
 			Name: "restart", Group: "daemon",
-			Usage: "[--lazy] [server]", Summary: "restart servers, or all of them",
+			Usage: "[--lazy] [--daemon] [server]", Summary: "restart servers, or the daemon itself",
 			Detail: "Stops every running instance and starts a replacement under the " +
 				"same scope key, waiting until it has initialized, so a server with a " +
 				"slow start comes back warm and a broken configuration fails now, " +
@@ -237,7 +271,12 @@ func handCommands() []Command {
 				"(session, pid, cwd, ...) with nothing running has no caller to start " +
 				"one for and starts nothing. A pid-scoped instance whose owner has " +
 				"exited, and a per-call instance, are reported and not replaced. " +
-				"--lazy only stops: the next call starts a fresh instance.",
+				"A call already running on an instance has limits.execDrainTimeout to " +
+				"finish before the instance is closed and a call still running fails. " +
+				"--lazy does not wait: the next call starts a fresh instance at once, and " +
+				"a call already running finishes on the old one, which is closed after it " +
+				"(or after limits.execDrainTimeout). " +
+				"--daemon restarts the mcpx daemon process itself.",
 		},
 		{
 			Name: "stop", Group: "daemon",
@@ -286,19 +325,41 @@ func handCommands() []Command {
 		},
 		{
 			Name: "servers", Group: "configuration",
-			Usage:   "list|add|remove [<name>] [-- <command> ...]",
+			Usage:   "list|show|add|remove [<name>] [-- <command> ...]",
 			Summary: "add or remove an MCP server without restarting anything",
 			Detail: "The entry is written to a configuration file and the daemon " +
 				"reloads, so a server added here is callable immediately and is " +
 				"still there tomorrow. Servers whose definition did not change keep " +
 				"their running process, so adding one does not restart the rest. " +
-				"`mcpx registry add` is the same operation for a server a public " +
-				"registry already describes.",
+				"show prints one entry with the secrets it requires and whether it " +
+				"can run now. `mcpx registry add` is the same operation for a server " +
+				"a public registry already describes.",
 			Examples: []string{
 				"mcpx servers list",
+				"mcpx servers show fs",
 				"mcpx servers add fs -- npx -y @modelcontextprotocol/server-filesystem /tmp",
 				"mcpx servers add remote --url https://example.com/mcp --header AUTHORIZATION",
 				"mcpx servers remove fs",
+			},
+		},
+		{
+			Name: "secrets", Group: "configuration",
+			Usage:   "list|set|unset|requests|request|decline [<NAME>|<id>]",
+			Summary: "give servers the secrets they need, in memory only",
+			Detail: "A server whose required secret has no value does not start, and a " +
+				"script that reaches it is refused before anything runs. set reads " +
+				"the value from standard input, never from the command line, and " +
+				"keeps it in the running daemon only: it is not written to disk, " +
+				"logged or shown again. A server waiting for that name can run at " +
+				"once, without a restart. On a terminal the value is typed without " +
+				"echo. requests lists what is waiting for an answer; OpenChamber " +
+				"can show the same requests as password prompts. The environment is " +
+				"never changed by any of these: unset drops only the value given here.",
+			Examples: []string{
+				"printf '%s' \"$GITHUB_TOKEN\" | mcpx secrets set GITHUB_TOKEN",
+				"mcpx secrets list",
+				"mcpx secrets requests",
+				"mcpx secrets unset GITHUB_TOKEN",
 			},
 		},
 		{
@@ -382,6 +443,43 @@ func handCommands() []Command {
 				"produced it, so it teaches its own scriptable form.",
 		},
 		{
+			Name: "dashboard", Group: "inspection",
+			Usage:   "[--open]",
+			Summary: "open or show the live web dashboard",
+			Detail: "Serves an interactive web dashboard for monitoring server pools, " +
+				"live instances, tool semantic search, and token economics telemetry.",
+		},
+		{
+			Name: "proxy", Group: "running",
+			Usage:   "[--port <port>] [--upstream <url>]",
+			Summary: "run or print the OpenAI-compatible LLM reverse proxy",
+			Detail: "Exposes a transparent OpenAI-compatible /v1/chat/completions endpoint " +
+				"that extracts user prompts, semantically discovers tools from upstream MCP " +
+				"servers, and injects them dynamically while recording token savings.",
+		},
+		{
+			Name: "embeddings", Group: "running",
+			Usage:   "test <text> | export [--output <path>] | import <file.json>",
+			Summary: "test, export, or import vector embeddings",
+			Detail: "Interacts with the daemon vector embeddings engine and index. " +
+				"Exports or imports pre-computed vector JSON representations across environments, " +
+				"or tests embedding representations across local, WASM, or remote backends.",
+		},
+		{
+			Name: "feedback", Group: "running",
+			Usage:   "<trace-id> [--score <0.0-1.0>] [--notes <text>] [--scores <json>]",
+			Summary: "submit feedback on past tool executions or model completions",
+			Detail: "Attaches quality scores and reasoning to a specific interaction trace ID, " +
+				"dynamically tuning future semantic routing and tool recommendation rankings.",
+		},
+		{
+			Name: "interactions", Group: "inspection",
+			Usage:   "[--q <query>] [--source <source>] [--feedback yes|no] [--show <trace-id>]",
+			Summary: "search, filter, and inspect interaction history and feedback",
+			Detail: "Searches past inputs, model outputs, tools used, and recorded feedback scores. " +
+				"Enables discovering unrated queries or inspecting full input/output logs.",
+		},
+		{
 			Name: "log", Aliases: []string{"logs"}, Group: "inspection",
 			Usage:   "[--since d] [--chain id] [--follow] | sql '<query>' | record '<json>'",
 			Summary: "query the structured log, or add to it",
@@ -427,7 +525,7 @@ func handCommands() []Command {
 		{
 			Name: "serve", Group: "daemon",
 			Local:   "It is the MCP surface: a stdio shim over the daemon, which serves the same tools at `/mcp` itself.",
-			Usage:   "[--tools]",
+			Usage:   "[--mode code-mode|reactive|full] [--tools]",
 			Summary: "speak MCP over stdio, for a host that spawns its servers",
 			Detail: "A thin shim over the daemon: every tool it lists is answered by " +
 				"the daemon, which is started if it is not running. HTTP is served " +
@@ -540,7 +638,10 @@ func ManPage(version string) string {
 		b.WriteString("Every setting below is readable from a configuration file at its\n" +
 			"dotted path, from the environment variable shown, and from the flag\n" +
 			"shown. Precedence runs defaults, then configuration files with the\n" +
-			"nearest winning, then the environment, then the command line.\n")
+			"nearest winning, then the environment, then presets, then the command\n" +
+			"line; a runtime change made with `mcpx settings set` on the running\n" +
+			"daemon is above all of them. The pool settings are the defaults every\n" +
+			"server inherits, so a server's own mcpx block still wins over them.\n")
 		section := ""
 		for _, set := range sch.All() {
 			if set.Plumbing {

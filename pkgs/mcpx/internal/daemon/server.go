@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
 	"github.com/dezren39/mcpx/internal/logging"
+	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/mcpserver"
 	"github.com/dezren39/mcpx/internal/pool"
@@ -67,12 +69,39 @@ type Server struct {
 	// refuseBrowserPages. The zero value allows loopback origins only.
 	Origins mcpserver.OriginPolicy
 
-	httpSrv  *http.Server
-	tcpLn    net.Listener
-	unixLn   net.Listener
+	httpSrv *http.Server
+	// httpServing counts the serve loops of httpSrv, so a drain can wait for
+	// them to exit. See passConns.
+	httpServing sync.WaitGroup
+	// tcpLn and unixLn are *connListener once Listen has run. They are the
+	// daemon's only accept path, so a handover can see every connection.
+	tcpLn  net.Listener
+	unixLn net.Listener
+	// conns tracks every connection the HTTP server holds, for a handover.
+	conns    connTracker
 	endpoint string
 	version  string
 	started  time.Time
+
+	// httpErr carries a failure from either HTTP server to Serve. Every server
+	// the daemon starts reports here, including one restored after a takeover
+	// that did not commit.
+	httpErr chan error
+	// takeoverMu admits one takeover at a time. committed is set once a
+	// successor has accepted the daemon's children, after which this process
+	// must not stop, since it still owns the child stdin pipes until the
+	// successor hangs up. handedOff closes when Serve may return.
+	takeoverMu    sync.Mutex
+	committed     atomic.Bool
+	handedOff     chan struct{}
+	handedOffOnce sync.Once
+	// upgradeMu admits one upgrade at a time. upgrading is the upgrade whose
+	// successor is running, which the successor's takeover answers.
+	upgradeMu sync.Mutex
+	upgrading atomic.Pointer[upgradeRun]
+	// ConfigArg is the --config the daemon was started with, which an
+	// upgrade's successor is given too so that both load the same file.
+	ConfigArg string
 
 	// idleExit stops a daemon that nobody has used for this long and that
 	// holds no live MCP instances. Auto-started daemons set it so that a repo
@@ -109,6 +138,8 @@ type Server struct {
 	// first use, because a daemon that never runs one should carry nothing.
 	taskOnce sync.Once
 	tasks    *tasks.Store
+
+	tokenStore *logstore.TokenStore
 
 	// consumer holds the policy and the schema history behind the things
 	// mcpx asks for itself. See internal/daemon/consumer.go.
@@ -174,16 +205,18 @@ func NewServer(opts Options) (*Server, error) {
 		pool.Trace = func(f string, a ...any) { opts.Logger.Printf(f, a...) }
 	}
 	srv := &Server{
-		set:      opts.Settings,
-		reg:      reg,
-		paths:    opts.Paths,
-		cfg:      opts.Config,
-		logger:   opts.Logger,
-		version:  opts.Version,
-		idleExit: opts.IdleExit,
-		sink:     opts.Sink,
-		augment:  opts.Augment,
-		Events:   events.New(opts.Settings.Int("events.history")),
+		set:       opts.Settings,
+		reg:       reg,
+		paths:     opts.Paths,
+		cfg:       opts.Config,
+		logger:    opts.Logger,
+		version:   opts.Version,
+		idleExit:  opts.IdleExit,
+		sink:      opts.Sink,
+		augment:   opts.Augment,
+		Events:    events.New(opts.Settings.Int("events.history")),
+		httpErr:   make(chan error, 4),
+		handedOff: make(chan struct{}),
 	}
 	// The broker is optional: a daemon whose state directory cannot hold a
 	// database still serves tools, and answers every server question with
@@ -196,6 +229,7 @@ func NewServer(opts Options) (*Server, error) {
 	reg.UseSettings(opts.Settings)
 	reg.InstallHooks(srv.Events, broker, nil)
 	srv.initConsumer()
+	srv.tokenStore, _ = logstore.NewTokenStore(filepath.Join(opts.Paths.State, "tokens.db"))
 	if opts.Config != nil {
 		srv.contentHash = ContentFingerprint(opts.Config.Sources)
 		srv.stamp = stampConfig(opts.Config.Sources)
@@ -236,10 +270,15 @@ func (s *Server) Listen(tcpPort int) error {
 		unixLn.Close()
 		return fmt.Errorf("listen tcp: %w", err)
 	}
-	s.unixLn, s.tcpLn = unixLn, tcpLn
+	s.unixLn = newConnListener(unixLn, &s.conns, nil)
+	s.tcpLn = newConnListener(tcpLn, &s.conns, nil)
 	s.endpoint = "http://" + tcpLn.Addr().String()
 	s.started = time.Now()
+	return s.publish()
+}
 
+// publish writes the daemon record clients find the daemon by.
+func (s *Server) publish() error {
 	cfgPath := ""
 	if cfg := s.currentConfig(); cfg != nil {
 		cfgPath = cfg.Path
@@ -253,6 +292,29 @@ func (s *Server) Listen(tcpPort int) error {
 		Version:    s.version,
 		StartedAt:  s.started.Format(time.RFC3339),
 	})
+}
+
+// startHTTP serves the API on the daemon's listeners. It is called again when
+// a handoff that did not commit restores them.
+func (s *Server) startHTTP() {
+	mux := http.NewServeMux()
+	s.routes(mux)
+	srv := &http.Server{
+		Handler:           s.refuseBrowserPages(s.trackActivity(mux)),
+		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout"),
+		ConnState:         s.observeConn,
+	}
+	s.httpSrv = srv
+	for _, ln := range []net.Listener{s.unixLn, s.tcpLn} {
+		s.httpServing.Add(1)
+		go func() {
+			err := srv.Serve(ln)
+			// Done before the send: a test or a handoff that is not reading
+			// httpErr must not leave the wait in drainHTTP hanging.
+			s.httpServing.Done()
+			s.httpErr <- err
+		}()
+	}
 }
 
 func (s *Server) clearStaleSocket() error {
@@ -294,11 +356,7 @@ func (s *Server) ServeInline(ctx context.Context, socket string) error {
 		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout")}
 	go func() {
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(),
-			s.set.Duration("http.shutdownGrace"))
-		defer cancel()
-		_ = s.httpSrv.Shutdown(shutdown)
-		s.reg.Close()
+		s.stopServing()
 		_ = os.Remove(socket)
 	}()
 	go func() { _ = s.httpSrv.Serve(ln) }()
@@ -306,16 +364,9 @@ func (s *Server) ServeInline(ctx context.Context, socket string) error {
 }
 
 func (s *Server) Serve(ctx context.Context) error {
-	mux := http.NewServeMux()
-	s.routes(mux)
-	s.httpSrv = &http.Server{
-		Handler:           s.refuseBrowserPages(s.trackActivity(mux)),
-		ReadHeaderTimeout: s.set.Duration("http.readHeaderTimeout"),
+	if s.httpSrv == nil {
+		s.startHTTP()
 	}
-
-	errCh := make(chan error, 2)
-	go func() { errCh <- s.httpSrv.Serve(s.unixLn) }()
-	go func() { errCh <- s.httpSrv.Serve(s.tcpLn) }()
 
 	s.logger.Printf("mcpx %s listening on %s and %s", s.version, s.paths.Socket, s.endpoint)
 	if cfg := s.currentConfig(); cfg != nil && cfg.Path != "" {
@@ -330,22 +381,48 @@ func (s *Server) Serve(ctx context.Context) error {
 	defer saveT.Stop()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
+	done := ctx.Done()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-done:
+			if s.committed.Load() {
+				done = nil
+				continue
+			}
 			return s.shutdown()
 		case sig := <-sigCh:
+			if s.committed.Load() {
+				s.logger.Printf("received %s during takeover; ignoring it", sig)
+				continue
+			}
+			if sig == syscall.SIGHUP {
+				s.logger.Printf("received SIGHUP, reloading configuration")
+				s.reloadMu.Lock()
+				added, removed, err := s.reloadConfig()
+				s.reloadMu.Unlock()
+				if err != nil {
+					s.logger.Printf("SIGHUP reload error: %v", err)
+				} else {
+					s.logger.Printf("SIGHUP reload successful: %d added, %d removed", len(added), len(removed))
+				}
+				continue
+			}
 			s.logger.Printf("received %s, shutting down", sig)
 			return s.shutdown()
-		case err := <-errCh:
+		case err := <-s.httpErr:
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				_ = s.shutdown()
 				return err
 			}
+		case <-s.handedOff:
+			return nil
 		case <-reapT.C:
+			if s.committed.Load() {
+				continue
+			}
 			s.watchConfig()
 			s.reg.Reap()
 			if s.shouldIdleExit() {
@@ -355,6 +432,9 @@ func (s *Server) Serve(ctx context.Context) error {
 		case <-saveT.C:
 			if err := s.reg.SaveCache(); err != nil {
 				s.logger.Printf("save cache: %v", err)
+			}
+			if err := s.reg.SaveSessions(); err != nil {
+				s.logger.Printf("save sessions: %v", err)
 			}
 		}
 	}
@@ -374,7 +454,7 @@ func (s *Server) trackActivity(next http.Handler) http.Handler {
 }
 
 func (s *Server) shouldIdleExit() bool {
-	if s.idleExit <= 0 {
+	if s.idleExit <= 0 || s.committed.Load() {
 		return false
 	}
 	if time.Since(time.Unix(0, s.lastReq.Load())) < s.idleExit {
@@ -396,18 +476,41 @@ func (s *Server) shutdown() error {
 	if err := s.reg.SaveCache(); err != nil {
 		s.logger.Printf("save cache: %v", err)
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(),
-		s.set.Duration("http.shutdownGrace"))
-	defer cancel()
-	if s.httpSrv != nil {
-		_ = s.httpSrv.Shutdown(ctx)
+	if err := s.reg.SaveSessions(); err != nil {
+		s.logger.Printf("save sessions: %v", err)
 	}
-	s.reg.Close()
+
+	s.stopServing()
+	if s.tokenStore != nil {
+		_ = s.tokenStore.Close()
+	}
 	_ = os.Remove(s.paths.Socket)
 	_ = os.Remove(s.paths.Info)
 	s.logger.Printf("stopped")
 	return nil
+}
+
+// stopServing stops the front door and then the pools. The HTTP server goes
+// first, so calls already running can finish and take the leases they still
+// need. The pools are then drained with what is left of the drain window, so
+// the whole stop is bounded by pool.ExecDrainTimeout, the same window a reload
+// gives a replaced pool. The HTTP grace is capped to that window too, so a
+// long http.shutdownGrace cannot stretch the stop past it.
+func (s *Server) stopServing() {
+	window := pool.ExecDrainTimeout
+	start := time.Now()
+	if s.httpSrv != nil {
+		grace := defaults.HTTPShutdownGrace
+		if s.set != nil {
+			grace = s.set.Duration("http.shutdownGrace")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), min(grace, window))
+		_ = s.httpSrv.Shutdown(ctx)
+		cancel()
+	}
+	if s.reg != nil {
+		s.reg.CloseWithin(window - time.Since(start))
+	}
 }
 
 // WarmAsync fetches schemas in the background so the first real call is fast
@@ -427,6 +530,8 @@ func (s *Server) WarmAsync() {
 
 func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	mux.HandleFunc("POST "+takeoverRoute, s.handleTakeover)
+	mux.HandleFunc("POST "+upgradeRoute, s.handleUpgrade)
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	// Server-sent events, because they are plain HTTP: they go through every
 	// proxy that HTTP goes through, reconnect themselves in a browser, and
@@ -487,13 +592,28 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/client.ts", s.handleClient)
 	mux.HandleFunc("GET /v1/globals.d.ts", s.handleGlobals)
 	mux.HandleFunc("POST /v1/call", s.handleCall)
+	mux.HandleFunc("POST /v1/batch", s.handleBatch)
 	mux.HandleFunc("POST /v1/resource", s.handleResource)
 	mux.HandleFunc("POST /v1/session/release", s.handleRelease)
 	mux.HandleFunc("POST /v1/refresh", s.handleRefresh)
+	mux.HandleFunc("POST /v1/reload", s.handleReload)
 	mux.HandleFunc("POST /v1/restart", s.handleRestart)
+	mux.HandleFunc("GET /dashboard", s.handleDashboard)
+	mux.HandleFunc("GET /v1/dashboard", s.handleDashboard)
+	mux.HandleFunc("GET /v1/metrics/tokens", s.handleMetricsTokens)
+	mux.HandleFunc("GET /v1/metrics/tools", s.handleMetricsTools)
+	mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
+	mux.HandleFunc("POST /v1/embeddings", s.handleEmbeddings)
+	mux.HandleFunc("GET /v1/embeddings/export", s.handleEmbeddingsExport)
+	mux.HandleFunc("POST /v1/embeddings/import", s.handleEmbeddingsImport)
+	mux.HandleFunc("POST /v1/feedback", s.handleFeedbackSubmit)
+	mux.HandleFunc("GET /v1/interactions", s.handleInteractionsList)
+	mux.HandleFunc("GET /v1/interactions/{id}", s.handleInteractionGet)
+	mux.HandleFunc("POST /v1/daemon/restart", s.handleDaemonRestart)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	s.routesExec(mux)
 	s.routesSettings(mux)
+	s.routesSecrets(mux)
 	// Everything declared in internal/api that is not above. A parity test
 	// fails if the two ever disagree.
 	s.routesV1Ops(mux)
@@ -576,12 +696,22 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
-		// The caller's own effective value, sent with the request, so
-		// `mcpx search --limit 5` against a daemon started without it still
-		// returns five.
-		limit = s.callSettings(r).Int("search.limit")
+		cs := s.callSettings(r)
+		if cs != nil {
+			limit = cs.Int("search.limit")
+		} else {
+			limit = defaults.SearchLimit
+		}
 	}
-	writeJSON(w, 200, s.reg.Search(r.URL.Query().Get("q"), limit))
+	semStr := r.URL.Query().Get("semantic")
+	semantic := semStr == "true" || semStr == "1"
+	if !semantic {
+		cs := s.callSettings(r)
+		if cs != nil {
+			semantic = cs.Bool("search.semantic")
+		}
+	}
+	writeJSON(w, 200, s.reg.SearchSemantic(r.URL.Query().Get("q"), limit, semantic))
 }
 
 func (s *Server) handleTypes(w http.ResponseWriter, r *http.Request) {
@@ -738,12 +868,166 @@ func (s *Server) handleCall(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	res, err := s.reg.Call(ctx, req.Server, req.Tool, cc, args)
 	dur := time.Since(start).Truncate(time.Millisecond)
+
+	toolKey := req.Server + ":" + req.Tool
+	var inBytes, outBytes []byte
+	inBytes, _ = json.Marshal(args)
+	if err == nil {
+		outBytes, _ = json.Marshal(res)
+	}
+
+	if fb := s.reg.FeedbackStore(); fb != nil {
+		_ = fb.RecordInteraction(logstore.InteractionRecord{
+			TraceID:   cc.CallID,
+			Timestamp: start,
+			SessionID: cc.SessionID,
+			Source:    "call",
+			Input:     string(inBytes),
+			Output:    string(outBytes),
+			ToolsUsed: []string{toolKey},
+		})
+	}
+
 	if err != nil {
 		s.logger.Printf("call %s.%s failed in %s: %v", req.Server, req.Tool, dur, err)
-		reply(w, failureStatus(err), callErrorBody(err))
+		reply(w, failureStatus(err), failureBody(err))
 		return
 	}
-	reply(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds()})
+	reply(w, 200, map[string]any{"result": res, "durationMs": dur.Milliseconds(), "traceId": cc.CallID})
+}
+
+type batchCallReqItem struct {
+	Server    string          `json:"server"`
+	Namespace string          `json:"namespace"`
+	Tool      string          `json:"tool"`
+	Name      string          `json:"name"`
+	Args      json.RawMessage `json:"args"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+type batchReq struct {
+	Calls       []batchCallReqItem `json:"calls"`
+	StopOnError *bool              `json:"stopOnError"`
+	Parallel    bool               `json:"parallel"`
+	Context     config.CallContext `json:"context"`
+	Session     string             `json:"session"`
+}
+
+func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
+	var req batchReq
+	limit := defaults.HTTPCallBodyLimit
+	if s.set != nil {
+		limit = s.set.Bytes("http.callBodyLimit")
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(&req); err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	if len(req.Calls) == 0 {
+		writeJSON(w, 200, map[string]any{"results": []any{}})
+		return
+	}
+
+	stopOnErr := true
+	if req.StopOnError != nil {
+		stopOnErr = *req.StopOnError
+	}
+
+	cc := callContext(r, req.Context, req.Session)
+	ctx := withRun(withCallSettings(withClientCaps(r.Context(), r), s.callSettings(r)), r.Header.Get("X-Mcpx-Run"))
+
+	results := make([]map[string]any, len(req.Calls))
+
+	runOne := func(ctx context.Context, i int, item batchCallReqItem) (map[string]any, error) {
+		server := item.Server
+		if server == "" {
+			server = item.Namespace
+		}
+		tool := item.Tool
+		if tool == "" {
+			tool = item.Name
+		}
+		if server == "" && strings.Contains(tool, ".") {
+			server, tool, _ = strings.Cut(tool, ".")
+		}
+		if server == "" || tool == "" {
+			return map[string]any{
+				"index":   i,
+				"server":  server,
+				"tool":    tool,
+				"status":  "error",
+				"error":   "server and tool are required",
+				"isError": true,
+			}, errors.New("server and tool are required")
+		}
+
+		rawArgs := item.Args
+		if len(rawArgs) == 0 {
+			rawArgs = item.Arguments
+		}
+		var args any = map[string]any{}
+		if len(rawArgs) > 0 {
+			if err := json.Unmarshal(rawArgs, &args); err != nil {
+				return map[string]any{
+					"index":   i,
+					"server":  server,
+					"tool":    tool,
+					"status":  "error",
+					"error":   fmt.Sprintf("args: %v", err),
+					"isError": true,
+				}, err
+			}
+		}
+
+		start := time.Now()
+		res, err := s.reg.Call(ctx, server, tool, cc, args)
+		dur := time.Since(start).Truncate(time.Millisecond)
+
+		if err != nil {
+			return map[string]any{
+				"index":      i,
+				"server":     server,
+				"tool":       tool,
+				"status":     "error",
+				"error":      err.Error(),
+				"isError":    true,
+				"durationMs": dur.Milliseconds(),
+			}, err
+		}
+
+		return map[string]any{
+			"index":      i,
+			"server":     server,
+			"tool":       tool,
+			"status":     "success",
+			"result":     res,
+			"durationMs": dur.Milliseconds(),
+		}, nil
+	}
+
+	if req.Parallel {
+		var wg sync.WaitGroup
+		wg.Add(len(req.Calls))
+		for i, item := range req.Calls {
+			go func(i int, item batchCallReqItem) {
+				defer wg.Done()
+				res, _ := runOne(ctx, i, item)
+				results[i] = res
+			}(i, item)
+		}
+		wg.Wait()
+	} else {
+		for i, item := range req.Calls {
+			res, err := runOne(ctx, i, item)
+			results[i] = res
+			if stopOnErr && err != nil {
+				results = results[:i+1]
+				break
+			}
+		}
+	}
+
+	writeJSON(w, 200, map[string]any{"results": results})
 }
 
 type resourceReq struct {
@@ -801,6 +1085,24 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		"added":      added, "removed": removed, "errors": out})
 }
 
+func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
+	s.reloadMu.Lock()
+	added, removed, err := s.reloadConfig()
+	s.reloadMu.Unlock()
+	if err != nil {
+		s.logger.Printf("HTTP reload error: %v", err)
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.logger.Printf("HTTP reload successful: %d added, %d removed", len(added), len(removed))
+	writeJSON(w, 200, map[string]any{
+		"status":     "reloaded",
+		"added":      added,
+		"removed":    removed,
+		"namespaces": s.reg.Namespaces(config.Profile{All: true}),
+	})
+}
+
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Server string `json:"server"`
@@ -829,6 +1131,39 @@ func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"status": "stopping"})
 	go func() {
 		time.Sleep(defaults.DaemonRestartSettle)
+		p, _ := os.FindProcess(os.Getpid())
+		_ = p.Signal(syscall.SIGTERM)
+	}()
+}
+
+// execSelf is replaced in tests: a real exec re-runs the test binary.
+var execSelf = syscall.Exec
+
+func (s *Server) handleDaemonRestart(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, 200, map[string]any{"status": "restarting"})
+	go func() {
+		time.Sleep(defaults.DaemonRestartSettle)
+		if s.reg != nil {
+			if err := s.reg.SaveCache(); err != nil && s.logger != nil {
+				s.logger.Printf("save cache before restart: %v", err)
+			}
+		}
+		execPath, err := os.Executable()
+		if err == nil {
+			s.stopServing()
+			if s.paths.Socket != "" {
+				_ = os.Remove(s.paths.Socket)
+			}
+			if s.paths.Info != "" {
+				_ = os.Remove(s.paths.Info)
+			}
+			if s.logger != nil {
+				s.logger.Printf("re-executing daemon: %s", execPath)
+			}
+			if execErr := execSelf(execPath, os.Args, os.Environ()); execErr != nil && s.logger != nil {
+				s.logger.Printf("re-exec failed: %v", execErr)
+			}
+		}
 		p, _ := os.FindProcess(os.Getpid())
 		_ = p.Signal(syscall.SIGTERM)
 	}()

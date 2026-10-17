@@ -94,6 +94,9 @@ carry instead is a description that says so and MCP annotations
 		if op.Streams {
 			tool = "none: a stream; MCP carries it as `subscriptions/listen`"
 		}
+		if op.NoTool != "" {
+			tool = "none: " + op.NoTool
+		}
 		plugin := append([]string{"`ops." + api.TSMethod(op.Name) + "()`"}, named[op.Name]...)
 		var notes []string
 		if op.Admin {

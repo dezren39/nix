@@ -6,62 +6,6 @@
 }:
 let
   ocPkgs = inputs.self.packages.${system};
-  # What OpenCode goes by on PATH. The package names follow the flake inputs
-  # -- `opencode` is the dev branch, `opencode2` the v2 branch -- but a
-  # shell wants `opencode` to mean the default version, and each version
-  # reachable by number when something has to be pinned to one.
-  #
-  # Since 07bbd0f (2026-10-16) dev is itself the v2 CLI (packages/cli, not
-  # packages/opencode), so `opencode1` is no longer v1: it is dev-branch v2,
-  # and at that rev carries one migration the v2 branch lacks
-  # (20261010180456_project_time_archived). Running `opencode1` against
-  # opencode.db applies it; `opencode` (v2 branch) then sees an extra applied
-  # migration it does not know about.
-  #
-  # One derivation rather than installing both packages, because each carries
-  # a bin/ entry the other would collide with here. Both stay reachable as
-  # `nix run .#opencode` / `.#opencode2`, and the links and wrappers below
-  # name their store paths, so neither is garbage collected.
-  #
-  # Symlink for v1, wrappers for v2: both binaries are already wrapped and
-  # their wrappers hold absolute paths, so the name one is invoked under does
-  # not change what it runs. Checked before this existed -- v2 answers
-  # --version identically through `opencode`, v1 through `opencode1`.
-  #
-  # The wrappers exist only to settle which database v2 opens. v1 uses
-  # ~/.local/share/opencode/opencode.db. pkgs/opencode2 sets
-  # OPENCODE_DB=opencode-v2.db, because when it was written v2's migrations
-  # were expected to drop tables v1 still uses (workspace, session_input,
-  # session_context_epoch, data_migration).
-  #
-  # That is overridden here so `opencode` opens the database that actually
-  # holds the sessions. What changed since: OpenChamber ships its own v2 and
-  # has been running it against opencode.db for days, which imported every v1
-  # session into the session_v2 table -- 27,501 rows beside v1's own 27,496 --
-  # and left all four of those tables intact and populated. Checked before
-  # overriding: the migration set compiled into this v2 is exactly the 48
-  # already applied to opencode.db, newest 20260923013825_project_time_active,
-  # none pending in either direction, so opening it runs nothing new. Pointed
-  # at opencode-v2.db instead, `opencode` starts with no history at all, which
-  # is the one outcome nobody wants from a default.
-  #
-  # --set-default, so OPENCODE_DB from the environment still wins. It beats
-  # the package's own --set-default because this wrapper runs first and the
-  # inner one then finds the variable already set.
-  opencode-cli =
-    pkgs.runCommandLocal "opencode-cli"
-      {
-        nativeBuildInputs = [ pkgs.makeWrapper ];
-        meta.mainProgram = "opencode";
-      }
-      ''
-        mkdir -p $out/bin
-        ln -s ${ocPkgs.opencode}/bin/opencode $out/bin/opencode1
-        makeWrapper ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode \
-          --set-default OPENCODE_DB opencode.db
-        makeWrapper ${ocPkgs.opencode2}/bin/opencode2 $out/bin/opencode2 \
-          --set-default OPENCODE_DB opencode.db
-      '';
 in
 {
   environment.systemPackages =
@@ -206,15 +150,26 @@ in
       # noto-fonts
       # noto-fonts-emoji
       #openfortivpn
-      # OpenCode under three names on PATH: `opencode` is v2, `opencode1` and
-      # `opencode2` pin a version. Defined in the let block above.
-      # Patches (applied to v1): PR #11197, #18879, #20758, #20848
-      opencode-cli
-      # inputs.self.packages.${system}.opencode-desktop # disabled: upstream build broken
+      # OpenCode from developing-today/opencode, wrapped to pin the database
+      # and scratch dir (flake.nix mkPackages). The only opencode on PATH.
+      ocPkgs.opencode
+      # OpenChamber's server CLI. The server itself runs as the openchamber
+      # launchd agent and the desktop app is installed by openchamber.nix.
+      ocPkgs.openchamber
       inputs.self.packages.${system}.lootbox-link
       # The MCP gateway in pkgs/mcpx. Its daemon runs at login from the mcpx
       # launchd agent in configuration.nix; the CLI reaches it from any shell.
       inputs.self.packages.${system}.mcpx
+      # Servers in lootbox.config.json run from these, by absolute
+      # /run/current-system/sw/bin path (see mcpx.config.nix).
+      terraform-mcp-server
+      playwright-mcp
+      mcp-server-sequential-thinking
+      markitdown-mcp
+      mcp-nixos
+      # AWS credentials for the `aws` MCP server (mcp-proxy-for-aws signs with
+      # the default profile): `aws configure sso`, then `aws sso login`.
+      awscli2
       # Atlassian's Teamwork Graph CLI (twg) — prebuilt binary, pinned in
       # pkgs/twg-cli/hashes.json. Not an MCP server itself (the Atlassian MCP
       # server is already configured above as "atlassian" in

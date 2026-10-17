@@ -384,12 +384,49 @@ func (a *App) CmdServers(ctx context.Context, args []string) error {
 	switch sub {
 	case "list", "ls":
 		return a.serversList(ctx)
+	case "show":
+		return a.serversShow(ctx, args)
 	case "add":
 		return a.serversAdd(ctx, args)
 	case "remove", "rm", "delete":
 		return a.serversRemove(ctx, args)
 	}
-	return fmt.Errorf("no servers subcommand %q; list, add or remove", sub)
+	return fmt.Errorf("no servers subcommand %q; list, show, add or remove", sub)
+}
+
+// serversShow is one server's entry, and whether it can run now and what
+// it is waiting for. Waiting is the answer most often wanted here, so it is
+// printed in words rather than left to the JSON.
+func (a *App) serversShow(ctx context.Context, args []string) error {
+	fs := newFlagSet("servers")
+	if err := parseFlags(a, fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: mcpx servers show <name>")
+	}
+	name := fs.Arg(0)
+	c, err := a.ensure(ctx)
+	if err != nil {
+		return err
+	}
+	raw, err := c.Do(ctx, http.MethodGet, "/v1/servers/"+urlEscape(name), nil)
+	if err != nil {
+		return err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	if a.JSON {
+		return a.out(out)
+	}
+	raw, _ = json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(raw))
+	if missing, _ := out["missingSecrets"].([]any); len(missing) > 0 {
+		fmt.Printf("\n%s is waiting for %d secret(s). Give each one with `mcpx secrets set <NAME>`.\n", name, len(missing))
+	}
+	return nil
 }
 
 func (a *App) serversList(ctx context.Context) error {

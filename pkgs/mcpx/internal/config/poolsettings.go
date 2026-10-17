@@ -21,6 +21,18 @@ import (
 // server sets its own value.
 //
 // Per-server mcpx.max still wins, because this writes the layer beneath it.
+//
+// The precedence for pool.max, highest first, is: a server's own mcpx.max; a
+// runtime change through the settings API; --pool-max, or the preset that
+// names it; MCPX_POOL_MAX; the nearest configuration file that sets it; and
+// the built-in four in defaults.json, which Resolve falls back to when nothing
+// above it was given. The first is read in Resolve; the rest are the Set's
+// layers, which this copies into Config.Pool.
+//
+// It runs wherever a configuration is loaded, the daemon included, and again
+// on every reload. That is why a runtime change to a pool setting has to
+// reload: until it does, this is not called and the running pools keep the
+// value they were started with (daemon/routes_settings.go).
 func ApplyPoolSettings(c *Config, set *settings.Set) {
 	if c == nil || set == nil {
 		return

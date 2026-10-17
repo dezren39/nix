@@ -712,6 +712,38 @@
         "type": "github"
       }
     },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1791594108,
+        "narHash": "sha256-XK4KceonkwD8LuMAt/vNrz982mXJM5jeHAxMwsUXXAQ=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "6510408d147d8c5e6d76043e899e9251756f6a75",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_3": {
+      "locked": {
+        "lastModified": 1791487292,
+        "narHash": "sha256-tqM7xDEsaeK1p6VvRygeZ9LkQRpUUkbRT02BHv6hnTM=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "8edc0c72e3a38faf5434e40d1f19431125fe4b30",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nur": {
       "inputs": {
         "flake-parts": [
@@ -735,44 +767,41 @@
         "type": "github"
       }
     },
-    "opencode": {
+    "openchamber": {
       "inputs": {
-        "nixpkgs": [
-          "nixpkgs-hoisted-hoisted"
+        "nixpkgs": "nixpkgs_2",
+        "opencode": [
+          "opencode"
         ]
       },
       "locked": {
-        "lastModified": 1792189930,
-        "narHash": "sha256-utJ40fhRYKGlISoi+iG1PtnBcw6FS+obUdEBGxSJ7OA=",
-        "owner": "anomalyco",
-        "repo": "opencode",
-        "rev": "07bbd0fd166c82d87e79f053dc70e6fdb66f88ac",
+        "lastModified": 1792209390,
+        "narHash": "sha256-qbZwMwy2WNbz709XVkGFMHgtmk6EJ5m8rvhI4fNGf5o=",
+        "owner": "developing-today",
+        "repo": "openchamber",
+        "rev": "a5dc28fffc0b69b110800e6c973812717034ecd0",
         "type": "github"
       },
       "original": {
-        "owner": "anomalyco",
-        "ref": "dev",
-        "repo": "opencode",
+        "owner": "developing-today",
+        "repo": "openchamber",
         "type": "github"
       }
     },
-    "opencode2": {
+    "opencode": {
       "inputs": {
-        "nixpkgs": [
-          "nixpkgs-hoisted-hoisted"
-        ]
+        "nixpkgs": "nixpkgs_3"
       },
       "locked": {
-        "lastModified": 1791634782,
-        "narHash": "sha256-CIZdrUVk/W5cUYU86Q71XMYIV3Y9+XEZn5eWw3UlNIo=",
-        "owner": "anomalyco",
+        "lastModified": 1792204386,
+        "narHash": "sha256-O1vthnVuii5TCW50VwvLkvodpRSDRedlh4deUUAFG08=",
+        "owner": "developing-today",
         "repo": "opencode",
-        "rev": "4617210822bdbb31e5749751afbfb4584ccedac8",
+        "rev": "43e5af3c17e844002ca9020c6e800faf54f9becc",
         "type": "github"
       },
       "original": {
-        "owner": "anomalyco",
-        "ref": "v2",
+        "owner": "developing-today",
         "repo": "opencode",
         "type": "github"
       }
@@ -836,8 +865,8 @@
         ],
         "nixpkgs-terraform": "nixpkgs-terraform",
         "nur": "nur",
+        "openchamber": "openchamber",
         "opencode": "opencode",
-        "opencode2": "opencode2",
         "rust-analyzer-src": "rust-analyzer-src",
         "sidepulse-src": "sidepulse-src",
         "stable": [

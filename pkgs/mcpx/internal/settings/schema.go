@@ -130,6 +130,13 @@ type Setting struct {
 
 	Kind Kind
 
+	// Floor is the smallest whole number a KindInt setting accepts. Zero means
+	// no floor, which is what every integer had before this field existed.
+	// It is checked by Validate, the one parser every layer shares, so a
+	// refused value is refused everywhere; a reader that clamped it instead
+	// would turn one silent answer into another.
+	Floor int
+
 	// Default is the value when nothing sets it. It is stated here as a
 	// string in the same syntax a user would write, so that the default and
 	// a user's override go through identical parsing -- a default that skips

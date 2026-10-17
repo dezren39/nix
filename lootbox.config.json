@@ -67,6 +67,50 @@
     "github": {
       "command": "/run/current-system/sw/bin/github-mcp",
       "args": []
+    },
+    "aws": {
+      "command": "/run/current-system/sw/bin/uvx",
+      "args": [
+        "mcp-proxy-for-aws-cli@1.7.0",
+        "https://aws-mcp.us-east-1.api.aws/mcp",
+        "--metadata", "AWS_REGION=us-east-1"
+      ]
+    },
+    "aws-knowledge": {
+      "transport": "streamable_http",
+      "url": "https://knowledge-mcp.global.api.aws"
+    },
+    "deepwiki": {
+      "transport": "streamable_http",
+      "url": "https://mcp.deepwiki.com/mcp"
+    },
+    "terraform": {
+      "command": "/run/current-system/sw/bin/terraform-mcp-server",
+      "args": ["stdio", "--toolsets=registry"]
+    },
+    "nixos": {
+      "command": "/run/current-system/sw/bin/mcp-nixos",
+      "args": []
+    },
+    "playwright": {
+      "command": "/run/current-system/sw/bin/playwright-mcp",
+      "args": [
+        "--headless",
+        "--isolated",
+        "--viewport-size=1280x720",
+        "--output-dir", "/Users/drewry.pope/.cache/playwright-mcp"
+      ]
+    },
+    "markitdown": {
+      "command": "/run/current-system/sw/bin/markitdown-mcp",
+      "args": []
+    },
+    "sequential-thinking": {
+      "command": "/run/current-system/sw/bin/mcp-server-sequential-thinking",
+      "args": [],
+      "env": {
+        "DISABLE_THOUGHT_LOGGING": "true"
+      }
     }
   }
 }

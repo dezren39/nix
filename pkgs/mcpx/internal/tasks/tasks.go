@@ -15,12 +15,18 @@ package tasks
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	_ "modernc.org/sqlite"
 )
 
 // Task is one background request.
@@ -42,10 +48,11 @@ type Task struct {
 	// it.
 	InputRequests map[string]any `json:"-"`
 
-	result any
-	fault  *Fault
-	cancel context.CancelFunc
-	done   chan struct{}
+	result   any
+	fault    *Fault
+	cancel   context.CancelFunc
+	done     chan struct{}
+	OnCancel func(ctx context.Context, reason string) `json:"-"`
 }
 
 // Statuses, from the specification.
@@ -77,6 +84,7 @@ func (f *Fault) Error() string { return f.Message }
 type Store struct {
 	mu    sync.Mutex
 	tasks map[string]*Task
+	db    *sql.DB
 	// PollInterval is the pollInterval each new task carries. Zero means
 	// the built-in default. Set before the store is shared.
 	PollInterval time.Duration
@@ -85,6 +93,10 @@ type Store struct {
 	// change and outside the lock, so a watcher may read the store.
 	watchers map[int]func(id string)
 	nextW    int
+
+	// OnCancelHook is called when a task is cancelled to perform cooperative
+	// upstream cancellation (e.g. notifications/cancelled or process interrupt)
+	OnCancelHook func(id string, reason string)
 }
 
 // Watch calls fn with a task's id each time its status, input requests or
@@ -132,6 +144,196 @@ func IDFrom(ctx context.Context) string {
 // New builds an empty store.
 func New() *Store { return &Store{tasks: map[string]*Task{}} }
 
+// Open opens or creates a persistent SQLite-backed task store.
+func Open(dbPath string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return nil, fmt.Errorf("creating task db dir: %w", err)
+	}
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		return nil, fmt.Errorf("opening task db: %w", err)
+	}
+	st := &Store{
+		tasks: map[string]*Task{},
+		db:    db,
+	}
+	if err := st.initDB(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return st, nil
+}
+
+func (s *Store) initDB() error {
+	schema := `
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id        TEXT PRIMARY KEY,
+    status         TEXT NOT NULL,
+    status_message TEXT,
+    created_at_ms  INTEGER NOT NULL,
+    updated_at_ms  INTEGER NOT NULL,
+    ttl_ms         INTEGER NOT NULL,
+    poll_interval  INTEGER NOT NULL,
+    result_json    TEXT,
+    fault_json     TEXT
+);`
+	if _, err := s.db.Exec(schema); err != nil {
+		return fmt.Errorf("initializing tasks schema: %w", err)
+	}
+	return s.loadTasksFromDB()
+}
+
+func (s *Store) loadTasksFromDB() error {
+	rows, err := s.db.Query(`
+SELECT task_id, status, status_message, created_at_ms, updated_at_ms, ttl_ms, poll_interval, result_json, fault_json
+FROM tasks`)
+	if err != nil {
+		return fmt.Errorf("querying stored tasks: %w", err)
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	nowMs := now.UnixMilli()
+
+	var toDelete []string
+	var toUpdate []*Task
+
+	for rows.Next() {
+		var id, status, statusMsg string
+		var createdMs, updatedMs, ttlMs, pollInterval int64
+		var resultJSON, faultJSON sql.NullString
+
+		if err := rows.Scan(&id, &status, &statusMsg, &createdMs, &updatedMs, &ttlMs, &pollInterval, &resultJSON, &faultJSON); err != nil {
+			continue
+		}
+
+		expiresAtMs := createdMs + ttlMs
+		if expiresAtMs <= nowMs {
+			toDelete = append(toDelete, id)
+			continue
+		}
+
+		createdAt := time.UnixMilli(createdMs)
+		updatedAt := time.UnixMilli(updatedMs)
+
+		t := &Task{
+			TaskID:        id,
+			Status:        status,
+			StatusMessage: statusMsg,
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+			TTL:           ttlMs,
+			PollInterval:  pollInterval,
+			done:          make(chan struct{}),
+		}
+
+		if resultJSON.Valid && resultJSON.String != "" {
+			var res any
+			if json.Unmarshal([]byte(resultJSON.String), &res) == nil {
+				t.result = res
+			}
+		}
+		if faultJSON.Valid && faultJSON.String != "" {
+			var fault Fault
+			if json.Unmarshal([]byte(faultJSON.String), &fault) == nil {
+				t.fault = &fault
+			}
+		}
+
+		if !Terminal(t.Status) {
+			t.Status = Failed
+			t.StatusMessage = "daemon restarted before task completion"
+			t.fault = &Fault{Code: -32603, Message: t.StatusMessage}
+			t.LastUpdatedAt = now
+			toUpdate = append(toUpdate, t)
+		}
+
+		close(t.done)
+		s.tasks[t.TaskID] = t
+
+		remaining := time.Duration(expiresAtMs-nowMs) * time.Millisecond
+		time.AfterFunc(remaining, func() {
+			s.mu.Lock()
+			delete(s.tasks, id)
+			s.deleteFromDBLocked(id)
+			s.mu.Unlock()
+		})
+	}
+
+	for _, id := range toDelete {
+		s.deleteFromDBLocked(id)
+	}
+	for _, t := range toUpdate {
+		s.saveTaskLocked(t)
+	}
+	return nil
+}
+
+func (s *Store) saveTaskLocked(t *Task) {
+	if s.db == nil {
+		return
+	}
+	var resJSON, faultJSON *string
+	if t.result != nil {
+		if b, err := json.Marshal(t.result); err == nil {
+			str := string(b)
+			resJSON = &str
+		}
+	}
+	if t.fault != nil {
+		if b, err := json.Marshal(t.fault); err == nil {
+			str := string(b)
+			faultJSON = &str
+		}
+	}
+
+	query := `
+INSERT INTO tasks (task_id, status, status_message, created_at_ms, updated_at_ms, ttl_ms, poll_interval, result_json, fault_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(task_id) DO UPDATE SET
+  status = excluded.status,
+  status_message = excluded.status_message,
+  updated_at_ms = excluded.updated_at_ms,
+  result_json = excluded.result_json,
+  fault_json = excluded.fault_json;`
+
+	_, _ = s.db.Exec(query,
+		t.TaskID,
+		t.Status,
+		t.StatusMessage,
+		t.CreatedAt.UnixMilli(),
+		t.LastUpdatedAt.UnixMilli(),
+		t.TTL,
+		t.PollInterval,
+		resJSON,
+		faultJSON,
+	)
+}
+
+func (s *Store) deleteFromDBLocked(id string) {
+	if s.db == nil {
+		return
+	}
+	_, _ = s.db.Exec("DELETE FROM tasks WHERE task_id = ?", id)
+}
+
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
+}
+
+func (s *Store) SetTaskCancel(id string, fn func(ctx context.Context, reason string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.tasks[id]; ok {
+		t.OnCancel = fn
+	}
+}
+
 func (s *Store) ensure() {
 	if s.tasks == nil {
 		s.tasks = map[string]*Task{}
@@ -150,13 +352,6 @@ func NewID() string {
 func DefaultTTL() int64 { return int64(defaults.TaskTTL / time.Millisecond) }
 
 // Start runs fn in the background and returns its handle at once.
-//
-// The handle is a value, not a pointer into the store. A pointer is a
-// reference to something the goroutine below is already writing: every
-// caller copied it to put on the wire, and every one of those copies raced
-// with the first status update. It never failed a test because the suite
-// does not run under -race, which is the whole difficulty with this class
-// of bug.
 func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Task {
 	if ttl <= 0 {
 		ttl = DefaultTTL()
@@ -177,6 +372,7 @@ func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Tas
 	s.mu.Lock()
 	s.ensure()
 	s.tasks[t.TaskID] = t
+	s.saveTaskLocked(t)
 	s.mu.Unlock()
 
 	go func() {
@@ -193,6 +389,7 @@ func (s *Store) Start(ttl int64, fn func(ctx context.Context) (any, *Fault)) Tas
 	time.AfterFunc(time.Duration(ttl)*time.Millisecond, func() {
 		s.mu.Lock()
 		delete(s.tasks, t.TaskID)
+		s.deleteFromDBLocked(t.TaskID)
 		s.mu.Unlock()
 		cancel()
 	})
@@ -216,6 +413,7 @@ func (s *Store) finish(t *Task, result any, fault *Fault) bool {
 	if fault != nil {
 		t.Status, t.fault = Failed, fault
 		t.StatusMessage = fault.Message
+		s.saveTaskLocked(t)
 		return true
 	}
 	t.Status, t.result = Completed, result
@@ -226,6 +424,7 @@ func (s *Store) finish(t *Task, result any, fault *Fault) bool {
 			t.Status = Failed
 		}
 	}
+	s.saveTaskLocked(t)
 	return true
 }
 
@@ -260,6 +459,7 @@ func (s *Store) SetStatus(id, status, message string) {
 	moved := ok && !Terminal(t.Status) && (t.Status != status || t.StatusMessage != message)
 	if moved {
 		t.Status, t.StatusMessage, t.LastUpdatedAt = status, message, time.Now()
+		s.saveTaskLocked(t)
 	}
 	s.mu.Unlock()
 	if moved {
@@ -293,6 +493,7 @@ func (s *Store) setInput(id string, requests map[string]any) bool {
 		return false
 	}
 	t.Status, t.InputRequests, t.LastUpdatedAt = status, requests, time.Now()
+	s.saveTaskLocked(t)
 	return true
 }
 
@@ -310,6 +511,12 @@ func sameKeys(a, b map[string]any) bool {
 
 // Cancel stops a task and returns its final state.
 func (s *Store) Cancel(id string) (Task, bool) {
+	return s.CancelWithReason(id, "cancelled")
+}
+
+// CancelWithReason stops a task with an explanatory reason and returns its final state,
+// performing a cooperative cancellation handshake before hard termination.
+func (s *Store) CancelWithReason(id string, reason string) (Task, bool) {
 	s.mu.Lock()
 	t, ok := s.tasks[id]
 	if !ok {
@@ -317,13 +524,33 @@ func (s *Store) Cancel(id string) (Task, bool) {
 		return Task{}, false
 	}
 	moved := !Terminal(t.Status)
+	var onCancel func(ctx context.Context, reason string)
+	var cancel context.CancelFunc
 	if moved {
 		t.Status, t.LastUpdatedAt = Cancelled, time.Now()
-		t.cancel()
+		if t.StatusMessage == "" && reason != "" {
+			t.StatusMessage = reason
+		}
+		s.saveTaskLocked(t)
+		onCancel = t.OnCancel
+		cancel = t.cancel
 	}
 	snap := *t
+	hook := s.OnCancelHook
 	s.mu.Unlock()
+
 	if moved {
+		if onCancel != nil {
+			ctx, cancelCtx := context.WithTimeout(context.Background(), defaults.UpstreamCancelSendTimeout)
+			onCancel(ctx, reason)
+			cancelCtx()
+		}
+		if hook != nil {
+			hook(id, reason)
+		}
+		if cancel != nil {
+			cancel()
+		}
 		s.changed(id)
 	}
 	return snap, true

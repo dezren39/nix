@@ -133,6 +133,18 @@ type Extras struct {
 	// ExcludeTools removes tools from the exposed set, and wins over Tools.
 	// A removed tool is neither listed nor callable.
 	ExcludeTools []string `json:"excludeTools,omitempty"`
+	// RequiresSecrets names environment variables that must be non-empty for this server to be active.
+	RequiresSecrets []string `json:"requiresSecrets,omitempty"`
+	// RequiresServers names other upstream server namespaces that must be enabled.
+	RequiresServers []string `json:"requiresServers,omitempty"`
+	// Preconditions maps specific tool names to preconditions.
+	Preconditions map[string]Precondition `json:"preconditions,omitempty"`
+}
+
+// Precondition specifies requirements for a tool or server.
+type Precondition struct {
+	RequiresSecret string `json:"requiresSecret,omitempty"`
+	RequiresServer string `json:"requiresServer,omitempty"`
 }
 
 // Server is one MCP server definition.
@@ -335,24 +347,118 @@ type Resolved struct {
 	IdleTimeout  time.Duration
 	CallTimeout  time.Duration
 	StartTimeout time.Duration
-	Namespace    string
-	Description  string
-	Prelude      string
-	LogLevel     string
-	Tools        ToolPatterns
-	ExcludeTools ToolPatterns
-	Profiles     []string
-	Default      bool
+	Namespace       string
+	Description     string
+	Prelude         string
+	LogLevel        string
+	Tools           ToolPatterns
+	ExcludeTools    ToolPatterns
+	Profiles        []string
+	Default         bool
+	RequiresSecrets []string
+	RequiresServers []string
+	Preconditions   map[string]Precondition
+
+	// Runtime, when set, returns the value the daemon holds in memory for a
+	// secret: see internal/secrets. It is consulted before this server's own
+	// environment and the daemon's, and nothing here keeps what it returns.
+	Runtime func(name string) (string, bool)
+}
+
+// SecretNames are the secrets this server requires: its own list and every
+// tool's requiresSecret, sorted, without repeats.
+func (r *Resolved) SecretNames() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, name := range r.RequiresSecrets {
+		add(name)
+	}
+	for _, pre := range r.Preconditions {
+		add(pre.RequiresSecret)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// SecretValue is the value a child process of this server would see for name:
+// the runtime value if one is held, else the server's own environment, else
+// the daemon's. Empty is no value.
+func (r *Resolved) SecretValue(name string) (string, bool) {
+	if r.Runtime != nil {
+		if v, ok := r.Runtime(name); ok && v != "" {
+			return v, true
+		}
+	}
+	if v := r.Env[name]; v != "" {
+		return v, true
+	}
+	if v := os.Getenv(name); v != "" {
+		return v, true
+	}
+	return "", false
+}
+
+// MissingSecrets are the secrets this server requires that have no value,
+// sorted. A server with any of them cannot start.
+func (r *Resolved) MissingSecrets() []string {
+	var out []string
+	for _, name := range r.SecretNames() {
+		if _, ok := r.SecretValue(name); !ok {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// PassesPreconditions checks whether the server or specific tool meets all declared preconditions.
+func (r *Resolved) PassesPreconditions(tool string, isServerActive func(string) bool) (bool, string) {
+	if r == nil {
+		return true, ""
+	}
+	for _, sec := range r.RequiresSecrets {
+		if _, ok := r.SecretValue(sec); !ok {
+			return false, fmt.Sprintf("missing required environment secret %q", sec)
+		}
+	}
+	for _, reqSrv := range r.RequiresServers {
+		if isServerActive != nil && !isServerActive(reqSrv) {
+			return false, fmt.Sprintf("dependent server %q is inactive", reqSrv)
+		}
+	}
+	if tool != "" && len(r.Preconditions) > 0 {
+		if pre, ok := r.Preconditions[tool]; ok {
+			if pre.RequiresSecret != "" {
+				if _, ok := r.SecretValue(pre.RequiresSecret); !ok {
+					return false, fmt.Sprintf("missing required secret %q for tool %q", pre.RequiresSecret, tool)
+				}
+			}
+			if pre.RequiresServer != "" {
+				if isServerActive != nil && !isServerActive(pre.RequiresServer) {
+					return false, fmt.Sprintf("dependent server %q for tool %q is inactive", pre.RequiresServer, tool)
+				}
+			}
+		}
+	}
+	return true, ""
 }
 
 // VisibleTool reports whether a tool survives this server's allow and deny
-// lists. Filtering is a property of the view, not of the process: two aliases
-// of one server expose different subsets while sharing a single child.
+// lists and passes declared preconditions. Filtering is a property of the view,
+// not of the process: two aliases of one server expose different subsets while sharing a single child.
 func (r *Resolved) VisibleTool(name string) bool {
 	if r.ExcludeTools.Match(name) {
 		return false
 	}
 	if !r.Tools.Empty() && !r.Tools.Match(name) {
+		return false
+	}
+	if ok, _ := r.PassesPreconditions(name, nil); !ok {
 		return false
 	}
 	return true
@@ -503,6 +609,10 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 			name, scope, scopeList())
 	}
 
+	// The server's own max, then the daemon-wide pool.max that
+	// ApplyPoolSettings folded into d, then the built-in default. A zero in
+	// either of the first two means unset, which is why pool.max refuses zero
+	// before it can get here (settings.Setting.Floor).
 	max := pick(ex.Max, d.Max, DefaultMax)
 	// A single-key scope can never need more than one process.
 	if scope == ScopeGlobal {
@@ -529,10 +639,13 @@ func (c *Config) Resolve(name string) (*Resolved, error) {
 		Description:  ex.Description,
 		Prelude:      pick(ex.Prelude, d.Prelude),
 		LogLevel:     pickLoggingLevel(ex.Logging, d.Logging),
-		Tools:        allow,
-		ExcludeTools: deny,
-		Profiles:     append(append([]string{}, d.Profiles...), ex.Profiles...),
-		Default:      boolOr(ex.Default, d.Default, true),
+		Tools:           allow,
+		ExcludeTools:    deny,
+		Profiles:        append(append([]string{}, d.Profiles...), ex.Profiles...),
+		Default:         boolOr(ex.Default, d.Default, true),
+		RequiresSecrets: ex.RequiresSecrets,
+		RequiresServers: ex.RequiresServers,
+		Preconditions:   ex.Preconditions,
 	}
 	if r.Min > r.Max {
 		r.Min = r.Max
@@ -743,6 +856,15 @@ func mergeExtras(near, far Extras) Extras {
 	}
 	if len(near.ExcludeTools) == 0 {
 		near.ExcludeTools = far.ExcludeTools
+	}
+	if len(near.RequiresSecrets) == 0 {
+		near.RequiresSecrets = far.RequiresSecrets
+	}
+	if len(near.RequiresServers) == 0 {
+		near.RequiresServers = far.RequiresServers
+	}
+	if len(near.Preconditions) == 0 {
+		near.Preconditions = far.Preconditions
 	}
 	// Appending is the point of the field, across files as within one.
 	near.ExtraIncludeTools = concat(far.ExtraIncludeTools, near.ExtraIncludeTools)

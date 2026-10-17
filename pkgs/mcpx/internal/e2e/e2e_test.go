@@ -142,9 +142,13 @@ func repoRoot(t *testing.T) string {
 }
 
 func (e *env) try(args ...string) (string, error) {
+	return e.tryWith(e.mcpx, args...)
+}
+
+func (e *env) tryWith(bin string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, e.mcpx, args...)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = e.dir
 	cmd.Env = e.envVars
 	out, err := cmd.CombinedOutput()
@@ -3150,4 +3154,40 @@ func withoutMCPXVars(env []string) []string {
 		out = append(out, kv)
 	}
 	return out
+}
+
+// withoutModelCLIs makes sure no model is reachable from the daemon this test
+// starts, whatever the machine running the suite has installed.
+//
+// ResolveProvider takes the first of: OpenAI variables, then OPENCODE_BINARY,
+// then opencode on PATH, then CLAUDE_BIN, then claude on PATH. The harness
+// inherits the developer's environment, so a machine with opencode installed
+// reached a real model on every "no model" assertion, and the result depended
+// on that machine's CLIs and network. Here both CLIs point at a stub that
+// answers nothing, and the OpenAI pair is dropped so it cannot win first.
+//
+// The stub is a provider, so a CLI is "installed" as far as the daemon can
+// tell. It touches the returned path when it runs, so a test can assert that
+// no model CLI was called at all, not only that the answer reads as no-model.
+func (e *env) withoutModelCLIs(t *testing.T) (called string) {
+	t.Helper()
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "no-model")
+	called = filepath.Join(dir, "called")
+	body := "#!/bin/sh\ntouch '" + called + "'\necho 'no model in this test' >&2\nexit 1\n"
+	if err := os.WriteFile(stub, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dropped := map[string]bool{
+		"OPENCODE_BINARY": true, "OPENCODE_V2_BIN": true, "CLAUDE_BIN": true,
+		"OPENAI_BASE_URL": true, "OPENAI_API_KEY": true, "OPENAI_MODEL": true,
+	}
+	out := make([]string, 0, len(e.envVars)+2)
+	for _, kv := range e.envVars {
+		if key, _, _ := strings.Cut(kv, "="); !dropped[key] {
+			out = append(out, kv)
+		}
+	}
+	e.envVars = append(out, "OPENCODE_BINARY="+stub, "CLAUDE_BIN="+stub)
+	return called
 }

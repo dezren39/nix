@@ -1,6 +1,6 @@
 module github.com/dezren39/mcpx
 
-go 1.26.7
+go 1.27.2
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
@@ -34,6 +34,7 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
+	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.3.8 // indirect

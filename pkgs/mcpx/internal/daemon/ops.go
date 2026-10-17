@@ -437,8 +437,18 @@ func localCompletion(prompts []mcpclient.Prompt, templates []mcpclient.Resource,
 // runs one carries nothing.
 func (s *Server) taskStore() *tasks.Store {
 	s.taskOnce.Do(func() {
-		s.tasks = tasks.New()
-		s.tasks.PollInterval = s.set.Duration("protoTasks.pollInterval")
+		if s.paths.State != "" {
+			dbPath := filepath.Join(s.paths.State, "tasks.db")
+			if store, err := tasks.Open(dbPath); err == nil {
+				s.tasks = store
+			}
+		}
+		if s.tasks == nil {
+			s.tasks = tasks.New()
+		}
+		if s.set != nil {
+			s.tasks.PollInterval = s.set.Duration("protoTasks.pollInterval")
+		}
 	})
 	return s.tasks
 }
@@ -491,7 +501,11 @@ func (s *Server) handleTaskResult(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
-	t, ok := s.taskStore().Cancel(r.PathValue("id"))
+	reason := r.URL.Query().Get("reason")
+	if reason == "" {
+		reason = "cancelled by client"
+	}
+	t, ok := s.taskStore().CancelWithReason(r.PathValue("id"), reason)
 	if !ok {
 		writeErr(w, http.StatusNotFound, tasks.ErrNoTask{ID: r.PathValue("id")})
 		return

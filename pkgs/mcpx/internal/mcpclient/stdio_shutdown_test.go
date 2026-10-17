@@ -26,7 +26,7 @@ func TestStdioShutdown(t *testing.T) {
 		}
 		// Each script says "ready" once its traps are set, so a signal
 		// cannot arrive before the script is in the state under test.
-		if line, err := readLine(tr.stdout); err != nil || string(line) != "ready" {
+		if line, err := tr.readLine(); err != nil || string(line) != "ready" {
 			t.Fatalf("server never became ready: %q %v", line, err)
 		}
 		_ = tr.Close()

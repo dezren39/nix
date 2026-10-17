@@ -136,14 +136,17 @@ rec {
     nixpkgs-terraform.inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
     flake-utils.url = "github:numtide/flake-utils";
     flake-utils.inputs.systems.follows = "systems";
-    opencode = {
-      url = "github:anomalyco/opencode/dev";
-      # inputs.nixpkgs.follows = "nixpkgs";
-      inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
-    };
-    opencode2 = {
-      url = "github:anomalyco/opencode/v2";
-      inputs.nixpkgs.follows = "nixpkgs-hoisted-hoisted";
+    # developing-today's OpenCode fork (v2, tracks upstream dev plus model
+    # routing, mcpx and serve handover). We own it: if it breaks, fix it there
+    # and re-pin here -- see .agents/skills/update-opencode. Its own nixpkgs is
+    # kept, not followed: the fork's node_modules hashes are computed against
+    # the bun in that nixpkgs, and a different bun can lay node_modules out
+    # differently and miss the fixed-output hash.
+    opencode.url = "github:developing-today/opencode";
+    # developing-today's OpenChamber fork, built against the opencode above.
+    openchamber = {
+      url = "github:developing-today/openchamber";
+      inputs.opencode.follows = "opencode";
     };
     sidepulse-src = {
       url = "github:inteliwear/sidepulse/main";
@@ -207,6 +210,13 @@ rec {
     bdwgc.flake = false;
   };
   outputs = inputs: rec {
+    # flake-tidy config (pkgs/flake-tidy reads `nix eval .#flakeTidy`). The
+    # forks' own nixpkgs stay unfollowed: their node_modules fixed-output
+    # hashes are computed with the bun in that nixpkgs.
+    flakeTidy.exclude.follows = [
+      "opencode.nixpkgs"
+      "openchamber.nixpkgs"
+    ];
     eachSystem =
       f:
       inputs.nixpkgs.lib.genAttrs (builtins.filter (system: system != "x86_64-darwin") (
@@ -257,144 +267,114 @@ rec {
       _hostName: hostConfiguration: inputs.darwin.lib.darwinSystem hostConfiguration
     ) darwinSystemConfigurations;
 
-    # Shared patch list applied to all opencode derivations
-    opencodePatches = [
-      ./patches/opencode-compact-tui.patch
-      ./patches/opencode-scroll-autofollow.patch
-      ./patches/opencode-plan-permissions-reminder.patch
-      ./patches/opencode-run-descendant-permissions.patch
-      ./patches/opencode-nested-subagent-prompts.patch
-      ./patches/opencode-question-submit-exit.patch
-      ./patches/opencode-question-enter-submit.patch
-      ./patches/opencode-permission-enter-submit.patch
-      ./patches/opencode-numpad-enter.patch
-    ];
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
       pkgs:
       let
         system = pkgs.stdenv.hostPlatform.system;
         bun-bin = pkgs.callPackage ./pkgs/bun-bin/package.nix { };
-        opencodeSrc = pkgs.applyPatches {
-          name = "opencode-src-${builtins.substring 0 7 inputs.opencode.rev}";
-          src = inputs.opencode;
-          patches = opencodePatches;
-        };
-        opencodeNodeModules = pkgs.callPackage "${opencodeSrc}/nix/node_modules.nix" (
-          {
-            bun = bun-bin;
-            rev = builtins.substring 0 7 inputs.opencode.rev;
-          }
-          // pkgs.lib.optionalAttrs (system == "aarch64-darwin") {
-            hash = "sha256-fanwMo2ZxvtYFY2Swv09b5x9CqVRz1Nx1dtaEA+RXDM=";
+        # pkgs/mcpx is vendored verbatim from developing-today/code; keep it
+        # identical and adapt here. Its takeover/upgrade/handoff tests are
+        # Linux-only (fd passing to a successor that takes over systemd's
+        # MAINPID; takeover_test.go does not even compile on darwin:
+        # syscall.SOCK_CLOEXEC). launchd cannot do that handover, so this
+        # config never uses it (configuration.nix restarts the agent instead);
+        # everything else in the suite runs.
+        mcpx = (pkgs.callPackage ./pkgs/mcpx/package.nix { inherit bun-bin; }).overrideAttrs (
+          old:
+          pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+            # SOCK_CLOEXEC is a Linux socket flag; the helper only needs a pair.
+            postPatch = (old.postPatch or "") + ''
+              substituteInPlace internal/daemon/takeover_test.go \
+                --replace-fail 'syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC' 'syscall.SOCK_STREAM'
+            '';
+            # The package's own checkPhase runs a bare `go test $pkgs`, so
+            # checkFlags would be ignored; put -skip on that line instead.
+            checkPhase =
+              builtins.replaceStrings [ "go test $pkgs" ] [ "go test -skip='${mcpxDarwinSkip}' $pkgs" ]
+                old.checkPhase;
           }
         );
-        # opencode resolves these once at startup (effect/runtime-flags.ts), and
-        # a process started outside a login shell never sees the profile that
-        # home-manager writes. Baking them into the binary makes them hold in
-        # every launch context. `--set-default` rather than `--set` so
-        # `OPENCODE_EXPERIMENTAL=0 opencode` still works for bisecting.
-        opencodeEnvFlags = [
-          "--set-default OPENCODE_EXPERIMENTAL 1"
-          "--set-default OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX 999999999"
-          "--set-default OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS 300000"
-          "--set-default OPENCODE_EXPERIMENTAL_LSP_TY 1"
-          # macOS TMPDIR is /var/folders/<...>/T/, which the OS sweeps
-          # periodically. opencode advertises `$TMPDIR/opencode` to agents as the
-          # pre-approved scratch path, and agents read that as somewhere to put
-          # things — including git worktrees. A sweep then deletes tracked files
-          # out from under active work: ~3000 files across several worktrees in
-          # one session, silently, while `git status` still reported clean from a
-          # stale fsmonitor index.
-          #
-          # Scoped to the opencode wrapper on purpose. Setting TMPDIR in
-          # environment.variables or launchd.user.envVariables would retarget it
-          # for nix builds and every other program on the machine, which is a far
-          # larger blast radius than the problem warrants.
-          #
-          # There is a plugin (~/.config/opencode/plugin/durable-tmpdir.ts) that
-          # sets this via the shell.env hook, but that only reaches shells the
-          # tool spawns — the path opencode prints in the bash tool description is
-          # read from the process environment at startup, so only the wrapper
-          # fixes the advertisement itself. Belt and braces.
-          #
-          # `--run` and NOT `--set-default`/`--set`, for two reasons, both read
-          # off make-wrapper.sh rather than assumed:
-          #
-          #   1. `--set-default` emits `export VAR=${VAR-value}` (line 133), which
-          #      only fires when the variable is UNSET. macOS always sets TMPDIR,
-          #      so it would be a silent no-op here.
-          #   2. Both `--set` and `--set-default` quote the value with `${value@Q}`,
-          #      so `$HOME` would be written literally and never expand.
-          #
-          # `--run` emits its argument verbatim into the wrapper (line 145), so
-          # the shell expands `$HOME` at exec time and the mkdir is guaranteed to
-          # run before the binary starts. Still overridable for bisecting, in
-          # keeping with the --set-default rationale above: the parameter
-          # expansion below honours a TMPDIR the caller set explicitly.
-          #
-          # mkdir is referenced by absolute store path because the wrapper runs
-          # before the binary and sets its own PATH; a bare `mkdir` resolves
-          # against that PATH and fails with "command not found", which the
-          # versionCheckHook catches at build time.
-          ''--run 'export TMPDIR="''${OPENCODE_TMPDIR:-$HOME/.local/share/opencode/tmp}"; ${pkgs.coreutils}/bin/mkdir -p "$TMPDIR"' ''
-        ];
+        mcpxDarwinSkip = "^(${
+          pkgs.lib.concatStringsSep "|" [
+            "TestACallInFlightAtATakeoverIsAnsweredAndItsConnectionMovesOn"
+            "TestAnIdleKeepAliveConnectionSurvivesATakeover"
+            "TestClientHandoffCommitsOnlyWhenActivated"
+            "TestClientLeaseSurvivesDaemonTakeover"
+            "TestDetachedChildKeepsItsPipesAndAdoptionResumesThem"
+            "TestDetachRefusesWhileACallIsInFlight"
+            "TestHandoffDoesNotSplitAFrameAcrossTheTwoProcesses"
+            "TestKeepAliveCallersLoseNoCallsAcrossARealTakeover"
+            "TestTakeoverKeepsTheChildAndTheListener"
+            "TestTakeoverLosesNoCallsWhileAClientKeepsCalling"
+            "TestTakeoverRestartsAChangedServerAndKeepsTheRest"
+            "TestUpgradeKeepsTheChildAndHandsMainPIDToTheSuccessor"
+            "TestACallInFlightAtTheHandoverIsAnsweredByTheOldDaemon"
+            "TestAClientLeaseSurvivesADaemonTakeover"
+            "TestAnIdleConnectionSurvivesATakeoverInProcess"
+            "TestCallsIssuedDuringATakeoverNeverFail"
+            "TestHandoffRecordsTheIdentityAPoolWasMadeWith"
+            "TestKeepAliveCallersLoseNoCallsAcrossATakeover"
+            "TestRegistryHandoffKeepsTheChildAcrossTheSuccessor"
+            "TestRegistryHandoffThatIsNotCommittedRestoresTheChild"
+            # Not a takeover test: the restart it checks happens, but it
+            # verifies the new executable through /proc/<pid>/exe.
+            "TestExecChangeRestartsThatPoolAndNoOther"
+          ]
+        })$";
+        # The fork's own build, with this repo's mcpx on its PATH so the CLI it
+        # talks to is the same build as the launchd daemon.
+        opencode-unwrapped = inputs.opencode.packages.${system}.opencode.override { inherit mcpx; };
+        # Two things the fork cannot know, set by an outer shell wrapper (only a
+        # shell wrapper can expand $HOME at exec time; the fork wraps with
+        # makeBinaryWrapper, whose C wrapper rejects --run):
+        #
+        # OPENCODE_DB, forced, not defaulted. Every opencode and OpenChamber on
+        # this machine must open the one database that holds the sessions:
+        # ~/.local/share/opencode/opencode.db, which is where OpenChamber's own
+        # server reads it (it hard-codes ~/.local/share/opencode and ignores
+        # XDG_DATA_HOME) and where the fork's prod channel puts it. Absolute, so
+        # neither XDG_DATA_HOME nor a stray OPENCODE_DB in some environment can
+        # send a process to a fresh, empty database.
+        #
+        # TMPDIR: macOS's /var/folders/<...>/T/ is swept by the OS, and opencode
+        # advertises $TMPDIR/opencode to agents as approved scratch space; they
+        # have put git worktrees there and lost thousands of tracked files to a
+        # sweep. OPENCODE_TMPDIR still overrides. Scoped to this wrapper rather
+        # than the whole machine, which would retarget nix builds too.
+        # developing-today/opencode#13 asks for this in core.
+        opencode =
+          pkgs.runCommandLocal "opencode-${opencode-unwrapped.version}"
+            {
+              nativeBuildInputs = [ pkgs.makeShellWrapper ];
+              passthru.unwrapped = opencode-unwrapped;
+              inherit (opencode-unwrapped) version;
+              meta = opencode-unwrapped.meta // {
+                mainProgram = "opencode";
+              };
+            }
+            ''
+              mkdir -p $out/bin
+              ln -s ${opencode-unwrapped}/share $out/share
+              makeShellWrapper ${opencode-unwrapped}/bin/opencode $out/bin/opencode \
+                --run 'export OPENCODE_DB="$HOME/.local/share/opencode/opencode.db"' \
+                --run 'export TMPDIR="''${OPENCODE_TMPDIR:-$HOME/.local/share/opencode/tmp}"' \
+                --run '${pkgs.coreutils}/bin/mkdir -p "$TMPDIR"'
+            '';
       in
       ({
-        inherit bun-bin;
+        inherit
+          bun-bin
+          mcpx
+          opencode
+          opencode-unwrapped
+          ;
 
-        # Upstream already wrapProgram's $out/bin/opencode for PATH, so this is
-        # a second wrapper. makeWrapper handles the collision by appending "_"
-        # to the hidden name, leaving .opencode-wrapped_ beside it.
-        opencode =
-          (pkgs.callPackage "${opencodeSrc}/nix/opencode.nix" {
-            bun = bun-bin;
-            node_modules = opencodeNodeModules;
-          }).overrideAttrs
-            (old: {
-              # Upstream takes src from node_modules.nix, whose fileset omits the
-              # repo-root script/ directory that packages/cli/script/build.ts
-              # imports (../../../script/native-arch) as of 07bbd0f.
-              src = opencodeSrc;
-              # Upstream builds with makeBinaryWrapper, whose wrapProgram is the
-              # C implementation and rejects `--run` ("makeCWrapper: Unknown
-              # argument --run"). The TMPDIR flag above needs runtime shell
-              # expansion of $HOME, which only the shell wrapper can do, so pull
-              # in makeShellWrapper. Appending it puts its setup hook after
-              # makeBinaryWrapper's, and the later hook is the one that defines
-              # wrapProgram.
-              nativeBuildInputs =
-                (old.nativeBuildInputs or [ ])
-                ++ [ pkgs.makeShellWrapper ]
-                # The darwin binary needs an ad-hoc re-sign: as built, the binary
-                # from `bun build --compile` fails `codesign --verify` (its
-                # linker signature no longer matches). Through 1ddb087 build.ts did this
-                # (anomalyco/opencode#52183); the v2 build.ts on dev (07bbd0f)
-                # does not, so postFixup does it. sigtool's codesign implements
-                # the ad-hoc mode and spawns codesign_allocate, from cctools.
-                ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-                  pkgs.darwin.sigtool
-                  pkgs.cctools
-                ];
-              postFixup =
-                (old.postFixup or "")
-                + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-                  codesign --force --sign - $out/bin/.opencode-wrapped
-                ''
-                + ''
-                  wrapProgram $out/bin/opencode \
-                    ${pkgs.lib.concatStringsSep " \\\n  " opencodeEnvFlags}
-                '';
-            });
-
-        opencode2 = pkgs.callPackage ./pkgs/opencode2/package.nix {
-          inherit bun-bin;
-          opencode2Src = inputs.opencode2;
-          rev = inputs.opencode2.rev;
-        };
-
-        # opencode-desktop — disabled: upstream build broken
-        # opencode-desktop = inputs.opencode.packages.${system}.desktop;
+        # OpenChamber's server, running the wrapped opencode above. Its own
+        # opencode input already follows ours (flake.nix inputs); the override
+        # swaps in the wrapper so the database and scratch pins hold for the
+        # OpenCode it starts too.
+        openchamber = inputs.openchamber.packages.${system}.openchamber.override { inherit opencode; };
 
         brew-repair = import ./pkgs/brew-repair {
           inherit pkgs;
@@ -402,7 +382,6 @@ rec {
         };
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
-        mcpx = pkgs.callPackage ./pkgs/mcpx/package.nix { inherit bun-bin; };
         twg-cli = pkgs.callPackage ./pkgs/twg-cli/package.nix { };
         lootbox-update = import ./pkgs/lootbox-update {
           inherit pkgs;
@@ -520,9 +499,9 @@ rec {
           type = "app";
           program = "${selfPkgs.opencode}/bin/opencode";
         };
-        opencode2 = {
+        openchamber = {
           type = "app";
-          program = "${selfPkgs.opencode2}/bin/opencode2";
+          program = "${selfPkgs.openchamber}/bin/openchamber";
         };
         opencode-share = {
           type = "app";

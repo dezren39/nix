@@ -281,6 +281,7 @@ and a switch to turn the report off would have kept it quiet.
 | `catalog.bias` | list | *(empty)* | call | yes | `--catalog-bias`, `--bias` | `MCPX_CATALOG_BIAS` | words that pull matching tools toward the front |
 | `catalog.budget` | int | `2000` | call | yes | `--catalog-budget`, `--budget` | `MCPX_CATALOG_BUDGET` | token ceiling for the catalog listing |
 | `catalog.instructions` | bool | `true` | call | yes | `--catalog-instructions` | `MCPX_CATALOG_INSTRUCTIONS` | include each server's own instructions |
+| `catalog.pinnedTools` | list | *(empty)* | daemon | no | `--catalog-pinned-tools` | `MCPX_CATALOG_PINNED_TOOLS` | tools always exposed in reactive mode |
 
 ### completion
 
@@ -306,6 +307,7 @@ and a switch to turn the report off would have kept it quiet.
 | `daemon.refreshTimeout` | duration | `3m0s` | daemon | yes | `--daemon-refresh-timeout` | `MCPX_DAEMON_REFRESH_TIMEOUT` | how long POST /v1/refresh may take |
 | `daemon.saveInterval` | duration | `5m` | daemon | no | `--daemon-save-interval` | `MCPX_DAEMON_SAVE_INTERVAL` | *(plumbing)* how often daemon state is written to disk |
 | `daemon.socketProbeTimeout` | duration | `500ms` | daemon | no | `--daemon-socket-probe-timeout` | `MCPX_DAEMON_SOCKET_PROBE_TIMEOUT` | *(plumbing)* how long a socket left by a crashed daemon is given to answer |
+| `daemon.takeoverTimeout` | duration | `15s` | daemon | no | `--daemon-takeover-timeout` | `MCPX_DAEMON_TAKEOVER_TIMEOUT` | *(plumbing)* how long a handoff may take, and how long the old daemon waits for its successor to hang up |
 | `daemon.warm` | bool | `true` | daemon | no | `--daemon-warm`, `--warm` | `MCPX_DAEMON_WARM` | read every server's schemas in the background at startup |
 | `daemon.warmTimeout` | duration | `3m0s` | daemon | no | `--daemon-warm-timeout` | `MCPX_DAEMON_WARM_TIMEOUT` | *(plumbing)* how long the background schema fetch may take |
 | `daemon.watchConfig` | bool | `true` | daemon | yes | `--daemon-watch-config` | `MCPX_DAEMON_WATCH_CONFIG` | re-read the configuration files when they change on disk |
@@ -332,6 +334,16 @@ and a switch to turn the report off would have kept it quiet.
 | `elicit.disambiguate` | enum | `never` | daemon | no | `--elicit-disambiguate` | `MCPX_ELICIT_DISAMBIGUATE` | ask which instance of a stateful server to use when several are live and the script did not choose |
 | `elicit.disambiguateDefault` | enum | `new` | daemon | no | `--elicit-disambiguate-default` | `MCPX_ELICIT_DISAMBIGUATE_DEFAULT` | which instance is used when nobody answers in time: the one the scope would have chosen, or the most recently used |
 | `elicit.pendingLimit` | int | `100` | daemon | yes | `--elicit-pending-limit` | `MCPX_ELICIT_PENDING_LIMIT` | *(plumbing)* how many unanswered questions one listing returns |
+
+### embeddings
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `embeddings.apiKey` | string | *(empty)* | daemon | yes | `--embeddings-api-key` | `MCPX_EMBEDDINGS_API_KEY` | API key for remote embeddings endpoint |
+| `embeddings.backend` | string | `auto` | daemon | yes | `--embeddings-backend` | `MCPX_EMBEDDINGS_BACKEND` | which embedding engine to use (auto, local, remote, wasm) |
+| `embeddings.model` | string | `text-embedding-3-small` | daemon | yes | `--embeddings-model` | `MCPX_EMBEDDINGS_MODEL` | model name for remote embeddings endpoint |
+| `embeddings.url` | string | *(empty)* | daemon | yes | `--embeddings-url` | `MCPX_EMBEDDINGS_URL` | OpenAI-compatible embeddings endpoint URL |
+| `embeddings.wasmPath` | string | *(empty)* | daemon | yes | `--embeddings-wasm-path` | `MCPX_EMBEDDINGS_WASM_PATH` | path to compiled WebAssembly neural embedding model |
 
 ### events
 
@@ -539,6 +551,13 @@ and a switch to turn the report off would have kept it quiet.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `repair.autonomy` | enum | `advise` | call | yes | `--repair-autonomy` | `MCPX_REPAIR_AUTONOMY` | how far mcpx goes about a failed call: off attaches nothing, advise attaches diagnostics |
 
+### retention
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `retention.maxTools` | int | `24` | daemon | no | `--retention-max-tools` | `MCPX_RETENTION_MAX_TOOLS` | maximum active tools in reactive working set |
+| `retention.stickyWindow` | duration | `2h` | daemon | no | `--retention-sticky-window` | `MCPX_RETENTION_STICKY_WINDOW` | duration explicitly requested tools remain retained |
+
 ### script
 
 | setting | kind | default | scope | hot | flag | variable | governs |
@@ -563,6 +582,13 @@ and a switch to turn the report off would have kept it quiet.
 | setting | kind | default | scope | hot | flag | variable | governs |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `search.limit` | int | `20` | call | yes | `--search-limit`, `--limit`, `--n` | `MCPX_SEARCH_LIMIT` | how many tools a search returns |
+| `search.semantic` | bool | `false` | call | yes | `--search-semantic` | `MCPX_SEARCH_SEMANTIC` | rank search results using local dense vector embeddings |
+
+### serve
+
+| setting | kind | default | scope | hot | flag | variable | governs |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `serve.mode` | string | `code-mode` | daemon | no | `--serve-mode`, `--mode` | `MCPX_SERVE_MODE` | server mode: code-mode, reactive, or full |
 
 ### session
 

@@ -89,6 +89,12 @@ type Op struct {
 	// CoveredBy names a hand-written MCP tool that already exposes this
 	// operation. Empty means a proxy tool is generated as mcpx_<Name>.
 	CoveredBy string
+	// NoTool says why this operation has no MCP tool at all. Empty means it
+	// has one. It is set only where a tool would carry something MCP must
+	// not: the arguments of a tool call are in the model's context, so a
+	// secret's value sent that way would be read by the model and kept in its
+	// transcript. Every other operation is a tool, privileged or not.
+	NoTool string
 	// Text marks a response that is text/plain rather than JSON.
 	Text bool
 
@@ -138,7 +144,7 @@ func (o Op) ToolName() string {
 }
 
 // Generated reports whether this operation needs a proxy tool built for it.
-func (o Op) Generated() bool { return !o.Streams && o.CoveredBy == "" }
+func (o Op) Generated() bool { return !o.Streams && o.CoveredBy == "" && o.NoTool == "" }
 
 // Route is the "METHOD /path" key a Go 1.22 mux registers under.
 func (o Op) Route() string { return o.Method + " " + o.Path }
@@ -399,6 +405,7 @@ func Ops() []Op {
 			Params: []Param{
 				{Name: "q", In: InQuery, Type: "string", Required: true, Desc: "what to match against tool names and descriptions"},
 				{Name: "limit", In: InQuery, Type: "integer", Desc: "how many results to return"},
+				{Name: "semantic", In: InQuery, Type: "boolean", Desc: "rank results using local dense vector embeddings"},
 			},
 		},
 		{
@@ -457,6 +464,19 @@ func Ops() []Op {
 					Schema: `{"type":"object","additionalProperties":true}`},
 				{Name: "task", In: InBody, Type: "object", Desc: "run as a task and return a handle at once",
 					Schema: `{"type":"object","properties":{"ttl":{"type":"integer","description":"milliseconds the result is kept"}},"additionalProperties":false}`},
+			}, callContextParams()...),
+		},
+		{
+			Name: "batch", Method: "POST", Path: "/v1/batch",
+			Command: "batch",
+			Summary: "Execute multiple tool calls in a single turn",
+			Description: "Executes multiple calls sequentially or in parallel, returning all results in a single response.",
+			CoveredBy: "mcpx_batch", Mutating: true,
+			Params: append([]Param{
+				{Name: "calls", In: InBody, Type: "array", Required: true, Desc: "list of tool calls to execute",
+					Schema: `{"type":"array","items":{"type":"object","properties":{"server":{"type":"string"},"tool":{"type":"string"},"args":{"type":"object"}},"required":["tool"]}}`},
+				{Name: "stopOnError", In: InBody, Type: "boolean", Desc: "stop execution on first failure (default true)"},
+				{Name: "parallel", In: InBody, Type: "boolean", Desc: "execute calls concurrently (default false)"},
 			}, callContextParams()...),
 		},
 		{
@@ -526,6 +546,14 @@ func Ops() []Op {
 			Admin: true, Mutating: true,
 		},
 		{
+			Name: "reload", Method: "POST", Path: "/v1/reload",
+			Command: "reload",
+			Summary: "Re-read the configuration and swap server pools without restarting unchanged servers",
+			Description: "Re-reads the daemon configuration files without re-probing all unchanged server schemas. " +
+				"Unchanged server processes and their cached schemas remain live.",
+			Admin: true, Mutating: true,
+		},
+		{
 			Name: "restart", Method: "POST", Path: "/v1/restart",
 			Command: "restart",
 			Summary: "Restart a server's instances, or every server's",
@@ -535,14 +563,15 @@ func Ops() []Op {
 				"nothing running, a global-scope server starts one instance, so a " +
 				"restart verifies the server comes up; a scoped server with nothing " +
 				"running has no caller to start one for and starts nothing. In-flight " +
-				"calls on the stopped instances fail. Omit the server to restart all " +
-				"of them. lazy stops without starting anything: the next call starts " +
-				"a fresh instance.",
+				"calls get limits.execDrainTimeout to finish, then fail if still running. " +
+				"Omit the server to restart all of them. lazy does not wait and starts " +
+				"nothing now: the next call starts a fresh instance, and calls already " +
+				"running finish on the old one, which is closed after them.",
 			Admin: true, Mutating: true, Destructive: true,
 			Params: []Param{
 				{Name: "server", In: InBody, Type: "string", Desc: "empty means every server"},
 				{Name: "lazy", In: InBody, Type: "boolean",
-					Desc: "stop only; start on the next call instead of now"},
+					Desc: "do not wait: new calls start a fresh instance, in-flight calls finish on the old one"},
 			},
 		},
 		{
@@ -553,6 +582,106 @@ func Ops() []Op {
 			Description: "Every pooled server process stops with it, and every other " +
 				"client of this daemon loses its session.",
 			Admin: true, Mutating: true, Destructive: true,
+		},
+		{
+			Name: "daemon_restart", Method: "POST", Path: "/v1/daemon/restart",
+			Command: "restart",
+			Summary: "Restart the mcpx daemon",
+			Description: "Gracefully reloads or restarts the mcpx daemon process itself.",
+			Admin: true, Mutating: true, Destructive: true,
+		},
+		{
+			Name: "dashboard", Method: "GET", Path: "/v1/dashboard",
+			Command: "dashboard",
+			Text:    true,
+			Summary: "Live web dashboard HTML",
+			Description: "Single-page dashboard application displaying active pools and token economics telemetry.",
+		},
+		{
+			Name: "metrics_tokens", Method: "GET", Path: "/v1/metrics/tokens",
+			Summary: "Token economics telemetry summary",
+			Description: "Aggregated stats on prompt turns, baseline tool schema tokens, injected tokens, and tokens saved.",
+		},
+		{
+			Name: "metrics_tools", Method: "GET", Path: "/v1/metrics/tools",
+			Summary: "Tool call telemetry, error rates, correlations and timelines",
+			Description: "Aggregated stats on tool call volume, error rates, error shapes, correlated tool pairs, and usage over time.",
+		},
+		{
+			Name: "chat_completions", Method: "POST", Path: "/v1/chat/completions",
+			Command: "proxy",
+			Summary: "OpenAI-compatible LLM chat completions endpoint",
+			Description: "Proxies chat completions requests while dynamically injecting semantically discovered tools.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "model", In: InBody, Type: "string", Desc: "the model ID"},
+				{Name: "messages", In: InBody, Type: "array", Required: true, Desc: "the list of chat messages",
+					Schema: `{"type":"array","items":{"type":"object"}}`},
+			},
+		},
+		{
+			Name: "embeddings", Method: "POST", Path: "/v1/embeddings",
+			Command: "embeddings",
+			Summary: "Compute vector embeddings for text",
+			Description: "OpenAI-compatible vector embedding endpoint using pure-Go, WASM, or remote engines.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "input", In: InBody, Type: "string", Required: true, Desc: "input text string or array of strings"},
+				{Name: "model", In: InBody, Type: "string", Desc: "the model ID"},
+			},
+		},
+		{
+			Name: "embeddings_export", Method: "GET", Path: "/v1/embeddings/export",
+			Command: "embeddings export",
+			Summary: "Export cached vector embeddings",
+			Description: "Exports all computed and indexed tool vector embeddings as JSON.",
+		},
+		{
+			Name: "embeddings_import", Method: "POST", Path: "/v1/embeddings/import",
+			Command: "embeddings import",
+			Summary: "Import pre-computed vector embeddings",
+			Description: "Imports pre-computed tool vector embeddings from JSON payload.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "content", In: InBody, Type: "string", Required: true, Raw: true,
+					Desc: "the JSON payload, sent as the whole request body"},
+			},
+		},
+		{
+			Name: "feedback", Method: "POST", Path: "/v1/feedback",
+			Command: "feedback",
+			Summary: "Submit quality feedback for a trace",
+			Description: "Attaches a score and feedback notes to an interaction trace ID for adaptive routing.",
+			Mutating: true,
+			Params: []Param{
+				{Name: "traceId", In: InBody, Type: "string", Required: true, Desc: "the interaction trace ID"},
+				{Name: "score", In: InBody, Type: "number", Required: true, Desc: "primary score between 0.0 (bad) and 1.0 (good)"},
+				{Name: "target", In: InBody, Type: "string", Desc: "feedback target: 'retrieval' (search relevance) or 'execution' (tool runtime success)"},
+				{Name: "retrievalScore", In: InBody, Type: "number", Desc: "retrieval relevance score between 0.0 and 1.0"},
+				{Name: "executionScore", In: InBody, Type: "number", Desc: "execution reliability score between 0.0 and 1.0"},
+				{Name: "notes", In: InBody, Type: "string", Desc: "commentary or feedback explanation"},
+			},
+		},
+		{
+			Name: "interactions_list", Method: "GET", Path: "/v1/interactions",
+			Command: "interactions",
+			Summary: "List and filter past interaction traces",
+			Description: "Returns history of inputs, outputs, tools used, and recorded feedback scores.",
+			Params: []Param{
+				{Name: "q", In: InQuery, Type: "string", Desc: "search text across inputs, outputs, and feedback notes"},
+				{Name: "source", In: InQuery, Type: "string", Desc: "filter by source ('proxy', 'call', etc.)"},
+				{Name: "target", In: InQuery, Type: "string", Desc: "filter by feedback target ('retrieval' or 'execution')"},
+				{Name: "hasFeedback", In: InQuery, Type: "string", Desc: "filter by feedback status: '1' (rated), '0' (unrated)"},
+			},
+		},
+		{
+			Name: "interactions_get", Method: "GET", Path: "/v1/interactions/{id}",
+			Command: "interactions show",
+			Summary: "Inspect a specific interaction trace",
+			Description: "Returns full details of an interaction by its trace ID.",
+			Params: []Param{
+				{Name: "id", In: InPath, Type: "string", Required: true, Desc: "the interaction trace ID"},
+			},
 		},
 		{
 			Name: "openapi", Method: "GET", Path: "/v1/openapi.json",
@@ -566,6 +695,7 @@ func Ops() []Op {
 	ops = append(ops, execOps()...)
 	ops = append(ops, settingsOps()...)
 	ops = append(ops, resolveOps()...)
+	ops = append(ops, secretsOps()...)
 	sort.Slice(ops, func(i, j int) bool {
 		if ops[i].Path == ops[j].Path {
 			return ops[i].Method < ops[j].Method

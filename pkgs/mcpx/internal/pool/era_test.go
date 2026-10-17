@@ -71,6 +71,9 @@ func startOnce(t *testing.T, p *pool.Pool) {
 	}
 	lease.Release()
 	p.Restart(context.Background(), true)
+	// The lazy child closes in the background; the hook this test reads is
+	// restored when it ends, so wait for the close first.
+	p.WaitDrained()
 }
 
 func newEraPool(s *eraServer, eras pool.EraStore) *pool.Pool {

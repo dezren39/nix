@@ -121,8 +121,14 @@ func NewClientAt(paths daemon.Paths, configPath, endpoint string) *Client {
 					var d net.Dialer
 					return d.DialContext(ctx, "unix", paths.Socket)
 				},
-				MaxIdleConns:    set.Int("http.idleConns"),
-				IdleConnTimeout: idle,
+				// No connection is kept between calls. A takeover closes
+				// the old daemon's idle connections; a client that reused
+				// one could send into it just as it closed, and a POST is
+				// not retried by the transport once its bytes are written.
+				// A fresh connection is queued for the successor instead.
+				DisableKeepAlives: true,
+				MaxIdleConns:      set.Int("http.idleConns"),
+				IdleConnTimeout:   idle,
 			},
 		}
 		return c
@@ -261,11 +267,21 @@ func (c *Client) readReply(resp *http.Response) ([]byte, int, error) {
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e struct {
-			Error string `json:"error"`
+			Error     string `json:"error"`
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"requestId"`
 		}
 		msg := fmt.Sprintf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-		if json.Unmarshal(b, &e) == nil && e.Error != "" {
-			msg = e.Error
+		if json.Unmarshal(b, &e) == nil {
+			switch {
+			case e.Error != "":
+				msg = e.Error
+			case e.Code == "secret_required" && e.Message != "":
+				// A refusal for a missing secret says what is missing and
+				// which request answers it; the raw body says the same in JSON.
+				msg = e.Message + " (request " + e.RequestID + ")"
+			}
 		}
 		return nil, resp.StatusCode, &HTTPError{Status: resp.StatusCode, Body: b, Msg: msg}
 	}
@@ -459,8 +475,12 @@ func (c *Client) Globals(ctx context.Context, ns []string, prof Profile) (string
 }
 
 // Search ranks tools against a query.
-func (c *Client) Search(ctx context.Context, q string, limit int) ([]daemon.ToolInfo, error) {
-	b, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/search?q=%s&limit=%d", urlEscape(q), limit), nil)
+func (c *Client) Search(ctx context.Context, q string, limit int, semantic ...bool) ([]daemon.ToolInfo, error) {
+	semQ := ""
+	if len(semantic) > 0 && semantic[0] {
+		semQ = "&semantic=true"
+	}
+	b, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/v1/search?q=%s&limit=%d%s", urlEscape(q), limit, semQ), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -498,6 +518,47 @@ func (c *Client) Call(ctx context.Context, server, tool string, cc config.CallCo
 		return nil, err
 	}
 	var out CallResult
+	return &out, json.Unmarshal(b, &out)
+}
+
+// BatchCallItem is one call to be executed in a batch.
+type BatchCallItem struct {
+	Server    string          `json:"server,omitempty"`
+	Namespace string          `json:"namespace,omitempty"`
+	Tool      string          `json:"tool"`
+	Name      string          `json:"name,omitempty"`
+	Args      json.RawMessage `json:"args,omitempty"`
+}
+
+// BatchResultItem is the result of one call in a batch.
+type BatchResultItem struct {
+	Index      int             `json:"index"`
+	Server     string          `json:"server,omitempty"`
+	Tool       string          `json:"tool"`
+	Status     string          `json:"status"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	IsError    bool            `json:"isError,omitempty"`
+	DurationMs int64           `json:"durationMs,omitempty"`
+}
+
+// BatchResponse is the response to /v1/batch.
+type BatchResponse struct {
+	Results []BatchResultItem `json:"results"`
+}
+
+// Batch invokes multiple tools in a single turn.
+func (c *Client) Batch(ctx context.Context, calls []BatchCallItem, stopOnError bool, parallel bool, cc config.CallContext) (*BatchResponse, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/batch", map[string]any{
+		"calls":       calls,
+		"stopOnError": stopOnError,
+		"parallel":    parallel,
+		"context":     cc,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out BatchResponse
 	return &out, json.Unmarshal(b, &out)
 }
 
@@ -611,6 +672,16 @@ func (c *Client) Refresh(ctx context.Context) (map[string]any, error) {
 	return out, json.Unmarshal(b, &out)
 }
 
+// Reload tells the running daemon to reload its configuration without restarting unchanged servers.
+func (c *Client) Reload(ctx context.Context) (map[string]any, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/reload", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	return out, json.Unmarshal(b, &out)
+}
+
 // RestartReply is what POST /v1/restart answers.
 type RestartReply struct {
 	Stopped int  `json:"stopped"`
@@ -633,7 +704,7 @@ type RestartReply struct {
 	} `json:"servers"`
 }
 
-// Restart restarts a server (or all when empty); lazy only stops.
+// Restart restarts a server (or all when empty); lazy does not wait for calls in flight.
 func (c *Client) Restart(ctx context.Context, server string, lazy bool) (RestartReply, error) {
 	var out RestartReply
 	b, err := c.do(ctx, http.MethodPost, "/v1/restart", map[string]any{"server": server, "lazy": lazy})
@@ -646,6 +717,24 @@ func (c *Client) Restart(ctx context.Context, server string, lazy bool) (Restart
 // Shutdown asks the daemon to exit.
 func (c *Client) Shutdown(ctx context.Context) error {
 	_, err := c.do(ctx, http.MethodPost, "/v1/shutdown", nil)
+	return err
+}
+
+// Upgrade asks the running daemon to hand over to the binary at path, started
+// through start (the unit's start command ahead of it, or none). The answer is
+// "current" when that is the binary it already runs.
+func (c *Client) Upgrade(ctx context.Context, binary string, start []string) (map[string]any, error) {
+	b, err := c.do(ctx, http.MethodPost, "/v1/upgrade", map[string]any{"binary": binary, "start": start})
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	return out, json.Unmarshal(b, &out)
+}
+
+// RestartDaemon asks the daemon to restart itself.
+func (c *Client) RestartDaemon(ctx context.Context) error {
+	_, err := c.do(ctx, http.MethodPost, "/v1/daemon/restart", nil)
 	return err
 }
 

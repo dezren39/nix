@@ -24,13 +24,14 @@ brews.nix casks.nix masApps.nix   homebrew formulae / casks / mas apps
 treefmt.nix            formatter config (nixfmt + rustfmt) — used by flake `formatter`/`checks`
 
 pkgs/                  Custom packages (see §4)
-patches/               OpenCode TUI patches applied to the opencode derivation
-*.patch (root)         OpenCode Copilot/OpenAI patches + homebrew fix
+patches/               sidepulse + lootbox patch stacks (OpenCode is not patched; see §5)
+*.patch (root)         homebrew-services fix (unused)
+openchamber.nix        OpenChamber server launchd agent + desktop client (§5)
 instructions/          OpenCode instruction files (lootbox.md, subagents.md)
 commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)
 opencode.jsonc         OpenCode config (Copilot-only, model policy, plugins)
-tui.jsonc              OpenCode TUI theme + auto_scroll_tolerance
+tui.jsonc              v1 TUI config; v2 ignores it (v2 reads ~/.config/opencode/cli.json)
 sounds/                Star Trek notification sounds (opencode-notifier)
 themes/ vibrant-ink.json   Active TUI theme
 justfile               Task runner (rebuild, tidy, share, link-git, lootbox)
@@ -66,23 +67,21 @@ flake.nix → ./configuration.nix
 - **Stack inputs:** determinate (Determinate Nix), nix-darwin, home-manager,
   mac-app-util, nix-homebrew (+ brew-src, homebrew-core/cask/bundle/services and
   third-party taps), NUR, fenix (Rust), treefmt-nix, just, nixpkgs-terraform,
-  `opencode` (github:anomalyco/opencode/dev), and `opencode2`
-  (github:anomalyco/opencode/v2).
+  `opencode` (github:developing-today/opencode, our fork) and `openchamber`
+  (github:developing-today/openchamber, our fork; its `opencode` follows ours).
 - **Input hygiene:** a heavy `follows` graph plus `nixpkgs-hoisted*` inputs keeps
   transitive nixpkgs deduplicated. This is maintained by the custom **flake-tidy**
   tool (§4).
 - **`mkPackages`** (single source of package defs, reused by `packages`, `apps`,
-  `devShells`, `checks`): builds `bun-bin`, patches `opencode` (applies
-  `opencodePatches` + swaps in `bun-bin` as the build's bun), builds the v2 CLI
-  from `packages/cli` as `opencode2`, and exposes `brew-repair`, `flake-tidy`,
-  `opencode-share`, `symlinker`.
-- **`opencodePatches`** = `patches/opencode-compact-tui.patch` +
-  `patches/opencode-scroll-autofollow.patch` +
-  `patches/opencode-plan-permissions-reminder.patch`.
+  `devShells`, `checks`): builds `bun-bin` and `mcpx`; `opencode-unwrapped`
+  (the fork's package with our mcpx) and `opencode` (a wrapper pinning
+  `OPENCODE_DB` and `TMPDIR`); `openchamber` (the fork's server built against
+  that `opencode`); plus `brew-repair`, `flake-tidy`, `opencode-share`,
+  `symlinker`.
 - **checks:** `formatting` (treefmt) and `tidy` (flake-tidy `--check`) on every
   supported system; the Sidepulse package build/test and setup smoke test run
   on Darwin only.
-- **apps:** `flake-tidy`, `opencode`, `opencode2`, `opencode-share`, `symlinker`;
+- **apps:** `flake-tidy`, `opencode`, `openchamber`, `opencode-share`, `symlinker`;
   Sidepulse apps are Darwin-only.
 - **devShell:** opencode, flake-tidy, symlinker, just, nixfmt, git, gh (with a
   version-printing shellHook); Sidepulse tools are added on Darwin only.
@@ -141,7 +140,7 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 | --- | --- | --- | --- |
 | **flake-tidy** ⭐ | Python 3 (~3300 lines) | `writeShellApplication` | Deduplicates/merges/flattens flake inputs by adding `follows`; edits `flake.nix`, reruns `nix flake lock` with backout, reformats. `dedup`/`merge`/`flatten`/`all` subcommands, `--check`/`--dry-run`. **~134 pytest tests** + fixtures. |
 | bun-bin | Nix | `mkDerivation` | Prebuilt Bun (currently 1.3.14); Darwin re-signs via `install_name_tool`+`rcodesign`. Hashes in `hashes.json`. |
-| opencode2 | TypeScript/Bun | `mkDerivation` | Builds the OpenCode 2.0 beta CLI from the tracked upstream `v2` branch as the separate `opencode2` executable. |
+| mcpx | Go | `buildGo127Module` | MCP gateway / Code Mode runner, vendored verbatim from developing-today/code; its daemon runs as a launchd agent. Darwin skips the Linux-only takeover tests (flake.nix). |
 | brew-repair | Bash (+py) | `writeShellScriptBin` | Detects casks brew thinks are installed but whose `.app` is missing; selectively reinstalls. `--dry-run/--quiet/--skip`. |
 | opencode-share | Bash | `writeShellApplication` | Shares one `.opencode` across projects via nested **bindfs** mounts while keeping per-project `plans/`. mount/unmount/status/dry-run. |
 | symlinker | Bash (~1250 lines, source at repo root `symlinker.sh`) | `writeShellApplication` | Bulk symlink manager with backup, undo (v2 RELINK), filters, dry-run. |
@@ -166,8 +165,8 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
   `.opencode/instructions/{lootbox,subagents}.md`. Plugins (npm): opencode-notifier,
   plannotator, opencode-pty, md-table-formatter, opencode-auto-continue (GitHub
   tarball). `compaction.reserved = 8192`.
-- **`tui.jsonc`** — theme `vibrant-ink`; `auto_scroll_tolerance: 0` (custom key
-  consumed by the scroll-autofollow patch).
+- **`tui.jsonc`** — v1 TUI config; v2 does not read it (`~/.config/opencode/cli.json`
+  instead). Kept only until it is clear nothing else reads it.
 - **`instructions/`** — `lootbox.md` (all MCP tooling via local lootbox server on
   :9420; write reusable `.ts` to `.lootbox/scripts/`; namespaces `mcp_codedb`,
   `mcp_fff`, `mcp_chrome_devtools`, `mcp_context7`); `subagents.md` (subagent-first
@@ -176,39 +175,35 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 - **`commands/`** — `/gha-fix` (diagnose+fix a failed GitHub Actions job, with
   production-safety gating) and `/gha-why` (analyze a *successful* job).
   `./symlink-commands` installs missing global command symlinks safely.
-- **`lootbox.config.json`** — MCP servers: codedb, fff (fff-mcp), chrome-devtools,
-  context7.
+- **`lootbox.config.json`** — the MCP server list, shared by lootbox and mcpx
+  (`mcpx.config.nix` derives mcpx's config from it).
 
-### Patches
+### OpenCode and OpenChamber: our forks, no local patches
 
-Applied to the opencode build (`patches/`, via `opencodePatches`):
-- **opencode-compact-tui.patch** — zeroes padding/gaps across TUI for a dense layout.
-- **opencode-scroll-autofollow.patch** — adds `auto_scroll_tolerance` config + sticky
-  scroll (auto-follow only when near bottom).
-- **opencode-plan-permissions-reminder.patch** — makes legacy and experimental Plan
-  reminders honor resolved Plan permissions while preserving read-only defaults.
-- *Retired at 07bbd0f (dev became v2, upstream-equivalent; files kept in
-  `patches/` for reference, no longer in `opencodePatches`):*
-  **opencode-hidden-agent-variants.patch** and
-  **opencode-agent-variant-defaults.patch**.
-- **opencode-run-descendant-permissions.patch** — ports anomalyco/opencode#36898 so
-  headless `opencode run` approves or rejects permission requests from any
-  descendant Task session instead of hanging.
-- **opencode-nested-subagent-prompts.patch** — ports the runtime portions of
-  anomalyco/opencode#36046 so nested subagent prompts and status surface in the
-  TUI and interactive CLI footer.
+OpenCode and OpenChamber are built from forks we own
+(developing-today/opencode and developing-today/openchamber, both `main`). Fixes
+go into the fork, then the pins move up: opencode fork -> openchamber's lock ->
+this repo's lock. `.agents/skills/update-opencode` is the procedure. The old
+local patch stack was retired (TUI-only changes do not reach OpenChamber, the
+rest is covered by v2); remaining server-side gaps are developing-today/opencode#13
+and developing-today/openchamber#28.
 
-Root `*.patch` files are **NOT applied by the flake** (only the seven `patches/`
-above are). They are local snapshots/reference for fixes that are already carried
-by the `anomalyco/opencode/dev` input. Read before touching related behavior:
-- **opencode-copilot-business-support.patch** — Copilot Business/Enterprise: `ghu_`
-  vs `gho_` tokens, VS Code identity headers, `copilot_internal/v2/token` exchange.
-- **opencode-copilot-compaction-fix.patch** — dummy `_noop` tool for Copilot
-  Enterprise so compaction with prior tool calls succeeds.
-- **opencode-edit-read-clarify.patch** — clarifies "Read before Edit" (new files with
-  empty `oldString` need no prior read).
-- **opencode-openai-response-id-caching.patch** — OpenAI Responses-API server-side
-  prompt caching via `previous_response_id` (adds a DB migration).
+- **One database.** `~/.local/share/opencode/opencode.db` holds every session.
+  The `opencode` wrapper forces `OPENCODE_DB` to it, and `OPENCODE_DB` is also
+  set in `environment.variables`, `launchd.user.envVariables` and home-manager
+  `sessionVariables` (OpenChamber's server reads it directly). `just
+  opencode-db-backup` (APFS clone), `opencode-db-check`, `opencode-db-pending`.
+- **Standing server** (`openchamber.nix`, ported from developing-today/code's
+  systemd units): launchd agent `org.nixos.openchamber` runs `openchamber serve
+  --foreground` on 127.0.0.1:3000, managing one `opencode serve` reached through
+  `~/.local/state/openchamber/bin/opencode`. A switch restarts the agent only
+  when OpenChamber changed; a new OpenCode re-points the link and SIGHUPs for an
+  in-place handover. The desktop app is a client of that server
+  (`OPENCHAMBER_SERVER_URL`, `OPENCHAMBER_SKIP_LOCAL_SERVER`). Logs:
+  `~/Library/Logs/openchamber.log`.
+
+### Other patch files
+
 - **homebrew-services.patch** — fixes a Homebrew `require_relative` path; wired via
   a **commented-out** `applyPatches` block for the homebrew-services tap in
   `configuration.nix` (currently disabled).
@@ -242,5 +237,5 @@ Repo-local skills live in `.agents/skills/<name>/SKILL.md` — a plain git-track
 directory using the same layout as the global `~/.agents/skills` that opencode
 auto-scans on boot (not a symlink). opencode picks them up automatically; no
 config registration needed. This repo ships `nix-config` for repo orientation
-and `update-opencode` for advancing the OpenCode input while preserving and
-repairing active patches.
+and `update-opencode` for updating and repairing the OpenCode/OpenChamber fork
+stack from the forks up through this repo's lock.

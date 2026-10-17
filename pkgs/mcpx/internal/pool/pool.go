@@ -86,6 +86,13 @@ type Instance struct {
 	subMu      sync.Mutex
 	subscribed map[string]bool
 	monitored  bool
+	// retiring marks a child being taken out of service, for a changed
+	// executable or a restart: no new caller may take it, and it leaves the
+	// list once it is closed. Guarded by Pool.mu. See execwatch.go.
+	retiring bool
+	// swapped is set, to how the child is being taken down, just before it is
+	// closed, so a call that fails on it can say why.
+	swapped atomic.Pointer[string]
 }
 
 // Trace is this instance's identifier, carried by every record about it.
@@ -127,6 +134,24 @@ type Pool struct {
 	Hooks *Hooks
 
 	cfg *config.Resolved
+	// exec is the identity of the program the children run: cfg.ExecIdentity()
+	// as of New, then whatever the exec watch last found. execStamp is the
+	// stat it was worked out from, and execMissing is set while the file is
+	// gone. execMu guards all three. See PoolID and execwatch.go.
+	execMu      sync.Mutex
+	exec        string
+	execStamp   config.ExecStamp
+	execMissing bool
+	// watching says the exec watch goroutine is running; it starts with the
+	// pool's first live child. execEvery is the interval it was made with and
+	// execStop ends it when the pool closes.
+	watching  bool
+	execEvery time.Duration
+	execStop  chan struct{}
+
+	// draining counts the children a lazy restart is closing in the
+	// background. See WaitDrained.
+	draining sync.WaitGroup
 
 	mu        sync.Mutex
 	cond      *sync.Cond
@@ -136,6 +161,8 @@ type Pool struct {
 	startingLegacy int
 	seq            int
 	closed         bool
+	// parked and handed hold what a handoff took out of service; see Detach.
+	parked, handed []*Instance
 
 	flightMu sync.Mutex
 	inflight map[string]int
@@ -167,7 +194,10 @@ type Pool struct {
 
 // New creates an empty pool. No process is started until first use.
 func New(cfg *config.Resolved) *Pool {
-	p := &Pool{cfg: cfg}
+	// The stamp is taken with the identity, before either is used, so a change
+	// that lands after this is seen by the first check.
+	st, id, _ := cfg.ExecState()
+	p := &Pool{cfg: cfg, exec: id, execStamp: st, execEvery: ExecCheckInterval, execStop: make(chan struct{})}
 	p.cond = sync.NewCond(&p.mu)
 	return p
 }
@@ -274,6 +304,7 @@ func (p *Pool) Acquire(ctx context.Context, key string) (*Lease, error) {
 			in.holders = 1
 			in.lastUsed = time.Now()
 			p.instances = append(p.instances, in)
+			p.watchExecLocked()
 			p.cond.Broadcast()
 			p.mu.Unlock()
 			return &Lease{inst: in, pool: p}, nil
@@ -315,7 +346,7 @@ func (p *Pool) followLegacy(ctx context.Context) bool {
 // started legacy-only for somebody else.
 func (p *Pool) findLaneLocked(key string, legacy bool) *Instance {
 	for _, in := range p.instances {
-		if in.key != key {
+		if in.key != key || in.retiring {
 			continue
 		}
 		if legacy && (in.legacyLane || in.Client.Era == mcpclient.EraLegacy) || !legacy && !in.legacyLane {
@@ -328,7 +359,7 @@ func (p *Pool) findLaneLocked(key string, legacy bool) *Instance {
 // findLocked returns the instance serving key, if any.
 func (p *Pool) findLocked(key string) *Instance {
 	for _, in := range p.instances {
-		if in.key == key {
+		if in.key == key && !in.retiring {
 			return in
 		}
 	}
@@ -359,7 +390,7 @@ func (p *Pool) laneSizeLocked(legacy bool) int {
 func (p *Pool) evictableLocked(legacy bool) *Instance {
 	var best *Instance
 	for _, in := range p.instances {
-		if in.holders > 0 || in.legacyLane != legacy {
+		if in.holders > 0 || in.legacyLane != legacy || in.retiring {
 			continue
 		}
 		if best == nil || in.lastUsed.Before(best.lastUsed) {
@@ -452,6 +483,36 @@ func (p *Pool) reapDeadLocked() {
 
 func (p *Pool) start(ctx context.Context) (*Instance, error) { return p.startLane(ctx, false) }
 
+// installServerHooks wires what a server may ask of mcpx into the options its
+// session is opened with. It must run before the handshake, where a server
+// learns what mcpx can answer.
+func (p *Pool) installServerHooks(opts *mcpclient.Options, ref *instanceRef) {
+	h := p.Hooks
+	if h == nil {
+		return
+	}
+	if h.Elicit != nil {
+		opts.OnServerRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+			// While a person or agent answers, the call that provoked the
+			// question is not using its budget. See budget.go.
+			if in := ref.ptr.Load(); in != nil {
+				defer in.questions.asking()()
+			}
+			return h.Elicit(ctx, p.cfg.Name, ref.key(), method, params)
+		}
+	}
+	opts.Roots = h.Roots
+	opts.ProbeTimeout = h.ProbeTimeout
+}
+
+// subscribeServerEvents routes what a session volunteers to the pool's hooks.
+// A session is a client-side object, so a successor subscribes its own.
+func (p *Pool) subscribeServerEvents(cl *mcpclient.Client) {
+	if h := p.Hooks; h != nil {
+		cl.Subscribe(h.notifications(p.cfg.Name))
+	}
+}
+
 // startLane starts an instance; legacy starts it legacy-only, for a legacy
 // caller under protocol: follow.
 func (p *Pool) startLane(ctx context.Context, legacy bool) (*Instance, error) {
@@ -479,22 +540,11 @@ func (p *Pool) startLane(ctx context.Context, legacy bool) (*Instance, error) {
 	}
 	opts := mcpclient.Options{ClientName: "mcpx", ClientVersion: Version, Preference: pref}
 	ref := &instanceRef{p: p}
+	p.installServerHooks(&opts, ref)
 	eraKey := Identity(p.cfg)
 	var cached EraRecord
 	var eras EraStore
 	if h := p.Hooks; h != nil {
-		if h.Elicit != nil {
-			opts.OnServerRequest = func(ctx context.Context, method string, params json.RawMessage) (any, error) {
-				// While a person or agent answers, the call that provoked the
-				// question is not using its budget. See budget.go.
-				if in := ref.ptr.Load(); in != nil {
-					defer in.questions.asking()()
-				}
-				return h.Elicit(ctx, p.cfg.Name, ref.key(), method, params)
-			}
-		}
-		opts.Roots = h.Roots
-		opts.ProbeTimeout = h.ProbeTimeout
 		eras = h.Eras
 	}
 	forced := pref == mcpclient.ForceLegacy || pref == mcpclient.ForceModern
@@ -572,13 +622,11 @@ func (p *Pool) startLane(ctx context.Context, legacy bool) (*Instance, error) {
 	// lines, progress, list changes, resource updates. Installed before the
 	// instance is handed out, so nothing a server says in its first moments
 	// is lost.
-	if h := p.Hooks; h != nil {
-		cl.Subscribe(h.notifications(p.cfg.Name))
-		// Servers send nothing until asked, so a client that never sets a
-		// level concludes a server emits no logs at all.
-		if h.LogLevel != "" {
-			_ = cl.SetLogLevel(sctx, h.LogLevel)
-		}
+	p.subscribeServerEvents(cl)
+	// Servers send nothing until asked, so a client that never sets a level
+	// concludes a server emits no logs at all.
+	if h := p.Hooks; h != nil && h.LogLevel != "" {
+		_ = cl.SetLogLevel(sctx, h.LogLevel)
 	}
 
 	p.mu.Lock()
@@ -644,7 +692,7 @@ func (p *Pool) dial() (mcpclient.Transport, error) {
 		return mcpclient.NewStdio(mcpclient.StdioOptions{
 			Command:    p.cfg.Command,
 			Args:       p.cfg.Args,
-			Env:        overlay(p.cfg.Env, auth.Env),
+			Env:        overlay(overlay(p.cfg.Env, p.runtimeEnv()), auth.Env),
 			Cwd:        p.cfg.Cwd,
 			InheritEnv: true,
 		})
@@ -656,11 +704,45 @@ func (p *Pool) dial() (mcpclient.Transport, error) {
 	return mcpclient.NewHTTP(ho)
 }
 
+// variable is the value this server's configuration reads for name: the value
+// the daemon holds in memory for it, else the daemon's environment. Credentials
+// declared with auth are read this way, so an HTTP server gets the same secret
+// a stdio child does.
+func (p *Pool) variable(name string) string {
+	if p.cfg.Runtime != nil {
+		if v, ok := p.cfg.Runtime(name); ok && v != "" {
+			return v
+		}
+	}
+	return os.Getenv(name)
+}
+
+// runtimeEnv is the values the daemon holds in memory for the secrets this
+// server requires, for the environment of the child it is about to start. Only
+// the names the server asks for are passed: a child is not handed every secret
+// the daemon has, and a value is never written into the configuration, which
+// is shown to people.
+func (p *Pool) runtimeEnv() map[string]string {
+	if p.cfg.Runtime == nil {
+		return nil
+	}
+	var out map[string]string
+	for _, name := range p.cfg.SecretNames() {
+		if v, ok := p.cfg.Runtime(name); ok && v != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[name] = v
+		}
+	}
+	return out
+}
+
 // resolveAuth turns the server's `auth` block into the headers, query
 // parameters and environment a connection carries. A credential that names an
 // unset variable fails here, before a request, rather than as a 401 later.
 func (p *Pool) resolveAuth() (*mcpauth.Resolved, error) {
-	r, err := p.cfg.Auth.Resolve()
+	r, err := p.cfg.Auth.ResolveWith(p.variable)
 	if err != nil {
 		return nil, fmt.Errorf("%s: auth: %w", p.cfg.Name, err)
 	}
@@ -957,7 +1039,7 @@ func (p *Pool) Call(ctx context.Context, sessionKey, tool string, args any) (jso
 	cctx, finish := p.upstream(ctx, sessionKey, lease)
 	started := time.Now()
 	res, err := lease.Client().CallTool(cctx, tool, args)
-	err = finish(err)
+	err = p.replacedErr(lease.inst, finish(err))
 	// Reported from here rather than from the daemon's HTTP handler because
 	// this is the only place that knows which instance served the call. The
 	// handler sees a namespace; the log wants the process, so that a slow call
@@ -986,7 +1068,7 @@ func (p *Pool) ReadResource(ctx context.Context, sessionKey, uri string) (json.R
 
 	cctx, finish := p.upstream(ctx, sessionKey, lease)
 	res, err := lease.Client().ReadResource(cctx, uri)
-	return res, finish(err)
+	return res, p.replacedErr(lease.inst, finish(err))
 }
 
 // ReapIdle stops instances that nobody holds and that have gone quiet, plus
@@ -996,6 +1078,11 @@ func (p *Pool) ReapIdle(now time.Time) int {
 	var stop []*Instance
 	kept := p.instances[:0]
 	for _, in := range p.instances {
+		// A child being replaced is closed by the replacement, not reaped.
+		if in.retiring {
+			kept = append(kept, in)
+			continue
+		}
 		// An instance carrying resource subscriptions is not idle: it is
 		// the only thing that will ever report those resources changing.
 		expired := in.holders == 0 && now.Sub(in.lastUsed) > p.cfg.IdleTimeout &&
@@ -1048,16 +1135,17 @@ type InstanceStatus struct {
 
 // Status describes the pool.
 type Status struct {
-	Name      string           `json:"name"`
-	Namespace string           `json:"namespace"`
-	Sharing   string           `json:"sharing"`
-	Scope     string           `json:"scope"`
-	Max       int              `json:"max"`
-	Live      int              `json:"live"`
-	Tools     int              `json:"tools"`
-	SchemaAge string           `json:"schemaAge,omitempty"`
-	LastError string           `json:"lastError,omitempty"`
-	Instances []InstanceStatus `json:"instances,omitempty"`
+	Name            string           `json:"name"`
+	Namespace       string           `json:"namespace"`
+	Sharing         string           `json:"sharing"`
+	Scope           string           `json:"scope"`
+	Max             int              `json:"max"`
+	Live            int              `json:"live"`
+	Tools           int              `json:"tools"`
+	SchemaAge       string           `json:"schemaAge,omitempty"`
+	LastError       string           `json:"lastError,omitempty"`
+	Instances       []InstanceStatus `json:"instances,omitempty"`
+	RequiresSecrets []string         `json:"requiresSecrets,omitempty"`
 }
 
 // Status snapshots the pool for `mcpx status`.
@@ -1070,6 +1158,9 @@ func (p *Pool) Status() Status {
 		Scope:     string(p.cfg.Scope),
 		Max:       p.cfg.Max,
 		Live:      len(p.instances),
+	}
+	if p.cfg != nil && len(p.cfg.RequiresSecrets) > 0 {
+		st.RequiresSecrets = p.cfg.RequiresSecrets
 	}
 	if p.lastErr != nil {
 		st.LastError = p.lastErr.Error()
@@ -1117,35 +1208,84 @@ type RestartResult struct {
 }
 
 // Restart stops every instance and, unless lazy, starts a replacement for
-// each under the same scope key and waits for it to initialize. With nothing
-// running, a global-scope pool starts one instance so a restart verifies the
-// server comes up. A scoped pool with nothing running has no caller identity
-// to start one for, so it starts nothing and says so in Note.
+// each under the same scope key and waits for it to initialize. Whatever the
+// executable holds, the children are replaced: this is the operator's forced
+// restart, and an identical binary gets a new process all the same. With
+// nothing running, a global-scope pool starts one instance so a restart
+// verifies the server comes up. A scoped pool with nothing running has no
+// caller identity to start one for, so it starts nothing and says so in Note.
 //
-// Lazy is the old behaviour: drop everything now, start on demand.
+// Unless lazy, each child is taken out of service the way an executable change
+// takes one out (see retire): calls in flight on it have ExecDrainTimeout to
+// finish, and the replacement is started before this returns.
+//
+// Lazy is a fast restart, not a cut-off. The children leave the list at once,
+// so the next call starts a fresh child without waiting for them, and this
+// returns without waiting either. Each child is retired in the background: its
+// calls in flight finish on it, and it is closed when the last one ends or
+// ExecDrainTimeout passes, whichever is first. A lazy child does not count
+// toward Max while it drains, so for that window a lane can hold more than Max
+// processes. That is the price of not making the new call wait.
 func (p *Pool) Restart(ctx context.Context, lazy bool) RestartResult {
 	p.mu.Lock()
-	stop := p.instances
-	p.instances = nil
+	// A copy: retire removes children from p.instances in place.
+	stop := append([]*Instance(nil), p.instances...)
 	p.failCount = 0
 	p.lastErr = nil
 	p.cooldownUntil = time.Time{}
+	// Taken now, not when each is reached, so no new caller takes a child that
+	// is about to go. An instance already retiring for an executable change is
+	// closed by that replacement, and is not retired twice.
+	var retiring []*Instance
+	busy := 0
+	for _, in := range stop {
+		if in.holders > 0 {
+			busy++
+		}
+		if !in.retiring {
+			in.retiring = true
+			if !lazy {
+				p.reserveSlotLocked(in)
+			}
+			retiring = append(retiring, in)
+		}
+	}
+	if lazy {
+		p.instances = nil
+	}
 	p.cond.Broadcast()
 	p.mu.Unlock()
+	if lazy {
+		drain := ExecDrainTimeout
+		for _, in := range retiring {
+			p.draining.Add(1)
+			go func() {
+				defer p.draining.Done()
+				p.retire(in, drain, "restart", "restarted on request")
+			}()
+		}
+		res := RestartResult{Stopped: len(stop)}
+		if busy > 0 {
+			res.Note = fmt.Sprintf("%d instance(s) still serving calls: they finish on the old process, which is closed after them or after limits.execDrainTimeout", busy)
+		}
+		return res
+	}
 	var keys []string
 	seen := map[string]bool{}
 	for _, in := range stop {
-		p.stopped(in, "restart")
-		_ = in.Client.Close()
 		if !seen[in.key] {
 			seen[in.key] = true
 			keys = append(keys, in.key)
 		}
 	}
-	res := RestartResult{Stopped: len(stop)}
-	if lazy {
-		return res
+	for _, in := range retiring {
+		p.retire(in, ExecDrainTimeout, "restart", "restarted on request")
+		p.mu.Lock()
+		p.releaseSlotLocked(in)
+		p.cond.Broadcast()
+		p.mu.Unlock()
 	}
+	res := RestartResult{Stopped: len(stop)}
 	if len(keys) == 0 {
 		if p.cfg.Scope != config.ScopeGlobal {
 			res.Note = fmt.Sprintf("no instance running; scope %q starts one per caller on its next call", p.cfg.Scope)
@@ -1191,16 +1331,87 @@ func (p *Pool) startFor(ctx context.Context, key string) (string, error) {
 	return id, nil
 }
 
-// Close shuts the pool down permanently.
+// WaitDrained blocks until every child a lazy restart took out of service is
+// closed: its calls have ended, or the drain window has passed. A lazy restart
+// returns before this, so a caller that needs the old children gone (a test
+// that restores a global hook, say) waits here.
+func (p *Pool) WaitDrained() { p.draining.Wait() }
+
+// Close shuts the pool down permanently, closing instances after in-flight work completes.
 func (p *Pool) Close() {
+	p.CloseGraceful(defaults.HTTPShutdownGrace)
+}
+
+// CloseGraceful marks the pool closed so no new leases are acquired,
+// waits for active holders to finish their work up to the specified timeout,
+// and then closes the instances. Ongoing requests are preserved without cancellation.
+func (p *Pool) CloseGraceful(timeout time.Duration) {
 	p.mu.Lock()
-	p.closed = true
+	if !p.closed {
+		p.closed = true
+		close(p.execStop)
+	}
 	stop := p.instances
 	p.instances = nil
 	p.cond.Broadcast()
 	p.mu.Unlock()
+
+	deadline := time.Now().Add(timeout)
 	for _, in := range stop {
+		// Wait for ongoing holders to complete
+		for {
+			p.mu.Lock()
+			busy := in.holders > 0
+			p.mu.Unlock()
+			if !busy || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 		_ = in.Client.Close()
+	}
+}
+
+// CloseDrained shuts a pool down the way a lazy restart retires its children,
+// for a pool that a configuration change has replaced or removed. Each child
+// is taken out of service at once, and is closed when the calls on it end or
+// ExecDrainTimeout passes, whichever is first.
+//
+// CloseGraceful, which Close uses, waits only its own shorter grace and then
+// closes the connection, failing whatever call is still reading from it. A
+// tuning change or a removed server cut a call that ran past that grace.
+// WaitDrained covers this as well as a lazy restart.
+func (p *Pool) CloseDrained() {
+	p.closeDrained(ExecDrainTimeout, "reconfigured", "replaced by a configuration change")
+}
+
+// CloseDrainedWithin is CloseDrained for a daemon that is shutting down. drain
+// is the time calls in flight have, which the daemon passes as what is left of
+// its drain window once the HTTP server has stopped taking calls. The window
+// is ExecDrainTimeout, the same as a reload's, so a stop is bounded by it.
+func (p *Pool) CloseDrainedWithin(drain time.Duration) {
+	p.closeDrained(drain, "shutdown", "stopped because the daemon is shutting down")
+}
+
+func (p *Pool) closeDrained(drain time.Duration, stopReason, callErr string) {
+	p.mu.Lock()
+	if !p.closed {
+		p.closed = true
+		close(p.execStop)
+	}
+	stop := p.instances
+	p.instances = nil
+	for _, in := range stop {
+		in.retiring = true
+	}
+	p.cond.Broadcast()
+	p.mu.Unlock()
+	for _, in := range stop {
+		p.draining.Add(1)
+		go func(in *Instance) {
+			defer p.draining.Done()
+			p.retire(in, drain, stopReason, callErr)
+		}(in)
 	}
 }
 

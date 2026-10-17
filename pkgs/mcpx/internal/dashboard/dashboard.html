@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mcpx Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --heading: #f0f6fc;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --purple: #bc8cff;
+      --orange: #d29922;
+      --red: #f85149;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+    }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--card-bg);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.3rem;
+      color: var(--heading);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .badge {
+      background-color: var(--accent);
+      color: #000;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background-color: var(--green);
+      display: inline-block;
+      margin-right: 6px;
+    }
+    main {
+      padding: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .metric-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+    .metric-title {
+      font-size: 0.85rem;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    .metric-val {
+      font-size: 1.8rem;
+      font-weight: bold;
+      color: var(--heading);
+    }
+    .metric-sub {
+      font-size: 0.8rem;
+      color: var(--green);
+      margin-top: 0.3rem;
+    }
+    .section-title {
+      color: var(--heading);
+      font-size: 1.1rem;
+      margin: 2rem 0 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    th {
+      background-color: #21262d;
+      color: var(--heading);
+      font-size: 0.85rem;
+    }
+    tr:last-child td { border-bottom: none; }
+    .search-box {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 0.6rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    button {
+      padding: 0.6rem 1.2rem;
+      background-color: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.9; }
+    .results {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 2rem;
+      display: none;
+    }
+    .tool-item {
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .tool-item:last-child { border-bottom: none; }
+    .tool-name { font-weight: 600; color: var(--accent); }
+    .tool-desc { font-size: 0.85rem; color: #8b949e; margin-top: 0.2rem; }
+    .badge-tag {
+      background-color: #21262d;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .badge-error {
+      color: var(--red);
+      font-weight: bold;
+    }
+    .grid-two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 800px) {
+      .grid-two { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span class="status-dot"></span>mcpx Dashboard <span class="badge">{{VERSION}}</span></h1>
+    <div><span id="daemon-status">Connected</span></div>
+  </header>
+  <main>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-title">Total Turns</div>
+        <div class="metric-val" id="m-turns">0</div>
+        <div class="metric-sub">Active Sessions</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Tokens Saved</div>
+        <div class="metric-val" id="m-saved" style="color:var(--green)">0</div>
+        <div class="metric-sub" id="m-savings-pct">0% Savings</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Injected vs Baseline</div>
+        <div class="metric-val" id="m-ratio">0 / 0</div>
+        <div class="metric-sub">Prompt Tokens</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Configured Pools</div>
+        <div class="metric-val" id="m-pools">0</div>
+        <div class="metric-sub">Upstream MCP Servers</div>
+      </div>
+    </div>
+
+    <div class="section-title">
+      <span>Interactive Tool Search</span>
+    </div>
+    <div class="search-box">
+      <input type="text" id="query-input" placeholder="Type natural language query (e.g. click element, git status)...">
+      <button onclick="runSearch()">Semantic Search</button>
+    </div>
+    <div class="results" id="search-results"></div>
+
+    <div class="section-title">
+      <span>Active Server Pools</span>
+    </div>
+    <table id="pool-table">
+      <thead>
+        <tr>
+          <th>Namespace</th>
+          <th>Server</th>
+          <th>Tools</th>
+          <th>State</th>
+          <th>Live Instances</th>
+        </tr>
+      </thead>
+      <tbody id="pool-tbody">
+        <tr><td colspan="5" style="text-align:center; color:#8b949e">Loading server status...</td></tr>
+      </tbody>
+    </table>
+
+    <div class="section-title">
+      <span>Tool Reliability & Error Rates</span>
+    </div>
+    <table id="calls-table">
+      <thead>
+        <tr>
+          <th>Tool</th>
+          <th>Server</th>
+          <th>Calls</th>
+          <th>Errors</th>
+          <th>Error Rate</th>
+          <th>P50 Latency</th>
+          <th>Max Latency</th>
+        </tr>
+      </thead>
+      <tbody id="calls-tbody">
+        <tr><td colspan="7" style="text-align:center; color:#8b949e">No tool executions recorded yet</td></tr>
+      </tbody>
+    </table>
+
+    <div class="grid-two">
+      <div>
+        <div class="section-title">
+          <span>Correlated Tool Pairs (Co-Occurring in Sessions)</span>
+        </div>
+        <table id="correlations-table">
+          <thead>
+            <tr>
+              <th>Tool A</th>
+              <th>Tool B</th>
+              <th>Co-Occurrences</th>
+            </tr>
+          </thead>
+          <tbody id="correlations-tbody">
+            <tr><td colspan="3" style="text-align:center; color:#8b949e">No correlation data yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div>
+        <div class="section-title">
+          <span>Tool Usage Over Time (Timeline)</span>
+        </div>
+        <table id="timeline-table">
+          <thead>
+            <tr>
+              <th>Time Window</th>
+              <th>Calls</th>
+              <th>Errors</th>
+              <th>Success Rate</th>
+            </tr>
+          </thead>
+          <tbody id="timeline-tbody">
+            <tr><td colspan="4" style="text-align:center; color:#8b949e">No timeline data yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-title">
+      <span>Common Error Shapes & Recurring Failures</span>
+    </div>
+    <table id="errors-table">
+      <thead>
+        <tr>
+          <th>Error Shape / Template</th>
+          <th>Occurrences</th>
+          <th>Servers</th>
+          <th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody id="errors-tbody">
+        <tr><td colspan="4" style="text-align:center; color:#8b949e">No error shapes logged</td></tr>
+      </tbody>
+    </table>
+
+    <div class="section-title">
+      <span>Interaction History & Feedback Ratings</span>
+      <div style="font-size:0.8rem; font-weight:normal; display:flex; gap:0.5rem; align-items:center;">
+        <input type="text" id="fb-filter-q" placeholder="Filter interactions..." style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.5rem;" oninput="loadInteractions()">
+        <select id="fb-filter-target" style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.4rem;" onchange="loadInteractions()">
+          <option value="">All Targets</option>
+          <option value="retrieval">Retrieval</option>
+          <option value="execution">Execution</option>
+        </select>
+        <select id="fb-filter-status" style="background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; padding:0.2rem 0.4rem;" onchange="loadInteractions()">
+          <option value="">All Feedback</option>
+          <option value="0">Unrated Only</option>
+          <option value="1">Rated Only</option>
+        </select>
+      </div>
+    </div>
+    <table id="interactions-table">
+      <thead>
+        <tr>
+          <th>Trace ID</th>
+          <th>Timestamp</th>
+          <th>Source</th>
+          <th>Target</th>
+          <th>Tools</th>
+          <th>Score</th>
+          <th>Feedback</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="interactions-tbody">
+        <tr><td colspan="8" style="text-align:center; color:#8b949e">Loading interactions...</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script>
+    async function loadMetrics() {
+      try {
+        const res = await fetch('/v1/metrics/tokens');
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('m-turns').innerText = data.totalTurns || 0;
+          document.getElementById('m-saved').innerText = (data.totalTokensSaved || 0).toLocaleString();
+          document.getElementById('m-savings-pct').innerText = (data.savingsPercentage || 0).toFixed(1) + '% Savings';
+          document.getElementById('m-ratio').innerText = (data.totalInjectedTokens || 0).toLocaleString() + ' / ' + (data.totalBaselineTokens || 0).toLocaleString();
+        }
+      } catch(e) {}
+    }
+
+    async function loadPools() {
+      try {
+        const res = await fetch('/v1/status');
+        if (res.ok) {
+          const pools = await res.json();
+          const tbody = document.getElementById('pool-tbody');
+          document.getElementById('m-pools').innerText = pools.length;
+          if (pools.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center">No servers configured</td></tr>';
+            return;
+          }
+          tbody.innerHTML = pools.map(p => `
+            <tr>
+              <td><strong>${p.namespace || p.server}</strong></td>
+              <td>${p.server}</td>
+              <td>${p.tools || 0}</td>
+              <td><span style="color:${p.live > 0 ? 'var(--green)' : 'var(--text)'}">${p.live > 0 ? 'running' : 'idle'}</span></td>
+              <td>${p.live || 0}</td>
+            </tr>
+          `).join('');
+        }
+      } catch(e) {}
+    }
+
+    async function loadToolMetrics() {
+      try {
+        const res = await fetch('/v1/metrics/tools');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // 1. Tool Reliability / Error Rates
+        const cBody = document.getElementById('calls-tbody');
+        if (data.calls && data.calls.length > 0) {
+          cBody.innerHTML = data.calls.map(c => `
+            <tr>
+              <td><strong>${c.tool}</strong></td>
+              <td><span class="badge-tag">${c.server}</span></td>
+              <td>${c.calls}</td>
+              <td><span class="${c.errors > 0 ? 'badge-error' : ''}">${c.errors}</span></td>
+              <td><span style="color:${c.errorRate > 0.05 ? 'var(--red)' : 'var(--green)'}">${(c.errorRate * 100).toFixed(1)}%</span></td>
+              <td>${c.p50Ms >= 0 ? c.p50Ms.toFixed(1) + 'ms' : '-'}</td>
+              <td>${c.maxMs >= 0 ? c.maxMs.toFixed(1) + 'ms' : '-'}</td>
+            </tr>
+          `).join('');
+        }
+
+        // 2. Correlated Tool Pairs
+        const corrBody = document.getElementById('correlations-tbody');
+        if (data.correlations && data.correlations.length > 0) {
+          corrBody.innerHTML = data.correlations.map(cr => `
+            <tr>
+              <td><code>${cr.toolA}</code></td>
+              <td><code>${cr.toolB}</code></td>
+              <td><strong>${cr.count}</strong> sessions</td>
+            </tr>
+          `).join('');
+        }
+
+        // 3. Usage Timeline
+        const tlBody = document.getElementById('timeline-tbody');
+        if (data.timeline && data.timeline.length > 0) {
+          tlBody.innerHTML = data.timeline.map(t => {
+            const successPct = t.calls > 0 ? (((t.calls - t.errors) / t.calls) * 100).toFixed(1) : 100;
+            return `
+              <tr>
+                <td>${t.timeBucket}</td>
+                <td><strong>${t.calls}</strong></td>
+                <td><span class="${t.errors > 0 ? 'badge-error' : ''}">${t.errors}</span></td>
+                <td><span style="color:${successPct < 90 ? 'var(--red)' : 'var(--green)'}">${successPct}%</span></td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        // 4. Common Error Shapes
+        const eBody = document.getElementById('errors-tbody');
+        if (data.errors && data.errors.length > 0) {
+          eBody.innerHTML = data.errors.map(er => `
+            <tr>
+              <td><code>${escapeHTML(er.message)}</code></td>
+              <td><span class="badge-error">${er.count}</span></td>
+              <td>${er.servers ? er.servers.split(',').map(s => `<span class="badge-tag">${s}</span>`).join(' ') : '-'}</td>
+              <td>${er.lastSeen ? new Date(er.lastSeen).toLocaleTimeString() : '-'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch(e) {}
+    }
+
+    function escapeHTML(str) {
+      if (!str) return '';
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag] || tag));
+    }
+
+    async function runSearch() {
+      const q = document.getElementById('query-input').value.trim();
+      if (!q) return;
+      const resBox = document.getElementById('search-results');
+      resBox.style.display = 'block';
+      resBox.innerHTML = 'Searching...';
+      try {
+        const res = await fetch('/v1/search?q=' + encodeURIComponent(q) + '&semantic=true');
+        const items = await res.json();
+        if (!items || items.length === 0) {
+          resBox.innerHTML = '<em>No tools found matching query.</em>';
+          return;
+        }
+        resBox.innerHTML = items.map(t => `
+          <div class="tool-item">
+            <div class="tool-name">${t.function} (Score: ${t.score || 0})</div>
+            <div class="tool-desc">${t.description || ''}</div>
+          </div>
+        `).join('');
+      } catch(e) {
+        resBox.innerHTML = 'Error searching: ' + e;
+      }
+    }
+
+    document.getElementById('query-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runSearch();
+    });
+
+    async function loadInteractions() {
+      try {
+        const q = (document.getElementById('fb-filter-q') || {}).value || '';
+        const target = (document.getElementById('fb-filter-target') || {}).value || '';
+        const status = (document.getElementById('fb-filter-status') || {}).value || '';
+        let url = '/v1/interactions?limit=30';
+        if (q) url += '&q=' + encodeURIComponent(q);
+        if (target !== '') url += '&target=' + encodeURIComponent(target);
+        if (status !== '') url += '&hasFeedback=' + status;
+
+        const res = await fetch(url);
+        if (res.ok) {
+          const list = await res.json();
+          const tbody = document.getElementById('interactions-tbody');
+          if (!list || list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#8b949e">No interactions recorded yet</td></tr>';
+            return;
+          }
+          tbody.innerHTML = list.map(it => {
+            const hasScore = it.score !== null && it.score !== undefined;
+            const scoreBadge = hasScore
+              ? (it.score >= 0.7
+                  ? `<span class="badge" style="background:var(--green); color:#fff;">${it.score.toFixed(2)}</span>`
+                  : `<span class="badge" style="background:var(--red); color:#fff;">${it.score.toFixed(2)}</span>`)
+              : `<span class="badge-tag">unrated</span>`;
+
+            let targetBadge = '<span style="color:#8b949e">-</span>';
+            if (it.target === 'retrieval') {
+              targetBadge = '<span class="badge" style="background:#1f6feb; color:#fff;">retrieval</span>';
+            } else if (it.target === 'execution') {
+              targetBadge = '<span class="badge" style="background:#8957e5; color:#fff;">execution</span>';
+            }
+
+            const tools = (it.toolsUsed || []).map(t => `<span class="badge-tag">${escapeHTML(t)}</span>`).join(' ') || '-';
+            const feedbackText = it.feedbackNotes ? `<em>${escapeHTML(it.feedbackNotes)}</em>` : (hasScore ? 'Rated' : '-');
+
+            return `
+              <tr>
+                <td><code>${escapeHTML(it.traceId)}</code></td>
+                <td>${new Date(it.timestamp).toLocaleTimeString()}</td>
+                <td><span class="badge-tag">${escapeHTML(it.source)}</span></td>
+                <td>${targetBadge}</td>
+                <td>${tools}</td>
+                <td>${scoreBadge}</td>
+                <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${feedbackText}</td>
+                <td>
+                  <button style="padding:0.2rem 0.4rem; font-size:0.75rem; background:#21262d; border:1px solid #30363d; color:var(--text); border-radius:4px; cursor:pointer;" onclick="promptFeedback('${it.traceId}')">Rate</button>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+      } catch(e) {}
+    }
+
+    async function promptFeedback(traceId) {
+      const targetChoice = prompt('Feedback target:\nType "retrieval" (search relevance / right tool selected)\nor "execution" (tool runtime success / crash / error)\nor press Enter for general:', 'retrieval');
+      if (targetChoice === null) return;
+      const target = (targetChoice.trim().toLowerCase() === 'retrieval' || targetChoice.trim().toLowerCase() === 'execution') ? targetChoice.trim().toLowerCase() : '';
+
+      const scoreStr = prompt(`Enter ${target ? target + ' ' : ''}score (1 for good, 0 for bad, or 0.0 - 1.0):`, '1.0');
+      if (scoreStr === null) return;
+      const score = parseFloat(scoreStr);
+      if (isNaN(score)) {
+        alert('Invalid numeric score');
+        return;
+      }
+      const notes = prompt('Optional feedback notes / commentary:', '') || '';
+      try {
+        const payload = {traceId: traceId, score: score, notes: notes};
+        if (target) {
+          payload.target = target;
+          if (target === 'retrieval') payload.retrievalScore = score;
+          if (target === 'execution') payload.executionScore = score;
+        }
+        const res = await fetch('/v1/feedback', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          loadInteractions();
+        } else {
+          alert('Failed to save feedback: ' + (await res.text()));
+        }
+      } catch(e) {
+        alert('Error: ' + e);
+      }
+    }
+
+    loadMetrics();
+    loadPools();
+    loadToolMetrics();
+    loadInteractions();
+    setInterval(() => {
+      loadMetrics();
+      loadPools();
+      loadToolMetrics();
+      loadInteractions();
+    }, 3000);
+  </script>
+</body>
+</html>

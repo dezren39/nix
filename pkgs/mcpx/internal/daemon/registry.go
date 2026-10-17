@@ -7,19 +7,23 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/dezren39/mcpx/internal/catalog"
 	"github.com/dezren39/mcpx/internal/codegen"
 	"github.com/dezren39/mcpx/internal/config"
 	"github.com/dezren39/mcpx/internal/defaults"
 	"github.com/dezren39/mcpx/internal/diagnose"
 	"github.com/dezren39/mcpx/internal/elicit"
 	"github.com/dezren39/mcpx/internal/events"
+	"github.com/dezren39/mcpx/internal/logstore"
 	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/pool"
+	"github.com/dezren39/mcpx/internal/secrets"
 	"github.com/dezren39/mcpx/internal/settings"
 )
 
@@ -47,6 +51,10 @@ type Registry struct {
 	views map[string]*config.Resolved
 	order []string
 
+	vectorIdx     *catalog.VectorIndex
+	embedder      catalog.Embedder
+	feedbackStore *logstore.FeedbackStore
+
 	sessMu sync.Mutex
 	leases map[string]*leaseState
 
@@ -55,6 +63,8 @@ type Registry struct {
 	// arrive from any pool at any time, and a table created lazily would be
 	// read by that goroutine while another wrote it.
 	asks *askTable
+
+	testTools []ToolInfo
 
 	logf     func(string, ...any)
 	degraded sync.Map
@@ -75,6 +85,11 @@ type Registry struct {
 	// later reload gets the same wiring. Without it, a server added at
 	// runtime would be the one server whose events nobody hears.
 	hooks *pool.Hooks
+
+	// secrets holds the values given at runtime and board the requests that
+	// wait for them. Both are memory only; see internal/secrets.
+	secrets *secrets.Store
+	board   *secrets.Board
 }
 
 // leaseState remembers which pool keys a caller created, so releasing a
@@ -124,15 +139,29 @@ func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*R
 	raw, _ := json.Marshal(cfg.MCPServers)
 
 	r := &Registry{
-		cfg:    cfg,
-		paths:  paths,
-		hash:   HashConfig(raw),
-		pools:  make(map[string]*pool.Pool, len(servers)),
-		views:  make(map[string]*config.Resolved, len(servers)),
-		leases: map[string]*leaseState{},
-		asks:   newAskTable(),
-		logf:   logf,
+		cfg:     cfg,
+		paths:   paths,
+		hash:    HashConfig(raw),
+		pools:   make(map[string]*pool.Pool, len(servers)),
+		views:   make(map[string]*config.Resolved, len(servers)),
+		leases:  map[string]*leaseState{},
+		asks:    newAskTable(),
+		logf:    logf,
+		secrets: secrets.NewStore(),
+		board:   secrets.NewBoard(defaults.SecretRequestRetention),
 	}
+	r.loadSessions()
+	if paths.State != "" {
+		dbPath := filepath.Join(paths.State, "embeddings.db")
+		if vIdx, err := catalog.NewVectorIndex(dbPath); err == nil {
+			r.vectorIdx = vIdx
+		}
+		fbPath := filepath.Join(paths.State, "feedback.db")
+		if fb, err := logstore.NewFeedbackStore(fbPath); err == nil {
+			r.feedbackStore = fb
+		}
+	}
+	r.embedder = &catalog.SubwordEmbedder{}
 	seen := map[string]string{}
 	// Servers whose process definition and leasing are identical share one
 	// pool. That is what makes an alias cheap: a second view over the same
@@ -144,8 +173,9 @@ func NewRegistry(cfg *config.Config, paths Paths, logf func(string, ...any)) (*R
 				prev, s.Name, s.Namespace)
 		}
 		seen[s.Namespace] = s.Name
+		r.bindSecrets(s)
 
-		id := s.PoolID()
+		id := s.ProcessID()
 		p, shared := byPoolID[id]
 		if !shared {
 			p = pool.New(s)
@@ -207,9 +237,11 @@ func (r *Registry) Pool(nameOrNS string) (*pool.Pool, bool) {
 	if p, ok := r.pools[nameOrNS]; ok {
 		return p, true
 	}
-	for _, p := range r.pools {
-		if p.Namespace() == nameOrNS {
-			return p, true
+	// The namespace is the view's, not the pool's: a pool outlives a reload
+	// that renames its namespace, and keeps the view it was first built with.
+	for _, name := range r.order {
+		if r.views[name].Namespace == nameOrNS {
+			return r.pools[name], true
 		}
 	}
 	return nil, false
@@ -281,6 +313,12 @@ func (r *Registry) Warm(ctx context.Context, force bool) map[string]error {
 		if !force && !at.IsZero() {
 			continue
 		}
+		// A server waiting for a secret would fail to start, and the failure
+		// would be recorded as its error. It is started once it has its
+		// secrets, by the first call or refresh that finds it ready.
+		if blocker, _ := r.blocked(p.Config()); blocker != nil {
+			continue
+		}
 		wg.Add(1)
 		go func(p *pool.Pool) {
 			defer wg.Done()
@@ -309,16 +347,17 @@ func (r *Registry) Warm(ctx context.Context, force bool) map[string]error {
 
 // NamespaceInfo is one row of `mcpx ls`.
 type NamespaceInfo struct {
-	Namespace   string `json:"namespace"`
-	Server      string `json:"server"`
-	Tools       int    `json:"tools"`
-	Resources   int    `json:"resources"`
-	Description string `json:"description,omitempty"`
-	Live        int    `json:"live"`
-	Sharing     string `json:"sharing"`
-	Scope       string `json:"scope"`
-	Error       string `json:"error,omitempty"`
-	Cached      bool   `json:"cached"`
+	Namespace       string   `json:"namespace"`
+	Server          string   `json:"server"`
+	Tools           int      `json:"tools"`
+	Resources       int      `json:"resources"`
+	Description     string   `json:"description,omitempty"`
+	Live            int      `json:"live"`
+	Sharing         string   `json:"sharing"`
+	Scope           string   `json:"scope"`
+	Error           string   `json:"error,omitempty"`
+	Cached          bool     `json:"cached"`
+	RequiresSecrets []string `json:"requiresSecrets,omitempty"`
 }
 
 // Namespaces lists every configured namespace using only cached data,
@@ -337,16 +376,17 @@ func (r *Registry) Namespaces(prof config.Profile) []NamespaceInfo {
 		tools := visibleTools(view, allTools)
 		st := p.Status()
 		out = append(out, NamespaceInfo{
-			Namespace:   view.Namespace,
-			Server:      name,
-			Tools:       len(tools),
-			Resources:   len(res),
-			Description: view.Description,
-			Live:        st.Live,
-			Sharing:     st.Sharing,
-			Scope:       st.Scope,
-			Error:       st.LastError,
-			Cached:      !at.IsZero(),
+			Namespace:       view.Namespace,
+			Server:          name,
+			Tools:           len(tools),
+			Resources:       len(res),
+			Description:     view.Description,
+			Live:            st.Live,
+			Sharing:         st.Sharing,
+			Scope:           st.Scope,
+			Error:           st.LastError,
+			Cached:          !at.IsZero(),
+			RequiresSecrets: view.RequiresSecrets,
 		})
 	}
 	return out
@@ -354,10 +394,16 @@ func (r *Registry) Namespaces(prof config.Profile) []NamespaceInfo {
 
 // ToolInfo describes one tool for search results.
 type ToolInfo struct {
-	Namespace   string          `json:"namespace"`
-	Server      string          `json:"server"`
-	Tool        string          `json:"tool"`
-	Function    string          `json:"function"`
+	Namespace string `json:"namespace"`
+	Server    string `json:"server"`
+	Tool      string `json:"tool"`
+	Function  string `json:"function"`
+	// Call is the form a script uses, tools.<namespace>.<tool>(args), and
+	// Native is the name a projected tool takes as a native tool,
+	// <namespace>_<tool>. Both are spelled with the function name, so the two
+	// are the same identifier at either end.
+	Call        string          `json:"call"`
+	Native      string          `json:"native"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 	// Execution is the upstream's tool.execution, verbatim.
@@ -374,12 +420,16 @@ type ToolInfo struct {
 
 // Tools returns every cached tool, optionally restricted to namespaces.
 func (r *Registry) Tools(namespaces []string) []ToolInfo {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.testTools) > 0 {
+		return append([]ToolInfo(nil), r.testTools...)
+	}
+
 	want := map[string]bool{}
 	for _, n := range namespaces {
 		want[n] = true
 	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 
 	var out []ToolInfo
 	for _, name := range r.order {
@@ -390,11 +440,14 @@ func (r *Registry) Tools(namespaces []string) []ToolInfo {
 		}
 		all, _, _ := p.CachedSchemas()
 		for _, t := range visibleTools(view, all) {
+			fn := codegen.ToolFuncName(t.Name)
 			out = append(out, ToolInfo{
 				Namespace:    view.Namespace,
 				Server:       name,
 				Tool:         t.Name,
-				Function:     view.Namespace + "." + codegen.ToolFuncName(t.Name),
+				Function:     view.Namespace + "." + fn,
+				Call:         "tools." + view.Namespace + "." + fn + "(args)",
+				Native:       view.Namespace + "_" + fn,
 				Description:  t.Description,
 				InputSchema:  t.InputSchema,
 				Execution:    t.Execution,
@@ -413,8 +466,16 @@ func (r *Registry) Tools(namespaces []string) []ToolInfo {
 // the tool name outrank description hits, which is enough to let an agent find
 // the right tool without loading every schema.
 func (r *Registry) Search(query string, limit int) []ToolInfo {
+	return r.SearchSemantic(query, limit, false)
+}
+
+// SearchSemantic ranks tools against a query, optionally using local dense vector embeddings.
+func (r *Registry) SearchSemantic(query string, limit int, semantic bool) []ToolInfo {
 	terms := strings.Fields(strings.ToLower(query))
 	all := r.Tools(nil)
+	if len(all) == 0 {
+		return nil
+	}
 	if len(terms) == 0 {
 		if limit > 0 && len(all) > limit {
 			all = all[:limit]
@@ -422,12 +483,68 @@ func (r *Registry) Search(query string, limit int) []ToolInfo {
 		return all
 	}
 
-	scored := rank(all, terms, true)
-	if len(scored) == 0 {
-		// Every term must match by default, which narrows well but dead-ends on
-		// a query like "screenshot click" where the terms name different tools.
-		// Fall back to any-term matching rather than reporting nothing.
-		scored = rank(all, terms, false)
+	if !semantic {
+		scored := rank(all, terms, true)
+		if len(scored) == 0 {
+			scored = rank(all, terms, false)
+		}
+		sort.SliceStable(scored, func(i, j int) bool {
+			if scored[i].Score != scored[j].Score {
+				return scored[i].Score > scored[j].Score
+			}
+			return scored[i].Function < scored[j].Function
+		})
+		if limit > 0 && len(scored) > limit {
+			scored = scored[:limit]
+		}
+		return scored
+	}
+
+	embedder := r.Embedder()
+	ctx, cancel := context.WithTimeout(context.Background(), defaults.EmbeddingsSearchTimeout)
+	defer cancel()
+
+	queryVec, err := embedder.Embed(ctx, query)
+	if err != nil || len(queryVec) == 0 {
+		queryVec = catalog.Embed(query)
+	}
+
+	keywordScores := make(map[string]int)
+	for _, t := range rank(all, terms, false) {
+		keywordScores[t.Function] = t.Score
+	}
+
+	vIdx := r.VectorIndex()
+	scored := make([]ToolInfo, 0, len(all))
+	for _, t := range all {
+		var tVec catalog.Vector
+		if vIdx != nil {
+			tVec, _ = vIdx.Get(t.Function)
+		}
+		if len(tVec) == 0 {
+			var err error
+			tVec, err = embedder.Embed(ctx, t.Namespace+" "+t.Tool+" "+t.Description)
+			if err != nil || len(tVec) == 0 {
+				tVec = catalog.Embed(t.Namespace + " " + t.Tool + " " + t.Description)
+			}
+			if vIdx != nil && len(tVec) > 0 {
+				_ = vIdx.Put(t.Function, tVec)
+			}
+		}
+		sim := queryVec.CosineSimilarity(tVec)
+		kwScore := keywordScores[t.Function]
+		// Combined hybrid score: 60% semantic cosine, 40% keyword
+		combined := float32(kwScore)*0.4 + (sim*100.0)*0.6
+		if fb := r.FeedbackStore(); fb != nil {
+			execMult, retrMult := fb.ToolFeedbackAdjustment(t.Function)
+			combined = combined * retrMult * (0.5 + 0.5*execMult)
+		}
+		if combined > 15.0 || kwScore > 0 {
+			tCopy := t
+			tCopy.Score = int(combined)
+			tCopy.InputSchema = nil
+			scored = append(scored, tCopy)
+		}
 	}
 	sort.SliceStable(scored, func(i, j int) bool {
 		if scored[i].Score != scored[j].Score {
@@ -535,6 +652,33 @@ func (r *Registry) CodegenNamespaces(names []string, prof config.Profile) ([]cod
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if len(r.testTools) > 0 {
+		byNS := map[string][]codegen.Tool{}
+		for _, t := range r.testTools {
+			if len(sels) > 0 && !whole[t.Namespace] && (tools[t.Namespace] == nil || !tools[t.Namespace][t.Tool]) {
+				continue
+			}
+			byNS[t.Namespace] = append(byNS[t.Namespace], codegen.Tool{
+				Name:        t.Tool,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+			})
+		}
+		var nsList []string
+		for ns := range byNS {
+			nsList = append(nsList, ns)
+		}
+		sort.Strings(nsList)
+		var out []codegen.Namespace
+		for _, ns := range nsList {
+			out = append(out, codegen.Namespace{
+				Name:  ns,
+				Tools: byNS[ns],
+			})
+		}
+		return out, nil
+	}
+
 	matchedNS := map[string]bool{}
 	matchedTool := map[string]bool{}
 	var out []codegen.Namespace
@@ -578,9 +722,10 @@ func (r *Registry) CodegenNamespaces(names []string, prof config.Profile) ([]cod
 				matchedTool[name+"."+t.Name] = true
 			}
 			cn.Tools = append(cn.Tools, codegen.Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				InputSchema: t.InputSchema,
+				Name:         t.Name,
+				Description:  t.Description,
+				InputSchema:  t.InputSchema,
+				OutputSchema: t.OutputSchema,
 			})
 		}
 		out = append(out, cn)
@@ -625,7 +770,13 @@ func (e HiddenTool) Error() string {
 func failureStatus(err error) int {
 	var unknown UnknownServer
 	var hidden HiddenTool
-	if errors.As(err, &unknown) || errors.As(err, &hidden) {
+	var secret SecretRequired
+	switch {
+	case errors.As(err, &secret):
+		// A conflict with the state of the daemon, not a fault in the request
+		// and not a failure of the server: it can succeed once a value exists.
+		return http.StatusConflict
+	case errors.As(err, &unknown), errors.As(err, &hidden):
 		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
@@ -634,6 +785,45 @@ func failureStatus(err error) int {
 // Call dispatches a tool call, resolving the server's scope against the
 // caller's context to pick the instance.
 func (r *Registry) Call(ctx context.Context, server, tool string, cc config.CallContext, args any) (json.RawMessage, error) {
+	if server == "" {
+		if idx := strings.IndexAny(tool, ":."); idx > 0 {
+			candServer := tool[:idx]
+			candTool := tool[idx+1:]
+			if _, ok := r.Pool(candServer); ok {
+				server = candServer
+				tool = candTool
+			}
+		}
+	}
+	if server == "" {
+		r.mu.RLock()
+		for _, name := range r.order {
+			view := r.views[name]
+			if view != nil && view.VisibleTool(tool) {
+				server = name
+				break
+			}
+		}
+		if server == "" {
+			for _, name := range r.order {
+				p := r.pools[name]
+				if p != nil {
+					tools, _, _ := p.CachedSchemas()
+					for _, t := range tools {
+						if t.Name == tool {
+							server = name
+							break
+						}
+					}
+					if server != "" {
+						break
+					}
+				}
+			}
+		}
+		r.mu.RUnlock()
+	}
+
 	p, ok := r.Pool(server)
 	if !ok {
 		return nil, UnknownServer{Name: server}
@@ -656,8 +846,18 @@ func (r *Registry) Call(ctx context.Context, server, tool string, cc config.Call
 // clients that declared they could answer it.
 func (r *Registry) resolveAndGuard(ctx context.Context, p *pool.Pool, server, tool string, cc config.CallContext) (string, error) {
 	// The view, not the pool: aliases share one pool and filter differently.
-	if view, ok := r.View(server); ok && !view.VisibleTool(tool) {
-		return "", HiddenTool{Server: server, Tool: tool}
+	if view, ok := r.View(server); ok {
+		// Before the child is touched: a server waiting for a secret is not
+		// started just to fail.
+		if err := r.refuseBlocked(server); err != nil {
+			return "", err
+		}
+		if !view.VisibleTool(tool) {
+			if ok, reason := view.PassesPreconditions(tool, func(s string) bool { _, exists := r.Pool(s); return exists }); !ok {
+				return "", fmt.Errorf("tool %q failed preconditions: %s", tool, reason)
+			}
+			return "", HiddenTool{Server: server, Tool: tool}
+		}
 	}
 	key := r.keyFor(p, cc)
 	// Two policies sit between resolving the instance and using it, and both
@@ -674,6 +874,9 @@ func (r *Registry) ReadResource(ctx context.Context, server, uri string, cc conf
 	p, ok := r.Pool(server)
 	if !ok {
 		return nil, UnknownServer{Name: server}
+	}
+	if err := r.refuseBlocked(server); err != nil {
+		return nil, err
 	}
 	key := r.keyFor(p, cc)
 	// The listing drops a leading '/', so mcpx://ns/abs/doc names /abs/doc;
@@ -814,6 +1017,9 @@ func (r *Registry) GetPrompt(ctx context.Context, server, name string, args map[
 	p, ok := r.Pool(server)
 	if !ok {
 		return nil, UnknownServer{Name: server}
+	}
+	if err := r.refuseBlocked(server); err != nil {
+		return nil, err
 	}
 	return p.GetPrompt(ctx, r.keyFor(p, cc), name, args)
 }
@@ -974,11 +1180,53 @@ func (r *Registry) Restart(ctx context.Context, name string, lazy bool) ([]Serve
 	return out, nil
 }
 
+// VectorIndex returns the underlying persistent vector index if initialized.
+func (r *Registry) VectorIndex() *catalog.VectorIndex {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.vectorIdx
+}
+
+// FeedbackStore returns the underlying feedback and interaction store if initialized.
+func (r *Registry) FeedbackStore() *logstore.FeedbackStore {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.feedbackStore
+}
+
+// Embedder returns the active embedding model engine.
+func (r *Registry) Embedder() catalog.Embedder {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.embedder == nil {
+		return &catalog.SubwordEmbedder{}
+	}
+	return r.embedder
+}
+
 // UseSettings gives the registry the daemon's resolved configuration.
 //
 // Separate from NewRegistry for the same reason InstallHooks is: a registry
 // built for a test should work without one.
-func (r *Registry) UseSettings(set *settings.Set) { r.set = set }
+func (r *Registry) UseSettings(set *settings.Set) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.set = set
+	if set != nil {
+		backend := set.String("embeddings.backend")
+		var remote *catalog.RemoteEmbedder
+		if u := set.String("embeddings.url"); u != "" {
+			remote = catalog.NewRemoteEmbedder(u, set.String("embeddings.apiKey"), set.String("embeddings.model"))
+		}
+		var wasm *catalog.WasmEmbedder
+		if p := set.String("embeddings.wasmPath"); p != "" {
+			if w, err := catalog.NewWasmEmbedder(context.Background(), p); err == nil {
+				wasm = w
+			}
+		}
+		r.embedder = catalog.NewCascadeEmbedder(backend, remote, wasm)
+	}
+}
 
 func (r *Registry) leaseTTL() time.Duration {
 	if r.set == nil {
@@ -987,17 +1235,34 @@ func (r *Registry) leaseTTL() time.Duration {
 	return r.set.Duration("daemon.leaseTTL")
 }
 
-// Close shuts every pool down. The caller is responsible for persisting the
+// Close shuts every pool down, giving calls in flight the whole drain window.
+func (r *Registry) Close() { r.CloseWithin(pool.ExecDrainTimeout) }
+
+// CloseWithin shuts every pool down. Each pool is drained, not closed: a call
+// running on it finishes if it can, up to drain, and is then cut. It returns
+// once every pool has drained, so the daemon does not stop under a call that
+// is still within its window. The caller is responsible for persisting the
 // schema cache first; doing it here would write after the daemon has already
 // told its client that it stopped.
-func (r *Registry) Close() {
+func (r *Registry) CloseWithin(drain time.Duration) {
 	r.mu.RLock()
 	pools := make([]*pool.Pool, 0, len(r.pools))
 	for _, p := range r.pools {
 		pools = append(pools, p)
 	}
+	vIdx := r.vectorIdx
+	fb := r.feedbackStore
 	r.mu.RUnlock()
 	for _, p := range pools {
-		p.Close()
+		p.CloseDrainedWithin(drain)
+	}
+	for _, p := range pools {
+		p.WaitDrained()
+	}
+	if vIdx != nil {
+		_ = vIdx.Close()
+	}
+	if fb != nil {
+		_ = fb.Close()
 	}
 }

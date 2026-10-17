@@ -583,8 +583,24 @@ func TestRestartReportsAServerThatDoesNotComeBack(t *testing.T) {
 	if !strings.Contains(out, "refusing to start") {
 		t.Fatalf("the failure should carry the server's stderr:\n%s", out)
 	}
-	// --lazy is the old stop-only behaviour and starts nothing to fail.
+	// --lazy starts nothing, so with nothing running it has nothing to fail.
 	if out := e.run("restart", "--lazy", "demo"); !strings.Contains(out, "stopped 0 instance(s) for demo") {
 		t.Fatalf("restart --lazy: %s", out)
+	}
+}
+
+// --lazy does not wait and starts nothing: it stops the running instance, and
+// the next call starts a fresh one that answers.
+func TestRestartLazyStopsAndTheNextCallStartsFresh(t *testing.T) {
+	e := newEnv(t, oneServer)
+	e.run("call", "demo.echo", `{"message":"before"}`)
+	if out := e.run("restart", "--lazy", "demo"); !strings.Contains(out, "stopped 1 instance(s) for demo") {
+		t.Fatalf("restart --lazy: %s", out)
+	}
+	if st := e.run("status"); strings.Contains(st, "demo#") {
+		t.Fatalf("a lazy restart left an instance running:\n%s", st)
+	}
+	if out := e.run("call", "demo.echo", `{"message":"after"}`); !strings.Contains(out, "after") {
+		t.Fatalf("the call after a lazy restart: %s", out)
 	}
 }

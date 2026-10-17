@@ -477,3 +477,86 @@ opencode-db-prune-report *args:
 opencode-db-prune *args:
     ./opencode-db-prune.sh --apply {{ args }}
     ./opencode-db-vacuum.sh --auto-vacuum
+
+# =============================================================================
+# OpenCode database (~/.local/share/opencode/opencode.db: every session)
+# =============================================================================
+
+# Back up the OpenCode database (APFS clone; instant, safe while it is in use)
+[group('opencode')]
+opencode-db-backup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    db="$HOME/.local/share/opencode/opencode.db"
+    dest="$HOME/.local/share/opencode/backup/$(date +%Y%m%dT%H%M%S)"
+    mkdir -p "$dest"
+    # BEGIN IMMEDIATE takes SQLite's write lock: no commit lands and the WAL
+    # cannot be reset while it is held. A checkpoint can still copy WAL frames
+    # into the main file between the two clones, which is harmless: the WAL
+    # clone still holds every frame and replays them on open. cp -c is
+    # clonefile(2): atomic, and no extra disk until the files diverge.
+    /usr/bin/sqlite3 "$db" <<SQL
+    .timeout 120000
+    BEGIN IMMEDIATE;
+    .shell /bin/cp -c "$db" "$dest/opencode.db"
+    .shell if [ -f "$db-wal" ]; then /bin/cp -c "$db-wal" "$dest/opencode.db-wal"; fi
+    ROLLBACK;
+    SQL
+    chmod 600 "$dest"/opencode.db*
+    echo "backup: $dest"
+    just --justfile {{ justfile() }} opencode-db-check "$dest/opencode.db"
+
+# Session/migration counts of an OpenCode database (default: the live one)
+[group('opencode')]
+opencode-db-check db="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    db="{{ db }}"
+    db="${db:-$HOME/.local/share/opencode/opencode.db}"
+    # Read-only; for a backup that still has its WAL, sqlite needs to create
+    # the -shm beside it, which mode=ro allows in a writable directory.
+    /usr/bin/sqlite3 "file:$db?mode=ro" \
+      "select 'sessions', count(*) from session;" \
+      "select 'migrations', count(*), max(id) from migration;"
+
+# Migrations the locked OpenCode would apply to the live database (dry check)
+[group('opencode')]
+opencode-db-pending:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src=$(nix eval --raw .#inputs.opencode.outPath 2>/dev/null || \
+      nix flake prefetch --json "github:developing-today/opencode/$(jq -r .nodes.opencode.locked.rev flake.lock)" | jq -r .storePath)
+    tmp=$(mktemp -d)
+    grep -ho 'id: "[^"]*"' "$src"/packages/core/src/database/migration/*.ts \
+      | sed 's/id: "\(.*\)"/\1/' | LC_ALL=C sort -u > "$tmp/build"
+    /usr/bin/sqlite3 "file:$HOME/.local/share/opencode/opencode.db?mode=ro" \
+      "select id from migration" | LC_ALL=C sort -u > "$tmp/db"
+    echo "pending (the build will apply these):"
+    LC_ALL=C comm -23 "$tmp/build" "$tmp/db" | sed 's/^/  /'
+    unknown=$(LC_ALL=C comm -13 "$tmp/build" "$tmp/db")
+    rm -rf "$tmp"
+    if [ -n "$unknown" ]; then
+      echo "APPLIED BUT UNKNOWN TO THIS BUILD (build is older than the database):"
+      echo "$unknown" | sed 's/^/  /'
+      exit 1
+    fi
+    echo "ok: every applied migration is known to this build"
+
+# OpenChamber agent, its OpenCode, and every process holding an OpenCode DB
+[group('opencode')]
+openchamber-status:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    job="gui/$(id -u)/org.nixos.openchamber"
+    echo "== agent $job"
+    launchctl print "$job" 2>/dev/null | grep -E '^\s+(state|pid|last exit code|runs) =' || echo "  not loaded"
+    echo "== link: $(readlink ~/.local/state/openchamber/bin/opencode 2>/dev/null || echo missing)"
+    echo "== deployed: $(cat ~/.local/state/openchamber/deployed 2>/dev/null || echo none)"
+    echo "== http://127.0.0.1:3000"
+    code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ 2>/dev/null) || code=""
+    echo "  ${code:+HTTP $code}${code:-not answering}"
+    echo "== processes with an OpenCode database open (must all be the same file)"
+    lsof -nP -c opencode -c .opencode -c node -c OpenChamber 2>/dev/null \
+      | awk '{print "  " $1, $2, $NF}' | grep -E '/opencode[^/]*\.db$' | sort -u
+    echo "== database"
+    just --justfile {{ justfile() }} opencode-db-check | sed 's/^/  /'

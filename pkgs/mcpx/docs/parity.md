@@ -32,7 +32,7 @@ and costs an agent the ability to restart a server that has wedged. What they
 carry instead is a description that says so and MCP annotations
 (`readOnlyHint`, `destructiveHint`) for a client that wants to scope on them.
 
-## /v1 operations (60)
+## /v1 operations (81)
 
 | Operation | Route | CLI | MCP tool | Plugin | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -44,25 +44,38 @@ carry instead is a description that says so and MCP annotations
 | `ask_poll` | `GET /v1/ask/{id}` | `mcpx ask poll` *generated* | `mcpx_ask_poll` | `ops.askPoll()` |  |
 | `ask_abandon` | `POST /v1/ask/{id}/abandon` | `mcpx ask abandon` *generated* | `mcpx_ask_abandon` | `ops.askAbandon()` | Privileged. Destructive. |
 | `ask_answers` | `POST /v1/ask/{id}/answers` | `mcpx ask answers` *generated* | `mcpx_ask_answers` | `ops.askAnswers()` | Privileged. |
+| `batch` | `POST /v1/batch` | `mcpx batch` | `mcpx_batch` | `ops.batch()` |  |
 | `call` | `POST /v1/call` | `mcpx call` | `mcpx_call` | `ops.call()`, `call()`, `callAsTask()` |  |
 | `call_path` | `POST /v1/call/{server}/{tool}` | `mcpx call` | `mcpx_call` | `ops.callPath()` |  |
 | `catalog` | `GET /v1/catalog` | `mcpx catalog` | `mcpx_catalog` | `ops.catalog()` |  |
 | `catalog_history` | `GET /v1/catalog/history` | `mcpx history` *generated* | `mcpx_catalog_history` | `ops.catalogHistory()` |  |
+| `chat_completions` | `POST /v1/chat/completions` | `mcpx proxy` | `mcpx_chat_completions` | `ops.chatCompletions()` |  |
 | `client_module` | `GET /v1/client.ts` | `mcpx client` | `mcpx_client_module` | `ops.clientModule()` |  |
 | `complete` | `POST /v1/complete` | `mcpx complete` *generated* | `mcpx_complete` | `ops.complete()`, `complete()` |  |
+| `daemon_restart` | `POST /v1/daemon/restart` | `mcpx restart` | `mcpx_daemon_restart` | `ops.daemonRestart()` | Privileged. Destructive. |
+| `dashboard` | `GET /v1/dashboard` | `mcpx dashboard` | `mcpx_dashboard` | `ops.dashboard()` |  |
 | `diagnose` | `POST /v1/diagnose` | `mcpx diagnose` | `mcpx_diagnose` | `ops.diagnose()` |  |
 | `elicit_list` | `GET /v1/elicit` | `mcpx elicit list` | `mcpx_elicit_list` | `ops.elicitList()`, `pendingElicitations()` |  |
 | `elicit_get` | `GET /v1/elicit/{id}` | `mcpx elicit show` | `mcpx_elicit_get` | `ops.elicitGet()` |  |
 | `elicit_answer` | `POST /v1/elicit/{id}/{action}` | `mcpx elicit answer` | `mcpx_elicit_answer` | `ops.elicitAnswer()`, `answer()` | Privileged. |
+| `embeddings` | `POST /v1/embeddings` | `mcpx embeddings` | `mcpx_embeddings` | `ops.embeddings()` |  |
+| `embeddings_export` | `GET /v1/embeddings/export` | `mcpx embeddings export` | `mcpx_embeddings_export` | `ops.embeddingsExport()` |  |
+| `embeddings_import` | `POST /v1/embeddings/import` | `mcpx embeddings import` | `mcpx_embeddings_import` | `ops.embeddingsImport()` |  |
 | `events` | `GET /v1/events` | `mcpx events` *generated* | none: a stream; MCP carries it as `subscriptions/listen` | `ops.events()` | Never ends; read it until you are done. |
 | `exec` | `POST /v1/exec` | `mcpx exec` | `mcpx_exec` | `ops.exec()`, `exec()` | Privileged. |
+| `feedback` | `POST /v1/feedback` | `mcpx feedback` | `mcpx_feedback` | `ops.feedback()` |  |
 | `globals` | `GET /v1/globals.d.ts` | `mcpx globals` *generated* | `mcpx_globals` | `ops.globals()` |  |
 | `health` | `GET /v1/health` | `mcpx health` *generated* | `mcpx_health` | `ops.health()`, `health()` |  |
 | `intent` | `POST /v1/intent` | `mcpx prompt` | `mcpx_intent` | `ops.intent()` |  |
+| `interactions_list` | `GET /v1/interactions` | `mcpx interactions` | `mcpx_interactions_list` | `ops.interactionsList()` |  |
+| `interactions_get` | `GET /v1/interactions/{id}` | `mcpx interactions show` | `mcpx_interactions_get` | `ops.interactionsGet()` |  |
 | `log_query` | `GET /v1/log` | `mcpx log` | `mcpx_log_query` | `ops.logQuery()`, `logQuery()` |  |
 | `log_record` | `POST /v1/log` | `mcpx log record` | `mcpx_log_record` | `ops.logRecord()`, `record()` | Privileged. |
+| `metrics_tokens` | `GET /v1/metrics/tokens` | `mcpx metrics tokens` *generated* | `mcpx_metrics_tokens` | `ops.metricsTokens()` |  |
+| `metrics_tools` | `GET /v1/metrics/tools` | `mcpx metrics tools` *generated* | `mcpx_metrics_tools` | `ops.metricsTools()` |  |
 | `namespaces` | `GET /v1/namespaces` | `mcpx ls` | `mcpx_namespaces` | `ops.namespaces()`, `namespaces()` |  |
 | `openapi` | `GET /v1/openapi.json` | `mcpx openapi` | `mcpx_openapi` | `ops.openapi()` |  |
+| `preflight` | `POST /v1/preflight` | `mcpx preflight` *generated* | `mcpx_preflight` | `ops.preflight()` |  |
 | `prompt_get` | `POST /v1/prompt` | `mcpx prompts` | `mcpx_prompt_get` | `ops.promptGet()` |  |
 | `prompts` | `GET /v1/prompts` | `mcpx prompts` | `mcpx_prompts` | `ops.prompts()` |  |
 | `protocol` | `GET /v1/protocol` | `mcpx protocol` *generated* | `mcpx_protocol` | `ops.protocol()` |  |
@@ -72,15 +85,23 @@ carry instead is a description that says so and MCP annotations
 | `recipe_run` | `POST /v1/recipes/{name}/run` | `mcpx recipes run` | `mcpx_recipe_run` | `ops.recipeRun()` |  |
 | `refresh` | `POST /v1/refresh` | `mcpx refresh` | `mcpx_refresh` | `ops.refresh()` | Privileged. |
 | `registry_search` | `GET /v1/registry/search` | `mcpx registry search` | `mcpx_registry_search` | `ops.registrySearch()`, `registrySearch()` |  |
+| `reload` | `POST /v1/reload` | `mcpx reload` | `mcpx_reload` | `ops.reload()` | Privileged. |
 | `resolve` | `GET /v1/resolve` | `mcpx resolve` *generated* | `mcpx_resolve` | `ops.resolve()`, `resolve()` |  |
 | `resource_read` | `POST /v1/resource` | `mcpx resources` | `mcpx_resource_read` | `ops.resourceRead()` |  |
 | `resource_templates` | `GET /v1/resource-templates` | `mcpx resources --templates` | `mcpx_resource_templates` | `ops.resourceTemplates()` |  |
 | `resources` | `GET /v1/resources` | `mcpx resources` | `mcpx_resources` | `ops.resources()` |  |
 | `restart` | `POST /v1/restart` | `mcpx restart` | `mcpx_restart` | `ops.restart()` | Privileged. Destructive. |
 | `search` | `GET /v1/search` | `mcpx search` | `mcpx_search` | `ops.search()` |  |
+| `secret_requests_list` | `GET /v1/secret-requests` | `mcpx secrets requests` | `mcpx_secret_requests_list` | `ops.secretRequestsList()` |  |
+| `secret_request_decline` | `DELETE /v1/secret-requests/{id}` | `mcpx secrets decline` | `mcpx_secret_request_decline` | `ops.secretRequestDecline()` | Privileged. |
+| `secret_request_get` | `GET /v1/secret-requests/{id}` | `mcpx secrets request` | `mcpx_secret_request_get` | `ops.secretRequestGet()` |  |
+| `secrets_list` | `GET /v1/secrets` | `mcpx secrets list` | `mcpx_secrets_list` | `ops.secretsList()` |  |
+| `secrets_unset` | `DELETE /v1/secrets/{name}` | `mcpx secrets unset` | `mcpx_secrets_unset` | `ops.secretsUnset()` | Privileged. Destructive. |
+| `secrets_set` | `PUT /v1/secrets/{name}` | `mcpx secrets set` | none: a value sent as a tool argument would sit in the model's context and transcript; the CLI reads it from standard input and OpenChamber from a password field | `ops.secretsSet()` | Privileged. |
 | `servers_list` | `GET /v1/servers` | `mcpx servers list` | `mcpx_servers_list` | `ops.serversList()` |  |
 | `servers_add` | `POST /v1/servers` | `mcpx servers add` | `mcpx_servers_add` | `ops.serversAdd()` | Privileged. |
 | `servers_remove` | `DELETE /v1/servers/{name}` | `mcpx servers remove` | `mcpx_servers_remove` | `ops.serversRemove()` | Privileged. Destructive. |
+| `servers_get` | `GET /v1/servers/{name}` | `mcpx servers show` | `mcpx_servers_get` | `ops.serversGet()` |  |
 | `session_release` | `POST /v1/session/release` | `mcpx session release` *generated* | `mcpx_session_release` | `ops.sessionRelease()` | Privileged. |
 | `settings_list` | `GET /v1/settings` | `mcpx settings list` | `mcpx_settings_list` | `ops.settingsList()` |  |
 | `settings_unset` | `DELETE /v1/settings/{path}` | `mcpx settings unset` | `mcpx_settings_unset` | `ops.settingsUnset()` | Privileged. |
@@ -97,7 +118,7 @@ carry instead is a description that says so and MCP annotations
 | `tool_invoke` | `POST /v1/tools/{tool}` | `mcpx tool invoke` *generated* | `mcpx_tool_invoke` | `ops.toolInvoke()` |  |
 | `types` | `GET /v1/types` | `mcpx types` | `mcpx_types` | `ops.types()`, `types()` |  |
 
-## CLI commands (52)
+## CLI commands (64)
 
 Every command the binary dispatches, with the operations it reaches. A command
 that reaches none says why: those are decisions, not gaps.
@@ -108,6 +129,7 @@ that reaches none says why: those are decisions, not gaps.
 | `api` | – | OpenAPI declarations are files the CLI reads; the tools they produce are served over MCP, and are not yet a tool source the daemon owns (#83). |
 | `artifact` / `artifacts` | `artifacts_list`, `artifact_put`, `artifact_delete`, `artifact_get` | Generated from the operation table. |
 | `ask` | `ask_begin`, `ask_poll`, `ask_abandon`, `ask_answers` | Generated from the operation table. |
+| `batch` | `batch` |  |
 | `call` | `call`, `call_path` |  |
 | `catalog` | `catalog` |  |
 | `client` | `client_module` |  |
@@ -116,38 +138,48 @@ that reaches none says why: those are decisions, not gaps.
 | `config` | – | Reads the configuration files on the caller's search path; `settings` is the running daemon's view. |
 | `daemon` | – | Starts a daemon, which a daemon's own API cannot do. |
 | `daemons` | – | Reads every daemon's info file on this machine; one daemon cannot see the others. |
+| `dashboard` | `dashboard` |  |
 | `diagnose` | `diagnose` |  |
 | `doctor` | – | Checks this machine: binaries on PATH, permissions, configuration files. |
 | `elicit` | `elicit_list`, `elicit_get`, `elicit_answer` |  |
+| `embeddings` | `embeddings`, `embeddings_export`, `embeddings_import` |  |
 | `events` | `events` | Generated from the operation table. |
 | `exec` | `exec` |  |
 | `explore` | – | An interactive interface over the reads above; it consumes the API rather than extending it. |
+| `feedback` | `feedback` |  |
 | `globals` | `globals` | Generated from the operation table. |
 | `health` | `health` | Generated from the operation table. |
 | `help` | – | Text about the binary, produced by the binary. |
 | `history` | `catalog_history` | Generated from the operation table. |
 | `init` | – | Writes a file into the current directory. |
+| `interactions` | `interactions_list`, `interactions_get` |  |
 | `log` / `logs` | `log_query`, `log_record` |  |
 | `ls` / `list` / `namespaces` | `namespaces` |  |
 | `man` | – | Text about the binary, produced by the binary. |
+| `metrics` | `metrics_tokens`, `metrics_tools` | Generated from the operation table. |
 | `openapi` | `openapi` |  |
+| `preflight` | `preflight` | Generated from the operation table. |
 | `prompt` | `intent` |  |
 | `prompts` | `prompt_get`, `prompts` |  |
 | `protocol` | `protocol` | Generated from the operation table. |
+| `proxy` | `chat_completions` |  |
 | `recipes` | `recipes_list`, `recipe_get`, `recipe_save`, `recipe_run` |  |
 | `refresh` | `refresh` |  |
 | `registry` | `registry_search` |  |
+| `reload` | `reload` |  |
 | `resolve` | `resolve` | Generated from the operation table. |
 | `resources` | `resource_read`, `resource_templates`, `resources` |  |
-| `restart` | `restart` |  |
+| `restart` | `daemon_restart`, `restart` |  |
 | `run` | – | Resolves a script name against the caller's search path, which only the caller has; the source itself runs anywhere through `exec`. |
 | `schema` | – | Reshapes what `tools` and `types` return into JSON Schema, OpenAPI or MCP form; the data is those operations', the conversion is local. |
 | `scripts` | – | Lists the caller's script search path. |
 | `search` | `search` |  |
+| `secrets` | `secret_requests_list`, `secret_request_decline`, `secret_request_get`, `secrets_list`, `secrets_unset`, `secrets_set` |  |
 | `serve` | – | It is the MCP surface: a stdio shim over the daemon, which serves the same tools at `/mcp` itself. |
-| `servers` | `servers_list`, `servers_add`, `servers_remove` |  |
+| `servers` | `servers_list`, `servers_add`, `servers_remove`, `servers_get` |  |
 | `session` | `session_release` | Generated from the operation table. |
 | `settings` | `settings_list`, `settings_unset`, `settings_get`, `settings_set` |  |
+| `skills` | – | Manages embedded agent skills. |
 | `stats` | `stats_query` |  |
 | `status` | `status` |  |
 | `stop` | `shutdown` |  |
@@ -156,14 +188,17 @@ that reaches none says why: those are decisions, not gaps.
 | `tools` | `tools` | Generated from the operation table. |
 | `tui` | – | An interactive interface over the reads above; it consumes the API rather than extending it. |
 | `types` | `types` |  |
+| `upgrade` | – | Replaces the running daemon with another binary, a decision for whoever runs the CLI rather than a tool a model can call. |
 
-## Hand-written MCP tools (10)
+## Hand-written MCP tools (12)
 
 The tools mcpx offered before the operation table existed. Where one already
 covers an operation, no second tool is generated for it.
 
 | Tool | Covers | Summary |
 | --- | --- | --- |
+| `batch_call` | – | Alias for mcpx_batch. |
+| `mcpx_batch` | `batch` | Execute one or more tools in a single turn. |
 | `mcpx_call` | `call`, `call_path` | Call one tool on one server. |
 | `mcpx_catalog` | `catalog` | Every namespace with as many tool signatures as fit a token budget. |
 | `mcpx_exec` | `exec` | Run TypeScript against every server at once. |
