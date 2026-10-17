@@ -1,7 +1,9 @@
 package daemon_test
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,5 +170,116 @@ func TestTheDaemonKeyIsTheFileSetNotTheContents(t *testing.T) {
 	write(other, `{"mcpServers":{"added":{"command":"x"}}}`)
 	if elsewhere := keyed(other); elsewhere == after {
 		t.Errorf("a different path with the same contents kept the key: %+v", elsewhere)
+	}
+}
+
+// deadPID returns the pid of a process that has exited and been reaped, so
+// nothing can be listening on its behalf any more.
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	return pid
+}
+
+func writeInfoFile(t *testing.T, dir, name string, info daemon.Info) {
+	t.Helper()
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProcessAlive(t *testing.T) {
+	if !daemon.ProcessAlive(os.Getpid()) {
+		t.Error("this process should be alive")
+	}
+	if daemon.ProcessAlive(deadPID(t)) {
+		t.Error("a reaped process should not be alive")
+	}
+	if daemon.ProcessAlive(0) || daemon.ProcessAlive(-1) {
+		t.Error("a non-positive pid is never a live daemon")
+	}
+}
+
+// #369: a daemon that was killed leaves its record behind, and the record
+// was listed forever with RUNNING false.
+func TestPruneStaleRemovesRecordsWhoseProcessIsGone(t *testing.T) {
+	dir := t.TempDir()
+	dead := deadPID(t)
+	writeInfoFile(t, dir, "daemon-dead.json", daemon.Info{
+		PID: dead, Socket: filepath.Join(dir, "daemon-dead.sock"),
+		ConfigPath: "/dead/.mcpx.json",
+	})
+	writeInfoFile(t, dir, "daemon-live.json", daemon.Info{
+		PID: os.Getpid(), Socket: filepath.Join(dir, "daemon-live.sock"),
+		ConfigPath: "/live/.mcpx.json",
+	})
+	// A record with no pid has nothing to check against and is kept.
+	writeInfoFile(t, dir, "daemon-nopid.json", daemon.Info{
+		Socket: filepath.Join(dir, "daemon-nopid.sock"),
+	})
+
+	p := daemon.Paths{State: dir}
+	pruned := p.PruneStale()
+	if len(pruned) != 1 || pruned[0].PID != dead {
+		t.Fatalf("pruned = %+v, want only pid %d", pruned, dead)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "daemon-dead.json")); !os.IsNotExist(err) {
+		t.Errorf("dead record should be removed from disk: %v", err)
+	}
+	got := p.ListDaemons()
+	if len(got) != 2 {
+		t.Fatalf("ListDaemons after prune = %d records, want the live and pid-less ones", len(got))
+	}
+}
+
+// #369: a daemon started with its own state directory never appeared in
+// `mcpx daemons`, whose help promises every daemon on the machine. It
+// mirrors its record into the default state directory, which the listing
+// searches as well.
+func TestWriteInfoMirrorsIntoTheDefaultStateDir(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
+	def := daemon.DefaultStateDir()
+	if def != filepath.Join(xdg, "mcpx") {
+		t.Fatalf("DefaultStateDir = %q, want the XDG location", def)
+	}
+	custom := t.TempDir()
+	p := daemon.Paths{State: custom, Info: filepath.Join(custom, "daemon-abc.json")}
+	info := daemon.Info{
+		PID: os.Getpid(), Socket: filepath.Join(custom, "daemon-abc.sock"),
+		ConfigPath: "/proj/.mcpx.json",
+	}
+	if err := p.WriteInfo(info); err != nil {
+		t.Fatal(err)
+	}
+	got := daemon.Paths{State: def}.ListDaemons()
+	if len(got) != 1 || got[0].Socket != info.Socket {
+		t.Fatalf("default dir listing = %+v, want the mirrored record", got)
+	}
+	if dirs := daemon.DaemonSearchDirs(custom); len(dirs) != 2 || dirs[0] != custom || dirs[1] != def {
+		t.Errorf("DaemonSearchDirs(custom) = %v, want [custom default]", dirs)
+	}
+	if dirs := daemon.DaemonSearchDirs(def); len(dirs) != 1 {
+		t.Errorf("DaemonSearchDirs(default) = %v, want no duplicate", dirs)
+	}
+
+	p.RemoveInfo()
+	if _, err := os.Stat(p.Info); !os.IsNotExist(err) {
+		t.Errorf("primary record should be removed: %v", err)
+	}
+	remaining := daemon.Paths{State: def}.ListDaemons()
+	if len(remaining) != 0 {
+		t.Errorf("mirror should be removed too, still listed: %+v", remaining)
 	}
 }

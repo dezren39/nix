@@ -485,7 +485,7 @@ func (s *Server) shutdown() error {
 		_ = s.tokenStore.Close()
 	}
 	_ = os.Remove(s.paths.Socket)
-	_ = os.Remove(s.paths.Info)
+	s.paths.RemoveInfo()
 	s.logger.Printf("stopped")
 	return nil
 }
@@ -1155,7 +1155,7 @@ func (s *Server) handleDaemonRestart(w http.ResponseWriter, _ *http.Request) {
 				_ = os.Remove(s.paths.Socket)
 			}
 			if s.paths.Info != "" {
-				_ = os.Remove(s.paths.Info)
+				s.paths.RemoveInfo()
 			}
 			if s.logger != nil {
 				s.logger.Printf("re-executing daemon: %s", execPath)
