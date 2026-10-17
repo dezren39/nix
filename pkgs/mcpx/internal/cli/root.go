@@ -205,6 +205,32 @@ func (a *App) adoptSettings() {
 	} else if dir := set.String("paths.cache"); dir != "" {
 		a.Paths = daemon.PathsAt(a.Paths.State, dir)
 	}
+	a.warnPathsConfigFile(set)
+}
+
+// warnPathsConfigFile warns when a paths.config entry names a file.
+//
+// The entries are directories that are searched for configuration files,
+// so pointing one at a file -- a natural reading of --paths-config -- is
+// silently ignored and the default configuration loads instead (#369).
+// Naming the file directly is what MCPX_CONFIG and --config are for, so
+// say so rather than leaving the user to debug a configuration that was
+// never read.
+func (a *App) warnPathsConfigFile(set *settings.Set) {
+	if a.warnedPathsConfig {
+		return
+	}
+	for _, entry := range set.List("paths.config") {
+		if st, err := os.Stat(entry); err == nil && !st.IsDir() {
+			fmt.Fprintf(os.Stderr,
+				"mcpx: warning: paths.config entry %q is a file; entries are "+
+					"directories searched for config files, so it is ignored. "+
+					"To use that file directly, pass --config %s or set MCPX_CONFIG.\n",
+				entry, entry)
+			a.warnedPathsConfig = true
+			return
+		}
+	}
 }
 
 // adoptSpec installs the MCP revision policy (spec.precedence, spec.first,

@@ -137,7 +137,7 @@ that reaches none says why: those are decisions, not gaps.
 | `completion` | – | Text about the binary, produced by the binary. |
 | `config` | – | Reads the configuration files on the caller's search path; `settings` is the running daemon's view. |
 | `daemon` | – | Starts a daemon, which a daemon's own API cannot do. |
-| `daemons` | – | Reads every daemon's info file on this machine; one daemon cannot see the others. |
+| `daemons` | – | Reads every daemon's info file on this machine; one daemon cannot see the others. Daemons with their own state directory mirror their record into the default one, and records whose process is gone are pruned. |
 | `dashboard` | `dashboard` |  |
 | `diagnose` | `diagnose` |  |
 | `doctor` | – | Checks this machine: binaries on PATH, permissions, configuration files. |

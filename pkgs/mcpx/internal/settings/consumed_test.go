@@ -72,13 +72,11 @@ var readViaHelper = regexp.MustCompile(
 // the reason. An entry here is a claim somebody has to defend in review;
 // there is deliberately no way to silence this test in bulk.
 var unreadAllowed = map[string]string{
-	// This entry used to say the setting was "read by config.SearchPath from
-	// MCPX_PATHS_CONFIG directly". Nothing reads MCPX_PATHS_CONFIG; the
-	// search path honours MCPX_CONFIG, which is paths.configFile below.
-	"paths.config": "circular by construction (#5): the config search path is " +
-		"what produces the settings, so the settings cannot decide it. It is " +
-		"declared so that `mcpx config --schema` names the thing. Nothing reads " +
-		"it yet -- not MCPX_PATHS_CONFIG, not --paths-config -- which #5 owns.",
+	// paths.config used to be listed here as circular by construction
+	// (#5): the search path produces the settings, so the settings cannot
+	// decide it. It is read now -- cli.adoptSettings warns when an entry
+	// names a file instead of a directory (#369) -- so it no longer
+	// belongs on this list. Deciding the search path itself remains #5's.
 	"paths.configFile": "a bootstrap setting: it names the file the settings are " +
 		"read from, so config.SearchPathFrom reads MCPX_CONFIG before any Set " +
 		"exists, and the global --config reaches App.ConfigPath the same way.",
