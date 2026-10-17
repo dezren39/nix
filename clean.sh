@@ -36,6 +36,11 @@ DOCKER_AGE_DAYS="${DOCKER_AGE_DAYS:-}"  # set = age-scoped docker prune, VM pres
 PRUNE_UNKNOWN_SCRATCH="${PRUNE_UNKNOWN_SCRATCH:-0}" # opt-in: delete, not just flag, the name-blind catch-all
 UNKNOWN_SCRATCH_MIN_MB="${UNKNOWN_SCRATCH_MIN_MB:-500}"
 UNKNOWN_SCRATCH_STALE_DAYS="${UNKNOWN_SCRATCH_STALE_DAYS:-7}"
+# --only-unknown-scratch: skip everything else in the script and just run
+# that one sweep against both scratch roots, then exit. For trying it (with
+# or without --prune-unknown-scratch) without paying for docker/brew/git
+# maintenance/etc. first.
+ONLY_UNKNOWN_SCRATCH="${ONLY_UNKNOWN_SCRATCH:-0}"
 # Collects every name-blind catch-all hit (flagged or, with
 # --prune-unknown-scratch, deleted) for the report printed at the very end.
 # A plain array, not a file: this runs once per invocation, in one process,
@@ -110,6 +115,15 @@ OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
                     convention. Pass this to actually delete what the flagged
                     report would have listed (still gated on age, size, and
                     no open handle -- see UNKNOWN_SCRATCH_* below).
+  --only-unknown-scratch
+                    Run JUST the name-blind catch-all above, against both
+                    scratch roots, then print the report and exit --
+                    everything else in this script (docker, brew, uv/bun,
+                    git maintenance, the named-pattern sweep, all of it) is
+                    skipped. For trying the catch-all on its own, cheaply:
+                    no sudo prompt (nothing it touches is root-owned),
+                    combine with --dry-run or --prune-unknown-scratch the
+                    same as a full run.
 
 TUNABLES (environment)
   ARTIFACT_STALE_DAYS       default 1   repo/worktree idle period before artifacts
@@ -191,6 +205,7 @@ while [ $# -gt 0 ]; do
     --docker-age)     DOCKER_AGE_DAYS="${2:-30}"; shift ;;
     --opencode-root-scratch) CLEAN_OPENCODE_ROOT=1 ;;
     --prune-unknown-scratch) PRUNE_UNKNOWN_SCRATCH=1 ;;
+    --only-unknown-scratch) ONLY_UNKNOWN_SCRATCH=1 ;;
     --no-sudo)        USE_SUDO=0 ;;
     --no-git-maintenance|--no-maintenance|--no-git) DO_MAINTENANCE=0 ;;
     --quick)          MAINT_DEPTH="--quick" ;;
@@ -212,8 +227,10 @@ fi
 
 # --dry-run writes nothing, so it should not demand a password. --sudo forces
 # escalation anyway; combined with --dry-run that is a no-op and says so.
+# --only-unknown-scratch never touches a root-owned path either (both
+# scratch roots are entirely user-owned), so it gets the same default.
 if [ -z "$USE_SUDO" ]; then
-  if [ "$DRY_RUN" = "1" ]; then USE_SUDO=0; else USE_SUDO=1; fi
+  if [ "$DRY_RUN" = "1" ] || [ "${ONLY_UNKNOWN_SCRATCH:-0}" = "1" ]; then USE_SUDO=0; else USE_SUDO=1; fi
 elif [ "$USE_SUDO" = "1" ] && [ "$DRY_RUN" = "1" ]; then
   echo "clean.sh: --sudo with --dry-run is a no-op (nothing is written either way)" >&2
 fi
@@ -355,6 +372,110 @@ COLIMA_STOPPED_STALE_DAYS="${COLIMA_STOPPED_STALE_DAYS:-10}"
 build_name_expr CACHE_EXPR "${CACHE_NAMES[@]}"
 build_name_expr RISK_EXPR  "${RISKY_NAMES[@]}"
 build_name_expr TRASH_EXPR "${TRASH_NAMES[@]}"
+
+# Name-blind-vs-known-pattern scratch matching. Defined here (scope-
+# independent, before either HALF runs) rather than inline in HALF 1,
+# specifically so --only-unknown-scratch can call sweep_unknown_large_scratch
+# without running docker/brew/uv/the named-pattern sweep/anything else first.
+SHORT_SCRATCH_GLOBS=(
+  'mcpx-fake-*' 'mcpx-inline-*' 'mcpx-task-*' 'mcpx-run-*' 'mcpx-keep-*' 'mcpx-bin-*'
+  'mw_ctrl_test_*' 'telemetry_test_*' 'telemetry_init_*'
+  'playwright-artifacts-*' 'playwright_chromiumdev_profile-*' 'puppeteer_dev_chrome_profile-*'
+  'chrome-*-profile' 'sbm-*' 'openchamber-*'
+  'e2e_*' 'integration_*' 'opencode-*' 'v8-compile-cache-*'
+  'go-build*' 'node-compile-cache' 'bunx-*'
+  'nix-shell.*' 'nix-develop-*'
+)
+
+# `keep` in the name is a deliberate do-not-touch signal (e.g. a one-off
+# someone named mcpx-keep-run to hold onto on purpose), EXCEPT
+# mcpx-keep-<digits> itself: despite the name, that is the same disposable
+# fixture as mcpx-fake/-task/-run under a different label.
+short_scratch_is_kept() {
+  case "$1" in
+    mcpx-keep-[0-9]*) return 1 ;; # not actually protected
+    *keep*) return 0 ;;           # protected
+    *) return 1 ;;
+  esac
+}
+
+# Name-blind catch-all: generic mktemp output (tmp.XXXXXXXX), random
+# throwaway dirs (oc-XXXXXX), anything SHORT_SCRATCH_GLOBS above doesn't
+# recognize. FLAGGED ONLY by default -- a known tool's own naming convention
+# is real evidence an entry is disposable; "big and old" alone is weaker
+# evidence, so this reports instead of deleting unless
+# --prune-unknown-scratch says otherwise. Gated on size
+# (UNKNOWN_SCRATCH_MIN_MB) + age (UNKNOWN_SCRATCH_STALE_DAYS -- deliberately
+# the slower, days-based window shared with whole-worktree removal, not the
+# hours-based windows above: a nameless entry carries no tool-lifecycle
+# evidence to justify a short fuse) + no open handle, same discipline as
+# every other sweep in this file. Every hit, flagged or deleted, is recorded
+# for the report printed at the very end.
+unknown_scratch_is_known() {
+  local name="$1" g
+  short_scratch_is_kept "$name" && return 0   # mcpx-keep-style: not ours to judge
+  for g in "${SHORT_SCRATCH_GLOBS[@]}"; do
+    # shellcheck disable=SC2053
+    [[ "$name" == $g ]] && return 0
+  done
+  return 1
+}
+sweep_unknown_large_scratch() {
+  local base="$1" entry name size_kb size_mb age_cutoff_min created modified status
+  [ -d "$base" ] || return 0
+  age_cutoff_min=$((UNKNOWN_SCRATCH_STALE_DAYS * 1440))
+  for entry in "$base"/*; do
+    [ -e "$entry" ] || continue
+    name="${entry##*/}"
+    [ "$name" = "opencode" ] && continue   # owned by the git-aware tidy pass, not this
+    unknown_scratch_is_known "$name" && continue
+    size_kb=$(du -sk "$entry" 2>/dev/null | cut -f1); size_kb=${size_kb:-0}
+    size_mb=$((size_kb / 1024))
+    [ "$size_mb" -ge "$UNKNOWN_SCRATCH_MIN_MB" ] || continue
+    [ -n "$(find "$entry" -maxdepth 0 -mmin "-${age_cutoff_min}" -print 2>/dev/null)" ] && continue  # too fresh
+    [ -n "$(lsof +D "$entry" 2>/dev/null | head -1)" ] && continue  # something has it open
+    created="$(stat -c '%w' "$entry" 2>/dev/null)"; created="${created%%.*}"
+    modified="$(stat -c '%y' "$entry" 2>/dev/null)"; modified="${modified%%.*}"
+    if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
+      status="deleted"
+      if [ "$DRY_RUN" = "1" ]; then echo "  would remove (unknown, ${size_mb} MB, >${UNKNOWN_SCRATCH_STALE_DAYS}d): ${entry/#$CALLER_USER_HOME/\~}"; status="would delete"
+      else del "$entry"; fi
+    else
+      status="flagged only"
+    fi
+    UNKNOWN_SCRATCH_HITS+=("$entry"$'\t'"${size_mb} MB"$'\t'"${created:-unknown}"$'\t'"${modified:-unknown}"$'\t'"$status")
+  done
+}
+print_unknown_scratch_report() {
+  [ "${#UNKNOWN_SCRATCH_HITS[@]}" -gt 0 ] || return 0
+  echo ""
+  if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
+    echo "🗒️  Unknown-scratch catch-all -- deleted (name matched no known pattern):"
+  else
+    echo "🗒️  Unknown-scratch catch-all -- FLAGGED ONLY, not deleted (pass --prune-unknown-scratch to delete):"
+  fi
+  printf '%-10s  %-20s  %-20s  %s\n' "SIZE" "CREATED" "MODIFIED" "PATH"
+  local _hit _h_path _h_size _h_created _h_modified _h_status
+  for _hit in "${UNKNOWN_SCRATCH_HITS[@]}"; do
+    IFS=$'\t' read -r _h_path _h_size _h_created _h_modified _h_status <<<"$_hit"
+    printf '%-10s  %-20s  %-20s  %s  [%s]\n' "$_h_size" "$_h_created" "$_h_modified" "${_h_path/#$CALLER_USER_HOME/\~}" "$_h_status"
+  done
+}
+
+if [ "$ONLY_UNKNOWN_SCRATCH" = "1" ]; then
+  echo "🗒️  --only-unknown-scratch: running just the name-blind catch-all"
+  sweep_unknown_large_scratch "$CALLER_USER_HOME/.local/share/opencode/tmp"
+  for _vf_t in /private/var/folders/*/*/T; do
+    [ -d "$_vf_t" ] || continue
+    sweep_unknown_large_scratch "$_vf_t"
+  done
+  if [ "${#UNKNOWN_SCRATCH_HITS[@]}" -eq 0 ]; then
+    echo "nothing >=${UNKNOWN_SCRATCH_MIN_MB}MB and >${UNKNOWN_SCRATCH_STALE_DAYS}d old in either scratch root"
+  else
+    print_unknown_scratch_report
+  fi
+  exit 0
+fi
 
 #############################################################################
 # HALF 1 — caches, logs, package managers
@@ -912,27 +1033,6 @@ echo "🧹 short-lived scratch (tool-prefixed single-run dirs, 2 locations)"
 # so "safe to delete" cannot be inferred from the name alone -- those are
 # left for --tmpdir / manual review rather than risking a false match.
 SHORT_SCRATCH_STALE_HOURS="${SHORT_SCRATCH_STALE_HOURS:-8}"
-SHORT_SCRATCH_GLOBS=(
-  'mcpx-fake-*' 'mcpx-inline-*' 'mcpx-task-*' 'mcpx-run-*' 'mcpx-keep-*' 'mcpx-bin-*'
-  'mw_ctrl_test_*' 'telemetry_test_*' 'telemetry_init_*'
-  'playwright-artifacts-*' 'playwright_chromiumdev_profile-*' 'puppeteer_dev_chrome_profile-*'
-  'chrome-*-profile' 'sbm-*' 'openchamber-*'
-  'e2e_*' 'integration_*' 'opencode-*' 'v8-compile-cache-*'
-  'go-build*' 'node-compile-cache' 'bunx-*'
-  'nix-shell.*' 'nix-develop-*'
-)
-
-# `keep` in the name is a deliberate do-not-touch signal (e.g. a one-off
-# someone named mcpx-keep-run to hold onto on purpose), EXCEPT
-# mcpx-keep-<digits> itself: despite the name, that is the same disposable
-# fixture as mcpx-fake/-task/-run under a different label.
-short_scratch_is_kept() {
-  case "$1" in
-    mcpx-keep-[0-9]*) return 1 ;; # not actually protected
-    *keep*) return 0 ;;           # protected
-    *) return 1 ;;
-  esac
-}
 
 # sweep_short_lived_scratch BASE -- stale by TOP-LEVEL mtime only, in ONE find
 # pass across the whole directory, not a `find` per entry. Measured at
@@ -985,53 +1085,9 @@ for _vf_t in /private/var/folders/*/*/T; do
 done
 [ "$_ss_total_removed" -eq 0 ] && info "short-lived scratch: nothing older than ${SHORT_SCRATCH_STALE_HOURS}h in either location"
 
-# Name-blind catch-all: generic mktemp output (tmp.XXXXXXXX), random
-# throwaway dirs (oc-XXXXXX), anything SHORT_SCRATCH_GLOBS above doesn't
-# recognize. FLAGGED ONLY by default -- a known tool's own naming convention
-# is real evidence an entry is disposable; "big and old" alone is weaker
-# evidence, so this reports instead of deleting unless
-# --prune-unknown-scratch says otherwise. Gated on size
-# (UNKNOWN_SCRATCH_MIN_MB) + age (UNKNOWN_SCRATCH_STALE_DAYS -- deliberately
-# the slower, days-based window shared with whole-worktree removal, not the
-# hours-based windows above: a nameless entry carries no tool-lifecycle
-# evidence to justify a short fuse) + no open handle, same discipline as
-# every other sweep in this file. Every hit, flagged or deleted, is recorded
-# for the report printed at the very end.
-unknown_scratch_is_known() {
-  local name="$1" g
-  short_scratch_is_kept "$name" && return 0   # mcpx-keep-style: not ours to judge
-  for g in "${SHORT_SCRATCH_GLOBS[@]}"; do
-    # shellcheck disable=SC2053
-    [[ "$name" == $g ]] && return 0
-  done
-  return 1
-}
-sweep_unknown_large_scratch() {
-  local base="$1" entry name size_kb size_mb age_cutoff_min created modified status
-  [ -d "$base" ] || return 0
-  age_cutoff_min=$((UNKNOWN_SCRATCH_STALE_DAYS * 1440))
-  for entry in "$base"/*; do
-    [ -e "$entry" ] || continue
-    name="${entry##*/}"
-    [ "$name" = "opencode" ] && continue   # owned by the git-aware tidy pass, not this
-    unknown_scratch_is_known "$name" && continue
-    size_kb=$(du -sk "$entry" 2>/dev/null | cut -f1); size_kb=${size_kb:-0}
-    size_mb=$((size_kb / 1024))
-    [ "$size_mb" -ge "$UNKNOWN_SCRATCH_MIN_MB" ] || continue
-    [ -n "$(find "$entry" -maxdepth 0 -mmin "-${age_cutoff_min}" -print 2>/dev/null)" ] && continue  # too fresh
-    [ -n "$(lsof +D "$entry" 2>/dev/null | head -1)" ] && continue  # something has it open
-    created="$(stat -c '%w' "$entry" 2>/dev/null)"; created="${created%%.*}"
-    modified="$(stat -c '%y' "$entry" 2>/dev/null)"; modified="${modified%%.*}"
-    if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
-      status="deleted"
-      if [ "$DRY_RUN" = "1" ]; then echo "  would remove (unknown, ${size_mb} MB, >${UNKNOWN_SCRATCH_STALE_DAYS}d): ${entry/#$CALLER_USER_HOME/\~}"; status="would delete"
-      else del "$entry"; fi
-    else
-      status="flagged only"
-    fi
-    UNKNOWN_SCRATCH_HITS+=("$entry"$'\t'"${size_mb} MB"$'\t'"${created:-unknown}"$'\t'"${modified:-unknown}"$'\t'"$status")
-  done
-}
+# unknown_scratch_is_known() / sweep_unknown_large_scratch() are defined
+# earlier (scope-independent, alongside SHORT_SCRATCH_GLOBS) so
+# --only-unknown-scratch can call them without running anything above first.
 sweep_unknown_large_scratch "$CALLER_USER_HOME/.local/share/opencode/tmp"
 for _vf_t in /private/var/folders/*/*/T; do
   [ -d "$_vf_t" ] || continue
@@ -1787,20 +1843,11 @@ if (( RECLAIMED > 0 )); then echo "✅ Reclaimed: $(human_size "$RECLAIMED")"
 else echo "⚠️  No net disk reclaimed ($(human_size $(( -RECLAIMED ))) more used)"; fi
 
 # --- Unknown-scratch catch-all report, always last -------------------------
+# print_unknown_scratch_report() is defined earlier (scope-independent,
+# alongside sweep_unknown_large_scratch) so --only-unknown-scratch's
+# short-circuit can print the identical report without duplicating it.
 # Printed regardless of --prune-unknown-scratch: without it these are the
 # candidates nobody has acted on yet; with it, this is the record of what
 # just got deleted (size/dates captured before the delete, since the path is
 # gone by the time this prints).
-if [ "${#UNKNOWN_SCRATCH_HITS[@]}" -gt 0 ]; then
-  echo ""
-  if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
-    echo "🗒️  Unknown-scratch catch-all -- deleted (name matched no known pattern):"
-  else
-    echo "🗒️  Unknown-scratch catch-all -- FLAGGED ONLY, not deleted (pass --prune-unknown-scratch to delete):"
-  fi
-  printf '%-10s  %-20s  %-20s  %s\n' "SIZE" "CREATED" "MODIFIED" "PATH"
-  for _hit in "${UNKNOWN_SCRATCH_HITS[@]}"; do
-    IFS=$'\t' read -r _h_path _h_size _h_created _h_modified _h_status <<<"$_hit"
-    printf '%-10s  %-20s  %-20s  %s  [%s]\n' "$_h_size" "$_h_created" "$_h_modified" "${_h_path/#$CALLER_USER_HOME/\~}" "$_h_status"
-  done
-fi
+print_unknown_scratch_report
