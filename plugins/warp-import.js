@@ -91,26 +91,37 @@ export function describeSession(session) {
  */
 export function resolveSession(sessions, selector) {
   const list = Array.isArray(sessions) ? sessions.filter(Boolean) : []
-  const recent = list.slice().sort(byRecent).slice(0, RECENT_LIMIT)
   if (list.length === 0) return { status: "empty", candidates: [] }
+
+  // Lazy helper: compute and sort `recent` candidate sessions only when needed.
+  // Avoids O(N log N) sorting on every lookup (e.g. when exact match or single title match occurs).
+  let recentCache
+  const getRecent = () => {
+    if (!recentCache) {
+      recentCache = list.slice().sort(byRecent).slice(0, RECENT_LIMIT)
+    }
+    return recentCache
+  }
 
   const term = typeof selector === "string" ? selector.trim() : ""
   if (!term) {
-    return { status: "none", candidates: recent, reason: "No session selector was provided." }
+    return { status: "none", candidates: getRecent(), reason: "No session selector was provided." }
   }
 
   const exact = list.find((item) => item && item.id === term)
   if (exact) return { status: "ok", session: exact, matchedBy: "id" }
 
   if (/^ses_/i.test(term)) {
-    return { status: "none", candidates: recent, reason: `No session has id "${term}".` }
+    return { status: "none", candidates: getRecent(), reason: `No session has id "${term}".` }
   }
 
   const needle = term.toLowerCase()
-  const matches = list.filter((item) => title(item).toLowerCase().includes(needle)).sort(byRecent)
+  const matches = list.filter((item) => title(item).toLowerCase().includes(needle))
   if (matches.length === 1) return { status: "ok", session: matches[0], matchedBy: "title" }
-  if (matches.length > 1) return { status: "ambiguous", candidates: matches.slice(0, RECENT_LIMIT) }
-  return { status: "none", candidates: recent, reason: `No session title matches "${term}".` }
+  if (matches.length > 1) {
+    return { status: "ambiguous", candidates: matches.sort(byRecent).slice(0, RECENT_LIMIT) }
+  }
+  return { status: "none", candidates: getRecent(), reason: `No session title matches "${term}".` }
 }
 
 function errorText(value) {
