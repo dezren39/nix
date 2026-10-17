@@ -1383,20 +1383,25 @@ echo "   $TRASHED .trash removed, $PRUNED artifact dirs pruned ($NONGIT outside 
 # something git-discover-repos's name list can express. Gated the same way
 # the main artifact loop now is: the repo being dirty is not a reason to keep
 # a postgres cluster nobody has touched in PG_SCRATCH_STALE_HOURS and nothing
-# has open. maxdepth 4 is a cost bound (a cluster buried deeper than that
-# inside a worktree would be unusual), not a correctness one.
+# has open. The search is NOT depth-bounded (#375): a cluster nested deeper
+# than the old maxdepth 4 inside a worktree (e.g. services/api/.data/pgdata)
+# was silently missed. Cost is bounded by pruning instead: .git and
+# node_modules -- the two trees that dominate a worktree walk -- are never
+# descended into. The -d guard covers a marker whose cluster was already
+# removed as part of an enclosing cluster earlier in this same pass.
 _repo_pg_removed=0
 while IFS= read -r _owner; do
   [ -d "$_owner" ] || continue
   while IFS= read -r _marker; do
     _pgdir="$(dirname "$_marker")"
+    [ -d "$_pgdir" ] || continue
     if [ -z "$(find "$_pgdir" -type f -not -name "$SPOTLIGHT_MARKER" -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
        [ -z "$(lsof +D "$_pgdir" 2>/dev/null | head -1)" ]; then
       if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"
       else echo "  removing (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"; del "$_pgdir"; fi
       _repo_pg_removed=$((_repo_pg_removed + 1))
     fi
-  done < <(find "$_owner" -maxdepth 4 -name PG_VERSION -type f 2>/dev/null)
+  done < <(find "$_owner" \( -type d \( -name .git -o -name node_modules \) -prune \) -o -name PG_VERSION -type f -print 2>/dev/null)
 done < "$OWNERS_FILE"
 [ "$_repo_pg_removed" -gt 0 ] && info "postgres data dirs inside repos/worktrees: removed $_repo_pg_removed"
 
