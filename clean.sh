@@ -1582,9 +1582,21 @@ tidy_purge_postgres_dirs() {
   while IFS= read -r marker; do
     [ -n "$marker" ] || continue
     pgdir="$(dirname "$marker")"
+    [ -d "$pgdir" ] || continue   # already removed as part of an enclosing cluster this pass
+    # Same in-use guard as the sibling postgres sweeps: the caller's
+    # recent-file gate does not protect an idle-but-running server, which
+    # can write nothing for >OPENCODE_TIDY_PROTECT_DAYS while still
+    # holding its data dir open.
+    if [ -n "$(lsof +D "$pgdir" 2>/dev/null | head -1)" ]; then
+      echo "  keeping (postgres data dir in use): ${pgdir/#$CALLER_USER_HOME/\~}"
+      continue
+    fi
     if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir): ${pgdir/#$CALLER_USER_HOME/\~}"
     else echo "  removing (postgres data dir): ${pgdir/#$CALLER_USER_HOME/\~}"; del "$pgdir"; fi
-  done < <(find "$root" -name PG_VERSION -type f 2>/dev/null)
+    # (the find below prunes .git/node_modules/.worktrees, mirroring the
+    # per-repo sweep's prune set from #411: repo internals, dependency
+    # trees and linked worktrees are not scratch this pass owns)
+  done < <(find "$root" \( -type d \( -name .git -o -name node_modules -o -name .worktrees \) -prune \) -o -name PG_VERSION -type f -print 2>/dev/null)
 }
 # One level deep only, deliberately: venvs/build caches/binary dumps are
 # almost always the scratch dir's direct children, and a full recursive du
