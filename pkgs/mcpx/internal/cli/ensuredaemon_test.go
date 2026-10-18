@@ -84,8 +84,23 @@ func TestEnsureDaemonCancelWhilePolling(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Fatalf("EnsureDaemon took %v after cancellation, want a prompt return", elapsed)
 	}
-	if _, statErr := os.Stat(marker); statErr != nil {
-		t.Fatal("expected the daemon spawn to have happened before cancellation")
+	// The spawn is cmd.Start + Release (client.go): Start returns once the
+	// process exists, before the child has run any code, and this test's
+	// whole point is that EnsureDaemon returns the instant cancellation
+	// lands — so the child's touch can legitimately land after the return.
+	// Asserting the marker instantly races the child's scheduling (the
+	// flake that got this test skipped in the darwin nix build, #428).
+	// The child is Setsid and Released, so it still runs: wait for the
+	// marker instead, and fail only if it never appears.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, statErr := os.Stat(marker); statErr == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected the daemon spawn to have happened before cancellation")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
