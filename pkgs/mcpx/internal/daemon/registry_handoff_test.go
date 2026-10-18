@@ -22,6 +22,11 @@ type orphanUpstream struct {
 	issued  int
 	deletes int
 	deleted []string
+	// blockDelete, when non-nil, holds a DELETE in the handler until it is
+	// closed (or the request goes away); deleteStarted is signalled when a
+	// blocked DELETE arrives. They simulate a blackholed upstream (#402).
+	blockDelete   chan struct{}
+	deleteStarted chan struct{}
 }
 
 func newOrphanUpstream(t *testing.T) *orphanUpstream {
@@ -33,6 +38,19 @@ func newOrphanUpstream(t *testing.T) *orphanUpstream {
 }
 
 func (u *orphanUpstream) serve(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete && u.blockDelete != nil {
+		if u.deleteStarted != nil {
+			select {
+			case u.deleteStarted <- struct{}{}:
+			default:
+			}
+		}
+		select {
+		case <-u.blockDelete:
+		case <-r.Context().Done():
+			return
+		}
+	}
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	sid := r.Header.Get("Mcp-Session-Id")
@@ -147,6 +165,7 @@ func TestTakeoverTerminatesARemovedServersUpstreamSession(t *testing.T) {
 	}
 	ho.Commit()
 	ad.Attach()
+	ad.WaitOrphanTerminations()
 
 	deletes, deleted := up.counts()
 	if deletes != 1 {
@@ -154,6 +173,38 @@ func TestTakeoverTerminatesARemovedServersUpstreamSession(t *testing.T) {
 	}
 	if len(deleted) != 1 || deleted[0] != "sess-1" {
 		t.Fatalf("DELETE carried session ids %v, want [sess-1]", deleted)
+	}
+}
+
+// #402: ending an orphaned session must not block Attach — and therefore
+// the takeover's serving path — when the upstream never answers. The
+// DELETE still happens exactly once, in the background, after commit.
+func TestTakeoverOrphanTerminationDoesNotBlockAttach(t *testing.T) {
+	up := newOrphanUpstream(t)
+	up.blockDelete = make(chan struct{})
+	up.deleteStarted = make(chan struct{}, 1)
+	_, ho := detachRemote(t, up.URL)
+	next := emptyRegistry(t)
+
+	ad, err := next.Adopt(ho.Pools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ho.Commit()
+	start := time.Now()
+	ad.Attach()
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("Attach blocked %v on an unanswering orphan upstream; orphan termination must run off the serving path", elapsed)
+	}
+	select {
+	case <-up.deleteStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no orphan DELETE was started in the background after Attach")
+	}
+	close(up.blockDelete)
+	ad.WaitOrphanTerminations()
+	if deletes, _ := up.counts(); deletes != 1 {
+		t.Fatalf("upstream saw %d DELETE(s), want exactly 1", deletes)
 	}
 }
 

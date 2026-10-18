@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/dezren39/mcpx/internal/defaults"
@@ -85,6 +86,10 @@ type Adoption struct {
 	// is contacted about them until Attach, so Abort leaves them entirely
 	// with the predecessor, which still owns them.
 	orphanSessions []orphanSession
+	// orphanWG tracks the background orphan-session terminations Attach
+	// starts, so a caller (in practice a test, or a shutdown that wants a
+	// clean slate) can wait for them with WaitOrphanTerminations.
+	orphanWG sync.WaitGroup
 }
 
 // orphanSession is a handed upstream HTTP session whose pool this
@@ -147,8 +152,18 @@ func (a *Adoption) Abort() {
 	a.orphanSessions = nil
 }
 
-// Attach serves the adopted children, closes the orphans and ends the
-// orphaned upstream sessions. Call it only after the handoff has committed.
+// Attach serves the adopted children and closes the orphans. Call it only
+// after the handoff has committed.
+//
+// Orphaned upstream sessions are ended in the background, not here: each
+// DELETE is bounded only by the per-session delete timeout (5s), so running
+// them synchronously in series would delay the successor daemon serving by
+// N x 5s — worst exactly when an upstream is unreachable and the DELETE can
+// never succeed (#402). Termination is best-effort (a failure already just
+// logs upstream.session.orphaned and leaves the session to expire), so
+// nothing about correctness needs it done before serving — only the abort
+// path needs no DELETE before commit, and Attach runs strictly after
+// commit, so starting the sends here preserves that.
 func (a *Adoption) Attach() {
 	for p, ads := range a.byPool {
 		p.Attach(ads, a.seq[p])
@@ -157,7 +172,18 @@ func (a *Adoption) Attach() {
 		o.Close()
 	}
 	for _, s := range a.orphanSessions {
-		pool.TerminateOrphanedSession(s.server, s.h)
+		a.orphanWG.Add(1)
+		go func(s orphanSession) {
+			defer a.orphanWG.Done()
+			pool.TerminateOrphanedSession(s.server, s.h)
+		}(s)
 	}
 	a.orphanSessions = nil
+}
+
+// WaitOrphanTerminations blocks until every background orphan-session
+// termination Attach started has finished. Production serving never waits
+// for it; it exists for tests and orderly shutdown.
+func (a *Adoption) WaitOrphanTerminations() {
+	a.orphanWG.Wait()
 }
