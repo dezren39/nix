@@ -250,6 +250,7 @@ func TestPruneStaleRemovesRecordsWhoseProcessIsGone(t *testing.T) {
 func TestWriteInfoMirrorsIntoTheDefaultStateDir(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", xdg)
+	t.Setenv("MCPX_STATE_DIR", "")
 	def := daemon.DefaultStateDir()
 	if def != filepath.Join(xdg, "mcpx") {
 		t.Fatalf("DefaultStateDir = %q, want the XDG location", def)
@@ -282,4 +283,84 @@ func TestWriteInfoMirrorsIntoTheDefaultStateDir(t *testing.T) {
 	if len(remaining) != 0 {
 		t.Errorf("mirror should be removed too, still listed: %+v", remaining)
 	}
+}
+
+// #407: MCPX_STATE_DIR is the first override ResolvePaths honours, so the
+// daemon a plain invocation talks to lives there -- but DaemonSearchDirs
+// only ever searched the caller's directory and the XDG default, so a
+// listing from a custom state directory missed it entirely.
+func TestDaemonSearchDirsIncludesTheEnvStateDir(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
+	envDir := t.TempDir()
+	t.Setenv("MCPX_STATE_DIR", envDir)
+	def := daemon.DefaultStateDir()
+	custom := t.TempDir()
+
+	dirs := daemon.DaemonSearchDirs(custom)
+	want := map[string]bool{custom: true, def: true, envDir: true}
+	if len(dirs) != len(want) {
+		t.Fatalf("DaemonSearchDirs(custom) = %v, want exactly %v", dirs, want)
+	}
+	for _, d := range dirs {
+		if !want[d] {
+			t.Errorf("DaemonSearchDirs(custom) has unexpected %q in %v", d, dirs)
+		}
+		delete(want, d)
+	}
+	if len(want) != 0 {
+		t.Errorf("DaemonSearchDirs(custom) = %v, missing %v", dirs, want)
+	}
+	// The env directory as the primary is not duplicated.
+	if dirs := daemon.DaemonSearchDirs(envDir); len(dirs) != 2 {
+		t.Errorf("DaemonSearchDirs(env) = %v, want [env default] with no duplicate", dirs)
+	}
+}
+
+// #407: a daemon whose state directory is MCPX_STATE_DIR is the default
+// daemon, not a custom-state one, so it must not mirror its record into
+// the XDG default directory -- that leak made a sandboxed daemon visible
+// to (and stoppable by) a non-sandboxed `mcpx daemons` / `stop --all`.
+// A genuinely custom directory still mirrors, env set or not.
+func TestWriteInfoDoesNotMirrorTheEnvDefaultDaemon(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", xdg)
+	envDir := t.TempDir()
+	t.Setenv("MCPX_STATE_DIR", envDir)
+	def := daemon.DefaultStateDir()
+
+	p := daemon.Paths{State: envDir, Info: filepath.Join(envDir, "daemon.json")}
+	info := daemon.Info{
+		PID: os.Getpid(), Socket: filepath.Join(envDir, "daemon.sock"),
+		ConfigPath: "/proj/.mcpx.json",
+	}
+	if err := p.WriteInfo(info); err != nil {
+		t.Fatal(err)
+	}
+	envPaths := daemon.Paths{State: envDir}
+	if got := envPaths.ListDaemons(); len(got) != 1 {
+		t.Fatalf("env dir listing = %+v, want the primary record", got)
+	}
+	defPaths := daemon.Paths{State: def}
+	if got := defPaths.ListDaemons(); len(got) != 0 {
+		t.Fatalf("env-default daemon leaked a mirror into the default dir: %+v", got)
+	}
+	p.RemoveInfo()
+	if _, err := os.Stat(p.Info); !os.IsNotExist(err) {
+		t.Errorf("primary record should be removed: %v", err)
+	}
+
+	custom := t.TempDir()
+	cp := daemon.Paths{State: custom, Info: filepath.Join(custom, "daemon-abc.json")}
+	cinfo := daemon.Info{
+		PID: os.Getpid(), Socket: filepath.Join(custom, "daemon-abc.sock"),
+		ConfigPath: "/other/.mcpx.json",
+	}
+	if err := cp.WriteInfo(cinfo); err != nil {
+		t.Fatal(err)
+	}
+	if got := defPaths.ListDaemons(); len(got) != 1 || got[0].Socket != cinfo.Socket {
+		t.Errorf("custom daemon should still mirror with MCPX_STATE_DIR set, default listing = %+v", got)
+	}
+	cp.RemoveInfo()
 }

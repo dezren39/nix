@@ -240,15 +240,40 @@ func DefaultStateDir() string {
 	)
 }
 
+// envStateDir is the state directory MCPX_STATE_DIR names, or "" when it
+// is not set. ResolvePaths honours it before the XDG location, so a daemon
+// whose state directory is this one is a default daemon -- the plain
+// invocation's daemon -- not a custom-state one (#407).
+func envStateDir() string {
+	return os.Getenv("MCPX_STATE_DIR")
+}
+
 // DaemonSearchDirs is where `mcpx daemons` looks for daemon records: the
 // caller's own state directory, plus the default one. A daemon started
 // with its own state directory mirrors its record into the default
 // directory (see WriteInfo), so the second entry is what makes the listing
 // cover the whole machine rather than only the caller's directory.
+//
+// The MCPX_STATE_DIR directory is searched too (#407): it is where a plain
+// invocation's daemon lives when the variable is set, and a caller whose
+// own state came from a config file or a flag would otherwise never see
+// that daemon, mirror or no mirror.
 func DaemonSearchDirs(primary string) []string {
 	out := []string{primary}
-	if d := DefaultStateDir(); d != "" && d != primary {
-		out = append(out, d)
+	for _, d := range []string{DefaultStateDir(), envStateDir()} {
+		if d == "" {
+			continue
+		}
+		seen := false
+		for _, have := range out {
+			if have == d {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			out = append(out, d)
+		}
 	}
 	return out
 }
@@ -304,10 +329,17 @@ func (p Paths) PruneStale() []Info {
 // publishes its record: the default state directory, under a name keyed
 // by its own directory so two custom directories cannot collide and a
 // custom record cannot shadow the default directory's own daemon for the
-// same configuration. Empty when this directory is the default one.
+// same configuration. Empty when this directory is the default one --
+// the XDG location, or the MCPX_STATE_DIR location a plain invocation
+// resolves to (#407). Mirroring the env-default daemon would leak a
+// sandboxed daemon's record into the real default directory, where a
+// non-sandboxed listing could see it and stop it.
 func (p Paths) mirrorInfoPath() string {
 	def := DefaultStateDir()
 	if def == "" || p.State == "" || p.State == def || p.Info == "" {
+		return ""
+	}
+	if env := envStateDir(); env != "" && p.State == env {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(p.State))
