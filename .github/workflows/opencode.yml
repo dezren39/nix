@@ -6,9 +6,15 @@ on:
   pull_request_review_comment:
     types: [created]
 
+# github.ref is the default branch for issue_comment, so a
+# workflow+ref group is one repo-wide group for every issue/PR:
+# with the default single queue a third bot command silently
+# replaces the pending second one. Key by PR/issue number and
+# queue every run (mirrors the openchamber fix for the same flaw).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   opencode:
