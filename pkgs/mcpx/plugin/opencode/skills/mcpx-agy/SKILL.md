@@ -10,6 +10,9 @@ description: >-
 
 In Antigravity, agents can communicate with MCP servers through the centralized `mcpx` daemon. This keeps the agent's MCP tool count low while providing full access to all developer tools (Codedb, FFF, Chrome DevTools, Context7, Jules, Neon, Desktop Commander, etc.).
 
+`examples/` holds runnable scripts for the patterns below;
+`examples/README.md` says what each one shows.
+
 ---
 
 ## 1. Context Efficiency in AGY

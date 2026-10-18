@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dezren39/mcpx/internal/mcpserver"
@@ -276,6 +277,37 @@ func TestDirectoryReadListsEveryDirectoryOnDisk(t *testing.T) {
 	}
 }
 
+// The conformance suite's sep-2640 directory check samples the first
+// skill skills/list returns (handleSkills sorts by URI) and requires a
+// subdirectory child to exercise the inode/directory case (#389). If that
+// skill has no subdirectory, the suite records the check as FAILURE
+// ("not testable"), keeping server-all permanently red. Guard the exact
+// sampling the suite does so renaming or reordering skills cannot
+// silently re-break it.
+func TestFirstServedSkillHasSubdirectory(t *testing.T) {
+	s := mcpserver.New(newBackend(), "mcpx", "test")
+	list := resultOf(t, handle(t, s, "skills/list", modernParams(nil)))
+	entries, _ := list["skills"].([]any)
+	if len(entries) == 0 {
+		t.Fatal("skills/list returned no skills")
+	}
+	firstURI, _ := entries[0].(map[string]any)["uri"].(string)
+	if firstURI == "" {
+		t.Fatalf("first skills/list entry has no uri: %v", entries[0])
+	}
+	if !strings.HasSuffix(firstURI, "/SKILL.md") {
+		t.Fatalf("first skill uri %q does not end in /SKILL.md", firstURI)
+	}
+	root := firstURI[:len(firstURI)-len("/SKILL.md")]
+	res := resultOf(t, handle(t, s, "resources/directory/read", modernParams(map[string]any{"uri": root})))
+	for _, r := range res["resources"].([]any) {
+		if m, _ := r.(map[string]any); m["mimeType"] == "inode/directory" {
+			return
+		}
+	}
+	t.Fatalf("first served skill %s has no subdirectory child in %v; the sep-2640 directory check samples this skill and counts it untestable as FAILURE (#389)", root, res["resources"])
+}
+
 func TestUpstreamSkillsRelayedInListAndGet(t *testing.T) {
 	s := mcpserver.New(newBackend(), "mcpx", "test")
 	s.UpstreamSkills = func() []*mcpserver.UpstreamSkill {
@@ -340,4 +372,3 @@ func TestUpstreamSkillsRelayedInListAndGet(t *testing.T) {
 		t.Fatalf("resources/directory/read for upstream skill returned 0 items")
 	}
 }
-
