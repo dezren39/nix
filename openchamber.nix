@@ -63,9 +63,19 @@ let
     opencode = opencodeLink;
   };
   # The app's bundled opencode-cli is unused while it attaches to the agent's
-  # server; the override only keeps it pointing at the same deploy link.
+  # server, but the desktop package still `ln -s`s it into the app bundle at
+  # build time (nix/desktop-darwin.nix: opencode-cli/opencode), and nix-darwin's
+  # system activation resolves that symlink with rsync --copy-unsafe-links
+  # before home-manager's activation has ever pointed opencodeLink's target
+  # (${state}/bin/opencode) at anything -- a dangling symlink there aborts the
+  # whole `/Applications/Nix Apps` rsync (rsync: "symlink has no referent",
+  # exit 23) on any machine where that state link does not already exist, e.g.
+  # a first activation or one after `~/.local/state/openchamber` was cleared.
+  # The real opencode package is always a real store path, so bundling it
+  # instead sidesteps the ordering hazard entirely; which build it is does
+  # not matter since the desktop app never runs it.
   openchamber-desktop = inputs.openchamber.packages.${system}.openchamber-desktop.override {
-    opencode = opencodeLink;
+    opencode = ocPkgs.opencode;
   };
 
   start = pkgs.writeShellScript "openchamber-serve" ''
