@@ -73,12 +73,25 @@ func (h *RegistryHandoff) Restore() {
 // Adoption is a successor's children, held until the handoff commits. A child
 // is served by the pool with the same identity; one whose pool this
 // configuration no longer has is closed after commit, and its server starts
-// again from the new definition on its next use.
+// again from the new definition on its next use. An upstream HTTP session
+// whose pool is gone has no child to close: it is ended upstream after
+// commit instead, from the endpoint its handoff carries.
 type Adoption struct {
 	all     []*pool.Adopted
 	byPool  map[*pool.Pool][]*pool.Adopted
 	seq     map[*pool.Pool]int
 	orphans []*pool.Adopted
+	// orphanSessions are handed HTTP sessions no pool here adopted. Nothing
+	// is contacted about them until Attach, so Abort leaves them entirely
+	// with the predecessor, which still owns them.
+	orphanSessions []orphanSession
+}
+
+// orphanSession is a handed upstream HTTP session whose pool this
+// configuration no longer has, with the name of the server it belonged to.
+type orphanSession struct {
+	server string
+	h      pool.InstanceHandoff
 }
 
 // Adopt takes the children of every handed pool. Nothing reads them yet.
@@ -101,6 +114,11 @@ func (r *Registry) Adopt(hs []pool.PoolHandoff) (*Adoption, error) {
 		p, ok := byID[h.PoolID]
 		if !ok {
 			a.orphans = append(a.orphans, ads...)
+			for _, in := range h.Instances {
+				if in.HTTP != nil {
+					a.orphanSessions = append(a.orphanSessions, orphanSession{server: h.Server, h: in})
+				}
+			}
 			continue
 		}
 		sessions, err := p.AdoptSessions(h.Instances)
@@ -119,15 +137,18 @@ func (r *Registry) Adopt(hs []pool.PoolHandoff) (*Adoption, error) {
 }
 
 // Abort gives every adopted child back, for a handoff that did not commit.
+// Orphan sessions were never contacted, so there is nothing to give back:
+// the predecessor keeps serving them.
 func (a *Adoption) Abort() {
 	for _, ad := range a.all {
 		ad.Abort()
 	}
 	a.all = nil
+	a.orphanSessions = nil
 }
 
-// Attach serves the adopted children and closes the orphans. Call it only
-// after the handoff has committed.
+// Attach serves the adopted children, closes the orphans and ends the
+// orphaned upstream sessions. Call it only after the handoff has committed.
 func (a *Adoption) Attach() {
 	for p, ads := range a.byPool {
 		p.Attach(ads, a.seq[p])
@@ -135,4 +156,8 @@ func (a *Adoption) Attach() {
 	for _, o := range a.orphans {
 		o.Close()
 	}
+	for _, s := range a.orphanSessions {
+		pool.TerminateOrphanedSession(s.server, s.h)
+	}
+	a.orphanSessions = nil
 }

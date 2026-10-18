@@ -562,39 +562,93 @@ func (t *HTTPTransport) RecvContext() ([]byte, context.Context, error) {
 	}
 }
 
-// Close releases the session.
+// Close releases the session. A failed DELETE is not reported: closing is
+// best-effort everywhere it is called, and the session expires upstream on
+// its own when the DELETE cannot be delivered. TerminateHTTPSession is the
+// path that reports the failure, for a session nobody else will release.
 func (t *HTTPTransport) Close() error {
+	_ = t.closeSession()
+	return nil
+}
+
+// closeSession ends the upstream session with a DELETE and reports whether
+// that succeeded. A 404 means the upstream has already forgotten the
+// session, which is the state the DELETE was for, so it is not a failure.
+func (t *HTTPTransport) closeSession() error {
+	var out error
 	t.closeOnce.Do(func() {
 		close(t.closed)
 		t.sessionMu.RLock()
 		sid := t.sessionID
 		t.sessionMu.RUnlock()
-		if sid != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), defaults.UpstreamSessionDeleteTimeout)
-			defer cancel()
-			req, err := http.NewRequestWithContext(ctx, http.MethodDelete, t.url, nil)
-			if err == nil {
-				t.setHeaders(req)
-				if resp, err := t.hc.Do(req); err == nil {
-					resp.Body.Close()
-				}
-			}
+		if sid == "" {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), defaults.UpstreamSessionDeleteTimeout)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodDelete, t.url, nil)
+		if err != nil {
+			out = err
+			return
+		}
+		t.setHeaders(req)
+		resp, err := t.hc.Do(req)
+		if err != nil {
+			out = err
+			return
+		}
+		resp.Body.Close()
+		if resp.StatusCode >= http.StatusBadRequest && resp.StatusCode != http.StatusNotFound {
+			out = fmt.Errorf("delete %s: http %d", t.url, resp.StatusCode)
 		}
 	})
-	return nil
+	return out
 }
 
-// HTTPHandoff is an upstream session as a successor process resumes it.
+// TerminateHTTPSession ends the session a handoff describes, for a successor
+// that will not serve it: the server was removed from the configuration, so
+// no pool of its own will ever close the session. It reports why the DELETE
+// could not be delivered, including a handoff from a predecessor too old to
+// carry the endpoint, so the caller can log the session it is leaving to
+// expire upstream instead of dropping it silently.
+func TerminateHTTPSession(h HTTPHandoff) error {
+	if h.SessionID == "" {
+		return errors.New("the handoff carries no session id")
+	}
+	if h.URL == "" {
+		return errors.New("the handoff carries no endpoint for the session")
+	}
+	tr, err := NewHTTP(HTTPOptions{URL: h.URL, Headers: h.Headers})
+	if err != nil {
+		return err
+	}
+	tr.Resume(h)
+	return tr.closeSession()
+}
+
+// HTTPHandoff is an upstream session as a successor process resumes it. The
+// endpoint and headers travel with it, over the takeover's unix socket only,
+// so a successor can still end the session when the server is no longer in
+// its configuration and it has no endpoint of its own to dial.
 type HTTPHandoff struct {
-	SessionID  string `json:"sessionId"`
-	Negotiated string `json:"negotiated,omitempty"`
+	SessionID  string            `json:"sessionId"`
+	Negotiated string            `json:"negotiated,omitempty"`
+	URL        string            `json:"url,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
 }
 
 // Handoff reports the session this transport holds, if the upstream issued one.
 func (t *HTTPTransport) Handoff() HTTPHandoff {
 	t.sessionMu.RLock()
 	defer t.sessionMu.RUnlock()
-	return HTTPHandoff{SessionID: t.sessionID, Negotiated: t.negotiated}
+	var headers map[string]string
+	if len(t.headers) > 0 {
+		headers = make(map[string]string, len(t.headers))
+		for k, v := range t.headers {
+			headers[k] = v
+		}
+	}
+	return HTTPHandoff{SessionID: t.sessionID, Negotiated: t.negotiated, URL: t.url, Headers: headers}
 }
 
 // Resume continues a session a predecessor process established. Nothing is
