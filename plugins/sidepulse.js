@@ -81,13 +81,17 @@ function writeEventSocket(target, message) {
   })
 }
 
+// Pre-computed socket candidate paths evaluated once at module load to avoid
+// redundant environment lookups, path joins, and homedir() calls on every event.
+const SOCKET_CANDIDATES = socketCandidates()
+
 // Live push to the status bar. The JSONL log above stays the recovery source; this
 // is what makes the status bar react without waiting for a reconcile.
 async function notifySidePulse(payload) {
   try {
     const message = JSON.stringify({ provider: "opencode", line: payload })
     if (Buffer.byteLength(message, "utf8") > SIDEPULSE_MAX_EVENT_BYTES) return
-    for (const target of socketCandidates()) {
+    for (const target of SOCKET_CANDIDATES) {
       if (await writeEventSocket(target, message)) return
     }
   } catch {
