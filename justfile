@@ -241,6 +241,11 @@ tidy-check *args:
 tidy-test:
     cd pkgs/flake-tidy && uv sync && .venv/bin/python -m pytest tests/ -v
 
+# Run every plugins/*.test.mjs suite (also a flake check: plugins-tests, #414)
+[group('plugins')]
+plugins-test:
+    for t in plugins/*.test.mjs; do echo "== $t"; node "$t" || exit 1; done
+
 # =============================================================================
 # Symlinks
 # =============================================================================
