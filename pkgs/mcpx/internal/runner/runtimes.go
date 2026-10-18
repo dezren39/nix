@@ -422,7 +422,12 @@ func build(c candidate, perms []string) *Runtime {
 		}
 	case KindNode:
 		rt.Args = func(script string) []string {
-			a := []string{"--no-warnings", "--experimental-strip-types"}
+			// --experimental-transform-types, not --experimental-strip-types:
+			// strip-only mode rejects non-erasable TypeScript (enum, value
+			// namespaces, parameter properties) that Node itself runs fine
+			// once types are transformed (#108). Strip-types is also a
+			// no-op default on Node 24.
+			a := []string{"--no-warnings", "--experimental-transform-types"}
 			a = append(a, c.args...)
 			a = append(a, perms...)
 			return append(a, script)
