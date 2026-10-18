@@ -1,0 +1,98 @@
+# Roadmap
+
+This is the roadmap for the repo. It is grouped by area, and each row has a horizon: Now, Next, Later or Ideas. How the roadmap works, and how it connects to designs and plans, is in [`planning/README.md`](planning/README.md).
+
+A row records intent. It does not settle a decision and it is not a go-ahead to build.
+
+Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
+
+## Areas
+
+| Area                                                                          | Current focus                                             |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------- |
+| [mcpx moves to developing-today/code](#mcpx-moves-to-developing-todaycode)    | Remove the vendored copy and build from the code repo     |
+| [Keeping agent work safe on disk](#keeping-agent-work-safe-on-disk)           | The temp-dir guard, and finding out what deleted files    |
+| [OpenCode and OpenChamber integration](#opencode-and-openchamber-integration) | Pins, the mcpx config, MCP sign-ins                       |
+| [Sidepulse and lootbox patches](#sidepulse-and-lootbox-patches)               | Port a 12-patch stack to upstream                         |
+| [The darwin system](#the-darwin-system)                                       | Old notes only, no open work                              |
+| [CI and housekeeping](#ci-and-housekeeping)                                   | Stale dependency PRs, concurrency groups, cleanup scripts |
+
+## mcpx moves to developing-today/code
+
+This repo vendors `pkgs/mcpx` from `developing-today/code`, which is the primary source. The two copies have drifted. The plan is in [`planning/plans/mcpx-extraction.md`](planning/plans/mcpx-extraction.md).
+
+The OpenCode fork does not bundle mcpx. It links one only if the consumer passes it in, and this repo passes its vendored build. So the extraction has to replace that build with a pinned build from the code repo, or the darwin flake loses mcpx everywhere.
+
+| Title                                    | Horizon | Status   | Intent                                                                                                             | Links                                                                  |
+| ---------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Make mcpx consumable from the code repo  | Now     | planned  | Choose how to consume it and make it build on aarch64-darwin.                                                      | `developing-today/code#308`, `developing-today/code#237`               |
+| Port the useful differences into code    | Now     | planned  | The `EnsureDaemon` check, `MCPX_STATE_DIR` and any tests that exist only here.                                     | [plan](planning/plans/mcpx-extraction.md), `developing-today/code#306` |
+| Move the mcpx backlog                    | Now     | planned  | About 100 open mcpx issues here need new homes. GitHub cannot transfer across owners.                              | `developing-today/code#309`                                            |
+| Build mcpx from the code repo            | Next    | planned  | Add the input, keep passing `mcpx` to the fork, delete `pkgs/mcpx`.                                                | [plan](planning/plans/mcpx-extraction.md)                              |
+| Fork flake decides where mcpx comes from | Next    | proposed | Whether the OpenCode flake keeps mcpx optional or defaults to the code repo's build.                               | `developing-today/opencode#82`                                         |
+| mcpx config for the github server        | Next    | proposed | The config lets the github server use PR and issue write tools. This stays here, since the config file lives here. | #371                                                                   |
+
+## Keeping agent work safe on disk
+
+macOS `dirhelper` deletes files in the per-user temp dir that were not accessed for three days. On 2026-10-17 that damaged 9 clones and 2 worktrees under `$TMPDIR/opencode`.
+
+| Title                                     | Horizon | Status      | Intent                                                                                                                                                         | Links         |
+| ----------------------------------------- | ------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| Temp-dir guard                            | Now     | in-progress | A launchd agent keeps `$TMPDIR/opencode` a symlink into `~/.local/share/opencode` and refreshes access times. Runs as an interim job until merged and rebuilt. | PR #392, #377 |
+| Confirm what deleted the files            | Now     | proposed    | `log show` returned nothing for `dirhelper`, so the cause is a strong guess.                                                                                   | #377          |
+| Uncommitted work in old worktrees         | Now     | proposed    | Staged deletions in two clones are backed up. Check the rest.                                                                                                  | #376          |
+| Rebuild to activate the bootstrap changes | Now     | proposed    | The `.bootstrap-done` gitignore and the fork OpenCode and OpenChamber are not active until a rebuild.                                                          | #374          |
+| Free disk space keeps dropping            | Next    | proposed    | Investigate between cleans.                                                                                                                                    | #373          |
+| Finish the `clean.sh` recommendations     | Next    | proposed    |                                                                                                                                                                | #375          |
+
+## OpenCode and OpenChamber integration
+
+| Title                          | Horizon | Status      | Intent                                                                                                | Links                                   |
+| ------------------------------ | ------- | ----------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Keep the fork pins current     | Now     | in-progress | `flake.nix` pins the OpenCode and OpenChamber forks. The `update-opencode` skill describes the steps. | [skill](.agents/skills/update-opencode) |
+| Finish the Datadog MCP sign-in | Next    | proposed    | The OAuth sign-in is not finished.                                                                    | #372                                    |
+
+## Sidepulse and lootbox patches
+
+Sidepulse drives an LED strip from OpenCode state. This repo carries a patch stack on top of upstream.
+
+| Title                                               | Horizon | Status   | Intent                                                                                                                       | Links                        |
+| --------------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Update to upstream main and port the 12-patch stack | Next    | proposed |                                                                                                                              | #327                         |
+| Generate the OpenCode v2 plugin                     | Next    | proposed |                                                                                                                              | #378                         |
+| Fixed-path LED writer helper                        | Next    | proposed | Lets the macOS TCC grant survive Nix rebuilds.                                                                               | #328                         |
+| Patch series: signals                               | Later   | proposed | Error signal, held completion signal, failures that stop expiring, several signals at once, signals that mean what they say. | #329, #330, #331, #332, #333 |
+
+## The darwin system
+
+`configuration.nix`, `homeUser.nix`, `systemPackages.nix`, homebrew and the window manager config. No open issue covers it.
+
+| Title                                  | Horizon | Status | Intent                                                                                                   | Links              |
+| -------------------------------------- | ------- | ------ | -------------------------------------------------------------------------------------------------------- | ------------------ |
+| Window manager notes                   | Ideas   | idea   | Auto reload for AeroSpace, centering the mouse on focus, auto-start for AutoRaise, other tiling options. | [TODO.md](TODO.md) |
+| Sudo with Touch ID and system defaults | Ideas   | idea   | Notes on `pam` Touch ID, dock and finder defaults. Check which are already set.                          | [TODO.md](TODO.md) |
+| Linux builder for nix-darwin           | Ideas   | idea   | A note enables `nix.linux-builder`.                                                                      | [TODO.md](TODO.md) |
+
+## CI and housekeeping
+
+| Title                                          | Horizon | Status   | Intent                                                                                                                                                                                                                                                            | Links                                                                  |
+| ---------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Concurrency groups that keep queued `/oc` runs | Now     | proposed | The group from #399 puts all comment-triggered bot runs in one repo-wide group.                                                                                                                                                                                   | #413                                                                   |
+| Restart path waits for orphan DELETEs          | Now     | proposed | Moot once mcpx is built from the code repo.                                                                                                                                                                                                                       | #416, #409                                                             |
+| Stale dependency PRs                           | Next    | proposed | Ten Renovate PRs for `.lootbox/ui` and Docker (React 19, TypeScript 7, zustand 5, react-router 7 and others) and two Bolt drafts, #364 and #388, have sat open since 2026-10-01 or later. Group the React ones, or close the lot and pin them in `renovate.json`. | #310, #311, #313, #314, #317, #318, #319, #320, #324, #363, #364, #388 |
+| macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo.                                                                                                                                                                                                                       | #366                                                                   |
+
+## Done
+
+| Title                                                        | Date       | Result     |
+| ------------------------------------------------------------ | ---------- | ---------- |
+| Orphaned upstream sessions end off the takeover serving path | 2026-10-18 | #404       |
+| `EnsureDaemon` honours a cancelled context                   | 2026-10-18 | #400       |
+| `MCPX_STATE_DIR` in daemon discovery                         | 2026-10-18 | #410       |
+| node scripts run with `--experimental-transform-types`       | 2026-10-18 | #387       |
+| `Group.Messages` filled in statistics                        | 2026-10-18 | #394       |
+| flake-tidy tests as a flake check                            | 2026-10-18 | #401       |
+| Plugin tests as a flake check                                | 2026-10-18 | #415       |
+| `timeout-minutes` on every job                               | 2026-10-18 | #406, #417 |
+| Concurrency groups on workflows                              | 2026-10-18 | #399       |
+| `clean.sh` prunes `.worktrees` in the postgres sweep         | 2026-10-18 | #412       |
