@@ -1387,8 +1387,12 @@ echo "   $TRASHED .trash removed, $PRUNED artifact dirs pruned ($NONGIT outside 
 # than the old maxdepth 4 inside a worktree (e.g. services/api/.data/pgdata)
 # was silently missed. Cost is bounded by pruning instead: .git and
 # node_modules -- the two trees that dominate a worktree walk -- are never
-# descended into. The -d guard covers a marker whose cluster was already
-# removed as part of an enclosing cluster earlier in this same pass.
+# descended into. .worktrees is pruned too (#411): every linked worktree is
+# its own line in $OWNERS_FILE, so descending into it from the repo root
+# only walked (and idle-checked) the same tree a second time; the sibling
+# artifact passes above prune it for the same reason. The -d guard covers
+# a marker whose cluster was already removed as part of an enclosing
+# cluster earlier in this same pass.
 _repo_pg_removed=0
 while IFS= read -r _owner; do
   [ -d "$_owner" ] || continue
@@ -1401,7 +1405,7 @@ while IFS= read -r _owner; do
       else echo "  removing (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"; del "$_pgdir"; fi
       _repo_pg_removed=$((_repo_pg_removed + 1))
     fi
-  done < <(find "$_owner" \( -type d \( -name .git -o -name node_modules \) -prune \) -o -name PG_VERSION -type f -print 2>/dev/null)
+  done < <(find "$_owner" \( -type d \( -name .git -o -name node_modules -o -name .worktrees \) -prune \) -o -name PG_VERSION -type f -print 2>/dev/null)
 done < "$OWNERS_FILE"
 [ "$_repo_pg_removed" -gt 0 ] && info "postgres data dirs inside repos/worktrees: removed $_repo_pg_removed"
 
