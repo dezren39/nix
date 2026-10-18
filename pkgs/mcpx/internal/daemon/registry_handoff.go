@@ -87,8 +87,9 @@ type Adoption struct {
 	// with the predecessor, which still owns them.
 	orphanSessions []orphanSession
 	// orphanWG tracks the background orphan-session terminations Attach
-	// starts, so a caller (in practice a test, or a shutdown that wants a
-	// clean slate) can wait for them with WaitOrphanTerminations.
+	// starts, so a caller can wait for them with WaitOrphanTerminations:
+	// tests, and the Server's orderly exit paths (Server keeps the
+	// committed Adoption for exactly this, #409).
 	orphanWG sync.WaitGroup
 }
 
@@ -182,8 +183,9 @@ func (a *Adoption) Attach() {
 }
 
 // WaitOrphanTerminations blocks until every background orphan-session
-// termination Attach started has finished. Production serving never waits
-// for it; it exists for tests and orderly shutdown.
+// termination Attach started has finished. Serving never waits for it;
+// the Server's orderly exit paths do (bounded, via
+// Server.waitOrphanTerminations), and so do tests.
 func (a *Adoption) WaitOrphanTerminations() {
 	a.orphanWG.Wait()
 }
