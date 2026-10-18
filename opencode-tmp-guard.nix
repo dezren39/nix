@@ -23,11 +23,16 @@
 #     both copies on a name clash, then relink.
 #   * symlink present -> refresh its access time, so the sweep never takes it.
 #
-# Any git repo or worktree still elsewhere under $TMPDIR gets its access times
-# refreshed too, but only if something in it changed in the last 14 days, so
-# abandoned test repos still age out. Ordinary temp files are left to the
-# sweep. touch -a changes access time only; modification times, which
-# clean.sh's age gates read, are untouched.
+# Every git repo or worktree still under $TMPDIR has its .git metadata (the
+# folder, or a worktree's pointer file) refreshed on every run, whatever its
+# age: it is small, and it is what the sweep takes first. Working files are
+# refreshed only if something in the repo changed in the last 14 days, so
+# abandoned test repos still age out; ordinary temp files are left to the
+# sweep.
+#
+# clean.sh is unaffected: touch -a changes access time (and ctime) only, and
+# every age test in clean.sh reads modification time (-mtime, -mmin, date -r,
+# stat %y/%Y); git-maintain-repos and git-discover-repos use no timestamps.
 { config, pkgs, ... }:
 let
   user = config.system.primaryUser;
@@ -65,16 +70,34 @@ let
       /bin/ln -s "$D" "$L" && log "created $L -> $D"
     fi
 
+    repos=$(/usr/bin/find "$T" -maxdepth 4 -name .git -prune -print 2>/dev/null)
+
+    # .git metadata, every repo, every run, regardless of age. It is tiny, and
+    # it is what the sweep took first (HEAD, config, loose refs, info/exclude,
+    # a worktree's .git pointer file); without it git no longer recognises the
+    # repo at all. -h so a symlink's own atime is refreshed, not its target's.
+    meta=0
+    while IFS= read -r g; do
+      [ -n "$g" ] || continue
+      /usr/bin/find "$g" -exec /usr/bin/touch -a -h {} + 2>/dev/null
+      meta=$((meta + 1))
+    done <<EOF
+    $repos
+    EOF
+
+    # Working files only for repos changed in the last 14 days, so abandoned
+    # ones (test fixtures, finished scratch clones) still age out.
     refreshed=0
     while IFS= read -r g; do
+      [ -n "$g" ] || continue
       r=''${g%/.git}
       [ -n "$(/usr/bin/find "$r" -mtime -14 -print 2>/dev/null | /usr/bin/head -1)" ] || continue
       /usr/bin/find "$r" -exec /usr/bin/touch -a -h {} + 2>/dev/null
       refreshed=$((refreshed + 1))
     done <<EOF
-    $(/usr/bin/find "$T" -maxdepth 4 -name .git -prune -print 2>/dev/null)
+    $repos
     EOF
-    [ "$refreshed" -eq 0 ] || log "refreshed access times in $refreshed repo(s) under $T"
+    [ "$meta" -eq 0 ] || log "refreshed .git metadata in $meta repo(s), working files in $refreshed (changed <14d), under $T"
   '';
 in
 {
