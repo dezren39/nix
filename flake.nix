@@ -320,6 +320,12 @@ rec {
             # Not a takeover test: the restart it checks happens, but it
             # verifies the new executable through /proc/<pid>/exe.
             "TestExecChangeRestartsThatPoolAndNoOther"
+            # Flaky, not platform-specific: it sleeps 200ms before cancelling
+            # and then asserts the fake daemon's marker file already exists,
+            # which races the subprocess spawn under any scheduling pressure
+            # (confirmed outside the sandbox too, with `go test -count=1`
+            # run repeatedly).
+            "TestEnsureDaemonCancelWhilePolling"
           ]
         })$";
         # The fork's own build, with this repo's mcpx on its PATH so the CLI it
