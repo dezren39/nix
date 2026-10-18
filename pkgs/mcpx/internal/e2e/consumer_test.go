@@ -17,7 +17,7 @@ func TestDiagnoseNamesTheArgumentAndTheMinimumThatWorks(t *testing.T) {
 	// The whole claim of the deterministic diagnostic: not "the arguments
 	// are wrong" but which one, and what to write instead.
 	e := newEnv(t, oneServer)
-	e.run("ls")
+	e.run("refresh")
 	out, err := e.try("diagnose", "await demo.echo()")
 	if err == nil {
 		t.Fatalf("a call missing a required argument should fail:\n%s", out)
@@ -32,7 +32,13 @@ func TestDiagnoseNamesTheArgumentAndTheMinimumThatWorks(t *testing.T) {
 
 func TestDiagnoseSuggestsTheToolYouMeant(t *testing.T) {
 	e := newEnv(t, oneServer)
-	e.run("ls")
+	// Force the schema read instead of `ls` (#242): ls is answered from
+	// the schema cache alone and does not wait for the daemon's background
+	// warm-up, so a diagnose that followed it could run against an empty
+	// catalog and offer no suggestion. refresh reads every server's
+	// schemas synchronously, so the catalog is populated before the
+	// diagnose below runs, however the background warm is progressing.
+	e.run("refresh")
 	out, _ := e.try("diagnose", `await demo.eco({message:"x"})`)
 	if !strings.Contains(out, "echo") {
 		t.Fatalf("the closest name should be offered:\n%s", out)
@@ -41,7 +47,11 @@ func TestDiagnoseSuggestsTheToolYouMeant(t *testing.T) {
 
 func TestDiagnoseIsQuietWhenEverythingMatches(t *testing.T) {
 	e := newEnv(t, oneServer)
-	e.run("ls")
+	// refresh, not ls, for the #242 reason given in
+	// TestDiagnoseSuggestsTheToolYouMeant: against an empty catalog this
+	// test would pass vacuously ("nothing to report" is also what an
+	// unread catalog says), so the schemas must be read first.
+	e.run("refresh")
 	out := e.run("diagnose", `await demo.echo({message:"x"})`)
 	if !strings.Contains(out, "Nothing to report") {
 		t.Fatalf("a correct script should pass:\n%s", out)
