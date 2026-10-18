@@ -662,6 +662,10 @@ func (s *Server) commitTakeover(uc *net.UnixConn, in *takeoverIn, endFd *os.File
 		s.started = t
 	}
 	ad.Attach()
+	// Keep the adoption so an orderly exit can wait for the background
+	// orphan terminations Attach just started (#409). Only the committed
+	// path reaches here; the abort path above sends no DELETEs.
+	s.adoption.Store(ad)
 	s.reg.adoptLeases(in.leases)
 	if err := s.reg.SaveSessions(); err != nil {
 		s.logger.Printf("takeover: save sessions: %v", err)

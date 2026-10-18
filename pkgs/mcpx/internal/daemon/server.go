@@ -95,6 +95,11 @@ type Server struct {
 	committed     atomic.Bool
 	handedOff     chan struct{}
 	handedOffOnce sync.Once
+	// adoption is the Adoption of the takeover this daemon committed, kept
+	// so an orderly exit can wait for the background orphan-session
+	// terminations Attach started (#409). Nil when this daemon never took
+	// over; an aborted takeover stores nothing, since it sent no DELETEs.
+	adoption atomic.Pointer[Adoption]
 	// upgradeMu admits one upgrade at a time. upgrading is the upgrade whose
 	// successor is running, which the successor's takeover answers.
 	upgradeMu sync.Mutex
@@ -418,6 +423,9 @@ func (s *Server) Serve(ctx context.Context) error {
 				return err
 			}
 		case <-s.handedOff:
+			// This daemon's own orphan terminations are not part of the
+			// handoff it just made, so nobody else will finish them.
+			s.waitOrphanTerminations()
 			return nil
 		case <-reapT.C:
 			if s.committed.Load() {
@@ -468,7 +476,40 @@ func (s *Server) shouldIdleExit() bool {
 	return true
 }
 
+// shutdownOrphanWait bounds how long an orderly exit waits for background
+// orphan-session terminations. The terminations run in parallel and each
+// DELETE is already capped by UpstreamSessionDeleteTimeout, so the bound
+// only fires if a termination outlives its own deadline; it is a variable
+// so tests can shrink it.
+var shutdownOrphanWait = defaults.UpstreamSessionDeleteTimeout
+
+// waitOrphanTerminations blocks until the orphan-session terminations of
+// this daemon's committed takeover have finished, or shutdownOrphanWait
+// expires — in which case it logs and lets the exit proceed rather than
+// blocking shutdown indefinitely (#409). A daemon that never took over (or
+// whose takeover aborted) has no adoption and returns at once.
+func (s *Server) waitOrphanTerminations() {
+	ad := s.adoption.Load()
+	if ad == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		ad.WaitOrphanTerminations()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(shutdownOrphanWait):
+		s.logger.Printf("orphan upstream session terminations still in flight after %s; exiting anyway", shutdownOrphanWait)
+	}
+}
+
 func (s *Server) shutdown() error {
+	// End this daemon's orphaned upstream sessions before anything else
+	// goes away: the DELETEs are this daemon's own work from its takeover,
+	// and process exit would kill them in flight (#409).
+	s.waitOrphanTerminations()
 	// Flush the schema cache before the listeners go away. A client learns the
 	// daemon has stopped by watching the socket stop answering, so anything
 	// persisted after that point races with whatever the client does next --
@@ -1143,6 +1184,11 @@ func (s *Server) handleDaemonRestart(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"status": "restarting"})
 	go func() {
 		time.Sleep(defaults.DaemonRestartSettle)
+		// syscall.Exec replaces this process image instantly, so a
+		// background orphan-session DELETE from this daemon's takeover
+		// would die in flight and leak the session upstream. Wait for
+		// the terminations (bounded) before re-executing (#416).
+		s.waitOrphanTerminations()
 		if s.reg != nil {
 			if err := s.reg.SaveCache(); err != nil && s.logger != nil {
 				s.logger.Printf("save cache before restart: %v", err)
