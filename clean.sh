@@ -1383,20 +1383,29 @@ echo "   $TRASHED .trash removed, $PRUNED artifact dirs pruned ($NONGIT outside 
 # something git-discover-repos's name list can express. Gated the same way
 # the main artifact loop now is: the repo being dirty is not a reason to keep
 # a postgres cluster nobody has touched in PG_SCRATCH_STALE_HOURS and nothing
-# has open. maxdepth 4 is a cost bound (a cluster buried deeper than that
-# inside a worktree would be unusual), not a correctness one.
+# has open. The search is NOT depth-bounded (#375): a cluster nested deeper
+# than the old maxdepth 4 inside a worktree (e.g. services/api/.data/pgdata)
+# was silently missed. Cost is bounded by pruning instead: .git and
+# node_modules -- the two trees that dominate a worktree walk -- are never
+# descended into. .worktrees is pruned too (#411): every linked worktree is
+# its own line in $OWNERS_FILE, so descending into it from the repo root
+# only walked (and idle-checked) the same tree a second time; the sibling
+# artifact passes above prune it for the same reason. The -d guard covers
+# a marker whose cluster was already removed as part of an enclosing
+# cluster earlier in this same pass.
 _repo_pg_removed=0
 while IFS= read -r _owner; do
   [ -d "$_owner" ] || continue
   while IFS= read -r _marker; do
     _pgdir="$(dirname "$_marker")"
+    [ -d "$_pgdir" ] || continue
     if [ -z "$(find "$_pgdir" -type f -not -name "$SPOTLIGHT_MARKER" -mmin "-$((PG_SCRATCH_STALE_HOURS * 60))" -print -quit 2>/dev/null)" ] &&
        [ -z "$(lsof +D "$_pgdir" 2>/dev/null | head -1)" ]; then
       if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"
       else echo "  removing (postgres data dir in repo, idle >${PG_SCRATCH_STALE_HOURS}h): ${_pgdir/#$CALLER_USER_HOME/\~}"; del "$_pgdir"; fi
       _repo_pg_removed=$((_repo_pg_removed + 1))
     fi
-  done < <(find "$_owner" -maxdepth 4 -name PG_VERSION -type f 2>/dev/null)
+  done < <(find "$_owner" \( -type d \( -name .git -o -name node_modules -o -name .worktrees \) -prune \) -o -name PG_VERSION -type f -print 2>/dev/null)
 done < "$OWNERS_FILE"
 [ "$_repo_pg_removed" -gt 0 ] && info "postgres data dirs inside repos/worktrees: removed $_repo_pg_removed"
 
@@ -1573,9 +1582,21 @@ tidy_purge_postgres_dirs() {
   while IFS= read -r marker; do
     [ -n "$marker" ] || continue
     pgdir="$(dirname "$marker")"
+    [ -d "$pgdir" ] || continue   # already removed as part of an enclosing cluster this pass
+    # Same in-use guard as the sibling postgres sweeps: the caller's
+    # recent-file gate does not protect an idle-but-running server, which
+    # can write nothing for >OPENCODE_TIDY_PROTECT_DAYS while still
+    # holding its data dir open.
+    if [ -n "$(lsof +D "$pgdir" 2>/dev/null | head -1)" ]; then
+      echo "  keeping (postgres data dir in use): ${pgdir/#$CALLER_USER_HOME/\~}"
+      continue
+    fi
     if [ "$DRY_RUN" = "1" ]; then echo "  would remove (postgres data dir): ${pgdir/#$CALLER_USER_HOME/\~}"
     else echo "  removing (postgres data dir): ${pgdir/#$CALLER_USER_HOME/\~}"; del "$pgdir"; fi
-  done < <(find "$root" -name PG_VERSION -type f 2>/dev/null)
+    # (the find below prunes .git/node_modules/.worktrees, mirroring the
+    # per-repo sweep's prune set from #411: repo internals, dependency
+    # trees and linked worktrees are not scratch this pass owns)
+  done < <(find "$root" \( -type d \( -name .git -o -name node_modules -o -name .worktrees \) -prune \) -o -name PG_VERSION -type f -print 2>/dev/null)
 }
 # One level deep only, deliberately: venvs/build caches/binary dumps are
 # almost always the scratch dir's direct children, and a full recursive du

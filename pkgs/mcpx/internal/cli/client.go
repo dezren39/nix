@@ -325,6 +325,9 @@ func (c *Client) Ping(ctx context.Context) bool {
 // waits for it to become reachable. This is what makes every command work with
 // no setup step.
 func (c *Client) EnsureDaemon(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if c.Remote() {
 		// Starting a local daemon because a remote one is unreachable would
 		// silently answer from the wrong machine, which is worse than
@@ -332,10 +335,18 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 		if c.Ping(ctx) {
 			return nil
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return fmt.Errorf("no mcpx daemon at %s; it is not started from here", c.endpoint)
 	}
 	if c.Ping(ctx) {
 		return nil
+	}
+	// A failed ping under a cancelled context means the caller went away,
+	// not that no daemon exists: do not spawn one in their name (#233).
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if !c.set.Bool("daemon.autostart") {
 		return fmt.Errorf("%w and daemon.autostart is off, so mcpx will not start one",
@@ -383,7 +394,14 @@ func (c *Client) EnsureDaemon(ctx context.Context) error {
 		if c.Ping(ctx) {
 			return nil
 		}
-		time.Sleep(c.set.Duration("autostart.pollInterval"))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(c.set.Duration("autostart.pollInterval")):
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	tail, _ := os.ReadFile(logPath)
 	if max := c.set.Bytes("autostart.logTail"); int64(len(tail)) > max {
@@ -736,6 +754,24 @@ func (c *Client) Upgrade(ctx context.Context, binary string, start []string) (ma
 func (c *Client) RestartDaemon(ctx context.Context) error {
 	_, err := c.do(ctx, http.MethodPost, "/v1/daemon/restart", nil)
 	return err
+}
+
+// DaemonVersion returns the version the daemon reports for itself, from
+// the same health answer Ping already asks for. An older daemon that does
+// not report one yields an empty string and no error: absence is not a
+// mismatch, it is just nothing to compare (#344).
+func (c *Client) DaemonVersion(ctx context.Context) (string, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/health", nil)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return "", err
+	}
+	return out.Version, nil
 }
 
 // Endpoint returns the daemon's loopback base URL.

@@ -136,6 +136,26 @@ func TestARecipeThatIsMissingAValueSaysSoRatherThanRunning(t *testing.T) {
 	}
 }
 
+func TestRunOnARecipePointsToRecipesRun(t *testing.T) {
+	// #367: `mcpx run say hi` handed the recipe's @param holes to the
+	// runtime as written and died with "SyntaxError: Expression
+	// expected". run must refuse and name the filling command.
+	e := newEnv(t, oneServer)
+	writeRecipe(t, e, "say", sayRecipe)
+	e.run("ls")
+	out, err := e.try("run", "say", "hi")
+	if err == nil {
+		t.Fatalf("run on an unfilled recipe must not succeed:\n%s", out)
+	}
+	if strings.Contains(out, "SyntaxError") {
+		t.Fatalf("the raw syntax error is the bug being fixed:\n%s", out)
+	}
+	if !strings.Contains(out, "mcpx recipes run say") ||
+		!strings.Contains(out, "message=<value>") {
+		t.Fatalf("run should point at recipes run with the holes named:\n%s", out)
+	}
+}
+
 func TestRecipesAreMatchedDeterministically(t *testing.T) {
 	e := newEnv(t, oneServer)
 	writeRecipe(t, e, "say", sayRecipe)

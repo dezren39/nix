@@ -17,6 +17,11 @@ Existing identical regular files are replaced with symlinks. Conflicting regular
 files and symlinks that resolve elsewhere are preserved and reported as warnings,
 so unrelated plugins in the destination are never clobbered.
 
+Note: replacing a plugin file does not affect an already-running opencode.
+A long-running opencode keeps the plugin it loaded at startup -- including a
+failed load -- until it is restarted, so restart opencode after relinking if
+a hot-swapped plugin looks stale or failed.
+
 Options:
   -n, --dry-run  Show changes without modifying the filesystem
   -h, --help     Show this help

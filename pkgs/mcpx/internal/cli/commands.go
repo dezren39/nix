@@ -44,6 +44,9 @@ type App struct {
 	machineOutput bool
 	// inlineStop shuts down an in-process daemon when the command ends.
 	inlineStop func()
+	// warnedPathsConfig records that the paths.config file-entry warning
+	// has been shown, so adoptSettings does not repeat it per command.
+	warnedPathsConfig bool
 	// connected records that the ladder has been walked for this command.
 	connected bool
 	// ladder is how the connection was made, for doctor and --json output.
@@ -91,6 +94,7 @@ func (a *App) ensure(ctx context.Context) (*Client, error) {
 		return nil, err
 	}
 	a.client, a.connected, a.ladder = c, true, ladder
+	a.checkDaemonVersion(ctx, c, ladder)
 	return c, nil
 }
 
@@ -791,6 +795,15 @@ func (a *App) runScript(ctx context.Context, args []string, inline bool) error {
 	})
 	if serr != nil {
 		return serr
+	}
+
+	// A recipe's @param holes are filled by `recipes run`, not here, and
+	// both run paths (local and on the daemon) would otherwise hand the
+	// raw holes to the runtime as a syntax error (#367).
+	if !inline && fs.NArg() > 0 {
+		if herr := refuseRecipeHoles(fs.Arg(0)); herr != nil {
+			return herr
+		}
 	}
 
 	if elsewhere {
@@ -1521,17 +1534,48 @@ func (a *App) CmdStop(ctx context.Context, args []string) error {
 	return nil
 }
 
+// daemonListing pairs a daemon record with the state directory it was
+// found in, so the caller can build a client for exactly that daemon.
+type daemonListing struct {
+	paths daemon.Paths
+	info  daemon.Info
+}
+
+// allDaemons returns every daemon record on this machine: the caller's
+// state directory plus the default one, where daemons with a state
+// directory of their own mirror their records (#369). Stale records --
+// the process is gone, so nothing is listening -- are pruned from disk
+// and left out. Records are deduped by socket, since a mirrored record
+// and its primary describe the same daemon.
+func (a *App) allDaemons() []daemonListing {
+	var out []daemonListing
+	seen := map[string]bool{}
+	for _, dir := range daemon.DaemonSearchDirs(a.Paths.State) {
+		p := daemon.Paths{State: dir}
+		p.PruneStale()
+		for _, info := range p.ListDaemons() {
+			if seen[info.Socket] {
+				continue
+			}
+			seen[info.Socket] = true
+			out = append(out, daemonListing{paths: p, info: info})
+		}
+	}
+	return out
+}
+
 // stopAll shuts down every daemon recorded in the state directory. Each
 // config gets its own daemon, so this is the way to clear them all after
 // working across many repos.
 func (a *App) stopAll(ctx context.Context) error {
-	infos := a.Paths.ListDaemons()
-	if len(infos) == 0 {
+	listings := a.allDaemons()
+	if len(listings) == 0 {
 		fmt.Println("no daemons running")
 		return nil
 	}
 	stopped := 0
-	for _, info := range infos {
+	for _, listing := range listings {
+		info := listing.info
 		p := a.Paths
 		p.Socket = info.Socket
 		c := NewClient(p, info.ConfigPath)
@@ -1581,7 +1625,7 @@ func waitUntilStarted(ctx context.Context, c *Client) error {
 
 // CmdDaemons lists every daemon this user has running.
 func (a *App) CmdDaemons(ctx context.Context, args []string) error {
-	infos := a.Paths.ListDaemons()
+	listings := a.allDaemons()
 	type row struct {
 		PID     int    `json:"pid"`
 		Config  string `json:"config"`
@@ -1589,8 +1633,9 @@ func (a *App) CmdDaemons(ctx context.Context, args []string) error {
 		Started string `json:"startedAt"`
 	}
 	var rows []row
-	for _, info := range infos {
-		p := a.Paths
+	for _, listing := range listings {
+		info := listing.info
+		p := listing.paths
 		p.Socket = info.Socket
 		c := NewClient(p, info.ConfigPath)
 		rows = append(rows, row{

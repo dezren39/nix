@@ -35,8 +35,11 @@ type InstanceHandoff struct {
 
 // PoolHandoff is one pool's children in transit. PoolID names the process
 // definition, so a successor matches it to its own pool of the same identity.
+// Server is the pool's server name, carried so a successor can name the
+// server in what it reports about a handed session it cannot adopt.
 type PoolHandoff struct {
 	PoolID    string            `json:"poolId"`
+	Server    string            `json:"server,omitempty"`
 	Seq       int               `json:"seq"`
 	Instances []InstanceHandoff `json:"instances"`
 }
@@ -108,7 +111,7 @@ func (p *Pool) Detach() (*PoolHandoff, error) {
 	p.mu.Lock()
 	p.handed = handed
 	p.mu.Unlock()
-	return &PoolHandoff{PoolID: p.PoolID(), Seq: seq, Instances: out}, nil
+	return &PoolHandoff{PoolID: p.PoolID(), Server: p.cfg.Name, Seq: seq, Instances: out}, nil
 }
 
 // Commit finishes a detach the successor accepted: handed children now belong
@@ -236,6 +239,30 @@ func (p *Pool) AdoptSessions(hs []InstanceHandoff) ([]*Adopted, error) {
 		out = append(out, &Adopted{handoff: h, tr: tr})
 	}
 	return out, nil
+}
+
+// TerminateOrphanedSession ends a handed upstream HTTP session that no pool
+// in the successor's configuration adopted — its server was removed, or its
+// definition changed enough to be a different pool. Call it only after the
+// handoff has committed: before that the predecessor still owns the session.
+// A session that cannot be terminated is not dropped silently: the lifecycle
+// event names the server and the session left to expire upstream.
+func TerminateOrphanedSession(server string, h InstanceHandoff) {
+	if h.HTTP == nil {
+		return
+	}
+	if err := mcpclient.TerminateHTTPSession(*h.HTTP); err != nil {
+		lifecycle("upstream.session.orphaned", map[string]any{
+			"server":  server,
+			"session": h.HTTP.SessionID,
+			"reason":  err.Error(),
+		})
+		return
+	}
+	lifecycle("upstream.session.terminated", map[string]any{
+		"server":  server,
+		"session": h.HTTP.SessionID,
+	})
 }
 
 // Abort releases an adopted instance that will not be served.

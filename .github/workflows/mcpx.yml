@@ -10,6 +10,12 @@ name: mcpx
 # commits it to the Renovate branch, and fails any PR that still does not
 # build.
 
+# CI shape (2026-10): the PR gate is a single direct-Go test job plus a
+# fast flake evaluation. The full nix build (~5.4 of the old ~10.6 min)
+# moved to push-to-main and manual dispatch: the flake is this repo's
+# deliverable, so it stays verified -- just not with a full build on
+# every PR (#398). VendorHash repair keeps its own bot-only job below.
+
 on:
   pull_request:
     paths:
@@ -24,14 +30,20 @@ on:
     paths:
       - "pkgs/mcpx/**"
 
+  workflow_dispatch:
+
 permissions:
   contents: write
   pull-requests: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,11 +51,11 @@ jobs:
           ref: ${{ github.head_ref || github.ref }}
           fetch-depth: 0
 
-      - uses: DeterminateSystems/nix-installer-action@main
 
       - uses: actions/setup-go@v7
         with:
           go-version-file: pkgs/mcpx/go.mod
+          cache: true
           # setup-go looks for go.sum at the repository root unless told
           # otherwise, and this is a monorepo. Without this the cache step
           # logged "Restore cache failed: Dependencies file is not found" on
@@ -101,13 +113,29 @@ jobs:
           fi
           exit "$rc"
 
+  vendorhash-repair:
+    name: vendorHash repair (bot dependency bumps only)
+    # Only on bot branches. A human changing dependencies should see the
+    # failure and fix it deliberately rather than have it rewritten under
+    # them. This is the one job here that still needs nix on a PR.
+    if: >-
+      github.event_name == 'pull_request' &&
+      (startsWith(github.head_ref, 'renovate/') || startsWith(github.head_ref, 'dependabot/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The Renovate branch itself, so a fixed hash can be pushed back.
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
       - name: Repair vendorHash on a dependency bump
         # Only on bot branches. A human changing dependencies should see the
         # failure and fix it deliberately rather than have it rewritten under
         # them.
-        if: >-
-          github.event_name == 'pull_request' &&
-          (startsWith(github.head_ref, 'renovate/') || startsWith(github.head_ref, 'dependabot/'))
         run: |
           set -euo pipefail
           file=pkgs/mcpx/package.nix
@@ -130,6 +158,31 @@ jobs:
           git add "$file"
           git commit -m "mcpx: update vendorHash for the dependency bump"
           git push
+
+  flake-eval:
+    name: flake evaluation
+    # Fast PR-level flake verification: evaluate the mcpx package without
+    # building it. The full build runs on main (below).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Evaluate the mcpx package
+        run: nix eval .#packages.x86_64-linux.mcpx.drvPath
+
+  nix-build:
+    name: nix build (main + manual only)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@main
 
       - name: Nix build
         run: nix build .#packages.x86_64-linux.mcpx --print-build-logs

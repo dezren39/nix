@@ -237,7 +237,9 @@ func handCommands() []Command {
 		},
 		{
 			Name: "daemons", Group: "daemon",
-			Local:   "Reads every daemon's info file on this machine; one daemon cannot see the others.",
+			Local: "Reads every daemon's info file on this machine; one daemon cannot see the others. " +
+				"Daemons with their own state directory mirror their record into the default one, " +
+				"and records whose process is gone are pruned.",
 			Summary: "list every mcpx daemon on this machine",
 		},
 		{

@@ -440,6 +440,55 @@ rec {
               flake-tidy all --check --flake-dir $src
               touch $out
             '';
+        # #397: pkgs/flake-tidy has a 134-test pytest suite that nothing ran
+        # (the package is a writeShellApplication with no checkPhase, and the
+        # `tidy` check above only runs the tool against this repo). Run the
+        # suite here so `nix flake check` — and any CI that runs it — fails
+        # when the dedup/flatten logic regresses.
+        flake-tidy-tests =
+          pkgs.runCommandLocal "flake-tidy-tests"
+            {
+              nativeBuildInputs = [ pkgs.python3Packages.pytest ];
+              src = ./pkgs/flake-tidy;
+            }
+            ''
+              cp -r $src ./flake-tidy-src
+              chmod -R u+w ./flake-tidy-src
+              cd ./flake-tidy-src
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              pytest -q -p no:cacheprovider
+              touch $out
+            '';
+        # #414: plugins/warp-import.test.mjs (25 tests) was run by nothing —
+        # no workflow, recipe, or check referenced it. Run every
+        # plugins/*.test.mjs here so `nix flake check` fails when a plugin
+        # regresses; the glob picks up future suites (e.g. sidepulse) too.
+        plugins-tests =
+          pkgs.runCommandLocal "plugins-tests"
+            {
+              nativeBuildInputs = [ pkgs.nodejs ];
+              src = ./plugins;
+            }
+            ''
+              cp -r $src ./plugins-src
+              chmod -R u+w ./plugins-src
+              cd ./plugins-src
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              found=0
+              for t in *.test.mjs; do
+                [ -e "$t" ] || continue
+                found=1
+                echo "== $t"
+                node "$t"
+              done
+              if [ "$found" -eq 0 ]; then
+                echo "no plugins/*.test.mjs suites found" >&2
+                exit 1
+              fi
+              touch $out
+            '';
       }
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
         sidepulse = (mkPackages pkgs).sidepulse;

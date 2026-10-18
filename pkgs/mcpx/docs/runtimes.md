@@ -46,7 +46,7 @@ after mcpx's own fixed options and before the permission flags:
 | --- | --- |
 | deno | `run --quiet --no-check <args> <permission flags> <script>` |
 | bun | `run <args> <permission flags> <script>` |
-| node | `--no-warnings --experimental-strip-types <args> <permission flags> <script>` |
+| node | `--no-warnings --experimental-transform-types <args> <permission flags> <script>` |
 
 The script sees `MCPX_RUNTIME` set to the **kind**, not the declared name.
 

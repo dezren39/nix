@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/dezren39/mcpx/internal/config"
+	"github.com/dezren39/mcpx/internal/mcpclient"
 	"github.com/dezren39/mcpx/internal/pool"
 )
 
@@ -161,6 +162,53 @@ func TestAnUpstreamSessionSurvivesATakeover(t *testing.T) {
 	}
 	if len(up.served) == 0 {
 		t.Fatal("no request after the takeover reached the upstream session")
+	}
+}
+
+// A handed session nobody adopted is ended upstream by
+// TerminateOrphanedSession, once the predecessor has committed.
+func TestTerminateOrphanedSessionEndsTheUpstreamSession(t *testing.T) {
+	terminated := lifecycleEvents(t, "upstream.session.terminated")
+	up := newSessionUpstream(t)
+	old := upstreamPool(t, up.URL)
+	pingThrough(t, old, "k")
+	ph, err := old.Detach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Commit()
+	pool.TerminateOrphanedSession("remote", ph.Instances[0])
+
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	if up.deletes != 1 {
+		t.Fatalf("the orphaned session saw %d DELETE(s), want exactly 1", up.deletes)
+	}
+	events := terminated()
+	if len(events) != 1 || events[0]["server"] != "remote" || events[0]["session"] != "sess-1" {
+		t.Fatalf("terminated events = %v, want one naming remote/sess-1", events)
+	}
+}
+
+// A session that cannot be terminated — the endpoint is already gone — is
+// reported, not dropped silently.
+func TestTerminateOrphanedSessionReportsAnUnreachableEndpoint(t *testing.T) {
+	orphaned := lifecycleEvents(t, "upstream.session.orphaned")
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := dead.URL
+	dead.Close()
+
+	pool.TerminateOrphanedSession("remote", pool.InstanceHandoff{
+		ID:   "i1",
+		HTTP: &mcpclient.HTTPHandoff{SessionID: "sess-9", Negotiated: "2025-03-26", URL: url + "/mcp"},
+	})
+
+	events := orphaned()
+	if len(events) != 1 {
+		t.Fatalf("orphaned events = %v, want one", events)
+	}
+	if events[0]["server"] != "remote" || events[0]["session"] != "sess-9" || events[0]["reason"] == "" {
+		t.Fatalf("orphaned event = %v, want server, session and a reason", events[0])
 	}
 }
 
