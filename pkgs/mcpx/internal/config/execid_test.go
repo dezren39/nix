@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dezren39/mcpx/internal/defaults"
+	"github.com/dezren39/mcpx/internal/testsupport"
 )
 
 func writeExec(t *testing.T, path, body string) {
@@ -22,7 +23,10 @@ func writeExec(t *testing.T, path, body string) {
 }
 
 func TestExecIdentityFollowsTheExecutableNotTheCommandName(t *testing.T) {
-	dir := t.TempDir()
+	// testsupport.TempDir, not t.TempDir: ExecStamp reports the path with
+	// symlinks resolved, and on macOS t.TempDir is under /var, a symlink to
+	// /private/var, so the unresolved dir never equals the stamp's path (#366).
+	dir := testsupport.TempDir(t)
 	bin := filepath.Join(dir, "bin", "tool")
 	writeExec(t, bin, "#!/bin/sh\necho one\n")
 	r := &Resolved{Server: &Server{Command: "tool", Env: map[string]string{"PATH": filepath.Join(dir, "bin")}}}
@@ -45,7 +49,7 @@ func TestExecIdentityFollowsTheExecutableNotTheCommandName(t *testing.T) {
 }
 
 func TestExecIdentityResolvesAgainstTheServersOwnPath(t *testing.T) {
-	dir := t.TempDir()
+	dir := testsupport.TempDir(t)
 	writeExec(t, filepath.Join(dir, "elsewhere", "tool"), "#!/bin/sh\n")
 	r := &Resolved{Server: &Server{Command: "tool", Env: map[string]string{"PATH": filepath.Join(dir, "elsewhere")}}}
 	if st, ok := r.ExecStamp(); !ok || st.Path != filepath.Join(dir, "elsewhere", "tool") {
