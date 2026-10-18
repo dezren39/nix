@@ -738,6 +738,24 @@ func (c *Client) RestartDaemon(ctx context.Context) error {
 	return err
 }
 
+// DaemonVersion returns the version the daemon reports for itself, from
+// the same health answer Ping already asks for. An older daemon that does
+// not report one yields an empty string and no error: absence is not a
+// mismatch, it is just nothing to compare (#344).
+func (c *Client) DaemonVersion(ctx context.Context) (string, error) {
+	b, err := c.do(ctx, http.MethodGet, "/v1/health", nil)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return "", err
+	}
+	return out.Version, nil
+}
+
 // Endpoint returns the daemon's loopback base URL.
 func (c *Client) Endpoint(ctx context.Context) (string, error) {
 	b, err := c.do(ctx, http.MethodGet, "/v1/health", nil)

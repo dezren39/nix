@@ -94,6 +94,7 @@ func (a *App) ensure(ctx context.Context) (*Client, error) {
 		return nil, err
 	}
 	a.client, a.connected, a.ladder = c, true, ladder
+	a.checkDaemonVersion(ctx, c, ladder)
 	return c, nil
 }
 
