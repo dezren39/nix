@@ -268,8 +268,15 @@ func (d *DB) group(expr string, since, until time.Time, limit int) ([]Group, err
 	if d.has("session", "tokens_output") {
 		tout = "COALESCE(SUM(tokens_output),0)"
 	}
-	q := fmt.Sprintf(`SELECT %s AS k, count(*), %s, %s, %s FROM session%s
-		GROUP BY k ORDER BY 3 DESC, 2 DESC`, expr, cost, tin, tout, where)
+	// Messages are counted per session with the same correlated subquery
+	// Busiest uses, summed over the group. A database whose message table
+	// has no session_id degrades to 0 rather than failing the statistic.
+	msgs := "0"
+	if d.has("message", "session_id") {
+		msgs = "COALESCE(SUM((SELECT count(*) FROM message m WHERE m.session_id = session.id)),0)"
+	}
+	q := fmt.Sprintf(`SELECT %s AS k, count(*), %s, %s, %s, %s FROM session%s
+		GROUP BY k ORDER BY 3 DESC, 2 DESC`, expr, cost, tin, tout, msgs, where)
 	rows, err := d.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -278,7 +285,7 @@ func (d *DB) group(expr string, since, until time.Time, limit int) ([]Group, err
 	var out []Group
 	for rows.Next() {
 		var g Group
-		if err := rows.Scan(&g.Key, &g.Sessions, &g.Cost, &g.TokensIn, &g.TokensOut); err != nil {
+		if err := rows.Scan(&g.Key, &g.Sessions, &g.Cost, &g.TokensIn, &g.TokensOut, &g.Messages); err != nil {
 			return nil, err
 		}
 		out = append(out, g)
