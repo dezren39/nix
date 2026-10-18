@@ -440,6 +440,26 @@ rec {
               flake-tidy all --check --flake-dir $src
               touch $out
             '';
+        # #397: pkgs/flake-tidy has a 134-test pytest suite that nothing ran
+        # (the package is a writeShellApplication with no checkPhase, and the
+        # `tidy` check above only runs the tool against this repo). Run the
+        # suite here so `nix flake check` — and any CI that runs it — fails
+        # when the dedup/flatten logic regresses.
+        flake-tidy-tests =
+          pkgs.runCommandLocal "flake-tidy-tests"
+            {
+              nativeBuildInputs = [ pkgs.python3Packages.pytest ];
+              src = ./pkgs/flake-tidy;
+            }
+            ''
+              cp -r $src ./flake-tidy-src
+              chmod -R u+w ./flake-tidy-src
+              cd ./flake-tidy-src
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              pytest -q -p no:cacheprovider
+              touch $out
+            '';
       }
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
         sidepulse = (mkPackages pkgs).sidepulse;
