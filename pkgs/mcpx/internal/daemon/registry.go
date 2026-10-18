@@ -1030,7 +1030,7 @@ func (r *Registry) keyFor(p *pool.Pool, cc config.CallContext) string {
 	scope := p.Config().Scope
 	key, degraded := scope.Key(cc)
 	if degraded != "" {
-		r.warnDegraded(p.Name(), scope, degraded)
+		r.warnDegraded(p.Name(), scope, key, degraded)
 	}
 	if cc.CallID != "" {
 		r.sessMu.Lock()
@@ -1049,14 +1049,17 @@ func (r *Registry) keyFor(p *pool.Pool, cc config.CallContext) string {
 }
 
 // warnDegraded reports a scope that could not be resolved as configured, once
-// per server and reason. Silent degradation to per-call isolation would look
-// like a performance problem rather than a configuration one.
-func (r *Registry) warnDegraded(server string, scope config.Scope, reason string) {
-	k := server + "\x00" + string(scope) + "\x00" + reason
+// per server, resolved key and reason. Silent degradation would look like a
+// performance problem rather than a configuration one, so the line names the
+// key the scope actually degraded to: only some scopes fall back to per-call
+// isolation, while repo/worktree/cwd degrade to a directory shared by every
+// caller in it and parent-session can degrade to the session key.
+func (r *Registry) warnDegraded(server string, scope config.Scope, key, reason string) {
+	k := server + "\x00" + string(scope) + "\x00" + key + "\x00" + reason
 	if _, seen := r.degraded.LoadOrStore(k, true); seen {
 		return
 	}
-	r.logf("server %q: scope %q degraded to per-call: %s", server, scope, reason)
+	r.logf("server %q: scope %q degraded to %s: %s", server, scope, key, reason)
 }
 
 // ReleaseCaller stops instances created for a caller whose scope made them
