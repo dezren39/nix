@@ -1551,7 +1551,7 @@ func (a *App) allDaemons() []daemonListing {
 	var out []daemonListing
 	seen := map[string]bool{}
 	for _, dir := range daemon.DaemonSearchDirs(a.Paths.State) {
-		p := daemon.Paths{State: dir}
+		p := daemon.PathsAt(dir, "")
 		p.PruneStale()
 		for _, info := range p.ListDaemons() {
 			if seen[info.Socket] {
@@ -1576,7 +1576,7 @@ func (a *App) stopAll(ctx context.Context) error {
 	stopped := 0
 	for _, listing := range listings {
 		info := listing.info
-		p := a.Paths
+		p := listing.paths
 		p.Socket = info.Socket
 		c := NewClient(p, info.ConfigPath)
 		if !c.Ping(ctx) {
