@@ -320,12 +320,6 @@ rec {
             # Not a takeover test: the restart it checks happens, but it
             # verifies the new executable through /proc/<pid>/exe.
             "TestExecChangeRestartsThatPoolAndNoOther"
-            # Binds a unix socket under t.TempDir(); the nix sandbox's build
-            # dir is long enough that the resulting path exceeds Darwin's
-            # 104-byte sockaddr_un limit (bind: invalid argument). Passes
-            # reliably outside the sandbox, and on Linux, whose build dirs
-            # are short enough not to hit the (108-byte) limit (#434).
-            "TestStopAllStopsDaemonFoundInDefaultDir"
             # Asserts the fake daemon's marker file exists the instant
             # EnsureDaemon returns from its 1s connect timeout -- same
             # scheduling race as #428/#435, not yet given the same polling
