@@ -514,6 +514,36 @@ rec {
               bash ./opencode-db-pids.test.sh
               touch $out
             '';
+        # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
+        # repo's only *.test.ts suite) was run by nothing — no check,
+        # workflow, or recipe referenced it, unlike the flake-tidy,
+        # warp-import, and opencode-db-pids suites (#397/#414/#472). It is
+        # self-contained (bun:test content pins on the sibling SKILL.md),
+        # so run every archived skill suite here.
+        skill-tests =
+          pkgs.runCommandLocal "skill-tests"
+            {
+              nativeBuildInputs = [ pkgs.bun ];
+              src = inputs.self;
+            }
+            ''
+              cp -r $src/archive ./archive
+              chmod -R u+w ./archive
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              found=0
+              for t in archive/skills/*/SKILL.test.ts; do
+                [ -e "$t" ] || continue
+                found=1
+                echo "== $t"
+                bun test "$t"
+              done
+              if [ "$found" -eq 0 ]; then
+                echo "no archive/skills/*/SKILL.test.ts suites found" >&2
+                exit 1
+              fi
+              touch $out
+            '';
       }
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
         sidepulse = (mkPackages pkgs).sidepulse;
