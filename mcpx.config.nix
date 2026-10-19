@@ -32,13 +32,15 @@
 #             upsert_datadog_dashboard (create or overwrite a dashboard).
 #   workflows find, inspect, validate, create, update, publish, run and
 #             cancel workflows. Running one can do whatever the workflow does.
-#   alerting  monitor templates, validation, coverage, SLO search, and
-#             create_datadog_monitor -- which creates in draft: no
-#             notifications, priority 5, published by hand in the UI. The MCP
-#             server has no tool to update or delete a monitor at all.
-# omit_tools removes delete_datadog_workflow, the only delete in these
-# toolsets. omit_tools takes exact names, not patterns; a new toolset needs
-# its own delete_* names added. All tools: https://docs.datadoghq.com/mcp_server/tools
+#   alerting  monitor templates, validation, coverage, SLO search,
+#             create_datadog_monitor (creates in draft: no notifications,
+#             priority 5, published by hand in the UI) and
+#             update_datadog_monitor.
+# omit_tools removes delete_datadog_workflow. delete_datadog_notebook (core)
+# and update_datadog_monitor appeared later and are still exposed (checked
+# with `mcpx types datadog`, 2026-10-19). omit_tools takes exact names, not
+# patterns; a new toolset needs its own delete_* names added. All tools:
+# https://docs.datadoghq.com/mcp_server/tools
 # Changing the URL is a new identity to mcp-remote and needs `just mcp-login
 # datadog` again.
 { lib }:
@@ -177,6 +179,17 @@ let
   };
 in
 {
+  # Only the launchd agent (org.nixos.mcpx, configuration.nix) starts a
+  # daemon. With autostart on, any mcpx command that found no daemon -- during
+  # the seconds a switch restarts the agent, say -- started its own detached
+  # one with a 4h idle timer; it kept the socket, so launchd's daemon exited
+  # "a daemon is already listening" and was respawned every ~10 s, 822 times
+  # on 2026-10-19, while clients ran on the stray's older build. Off, a
+  # command with no daemon fails ("disabled by daemon.autostart") and works
+  # again once the agent is back. Checked on a scratch state dir: read from
+  # this file, no daemon spawned, commands still reach a running one.
+  daemon.autostart = false;
+
   mcpServers = lib.mapAttrs (
     name: server: server // lib.optionalAttrs (pooling ? ${name}) { mcpx = pooling.${name}; }
   ) servers;

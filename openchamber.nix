@@ -122,6 +122,10 @@ in
     # immediately; retry every few seconds rather than launchd's default 10.
     ThrottleInterval = 5;
     AbandonProcessGroup = true;
+    # OpenChamber drains for up to 10 s on SIGTERM (server/index.js), but
+    # launchd's default here is 5 s before SIGKILL, which cut every restart
+    # short. OpenCode is unaffected either way (AbandonProcessGroup).
+    ExitTimeOut = 15;
     ProcessType = "Interactive";
     StandardOutPath = "${home}/Library/Logs/openchamber.log";
     StandardErrorPath = "${home}/Library/Logs/openchamber.log";

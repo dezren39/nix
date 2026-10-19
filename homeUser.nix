@@ -26,8 +26,6 @@ lib.recursiveUpdate {
     stateVersion = "23.05";
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
-      # Every MCP server this machine runs; see mcpx.config.nix.
-      ".config/mcpx/config.json".text = builtins.toJSON (import ./mcpx.config.nix { inherit lib; });
       # Deliberately-inert ~/.gitconfig. Git reads ~/.config/git/config first and
       # ~/.gitconfig second, so a stray file here silently overrides everything
       # home-manager writes — which is exactly what happened: an unmanaged 555-byte
@@ -72,6 +70,42 @@ lib.recursiveUpdate {
       # so a fresh machine would otherwise silently fall back to the Desktop.
       createScreenshotsDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run /bin/mkdir -p "$HOME/Pictures/Screenshots"
+      '';
+      # ~/.config/mcpx/config.json (every MCP server; see mcpx.config.nix) is
+      # a real file written here, not a home.file link into the store. mcpx
+      # names its daemon's socket after the config file's path *with symlinks
+      # resolved* (FingerprintConfig, internal/daemon/paths.go), and a store
+      # path changes with the content. nix-darwin restarts the mcpx agent
+      # (line ~862 of the activate script) before home-manager re-links
+      # files (~1100), so a switch that changed both the binary and the
+      # config left the new daemon on the old config's socket and every CLI
+      # looking for the new one. At a fixed path the socket never moves: a
+      # binary change restarts the agent (its plist names the store path),
+      # and a config change is picked up in place by the daemon's
+      # daemon.watchConfig poll -- reliably now, since a copied file gets a
+      # fresh mtime where every store file's is 1 and the poll compares
+      # mtime and size.
+      #
+      # The agent is restarted only when the file was absent or still a link
+      # (first switch after this change, or a fresh machine), because only
+      # then did the socket name change. Can go back to home.file once mcpx
+      # stops keying on the link target (developing-today/code#368).
+      mcpxConfig = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+        cfg="$HOME/.config/mcpx/config.json"
+        new=${pkgs.writeText "mcpx-config.json" (builtins.toJSON (import ./mcpx.config.nix { inherit lib; }))}
+        restart=0
+        if [ -L "$cfg" ] || [ ! -e "$cfg" ]; then
+          restart=1
+        fi
+        if [ "$restart" = 1 ] || ! /usr/bin/cmp -s "$new" "$cfg"; then
+          run /bin/mkdir -p "$HOME/.config/mcpx"
+          run /bin/cp "$new" "$cfg.tmp"
+          run /bin/chmod 644 "$cfg.tmp"
+          run /bin/mv -f "$cfg.tmp" "$cfg"
+        fi
+        if [ "$restart" = 1 ]; then
+          run /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u)/org.nixos.mcpx" || true
+        fi
       '';
       installPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.nodejs}/bin/npm install -g playwright@latest 2>/dev/null || true

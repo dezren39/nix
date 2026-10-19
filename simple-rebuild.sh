@@ -227,8 +227,12 @@ brew_upgrade() {
 # so it exited 1 every ~10 s for hours.
 #
 # Up means the agent has the same pid twice, 3 s apart (a crash loop caught
-# mid-run does not count), and its URL, if it has one, answers with any HTTP
-# status (401 included: OpenChamber requires its UI password). All agents
+# mid-run does not count), and its check passes: a URL answers with any HTTP
+# status (401 included: OpenChamber requires its UI password), or a `cmd:`
+# command exits 0. mcpx's runs a CLI command from $HOME, which succeeds only
+# if the daemon is on the socket the CLI computes -- with autostart off it
+# cannot start one of its own -- so a daemon running on a stale socket
+# fails it (the drift behind the 2026-10-19 crash loop). All agents
 # share HEALTH_TIMEOUT seconds (default 60), since activation restarts them
 # asynchronously; OpenChamber answered about 10 s after a cold start when
 # measured.
@@ -237,7 +241,7 @@ brew_upgrade() {
 # as colima and naturalScrollingToggle) exit by design and do not belong.
 health_services=(
   "org.nixos.openchamber http://127.0.0.1:3000/"
-  "org.nixos.mcpx -"
+  "org.nixos.mcpx cmd:cd ~ && mcpx ls"
 )
 
 agent_pid() {
@@ -245,8 +249,11 @@ agent_pid() {
 }
 
 agent_answers() {
-  [[ "$1" == "-" ]] && return 0
-  [[ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$1" || true)" != "000" ]]
+  case "$1" in
+    -) return 0 ;;
+    cmd:*) (eval "${1#cmd:}") >/dev/null 2>&1 ;;
+    *) [[ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$1" || true)" != "000" ]] ;;
+  esac
 }
 
 # What launchd knows (state, program, last exit code) plus the tail of the
@@ -260,7 +267,11 @@ report_agent() {
     return 0
   fi
   grep -E $'^\t(state|program|last exit code) =' <<<"$info" | sed $'s/^\t/    /' || true
-  [[ "$url" == "-" ]] || echo "    $url did not answer"
+  case "$url" in
+    -) ;;
+    cmd:*) echo "    check failed: ${url#cmd:}" ;;
+    *) echo "    $url did not answer" ;;
+  esac
   errlog=$(awk -F' = ' $'/^\tstderr path = / { print $2; exit }' <<<"$info")
   if [[ -n "$errlog" && -r "$errlog" ]]; then
     echo "    last lines of $errlog:"

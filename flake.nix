@@ -290,12 +290,14 @@ rec {
         # mcpx is built from the pinned mcpx-src input (developing-today/code,
         # pkgs/mcpx — the only copy; the vendored one was deleted in #468),
         # using the package.nix that lives beside that source; adapt here,
-        # never by patching the source. Its takeover/upgrade/handoff tests are
-        # Linux-only (fd passing to a successor that takes over systemd's
-        # MAINPID; takeover_test.go does not even compile on darwin:
-        # syscall.SOCK_CLOEXEC). launchd cannot do that handover, so this
-        # config never uses it (configuration.nix restarts the agent instead);
-        # everything else in the suite runs.
+        # never by patching the source. Its takeover/upgrade/handoff code is
+        # Linux-only, not just its tests: the successor takes over systemd's
+        # MAINPID, and mcpclient/handoff.go reads /proc/<pid>/stat. Run on
+        # darwin with the SOCK_CLOEXEC test helper patched, all 12 skipped
+        # tests fail (7 on the missing /proc, 5 "takeover: EOF"; checked
+        # 2026-10-19 at mcpx-src 7274889). launchd cannot hand over its pid
+        # either, so this config never upgrades in place: a new mcpx
+        # restarts the agent (configuration.nix). Everything else runs.
         mcpx = (pkgs.callPackage (inputs.mcpx-src + "/pkgs/mcpx/package.nix") { inherit bun-bin; }).overrideAttrs (
           old:
           pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {

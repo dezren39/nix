@@ -963,19 +963,33 @@ lib.recursiveUpdate {
         );
         KeepAlive = true;
         RunAtLoad = true;
+        # launchd's default here is 5 s before SIGKILL, but mcpx gives open
+        # requests up to 5 s and then its MCP server processes up to 10 s to
+        # stop (internal/daemon/server.go), so every restart was cut off
+        # mid-shutdown.
+        ExitTimeOut = 20;
         WorkingDirectory = "/Users/drewry.pope";
         # --config, not discovery: at login or right after `just switch` this
-        # can start before home-manager has linked the file. Discovering
-        # nothing, the daemon served zero servers under an unkeyed socket
-        # name the CLI never looks for, and the CLI started a second daemon
-        # of its own. Named explicitly, a missing file is an error, the
-        # process exits and KeepAlive retries. The socket name is unchanged:
-        # it is keyed to the same single file discovery from $HOME finds.
+        # can start before the file is in place. Named explicitly, a missing
+        # file is an error, the process exits and KeepAlive retries.
+        #
+        # mcpx names its socket after the config file's resolved path, so it
+        # matches what every CLI computes only because homeUser.nix
+        # (mcpxConfig) writes a real file at this fixed path.
+        #
+        # Before starting, stop whatever already serves this socket. launchd
+        # never runs two copies of one job, so that is a daemon something else
+        # started -- the CLI's autostart did on 2026-10-19 (now off in
+        # mcpx.config.nix), and the OpenCode fork's mcpx plugin still can
+        # (developing-today/opencode#134). Left
+        # running, it holds the socket, this daemon exits "a daemon is already
+        # listening", and KeepAlive respawns it every 10 s (822 times that day).
         ProgramArguments = [
-          "${inputs.self.packages.${system}.mcpx}/bin/mcpx"
-          "daemon"
-          "--config"
-          "/Users/drewry.pope/.config/mcpx/config.json"
+          "${pkgs.writeShellScript "mcpx-agent" ''
+            cfg=/Users/drewry.pope/.config/mcpx/config.json
+            ${inputs.self.packages.${system}.mcpx}/bin/mcpx --config "$cfg" stop || true
+            exec ${inputs.self.packages.${system}.mcpx}/bin/mcpx daemon --config "$cfg"
+          ''}"
         ];
         StandardErrorPath = "/tmp/mcpx.err.log";
         StandardOutPath = "/tmp/mcpx.out.log";
