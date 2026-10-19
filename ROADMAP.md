@@ -77,8 +77,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 | Title                                          | Horizon | Status   | Intent                                                                                                                                                                                                                                                            | Links                                                                  |
 | ---------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Concurrency groups that keep queued `/oc` runs | Now     | proposed | The group from #399 puts all comment-triggered bot runs in one repo-wide group.                                                                                                                                                                                   | #413                                                                   |
-| Restart path waits for orphan DELETEs          | Now     | proposed | Moot once mcpx is built from the code repo.                                                                                                                                                                                                                       | #416, #409                                                             |
 | Stale dependency PRs                           | Next    | proposed | Ten Renovate PRs for `.lootbox/ui` and Docker (React 19, TypeScript 7, zustand 5, react-router 7 and others) and two Bolt drafts, #364 and #388, have sat open since 2026-10-01 or later. Group the React ones, or close the lot and pin them in `renovate.json`. | #310, #311, #313, #314, #317, #318, #319, #320, #324, #363, #364, #388 |
 | macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo.                                                                                                                                                                                                                       | #366                                                                   |
 
@@ -86,6 +84,8 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 | Title                                                        | Date       | Result     |
 | ------------------------------------------------------------ | ---------- | ---------- |
+| Concurrency groups that keep queued `/oc` runs               | 2026-10-18 | #425       |
+| Restart path waits for orphan DELETEs                        | 2026-10-18 | #421       |
 | Orphaned upstream sessions end off the takeover serving path | 2026-10-18 | #404       |
 | `EnsureDaemon` honours a cancelled context                   | 2026-10-18 | #400       |
 | `MCPX_STATE_DIR` in daemon discovery                         | 2026-10-18 | #410       |
