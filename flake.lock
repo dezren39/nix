@@ -869,6 +869,7 @@
         "opencode": "opencode",
         "rust-analyzer-src": "rust-analyzer-src",
         "sidepulse-src": "sidepulse-src",
+        "sops-nix": "sops-nix",
         "stable": [
           "nixpkgs"
         ],
@@ -908,6 +909,26 @@
         "owner": "inteliwear",
         "ref": "main",
         "repo": "sidepulse",
+        "type": "github"
+      }
+    },
+    "sops-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792056300,
+        "narHash": "sha256-YU1LjDe1o2Ymg5zEiCHbmMXLkDCtxHQRiVqZ3nC5GGk=",
+        "owner": "Mic92",
+        "repo": "sops-nix",
+        "rev": "44931708c62937c2b1bf7953902989fa5bb9ee1b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Mic92",
+        "repo": "sops-nix",
         "type": "github"
       }
     },

@@ -395,6 +395,7 @@ lib.recursiveUpdate {
     };
     sharedModules = [
       inputs.mac-app-util.homeManagerModules.default
+      inputs.sops-nix.homeManagerModules.sops
     ];
     extraSpecialArgs = {
       inherit inputs system;

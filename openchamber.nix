@@ -79,9 +79,9 @@ let
   };
 
   start = pkgs.writeShellScript "openchamber-serve" ''
-    # Optional: OpenChamber warns that the browser UI is unsecured without
-    # one. Loopback-only either way. Kept out of the store; create with
-    #   install -m600 /dev/null ~/.config/openchamber/ui-password
+    # OPENCHAMBER_UI_PASSWORD, from sops (see home-manager.users below):
+    # required before OpenChamber will serve a public tunnel. Loopback-only
+    # either way, so this is defence in depth, not what keeps it private.
     pw="$HOME/.config/openchamber/ui-password"
     if [ -r "$pw" ]; then
       OPENCHAMBER_UI_PASSWORD="$(< "$pw")"
@@ -129,12 +129,42 @@ in
 
   # A function module, so `lib` is home-manager's (lib.hm is not in nix-darwin's).
   home-manager.users.${user} =
-    { lib, ... }:
+    { lib, config, ... }:
     {
-      home.activation.openchamberDeploy = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      # Decrypted by sops-nix's own launchd agent (org.nix-community.home.sops-nix,
+      # RunAtLoad, rebootstrapped on every activation below) straight to the path
+      # the start script above reads -- no activation wiring of our own needed for
+      # the decrypt itself. The age identity is generated and kept out of the repo
+      # (see .sops.yaml's comment); only the encrypted secrets/openchamber.yaml is
+      # tracked.
+      sops = {
+        age.keyFile = "${config.home.homeDirectory}/Library/Application Support/sops/age/keys.txt";
+        defaultSopsFile = ./secrets/openchamber.yaml;
+        secrets.openchamber_ui_password = {
+          path = "${home}/.config/openchamber/ui-password";
+          mode = "0600";
+        };
+      };
+
+      home.activation.openchamberDeploy = lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
         state='${state}'
         job="gui/$(/usr/bin/id -u)/${label}"
-        key='${start}'
+        pw="$HOME/.config/openchamber/ui-password"
+        # sops-nix's own activation entry (just above us) only *starts* its
+        # launchd agent (RunAtLoad, async); it does not wait for the
+        # decrypt to finish. Poll briefly rather than hashing a file that
+        # may not exist yet on a from-scratch activation.
+        waited=0
+        while [ ! -r "$pw" ] && [ "$waited" -lt 50 ]; do
+          /bin/sleep 0.1
+          waited=$((waited + 1))
+        done
+        # Folds the password's content into the deploy key so a password
+        # rotation (secrets/openchamber.yaml changing, with nothing else
+        # about OpenChamber touched) gets the same full restart as a new
+        # OpenChamber build, instead of silently sitting unread until some
+        # unrelated change happens to restart the agent too.
+        key='${start}':"$(/usr/bin/shasum -a 256 "$pw" 2>/dev/null | /usr/bin/awk '{print $1}')"
         target='${ocPkgs.opencode}/bin/opencode'
         previous="$(/usr/bin/readlink "$state/bin/opencode" 2>/dev/null || true)"
         running=0
@@ -145,8 +175,9 @@ in
         run /bin/ln -sfn "$target" "$state/bin/opencode"
         run /bin/ln -sfn "$key" "$state/start"
         if [ "$(/bin/cat "$state/deployed" 2>/dev/null)" != "$key" ]; then
-          # New OpenChamber (or start script): restart. SIGTERM leaves the
-          # managed OpenCode running and the new process adopts it.
+          # New OpenChamber (or start script, or UI password): restart.
+          # SIGTERM leaves the managed OpenCode running and the new process
+          # adopts it.
           if [ "$running" = 1 ]; then
             run /bin/launchctl kickstart -k "$job"
           else

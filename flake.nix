@@ -129,6 +129,10 @@ rec {
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixpkgs-terraform.url = "github:stackbuilders/nixpkgs-terraform";
     nixpkgs-terraform.inputs.systems.follows = "systems";
     nixpkgs-terraform.inputs.nixpkgs-23_05.follows = "nixpkgs-23_05";
