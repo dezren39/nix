@@ -130,8 +130,23 @@ func TestEnsureDaemonNeverReadyStillTimesOut(t *testing.T) {
 	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
 		t.Fatalf("gave up after %v, before the 1s connect timeout", elapsed)
 	}
-	if _, statErr := os.Stat(marker); statErr != nil {
-		t.Fatal("the fake daemon was never spawned")
+	// The spawn is cmd.Start + Release (client.go): Start returns once the
+	// process exists, before the child has run any code, so the child's
+	// touch can legitimately land after EnsureDaemon returns at the
+	// connect timeout. Asserting the marker instantly races the child's
+	// scheduling — the same flake as #428, in the test #437 added without
+	// that pattern (#445). The child is Setsid and Released, so it still
+	// runs: wait for the marker instead, and fail only if it never
+	// appears.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, statErr := os.Stat(marker); statErr == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the fake daemon was never spawned")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
