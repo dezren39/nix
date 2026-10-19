@@ -320,11 +320,6 @@ rec {
             # Not a takeover test: the restart it checks happens, but it
             # verifies the new executable through /proc/<pid>/exe.
             "TestExecChangeRestartsThatPoolAndNoOther"
-            # Asserts the fake daemon's marker file exists the instant
-            # EnsureDaemon returns from its 1s connect timeout -- same
-            # scheduling race as #428/#435, not yet given the same polling
-            # fix. Passes reliably unloaded (#445).
-            "TestEnsureDaemonNeverReadyStillTimesOut"
           ]
         })$";
         # The fork's own build, with this repo's mcpx on its PATH so the CLI it
