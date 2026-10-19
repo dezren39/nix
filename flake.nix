@@ -326,11 +326,11 @@ rec {
             # reliably outside the sandbox, and on Linux, whose build dirs
             # are short enough not to hit the (108-byte) limit (#434).
             "TestStopAllStopsDaemonFoundInDefaultDir"
-            # 300ms takeoverTimeout is not reliably enough for the forked
-            # successor to run under the sandboxed build's contention
-            # (~41 go test packages at once); passes unloaded every time
-            # (#435).
-            "TestUpgradeSuccessorThatDoesNotDialBackIsReaped"
+            # Asserts the fake daemon's marker file exists the instant
+            # EnsureDaemon returns from its 1s connect timeout -- same
+            # scheduling race as #428/#435, not yet given the same polling
+            # fix. Passes reliably unloaded (#445).
+            "TestEnsureDaemonNeverReadyStillTimesOut"
           ]
         })$";
         # The fork's own build, with this repo's mcpx on its PATH so the CLI it
