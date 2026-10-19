@@ -142,8 +142,23 @@ commit_marker() {
 # identity the system has.
 phase_build() {
   echo "nix build .#darwinConfigurations.$(hostname -s).system  (as $USER)"
-  if nix --extra-experimental-features 'nix-command flakes' \
-       build ".#darwinConfigurations.$(hostname -s).system" --keep-going --out-link ./result; then
+  # `nix build` can exit 0 without updating ./result: a non-fatal internal
+  # error (observed: "error (ignored): SQLite database ... is busy", eval-
+  # cache lock contention from a concurrent nix process) made it skip the
+  # out-link entirely, exit code and all. `set -e` cannot catch that --
+  # nothing failed from the shell's point of view -- so basename of a stale
+  # or absent ./result ("result", unresolved) was committed as the built
+  # store path, and the real failure surfaced three steps later as phase_
+  # activate's unrelated-looking "no ./result to activate" (2026-10-19).
+  # Capture the real exit status first (set -e would otherwise end the
+  # script on a nonzero one before the stale-./result message below can
+  # tell it apart from this case), then require the same executable
+  # phase_activate checks for, before anything is read from ./result.
+  local build_status=0
+  nix --extra-experimental-features 'nix-command flakes' \
+    build ".#darwinConfigurations.$(hostname -s).system" --keep-going --out-link ./result \
+    || build_status=$?
+  if (( build_status == 0 )) && [[ -x ./result/sw/bin/darwin-rebuild ]]; then
     built=$(basename "$(readlink -f ./result)")
   else
     # A failed build stops here, in every mode, and nothing is activated or
@@ -161,8 +176,15 @@ phase_build() {
     # test races; see the mcpx commits that day.
     {
       print -P "%F{red}%B==> build failed; nothing activated, nothing committed%b%f"
-      echo "    The failing derivation and its last log lines are above."
-      echo "    Full log: nix log <the .drv named in 'Cannot build'>"
+      if (( build_status != 0 )); then
+        echo "    The failing derivation and its last log lines are above."
+        echo "    Full log: nix log <the .drv named in 'Cannot build'>"
+      else
+        echo "    nix build exited 0 but ./result/sw/bin/darwin-rebuild is missing --"
+        echo "    it did not actually produce a system. Check the output above for"
+        echo "    a non-fatal error nix logged and ignored (eval-cache lock"
+        echo "    contention is one seen cause); rerunning usually clears it."
+      fi
     } >&2
     return 1
   fi
