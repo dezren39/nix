@@ -11,6 +11,9 @@ result*
 
 *.dmg
 
+# lootbox runtime database (run history; not source — see #473)
+.lootbox/lootbox.db
+
 # opencode/thoughts session files
 .opencode/**/ses_*
 .opencode/ses_*
