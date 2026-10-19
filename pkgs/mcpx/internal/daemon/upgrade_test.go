@@ -151,23 +151,24 @@ func TestUpgradeSuccessorThatDoesNotDialBackIsReaped(t *testing.T) {
 	}
 	// The successor is a separate process; poll briefly for its pid
 	// file rather than assuming it was scheduled before the HTTP
-	// answer returned (the #428 pattern).
-	var raw []byte
+	// answer returned (the #428 pattern). The file can also exist
+	// before its pid does: a successor descheduled between creating
+	// the file and writing the pid leaves it empty, so poll until
+	// the content parses, not merely until the file appears.
+	var pid int
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		var err error
-		raw, err = os.ReadFile(pidFile)
+		raw, err := os.ReadFile(pidFile)
 		if err == nil {
-			break
+			if n, aerr := strconv.Atoi(strings.TrimSpace(string(raw))); aerr == nil {
+				pid = n
+				break
+			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the successor did not run: %v", err)
+			t.Fatalf("the successor did not write its pid to %s", pidFile)
 		}
 		time.Sleep(10 * time.Millisecond)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil {
-		t.Fatal(err)
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("the abandoned successor %d was not reaped: %v", pid, err)
