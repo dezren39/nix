@@ -25,9 +25,9 @@ The same package feeds the launchd daemon (`configuration.nix`) and OpenChamber'
 
 ## Differences found (code is `-`, this repo is `+`)
 
-- `internal/cli/client.go`: `EnsureDaemon` here checks `ctx.Err()` again after the poll loop. Code's fix for its #284 does not.
-- `internal/daemon/paths.go`: `envStateDir()` and `MCPX_STATE_DIR` in `DaemonSearchDirs` and `mirrorInfoPath`. Fixed here by #410, and open in code as PR #306.
-- `internal/daemon/server.go`, `takeover.go`, `registry_handoff.go`: code waits for background orphan-session DELETEs on shutdown (its #298 and #299). This repo does not (#409), and the restart path is open in both (#416, code#301).
+- `internal/cli/client.go`: `EnsureDaemon` here checks `ctx.Err()` again after the poll loop (since #233). Code's fix for its #284 originally did not; code closed that gap in its #328 (PR #329), and this repo pinned the deadline-exit path with a test in PR #440. Landed on both sides; the remaining differences in this file are comment wording and the issue numbers cited.
+- `internal/daemon/paths.go`: `envStateDir()` and `MCPX_STATE_DIR` in `DaemonSearchDirs` and `mirrorInfoPath`. Fixed here by #410 and ported to code by its PR #306 (merged 2026-10-18). Landed on both sides.
+- `internal/daemon/server.go`, `takeover.go`, `registry_handoff.go`: both repos now wait for background orphan-session DELETEs on shutdown, on the handed-off return, and on the restart path — code via its #298/#299 and PR #307 (its #301), this repo via PR #421 (#409, #416). Landed on both sides.
 - About 20 more files, mostly tests, docs and the `mcpx-agy` example README. Many differ only in the issue number a comment cites, since each repo uses its own numbers (code `#278` is `#369` here). I did not read every test diff.
 - `internal/cli/dispatch.go` differs only in map-literal alignment. Run `gofmt` in code and settle which is right.
 
@@ -43,11 +43,11 @@ The same package feeds the launchd daemon (`configuration.nix`) and OpenChamber'
 ## Steps
 
 1. **Code can be consumed.** Choose how (`developing-today/code#308`) and make `mcpx` build on aarch64-darwin (`#237`). Done when `nix build` of the chosen output succeeds on this Mac.
-2. **Port the differences.** One PR per group in code: the `EnsureDaemon` check, the `MCPX_STATE_DIR` change (PR #306), the gofmt question, tests that exist only here. Done when `diff -ru` between code and this repo shows only issue-number comments and the darwin adaptations.
+2. **Port the differences.** One PR per group in code: the gofmt question, tests that exist only here. (The `EnsureDaemon` check and the `MCPX_STATE_DIR` change have already landed on both sides — see Differences found.) Done when `diff -ru` between code and this repo shows only issue-number comments and the darwin adaptations.
 3. **Re-home the backlog.** `developing-today/code#309`. GitHub cannot transfer issues across owners, so each live issue is re-filed there and closed here with a link.
 4. **Switch the build.** Add the code input, build `mcpx` from it in `mkPackages`, and keep `{ inherit mcpx; }` going into the fork. Done when `opencode`, the launchd daemon and OpenChamber all report the same `mcpx` version, and it comes from the pinned rev.
 5. **Delete the copy.** Remove `pkgs/mcpx/`, `.github/workflows/mcpx.yml` and `.github/workflows/mcpx-conformance.yml`. Update `ARCHITECTURE.md` and the `.agents/skills` that mention `pkgs/mcpx`. Done when `grep -r pkgs/mcpx` finds nothing.
-6. **Close the mcpx source issues here.** Those that become moot: #416, #409, #418, #403, #366, #367, #362, #259, #235, #108 and the design backlog.
+6. **Close the mcpx source issues here.** Those that become moot: #418, #403, #366, #367, #362, #259, #235, #108 and the design backlog. (#409 and #416 are already closed — fixed by PR #421, not by this step.)
 
 ## Tests and evidence
 
