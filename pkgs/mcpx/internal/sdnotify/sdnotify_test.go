@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/dezren39/mcpx/internal/testsupport"
 )
 
 func listen(t *testing.T, name string) *net.UnixConn {
@@ -38,7 +40,9 @@ func TestSendIsANoOpOutsideSystemd(t *testing.T) {
 }
 
 func TestReadyAndMainPIDReachTheSocket(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "notify.sock")
+	// Same short-directory requirement as every directly bound socket:
+	// t.TempDir() under a long TMPDIR exceeds the sockaddr_un limit (#434).
+	sock := filepath.Join(testsupport.SocketDir(t), "notify.sock")
 	conn := listen(t, sock)
 	t.Setenv("NOTIFY_SOCKET", sock)
 
