@@ -157,8 +157,9 @@ in
       # launchd agent and the desktop app is installed by openchamber.nix.
       ocPkgs.openchamber
       inputs.self.packages.${system}.lootbox-link
-      # The MCP gateway in pkgs/mcpx. Its daemon runs at login from the mcpx
-      # launchd agent in configuration.nix; the CLI reaches it from any shell.
+      # The MCP gateway (source: developing-today/code's pkgs/mcpx, built
+      # from the pinned mcpx-src input). Its daemon runs at login from the
+      # mcpx launchd agent in configuration.nix; the CLI reaches it from any shell.
       inputs.self.packages.${system}.mcpx
       # Servers in lootbox.config.json run from these, by absolute
       # /run/current-system/sw/bin path (see mcpx.config.nix).

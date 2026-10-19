@@ -1,30 +1,33 @@
 name: mcpx nix build
 
-# Narrow package-build verification (#418).
+# Narrow package-build verification (#418, rewired by #468).
 #
-# The mcpx workflow's PR gate is a direct-Go test job plus a fast flake
-# evaluation — it does not build the Nix package. Evaluation cannot catch
-# a stale vendorHash in pkgs/mcpx/package.nix (the hash is just a string
-# at eval time; it fails only when the go-modules derivation is actually
-# built), and the vendorHash-repair job in mcpx.yml covers bot branches
-# only. Before this workflow, a human PR that changed go.mod/go.sum
-# without updating vendorHash merged fully green and broke the build on
-# main after the fact.
+# mcpx's source lives only in developing-today/code now; this repo builds
+# it from the pinned mcpx-src flake input, using the package.nix beside
+# that source. Evaluation cannot catch a stale vendorHash or a bad pin
+# (the hash is just a string at eval time; it fails only when the
+# go-modules derivation is actually built), so the build check runs
+# exactly where the risk lives: a change to the wiring — flake.nix, or
+# flake.lock, whose mcpx-src rev is the dependency input now — or to this
+# workflow itself. PRs that touch none of those keep the fast #408 shape
+# and never pay for a nix build.
 #
-# This workflow restores the build check exactly where the risk lives: it
-# runs only when the dependency inputs change — go.mod, go.sum, or
-# package.nix — so PRs that touch no dependency inputs keep the fast
-# #408 shape and never pay for a nix build. It includes itself in the
-# path filter so changes to this workflow are exercised by it, like
-# mcpx.yml does. The full build on push-to-main stays in mcpx.yml's
-# nix-build job, so this workflow is pull_request-only.
+# This workflow also carries the push-to-main build the old mcpx.yml
+# nix-build job ran (that workflow is gone with the vendored source): the
+# flake is this repo's deliverable, so the pinned mcpx build stays
+# verified on main, not only on PRs.
 
 on:
   pull_request:
     paths:
-      - "pkgs/mcpx/go.mod"
-      - "pkgs/mcpx/go.sum"
-      - "pkgs/mcpx/package.nix"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/mcpx-nixbuild.yml"
+  push:
+    branches: [main]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
       - ".github/workflows/mcpx-nixbuild.yml"
 
 permissions:
