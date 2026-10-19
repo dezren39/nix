@@ -432,3 +432,91 @@ func TestAbortedTakeoverLeavesARemovedServersSessionAlone(t *testing.T) {
 		t.Fatalf("serving after an abort ended the upstream session with %d DELETE(s)", deletes)
 	}
 }
+
+// #409 (origin: developing-today/code#319): the third orphan-DELETE
+// wait call site — Serve()'s handedOff
+// branch. A successor that is itself handed off to a third daemon must
+// not return from Serve() while its own background orphan DELETE is
+// still in flight; the sibling waits (shutdown, restart) are covered
+// above, this one drives the full Serve() loop through a second
+// takeover that closes handedOff.
+func TestSuccessorServeWaitsForABlockedOrphanTerminationOnHandoff(t *testing.T) {
+	up := newOrphanUpstream(t)
+	up.blockDelete = make(chan struct{})
+	up.deleteStarted = make(chan struct{}, 1)
+	paths := handoffPaths(t)
+	oldCfg := &config.Config{MCPServers: map[string]*config.Server{
+		"remote": {Name: "remote", URL: up.URL + "/mcp"},
+	}}
+	old := startOldServer(t, paths, oldCfg)
+	p, ok := old.Registry().Pool("remote")
+	if !ok {
+		t.Fatal("no pool for remote")
+	}
+	lease, err := p.Acquire(context.Background(), "global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Client().Ping(context.Background()); err != nil {
+		lease.Release()
+		t.Fatalf("ping: %v", err)
+	}
+	lease.Release()
+
+	emptyCfg := &config.Config{MCPServers: map[string]*config.Server{}}
+	successor, err := NewServer(handoffOptions(paths, emptyCfg, "new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(successor.reg.Close)
+	h, err := successor.TakeOver()
+	if err != nil {
+		t.Fatalf("takeover: %v", err)
+	}
+	_ = h.Done()
+
+	select {
+	case <-up.deleteStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no orphan DELETE was started in the background after the takeover")
+	}
+
+	served := make(chan error, 1)
+	go func() { served <- successor.Serve(context.Background()) }()
+
+	// A third daemon takes over from the successor, closing its
+	// handedOff channel — the branch under test.
+	third, err := NewServer(handoffOptions(paths, emptyCfg, "third"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(third.reg.Close)
+	t.Cleanup(func() {
+		if third.httpSrv != nil {
+			_ = third.httpSrv.Close()
+		}
+	})
+	h2, err := third.TakeOver()
+	if err != nil {
+		t.Fatalf("second takeover: %v", err)
+	}
+	_ = h2.Done()
+
+	select {
+	case err := <-served:
+		t.Fatalf("Serve returned (%v) while the orphan DELETE was still blocked; the session would leak", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(up.blockDelete)
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Fatalf("Serve: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after the orphan DELETE completed")
+	}
+	if deletes, _ := up.counts(); deletes != 1 {
+		t.Fatalf("upstream saw %d DELETE(s), want exactly 1", deletes)
+	}
+}
