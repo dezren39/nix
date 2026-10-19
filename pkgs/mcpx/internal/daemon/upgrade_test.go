@@ -137,15 +137,33 @@ func TestUpgradeSuccessorThatDoesNotDialBackIsReaped(t *testing.T) {
 	}
 
 	srv, client := startUpgradeServer(t)
-	srv.set = srv.set.WithOverrides(map[string]string{"daemon.takeoverTimeout": "300ms"}, "test")
+	// The dial-back window must leave the successor real scheduling
+	// headroom: under the CPU contention of a nix sandbox build the
+	// forked child may not run its first line for well over 300ms, and
+	// the abandon path kills it when the window closes — a successor
+	// that has not written its pid file by then never will (#435).
+	// 3s is still far under the 15s production default.
+	srv.set = srv.set.WithOverrides(map[string]string{"daemon.takeoverTimeout": "3s"}, "test")
 	code, out := postUpgrade(t, client, next)
 	msg, _ := out["error"].(string)
 	if code != http.StatusInternalServerError || !strings.Contains(msg, "did not dial back") || !strings.Contains(msg, "still serving") {
 		t.Fatalf("upgrade to a successor that never dials back: %d %v", code, out)
 	}
-	raw, err := os.ReadFile(pidFile)
-	if err != nil {
-		t.Fatalf("the successor did not run: %v", err)
+	// The successor is a separate process; poll briefly for its pid
+	// file rather than assuming it was scheduled before the HTTP
+	// answer returned (the #428 pattern).
+	var raw []byte
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var err error
+		raw, err = os.ReadFile(pidFile)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the successor did not run: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
 	if err != nil {
