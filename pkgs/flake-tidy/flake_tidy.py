@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import functools
 import json
 import os
 import re
@@ -50,6 +51,10 @@ import sys
 from collections import defaultdict
 from itertools import groupby
 from typing import Any
+
+# Compiled regexes for hotspot text operations
+_RE_WHITESPACE = re.compile(r"\s+")
+_RE_BLOCK_OPEN = re.compile(r"^(\s*)(\w[\w-]*)\s*=\s*\{")
 
 
 # ---------------------------------------------------------------------------
@@ -529,10 +534,12 @@ def write_flake_nix(flake_dir: str, content: str) -> None:
         f.write(content)
 
 
+@functools.lru_cache(maxsize=16)
 def get_input_file_order(content: str) -> list[str]:
     """Parse flake.nix to determine input declaration order.
 
     Returns a list of root input names in the order they appear in the file.
+    Memoized to avoid re-parsing the input file on repeated analysis calls.
     """
     order: list[str] = []
     seen: set[str] = set()
@@ -589,7 +596,8 @@ def get_input_file_order(content: str) -> list[str]:
     return order
 
 
-def _block_context_for_lines(content: str) -> list[str | None]:
+@functools.lru_cache(maxsize=16)
+def _block_context_for_lines(content: str) -> tuple[str | None, ...]:
     """Return the enclosing block input name for each line.
 
     For lines inside ``someInput = { ... };`` returns ``"someInput"``.
@@ -597,6 +605,7 @@ def _block_context_for_lines(content: str) -> list[str | None]:
 
     This is approximate but sufficient: it tracks ``<name> = {`` opens
     and matching ``};`` closes at the same indent level.
+    Memoized with lru_cache for high performance across multiple analysis calls.
     """
     lines = content.split("\n")
     result: list[str | None] = [None] * len(lines)
@@ -614,7 +623,7 @@ def _block_context_for_lines(content: str) -> list[str | None]:
         indent = len(line) - len(line.lstrip())
 
         # Check for block open: <name> = { (inside the inputs block)
-        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
+        m = _RE_BLOCK_OPEN.match(line)
         if m:
             name = m.group(2)
             if name == "inputs":
@@ -643,7 +652,7 @@ def _block_context_for_lines(content: str) -> list[str | None]:
         if stack:
             result[i] = stack[-1][0]
 
-    return result
+    return tuple(result)
 
 
 def follows_exists_in_content(
@@ -654,6 +663,7 @@ def follows_exists_in_content(
     Checks both absolute and relative forms, and is block-context-aware:
     a line ``inputs.nix.inputs.X.follows`` inside a ``determinate = { ... }``
     block is NOT the same as root-level ``nix.inputs.X.follows``.
+    Optimized: candidate strings are pre-normalized and block context is memoized.
     """
     # Build candidate strings for ROOT-level scope (block_context == None)
     full = ".".join(f"inputs.{p}" for p in follows_parts) + f'.follows = "{target}"'
@@ -665,23 +675,28 @@ def follows_exists_in_content(
         if len(follows_parts) >= 2
         else f'{follows_parts[0]}.follows = "{target}"'
     )
-    root_candidates = [full, relative_inputs]
+    root_candidates = tuple(
+        _RE_WHITESPACE.sub(" ", c) for c in (full, relative_inputs)
+    )
 
     # Build candidate strings for BLOCK scope (inside follows_parts[0] block)
-    block_candidates: list[str] = []
+    block_candidates_list: list[str] = []
     if len(follows_parts) >= 2:
         # Inside the block of follows_parts[0], the path is relative
         inner = (
             ".".join(f"inputs.{p}" for p in follows_parts[1:])
             + f'.follows = "{target}"'
         )
-        block_candidates.append(inner)
+        block_candidates_list.append(inner)
         # bare follows for depth 2
         if len(follows_parts) == 2:
-            block_candidates.append(f'follows = "{target}"')
+            block_candidates_list.append(f'follows = "{target}"')
     elif len(follows_parts) == 1:
         # Inside the block of the single part, bare follows matches
-        block_candidates.append(f'follows = "{target}"')
+        block_candidates_list.append(f'follows = "{target}"')
+    block_candidates = tuple(
+        _RE_WHITESPACE.sub(" ", c) for c in block_candidates_list
+    )
 
     block_context = _block_context_for_lines(content)
     lines = content.split("\n")
@@ -691,19 +706,17 @@ def follows_exists_in_content(
         stripped = line.strip().rstrip(";").strip()
         if stripped.startswith("#"):
             continue
-        normalized = re.sub(r"\s+", " ", stripped)
+        normalized = _RE_WHITESPACE.sub(" ", stripped)
         ctx = block_context[i]
 
         if ctx is None:
             # Root scope: match full or relative forms
-            for c in root_candidates:
-                if re.sub(r"\s+", " ", c) == normalized:
-                    return True
+            if normalized in root_candidates:
+                return True
         elif ctx == first_part:
             # Inside the block of the first follows_parts element
-            for c in block_candidates:
-                if re.sub(r"\s+", " ", c) == normalized:
-                    return True
+            if normalized in block_candidates:
+                return True
 
     return False
 
@@ -712,6 +725,7 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
     """Check if a follows for the given attribute path exists with ANY target.
 
     Block-context-aware: a line inside a different block is not a match.
+    Optimized: prefixes are pre-constructed as tuples for fast startswith checks.
     """
     # Root-level prefixes
     full_prefix = ".".join(f"inputs.{p}" for p in follows_parts) + ".follows"
@@ -723,17 +737,25 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         if len(follows_parts) >= 2
         else f"{follows_parts[0]}.follows"
     )
-    root_prefixes = [full_prefix, relative_inputs]
+    root_prefixes = (full_prefix, relative_inputs)
 
     # Block-level prefixes (inside follows_parts[0] block)
-    block_prefixes: list[str] = []
+    block_prefixes_list: list[str] = []
     if len(follows_parts) >= 2:
         inner = ".".join(f"inputs.{p}" for p in follows_parts[1:]) + ".follows"
-        block_prefixes.append(inner)
+        block_prefixes_list.append(inner)
         if len(follows_parts) == 2:
-            block_prefixes.append("follows")
+            block_prefixes_list.append("follows")
     elif len(follows_parts) == 1:
-        block_prefixes.append("follows")
+        block_prefixes_list.append("follows")
+    block_prefixes = tuple(block_prefixes_list)
+
+    root_prefixes_eq = tuple(pfx + " =" for pfx in root_prefixes) + tuple(
+        pfx + "=" for pfx in root_prefixes
+    )
+    block_prefixes_eq = tuple(pfx + " =" for pfx in block_prefixes) + tuple(
+        pfx + "=" for pfx in block_prefixes
+    )
 
     block_context = _block_context_for_lines(content)
     lines = content.split("\n")
@@ -743,21 +765,15 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         stripped = line.strip().rstrip(";").strip()
         if stripped.startswith("#"):
             continue
-        normalized = re.sub(r"\s+", " ", stripped)
+        normalized = _RE_WHITESPACE.sub(" ", stripped)
         ctx = block_context[i]
 
         if ctx is None:
-            for pfx in root_prefixes:
-                if normalized.startswith(pfx + " =") or normalized.startswith(
-                    pfx + "="
-                ):
-                    return True
+            if normalized.startswith(root_prefixes_eq):
+                return True
         elif ctx == first_part:
-            for pfx in block_prefixes:
-                if normalized.startswith(pfx + " =") or normalized.startswith(
-                    pfx + "="
-                ):
-                    return True
+            if normalized.startswith(block_prefixes_eq):
+                return True
 
     return False
 
@@ -897,12 +913,14 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
     return None
 
 
+@functools.lru_cache(maxsize=16)
 def detect_inputs_style(
     content: str,
 ) -> tuple[str, int | None, int | None]:
     """Detect whether inputs use block style or dotted style.
 
     Returns ("block", start_line, end_line) or ("dotted", None, None).
+    Memoized with lru_cache for repeated lookups.
     """
     lines = content.split("\n")
     for i, line in enumerate(lines):
