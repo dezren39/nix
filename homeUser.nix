@@ -92,7 +92,9 @@ lib.recursiveUpdate {
       # stops keying on the link target (developing-today/code#368).
       mcpxConfig = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
         cfg="$HOME/.config/mcpx/config.json"
-        new=${pkgs.writeText "mcpx-config.json" (builtins.toJSON (import ./mcpx.config.nix { inherit lib; }))}
+        new=${
+          pkgs.writeText "mcpx-config.json" (builtins.toJSON (import ./mcpx.config.nix { inherit lib; }))
+        }
         restart=0
         if [ -L "$cfg" ] || [ ! -e "$cfg" ]; then
           restart=1
