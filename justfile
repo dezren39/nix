@@ -419,6 +419,11 @@ sidepulse-grant-leds:
 # OpenCode storage
 # =============================================================================
 
+# Run the opencode_pids() regression test for the db vacuum/prune guards. Read-only.
+[group('maintenance')]
+opencode-db-test:
+    ./opencode-db-pids.test.sh
+
 # Report how much VACUUM alone would reclaim (usually ~0 until you prune). Read-only.
 [group('maintenance')]
 opencode-db-vacuum-report:

@@ -493,6 +493,27 @@ rec {
               fi
               touch $out
             '';
+        # #472: opencode-db-pids.test.sh (the #467 regression test for the
+        # opencode_pids() guard in opencode-db-vacuum.sh /
+        # opencode-db-prune.sh) was run by nothing — no recipe, check, or
+        # workflow referenced it, so the guard that regressed in
+        # #461/#465/#467 could regress again silently. The test is
+        # self-contained (it shadows ps with synthetic rows; no opencode
+        # binary, lsof, or database needed), so run it here.
+        opencode-db-pids-tests =
+          pkgs.runCommandLocal "opencode-db-pids-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-pids.test.sh ./
+              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-pids.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-db-pids.test.sh
+              touch $out
+            '';
       }
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
         sidepulse = (mkPackages pkgs).sidepulse;
