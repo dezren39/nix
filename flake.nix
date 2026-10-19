@@ -320,6 +320,17 @@ rec {
             # Not a takeover test: the restart it checks happens, but it
             # verifies the new executable through /proc/<pid>/exe.
             "TestExecChangeRestartsThatPoolAndNoOther"
+            # Binds a unix socket under t.TempDir(); the nix sandbox's build
+            # dir is long enough that the resulting path exceeds Darwin's
+            # 104-byte sockaddr_un limit (bind: invalid argument). Passes
+            # reliably outside the sandbox, and on Linux, whose build dirs
+            # are short enough not to hit the (108-byte) limit (#434).
+            "TestStopAllStopsDaemonFoundInDefaultDir"
+            # 300ms takeoverTimeout is not reliably enough for the forked
+            # successor to run under the sandboxed build's contention
+            # (~41 go test packages at once); passes unloaded every time
+            # (#435).
+            "TestUpgradeSuccessorThatDoesNotDialBackIsReaped"
           ]
         })$";
         # The fork's own build, with this repo's mcpx on its PATH so the CLI it
