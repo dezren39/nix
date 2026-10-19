@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,5 +113,24 @@ func TestEnsureDaemonRemoteCancelledContext(t *testing.T) {
 	cancel()
 	if err := c.EnsureDaemon(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("EnsureDaemon(remote, cancelled ctx) = %v, want context.Canceled", err)
+	}
+}
+
+// The uncancelled path is unchanged: a daemon that never becomes ready
+// still fails with "did not become ready" after the connect timeout.
+func TestEnsureDaemonNeverReadyStillTimesOut(t *testing.T) {
+	root := testsupport.TempDir(t)
+	marker := filepath.Join(root, "spawned")
+	c := ensureDaemonClient(t, marker, "1s")
+	start := time.Now()
+	err := c.EnsureDaemon(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "daemon did not become ready") {
+		t.Fatalf("err = %v, want the did-not-become-ready timeout error", err)
+	}
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
+		t.Fatalf("gave up after %v, before the 1s connect timeout", elapsed)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatal("the fake daemon was never spawned")
 	}
 }
