@@ -1,0 +1,48 @@
+name: mcpx nix build
+
+# Narrow package-build verification (#418).
+#
+# The mcpx workflow's PR gate is a direct-Go test job plus a fast flake
+# evaluation — it does not build the Nix package. Evaluation cannot catch
+# a stale vendorHash in pkgs/mcpx/package.nix (the hash is just a string
+# at eval time; it fails only when the go-modules derivation is actually
+# built), and the vendorHash-repair job in mcpx.yml covers bot branches
+# only. Before this workflow, a human PR that changed go.mod/go.sum
+# without updating vendorHash merged fully green and broke the build on
+# main after the fact.
+#
+# This workflow restores the build check exactly where the risk lives: it
+# runs only when the dependency inputs change — go.mod, go.sum, or
+# package.nix — so PRs that touch no dependency inputs keep the fast
+# #408 shape and never pay for a nix build. It includes itself in the
+# path filter so changes to this workflow are exercised by it, like
+# mcpx.yml does. The full build on push-to-main stays in mcpx.yml's
+# nix-build job, so this workflow is pull_request-only.
+
+on:
+  pull_request:
+    paths:
+      - "pkgs/mcpx/go.mod"
+      - "pkgs/mcpx/go.sum"
+      - "pkgs/mcpx/package.nix"
+      - ".github/workflows/mcpx-nixbuild.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nix-build:
+    name: nix build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Nix build
+        run: nix build .#packages.x86_64-linux.mcpx --print-build-logs
