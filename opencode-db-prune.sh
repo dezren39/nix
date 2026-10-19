@@ -235,7 +235,13 @@ opencode_pids() {
       pid = $1 + 0; ppid = $2 + 0
       parent[pid] = ppid
       $1 = ""; $2 = ""
+      # Clearing $1/$2 rebuilds $0 joined by OFS, so the stored cmdline
+      # starts with spaces and the "(^|/)opencode" test below can never
+      # anchor ^ at the real argv[0] -- a process started as a bare
+      # "opencode" (the normal PATH invocation) was missed entirely
+      # (#467). Trim the padding so cmd holds the true cmdline.
       cmd[pid] = $0
+      sub(/^ +/, "", cmd[pid])
       order[++n] = pid
     }
     END {
