@@ -146,6 +146,32 @@ in
         };
       };
 
+      # sops-nix's own activation entry (modules/home-manager/sops.nix) does
+      # `launchctl bootout` (tolerated: `&& true`) then `launchctl bootstrap`
+      # with no failure tolerance, and no ordering against home-manager's own
+      # `setupLaunchAgents` (which is what actually writes
+      # ~/Library/LaunchAgents/org.nix-community.home.sops-nix.plist). On a
+      # from-scratch activation -- this secret's first one, or any time the
+      # plist did not already exist -- bootstrap can run before the plist is
+      # on disk and fail with an I/O error, which aborted the whole
+      # `darwin-rebuild switch` (exit 5), not just the secret decrypt
+      # (nix-community/home-manager#6536 is the same symptom). Override with
+      # the ordering and the same `|| true` tolerance bootout already gets:
+      # the decrypt itself does not depend on this manual re-bootstrap
+      # succeeding, since a first-time agent is already loaded by
+      # setupLaunchAgents's own RunAtLoad.
+      home.activation.sops-nix = lib.mkForce (
+        lib.hm.dag.entryAfter [ "writeBoundary" "setupLaunchAgents" ] (
+          let
+            domainTarget = "gui/$(/usr/bin/id -u ${config.home.username})";
+          in
+          ''
+            /bin/launchctl bootout ${domainTarget}/org.nix-community.home.sops-nix 2>/dev/null || true
+            /bin/launchctl bootstrap ${domainTarget} ${config.home.homeDirectory}/Library/LaunchAgents/org.nix-community.home.sops-nix.plist || true
+          ''
+        )
+      );
+
       home.activation.openchamberDeploy = lib.hm.dag.entryAfter [ "writeBoundary" "sops-nix" ] ''
         state='${state}'
         job="gui/$(/usr/bin/id -u)/${label}"
