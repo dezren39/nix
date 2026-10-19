@@ -190,7 +190,14 @@ in
         # about OpenChamber touched) gets the same full restart as a new
         # OpenChamber build, instead of silently sitting unread until some
         # unrelated change happens to restart the agent too.
-        key='${start}':"$(/usr/bin/shasum -a 256 "$pw" 2>/dev/null | /usr/bin/awk '{print $1}')"
+        #
+        # The key is only ever compared with $state/deployed. The start link
+        # must name the script alone: when the hash was added it was still
+        # linked to "$key", i.e. "<script>:<hash>", a file that does not
+        # exist, so launchd failed every spawn with exit 78 (EX_CONFIG) and
+        # the server stayed down until the link was repaired (2026-10-19).
+        script='${start}'
+        key="$script:$(/usr/bin/shasum -a 256 "$pw" 2>/dev/null | /usr/bin/awk '{print $1}')"
         target='${ocPkgs.opencode}/bin/opencode'
         previous="$(/usr/bin/readlink "$state/bin/opencode" 2>/dev/null || true)"
         running=0
@@ -199,7 +206,13 @@ in
         fi
         run /bin/mkdir -p "$state/bin"
         run /bin/ln -sfn "$target" "$state/bin/opencode"
-        run /bin/ln -sfn "$key" "$state/start"
+        run /bin/ln -sfn "$script" "$state/start"
+        # launchd only reports a bad link as a respawn loop with exit 78 and
+        # nothing in openchamber.log, so check it here, where the cause is.
+        if [[ ! -v DRY_RUN ]] && [ ! -x "$state/start" ]; then
+          echo "openchamberDeploy: $state/start -> $(/usr/bin/readlink "$state/start") is not an executable; launchd cannot start OpenChamber" >&2
+          exit 1
+        fi
         if [ "$(/bin/cat "$state/deployed" 2>/dev/null)" != "$key" ]; then
           # New OpenChamber (or start script, or UI password): restart.
           # SIGTERM leaves the managed OpenCode running and the new process
