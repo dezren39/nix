@@ -208,6 +208,13 @@ func siblingSockets(paths daemon.Paths) []string {
 // pool -- and neither is required to answer a question. Where one cannot be
 // started, this is the difference between mcpx working slowly and not
 // working.
+// inlineDaemonPing is Client.Ping, indirected so tests can keep the
+// in-process daemon from ever answering and so drive inlineDaemon's poll
+// loop deterministically: a daemon with an empty configuration answers
+// the first Ping, so the wait below is otherwise never entered (#323).
+// Production code never reassigns it.
+var inlineDaemonPing = (*Client).Ping
+
 func (a *App) inlineDaemon(ctx context.Context) (*Client, error) {
 	// A cancelled caller must not be read as "no daemon answered": Ping is
 	// ctx-bound, so it could never succeed, and the poll below would burn
@@ -258,7 +265,7 @@ func (a *App) inlineDaemon(ctx context.Context) (*Client, error) {
 	c := NewClient(paths, a.ConfigPath)
 	deadline := time.Now().Add(a.Settings().Duration("daemon.inlineStartTimeout"))
 	for time.Now().Before(deadline) {
-		if c.Ping(ctx) {
+		if inlineDaemonPing(c, ctx) {
 			return c, nil
 		}
 		select {
