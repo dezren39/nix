@@ -3,6 +3,11 @@
 # ~/Library/Application Support/sops/age/keys.txt); home-manager's
 # sops-nix module is pointed at the same path explicitly in
 # openchamber.nix so `sops` CLI and nix activation agree on one key.
+#
+# Secrets here have no trailing newline, so zsh prints a `%` after a
+# decrypted value (PROMPT_EOL_MARK); it is not part of the secret. Pipe
+# `sops -d --extract '["<key>"]' <file>` to pbcopy instead of copying
+# from the terminal. See openchamber.nix for the OpenChamber password.
 keys:
   - &drewry_pope_mgm9jj4v3r age1uathj9tyzgwucdg8ncyr3ccpvkw26zrsdv8tndz9dlxye537cqkq23ag82
 creation_rules:

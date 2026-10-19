@@ -137,6 +137,17 @@ in
       # the decrypt itself. The age identity is generated and kept out of the repo
       # (see .sops.yaml's comment); only the encrypted secrets/openchamber.yaml is
       # tracked.
+      #
+      # Reading the password back (to sign in, or to store it in a password
+      # manager): it has no trailing newline, so printing it in zsh leaves a
+      # reverse-video `%` after it -- zsh's PROMPT_EOL_MARK for an unterminated
+      # line, not part of the password (the stored value ends in neither `%`
+      # nor a newline; checked 2026-10-19 after a sign-in only worked with the
+      # `%` dropped). Copy it without going through the terminal instead:
+      #   sops -d --extract '["openchamber_ui_password"]' secrets/openchamber.yaml | pbcopy
+      # The start script reads it with "$(< "$pw")", which keeps every byte
+      # except trailing newlines, so a newline added when rotating it is
+      # harmless; a stray `%` copied from the terminal is not.
       sops = {
         age.keyFile = "${config.home.homeDirectory}/Library/Application Support/sops/age/keys.txt";
         defaultSopsFile = ./secrets/openchamber.yaml;
