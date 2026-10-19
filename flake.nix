@@ -152,6 +152,16 @@ rec {
       url = "github:developing-today/openchamber";
       inputs.opencode.follows = "opencode";
     };
+    # mcpx's single source: developing-today/code, pkgs/mcpx. Source-only
+    # (flake = false) so none of that repo's flake input graph lands in this
+    # lock; the derivation is the package.nix that lives beside the source
+    # there, called from mkPackages below. We own it: if it breaks, fix it
+    # there and re-pin here. The vendored copy this replaces was deleted in
+    # #468; the port audit is in that issue.
+    mcpx-src = {
+      url = "github:developing-today/code";
+      flake = false;
+    };
     sidepulse-src = {
       url = "github:inteliwear/sidepulse/main";
       flake = false;
@@ -277,14 +287,16 @@ rec {
       let
         system = pkgs.stdenv.hostPlatform.system;
         bun-bin = pkgs.callPackage ./pkgs/bun-bin/package.nix { };
-        # pkgs/mcpx is vendored verbatim from developing-today/code; keep it
-        # identical and adapt here. Its takeover/upgrade/handoff tests are
+        # mcpx is built from the pinned mcpx-src input (developing-today/code,
+        # pkgs/mcpx — the only copy; the vendored one was deleted in #468),
+        # using the package.nix that lives beside that source; adapt here,
+        # never by patching the source. Its takeover/upgrade/handoff tests are
         # Linux-only (fd passing to a successor that takes over systemd's
         # MAINPID; takeover_test.go does not even compile on darwin:
         # syscall.SOCK_CLOEXEC). launchd cannot do that handover, so this
         # config never uses it (configuration.nix restarts the agent instead);
         # everything else in the suite runs.
-        mcpx = (pkgs.callPackage ./pkgs/mcpx/package.nix { inherit bun-bin; }).overrideAttrs (
+        mcpx = (pkgs.callPackage (inputs.mcpx-src + "/pkgs/mcpx/package.nix") { inherit bun-bin; }).overrideAttrs (
           old:
           pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
             # SOCK_CLOEXEC is a Linux socket flag; the helper only needs a pair.

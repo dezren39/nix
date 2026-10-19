@@ -1,9 +1,0 @@
-{
-  "type": "image",
-  "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-  "mimeType": "image/png",
-  "annotations": {
-    "audience": ["user"],
-    "priority": 0.9
-  }
-}
