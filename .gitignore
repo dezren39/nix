@@ -26,6 +26,8 @@ thoughts/*_ses_*
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .venv/
 
 # lootbox
