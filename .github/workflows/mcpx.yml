@@ -62,6 +62,15 @@ jobs:
           # every run and the module cache was rebuilt from scratch each time.
           cache-dependency-path: pkgs/mcpx/go.sum
 
+      - name: Check go.mod and go.sum are tidy
+        working-directory: pkgs/mcpx
+        # dezren39/nix#436: this module drifted untidy once (wazero
+        # recorded indirect though imported directly; go.sum kept the
+        # previous sqlite version's graph) because nothing checked.
+        # `go mod tidy -diff` prints the diff and exits nonzero when
+        # go.mod or go.sum is not tidy, without modifying the files.
+        run: go mod tidy -diff
+
       # All three runtimes, because each reaches the daemon differently --
       # Deno and Bun over the unix socket, Node over TCP -- and a test that
       # skips a runtime it cannot find is a test that silently covers less.
