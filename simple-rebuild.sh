@@ -227,8 +227,18 @@ phase_activate() {
   # back to how the system was. `-G` sets action=rollback inside darwin-rebuild,
   # which reads $profile/systemConfig rather than building anything.
   if [[ -n "$generation" ]]; then
+    # The darwin-rebuild that switches generations must come from the
+    # installed system profile -- the profile --switch-generation operates
+    # on -- not from ./result. ./result is a gitignored build artifact: it
+    # may not exist (fresh clone, after a clean), and if it does it may be
+    # the broken build being rolled back from. (Fixes #458.)
+    local system_rebuild="/nix/var/nix/profiles/system/sw/bin/darwin-rebuild"
+    if [[ ! -x "$system_rebuild" ]]; then
+      echo "no darwin-rebuild in the system profile at $system_rebuild; cannot roll back" >&2
+      return 1
+    fi
     echo "darwin-rebuild --switch-generation $generation (rollback, as root)"
-    sudo ./result/sw/bin/darwin-rebuild --switch-generation "$generation"
+    sudo "$system_rebuild" --switch-generation "$generation"
     record_activation "rollback"
     return
   fi

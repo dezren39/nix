@@ -164,9 +164,11 @@ activate *generation:
     ./simple-rebuild.sh --activate-only {{ generation }}
 
 # List system generations you could `just activate N` back to
+# (from the system profile, not ./result -- listing rollback targets must
+# work on a tree with no build result; see simple-rebuild.sh / #458)
 [group('nix')]
 generations:
-    sudo ./result/sw/bin/darwin-rebuild --list-generations
+    sudo /nix/var/nix/profiles/system/sw/bin/darwin-rebuild --list-generations
 
 # Simple rebuild: build + activate (no flake update)
 [group('nix')]

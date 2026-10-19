@@ -213,6 +213,62 @@ case "$BATCH" in (*[!0-9]*|'') die "--batch must be a positive integer" ;; esac
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+# Pids of opencode processes other than this script, the invocation
+# chain that launched it, and its own children.
+# Matching full cmdlines for opencode also matches this script: it is
+# invoked as
+# "bash ./opencode-db-prune.sh ..." -- "/opencode" appears in its own
+# cmdline, and every command-substitution subshell inherits it, so a raw
+# count includes the script itself (typically 2) and can never be 0
+# (#465). Resolve each candidate's ancestry and drop any process that is this
+# script ($$), is an ancestor of it (the launching shell/sudo/timeout --
+# their cmdlines name this script too), or descends from it. $$ is the main
+# script's pid even inside
+# subshells (unlike $BASHPID), so the check holds from any call depth.
+opencode_pids() {
+  # One consistent snapshot of the process table, filtered in awk: with
+  # pgrep + per-pid ps walks, the script's own forked-but-not-yet-exec'd
+  # subshell images match during the snapshot and vanish before their
+  # ancestry can be checked, leaking through as phantom processes.
+  ps -eo pid=,ppid=,args= 2>/dev/null | awk -v self="$$" '
+    {
+      pid = $1 + 0; ppid = $2 + 0
+      parent[pid] = ppid
+      $1 = ""; $2 = ""
+      cmd[pid] = $0
+      order[++n] = pid
+    }
+    END {
+      # The invocation chain: self plus every ancestor of self.
+      c = self
+      for (d = 0; d < 32; d++) {
+        chain[c] = 1
+        if (!(c in parent)) break
+        c = parent[c]
+      }
+      for (i = 1; i <= n; i++) {
+        pid = order[i]
+        if (cmd[pid] !~ "(^|/)opencode") continue
+        if (pid in chain) continue
+        # Descendants of self (subshells, pipelines) are self too.
+        c = pid; isself = 0
+        for (d = 0; d < 32; d++) {
+          if (c == self) { isself = 1; break }
+          if (!(c in parent)) break
+          c = parent[c]
+        }
+        if (isself) continue
+        print pid
+      }
+    }'
+}
+opencode_list() {
+  local pid
+  for pid in $(opencode_pids); do
+    ps -o pid=,args= -p "$pid" 2>/dev/null || printf '%s\n' "$pid"
+  done
+}
+
 # Deleting or inserting under a live writer risks tearing an in-flight stream's
 # snapshot sequence, so any write mode refuses while opencode is running.
 check_not_running() {
@@ -220,14 +276,15 @@ check_not_running() {
   # pgrep exits 1 when nothing matches, and under `pipefail` a bare assignment
   # would inherit that and abort the script -- i.e. exactly when opencode IS
   # stopped, which is the only case in which --apply is allowed to proceed.
-  running="$(pgrep -f '(^|/)opencode' 2>/dev/null | wc -l | tr -d ' ' || true)"
+  running="$(opencode_pids | wc -l | tr -d ' ' || true)"
   running="${running:-0}"
   [ "$running" -gt 0 ] || return 0
 
   # Only a writer holding THIS database matters. Guarding on "any opencode
   # process" makes the script untestable against a scratch --db, and would also
   # block work on a copy while an unrelated session is open. lsof is the direct
-  # question; if it is unavailable, fall back to the conservative check.
+  # question; if it is unavailable, fall back to the conservative check (the
+  # count above, which now excludes this script's own process tree).
   if command -v lsof >/dev/null 2>&1; then
     holders="$(lsof -t -- "$DB" 2>/dev/null | wc -l | tr -d ' ' || true)"
     holders="${holders:-0}"
@@ -241,7 +298,7 @@ check_not_running() {
   if [ "$APPLY" -eq 1 ]; then
     printf '\n' >&2
     # Truncate: a matching sqlite3 argv can be an entire multi-line query.
-    pgrep -lf '(^|/)opencode' 2>/dev/null | cut -c1-120 | head -10 >&2 || true
+    opencode_list | cut -c1-120 | head -10 >&2 || true
     die "$running opencode process(es) running. Writing under a live writer risks
     corrupting snapshots an in-flight stream is still emitting.
     Stop them first:  pkill -f opencode && sleep 5 && pgrep -lf opencode"

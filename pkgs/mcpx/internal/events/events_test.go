@@ -84,6 +84,31 @@ func TestAReconnectingSubscriberMissesNothing(t *testing.T) {
 	}
 }
 
+func TestAReplayLargerThanTheSubscriberBufferMissesNothing(t *testing.T) {
+	// Regression for #193: the retained history (1024 by default) is
+	// larger than the subscriber buffer (256), and the replay used to fill
+	// that buffer before the subscriber could read anything, silently
+	// dropping the rest with no gap reported.
+	b := events.New(0)
+	const n = 300 // > EventSubscriberBuf (256), < EventHistory (1024)
+	for i := 0; i < n; i++ {
+		b.Publish(events.Event{Kind: events.CallFinished})
+	}
+	s, gap := b.SubscribeFrom(events.Filter{}, 0, true)
+	defer s.Close()
+	if gap {
+		t.Error("everything asked for is still retained, so there should be no gap")
+	}
+	for want := uint64(1); want <= n; want++ {
+		if e := recv(t, s); e.Seq != want {
+			t.Fatalf("replay out of order or incomplete: got seq %d, want %d", e.Seq, want)
+		}
+	}
+	if d := s.Dropped.Load(); d != 0 {
+		t.Errorf("replay dropped %d events before the subscriber could read", d)
+	}
+}
+
 func TestAGapBeyondHistoryIsReportedRatherThanHidden(t *testing.T) {
 	// A subscriber gone longer than the history covers is told so, so it can
 	// resynchronise rather than trust a stream with a hole in it.
