@@ -45,6 +45,62 @@ die() {
 note() { printf '  %s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
 
+# Pids of opencode processes other than this script, the invocation
+# chain that launched it, and its own children.
+# Matching full cmdlines for opencode also matches this script: it is
+# invoked as
+# "bash ./opencode-db-vacuum.sh ..." -- "/opencode" appears in its own
+# cmdline, and every command-substitution subshell inherits it, so a raw
+# count includes the script itself (typically 2) and can never be 0
+# (#465). Resolve each candidate's ancestry and drop any process that is this
+# script ($$), is an ancestor of it (the launching shell/sudo/timeout --
+# their cmdlines name this script too), or descends from it. $$ is the main
+# script's pid even inside
+# subshells (unlike $BASHPID), so the check holds from any call depth.
+opencode_pids() {
+  # One consistent snapshot of the process table, filtered in awk: with
+  # pgrep + per-pid ps walks, the script's own forked-but-not-yet-exec'd
+  # subshell images match during the snapshot and vanish before their
+  # ancestry can be checked, leaking through as phantom processes.
+  ps -eo pid=,ppid=,args= 2>/dev/null | awk -v self="$$" '
+    {
+      pid = $1 + 0; ppid = $2 + 0
+      parent[pid] = ppid
+      $1 = ""; $2 = ""
+      cmd[pid] = $0
+      order[++n] = pid
+    }
+    END {
+      # The invocation chain: self plus every ancestor of self.
+      c = self
+      for (d = 0; d < 32; d++) {
+        chain[c] = 1
+        if (!(c in parent)) break
+        c = parent[c]
+      }
+      for (i = 1; i <= n; i++) {
+        pid = order[i]
+        if (cmd[pid] !~ "(^|/)opencode") continue
+        if (pid in chain) continue
+        # Descendants of self (subshells, pipelines) are self too.
+        c = pid; isself = 0
+        for (d = 0; d < 32; d++) {
+          if (c == self) { isself = 1; break }
+          if (!(c in parent)) break
+          c = parent[c]
+        }
+        if (isself) continue
+        print pid
+      }
+    }'
+}
+opencode_list() {
+  local pid
+  for pid in $(opencode_pids); do
+    ps -o pid=,args= -p "$pid" 2>/dev/null || printf '%s\n' "$pid"
+  done
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./opencode-db-vacuum.sh [options]
@@ -107,14 +163,13 @@ note "database: $DB"
 # pgrep exits 1 when nothing matches, and under `pipefail` a bare assignment
 # would inherit that and abort the script -- i.e. exactly when opencode IS
 # stopped, which is the only case in which a real run may proceed.
-running="$(pgrep -f '(^|/)opencode' 2>/dev/null | wc -l | tr -d ' ' || true)"
+running="$(opencode_pids | wc -l | tr -d ' ' || true)"
 running="${running:-0}"
 if [ "$running" -gt 0 ] && command -v lsof >/dev/null 2>&1; then
   # Only a process holding THIS database matters. Guarding on "any opencode
-  # process" would also match this script's own ./opencode-db-vacuum.sh
-  # invocation, and would block work on a scratch --db while an unrelated
-  # session is open. lsof is the direct question; without it, the count
-  # above stands as the conservative answer.
+  # process" would block work on a scratch --db while an unrelated session
+  # is open. lsof is the direct question; without it, the (self-excluded)
+  # count above stands as the conservative answer.
   holders="$(lsof -t -- "$DB" 2>/dev/null | wc -l | tr -d ' ' || true)"
   holders="${holders:-0}"
   if [ "$holders" -eq 0 ]; then
@@ -126,7 +181,7 @@ if [ "$running" -gt 0 ] && command -v lsof >/dev/null 2>&1; then
 fi
 if [ "$running" -gt 0 ]; then
   printf '\n'
-  pgrep -lf '(^|/)opencode' 2>/dev/null | head -20 >&2 || true
+  opencode_list | head -20 >&2 || true
   printf '\n' >&2
   if [ "$DRY_RUN" -eq 1 ]; then
     note "WARNING: $running opencode process(es) running. Measurement below is"
