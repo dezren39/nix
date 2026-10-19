@@ -134,3 +134,36 @@ func TestEnsureDaemonNeverReadyStillTimesOut(t *testing.T) {
 		t.Fatal("the fake daemon was never spawned")
 	}
 }
+
+// errAfterContext reports context.Canceled from Err once its deadline
+// passes, but its Done channel never fires. It models a cancellation that
+// only becomes visible as a poll loop exits on its own deadline: an
+// in-loop select on Done cannot catch it, only a post-loop Err check can.
+type errAfterContext struct {
+	context.Context
+	at time.Time
+}
+
+func (c errAfterContext) Done() <-chan struct{} { return nil }
+
+func (c errAfterContext) Err() error {
+	if time.Now().Before(c.at) {
+		return nil
+	}
+	return context.Canceled
+}
+
+// The post-loop ctx.Err() check (in this copy since #233) had no test
+// pinning it: a cancellation visible only at the poll loop's deadline
+// exit must report context.Canceled, not "daemon did not become ready".
+// Filed as developing-today/code#328, whose copy lacked the check itself.
+func TestEnsureDaemonCancelVisibleOnlyAtDeadline(t *testing.T) {
+	root := testsupport.TempDir(t)
+	marker := filepath.Join(root, "spawned")
+	c := ensureDaemonClient(t, marker, "300ms")
+	ctx := errAfterContext{Context: context.Background(), at: time.Now().Add(100 * time.Millisecond)}
+	err := c.EnsureDaemon(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("EnsureDaemon(cancel visible only at deadline) = %v, want context.Canceled", err)
+	}
+}
