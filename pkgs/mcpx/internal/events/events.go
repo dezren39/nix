@@ -207,13 +207,12 @@ func (b *Bus) Subscribe(f Filter, since uint64) (sub *Subscription, gap bool) {
 // knows it missed something and can resynchronise instead of trusting a
 // stream with a hole in it.
 func (b *Bus) SubscribeFrom(f Filter, since uint64, replay bool) (sub *Subscription, gap bool) {
-	ch := make(chan Event, defaults.EventSubscriberBuf)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sub = &Subscription{C: ch, ch: ch, filter: f, id: b.next, bus: b}
-	b.next++
-
+	// Collect the replay first, under the lock, so its size is known
+	// before the channel exists.
+	var replayEvents []Event
 	if replay {
 		h := b.retained()
 		if since > 0 && len(h) > 0 && h[0].Seq > since+1 {
@@ -221,12 +220,29 @@ func (b *Bus) SubscribeFrom(f Filter, since uint64, replay bool) (sub *Subscript
 		}
 		for _, e := range h {
 			if e.Seq > since && f.Matches(e) {
-				select {
-				case ch <- e:
-				default:
-					sub.Dropped.Add(1)
-				}
+				replayEvents = append(replayEvents, e)
 			}
+		}
+	}
+
+	// The replay is owed, not live lag: size the channel for the whole
+	// replay plus the usual live buffer. The old code replayed into the
+	// live buffer with non-blocking sends while holding the lock -- before
+	// the subscriber could read anything -- so a replay larger than
+	// EventSubscriberBuf silently dropped everything past the buffer and
+	// reported no gap (#193). The replay is bounded by the retained
+	// history, so the extra capacity is bounded too.
+	ch := make(chan Event, defaults.EventSubscriberBuf+len(replayEvents))
+	sub = &Subscription{C: ch, ch: ch, filter: f, id: b.next, bus: b}
+	b.next++
+	for _, e := range replayEvents {
+		select {
+		case ch <- e:
+		default:
+			// Unreachable while the channel is sized for the replay, but
+			// if it ever happens the loss must be visible, not silent.
+			sub.Dropped.Add(1)
+			gap = true
 		}
 	}
 	b.subs[sub.id] = sub
