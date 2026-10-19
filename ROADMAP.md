@@ -13,7 +13,7 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 | [mcpx moves to developing-today/code](#mcpx-moves-to-developing-todaycode)    | Remove the vendored copy and build from the code repo     |
 | [Keeping agent work safe on disk](#keeping-agent-work-safe-on-disk)           | The temp-dir guard, and finding out what deleted files    |
 | [OpenCode and OpenChamber integration](#opencode-and-openchamber-integration) | Pins, the mcpx config, MCP sign-ins                       |
-| [Sidepulse and lootbox patches](#sidepulse-and-lootbox-patches)               | Port a 12-patch stack to upstream                         |
+| [Sidepulse patches](#sidepulse-patches)                                       | Port a 12-patch stack to upstream                         |
 | [The darwin system](#the-darwin-system)                                       | Old notes only, no open work                              |
 | [CI and housekeeping](#ci-and-housekeeping)                                   | Stale dependency PRs, concurrency groups, cleanup scripts |
 
@@ -52,7 +52,7 @@ macOS `dirhelper` deletes files in the per-user temp dir that were not accessed 
 | Keep the fork pins current     | Now     | in-progress | `flake.nix` pins the OpenCode and OpenChamber forks. The `update-opencode` skill describes the steps. | [skill](.agents/skills/update-opencode) |
 | Finish the Datadog MCP sign-in | Next    | proposed    | The OAuth sign-in is not finished.                                                                    | #372                                    |
 
-## Sidepulse and lootbox patches
+## Sidepulse patches
 
 Sidepulse drives an LED strip from OpenCode state. This repo carries a patch stack on top of upstream.
 
@@ -77,7 +77,7 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 | Title                                          | Horizon | Status   | Intent                                                                                                                                                                                                                                                            | Links                                                                  |
 | ---------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Stale dependency PRs                           | Next    | proposed | Ten Renovate PRs for `.lootbox/ui` and Docker (React 19, TypeScript 7, zustand 5, react-router 7 and others) and two Bolt drafts, #364 and #388, have sat open since 2026-10-01 or later. Group the React ones, or close the lot and pin them in `renovate.json`. | #310, #311, #313, #314, #317, #318, #319, #320, #324, #363, #364, #388 |
+| Stale dependency PRs                           | Next    | proposed | Renovate PRs for `pkgs/buffer-backup` (TypeScript 7, @types/node, @types/vscode) and two Bolt drafts, #364 and #388, have sat open since 2026-10-01 or later. Merge or close the rest and pin them in `renovate.json`. | #317, #320, #324, #364, #388 |
 | macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo.                                                                                                                                                                                                                       | #366                                                                   |
 
 ## Done

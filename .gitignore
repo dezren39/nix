@@ -30,10 +30,6 @@ __pycache__/
 .mypy_cache/
 .venv/
 
-# lootbox
-.lootbox/cache/
-.lootbox/tmp/
-
 # codedb
 codedb.snapshot
 

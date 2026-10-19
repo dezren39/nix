@@ -1,17 +1,20 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
-# mcpx's user config (~/.config/mcpx/config.json), derived from lootbox's so
-# the two gateways front the same MCP servers from one list. Edit the servers
-# in lootbox.config.json; only what differs for mcpx lives here.
+# mcpx's user config (~/.config/mcpx/config.json, written by homeUser.nix):
+# every MCP server this machine runs, and how mcpx pools each one.
 #
 # Plain data, no secrets: every server here runs locally or authenticates on
-# its own. context7 and datadog go through mcp-remote, which runs the OAuth
-# login in a browser and keeps the tokens in ~/.mcp-auth, so nothing secret
-# is in this repo.
+# its own. context7, datadog and atlassian go through mcp-remote, which runs
+# the OAuth login in a browser (`just mcp-login <name>`) and keeps the tokens
+# in ~/.mcp-auth, so nothing secret is in this repo.
 #
 # This file is generated into the nix store, so it is read-only: `mcpx servers
-# add` cannot write to it. Add mcpx-only servers here, or in a project's
-# .mcpx.json.
+# add` cannot write to it. Add servers here, or in a project's .mcpx.json.
+#
+# Commands are absolute paths: a daemon inherits the PATH of whatever started
+# it, and a bare name that the launchd agent's PATH resolves can fail with
+# "executable file not found" under any other PATH. The npm-only servers
+# (mcp-remote, chrome-devtools-mcp) come from pkgs/npm-mcp-servers.
 #
 # github: GitHub's local server with `gh`'s token (see github-mcp in
 # systemPackages.nix). aws: AWS's managed MCP server through
@@ -40,24 +43,106 @@
 # datadog` again.
 { lib }:
 let
-  lootbox = builtins.fromJSON (builtins.readFile ./lootbox.config.json);
+  bin = name: "/run/current-system/sw/bin/${name}";
 
-  # npm-installed servers, by absolute path. A daemon inherits the PATH of
-  # whatever started it: the launchd agent's includes this directory, but a
-  # daemon the CLI starts -- from a project with its own .mcpx.json, or when
-  # the agent is down -- has the shell's, which does not, and every
-  # mcp-remote server failed with "executable file not found".
-  npmBin = "/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin";
-  npm = [
-    "mcp-remote"
-    "chrome-devtools-mcp"
-  ];
-  absolute =
-    server:
-    server
-    // lib.optionalAttrs (builtins.elem (server.command or "") npm) {
-      command = "${npmBin}/${server.command}";
+  # fff indexes one root per process, so each searchable tree is its own
+  # server; they share one frecency and history database.
+  fff = root: {
+    command = bin "fff-mcp";
+    args = [
+      "--no-update-check"
+      "--frecency-db"
+      "/Users/drewry.pope/.local/share/fff/frecency.db"
+      "--history-db"
+      "/Users/drewry.pope/.local/share/fff/history.db"
+      root
+    ];
+  };
+
+  remote = url: {
+    command = bin "mcp-remote";
+    args = [ url ];
+  };
+
+  servers = {
+    codebase-memory = {
+      command = bin "codebase-memory-mcp";
+      args = [ ];
     };
+    codedb = {
+      command = bin "codedb";
+      args = [ "mcp" ];
+      env.CODEDB_NO_TELEMETRY = "1";
+    };
+    fff = fff "/Users/drewry.pope/git";
+    fff-nix = fff "/Users/drewry.pope/.config/nix";
+    fff-worktree = fff "/Users/drewry.pope/.local/share/opencode/worktree";
+    chrome-devtools = {
+      command = bin "chrome-devtools-mcp";
+      args = [
+        "--headless"
+        "--isolated"
+        "--viewport=800x600"
+        "--no-usage-statistics"
+        "--no-performance-crux"
+        "--no-category-emulation"
+      ];
+    };
+    context7 = remote "https://mcp.context7.com/mcp";
+    datadog = remote "https://mcp.datadoghq.com/v1/mcp?toolsets=core,workflows,alerting&omit_tools=delete_datadog_workflow";
+    atlassian = remote "https://mcp.atlassian.com/v2/mcp?tools=all";
+    github = {
+      command = bin "github-mcp";
+      args = [ ];
+    };
+    aws = {
+      command = bin "uvx";
+      args = [
+        "mcp-proxy-for-aws-cli@1.7.0"
+        "https://aws-mcp.us-east-1.api.aws/mcp"
+        "--metadata"
+        "AWS_REGION=us-east-1"
+      ];
+    };
+    aws-knowledge = {
+      transport = "streamable_http";
+      url = "https://knowledge-mcp.global.api.aws";
+    };
+    deepwiki = {
+      transport = "streamable_http";
+      url = "https://mcp.deepwiki.com/mcp";
+    };
+    terraform = {
+      command = bin "terraform-mcp-server";
+      args = [
+        "stdio"
+        "--toolsets=registry"
+      ];
+    };
+    nixos = {
+      command = bin "mcp-nixos";
+      args = [ ];
+    };
+    playwright = {
+      command = bin "playwright-mcp";
+      args = [
+        "--headless"
+        "--isolated"
+        "--viewport-size=1280x720"
+        "--output-dir"
+        "/Users/drewry.pope/.cache/playwright-mcp"
+      ];
+    };
+    markitdown = {
+      command = bin "markitdown-mcp";
+      args = [ ];
+    };
+    sequential-thinking = {
+      command = bin "mcp-server-sequential-thinking";
+      args = [ ];
+      env.DISABLE_THOUGHT_LOGGING = "true";
+    };
+  };
 
   # How mcpx pools each server, where the default (one process, shared by
   # every caller: sharing "shared", scope "global") is wrong.
@@ -93,6 +178,6 @@ let
 in
 {
   mcpServers = lib.mapAttrs (
-    name: server: absolute server // lib.optionalAttrs (pooling ? ${name}) { mcpx = pooling.${name}; }
-  ) lootbox.mcpServers;
+    name: server: server // lib.optionalAttrs (pooling ? ${name}) { mcpx = pooling.${name}; }
+  ) servers;
 }

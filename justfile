@@ -5,74 +5,35 @@ list:
   @just --list
 
 # =============================================================================
-# Utilities - Lootbox
+# MCP (mcpx)
 # =============================================================================
 
-# Build and install the pinned Lootbox source, then restart launchd
-[group('lootbox')]
-update-lootbox:
-    nix run .#lootbox-update -- --force
-
 # Opens a browser for the server's OAuth login and keeps the tokens in
-# ~/.mcp-auth, where lootbox and mcpx find them. Press Ctrl-C once it reports
-# it is connected. Needed once per server, and again if its URL changes -- the
-# URL is part of what mcp-remote stores the tokens under.
+# ~/.mcp-auth, where mcp-remote finds them when mcpx starts the server. Press
+# Ctrl-C once it reports it is connected. Needed once per server, and again if
+# its URL changes -- the URL is part of what mcp-remote stores the tokens under.
 #
 # Log in to an mcp-remote MCP server (datadog, atlassian, context7)
-[group('lootbox')]
+[group('mcp')]
 mcp-login name:
     #!/usr/bin/env bash
     set -euo pipefail
-    url=$(jq -r --arg n "{{name}}" '.mcpServers[$n] | select(.command == "mcp-remote") | .args[0] // empty' lootbox.config.json)
+    config="$HOME/.config/mcpx/config.json"
+    url=$(jq -r --arg n "{{name}}" '.mcpServers[$n] | select((.command // "") | endswith("/mcp-remote")) | .args[0] // empty' "$config")
     if [ -z "$url" ]; then
-        echo "{{name}} is not an mcp-remote server in lootbox.config.json; those are:" >&2
-        jq -r '.mcpServers | to_entries[] | select(.value.command == "mcp-remote") | "  " + .key' lootbox.config.json >&2
+        echo "{{name}} is not an mcp-remote server in $config; those are:" >&2
+        jq -r '.mcpServers | to_entries[] | select((.value.command // "") | endswith("/mcp-remote")) | "  " + .key' "$config" >&2
         exit 1
     fi
-    exec "$HOME/.local/share/lootbox/npm/node_modules/.bin/mcp-remote" "$url"
-
-# Start the launchd-managed Lootbox server
-[group('lootbox')]
-lootbox-server:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    label="gui/$(id -u)/org.nixos.lootbox"
-    if ! launchctl print "$label" >/dev/null 2>&1; then
-        launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/org.nixos.lootbox.plist"
-    fi
-    launchctl kickstart -k "$label"
-    for _ in $(seq 1 90); do
-        namespaces=$("$HOME/.local/bin/lootbox" tools 2>/dev/null || true)
-        if grep -q "mcp_codedb" <<<"$namespaces" \
-          && grep -q "mcp_fff" <<<"$namespaces" \
-          && grep -q "mcp_chrome_devtools" <<<"$namespaces" \
-          && grep -q "mcp_context7" <<<"$namespaces"; then
-            echo "Lootbox server is ready with all configured namespaces"
-            exit 0
-        fi
-        sleep 1
-    done
-    echo "Lootbox server did not become healthy" >&2
-    exit 1
-
-# Stop the launchd-managed Lootbox server
-[group('lootbox')]
-lootbox-kill:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    launchctl bootout "gui/$(id -u)/org.nixos.lootbox" 2>/dev/null || true
-
-# Restart lootbox server
-[group('lootbox')]
-lootbox-restart: lootbox-kill lootbox-server
+    exec /run/current-system/sw/bin/mcp-remote "$url"
 
 # Log in to Context7 (free tier: 1000 calls/month vs a lower anonymous limit)
-[group('lootbox')]
+[group('mcp')]
 context7-login:
     #!/usr/bin/env bash
     set -euo pipefail
-    bin="$HOME/.local/share/lootbox/npm/node_modules/.bin/mcp-remote"
-    [ -x "$bin" ] || { echo "mcp-remote missing; run 'just update-lootbox' first" >&2; exit 1; }
+    bin=/run/current-system/sw/bin/mcp-remote
+    [ -x "$bin" ] || { echo "mcp-remote missing; it comes from pkgs/npm-mcp-servers via just switch" >&2; exit 1; }
     auth="$HOME/.mcp-auth"
     echo "Starting mcp-remote; a browser window will open for Context7 (Clerk)."
     echo "Complete the sign-in, then this returns automatically."
@@ -86,7 +47,7 @@ context7-login:
     for _ in $(seq 1 120); do
         if find "$auth" -name '*token*' -newermt '-10 minutes' 2>/dev/null | grep -q .; then
             echo "Authenticated. Credentials cached under $auth."
-            echo "Restart lootbox to pick it up: just lootbox-restart"
+            echo "Pick it up now with: mcpx restart context7"
             exit 0
         fi
         kill -0 "$pid" 2>/dev/null || { echo "mcp-remote exited early" >&2; exit 1; }
@@ -96,24 +57,18 @@ context7-login:
     echo "Context7 still works anonymously; this only raises the rate limit." >&2
     exit 1
 
-# Verify server health, configured namespaces, and Deno script execution
-[group('lootbox')]
-lootbox-check:
+# Check the mcpx daemon, list every server's state, and call one tool on each
+# of the servers agents use most
+[group('mcp')]
+mcpx-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    curl -fsS http://127.0.0.1:9420/health
-    namespaces=$("$HOME/.local/bin/lootbox" tools)
-    printf '%s\n' "$namespaces"
-    for namespace in mcp_codedb mcp_codebase_memory mcp_fff mcp_fff_worktree \
-                     mcp_fff_nix mcp_chrome_devtools mcp_context7; do
-        grep -q "$namespace" <<<"$namespaces"
-    done
-    "$HOME/.local/bin/lootbox" exec 'console.log("lootbox script execution ok")'
-    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_codedb.codedb_status({}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("codedb ok")'
-    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_fff.grep({query:"lootbox"}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("fff ok")'
-    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_chrome_devtools.list_pages({}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("chrome devtools ok")'
-    "$HOME/.local/bin/lootbox" exec 'const r = await tools.mcp_context7.resolve_library_id({libraryName:"react",query:"React documentation"}); if (r.isError) throw new Error(JSON.stringify(r)); console.log("context7 ok")'
-    curl -fsS http://127.0.0.1:9420/ui >/dev/null
+    cd "$HOME"
+    mcpx ls
+    mcpx exec 'await codedb.codedb_status({}); console.log("codedb ok")'
+    mcpx exec 'await fff.grep({query: "mcpx"}); console.log("fff ok")'
+    mcpx exec 'await chrome_devtools.list_pages({}); console.log("chrome-devtools ok")'
+    mcpx exec 'await context7.resolve_library_id({libraryName: "react", query: "React documentation"}); console.log("context7 ok")'
 
 # =============================================================================
 # Nix Rebuild

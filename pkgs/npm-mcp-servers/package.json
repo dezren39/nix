@@ -1,0 +1,9 @@
+{
+  "name": "npm-mcp-servers",
+  "private": true,
+  "description": "MCP servers that are only published to npm; built by default.nix from this lockfile.",
+  "dependencies": {
+    "chrome-devtools-mcp": "1.9.0",
+    "mcp-remote": "0.14.2"
+  }
+}

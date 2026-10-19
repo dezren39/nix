@@ -179,7 +179,6 @@
   "skills": ["~/git/cairn/.agents/skills"],
 
   "instructions": [
-    "~/.config/opencode/instructions/lootbox.md",
     "~/.config/opencode/instructions/worktrees.md",
     "~/.config/opencode/instructions/recordings.md",
     "~/.config/opencode/instructions/work-strategies.md"

@@ -2,7 +2,7 @@
 
 Single-user **nix-darwin + home-manager + nix-homebrew** flake for an Apple
 Silicon (`aarch64-darwin`) Mac, plus a substantial local AI-tooling
-(OpenCode / Copilot / lootbox) setup. This document catches a human or agent up
+(OpenCode / OpenChamber / Copilot / mcpx) setup. This document catches a human or agent up
 on the whole repo.
 
 SPDX-License-Identifier: MIT OR Apache-2.0
@@ -24,23 +24,23 @@ brews.nix casks.nix masApps.nix   homebrew formulae / casks / mas apps
 treefmt.nix            formatter config (nixfmt + rustfmt) — used by flake `formatter`/`checks`
 
 pkgs/                  Custom packages (see §4)
-patches/               sidepulse + lootbox patch stacks (OpenCode is not patched; see §5)
+patches/               sidepulse patch stack (OpenCode is not patched; see §5)
 *.patch (root)         homebrew-services fix (unused)
 openchamber.nix        OpenChamber server launchd agent + desktop client (§5)
-instructions/          OpenCode instruction files (lootbox.md, subagents.md)
+instructions/          OpenCode instruction files (worktrees, recordings, work-strategies; archive/)
 commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)
 opencode-global.jsonc  OpenCode v2 global config, linked as ~/.config/opencode/opencode.jsonc
 tui.jsonc              v1 TUI config; v2 ignores it (v2 reads ~/.config/opencode/cli.json)
 sounds/                Star Trek notification sounds (opencode-notifier)
 themes/ vibrant-ink.json   Active TUI theme
-justfile               Task runner (rebuild, tidy, share, link-git, lootbox)
+justfile               Task runner (rebuild, tidy, share, link-git, mcp logins)
 rebuild.sh r / simple-rebuild.sh s / clean(.sh) / path.sh   Rebuild + cleanup scripts
 symlinker.sh           Large bash symlink manager (source for pkgs/symlinker)
 .aerospace.toml        AeroSpace tiling WM config
-lootbox.config.json    lootbox MCP server definitions
+mcpx.config.nix        Every MCP server, and how mcpx pools it
 config.toml            VSCode extension source-of-truth list (used by code-install-extensions.sh)
-.github/workflows/opencode.yml   Comment-triggered OpenCode bot (only CI)
+.github/workflows/     opencode.yml (/oc comment bot), mcpx-nixbuild.yml (mcpx package build)
 ```
 
 ### Wiring (module composition)
@@ -92,8 +92,7 @@ flake.nix → ./configuration.nix
 
 **`configuration.nix`**
 - System-wide git ignore/config written to `/etc/gitignore` + `/etc/gitconfig`,
-  forced onto Nix's git via `GIT_CONFIG_SYSTEM` (blocks `codedb.snapshot`,
-  `.lootbox/cache|tmp`).
+  forced onto Nix's git via `GIT_CONFIG_SYSTEM` (blocks `codedb.snapshot`).
 - `nixpkgs`: `allowUnfree/allowBroken/allowUnsupportedSystem`; overlays add fenix
   and the custom `noTunes` app.
 - `system.defaults`: fast key repeat, disabled press-and-hold, silenced beep,
@@ -106,7 +105,8 @@ flake.nix → ./configuration.nix
 - **activationScripts:** menu-bar spacing, disable font smoothing, kickstart skhd,
   exclude `/nix` from Spotlight, xcode-select + license accept.
 - **launchd agents:** `naturalScrollingToggle` (flip scroll dir by mouse presence),
-  `lootbox` (installs + runs the lootbox MCP server on port 9420).
+  `colima`, and `mcpx` (the MCP gateway daemon; servers in `mcpx.config.nix`).
+  OpenChamber's agent is in `openchamber.nix`.
 
 **`nix.settings.nix`** — broad `experimental-features` (flakes, ca-derivations,
 dynamic-derivations, recursive-nix, pipe-operators, …); extra substituters for
@@ -148,7 +148,7 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 | noTunes.nix | Nix | `mkDerivation` | macOS app that stops Apple Music auto-launch. |
 | codedb | Zig binary | `fetchurl` | Pinned signed/notarized AST-aware code search and MCP server. |
 | fff-mcp | Rust binary | `fetchurl` | Pinned frecency-ranked file/content search MCP server. |
-| lootbox-update | Bash/Nix | `writeShellApplication` | Builds pinned Lootbox source with compatibility patches, installs its UI and pinned npm MCP CLIs, then verifies launchd readiness. |
+| npm-mcp-servers | Node/Nix | `importNpmLock.buildNodeModules` | `mcp-remote` and `chrome-devtools-mcp`, which are only published to npm, pinned by a committed `package-lock.json`. |
 | sidepulse | Python/PyObjC | `buildPythonApplication` | Darwin-only SidePulse CLI/status-bar app. Individually documented, an ordered stack of twelve patch files applies upstream PRs #14, #17, #26, #28, #29, #30, #31 and #32. PRs #33, #34 and #35 are local-only: #33 holds the LED completion signal until the user is visibly back at a terminal (`src/sidepulse/presence.py`) instead of timing out after 4s; #34 stops failures and permission prompts expiring on a clock (they persist while the owning process is alive, and are released when the session is deleted or its terminal is closed), keeps a failure from being overwritten by the idle that follows it, and widens OpenCode error capture to `message.updated` and the `session.next.*` runner; #35 adds multi-signal composition (`src/sidepulse/compose.py`): ten display modes over a ranked signal registry with demand/ambient tiers, eight static (`priority`, `round-robin`, `split`, `paired`, `orbit`, `depth`, `beacon`, `tide`) and two host-driven (`drift`, `live`), plus per-signal arrival announcements, a `tempo` pace dial and per-LED colour correction for the Dot's opposed LEDs. Selected by `multi_signal.mode`, defaulting to `beacon`. dezren39/nix#378 (`sidepulse-dezren39-nix-378-opencode-v2-plugin.patch`, last in the stack) makes `opencode_plugin_source()` generate the OpenCode v2 plugin (`export default { id, setup(ctx) }`, v2 run-lifecycle events mapped to the v1 names SidePulse already handles), so `sidepulse setup opencode` writes a plugin the v2 loader accepts. See `docs/sidepulse-modes.md` for every display mode, `docs/sidepulse-customisations.md` for what each local patch adds and the live LED configuration, and `docs/sidepulse-leds.md` for the verified hardware limits they work within. |
 | sidepulse-setup | Bash/Nix | `writeShellApplication` | Darwin-only wrapper providing `sidepulse --setup opencode` and `sidepulse setup opencode`; setup defaults to all upstream-supported providers. Home Manager invokes the packaged `sidepulse setup <provider>` for the configured provider list on every switch. |
 
@@ -171,21 +171,20 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
   and `quick` (very-fast), `balanced`, `deep` (frontier); `compaction`
   balanced, `summary` very-fast, `title` unset (Copilot's free utility model),
   `plan` disabled. The old `agents/*.md` prompts and tiers are gone.
-  Instructions: `instructions/{lootbox,worktrees,recordings,work-strategies}.md`.
+  Instructions: `instructions/{worktrees,recordings,work-strategies}.md`.
   Plugins: opencode-notifier only (the v1 plugins fail v2's loader; listed in
   the file for when they are ported). `compaction.buffer = 8192`.
 - **`tui.jsonc`** — v1 TUI config; v2 does not read it (`~/.config/opencode/cli.json`
   instead). Kept only until it is clear nothing else reads it.
-- **`instructions/`** — `lootbox.md` (all MCP tooling via local lootbox server on
-  :9420; write reusable `.ts` to `.lootbox/scripts/`; namespaces `mcp_codedb`,
-  `mcp_fff`, `mcp_chrome_devtools`, `mcp_context7`); `subagents.md` (subagent-first
-  workflow; native subagents `explore` and `general`, plus configured custom
-  capability tiers).
+- **`instructions/`** — `worktrees.md` (never create worktrees under /var),
+  `recordings.md` (append notable moments to ~/git/ai_recordings.jsonl),
+  `work-strategies.md` (how to work here); `archive/subagents.md` is no longer
+  loaded.
 - **`commands/`** — `/gha-fix` (diagnose+fix a failed GitHub Actions job, with
   production-safety gating) and `/gha-why` (analyze a *successful* job).
   `./symlink-commands` installs missing global command symlinks safely.
-- **`lootbox.config.json`** — the MCP server list, shared by lootbox and mcpx
-  (`mcpx.config.nix` derives mcpx's config from it).
+- **`mcpx.config.nix`** — every MCP server and its mcpx pooling, written to
+  `~/.config/mcpx/config.json` by `homeUser.nix`.
 
 ### OpenCode and OpenChamber: our forks, no local patches
 
@@ -231,12 +230,13 @@ and developing-today/openchamber#28.
 - **Cleanup:** `./clean` (nix GC, docker prune, cache wipe, trash).
 - **Symlinks:** `just link-git` (symlinker.sh). **.opencode sharing:** `just share`
   / `unshare` / `share-status`.
-- **lootbox:** launchd runs the pinned, locally built Lootbox on loopback port 9420.
-  Nix supplies Deno, codedb, fff-mcp, and the updater; Chrome DevTools MCP and
-  mcp-remote are pinned by the controlled update step. Use `just lootbox-server`
-  / `-kill` / `-restart` / `-check` / `update-lootbox`.
-- **CI:** only `.github/workflows/opencode.yml` — a `/oc` comment-triggered
-  OpenCode bot. No build/test pipeline in CI (flake-tidy tests run locally).
+- **MCP:** every server runs under mcpx (launchd agent `org.nixos.mcpx`).
+  OAuth for the remote ones: `just mcp-login <name>` / `just context7-login`;
+  smoke test: `just mcpx-check`.
+- **CI:** `.github/workflows/opencode.yml` (a `/oc` comment-triggered OpenCode
+  bot) and `mcpx-nixbuild.yml` (builds the mcpx package on Linux when
+  `flake.nix`/`flake.lock` change). Nothing in CI builds the darwin system;
+  flake-tidy tests run locally.
 
 ---
 

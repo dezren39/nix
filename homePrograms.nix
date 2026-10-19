@@ -335,9 +335,6 @@ in
         ".direnv"
         # codedb snapshots — never commit anywhere
         "codedb.snapshot"
-        # lootbox ephemeral dirs — committed scripts (.lootbox/scripts/) are fine
-        ".lootbox/cache/"
-        ".lootbox/tmp/"
         # Spotlight exclusion markers dropped by ./spotlight-exclude-artifacts.
         # Harmless in ignored dirs, but build/ dist/ vendor/ target/ are
         # sometimes tracked, and the marker would otherwise show up untracked.

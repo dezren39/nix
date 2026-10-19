@@ -30,10 +30,6 @@ lib.recursiveUpdate {
     # codedb snapshots — never commit anywhere
     codedb.snapshot
 
-    # lootbox ephemeral dirs (scripts are fine)
-    .lootbox/cache/
-    .lootbox/tmp/
-
     # Session/worktree bootstrap sentinel -- dropped by whatever set up the
     # worktree (uv sync / bun install done), never created by any repo's own
     # scripts (grepped operations-portal; zero hits). Found untracked in 19 of
@@ -937,43 +933,6 @@ lib.recursiveUpdate {
         StandardOutPath = "/tmp/natural_scrolling.out.log";
       };
     };
-    lootbox = {
-      path = [
-        pkgs.deno
-        pkgs.nodejs
-        inputs.self.packages.${system}.codedb
-        pkgs.codebase-memory-mcp
-        pkgs.fff-mcp
-      ];
-      serviceConfig = {
-        EnvironmentVariables.HOME = "/Users/drewry.pope";
-        EnvironmentVariables.LOOTBOX_UI_DIR = "/Users/drewry.pope/.local/share/lootbox/ui";
-        EnvironmentVariables.PATH = lib.mkForce (
-          lib.makeBinPath [
-            pkgs.bash
-            pkgs.deno
-            pkgs.nodejs
-            inputs.self.packages.${system}.codedb
-            pkgs.codebase-memory-mcp
-            pkgs.fff-mcp
-          ]
-          + ":/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin"
-        );
-        KeepAlive = true;
-        RunAtLoad = true;
-        WorkingDirectory = "/Users/drewry.pope/.config/nix";
-        ProgramArguments = [
-          "/Users/drewry.pope/.local/bin/lootbox"
-          "server"
-          "--port"
-          "9420"
-          "--lootbox-root"
-          "/Users/drewry.pope/.config/nix/.lootbox"
-        ];
-        StandardErrorPath = "/tmp/lootbox.err.log";
-        StandardOutPath = "/tmp/lootbox.out.log";
-      };
-    };
     # The mcpx daemon, started at login and kept running, so the first `mcpx`
     # command in a shell does not pay for a cold start.
     #
@@ -988,7 +947,8 @@ lib.recursiveUpdate {
     mcpx = {
       serviceConfig = {
         EnvironmentVariables.HOME = "/Users/drewry.pope";
-        # The MCP servers it starts, same as lootbox's; mcpx's own wrapper adds
+        # The MCP servers it starts (mcpx.config.nix runs them by absolute
+        # path; their own children use this PATH). mcpx's own wrapper adds
         # deno, bun, node and git for scripts.
         EnvironmentVariables.PATH = lib.mkForce (
           lib.makeBinPath [
@@ -999,7 +959,7 @@ lib.recursiveUpdate {
             pkgs.codebase-memory-mcp
             pkgs.fff-mcp
           ]
-          + ":/Users/drewry.pope/.local/share/lootbox/npm/node_modules/.bin:/usr/bin:/bin"
+          + ":/usr/bin:/bin"
         );
         KeepAlive = true;
         RunAtLoad = true;

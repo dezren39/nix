@@ -156,25 +156,27 @@ in
       # OpenChamber's server CLI. The server itself runs as the openchamber
       # launchd agent and the desktop app is installed by openchamber.nix.
       ocPkgs.openchamber
-      inputs.self.packages.${system}.lootbox-link
       # The MCP gateway (source: developing-today/code's pkgs/mcpx, built
       # from the pinned mcpx-src input). Its daemon runs at login from the
       # mcpx launchd agent in configuration.nix; the CLI reaches it from any shell.
       inputs.self.packages.${system}.mcpx
-      # Servers in lootbox.config.json run from these, by absolute
-      # /run/current-system/sw/bin path (see mcpx.config.nix).
+      # The servers in mcpx.config.nix run from these, by absolute
+      # /run/current-system/sw/bin path.
       terraform-mcp-server
       playwright-mcp
       mcp-server-sequential-thinking
       markitdown-mcp
       mcp-nixos
+      # mcp-remote and chrome-devtools-mcp, which are only on npm (pinned by
+      # pkgs/npm-mcp-servers/package-lock.json).
+      inputs.self.packages.${system}.npm-mcp-servers
       # AWS credentials for the `aws` MCP server (mcp-proxy-for-aws signs with
       # the default profile): `aws configure sso`, then `aws sso login`.
       awscli2
       # Atlassian's Teamwork Graph CLI (twg) — prebuilt binary, pinned in
       # pkgs/twg-cli/hashes.json. Not an MCP server itself (the Atlassian MCP
-      # server is already configured above as "atlassian" in
-      # lootbox.config.json/mcpx.config.nix); twg is a standalone CLI an agent
+      # server is already configured as "atlassian" in mcpx.config.nix);
+      # twg is a standalone CLI an agent
       # shells out to. First run needs `twg setup` (OAuth login) and
       # `twg doctor` interactively — not something Nix can do at build time.
       inputs.self.packages.${system}.twg-cli
@@ -182,7 +184,7 @@ in
       # the login keychain, so no token is stored here or in the nix store.
       # Its hosted server (api.githubcopilot.com/mcp) cannot do mcp-remote's
       # OAuth -- no dynamic client registration -- which is why it runs locally.
-      # lootbox.config.json starts it by this name's absolute path, since the
+      # mcpx.config.nix starts it by this name's absolute path, since the
       # launchd agents' PATH does not include the system profile.
       (pkgs.writeShellApplication {
         name = "github-mcp";
@@ -284,7 +286,6 @@ in
       inputs.self.packages.${system}.codedb
       pkgs.codebase-memory-mcp
       pkgs.fff-mcp
-      inputs.self.packages.${system}.lootbox-update
     ]
     ++ [
       # darwin

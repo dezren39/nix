@@ -26,8 +26,7 @@ lib.recursiveUpdate {
     stateVersion = "23.05";
     file = {
       ".aerospace.toml".source = ./.aerospace.toml;
-      ".config/lootbox/lootbox.config.json".source = ./lootbox.config.json;
-      # mcpx reads the same MCP servers as lootbox; see mcpx.config.nix.
+      # Every MCP server this machine runs; see mcpx.config.nix.
       ".config/mcpx/config.json".text = builtins.toJSON (import ./mcpx.config.nix { inherit lib; });
       # Deliberately-inert ~/.gitconfig. Git reads ~/.config/git/config first and
       # ~/.gitconfig second, so a stray file here silently overrides everything

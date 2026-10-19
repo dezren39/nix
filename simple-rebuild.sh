@@ -238,7 +238,6 @@ brew_upgrade() {
 health_services=(
   "org.nixos.openchamber http://127.0.0.1:3000/"
   "org.nixos.mcpx -"
-  "org.nixos.lootbox http://127.0.0.1:9420/health"
 )
 
 agent_pid() {
@@ -303,7 +302,7 @@ phase_activate() {
   # Rolling back to an existing generation is a different operation from
   # activating a freshly built one, and deliberately does less: no rosetta
   # check, no ./result, and none of the post-activation steps below. Those all
-  # run things *from the current flake* (lootbox-update, the spotlight and git
+  # run things *from the current flake* (brew bundle, the spotlight and git
   # helpers), which is precisely what you do not want when the point is to get
   # back to how the system was. `-G` sets action=rollback inside darwin-rebuild,
   # which reads $profile/systemConfig rather than building anything.
@@ -338,9 +337,6 @@ phase_activate() {
   fi
 
   brew_upgrade
-
-  echo "install/update pinned lootbox"
-  nix run .#lootbox-update -- --if-needed
 
   # The spotlight markers and the git system setup used to be re-run here, as
   # the user and again under sudo. All four calls were redundant:

@@ -399,22 +399,8 @@ rec {
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
         twg-cli = pkgs.callPackage ./pkgs/twg-cli/package.nix { };
-        lootbox-update = import ./pkgs/lootbox-update {
-          inherit pkgs;
-          lootboxSrc = pkgs.fetchFromGitHub {
-            owner = "jx-codes";
-            repo = "lootbox";
-            rev = "587a5a1b2694d0d00168665d8f1a536bc54e0f1a";
-            hash = "sha256-uY8VETshvwIbGjq10NRVc8ts4IEsKypvdBcjLqOLqu0=";
-          };
-          lootboxPatches = [
-            ./patches/lootbox-deno-2.9.patch
-            ./patches/lootbox-global-config.patch
-            ./patches/lootbox-loopback.patch
-            ./patches/lootbox-ui-dir.patch
-          ];
-        };
-        lootbox-link = import ./pkgs/lootbox-link { inherit pkgs; };
+        # mcp-remote and chrome-devtools-mcp, which mcpx.config.nix runs.
+        npm-mcp-servers = pkgs.callPackage ./pkgs/npm-mcp-servers { };
         opencode-share = import ./pkgs/opencode-share { inherit pkgs; };
         symlinker = import ./pkgs/symlinker {
           inherit pkgs;
@@ -549,14 +535,6 @@ rec {
         flake-tidy = {
           type = "app";
           program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
-        };
-        lootbox-update = {
-          type = "app";
-          program = "${selfPkgs.lootbox-update}/bin/lootbox-update";
-        };
-        lootbox-link = {
-          type = "app";
-          program = "${selfPkgs.lootbox-link}/bin/lootbox-link";
         };
         mcpx = {
           type = "app";

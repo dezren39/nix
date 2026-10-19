@@ -7,7 +7,7 @@ description: Use when working in the ~/.config/nix nix-darwin flake repo (rebuil
 
 This is a single-user **nix-darwin + home-manager + nix-homebrew** flake for an
 Apple Silicon Mac (`aarch64-darwin`), plus heavy local AI tooling (OpenCode /
-GitHub Copilot / lootbox). Read `ARCHITECTURE.md` at the repo root for the full
+OpenChamber / GitHub Copilot / mcpx). Read `ARCHITECTURE.md` at the repo root for the full
 breakdown; this skill is the fast path.
 
 ## First moves
@@ -85,7 +85,7 @@ Where things go:
 - **buffer-backup** — a VS Code extension with its own flake.
 - **noTunes.nix** — stops Apple Music auto-launch.
 
-## OpenCode / Copilot / lootbox
+## OpenCode / OpenChamber / mcpx
 
 - Config: `opencode-global.jsonc` (linked as ~/.config/opencode/opencode.jsonc;
   not named opencode.jsonc so the project walk does not load it twice; v2-native; github-copilot only; every model is a
@@ -94,11 +94,13 @@ Where things go:
   the effort as variant; agents build, general, explore, quick, balanced, deep).
   The fork's built-in `routing-config` skill documents every routing key. v2
   ignores `tui.jsonc` (it reads `~/.config/opencode/cli.json`).
-- **Tooling is subagent-first** and routed through the local **lootbox** MCP server
-  (port 9420, launchd-managed). Namespaces: `mcp_codedb`, `mcp_fff`,
-  `mcp_chrome_devtools`, `mcp_context7`. Write reusable `.ts` scripts to
-  `.lootbox/scripts/`. Nix provides Deno/codedb/fff-mcp; a pinned updater builds
-  Lootbox and npm MCP CLIs. `just lootbox-server|-kill|-restart|-check|update-lootbox`.
+- **MCP servers all go through mcpx** (CLI `mcpx`, daemon = launchd agent
+  `org.nixos.mcpx`). Every server is defined in `mcpx.config.nix` (written to
+  `~/.config/mcpx/config.json` by `homeUser.nix`) and runs by absolute path from
+  the system profile; the npm-only ones (`mcp-remote`, `chrome-devtools-mcp`)
+  are packaged from a lockfile in `pkgs/npm-mcp-servers`. OAuth for the remote
+  servers: `just mcp-login <name>` / `just context7-login`. Smoke test:
+  `just mcpx-check`.
 - **OpenCode and OpenChamber come from forks we own** (developing-today/opencode,
   developing-today/openchamber; `main`; openchamber's `opencode` input follows
   ours). Nothing is patched here: fix the fork, push to its `main`, then re-pin
@@ -110,8 +112,7 @@ Where things go:
   serve` up on 127.0.0.1:3000 (port of developing-today/code's systemd model);
   the desktop app is its client. mcpx (source: developing-today/code's
   `pkgs/mcpx`, built here from the pinned `mcpx-src` flake input) runs as
-  launchd agent `org.nixos.mcpx`; servers come
-  from `lootbox.config.json` via `mcpx.config.nix`.
+  launchd agent `org.nixos.mcpx`; its servers are in `mcpx.config.nix`.
 - Database tools: `just opencode-db-backup` (instant APFS clone),
   `opencode-db-check`, `opencode-db-pending` (migrations a new build would
   apply; refuses if the DB is ahead of the build).
@@ -124,8 +125,7 @@ Repo-local agent skills live in `.agents/skills/<name>/SKILL.md` (a plain
 git-tracked directory, same layout as the global `~/.agents/skills` that opencode
 auto-scans on boot — not a symlink). Add new skills there; opencode picks them up
 automatically. Currently shipped: **nix-config** (this skill),
-**update-opencode** (updates and repairs the OpenCode/OpenChamber fork stack, forks first),
-**lootbox** (query syntax and per-server rules for the lootbox MCP tools) and
+**update-opencode** (updates and repairs the OpenCode/OpenChamber fork stack, forks first) and
 **merge-first** (merge PRs without waiting for checks; only when the user asks for that mode).
 
 ## Gotchas
@@ -136,7 +136,7 @@ automatically. Currently shipped: **nix-config** (this skill),
   builds only the mcpx package, on Linux, when `flake.nix` or `flake.lock`
   changes. Nothing in CI builds or activates the darwin system: run `just fmt`,
   `just tidy-check`, `just tidy-test` and `just build-no-commit` locally.
-- **A launchd agent is not up** (`org.nixos.openchamber`, `.mcpx`, `.lootbox`;
+- **A launchd agent is not up** (`org.nixos.openchamber`, `org.nixos.mcpx`;
   `just switch` names it). Read `launchctl print gui/$(id -u)/<label>` (state,
   program, last exit code) and the agent's stderr log before the app's own log.
   - Exit 78 (`EX_CONFIG`) and nothing new in the app log: launchd could not run
