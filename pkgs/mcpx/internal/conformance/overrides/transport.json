@@ -1,5 +1,0 @@
-{
-  "transport-custom-preserve-jsonrpc-and-lifecycle": {
-    "server": "n/a:mcpx serves MCP only over stdio and Streamable HTTP; its /v1 REST surface is not an MCP transport"
-  }
-}

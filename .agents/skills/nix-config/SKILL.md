@@ -97,8 +97,9 @@ Where things go:
   opencode/OpenChamber must use) and a durable `TMPDIR`.
 - `openchamber.nix`: launchd agent `org.nixos.openchamber` keeps `openchamber
   serve` up on 127.0.0.1:3000 (port of developing-today/code's systemd model);
-  the desktop app is its client. mcpx (`pkgs/mcpx`, vendored verbatim from
-  developing-today/code) runs as launchd agent `org.nixos.mcpx`; servers come
+  the desktop app is its client. mcpx (source: developing-today/code's
+  `pkgs/mcpx`, built here from the pinned `mcpx-src` flake input) runs as
+  launchd agent `org.nixos.mcpx`; servers come
   from `lootbox.config.json` via `mcpx.config.nix`.
 - Database tools: `just opencode-db-backup` (instant APFS clone),
   `opencode-db-check`, `opencode-db-pending` (migrations a new build would

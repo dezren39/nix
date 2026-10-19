@@ -19,16 +19,16 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ## mcpx moves to developing-today/code
 
-This repo vendors `pkgs/mcpx` from `developing-today/code`, which is the primary source. The two copies have drifted. The plan is in [`planning/plans/mcpx-extraction.md`](planning/plans/mcpx-extraction.md).
+`developing-today/code` is the only place the mcpx source lives (`pkgs/mcpx` there). This repo builds it from the pinned `mcpx-src` flake input (#468); the vendored copy that used to sit at `pkgs/mcpx` here is deleted. The plan was [`planning/plans/mcpx-extraction.md`](planning/plans/mcpx-extraction.md).
 
-The OpenCode fork does not bundle mcpx. It links one only if the consumer passes it in, and this repo passes its vendored build. So the extraction has to replace that build with a pinned build from the code repo, or the darwin flake loses mcpx everywhere.
+The OpenCode fork does not bundle mcpx. It links one only if the consumer passes it in, and this repo passes the build from the pinned input.
 
 | Title                                    | Horizon | Status   | Intent                                                                                                             | Links                                                                  |
 | ---------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | Make mcpx consumable from the code repo  | Now     | planned  | Choose how to consume it and make it build on aarch64-darwin.                                                      | `developing-today/code#308`, `developing-today/code#237`               |
 | Port the useful differences into code    | Now     | planned  | The `EnsureDaemon` check, `MCPX_STATE_DIR` and any tests that exist only here.                                     | [plan](planning/plans/mcpx-extraction.md), `developing-today/code#306` |
 | Move the mcpx backlog                    | Now     | planned  | About 100 open mcpx issues here need new homes. GitHub cannot transfer across owners.                              | `developing-today/code#309`                                            |
-| Build mcpx from the code repo            | Next    | planned  | Add the input, keep passing `mcpx` to the fork, delete `pkgs/mcpx`.                                                | [plan](planning/plans/mcpx-extraction.md)                              |
+| Build mcpx from the code repo            | Next    | done     | Added the `mcpx-src` input, kept passing `mcpx` to the fork, deleted `pkgs/mcpx`.                                   | [plan](planning/plans/mcpx-extraction.md), #468                        |
 | Fork flake decides where mcpx comes from | Next    | proposed | Whether the OpenCode flake keeps mcpx optional or defaults to the code repo's build.                               | `developing-today/opencode#82`                                         |
 | mcpx config for the github server        | Next    | proposed | The config lets the github server use PR and issue write tools. This stays here, since the config file lives here. | #371                                                                   |
 

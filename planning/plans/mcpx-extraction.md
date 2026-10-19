@@ -1,6 +1,14 @@
 # Move mcpx to developing-today/code
 
-- Status: draft
+- Status: done for the build switch and the deletion (steps 4–5, #468,
+  2026-10-19). The consumption mechanism chosen under `developing-today/code#308`
+  is a source-only pinned flake input (`mcpx-src`, `flake = false`) calling the
+  `package.nix` that lives beside the source in code. The final pre-deletion
+  audit found the copies' production code identical; the one test assertion
+  only this copy had was ported first (`developing-today/code#361`, PR #362).
+  Step 3 (re-homing the backlog, `developing-today/code#309`) and step 6
+  (closing the mcpx source issues here) remain open follow-ups, as does the
+  aarch64-darwin build verification, which needs the Mac.
 - Roadmap item: [mcpx leaves this repo](../../ROADMAP.md#mcpx-moves-to-developing-todaycode)
 - Design: none needed, the decision is made
 - Issues: `developing-today/code#308` (how to consume), `developing-today/code#309` (move the backlog), `developing-today/code#237` (takeover tests on darwin)
