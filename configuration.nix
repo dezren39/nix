@@ -114,6 +114,30 @@ lib.recursiveUpdate {
           };
         });
       })
+      # rsync 3.5.0's CVE-2026-53801 fix (secure_opendir()/open_sender_source_path())
+      # has a regression: an absolute symlink to a file outside the transfer root
+      # (e.g. openchamber-desktop's Contents/Resources/opencode-cli/opencode, a
+      # symlink straight to a different nix store path) makes `hash_file_by_path`
+      # report ELOOP ("Too many levels of symbolic links") even though there is no
+      # loop at all -- see RsyncProject/rsync#1087. nix-darwin's own system
+      # activation uses `rsync --copy-unsafe-links` to materialize
+      # /Applications/Nix Apps, so this broke every switch that bundles such a
+      # symlink. Fixed upstream in 3.5.1 (2026-09-21, PR #1088); override until
+      # nixpkgs itself carries 3.5.1.
+      (final: prev: {
+        rsync = prev.rsync.overrideAttrs (old: {
+          version = "3.5.1";
+          src = prev.fetchurl {
+            url = "mirror://samba/rsync/src/rsync-3.5.1.tar.gz";
+            hash = "sha256-xV+cncEPuL7Dl7OZoP3e1TzJotjjCJG7DWNyTSXDe+8=";
+          };
+          # 3.5.1 added optional IDN support (NEWS) but its configure script
+          # hard-fails when libidn2 is absent instead of just disabling it;
+          # nixpkgs's rsync expression does not build libidn2 in. Not needed
+          # for anything this repo uses rsync for.
+          configureFlags = (old.configureFlags or [ ]) ++ [ "--disable-idn" ];
+        });
+      })
       # (final: prev: {
       #   helium =
       #     (import inputs.nixpkgs-helium {
