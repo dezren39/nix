@@ -298,21 +298,23 @@ rec {
         # 2026-10-19 at mcpx-src 7274889). launchd cannot hand over its pid
         # either, so this config never upgrades in place: a new mcpx
         # restarts the agent (configuration.nix). Everything else runs.
-        mcpx = (pkgs.callPackage (inputs.mcpx-src + "/pkgs/mcpx/package.nix") { inherit bun-bin; }).overrideAttrs (
-          old:
-          pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-            # SOCK_CLOEXEC is a Linux socket flag; the helper only needs a pair.
-            postPatch = (old.postPatch or "") + ''
-              substituteInPlace internal/daemon/takeover_test.go \
-                --replace-fail 'syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC' 'syscall.SOCK_STREAM'
-            '';
-            # The package's own checkPhase runs a bare `go test $pkgs`, so
-            # checkFlags would be ignored; put -skip on that line instead.
-            checkPhase =
-              builtins.replaceStrings [ "go test $pkgs" ] [ "go test -skip='${mcpxDarwinSkip}' $pkgs" ]
-                old.checkPhase;
-          }
-        );
+        mcpx =
+          (pkgs.callPackage (inputs.mcpx-src + "/pkgs/mcpx/package.nix") { inherit bun-bin; }).overrideAttrs
+            (
+              old:
+              pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+                # SOCK_CLOEXEC is a Linux socket flag; the helper only needs a pair.
+                postPatch = (old.postPatch or "") + ''
+                  substituteInPlace internal/daemon/takeover_test.go \
+                    --replace-fail 'syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC' 'syscall.SOCK_STREAM'
+                '';
+                # The package's own checkPhase runs a bare `go test $pkgs`, so
+                # checkFlags would be ignored; put -skip on that line instead.
+                checkPhase =
+                  builtins.replaceStrings [ "go test $pkgs" ] [ "go test -skip='${mcpxDarwinSkip}' $pkgs" ]
+                    old.checkPhase;
+              }
+            );
         mcpxDarwinSkip = "^(${
           pkgs.lib.concatStringsSep "|" [
             "TestACallInFlightAtATakeoverIsAnsweredAndItsConnectionMovesOn"
