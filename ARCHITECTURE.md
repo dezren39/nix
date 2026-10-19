@@ -30,7 +30,7 @@ openchamber.nix        OpenChamber server launchd agent + desktop client (§5)
 instructions/          OpenCode instruction files (worktrees, recordings, work-strategies; archive/)
 commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)
-opencode-global.jsonc  OpenCode v2 global config, linked as ~/.config/opencode/opencode.jsonc
+opencode-global.jsonc  OpenCode v2 global config, meant to be linked as ~/.config/opencode/opencode.jsonc (currently not; see §5)
 tui.jsonc              v1 TUI config; v2 ignores it (v2 reads ~/.config/opencode/cli.json)
 sounds/                Star Trek notification sounds (opencode-notifier)
 themes/ vibrant-ink.json   Active TUI theme
@@ -156,8 +156,8 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 
 ## 5. OpenCode integration
 
-- **`opencode-global.jsonc`** — v2-native config, linked as
-  `~/.config/opencode/opencode.jsonc` by `just opencode-config-link`. Named so
+- **`opencode-global.jsonc`** — v2-native config, meant to be linked as
+  `~/.config/opencode/opencode.jsonc` by `just opencode-config-link`; NOT linked as of 2026-10-19: the live config is the plain file ~/.opencode/opencode.jsonc (via ~/.config/opencode -> ~/nix/.opencode), which OpenChamber edits. Named so
   OpenCode's project walk (which loads `opencode.json`/`opencode.jsonc` from
   every directory up to the root) does not load it a second time as a project
   config for sessions inside this repo. `github-copilot` only. Every model is

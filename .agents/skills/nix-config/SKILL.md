@@ -87,7 +87,8 @@ Where things go:
 
 ## OpenCode / OpenChamber / mcpx
 
-- Config: `opencode-global.jsonc` (linked as ~/.config/opencode/opencode.jsonc;
+- Config: `opencode-global.jsonc` (meant to be linked as ~/.config/opencode/opencode.jsonc by
+  `just opencode-config-link`, but NOT linked as of 2026-10-19: the live config is the plain file ~/.opencode/opencode.jsonc (via ~/.config/opencode -> ~/nix/.opencode), which OpenChamber edits;
   not named opencode.jsonc so the project walk does not load it twice; v2-native; github-copilot only; every model is a
   pool in `experimental.model_routes`: capability pools frontier / fast-strong /
   balanced / very-fast and family pools opus / sonnet / sol / luna / terra with
