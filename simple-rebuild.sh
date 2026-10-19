@@ -218,6 +218,87 @@ brew_upgrade() {
     echo "brew upgrade failed; the switch itself succeeded" >&2
 }
 
+# After a switch, the servers this flake runs as launchd agents must actually
+# be up. Without this a broken agent is invisible here: launchd retries it
+# quietly and the failure shows up later as an app that cannot connect. On
+# 2026-10-19 there were two at once: OpenChamber's start link named a file
+# that did not exist (exit 78 on every spawn, nothing in its log), and the
+# mcpx launchd daemon had lost its socket to a daemon the CLI started itself,
+# so it exited 1 every ~10 s for hours.
+#
+# Up means the agent has the same pid twice, 3 s apart (a crash loop caught
+# mid-run does not count), and its URL, if it has one, answers with any HTTP
+# status (401 included: OpenChamber requires its UI password). All agents
+# share HEALTH_TIMEOUT seconds (default 60), since activation restarts them
+# asynchronously; OpenChamber answered about 10 s after a cold start when
+# measured.
+#
+# Add new long-running agents here. One-shot agents (KeepAlive = false, such
+# as colima and naturalScrollingToggle) exit by design and do not belong.
+health_services=(
+  "org.nixos.openchamber http://127.0.0.1:3000/"
+  "org.nixos.mcpx -"
+  "org.nixos.lootbox http://127.0.0.1:9420/health"
+)
+
+agent_pid() {
+  launchctl list | awk -v l="$1" '$3 == l && $1 != "-" { print $1 }'
+}
+
+agent_answers() {
+  [[ "$1" == "-" ]] && return 0
+  [[ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$1" || true)" != "000" ]]
+}
+
+# What launchd knows (state, program, last exit code) plus the tail of the
+# agent's own stderr log, which together name the cause in both failures
+# above; the app log alone was empty for the first.
+report_agent() {
+  local label="$1" url="$2" info errlog
+  print -P "%F{red}%B==> $label is not up%b%f"
+  if ! info=$(launchctl print "gui/$(id -u)/$label" 2>&1); then
+    echo "    not loaded in gui/$(id -u)"
+    return 0
+  fi
+  grep -E $'^\t(state|program|last exit code) =' <<<"$info" | sed $'s/^\t/    /' || true
+  [[ "$url" == "-" ]] || echo "    $url did not answer"
+  errlog=$(awk -F' = ' $'/^\tstderr path = / { print $2; exit }' <<<"$info")
+  if [[ -n "$errlog" && -r "$errlog" ]]; then
+    echo "    last lines of $errlog:"
+    tail -n 5 "$errlog" | sed 's/^/      /'
+  fi
+  echo "    Debugging launchd agents: .agents/skills/nix-config/SKILL.md (Gotchas)"
+}
+
+check_services() {
+  setopt local_options no_xtrace
+  local entry label url pid failed=0
+  local deadline=$(( SECONDS + ${HEALTH_TIMEOUT:-60} ))
+  for entry in "${health_services[@]}"; do
+    label="${entry%% *}" url="${entry#* }"
+    while true; do
+      pid=$(agent_pid "$label")
+      if [[ -n "$pid" ]]; then
+        sleep 3
+        if [[ "$(agent_pid "$label")" == "$pid" ]] && agent_answers "$url"; then
+          echo "up: $label (pid $pid)"
+          break
+        fi
+      fi
+      if (( SECONDS >= deadline )); then
+        report_agent "$label" "$url" >&2
+        failed=$(( failed + 1 ))
+        break
+      fi
+      sleep 2
+    done
+  done
+  if (( failed )); then
+    print -P "%F{red}%B==> switch done and recorded, but $failed agent(s) are not up (above)%b%f" >&2
+    return 1
+  fi
+}
+
 phase_activate() {
   # Rolling back to an existing generation is a different operation from
   # activating a freshly built one, and deliberately does less: no rosetta
@@ -277,6 +358,12 @@ phase_activate() {
   # root escalation, strictly worse than the password prompt it removes.
 
   record_activation "switch"
+
+  # Last, so the steps above still run and the generation that is now active
+  # is recorded either way; an agent that is not up makes `just switch` exit
+  # non-zero. Rollbacks (above) skip it: an older generation may not define
+  # the same agents.
+  check_services
 }
 
 # What the system actually is now, read from the profile symlink rather than

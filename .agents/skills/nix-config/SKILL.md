@@ -23,8 +23,19 @@ breakdown; this skill is the fast path.
 - `just build` — build only, no sudo, commits a build marker. While iterating on a
   failing build use `just build-no-commit` (alias `build-only`; passes
   `--no-commit`), then finish with one `just build` to commit.
-- Both `git add .`, run `sudo nix run nix-darwin -- switch --flake .`, fix repo
-  ownership, and auto-commit an empty commit tagged with hostname + generation.
+- `just switch` builds as you (`nix build`; it fails if nix exits 0 without
+  producing `./result`), activates as root (`sudo ./result/sw/bin/darwin-rebuild
+  switch`), fixes repo ownership, commits empty markers (hostname + build store
+  path, then generation), and ends by checking that every long-running launchd
+  agent listed in `health_services` in `simple-rebuild.sh` keeps one pid for 3 s
+  and answers its URL; otherwise the switch exits non-zero. Add new long-running
+  agents to that list.
+- **A passing build tests nothing that runs at activation.** `just build` never
+  runs `home.activation.*`, `system.activationScripts` / `postActivation`, or
+  (re)starts launchd agents; only `just switch` does, and that needs sudo and the
+  user. When you change any of them, run the shell fragment yourself against a
+  scratch directory where you can, and say in the commit and your reply that it
+  is untested until a switch and what the user should check afterwards.
 - `just fmt` — nixfmt + flake-tidy (run before finishing nix edits).
 - `nix fmt` — treefmt (nixfmt + rustfmt).
 - `./clean` — aggressive disk cleanup (nix GC, docker prune, caches). Destructive.
@@ -112,13 +123,32 @@ Where things go:
 Repo-local agent skills live in `.agents/skills/<name>/SKILL.md` (a plain
 git-tracked directory, same layout as the global `~/.agents/skills` that opencode
 auto-scans on boot — not a symlink). Add new skills there; opencode picks them up
-automatically. Currently shipped: **nix-config** (this skill) and
-**update-opencode** (updates and repairs the OpenCode/OpenChamber fork stack, forks first).
+automatically. Currently shipped: **nix-config** (this skill),
+**update-opencode** (updates and repairs the OpenCode/OpenChamber fork stack, forks first),
+**lootbox** (query syntax and per-server rules for the lootbox MCP tools) and
+**merge-first** (merge PRs without waiting for checks; only when the user asks for that mode).
 
 ## Gotchas
 
 - `.opencode` at repo root is a **symlink** into OneDrive that loops back — real
   tracked content lives at the repo root (`instructions/`, `opencode-global.jsonc`, etc.).
-- CI is only a `/oc` comment-triggered OpenCode bot (`.github/workflows/opencode.yml`);
-  there is no build/test pipeline — run `just fmt`, `just tidy-check`, and
-  `just tidy-test` locally.
+- CI: `opencode.yml` (the `/oc` comment bot) and `mcpx-nixbuild.yml`, which
+  builds only the mcpx package, on Linux, when `flake.nix` or `flake.lock`
+  changes. Nothing in CI builds or activates the darwin system: run `just fmt`,
+  `just tidy-check`, `just tidy-test` and `just build-no-commit` locally.
+- **A launchd agent is not up** (`org.nixos.openchamber`, `.mcpx`, `.lootbox`;
+  `just switch` names it). Read `launchctl print gui/$(id -u)/<label>` (state,
+  program, last exit code) and the agent's stderr log before the app's own log.
+  - Exit 78 (`EX_CONFIG`) and nothing new in the app log: launchd could not run
+    the program, usually because the path in `program =` does not exist (a
+    dangling link). launchd then parks the job until that file appears (an
+    `event triggers … Executable` block in the print) and `launchctl kickstart`
+    hangs. After fixing the path, reload it: `launchctl bootout
+    gui/$(id -u)/<label>`, then `launchctl bootstrap gui/$(id -u)
+    ~/Library/LaunchAgents/<label>.plist`.
+  - mcpx exiting 1 about every 10 s with "a daemon is already listening on
+    …sock" in `/tmp/mcpx.err.log`: a daemon the CLI started itself (`daemon
+    --detached --idle-exit 4h`, possibly an older build) holds the socket and
+    never goes idle. Run `cd ~ && mcpx stop`, then `launchctl kickstart
+    gui/$(id -u)/org.nixos.mcpx`; `lsof -t` on the socket should then show
+    launchd's `mcpx daemon --config …`.

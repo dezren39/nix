@@ -107,6 +107,14 @@ the committed state.
 - **Unrelated sidepulse lock drift**: an unrestricted `nix flake update` moves
   `sidepulse-src`; its patch stack lives in `pkgs/sidepulse` (zero-fuzz GNU
   patch; see that package's comments).
+- **OpenChamber "Unreachable", connection refused on 127.0.0.1:3000.** The
+  `org.nixos.openchamber` agent is not running: follow "A launchd agent is not
+  up" in the `nix-config` skill's Gotchas. In `openchamber.nix`,
+  `~/.local/state/openchamber/start` must link the start script itself; the
+  deploy key (script path plus the UI password's hash) is only compared with
+  `~/.local/state/openchamber/deployed`. 401s, by contrast, are expected: the
+  server requires the sops UI password, and every client, the desktop app
+  included, signs in once.
 
 ## Completion report
 
