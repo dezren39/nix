@@ -277,7 +277,7 @@ report_agent() {
     echo "    last lines of $errlog:"
     tail -n 5 "$errlog" | sed 's/^/      /'
   fi
-  echo "    Debugging launchd agents: .agents/skills/nix-config/SKILL.md (Gotchas)"
+  echo "    Debugging launchd agents: docs/services.md (Debugging)"
 }
 
 check_services() {

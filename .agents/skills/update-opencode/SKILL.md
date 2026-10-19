@@ -107,6 +107,9 @@ the committed state.
 - **Unrelated sidepulse lock drift**: an unrestricted `nix flake update` moves
   `sidepulse-src`; its patch stack lives in `pkgs/sidepulse` (zero-fuzz GNU
   patch; see that package's comments).
+- **How a switch replaces OpenChamber and OpenCode** (restart vs in-place
+  handover, what survives, the deploy key, launchd's exit timeout):
+  `docs/services.md`.
 - **OpenChamber "Unreachable", connection refused on 127.0.0.1:3000.** The
   `org.nixos.openchamber` agent is not running: follow "A launchd agent is not
   up" in the `nix-config` skill's Gotchas. In `openchamber.nix`,

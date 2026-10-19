@@ -963,10 +963,11 @@ lib.recursiveUpdate {
         );
         KeepAlive = true;
         RunAtLoad = true;
-        # launchd's default here is 5 s before SIGKILL, but mcpx gives open
-        # requests up to 5 s and then its MCP server processes up to 10 s to
-        # stop (internal/daemon/server.go), so every restart was cut off
-        # mid-shutdown.
+        # launchd's default here is 5 s before SIGKILL, but mcpx's stop can
+        # take up to 10 s: it drains HTTP (http.shutdownGrace, 5 s, capped to
+        # the window) and stops its MCP server processes, all bounded by
+        # limits.execDrainTimeout (10 s; internal/daemon/server.go
+        # stopServing). So every restart was cut off mid-shutdown.
         ExitTimeOut = 20;
         WorkingDirectory = "/Users/drewry.pope";
         # --config, not discovery: at login or right after `just switch` this

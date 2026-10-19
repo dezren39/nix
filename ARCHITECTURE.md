@@ -27,6 +27,9 @@ pkgs/                  Custom packages (see §4)
 patches/               sidepulse patch stack (OpenCode is not patched; see §5)
 *.patch (root)         homebrew-services fix (unused)
 openchamber.nix        OpenChamber server launchd agent + desktop client (§5)
+docs/                  services.md (how OpenChamber, OpenCode and mcpx run, are replaced
+                       on a switch, checked and debugged), mcp.md (every MCP server, its
+                       auth and credentials), dated reviews, sidepulse docs
 instructions/          OpenCode instruction files (worktrees, recordings, work-strategies; archive/)
 commands/              OpenCode slash commands (/gha-fix, /gha-why)
 .agents/skills/        Repo-local agent skills (see §7)

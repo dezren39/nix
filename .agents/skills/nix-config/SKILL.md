@@ -137,6 +137,11 @@ automatically. Currently shipped: **nix-config** (this skill),
   builds only the mcpx package, on Linux, when `flake.nix` or `flake.lock`
   changes. Nothing in CI builds or activates the darwin system: run `just fmt`,
   `just tidy-check`, `just tidy-test` and `just build-no-commit` locally.
+- **The three long-running services** (OpenChamber, OpenCode, mcpx): how each is
+  started, replaced on a switch (gracefully or not), kept to one instance, checked
+  and debugged is in `docs/services.md`; every MCP server, its auth and
+  credentials in `docs/mcp.md`. Read them before changing `openchamber.nix`, the
+  mcpx agent, `mcpx.config.nix` or the health check.
 - **A launchd agent is not up** (`org.nixos.openchamber`, `org.nixos.mcpx`;
   `just switch` names it). Read `launchctl print gui/$(id -u)/<label>` (state,
   program, last exit code) and the agent's stderr log before the app's own log.
