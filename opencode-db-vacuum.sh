@@ -102,9 +102,28 @@ command -v sqlite3 >/dev/null || die "sqlite3 not found on PATH"
 note "database: $DB"
 
 # opencode holds the db open with busy_timeout=5000; VACUUM needs an exclusive
-# lock and will simply fail against a live process.
-running=0
-#"$(pgrep -f '(^|/)opencode' 2>/dev/null | wc -l | tr -d ' ')"
+# lock, and the swap below replaces the file outright, so a live holder must
+# stop the run. Same shape as opencode-db-prune.sh's check_not_running.
+# pgrep exits 1 when nothing matches, and under `pipefail` a bare assignment
+# would inherit that and abort the script -- i.e. exactly when opencode IS
+# stopped, which is the only case in which a real run may proceed.
+running="$(pgrep -f '(^|/)opencode' 2>/dev/null | wc -l | tr -d ' ' || true)"
+running="${running:-0}"
+if [ "$running" -gt 0 ] && command -v lsof >/dev/null 2>&1; then
+  # Only a process holding THIS database matters. Guarding on "any opencode
+  # process" would also match this script's own ./opencode-db-vacuum.sh
+  # invocation, and would block work on a scratch --db while an unrelated
+  # session is open. lsof is the direct question; without it, the count
+  # above stands as the conservative answer.
+  holders="$(lsof -t -- "$DB" 2>/dev/null | wc -l | tr -d ' ' || true)"
+  holders="${holders:-0}"
+  if [ "$holders" -eq 0 ]; then
+    note "note: $running opencode process(es) running, but none has $DB open"
+    running=0
+  else
+    running="$holders"
+  fi
+fi
 if [ "$running" -gt 0 ]; then
   printf '\n'
   pgrep -lf '(^|/)opencode' 2>/dev/null | head -20 >&2 || true
