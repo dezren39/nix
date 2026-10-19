@@ -6,15 +6,20 @@ name: mcpx
 # Renovate updates go.mod and go.sum correctly. It has no way to know the hash
 # of the vendored module tree, so every Go dependency bump it opens leaves the
 # Nix build broken -- and without a build here, that merged silently and was
-# only found by the next person to rebuild. This job computes the new hash,
-# commits it to the Renovate branch, and fails any PR that still does not
-# build.
+# only found by the next person to rebuild. The bot-only repair job below
+# computes the new hash and commits it to the Renovate branch. Human PRs get
+# no repair: they fail the companion mcpx-nixbuild workflow's build instead
+# (see below), so the author sees the failure and fixes it deliberately.
 
 # CI shape (2026-10): the PR gate is a single direct-Go test job plus a
 # fast flake evaluation. The full nix build (~5.4 of the old ~10.6 min)
 # moved to push-to-main and manual dispatch: the flake is this repo's
 # deliverable, so it stays verified -- just not with a full build on
 # every PR (#398). VendorHash repair keeps its own bot-only job below.
+# One exception to "no full build on PRs" (#418): the companion
+# mcpx-nixbuild workflow builds the package on PRs that change go.mod,
+# go.sum or package.nix, because evaluation alone cannot catch a stale
+# vendorHash and the repair job covers bot branches only.
 
 on:
   pull_request:
@@ -29,6 +34,12 @@ on:
     branches: [main]
     paths:
       - "pkgs/mcpx/**"
+      - "flake.nix"
+      - "flake.lock"
+      # Itself, for the same reason as the pull_request filter above: a
+      # merged change to this workflow (or to the flake inputs the build
+      # consumes) still gets a main build (#418).
+      - ".github/workflows/mcpx.yml"
 
   workflow_dispatch:
 
@@ -126,7 +137,8 @@ jobs:
     name: vendorHash repair (bot dependency bumps only)
     # Only on bot branches. A human changing dependencies should see the
     # failure and fix it deliberately rather than have it rewritten under
-    # them. This is the one job here that still needs nix on a PR.
+    # them — for human PRs that failure comes from the mcpx-nixbuild
+    # workflow's build (#418).
     if: >-
       github.event_name == 'pull_request' &&
       (startsWith(github.head_ref, 'renovate/') || startsWith(github.head_ref, 'dependabot/'))
