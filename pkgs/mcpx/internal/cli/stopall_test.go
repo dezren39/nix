@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dezren39/mcpx/internal/daemon"
+	"github.com/dezren39/mcpx/internal/testsupport"
 )
 
 // writeDaemonRecord plants a daemon record for a live process (the test's
@@ -38,7 +39,11 @@ func writeDaemonRecord(t *testing.T, dir, socket, configPath string) {
 // default directory.
 func customStateApp(t *testing.T) (a *App, defaultDir string) {
 	t.Helper()
-	xdg := t.TempDir()
+	// The default dir holds the daemon socket the stop-all test binds, so
+	// it must come from a directory short enough for a unix socket path
+	// however deep TMPDIR is (#434) -- t.TempDir() under a nix sandbox
+	// build's TMPDIR exceeds Darwin's 104-byte sockaddr_un limit.
+	xdg := testsupport.SocketDir(t)
 	t.Setenv("XDG_STATE_HOME", xdg)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(xdg, "cache"))
 	t.Setenv("MCPX_STATE_DIR", "")
