@@ -231,11 +231,15 @@ class TestCrossTypeDedup:
         root_original = (
             {"owner": "numtide", "repo": "flake-utils", "type": root_type}
             if root_type in ("github", "gitlab")
+            else {"url": "https://github.com/numtide/flake-utils.git", "type": "git"}
+            if root_type == "git"
             else {"id": "flake-utils", "type": root_type}
         )
         trans_original = (
             {"id": "flake-utils", "type": trans_type}
             if trans_type == "indirect"
+            else {"url": "https://github.com/numtide/flake-utils.git", "type": "git"}
+            if trans_type == "git"
             else {"owner": "numtide", "repo": "flake-utils", "type": trans_type}
         )
         return {
@@ -405,6 +409,60 @@ class TestCrossTypeDedup:
             if p["follows_parts"] == ["mac-app-util", "flake-utils"]
         ]
         assert len(cross) == 0
+
+    def test_cross_type_git_over_indirect(self, default_config):
+        """git root is preferred over indirect transitive (#526).
+
+        Regression: _TYPE_PREF had no git entry, so git defaulted to 99 —
+        below indirect (6) — and this proposal was never made.
+        """
+        lock = self._make_cross_type_lock(
+            root_type="git", trans_type="indirect", same_hash=True
+        )
+        content = """{
+  inputs = {
+    flake-utils.url = "git+https://github.com/numtide/flake-utils.git";
+    mac-app-util.url = "github:hraban/mac-app-util";
+  };
+  outputs = _: {};
+}
+"""
+        proposals = flake_tidy.analyze_dedup(lock, content, default_config)
+        cross = [
+            p
+            for p in proposals
+            if p["follows_parts"] == ["mac-app-util", "flake-utils"]
+            and p["target"] == "flake-utils"
+            and "cross-type" in p.get("source_key", "")
+        ]
+        assert len(cross) == 1, f"Expected cross-type dedup proposal, got: {proposals}"
+
+    def test_cross_type_skips_if_transitive_git_more_explicit(self, default_config):
+        """skip if transitive node is git and root is indirect (#526).
+
+        Regression: with git at the default rank 99, an explicit git
+        transitive input was proposed as a follows to an indirect root,
+        discarding the explicit URL.
+        """
+        lock = self._make_cross_type_lock(
+            root_type="indirect", trans_type="git", same_hash=True
+        )
+        content = """{
+  inputs = {
+    flake-utils.url = "indirect:flake-utils";
+    mac-app-util.url = "github:hraban/mac-app-util";
+  };
+  outputs = _: {};
+}
+"""
+        proposals = flake_tidy.analyze_dedup(lock, content, default_config)
+        cross = [
+            p
+            for p in proposals
+            if p["follows_parts"] == ["mac-app-util", "flake-utils"]
+            and "cross-type" in p.get("source_key", "")
+        ]
+        assert len(cross) == 0, f"Expected no cross-type proposal, got: {proposals}"
 
     def test_cross_type_gitlab_over_indirect(self, default_config):
         """gitlab root also preferred over indirect transitive."""

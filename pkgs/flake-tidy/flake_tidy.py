@@ -2080,15 +2080,19 @@ def analyze_dedup(
     # source_key grouping above misses cases where the original type differs
     # (e.g. github vs indirect) but locked content is byte-identical.
     # Fall back to locked hash comparison for these stragglers, preferring
-    # explicit types (github/gitlab) over indirect.
+    # explicit types (github/gitlab/sourcehut/git) over indirect.
+    # git must be listed (#526): unlisted types default to 99, which ranked
+    # an explicit git URL below indirect — git roots were never chosen and
+    # git transitive inputs were wrongly proposed as follows to indirect.
     _TYPE_PREF = {
         "github": 0,
         "gitlab": 1,
         "sourcehut": 2,
-        "tarball": 3,
-        "file": 4,
-        "path": 5,
-        "indirect": 6,
+        "git": 3,
+        "tarball": 4,
+        "file": 5,
+        "path": 6,
+        "indirect": 7,
     }
 
     grouped_nodes: set[str] = set()
