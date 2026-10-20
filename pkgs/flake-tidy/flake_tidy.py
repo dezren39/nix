@@ -756,13 +756,14 @@ def _block_context_for_lines_tuple(content: str) -> tuple[str | None, ...]:
     return tuple(result)
 
 
-def _block_context_for_lines(content: str) -> tuple[str | None, ...]:
-    """Return the enclosing block input name for each line as a tuple.
+def _block_context_for_lines(content: str) -> list[str | None]:
+    """Return the enclosing block input name for each line.
 
     For lines inside ``someInput = { ... };`` returns ``"someInput"``.
     For top-level dotted lines (outside any block) returns ``None``.
+    Defensively returns a new list copy from the cached immutable tuple.
     """
-    return _block_context_for_lines_tuple(content)
+    return list(_block_context_for_lines_tuple(content))
 
 
 def follows_exists_in_content(
