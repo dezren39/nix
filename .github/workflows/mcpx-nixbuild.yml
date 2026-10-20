@@ -34,7 +34,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Push-to-main runs each get their own group (keyed by run_id), so a
+  # later merge can never cancel — or displace a pending — verification
+  # run for an earlier merge: every merged tree gets its own completed
+  # build. Pull-request runs keep sharing a per-ref group, so a new push
+  # to a PR still supersedes its stale run. (Downstream half of the
+  # cross-repo set tracked in developing-today/code#392; the conditional
+  # cancel-in-progress used by code's mcpx-conformance workflow would
+  # still let a third rapid merge displace the second merge's pending
+  # run, so push runs are keyed by run_id here, the pattern
+  # developing-today/opencode's check.yml already uses for main.)
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
