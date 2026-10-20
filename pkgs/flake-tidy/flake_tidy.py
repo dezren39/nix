@@ -476,7 +476,12 @@ def source_key(node_data: dict) -> str:
         owner = orig.get("owner", "").lower()
         repo = orig.get("repo", "").lower()
         if "rev" in orig and "ref" not in orig:
-            return f"{t}/{owner}/{repo}/rev={orig['rev']}"
+            # The pinned rev is deliberately NOT part of the key (#509):
+            # two pins of the same repo at different revs must land in
+            # one dedup group, or the stale pin is invisible to the tool.
+            # Which rev survives is decided in analyze_dedup from the
+            # locked lastModified, not by grouping.
+            return f"{t}/{owner}/{repo}/"
         ref = orig.get("ref", "")
         return f"{t}/{owner}/{repo}/{ref}"
     elif t == "tarball":
@@ -542,6 +547,27 @@ def locked_hash(node_data: dict) -> str:
     """Get the narHash or rev from the locked field for comparison."""
     locked = node_data.get("locked", {})
     return locked.get("narHash", locked.get("rev", ""))
+
+
+def locked_rev(node_data: dict) -> str:
+    """The revision a node is actually locked to (falling back to the pin)."""
+    locked = node_data.get("locked", {})
+    return locked.get("rev", "") or node_data.get("original", {}).get("rev", "")
+
+
+def locked_last_modified(node_data: dict) -> int:
+    """The locked lastModified timestamp, or 0 when the lock omits it."""
+    value = node_data.get("locked", {}).get("lastModified")
+    return value if isinstance(value, int) else 0
+
+
+def _rev_survivor_key(node_data: dict) -> tuple[int, str]:
+    """Ordering for choosing which rev of a source survives dedup (#509).
+
+    Newest locked lastModified wins; ties break on the rev string so the
+    choice is deterministic for a given lock file.
+    """
+    return (locked_last_modified(node_data), locked_rev(node_data))
 
 
 # ---------------------------------------------------------------------------
@@ -1752,6 +1778,55 @@ def analyze_dedup(
             else:
                 transitive_members.append(m)
 
+        # --- Same source, different revs (#509) ---
+        # source_key no longer embeds the pinned rev, so a group can hold
+        # one source at several locked revs. The survivor is the newest
+        # locked lastModified (rev string breaks ties, deterministically);
+        # every other member follows it. Without evidence that the revs
+        # really diverge — distinct rev pins in 'original', or locked
+        # lastModified on both sides — the historical hash guard below
+        # still applies unchanged.
+        member_revs = {locked_rev(nodes[m]) for m in members if locked_rev(nodes[m])}
+        rev_divergent = len(member_revs) > 1
+        orig_revs = {
+            nodes[m].get("original", {}).get("rev")
+            for m in members
+            if nodes[m].get("original", {}).get("rev")
+        }
+
+        def _pick_canonical(candidates: list[str]) -> str:
+            """First candidate in file order, or the rev survivor (#509)."""
+            if rev_divergent:
+                return max(candidates, key=lambda n: _rev_survivor_key(nodes[n]))
+            return candidates[0]
+
+        def _rev_dedup_ok(other_node: str, canon_node: str) -> bool:
+            """True when pointing other_node at canon_node's rev is the
+            #509 consolidation (different rev, survivor already chosen),
+            not a hash mismatch to guard against."""
+            if not rev_divergent:
+                return False
+            if locked_rev(nodes[other_node]) == locked_rev(nodes[canon_node]):
+                return False
+            if len(orig_revs) > 1:
+                return True
+            return "lastModified" in nodes[other_node].get("locked", {}) and (
+                "lastModified" in nodes[canon_node].get("locked", {})
+            )
+
+        def _annotate_rev(p: dict[str, Any], other_node: str, canon_node: str) -> None:
+            if rev_divergent and locked_rev(nodes[other_node]) != locked_rev(
+                nodes[canon_node]
+            ):
+                p["rev_dedup"] = True
+                p["kept_rev"] = locked_rev(nodes[canon_node])
+                p["dropped_rev"] = locked_rev(nodes[other_node])
+                p["desc"] += (
+                    f" (same source at rev {p['dropped_rev']}; keeping rev"
+                    f" {p['kept_rev']} — newest lastModified"
+                    f" {locked_last_modified(nodes[canon_node])})"
+                )
+
         # --- Root dedup: same-URL consolidation ---
         if len(root_members) >= 2:
             root_to_input = {}
@@ -1764,11 +1839,11 @@ def analyze_dedup(
                 return file_order.index(name) if name in file_order else 9999
 
             sorted_roots = sorted(root_members, key=_root_pos)
-            canonical_node = sorted_roots[0]
+            canonical_node = _pick_canonical(sorted_roots)
             canonical_name = root_to_input.get(canonical_node, "")
             canonical_hash = locked_hash(nodes[canonical_node])
 
-            for other in sorted_roots[1:]:
+            for other in [r for r in sorted_roots if r != canonical_node]:
                 other_name = root_to_input.get(other, "")
 
                 if not should_include(config, "dedup", other_name):
@@ -1785,7 +1860,8 @@ def analyze_dedup(
                     continue
 
                 other_hash = locked_hash(nodes[other])
-                if other_hash != canonical_hash:
+                rev_ok = _rev_dedup_ok(other, canonical_node)
+                if other_hash != canonical_hash and not rev_ok:
                     if verbose:
                         print(
                             f"  skip {other_name}: hash differs from {canonical_name}"
@@ -1796,17 +1872,17 @@ def analyze_dedup(
                 if is_excluded_follows(config, follows_path):
                     continue
 
-                proposals.append(
-                    {
-                        "follows_parts": [other_name],
-                        "target": canonical_name,
-                        "follows_path": follows_path,
-                        "source_key": key,
-                        "desc": f"{other_name} -> follows {canonical_name}",
-                        "operation": "dedup",
-                        "hash_verified": True,
-                    }
-                )
+                proposal = {
+                    "follows_parts": [other_name],
+                    "target": canonical_name,
+                    "follows_path": follows_path,
+                    "source_key": key,
+                    "desc": f"{other_name} -> follows {canonical_name}",
+                    "operation": "dedup",
+                    "hash_verified": not rev_ok,
+                }
+                _annotate_rev(proposal, other, canonical_node)
+                proposals.append(proposal)
 
         # --- Transitive dedup ---
         canonical_node = None
@@ -1822,7 +1898,7 @@ def analyze_dedup(
                 name = root_to_input.get(node, "")
                 return file_order.index(name) if name in file_order else 9999
 
-            canonical_node = sorted(root_members, key=_root_pos2)[0]
+            canonical_node = _pick_canonical(sorted(root_members, key=_root_pos2))
             canonical_name = root_to_input.get(canonical_node, "")
         else:
             # No root input — skip (flatten mode would handle this)
@@ -1836,6 +1912,19 @@ def analyze_dedup(
         for trans_node in transitive_members:
             trans_url = node_url(nodes[trans_node])
             if should_exclude(config, "dedup", "", trans_url):
+                continue
+
+            # Never downgrade: a transitive node locked to a NEWER rev
+            # than the root survivor stays put (#509) — follows can only
+            # target root inputs, so there is nothing to point it at.
+            if rev_divergent and _rev_survivor_key(
+                nodes[trans_node]
+            ) > _rev_survivor_key(nodes[canonical_node]):
+                if verbose:
+                    print(
+                        f"  skip {trans_node}: rev {locked_rev(nodes[trans_node])}"
+                        f" is newer than root {canonical_name}"
+                    )
                 continue
 
             all_paths = find_all_paths(lock, trans_node)
@@ -1880,16 +1969,16 @@ def analyze_dedup(
                 ):
                     continue
 
-                proposals.append(
-                    {
-                        "follows_parts": follows_parts,
-                        "target": canonical_name,
-                        "follows_path": follows_path,
-                        "source_key": key,
-                        "desc": f"{follows_path} -> follows {canonical_name}",
-                        "operation": "dedup",
-                    }
-                )
+                proposal = {
+                    "follows_parts": follows_parts,
+                    "target": canonical_name,
+                    "follows_path": follows_path,
+                    "source_key": key,
+                    "desc": f"{follows_path} -> follows {canonical_name}",
+                    "operation": "dedup",
+                }
+                _annotate_rev(proposal, trans_node, canonical_node)
+                proposals.append(proposal)
 
     # --- Cross-type hash dedup ---
     # source_key grouping above misses cases where the original type differs
@@ -2079,14 +2168,21 @@ def apply_dedup(
 
             # When a root-level input now follows another and the hashes
             # are known to match, its url line is redundant and conflicts
-            # with the new follows — remove it.
-            if len(p["follows_parts"]) == 1 and p.get("hash_verified"):
+            # with the new follows — remove it. Same for a #509 rev dedup:
+            # the input's own rev pin conflicts with the follows.
+            if len(p["follows_parts"]) == 1 and (
+                p.get("hash_verified") or p.get("rev_dedup")
+            ):
                 input_name = p["follows_parts"][0]
                 content, removed = remove_input_url_line(content, input_name)
                 if removed:
-                    print(
-                        f"  remove url: {input_name} (hash-aligned with {p['target']})"
+                    reason = (
+                        f"superseded rev {p['dropped_rev']}; follows"
+                        f" {p['target']} at rev {p['kept_rev']}"
+                        if p.get("rev_dedup")
+                        else f"hash-aligned with {p['target']}"
                     )
+                    print(f"  remove url: {input_name} ({reason})")
 
         write_flake_nix(flake_dir, content)
         run_nixfmt(flake_dir)
@@ -2159,7 +2255,7 @@ def dedup(
             suffix = ""
             if (
                 len(p["follows_parts"]) == 1
-                and p.get("hash_verified")
+                and (p.get("hash_verified") or p.get("rev_dedup"))
                 and find_input_url_line(content, p["follows_parts"][0]) is not None
             ):
                 suffix = " (will remove redundant url)"

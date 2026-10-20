@@ -2,7 +2,7 @@
 
 ## High Priority
 
-- [ ] Find the newest of all places sharing the same URL and use that revision
+- [x] Find the newest of all places sharing the same URL and use that revision (#509)
   - When multiple inputs share the same URL but have different locked revisions,
     prefer the newest (highest `lastModified`) and update the others to follow
 - [ ] Smart same-URL detection beyond source_key grouping

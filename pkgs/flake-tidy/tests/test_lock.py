@@ -98,3 +98,21 @@ class TestLockedHash:
             },
         }
         assert flake_tidy.locked_hash(node) == "deadbeef"
+
+
+class TestSourceKeyRevGrouping:
+    def test_rev_not_part_of_source_key(self):
+        """#509: two pins of one repo at different revs share a key."""
+        def node(rev):
+            return {
+                "original": {
+                    "owner": "nixos",
+                    "repo": "nixpkgs",
+                    "rev": rev,
+                    "type": "github",
+                }
+            }
+
+        assert flake_tidy.source_key(node("aaaa")) == flake_tidy.source_key(
+            node("bbbb")
+        )

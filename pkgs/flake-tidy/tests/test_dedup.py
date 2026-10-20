@@ -427,3 +427,127 @@ class TestCrossTypeDedup:
             and p["target"] == "flake-utils"
         ]
         assert len(cross) == 1
+
+
+class TestAnalyzeDedupRevDivergence:
+    """#509: same repo pinned at two different revs must dedup to the
+    newest locked lastModified instead of never being grouped."""
+
+    @staticmethod
+    def _node(rev, last_modified, nar_hash, pin=True):
+        original = {"owner": "o", "repo": "r", "type": "github"}
+        if pin:
+            original["rev"] = rev
+        return {
+            "locked": {
+                "lastModified": last_modified,
+                "narHash": nar_hash,
+                "owner": "o",
+                "repo": "r",
+                "rev": rev,
+                "type": "github",
+            },
+            "original": original,
+        }
+
+    def _two_root_lock(self, old_lm=100, new_lm=200):
+        return {
+            "nodes": {
+                "root": {"inputs": {"old": "old", "new": "new"}},
+                "old": self._node("aaaa", old_lm, "sha256-A"),
+                "new": self._node("bbbb", new_lm, "sha256-B"),
+            },
+            "root": "root",
+            "version": 7,
+        }
+
+    _TWO_ROOT_CONTENT = """{
+  inputs = {
+    old.url = "github:o/r/aaaa";
+    new.url = "github:o/r/bbbb";
+  };
+  outputs = _: {};
+}
+"""
+
+    def test_dedup_to_newest_rev(self, default_config):
+        """The older pin follows the newest, not the first in file order
+        (old is declared first; new must still win on lastModified)."""
+        proposals = flake_tidy.analyze_dedup(
+            self._two_root_lock(), self._TWO_ROOT_CONTENT, default_config
+        )
+        root_dedup = [p for p in proposals if p["follows_parts"] == ["old"]]
+        assert len(root_dedup) == 1, f"proposals: {proposals}"
+        p = root_dedup[0]
+        assert p["target"] == "new"
+        assert p.get("rev_dedup") is True
+        assert p["kept_rev"] == "bbbb"
+        assert p["dropped_rev"] == "aaaa"
+        assert "bbbb" in p["desc"] and "aaaa" in p["desc"]
+
+    def test_equal_last_modified_is_deterministic(self, default_config):
+        """Equal lastModified: the rev string breaks the tie, whichever
+        input is declared first."""
+        proposals = flake_tidy.analyze_dedup(
+            self._two_root_lock(old_lm=150, new_lm=150),
+            self._TWO_ROOT_CONTENT,
+            default_config,
+        )
+        root_dedup = [p for p in proposals if p["follows_parts"] == ["old"]]
+        assert len(root_dedup) == 1
+        assert root_dedup[0]["target"] == "new"
+        assert root_dedup[0]["kept_rev"] == "bbbb"
+
+    def test_rev_divergent_pair_excluded_is_left_alone(self, default_config):
+        """A pair where the stale side is excluded by config is untouched."""
+        default_config["exclude"]["dedup"] = ["old"]
+        proposals = flake_tidy.analyze_dedup(
+            self._two_root_lock(), self._TWO_ROOT_CONTENT, default_config
+        )
+        assert [p for p in proposals if p["follows_parts"] == ["old"]] == []
+
+    def test_transitive_dedup_to_newest_root(self, default_config):
+        """A dependency's older pin of a root source follows the root."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"lib": "lib", "tool": "tool"}},
+                "lib": self._node("bbbb", 200, "sha256-B"),
+                "lib_2": self._node("aaaa", 100, "sha256-A"),
+                "tool": {
+                    "inputs": {"lib": "lib_2"},
+                    "locked": {
+                        "lastModified": 100,
+                        "narHash": "sha256-T",
+                        "owner": "example",
+                        "repo": "tool",
+                        "rev": "tttt",
+                        "type": "github",
+                    },
+                    "original": {
+                        "owner": "example",
+                        "repo": "tool",
+                        "type": "github",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        content = """{
+  inputs = {
+    lib.url = "github:o/r/bbbb";
+    tool.url = "github:example/tool";
+  };
+  outputs = _: {};
+}
+"""
+        proposals = flake_tidy.analyze_dedup(lock, content, default_config)
+        trans = [
+            p
+            for p in proposals
+            if p["follows_parts"] == ["tool", "lib"] and p["target"] == "lib"
+        ]
+        assert len(trans) == 1, f"proposals: {proposals}"
+        assert trans[0].get("rev_dedup") is True
+        assert trans[0]["kept_rev"] == "bbbb"
+        assert trans[0]["dropped_rev"] == "aaaa"
