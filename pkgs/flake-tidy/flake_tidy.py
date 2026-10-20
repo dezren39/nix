@@ -566,12 +566,30 @@ def node_original_url(node_data: dict) -> str:
     """Build a nix-resolvable URL string from a node's original field."""
     orig = node_data.get("original", {})
     t = orig.get("type", "")
-    if t in ("github", "gitlab"):
+    if t in ("github", "gitlab", "sourcehut"):
         owner = orig.get("owner", "")
         repo = orig.get("repo", "")
         url = f"{t}:{owner}/{repo}"
         if "ref" in orig:
             url += f"/{orig['ref']}"
+        elif "rev" in orig:
+            # A rev-pinned node with no ref keeps its pin (#521) —
+            # dropping it would rebuild the URL at the default branch.
+            url += f"/{orig['rev']}"
+        return url
+    elif t == "git":
+        # The JSON-dump fallback below is not a URL (#521): callers pass
+        # this string to --override-input and write it into flake.nix.
+        # Use the repo's own git flake-URL convention (git+<url>?ref=/rev=).
+        raw = orig.get("url", "")
+        url = raw if raw.startswith("git+") else f"git+{raw}"
+        params = []
+        if "ref" in orig:
+            params.append(f"ref={orig['ref']}")
+        if "rev" in orig:
+            params.append(f"rev={orig['rev']}")
+        if params:
+            url += "?" + "&".join(params)
         return url
     elif t == "tarball":
         return orig.get("url", "")
@@ -1511,7 +1529,7 @@ def build_override_from_flake_name(
         if orig.get("type") == "indirect" and orig.get("id") == flake_name:
             locked = node_data.get("locked", {})
             lt = locked.get("type", "")
-            if lt in ("github", "gitlab"):
+            if lt in ("github", "gitlab", "sourcehut"):
                 url = f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
                 return {input_path: url}
     # Second pass: look for a node whose name matches flake_name
@@ -2474,7 +2492,7 @@ def _resolve_transitive_url(lock: dict, parent: str, child: str) -> str | None:
     # Fallback: try locked field
     locked = child_node.get("locked", {})
     lt = locked.get("type", "")
-    if lt in ("github", "gitlab"):
+    if lt in ("github", "gitlab", "sourcehut"):
         return f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
 
     return None
