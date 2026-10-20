@@ -811,3 +811,84 @@ class TestGenericDirAttribute:
         assert flake_tidy.node_url(
             self._node(type="path", path="./vendor")
         ) == "path:./vendor"
+
+
+class TestEmbeddedQueryUrls:
+    """#544: a raw URL may already embed a query (#528). node_url's
+    git/hg branches joined params with a hard-coded "?" — a second,
+    malformed "?" — and _append_query appended field params the URL
+    already carried, duplicating keys (or conflicting on dir)."""
+
+    @staticmethod
+    def _node(**orig):
+        return {"original": orig}
+
+    def test_node_url_git_embedded_query_gets_one_question_mark(self):
+        s = flake_tidy.node_url(
+            self._node(
+                type="git",
+                url="https://example.com/repo.git?shallow=1",
+                dir="sub",
+                shallow=True,
+            )
+        )
+        assert s.count("?") == 1
+        assert s == "https://example.com/repo.git?shallow=1&dir=sub"
+
+    def test_node_url_hg_embedded_query_gets_one_question_mark(self):
+        s = flake_tidy.node_url(
+            self._node(
+                type="hg",
+                url="https://example.com/repo?dir=old",
+                dir="new",
+            )
+        )
+        assert s.count("?") == 1
+        assert s.count("dir=") == 1
+
+    def test_node_original_url_dedupes_embedded_params(self):
+        s = flake_tidy.node_original_url(
+            self._node(
+                type="git",
+                url="https://example.com/repo.git?shallow=1",
+                shallow=True,
+                dir="sub",
+            )
+        )
+        assert s == "git+https://example.com/repo.git?shallow=1&dir=sub"
+
+    def test_node_original_url_conflicting_dir_keeps_embedded(self):
+        s = flake_tidy.node_original_url(
+            self._node(
+                type="tarball",
+                url="https://example.com/a.tgz?dir=old",
+                dir="new",
+            )
+        )
+        assert s == "https://example.com/a.tgz?dir=old"
+
+    def test_locked_url_dedupes_embedded_params(self):
+        s = flake_tidy._locked_url(
+            {
+                "type": "git",
+                "url": "https://example.com/repo.git?dir=old",
+                "dir": "new",
+                "rev": "abc123",
+            }
+        )
+        assert s.count("dir=") == 1
+        assert s == "git+https://example.com/repo.git?dir=old&rev=abc123"
+
+    def test_urls_without_embedded_query_unchanged(self):
+        assert flake_tidy.node_url(
+            self._node(
+                type="git", url="https://example.com/r.git", dir="sub"
+            )
+        ) == "https://example.com/r.git?dir=sub"
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="git",
+                url="https://example.com/r.git",
+                shallow=True,
+            )
+        ) == "git+https://example.com/r.git?shallow=1"

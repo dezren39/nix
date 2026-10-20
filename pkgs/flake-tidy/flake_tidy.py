@@ -586,9 +586,25 @@ def _forge_query(spec: dict) -> str:
 def _append_query(url: str, params: list) -> str:
     """Append query params to a URL, joining with & if it already
     carries a query string (#528: a raw git URL may already embed
-    e.g. ?shallow=1 — a second ? makes a malformed flake URL)."""
+    e.g. ?shallow=1 — a second ? makes a malformed flake URL).
+
+    Params whose key the URL already carries are skipped (#544):
+    emitting the key twice (shallow=1 twice, or conflicting
+    dir=old&dir=new) makes the rebuilt flake URL ambiguous — the
+    embedded raw URL is the recorded source, so it wins."""
     if not params:
         return url
+    if "?" in url:
+        embedded = {
+            pair.split("=", 1)[0]
+            for pair in url.split("?", 1)[1].split("&")
+            if pair
+        }
+        params = [
+            p for p in params if p.split("=", 1)[0] not in embedded
+        ]
+        if not params:
+            return url
     sep = "&" if "?" in url else "?"
     return url + sep + "&".join(params)
 
@@ -664,10 +680,9 @@ def node_url(node_data: dict) -> str:
         # Surface dir and the boolean fetch attributes so exclusion
         # patterns can distinguish a sub-flake / submodule / shallow /
         # allRefs fetch from the plain one (#537, #538, #528).
-        params = _git_params(orig, include_ref_rev=False)
-        if params:
-            s += "?" + "&".join(params)
-        return s
+        # _append_query, not a hard-coded "?": the raw URL may already
+        # embed a query, and a second ? is malformed (#544).
+        return _append_query(s, _git_params(orig, include_ref_rev=False))
     elif t == "hg":
         # Same JSON-dump fallback problem as git (#539): return the
         # URL with ref/rev readable, surfacing dir via _hg_params.
@@ -676,10 +691,8 @@ def node_url(node_data: dict) -> str:
             s += f"/{orig['ref']}"
         elif "rev" in orig:
             s += f"/{orig['rev'][:12]}"
-        params = _hg_params(orig, include_ref_rev=False)
-        if params:
-            s += "?" + "&".join(params)
-        return s
+        # _append_query for the same #544 reason as the git branch.
+        return _append_query(s, _hg_params(orig, include_ref_rev=False))
     elif t in ("tarball", "file"):
         return _append_query(orig.get("url", ""), _dir_params(orig))
     elif t == "path":
