@@ -53,6 +53,7 @@ import re
 import subprocess
 import sys
 from collections import defaultdict
+from functools import lru_cache
 from itertools import groupby
 from typing import Any
 
@@ -637,11 +638,9 @@ def write_flake_nix(flake_dir: str, content: str) -> None:
         f.write(content)
 
 
-def get_input_file_order(content: str) -> list[str]:
-    """Parse flake.nix to determine input declaration order.
-
-    Returns a list of root input names in the order they appear in the file.
-    """
+@lru_cache(maxsize=32)
+def _get_input_file_order_tuple(content: str) -> tuple[str, ...]:
+    """Internal helper to parse and cache input file order as an immutable tuple."""
     order: list[str] = []
     seen: set[str] = set()
     in_inputs_block = False
@@ -694,18 +693,21 @@ def get_input_file_order(content: str) -> list[str]:
                     order.append(name)
                     seen.add(name)
 
-    return order
+    return tuple(order)
 
 
-def _block_context_for_lines(content: str) -> list[str | None]:
-    """Return the enclosing block input name for each line.
+def get_input_file_order(content: str) -> list[str]:
+    """Parse flake.nix to determine input declaration order.
 
-    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
-    For top-level dotted lines (outside any block) returns ``None``.
-
-    This is approximate but sufficient: it tracks ``<name> = {`` opens
-    and matching ``};`` closes at the same indent level.
+    Returns a list of root input names in the order they appear in the file.
+    Defensively returns a new list copy from the cached immutable tuple.
     """
+    return list(_get_input_file_order_tuple(content))
+
+
+@lru_cache(maxsize=32)
+def _block_context_for_lines_tuple(content: str) -> tuple[str | None, ...]:
+    """Internal helper to parse and cache block context as an immutable tuple."""
     lines = content.split("\n")
     result: list[str | None] = [None] * len(lines)
     # Stack of (block_name, open_line_index, indent_level)
@@ -751,7 +753,16 @@ def _block_context_for_lines(content: str) -> list[str | None]:
         if stack:
             result[i] = stack[-1][0]
 
-    return result
+    return tuple(result)
+
+
+def _block_context_for_lines(content: str) -> tuple[str | None, ...]:
+    """Return the enclosing block input name for each line as a tuple.
+
+    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
+    For top-level dotted lines (outside any block) returns ``None``.
+    """
+    return _block_context_for_lines_tuple(content)
 
 
 def follows_exists_in_content(
@@ -1005,6 +1016,8 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
     return None
 
 
+# Performance optimization: memoize input style detection for identical content strings.
+@lru_cache(maxsize=32)
 def detect_inputs_style(
     content: str,
 ) -> tuple[str, int | None, int | None]:
