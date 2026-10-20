@@ -156,6 +156,10 @@ in
       # OpenChamber's server CLI. The server itself runs as the openchamber
       # launchd agent and the desktop app is installed by openchamber.nix.
       ocPkgs.openchamber
+      # Cloudflare Wrangler (custom 4.147.0 package, flake.nix mkPackages) —
+      # the CF CLI for Workers/D1/R2/Queues/Containers deploys.
+      ocPkgs.wrangler
+      cloudflared
       # The MCP gateway (source: developing-today/code's pkgs/mcpx, built
       # from the pinned mcpx-src input). Its daemon runs at login from the
       # mcpx launchd agent in configuration.nix; the CLI reaches it from any shell.
