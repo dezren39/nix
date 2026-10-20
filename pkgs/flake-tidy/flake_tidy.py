@@ -604,6 +604,36 @@ def node_original_url(node_data: dict) -> str:
     return json.dumps(orig, sort_keys=True)
 
 
+def _locked_url(locked: dict) -> str | None:
+    """Nix-resolvable URL from a node's locked field, or None.
+
+    Follow-up to #521: PR #522 taught node_original_url git/sourcehut
+    and two of the locked fallbacks sourcehut, but a git-locked node
+    behind an indirect original still produced no override at all —
+    the locked fallbacks enumerated only the forge types. The forge
+    shape is the one those fallbacks have always used (type:owner/repo);
+    a git locked node is pinned to its locked rev, mirroring
+    node_original_url's git convention.
+    """
+    lt = locked.get("type", "")
+    if lt in ("github", "gitlab", "sourcehut"):
+        return f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+    if lt == "git":
+        raw = locked.get("url", "")
+        if not raw:
+            return None
+        url = raw if raw.startswith("git+") else f"git+{raw}"
+        params = []
+        if "ref" in locked:
+            params.append(f"ref={locked['ref']}")
+        if "rev" in locked:
+            params.append(f"rev={locked['rev']}")
+        if params:
+            url += ("&" if "?" in url else "?") + "&".join(params)
+        return url
+    return None
+
+
 def locked_hash(node_data: dict) -> str:
     """Get the narHash or rev from the locked field for comparison."""
     locked = node_data.get("locked", {})
@@ -1527,11 +1557,9 @@ def build_override_from_flake_name(
     for _node_name, node_data in nodes.items():
         orig = node_data.get("original", {})
         if orig.get("type") == "indirect" and orig.get("id") == flake_name:
-            locked = node_data.get("locked", {})
-            lt = locked.get("type", "")
-            if lt in ("github", "gitlab", "sourcehut"):
-                url = f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
-                return {input_path: url}
+            locked_url = _locked_url(node_data.get("locked", {}))
+            if locked_url:
+                return {input_path: locked_url}
     # Second pass: look for a node whose name matches flake_name
     for node_name, node_data in nodes.items():
         if node_name == flake_name or node_name.startswith(f"{flake_name}_"):
@@ -1579,11 +1607,9 @@ def compute_indirect_overrides(
                     and orig.get("id") not in KNOWN_REGISTRY_FLAKES
                 ):
                     # Try to build a real URL from the node
-                    locked = child.get("locked", {})
-                    lt = locked.get("type", "")
-                    if lt in ("github", "gitlab"):
-                        url = f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
-                        overrides[path] = url
+                    locked_url = _locked_url(child.get("locked", {}))
+                    if locked_url:
+                        overrides[path] = locked_url
                     else:
                         url = node_original_url(child)
                         if url and not url.startswith("indirect:"):
@@ -2490,12 +2516,7 @@ def _resolve_transitive_url(lock: dict, parent: str, child: str) -> str | None:
         return url
 
     # Fallback: try locked field
-    locked = child_node.get("locked", {})
-    lt = locked.get("type", "")
-    if lt in ("github", "gitlab", "sourcehut"):
-        return f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
-
-    return None
+    return _locked_url(child_node.get("locked", {}))
 
 
 def insert_root_input_block(
