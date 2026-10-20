@@ -522,11 +522,29 @@ def source_key(node_data: dict) -> str:
             return f"git/{url}/{ref}:rev-pinned{extra}"
         return f"git/{url}/{ref}{extra}"
     elif t == "tarball":
-        return f"tarball/{orig.get('url', '')}"
+        # dir is a generic flake-ref attribute (#537): two sub-flakes
+        # of one tarball must not share a dedup group. Keep the exact
+        # pre-#537 key shape when there is no dir.
+        extra = (
+            f"/{json.dumps({'dir': orig['dir']}, sort_keys=True)}"
+            if "dir" in orig
+            else ""
+        )
+        return f"tarball/{orig.get('url', '')}{extra}"
     elif t == "file":
-        return f"file/{orig.get('url', '')}"
+        extra = (
+            f"/{json.dumps({'dir': orig['dir']}, sort_keys=True)}"
+            if "dir" in orig
+            else ""
+        )
+        return f"file/{orig.get('url', '')}{extra}"
     elif t == "path":
-        return f"path/{orig.get('path', '')}"
+        extra = (
+            f"/{json.dumps({'dir': orig['dir']}, sort_keys=True)}"
+            if "dir" in orig
+            else ""
+        )
+        return f"path/{orig.get('path', '')}{extra}"
     elif t == "indirect":
         return f"indirect/{orig.get('id', '')}"
     else:
@@ -563,6 +581,44 @@ def _forge_query(spec: dict) -> str:
     return f"?{'&'.join(params)}" if params else ""
 
 
+def _append_query(url: str, params: list) -> str:
+    """Append query params to a URL, joining with & if it already
+    carries a query string (#528: a raw git URL may already embed
+    e.g. ?shallow=1 — a second ? makes a malformed flake URL)."""
+    if not params:
+        return url
+    sep = "&" if "?" in url else "?"
+    return url + sep + "&".join(params)
+
+
+def _dir_params(spec: dict) -> list:
+    """[dir=...] if the spec carries the generic dir attribute (#537)."""
+    return [f"dir={spec['dir']}"] if "dir" in spec else []
+
+
+def _git_params(spec: dict, include_ref_rev: bool = True) -> list:
+    """Query params that must survive a git URL rebuild.
+
+    ref/rev name the revision; dir names a sub-flake (#537); the
+    boolean fetch attributes submodules (#528), shallow and allRefs
+    (#538) change what the fetch retrieves. source_key already treats
+    all of them as source-distinguishing — dropping them here rebuilds
+    a URL for a different source than the lock records. Booleans are
+    emitted as =1 only when true (false is the fetch default).
+    """
+    params = []
+    if include_ref_rev:
+        if "ref" in spec:
+            params.append(f"ref={spec['ref']}")
+        if "rev" in spec:
+            params.append(f"rev={spec['rev']}")
+    params += _dir_params(spec)
+    for field in ("submodules", "shallow", "allRefs"):
+        if spec.get(field):
+            params.append(f"{field}=1")
+    return params
+
+
 def node_url(node_data: dict) -> str:
     """Readable URL string for a node."""
     orig = node_data.get("original", {})
@@ -585,13 +641,21 @@ def node_url(node_data: dict) -> str:
             s += f"/{orig['ref']}"
         elif "rev" in orig:
             s += f"/{orig['rev'][:12]}"
+        # Surface dir and the boolean fetch attributes so exclusion
+        # patterns can distinguish a sub-flake / submodule / shallow /
+        # allRefs fetch from the plain one (#537, #538, #528).
+        params = _git_params(orig, include_ref_rev=False)
+        if params:
+            s += "?" + "&".join(params)
         return s
     elif t in ("tarball", "file"):
-        return orig.get("url", "")
+        return _append_query(orig.get("url", ""), _dir_params(orig))
     elif t == "path":
         # The JSON-dump fallback is unmatchable by exclusion patterns
         # (#524) — return the path flake reference, like indirect above.
-        return f"path:{orig.get('path', '')}"
+        return _append_query(
+            f"path:{orig.get('path', '')}", _dir_params(orig)
+        )
     elif t == "indirect":
         return f"indirect:{orig.get('id', '')}"
     return json.dumps(orig, sort_keys=True)
@@ -618,28 +682,26 @@ def node_original_url(node_data: dict) -> str:
         # The JSON-dump fallback below is not a URL (#521): callers pass
         # this string to --override-input and write it into flake.nix.
         # Use the repo's own git flake-URL convention (git+<url>?ref=/rev=).
+        # dir/submodules/shallow/allRefs survive via _git_params, and
+        # _append_query joins with & when the raw URL already carries
+        # a query (#528, #537, #538).
         raw = orig.get("url", "")
         url = raw if raw.startswith("git+") else f"git+{raw}"
-        params = []
-        if "ref" in orig:
-            params.append(f"ref={orig['ref']}")
-        if "rev" in orig:
-            params.append(f"rev={orig['rev']}")
-        if params:
-            url += "?" + "&".join(params)
-        return url
+        return _append_query(url, _git_params(orig))
     elif t == "tarball":
-        return orig.get("url", "")
+        return _append_query(orig.get("url", ""), _dir_params(orig))
     elif t == "file":
         raw = orig.get("url", "")
         # Prefix with file+ so nix doesn't default to tarball fetching
         if raw.startswith(("https://", "http://")):
-            return f"file+{raw}"
-        return raw
+            raw = f"file+{raw}"
+        return _append_query(raw, _dir_params(orig))
     elif t == "path":
         # Callers pass this string to --override-input and write it into
         # flake.nix (#524) — the JSON-dump fallback is not a flake URL.
-        return f"path:{orig.get('path', '')}"
+        return _append_query(
+            f"path:{orig.get('path', '')}", _dir_params(orig)
+        )
     elif t == "indirect":
         return f"indirect:{orig.get('id', '')}"
     return json.dumps(orig, sort_keys=True)
@@ -668,32 +730,28 @@ def _locked_url(locked: dict) -> str | None:
         # #533: tarball/file/path locked nodes fell through to None, so
         # indirect overrides for them were silently dropped. Mirror
         # node_original_url's conventions for these types.
-        return locked.get("url", "") or None
+        raw = locked.get("url", "")
+        if not raw:
+            return None
+        return _append_query(raw, _dir_params(locked))
     if lt == "file":
         raw = locked.get("url", "")
         if not raw:
             return None
         if raw.startswith(("https://", "http://")):
-            return f"file+{raw}"
-        return raw
+            raw = f"file+{raw}"
+        return _append_query(raw, _dir_params(locked))
     if lt == "path":
         raw = locked.get("path", "")
         if not raw:
             return None
-        return f"path:{raw}"
+        return _append_query(f"path:{raw}", _dir_params(locked))
     if lt == "git":
         raw = locked.get("url", "")
         if not raw:
             return None
         url = raw if raw.startswith("git+") else f"git+{raw}"
-        params = []
-        if "ref" in locked:
-            params.append(f"ref={locked['ref']}")
-        if "rev" in locked:
-            params.append(f"rev={locked['rev']}")
-        if params:
-            url += ("&" if "?" in url else "?") + "&".join(params)
-        return url
+        return _append_query(url, _git_params(locked))
     return None
 
 
