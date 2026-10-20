@@ -172,6 +172,12 @@ lib.recursiveUpdate {
       OPENCODE_EXPERIMENTAL_OXFMT = "1";
       OPENCODE_EXPERIMENTAL_EXA = "1";
       OPENCODE_EXPERIMENTAL_EVENT_SYSTEM = "1";
+      OPENCODE_EXPERIMENTAL_ICON_DISCOVERY = "1";
+      OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT = "1";
+      # File watcher off by default (Drew, 2026-10-20): the working trees
+      # are giant, and watching costs more than the live-external-edit
+      # awareness it buys. Diffs are git-computed on demand either way.
+      OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER = "1";
 
       # Go: user-local install directory
       GOPATH = "$HOME/go";
