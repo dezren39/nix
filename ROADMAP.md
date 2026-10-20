@@ -108,3 +108,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy loads its config; tidy check green                | 2026-10-20 | #486       |
 | flake-tidy import probe quotes the flake path                | 2026-10-20 | #490       |
 | ARCHITECTURE.md flake summary brought up to date             | 2026-10-20 | #493       |
+| flake-tidy parse-result isolation gate (for #454)            | 2026-10-20 | #494       |
+| mcpx-nixbuild push runs get their own group (code#392 half)  | 2026-10-20 | #495       |
