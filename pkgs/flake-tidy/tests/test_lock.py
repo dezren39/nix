@@ -276,3 +276,83 @@ class TestNodeOriginalUrl:
             assert not flake_tidy.node_original_url(
                 self._node(**orig)
             ).startswith("{")
+
+
+class TestLockedUrlFallbacks:
+    """Follow-up to #521: PR #522 fixed node_original_url and taught two
+    locked fallbacks sourcehut, but a git-locked node behind an indirect
+    original still produced no override in any of the three fallbacks
+    (they enumerated only the forge types)."""
+
+    @staticmethod
+    def _indirect_lock(locked):
+        return {
+            "nodes": {
+                "root": {"inputs": {"tool": "tool"}},
+                "tool": {
+                    "original": {"type": "indirect", "id": "mytool"},
+                    "locked": locked,
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+
+    _GIT_LOCKED = {
+        "type": "git",
+        "url": "https://example.com/tool.git",
+        "rev": "aaaa1111",
+    }
+    _GIT_URL = "git+https://example.com/tool.git?rev=aaaa1111"
+
+    def test_build_override_from_flake_name_git_locked(self):
+        lock = self._indirect_lock(self._GIT_LOCKED)
+        assert flake_tidy.build_override_from_flake_name(
+            lock, "tool", "mytool"
+        ) == {"tool": self._GIT_URL}
+
+    def test_compute_indirect_overrides_git_locked(self):
+        lock = self._indirect_lock(self._GIT_LOCKED)
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "tool": self._GIT_URL
+        }
+
+    def test_resolve_transitive_url_git_locked(self):
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"parent": "parent"}},
+                "parent": {"inputs": {"child": "child"}},
+                "child": {
+                    "original": {"type": "indirect", "id": "child"},
+                    "locked": {
+                        "type": "git",
+                        "url": "https://example.com/child.git",
+                        "rev": "cccc3333",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy._resolve_transitive_url(lock, "parent", "child") == (
+            "git+https://example.com/child.git?rev=cccc3333"
+        )
+
+    def test_compute_indirect_overrides_sourcehut_locked(self):
+        """The compute_indirect_overrides fallback only knew
+        github/gitlab even after #522 — sourcehut was missing there."""
+        lock = self._indirect_lock(
+            {"type": "sourcehut", "owner": "~user", "repo": "proj", "rev": "bbbb"}
+        )
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "tool": "sourcehut:~user/proj"
+        }
+
+    def test_locked_forge_shape_unchanged(self):
+        """Guard: the forge locked shape stays type:owner/repo."""
+        lock = self._indirect_lock(
+            {"type": "github", "owner": "nixos", "repo": "nixpkgs", "rev": "dddd"}
+        )
+        assert flake_tidy.build_override_from_flake_name(
+            lock, "tool", "mytool"
+        ) == {"tool": "github:nixos/nixpkgs"}
