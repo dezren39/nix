@@ -116,3 +116,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #494 and #495 merges                | 2026-10-20 | #500       |
 | flake-tidy dedups same-repo pins at different revs           | 2026-10-20 | #511       |
 | mcpx-src bumped for the 30m check timeout (code#510)         | 2026-10-20 | #513       |
+| ROADMAP Done records six 2026-10-20 merges                   | 2026-10-20 | #515       |
+| flake-tidy: rev-pinned inputs never deduped against unpinned | 2026-10-20 | #516       |
