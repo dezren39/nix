@@ -365,6 +365,46 @@ class TestLockedUrlFallbacks:
             "tool": "sourcehut:~user/proj"
         }
 
+    def test_compute_indirect_overrides_tarball_locked(self):
+        """#533: a tarball-locked node behind an indirect original
+        produced no override — _locked_url only knew forge+git."""
+        lock = self._indirect_lock(
+            {
+                "type": "tarball",
+                "url": "https://example.com/tool.tar.gz",
+                "narHash": "sha256-eeee",
+            }
+        )
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "tool": "https://example.com/tool.tar.gz"
+        }
+        assert flake_tidy.build_override_from_flake_name(
+            lock, "tool", "mytool"
+        ) == {"tool": "https://example.com/tool.tar.gz"}
+
+    def test_compute_indirect_overrides_file_locked(self):
+        """#533: file-locked nodes get the file+ prefix for http URLs,
+        mirroring node_original_url's file branch."""
+        lock = self._indirect_lock(
+            {
+                "type": "file",
+                "url": "https://example.com/tool",
+                "narHash": "sha256-ffff",
+            }
+        )
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "tool": "file+https://example.com/tool"
+        }
+
+    def test_locked_url_path_and_empty(self):
+        """#533: path locked yields path:<path>; empty url/path -> None."""
+        assert flake_tidy._locked_url(
+            {"type": "path", "path": "./vendor/tool"}
+        ) == "path:./vendor/tool"
+        assert flake_tidy._locked_url({"type": "tarball"}) is None
+        assert flake_tidy._locked_url({"type": "file"}) is None
+        assert flake_tidy._locked_url({"type": "path"}) is None
+
     def test_locked_forge_shape_unchanged(self):
         """Guard: the forge locked shape stays type:owner/repo."""
         lock = self._indirect_lock(
