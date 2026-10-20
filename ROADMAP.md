@@ -4,7 +4,7 @@ This is the roadmap for the repo. It is grouped by area, and each row has a hori
 
 A row records intent. It does not settle a decision and it is not a go-ahead to build.
 
-Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
+Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-20. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
 
 ## Areas
 
@@ -78,7 +78,7 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | Title                                          | Horizon | Status   | Intent                                                                                                                                                                                                                                                            | Links                                                                  |
 | ---------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Stale dependency PRs                           | Next    | proposed | Renovate PRs for `pkgs/buffer-backup` (TypeScript 7, @types/node, @types/vscode) and two Bolt drafts, #364 and #388, have sat open since 2026-10-01 or later. Merge or close the rest and pin them in `renovate.json`. | #317, #320, #324, #364, #388 |
-| macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo.                                                                                                                                                                                                                       | #366                                                                   |
+| macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo — that build has landed (#469), so this is moot as predicted.                                                                                                                                               | #366                                                                   |
 
 ## Done
 
@@ -96,3 +96,13 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | `timeout-minutes` on every job                               | 2026-10-18 | #406, #417 |
 | Concurrency groups on workflows                              | 2026-10-18 | #399       |
 | `clean.sh` prunes `.worktrees` in the postgres sweep         | 2026-10-18 | #412       |
+| mcpx built from the code repo; vendored copy deleted         | 2026-10-19 | #469       |
+| `.pytest_cache` ignored; tracked cache marker dropped        | 2026-10-19 | #456       |
+| `.ruff_cache` / `.mypy_cache` ignored; marker dropped        | 2026-10-19 | #464       |
+| opencode-db guard counts a bare `opencode` argv[0]           | 2026-10-19 | #470       |
+| opencode-db-pids test as a flake check                       | 2026-10-19 | #477       |
+| Archived skill tests as a flake check                        | 2026-10-19 | #479       |
+| Formatting flake check green (nixfmt)                        | 2026-10-19 | #481       |
+| LoginExtension `.dmg` untracked; `lootbox.db` ignored        | 2026-10-19 | #482       |
+| Checkout and opencode actions SHA-pinned                     | 2026-10-20 | #485       |
+| flake-tidy loads its config; tidy check green                | 2026-10-20 | #486       |
