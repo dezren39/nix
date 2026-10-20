@@ -557,6 +557,10 @@ def node_url(node_data: dict) -> str:
         return s
     elif t in ("tarball", "file"):
         return orig.get("url", "")
+    elif t == "path":
+        # The JSON-dump fallback is unmatchable by exclusion patterns
+        # (#524) — return the path flake reference, like indirect above.
+        return f"path:{orig.get('path', '')}"
     elif t == "indirect":
         return f"indirect:{orig.get('id', '')}"
     return json.dumps(orig, sort_keys=True)
@@ -599,6 +603,10 @@ def node_original_url(node_data: dict) -> str:
         if raw.startswith(("https://", "http://")):
             return f"file+{raw}"
         return raw
+    elif t == "path":
+        # Callers pass this string to --override-input and write it into
+        # flake.nix (#524) — the JSON-dump fallback is not a flake URL.
+        return f"path:{orig.get('path', '')}"
     elif t == "indirect":
         return f"indirect:{orig.get('id', '')}"
     return json.dumps(orig, sort_keys=True)

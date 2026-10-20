@@ -78,6 +78,15 @@ class TestNodeUrl:
         url = flake_tidy.node_url(node)
         assert url == "indirect:nixpkgs"
 
+    def test_node_url_path(self):
+        """#524: readable URL for path — not a JSON blob, so exclusion
+        patterns can match it."""
+        node = {
+            "original": {"path": "./vendor/foo", "type": "path"},
+        }
+        url = flake_tidy.node_url(node)
+        assert url == "path:./vendor/foo"
+
 
 class TestLockedHash:
     def test_locked_hash_narhash(self):
@@ -267,11 +276,19 @@ class TestNodeOriginalUrl:
             self._node(type="github", owner="nixos", repo="nixpkgs", rev="cccc")
         ) == "github:nixos/nixpkgs/cccc"
 
+    def test_path(self):
+        """#524: a path node's original URL is the path flake reference,
+        not the JSON blob --override-input would reject."""
+        assert flake_tidy.node_original_url(
+            self._node(type="path", path="./vendor/foo")
+        ) == "path:./vendor/foo"
+
     def test_no_json_blob_for_recognised_types(self):
         for orig in (
             {"type": "git", "url": "https://example.com/tool.git", "ref": "main"},
             {"type": "sourcehut", "owner": "~user", "repo": "proj"},
             {"type": "github", "owner": "nixos", "repo": "nixpkgs", "rev": "cccc"},
+            {"type": "path", "path": "./vendor/foo"},
         ):
             assert not flake_tidy.node_original_url(
                 self._node(**orig)
