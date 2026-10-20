@@ -310,10 +310,13 @@ rec {
                   substituteInPlace internal/daemon/takeover_test.go \
                     --replace-fail 'syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC' 'syscall.SOCK_STREAM'
                 '';
-                # The package's own checkPhase runs a bare `go test $pkgs`, so
-                # checkFlags would be ignored; put -skip on that line instead.
+                # The package's own checkPhase runs a bare
+                # `go test -timeout 30m $pkgs`, so checkFlags would be
+                # ignored; put -skip on that line instead.
                 checkPhase =
-                  builtins.replaceStrings [ "go test $pkgs" ] [ "go test -skip='${mcpxDarwinSkip}' $pkgs" ]
+                  builtins.replaceStrings
+                    [ "go test -timeout 30m $pkgs" ]
+                    [ "go test -timeout 30m -skip='${mcpxDarwinSkip}' $pkgs" ]
                     old.checkPhase;
               }
             );
