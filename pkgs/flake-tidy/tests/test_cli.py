@@ -61,6 +61,14 @@ class TestCLI:
         args_without = self.parser.parse_args([])
         assert args_without.verbose is False
 
+    def test_config_file_arg(self):
+        """--config FILE (#476: config supplied as a file for sandboxes)."""
+        args = self.parser.parse_args(["all", "--check", "--config", "cfg.json"])
+        assert args.config_file == "cfg.json"
+
+        args_without = self.parser.parse_args([])
+        assert args_without.config_file is None
+
     def test_max_depth_override(self):
         """--max-depth N."""
         args = self.parser.parse_args(["--max-depth", "10"])

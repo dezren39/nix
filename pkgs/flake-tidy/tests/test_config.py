@@ -1,7 +1,9 @@
 """Tests for config validation, loading, merging, and CLI override."""
 
 import argparse
+import json
 import os
+import subprocess
 import sys
 
 import pytest
@@ -70,6 +72,85 @@ class TestMergeConfig:
         # Other exclude keys should remain since it's a deep merge
         assert result["exclude"]["follows"] == []
         assert result["exclude"]["dedup"] == []
+
+
+def _fake_run_failing(cmd, **kwargs):
+    """A nix subprocess that always fails (sandbox / no daemon)."""
+    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+
+
+def _fake_run_probe_only(cmd, **kwargs):
+    """Try 1 (full flake eval) fails; the --impure import probe succeeds."""
+    if "--impure" in cmd:
+        payload = {"exclude": {"follows": ["opencode.nixpkgs"]}}
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps(payload), stderr=""
+        )
+    return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+
+
+class TestLoadConfigFile:
+    def test_config_file_supplies_excludes(self, tmp_path, monkeypatch):
+        """--config file is loaded without any nix subprocess (#476)."""
+        path = tmp_path / "cfg.json"
+        path.write_text(json.dumps({"exclude": {"follows": ["a.nixpkgs"]}}))
+        monkeypatch.setattr(
+            flake_tidy.subprocess, "run", _fake_run_failing
+        )
+        result = flake_tidy.load_config(
+            str(tmp_path), config_file=str(path), strict=True
+        )
+        assert result["exclude"]["follows"] == ["a.nixpkgs"]
+
+    def test_env_var_supplies_config_file(self, tmp_path, monkeypatch):
+        """$FLAKE_TIDY_CONFIG is honoured when --config is absent."""
+        path = tmp_path / "cfg.json"
+        path.write_text(json.dumps({"max-depth": 3}))
+        monkeypatch.setenv("FLAKE_TIDY_CONFIG", str(path))
+        monkeypatch.setattr(flake_tidy.subprocess, "run", _fake_run_failing)
+        result = flake_tidy.load_config(str(tmp_path), strict=True)
+        assert result["max-depth"] == 3
+
+    def test_missing_config_file_is_fatal(self, tmp_path):
+        """An explicitly named config file that cannot be read errors
+        loudly instead of silently falling back to defaults (#476)."""
+        with pytest.raises(flake_tidy.ConfigLoadError):
+            flake_tidy.load_config(
+                str(tmp_path), config_file=str(tmp_path / "nope.json")
+            )
+
+    def test_invalid_config_file_is_fatal(self, tmp_path):
+        path = tmp_path / "cfg.json"
+        path.write_text("{not json")
+        with pytest.raises(flake_tidy.ConfigLoadError):
+            flake_tidy.load_config(str(tmp_path), config_file=str(path))
+
+
+class TestLoadConfigStrict:
+    def test_strict_raises_when_no_source_loads(self, tmp_path, monkeypatch):
+        """Check mode must not silently check against defaults when every
+        config source fails (e.g. inside a nix build sandbox) (#476)."""
+        monkeypatch.setattr(flake_tidy.subprocess, "run", _fake_run_failing)
+        monkeypatch.delenv("FLAKE_TIDY_CONFIG", raising=False)
+        with pytest.raises(flake_tidy.ConfigLoadError):
+            flake_tidy.load_config(str(tmp_path), strict=True)
+
+    def test_non_strict_falls_back_to_defaults(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(flake_tidy.subprocess, "run", _fake_run_failing)
+        monkeypatch.delenv("FLAKE_TIDY_CONFIG", raising=False)
+        result = flake_tidy.load_config(str(tmp_path))
+        assert result["exclude"]["follows"] == []
+        assert result["max-depth"] == 6
+
+    def test_import_probe_loads_outputs_config(self, tmp_path, monkeypatch):
+        """Regression (#476): flakeTidy lives under outputs, so when full
+        `nix eval .#flakeTidy` fails (packaged nix), the import probe must
+        still find it — the old probe read the flake.nix top level and
+        always came back empty."""
+        monkeypatch.setattr(flake_tidy.subprocess, "run", _fake_run_probe_only)
+        monkeypatch.delenv("FLAKE_TIDY_CONFIG", raising=False)
+        result = flake_tidy.load_config(str(tmp_path), strict=True)
+        assert result["exclude"]["follows"] == ["opencode.nixpkgs"]
 
 
 class TestMergeCLI:

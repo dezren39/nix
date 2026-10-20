@@ -224,7 +224,9 @@ rec {
     bdwgc.flake = false;
   };
   outputs = inputs: rec {
-    # flake-tidy config (pkgs/flake-tidy reads `nix eval .#flakeTidy`). The
+    # flake-tidy config (pkgs/flake-tidy reads it via `nix eval .#flakeTidy`,
+    # its outputs import probe, or a --config file — the tidy check passes
+    # this evaluated value as a file; see #476). The
     # forks' own nixpkgs stay unfollowed: their node_modules fixed-output
     # hashes are computed with the bun in that nixpkgs.
     flakeTidy.exclude.follows = [
@@ -436,6 +438,11 @@ rec {
         tidy =
           let
             selfPkgs = mkPackages pkgs;
+            # #476: inside the build sandbox a `nix eval` subprocess has no
+            # store/daemon access, so the tool can never load this config
+            # itself. Evaluate it here, where nix IS the evaluator, and
+            # hand it to the tool as a file.
+            flakeTidyConfig = pkgs.writeText "flake-tidy-config.json" (builtins.toJSON flakeTidy);
           in
           pkgs.runCommandLocal "flake-tidy-check"
             {
@@ -443,7 +450,7 @@ rec {
               src = inputs.self;
             }
             ''
-              flake-tidy all --check --flake-dir $src
+              flake-tidy all --check --flake-dir $src --config ${flakeTidyConfig}
               touch $out
             '';
         # #397: pkgs/flake-tidy has a 134-test pytest suite that nothing ran

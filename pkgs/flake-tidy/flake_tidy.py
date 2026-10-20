@@ -13,9 +13,14 @@ Flags:
   --verbose  Show detailed information about skipped items
 
 Config loaded from (in order):
-  1. nix eval .#flakeTidy --json
-  2. nix eval --impure --expr '(import ./flake.nix).flakeTidy or {}' --json
-  3. Defaults
+  1. --config FILE (or $FLAKE_TIDY_CONFIG) — a JSON file; works inside a nix
+     build sandbox where no `nix` subprocess can reach a store/daemon
+  2. nix eval .#flakeTidy --json
+  3. nix eval --impure import probe of flake.nix's outputs (lazy: forces only
+     the flakeTidy attribute, so it needs no store access)
+  4. Defaults — but in --check mode, if no source above could even be
+     attempted successfully, the tool errors loudly instead of silently
+     checking against defaults (see #476)
 
 Config shape:
   {
@@ -166,56 +171,131 @@ def merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
     return result
 
 
-def load_config(flake_dir: str, verbose: bool = False) -> dict[str, Any]:
-    """Load flakeTidy config from flake outputs with fallback chain."""
-    cfg: dict[str, Any] | None = None
+class ConfigLoadError(Exception):
+    """The flakeTidy config could not be loaded from any source."""
 
-    # Try 1: nix eval .#flakeTidy --json
+
+def _load_config_file(path: str, verbose: bool = False) -> dict[str, Any]:
+    """Load config JSON from an explicit file. Any failure is fatal: the
+    caller asked for this exact file, so silently using another source (or
+    defaults) would check against the wrong configuration (#476)."""
     try:
-        r = subprocess.run(
-            ["nix", "eval", ".#flakeTidy", "--json"],
-            capture_output=True,
-            text=True,
-            cwd=flake_dir,
-            timeout=30,
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            cfg = json.loads(r.stdout)
-            if verbose:
-                print("  config: loaded from nix eval .#flakeTidy")
-    except Exception:
-        pass
+        with open(path) as f:
+            cfg = json.load(f)
+    except OSError as e:
+        raise ConfigLoadError(f"cannot read config file {path}: {e}") from e
+    except json.JSONDecodeError as e:
+        raise ConfigLoadError(f"config file {path} is not valid JSON: {e}") from e
+    if not isinstance(cfg, dict):
+        raise ConfigLoadError(f"config file {path} must contain a JSON object")
+    if verbose:
+        print(f"  config: loaded from file {path}")
+    return cfg
 
-    # Try 2: nix eval --impure
+
+def load_config(
+    flake_dir: str,
+    verbose: bool = False,
+    config_file: str | None = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Load flakeTidy config with fallback chain.
+
+    Sources, in order: an explicit config file (--config /
+    $FLAKE_TIDY_CONFIG), `nix eval .#flakeTidy`, and an --impure import
+    probe of the flake's outputs. The import probe doubles as the
+    "no config declared" detector: it succeeds (with {}) for a flake that
+    declares no flakeTidy output, which legitimately means defaults.
+
+    If NO source succeeds — e.g. inside a nix build sandbox, where a `nix`
+    subprocess has no store/daemon access — the config is unknowable, not
+    empty. In strict mode (check mode) that raises ConfigLoadError instead
+    of silently checking against defaults (#476); otherwise it falls back
+    to defaults with the failures shown in verbose mode.
+    """
+    cfg: dict[str, Any] | None = None
+    failures: list[str] = []
+
+    explicit = config_file or os.environ.get("FLAKE_TIDY_CONFIG")
+    if explicit:
+        cfg = _load_config_file(explicit, verbose=verbose)
+
+    # Try 1: nix eval .#flakeTidy --json (full flake evaluation)
     if cfg is None:
         try:
             r = subprocess.run(
-                [
-                    "nix",
-                    "eval",
-                    "--impure",
-                    "--expr",
-                    f"let f = import {flake_dir}/flake.nix; in f.flakeTidy or {{}}",
-                    "--json",
-                ],
+                ["nix", "eval", ".#flakeTidy", "--json"],
                 capture_output=True,
                 text=True,
                 cwd=flake_dir,
                 timeout=30,
             )
             if r.returncode == 0 and r.stdout.strip():
-                loaded = json.loads(r.stdout)
-                if loaded:
-                    cfg = loaded
-                    if verbose:
-                        print("  config: loaded from import ./flake.nix")
-        except Exception:
-            pass
+                cfg = json.loads(r.stdout)
+                if verbose:
+                    print("  config: loaded from nix eval .#flakeTidy")
+            else:
+                detail = (r.stderr or r.stdout).strip().splitlines()
+                failures.append(
+                    "nix eval .#flakeTidy: exit "
+                    f"{r.returncode}" + (f": {detail[-1]}" if detail else "")
+                )
+        except Exception as e:
+            failures.append(f"nix eval .#flakeTidy: {e}")
+
+    # Try 2: nix eval --impure import probe. flakeTidy lives under the
+    # flake's *outputs*, not at the top level of flake.nix — the old probe
+    # read `(import ./flake.nix).flakeTidy`, which is always {} (#476).
+    # Calling outputs with {} and selecting only flakeTidy stays lazy, so
+    # the probe needs no store access and works with the packaged nix even
+    # when full flake evaluation (Try 1) fails.
+    probe_ok = False
+    if cfg is None:
+        expr = (
+            f"let f = import {flake_dir}/flake.nix; "
+            "o = (f.outputs or (_: {})) {}; "
+            "in o.flakeTidy or f.flakeTidy or {}"
+        )
+        try:
+            r = subprocess.run(
+                ["nix", "eval", "--impure", "--expr", expr, "--json"],
+                capture_output=True,
+                text=True,
+                cwd=flake_dir,
+                timeout=30,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                cfg = json.loads(r.stdout)
+                probe_ok = True
+                if verbose:
+                    if cfg:
+                        print("  config: loaded from import ./flake.nix outputs")
+                    else:
+                        print("  config: no flakeTidy declared; using defaults")
+            else:
+                detail = (r.stderr or r.stdout).strip().splitlines()
+                failures.append(
+                    "nix eval --impure import probe: exit "
+                    f"{r.returncode}" + (f": {detail[-1]}" if detail else "")
+                )
+        except Exception as e:
+            failures.append(f"nix eval --impure import probe: {e}")
 
     if cfg is None:
+        if strict:
+            raise ConfigLoadError(
+                "could not load flakeTidy config from any source; refusing "
+                "to check against defaults. Failures: "
+                + ("; ".join(failures) if failures else "no source attempted")
+                + ". Supply the config with --config FILE (or "
+                "$FLAKE_TIDY_CONFIG) when running where `nix eval` cannot "
+                "work, e.g. inside a nix build sandbox."
+            )
         cfg = {}
         if verbose:
             print("  config: using defaults")
+            for failure in failures:
+                print(f"  config: ({failure})")
 
     # Validate
     errors, warnings = validate_config(cfg)
@@ -224,6 +304,10 @@ def load_config(flake_dir: str, verbose: bool = False) -> dict[str, Any]:
     for e in errors:
         print(f"  config error: {e}", file=sys.stderr)
     if errors:
+        if explicit or strict:
+            raise ConfigLoadError(
+                "flakeTidy config is invalid: " + "; ".join(errors)
+            )
         print("  falling back to defaults due to config errors", file=sys.stderr)
         cfg = {}
 
@@ -3122,6 +3206,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the flake directory (default: current directory)",
     )
     parser.add_argument(
+        "--config",
+        dest="config_file",
+        default=None,
+        metavar="FILE",
+        help="Load flakeTidy config from this JSON file instead of `nix eval` "
+        "(also via $FLAKE_TIDY_CONFIG). Required where a nix subprocess "
+        "cannot work, e.g. inside a nix build sandbox.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would change without modifying files",
@@ -3229,8 +3322,19 @@ def main() -> None:
         print("formatting flake.nix...")
         run_nixfmt(flake_dir)
 
-    # Step 1: Load and merge config
-    config = load_config(flake_dir, verbose=verbose)
+    # Step 1: Load and merge config. Check mode is strict: a config that
+    # cannot be loaded from any source is a loud error, never a silent
+    # fall back to defaults (#476).
+    try:
+        config = load_config(
+            flake_dir,
+            verbose=verbose,
+            config_file=args.config_file,
+            strict=check,
+        )
+    except ConfigLoadError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(2)
     config = merge_cli_into_config(config, args)
 
     if verbose:
