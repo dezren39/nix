@@ -413,3 +413,91 @@ class TestLockedUrlFallbacks:
         assert flake_tidy.build_override_from_flake_name(
             lock, "tool", "mytool"
         ) == {"tool": "github:nixos/nixpkgs"}
+
+
+class TestForgeHostAndDir:
+    """#535: forge host/dir are source-distinguishing — host names a
+    different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
+    and dir a different sub-flake — but source_key grouped them away
+    and every rebuilt URL dropped them."""
+
+    @staticmethod
+    def _node(**orig):
+        return {"original": orig}
+
+    def test_source_key_distinguishes_host(self):
+        plain = self._node(type="gitlab", owner="g", repo="p")
+        hosted = self._node(
+            type="gitlab", owner="g", repo="p", host="gitlab.example.com"
+        )
+        assert flake_tidy.source_key(plain) != flake_tidy.source_key(hosted)
+
+    def test_source_key_distinguishes_dir(self):
+        a = self._node(type="github", owner="o", repo="r", dir="a")
+        b = self._node(type="github", owner="o", repo="r", dir="b")
+        plain = self._node(type="github", owner="o", repo="r")
+        assert flake_tidy.source_key(a) != flake_tidy.source_key(b)
+        assert flake_tidy.source_key(a) != flake_tidy.source_key(plain)
+
+    def test_source_key_plain_forge_shape_unchanged(self):
+        """Guard: nodes without extra fields keep the pre-#535 key."""
+        assert (
+            flake_tidy.source_key(self._node(type="github", owner="o", repo="r"))
+            == "github/o/r/"
+        )
+        assert flake_tidy.source_key(
+            self._node(type="gitlab", owner="g", repo="p", rev="aaaa")
+        ).startswith("gitlab/g/p/:rev-pinned")
+
+    def test_original_url_keeps_host(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="gitlab",
+                owner="openldap",
+                repo="openldap",
+                host="git.openldap.org",
+            )
+        ) == "gitlab:openldap/openldap?host=git.openldap.org"
+
+    def test_original_url_keeps_dir_and_host_with_ref(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="github",
+                owner="internal",
+                repo="project",
+                ref="main",
+                host="company-github.example.org",
+                dir="sub",
+            )
+        ) == "github:internal/project/main?host=company-github.example.org&dir=sub"
+
+    def test_original_url_keeps_sourcehut_host_with_rev(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="sourcehut",
+                owner="~misterio",
+                repo="nix-colors",
+                host="hg.sr.ht",
+                rev="21c1a380",
+            )
+        ) == "sourcehut:~misterio/nix-colors/21c1a380?host=hg.sr.ht"
+
+    def test_locked_url_keeps_host(self):
+        assert flake_tidy._locked_url(
+            {
+                "type": "gitlab",
+                "owner": "openldap",
+                "repo": "openldap",
+                "host": "git.openldap.org",
+                "rev": "aaaa1111",
+            }
+        ) == "gitlab:openldap/openldap?host=git.openldap.org"
+
+    def test_node_url_surfaces_host_and_dir(self):
+        s = flake_tidy.node_url(
+            self._node(
+                type="github", owner="o", repo="r", host="gh.example.com", dir="sub"
+            )
+        )
+        assert "host=gh.example.com" in s
+        assert "dir=sub" in s
