@@ -313,11 +313,25 @@ rec {
                 # The package's own checkPhase runs a bare
                 # `go test -timeout 30m $pkgs`, so checkFlags would be
                 # ignored; put -skip on that line instead.
+                # developing-today/code#418: builtins.replaceStrings is a
+                # silent no-op when its pattern is absent, so a canonical
+                # checkPhase change in code's pkgs/mcpx/package.nix arriving
+                # via an mcpx-src pin bump would silently drop this skip and
+                # break the darwin build on a Mac. Fail evaluation loudly
+                # instead; the mcpx-darwin-skip flake check forces this
+                # attribute on every system, so Linux CI catches drift too.
                 checkPhase =
-                  builtins.replaceStrings
-                    [ "go test -timeout 30m $pkgs" ]
-                    [ "go test -timeout 30m -skip='${mcpxDarwinSkip}' $pkgs" ]
-                    old.checkPhase;
+                  let
+                    rewritten =
+                      builtins.replaceStrings
+                        [ "go test -timeout 30m $pkgs" ]
+                        [ "go test -timeout 30m -skip='${mcpxDarwinSkip}' $pkgs" ]
+                        old.checkPhase;
+                  in
+                  if rewritten == old.checkPhase then
+                    throw "mcpx darwin skip: the canonical checkPhase line `go test -timeout 30m $pkgs` was not found in the mcpx-src package.nix checkPhase, so the darwin -skip rewrite would silently do nothing (developing-today/code#418). Update the replaceStrings pattern in flake.nix to match the new canonical line."
+                  else
+                    rewritten;
               }
             );
         mcpxDarwinSkip = "^(${
@@ -556,6 +570,30 @@ rec {
               fi
               touch $out
             '';
+        # developing-today/code#418: the darwin mcpx package rewrites the
+        # canonical checkPhase line from developing-today/code's
+        # pkgs/mcpx/package.nix to add the takeover/handoff -skip list.
+        # Force the aarch64-darwin package's checkPhase here, on every
+        # system: the override now throws when its replaceStrings pattern
+        # no longer matches, and this check additionally asserts the
+        # rewritten phase really carries the skip, so an mcpx-src pin bump
+        # (flake.lock) or a flake.nix edit that breaks the coupling fails
+        # `nix flake check` on Linux instead of a Mac build later.
+        mcpx-darwin-skip =
+          let
+            darwinCheckPhase = packages.aarch64-darwin.mcpx.checkPhase;
+          in
+          pkgs.runCommandLocal "mcpx-darwin-skip-check" { inherit darwinCheckPhase; } ''
+            case "$darwinCheckPhase" in
+            *"-skip="*) ;;
+            *)
+              echo "darwin mcpx checkPhase lost its -skip rewrite:" >&2
+              printf '%s\n' "$darwinCheckPhase" >&2
+              exit 1
+              ;;
+            esac
+            touch $out
+          '';
       }
       // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
         sidepulse = (mkPackages pkgs).sidepulse;
