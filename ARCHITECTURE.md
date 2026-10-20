@@ -79,13 +79,15 @@ flake.nix → ./configuration.nix
   `devShells`, `checks`): builds `bun-bin` and `mcpx`; `opencode-unwrapped`
   (the fork's package with our mcpx) and `opencode` (a wrapper pinning
   `OPENCODE_DB` and `TMPDIR`); `openchamber` (the fork's server built against
-  that `opencode`); plus `brew-repair`, `flake-tidy`, `opencode-share`,
-  `symlinker`.
-- **checks:** `formatting` (treefmt) and `tidy` (flake-tidy `--check`) on every
-  supported system; the Sidepulse package build/test and setup smoke test run
-  on Darwin only.
-- **apps:** `flake-tidy`, `opencode`, `openchamber`, `opencode-share`, `symlinker`;
-  Sidepulse apps are Darwin-only.
+  that `opencode`); plus `brew-repair`, `codedb`, `flake-tidy`, `twg-cli`,
+  `npm-mcp-servers`, `opencode-share`, `symlinker`.
+- **checks:** `formatting` (treefmt), `tidy` (flake-tidy `--check`),
+  `flake-tidy-tests` (the flake-tidy pytest suite), `plugins-tests`
+  (plugins/*.test.mjs), `opencode-db-pids-tests` and `skill-tests`
+  (archive/skills/*/SKILL.test.ts) on every supported system; the Sidepulse
+  package build/test and setup smoke test run on Darwin only.
+- **apps:** `flake-tidy`, `mcpx`, `opencode`, `openchamber`, `opencode-share`,
+  `symlinker`; Sidepulse apps are Darwin-only.
 - **devShell:** opencode, flake-tidy, symlinker, just, nixfmt, git, gh (with a
   version-printing shellHook); Sidepulse tools are added on Darwin only.
 
@@ -141,7 +143,7 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 
 | Package | Lang | Wrapper | What it does |
 | --- | --- | --- | --- |
-| **flake-tidy** ⭐ | Python 3 (~3300 lines) | `writeShellApplication` | Deduplicates/merges/flattens flake inputs by adding `follows`; edits `flake.nix`, reruns `nix flake lock` with backout, reformats. `dedup`/`merge`/`flatten`/`all` subcommands, `--check`/`--dry-run`. **~134 pytest tests** + fixtures. |
+| **flake-tidy** ⭐ | Python 3 (~3300 lines) | `writeShellApplication` | Deduplicates/merges/flattens flake inputs by adding `follows`; edits `flake.nix`, reruns `nix flake lock` with backout, reformats. `dedup`/`merge`/`flatten`/`all` subcommands, `--check`/`--dry-run`. **~144 pytest tests** + fixtures. |
 | bun-bin | Nix | `mkDerivation` | Prebuilt Bun (currently 1.3.14); Darwin re-signs via `install_name_tool`+`rcodesign`. Hashes in `hashes.json`. |
 | mcpx | Go | `buildGo127Module` | MCP gateway / Code Mode runner, built from the pinned `mcpx-src` input (developing-today/code's `pkgs/mcpx`, the only copy); its daemon runs as a launchd agent. Darwin skips the Linux-only takeover tests (flake.nix). |
 | brew-repair | Bash (+py) | `writeShellScriptBin` | Detects casks brew thinks are installed but whose `.app` is missing; selectively reinstalls. `--dry-run/--quiet/--skip`. |
@@ -239,7 +241,7 @@ and developing-today/openchamber#28.
 - **CI:** `.github/workflows/opencode.yml` (a `/oc` comment-triggered OpenCode
   bot) and `mcpx-nixbuild.yml` (builds the mcpx package on Linux when
   `flake.nix`/`flake.lock` change). Nothing in CI builds the darwin system;
-  flake-tidy tests run locally.
+  flake-tidy tests run locally and as the `flake-tidy-tests` flake check.
 
 ---
 
