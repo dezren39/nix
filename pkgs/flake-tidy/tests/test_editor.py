@@ -65,6 +65,56 @@ class TestGetInputFileOrder:
         assert order.index("early") < order.index("nixpkgs")
 
 
+class TestParseResultIsolation:
+    """Callers must not be able to poison later parse results by mutating
+    a returned list.
+
+    Regression guard for #454: a memoization of these helpers that hands
+    out one shared list (e.g. a bare ``@lru_cache`` on the function)
+    makes one caller's mutation corrupt every later call. These tests
+    pin the isolation invariant on main so any future caching of
+    ``get_input_file_order`` / ``_block_context_for_lines`` must return
+    a fresh copy (or an immutable value) per call.
+    """
+
+    def test_get_input_file_order_returns_independent_lists(
+        self, sample_flake_nix
+    ):
+        first = flake_tidy.get_input_file_order(sample_flake_nix)
+        second = flake_tidy.get_input_file_order(sample_flake_nix)
+        assert first == second
+        assert first is not second
+
+    def test_get_input_file_order_mutation_does_not_poison_later_calls(
+        self, sample_flake_nix
+    ):
+        expected = list(flake_tidy.get_input_file_order(sample_flake_nix))
+        returned = flake_tidy.get_input_file_order(sample_flake_nix)
+        returned.append("poisoned")
+        returned.reverse()
+        returned.clear()
+        assert flake_tidy.get_input_file_order(sample_flake_nix) == expected
+
+    def test_block_context_for_lines_returns_independent_lists(
+        self, sample_flake_nix
+    ):
+        first = flake_tidy._block_context_for_lines(sample_flake_nix)
+        second = flake_tidy._block_context_for_lines(sample_flake_nix)
+        assert first == second
+        assert first is not second
+        # The fixture has named input blocks, so the result is not all None.
+        assert "nixpkgs-unstable" in first
+
+    def test_block_context_mutation_does_not_poison_later_calls(
+        self, sample_flake_nix
+    ):
+        expected = list(flake_tidy._block_context_for_lines(sample_flake_nix))
+        returned = flake_tidy._block_context_for_lines(sample_flake_nix)
+        for i in range(len(returned)):
+            returned[i] = "poisoned"
+        assert flake_tidy._block_context_for_lines(sample_flake_nix) == expected
+
+
 class TestFollowsExists:
     def test_follows_exists_absolute(self):
         """detects absolute form."""
