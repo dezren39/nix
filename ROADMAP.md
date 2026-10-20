@@ -118,3 +118,9 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | mcpx-src bumped for the 30m check timeout (code#510)         | 2026-10-20 | #513       |
 | ROADMAP Done records six 2026-10-20 merges                   | 2026-10-20 | #515       |
 | flake-tidy: rev-pinned inputs never deduped against unpinned | 2026-10-20 | #516       |
+| ROADMAP Done records the #512 and #514 merges                | 2026-10-20 | #518       |
+| flake-tidy rev-dedup covers git-type inputs                  | 2026-10-20 | #519, #520 |
+| flake-tidy returns real URLs for git/sourcehut inputs        | 2026-10-20 | #521, #522 |
+| flake-tidy git-locked fallback for indirect overrides        | 2026-10-20 | #523       |
+| flake-tidy returns a path: URL for path inputs               | 2026-10-20 | #524, #525 |
+| flake-tidy cross-type dedup ranks git above indirect         | 2026-10-20 | #526, #527 |
