@@ -57,5 +57,17 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
+      # developing-today/code#418: the darwin -skip override in flake.nix
+      # keys on the canonical checkPhase line in code's package.nix. The
+      # override throws when the pattern stops matching, so forcing the
+      # darwin checkPhase here (eval only, no darwin build) fails this
+      # workflow on an mcpx-src pin bump that drifts the line — before the
+      # break can surface on a Mac.
+      - name: Darwin mcpx skip guard
+        run: |
+          phase="$(nix eval --raw .#packages.aarch64-darwin.mcpx.checkPhase)"
+          printf '%s\n' "$phase"
+          grep -F -- "-skip=" <<<"$phase"
+
       - name: Nix build
         run: nix build .#packages.x86_64-linux.mcpx --print-build-logs
