@@ -475,14 +475,20 @@ def source_key(node_data: dict) -> str:
     if t in ("github", "gitlab", "sourcehut"):
         owner = orig.get("owner", "").lower()
         repo = orig.get("repo", "").lower()
-        if "rev" in orig and "ref" not in orig:
-            # The pinned rev is deliberately NOT part of the key (#509):
-            # two pins of the same repo at different revs must land in
-            # one dedup group, or the stale pin is invisible to the tool.
-            # Which rev survives is decided in analyze_dedup from the
-            # locked lastModified, not by grouping.
-            return f"{t}/{owner}/{repo}/"
         ref = orig.get("ref", "")
+        if "rev" in orig:
+            # The pinned rev VALUE is deliberately NOT part of the key
+            # (#509): two pins of the same repo at different revs must
+            # land in one dedup group, or the stale pin is invisible to
+            # the tool. Which rev survives is decided in analyze_dedup
+            # from the locked lastModified, not by grouping.
+            # But pin-NESS is part of the key (#512): a rev-pinned node
+            # must never group with an unpinned (default-branch) or
+            # ref-only node of the same repo — consolidating those would
+            # silently discard a deliberate pin, or freeze a tracking
+            # input at a fixed rev. ":" cannot appear in a git ref, so
+            # the marker can never collide with a real ref component.
+            return f"{t}/{owner}/{repo}/{ref}:rev-pinned"
         return f"{t}/{owner}/{repo}/{ref}"
     elif t == "tarball":
         return f"tarball/{orig.get('url', '')}"
@@ -494,6 +500,15 @@ def source_key(node_data: dict) -> str:
         return f"indirect/{orig.get('id', '')}"
     else:
         return json.dumps(orig, sort_keys=True)
+
+
+def is_rev_pinned(node_data: dict) -> bool:
+    """Check if a node's 'original' pins an exact rev (#512).
+
+    A rev pin is a deliberate versioning decision; dedup must not pair
+    a pinned node with an unpinned or ref-tracking one.
+    """
+    return "rev" in node_data.get("original", {})
 
 
 def is_path_input(node_data: dict) -> bool:
@@ -1779,8 +1794,9 @@ def analyze_dedup(
                 transitive_members.append(m)
 
         # --- Same source, different revs (#509) ---
-        # source_key no longer embeds the pinned rev, so a group can hold
-        # one source at several locked revs. The survivor is the newest
+        # source_key does not embed the pinned rev VALUE (only pin-ness,
+        # #512), so a group of pinned nodes can hold one source at several
+        # locked revs. The survivor is the newest
         # locked lastModified (rev string breaks ties, deterministically);
         # every other member follows it. Without evidence that the revs
         # really diverge — distinct rev pins in 'original', or locked
@@ -2045,6 +2061,12 @@ def analyze_dedup(
         trans_type = node_data.get("original", {}).get("type", "")
         canon_type = nodes[canon_node].get("original", {}).get("type", "")
         if _TYPE_PREF.get(trans_type, 99) < _TYPE_PREF.get(canon_type, 99):
+            continue
+
+        # Never pair a rev-pinned node with an unpinned one, even when
+        # the locked content happens to be identical today (#512): a
+        # follows would discard the pin (or freeze the tracking input).
+        if is_rev_pinned(node_data) != is_rev_pinned(nodes[canon_node]):
             continue
 
         if should_exclude(config, "dedup", canon_iname):

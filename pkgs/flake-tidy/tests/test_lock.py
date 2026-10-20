@@ -116,3 +116,41 @@ class TestSourceKeyRevGrouping:
         assert flake_tidy.source_key(node("aaaa")) == flake_tidy.source_key(
             node("bbbb")
         )
+
+    def test_rev_pinned_key_differs_from_unpinned(self):
+        """#512: a rev pin must not group with an unpinned node of the
+        same repo (whose key the #509 key collided with exactly)."""
+        pinned = {
+            "original": {
+                "owner": "nixos",
+                "repo": "nixpkgs",
+                "rev": "aaaa",
+                "type": "github",
+            }
+        }
+        unpinned = {
+            "original": {"owner": "nixos", "repo": "nixpkgs", "type": "github"}
+        }
+        assert flake_tidy.source_key(pinned) != flake_tidy.source_key(unpinned)
+
+    def test_rev_pinned_key_differs_from_ref_only(self):
+        """#512: a rev pin (even alongside a ref) must not group with a
+        ref-only tracking node of the same repo and ref."""
+        pinned = {
+            "original": {
+                "owner": "nixos",
+                "repo": "nixpkgs",
+                "ref": "main",
+                "rev": "aaaa",
+                "type": "github",
+            }
+        }
+        ref_only = {
+            "original": {
+                "owner": "nixos",
+                "repo": "nixpkgs",
+                "ref": "main",
+                "type": "github",
+            }
+        }
+        assert flake_tidy.source_key(pinned) != flake_tidy.source_key(ref_only)

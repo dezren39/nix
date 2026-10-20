@@ -551,3 +551,101 @@ class TestAnalyzeDedupRevDivergence:
         assert trans[0].get("rev_dedup") is True
         assert trans[0]["kept_rev"] == "bbbb"
         assert trans[0]["dropped_rev"] == "aaaa"
+
+
+class TestAnalyzeDedupPinnedVsUnpinned:
+    """#512: a rev-pinned input must never be deduped against an
+    unpinned (no rev, no ref) input of the same repo — in either
+    direction. #509's pin-vs-pin dedup is unaffected (covered by
+    TestAnalyzeDedupRevDivergence)."""
+
+    _node = staticmethod(TestAnalyzeDedupRevDivergence._node)
+
+    def _lock(self, pinned_lm, plain_lm):
+        return {
+            "nodes": {
+                "root": {"inputs": {"pinned": "pinned", "plain": "plain"}},
+                "pinned": self._node("aaaa", pinned_lm, "sha256-A", pin=True),
+                "plain": self._node("bbbb", plain_lm, "sha256-B", pin=False),
+            },
+            "root": "root",
+            "version": 7,
+        }
+
+    _CONTENT = """{
+  inputs = {
+    pinned.url = "github:o/r/aaaa";
+    plain.url = "github:o/r";
+  };
+  outputs = _: {};
+}
+"""
+
+    def test_pinned_older_than_unpinned_no_proposal(self, default_config):
+        """The deliberate (older) pin is not consolidated away into the
+        newer unpinned input."""
+        proposals = flake_tidy.analyze_dedup(
+            self._lock(pinned_lm=100, plain_lm=200),
+            self._CONTENT,
+            default_config,
+        )
+        assert proposals == [], f"proposals: {proposals}"
+
+    def test_pinned_newer_than_unpinned_no_proposal(self, default_config):
+        """The unpinned input is not frozen onto the newer pin."""
+        # Pinned locked rev must be the newest for this direction.
+        lock = self._lock(pinned_lm=300, plain_lm=200)
+        lock["nodes"]["pinned"] = self._node("cccc", 300, "sha256-C", pin=True)
+        proposals = flake_tidy.analyze_dedup(lock, self._CONTENT, default_config)
+        assert proposals == [], f"proposals: {proposals}"
+
+    def test_ref_tracking_control_stays_ungrouped(self, default_config):
+        """Control: an unpinned node WITH a ref already kept a distinct
+        key — that must stay non-grouped too."""
+        lock = self._lock(pinned_lm=100, plain_lm=200)
+        lock["nodes"]["plain"]["original"]["ref"] = "main"
+        proposals = flake_tidy.analyze_dedup(lock, self._CONTENT, default_config)
+        assert proposals == [], f"proposals: {proposals}"
+
+    def test_transitive_unpinned_not_folded_into_pinned_root(
+        self, default_config
+    ):
+        """A dependency's unpinned copy of a pinned root source is not
+        pointed at the pin via transitive dedup."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"lib": "lib", "tool": "tool"}},
+                "lib": self._node("bbbb", 200, "sha256-B", pin=True),
+                "lib_2": self._node("aaaa", 100, "sha256-A", pin=False),
+                "tool": {
+                    "inputs": {"lib": "lib_2"},
+                    "locked": {
+                        "lastModified": 100,
+                        "narHash": "sha256-T",
+                        "owner": "example",
+                        "repo": "tool",
+                        "rev": "tttt",
+                        "type": "github",
+                    },
+                    "original": {
+                        "owner": "example",
+                        "repo": "tool",
+                        "type": "github",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        content = """{
+  inputs = {
+    lib.url = "github:o/r/bbbb";
+    tool.url = "github:example/tool";
+  };
+  outputs = _: {};
+}
+"""
+        proposals = flake_tidy.analyze_dedup(lock, content, default_config)
+        assert [
+            p for p in proposals if p["follows_parts"] == ["tool", "lib"]
+        ] == [], f"proposals: {proposals}"
