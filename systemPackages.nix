@@ -202,6 +202,8 @@ in
       inputs.self.packages.${system}.sidepulse
       inputs.self.packages.${system}.sidepulse-setup
       # openjdk # removed 2026-09-15: reclaiming disk (Azul Zulu JDK)
+      # Oracle Cloud Infrastructure CLI; provides the `oci` command.
+      oci-cli
       openssh
       p7zip
       # pandoc # removed 2026-09-15: reclaiming disk
