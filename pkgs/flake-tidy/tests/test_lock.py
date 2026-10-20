@@ -501,3 +501,207 @@ class TestForgeHostAndDir:
         )
         assert "host=gh.example.com" in s
         assert "dir=sub" in s
+
+
+class TestGitUrlFetchAttributes:
+    """#528 + #538: the git URL rebuild dropped the boolean fetch
+    attributes source_key treats as source-distinguishing —
+    submodules (#528), shallow and allRefs (#538) — and
+    node_original_url joined its params with a second '?' when the
+    raw URL already carried a query."""
+
+    @staticmethod
+    def _node(**orig):
+        base = {"type": "git", "url": "https://example.com/tool.git"}
+        base.update(orig)
+        return {"original": base}
+
+    def test_original_url_keeps_submodules(self):
+        assert flake_tidy.node_original_url(
+            self._node(rev="aaaa1111", submodules=True)
+        ) == "git+https://example.com/tool.git?rev=aaaa1111&submodules=1"
+        assert flake_tidy.node_original_url(
+            self._node(ref="main", submodules=True)
+        ) == "git+https://example.com/tool.git?ref=main&submodules=1"
+        assert flake_tidy.node_original_url(
+            self._node(submodules=True)
+        ) == "git+https://example.com/tool.git?submodules=1"
+
+    def test_original_url_keeps_shallow_and_all_refs(self):
+        assert flake_tidy.node_original_url(
+            self._node(rev="aaaa1111", shallow=True)
+        ) == "git+https://example.com/tool.git?rev=aaaa1111&shallow=1"
+        assert flake_tidy.node_original_url(
+            self._node(rev="aaaa1111", allRefs=True)
+        ) == "git+https://example.com/tool.git?rev=aaaa1111&allRefs=1"
+        assert flake_tidy.node_original_url(
+            self._node(shallow=True)
+        ) == "git+https://example.com/tool.git?shallow=1"
+
+    def test_original_url_no_second_question_mark(self):
+        """A raw URL already carrying ?shallow=1 joins params with &."""
+        assert flake_tidy.node_original_url(
+            self._node(
+                url="https://example.com/tool.git?shallow=1", ref="main"
+            )
+        ) == "git+https://example.com/tool.git?shallow=1&ref=main"
+
+    def test_false_attributes_not_emitted(self):
+        """Guard: false is the fetch default — plain shape unchanged."""
+        assert flake_tidy.node_original_url(
+            self._node(rev="aaaa1111", submodules=False, shallow=False)
+        ) == "git+https://example.com/tool.git?rev=aaaa1111"
+
+    def test_locked_url_keeps_fetch_attributes(self):
+        locked = {
+            "type": "git",
+            "url": "https://example.com/tool.git",
+            "rev": "aaaa1111",
+            "submodules": True,
+        }
+        assert (
+            flake_tidy._locked_url(locked)
+            == "git+https://example.com/tool.git?rev=aaaa1111&submodules=1"
+        )
+        assert flake_tidy._locked_url(
+            {**locked, "submodules": False, "shallow": True}
+        ) == "git+https://example.com/tool.git?rev=aaaa1111&shallow=1"
+        assert flake_tidy._locked_url(
+            {**locked, "submodules": False, "allRefs": True}
+        ) == "git+https://example.com/tool.git?rev=aaaa1111&allRefs=1"
+
+    def test_locked_fallback_keeps_submodules(self):
+        """The indirect-override fallbacks surface the locked
+        submodules flag via _locked_url."""
+        lock = TestLockedUrlFallbacks._indirect_lock(
+            {
+                "type": "git",
+                "url": "https://example.com/tool.git",
+                "rev": "aaaa1111",
+                "submodules": True,
+            }
+        )
+        expected = {
+            "tool": "git+https://example.com/tool.git?rev=aaaa1111&submodules=1"
+        }
+        assert flake_tidy.compute_indirect_overrides(lock) == expected
+        assert (
+            flake_tidy.build_override_from_flake_name(lock, "tool", "mytool")
+            == expected
+        )
+
+    def test_node_url_surfaces_fetch_attributes(self):
+        s = flake_tidy.node_url(self._node(rev="aaaa1111", shallow=True))
+        assert "shallow=1" in s
+        s = flake_tidy.node_url(self._node(allRefs=True, submodules=True))
+        assert "allRefs=1" in s
+        assert "submodules=1" in s
+        # Guard: a plain node keeps its pre-existing readable shape.
+        assert (
+            flake_tidy.node_url(self._node())
+            == "https://example.com/tool.git"
+        )
+
+
+class TestGenericDirAttribute:
+    """#537: dir is a generic flake-ref attribute, not forge-only —
+    tarball/file/path source_keys collided across dir, and every
+    non-forge URL rebuild dropped it, pointing at the root flake."""
+
+    @staticmethod
+    def _node(**orig):
+        return {"original": orig}
+
+    def test_source_key_distinguishes_dir_for_tarball_file_path(self):
+        for base in (
+            {"type": "tarball", "url": "https://example.com/t.tar.gz"},
+            {"type": "file", "url": "https://example.com/t"},
+            {"type": "path", "path": "./vendor"},
+        ):
+            a = flake_tidy.source_key(self._node(**base, dir="a"))
+            b = flake_tidy.source_key(self._node(**base, dir="b"))
+            plain = flake_tidy.source_key(self._node(**base))
+            assert a != b
+            assert a != plain
+
+    def test_source_key_plain_shape_unchanged_without_dir(self):
+        """Guard: nodes without dir keep the pre-#537 key shape."""
+        assert flake_tidy.source_key(
+            self._node(type="tarball", url="https://example.com/t.tar.gz")
+        ) == "tarball/https://example.com/t.tar.gz"
+        assert flake_tidy.source_key(
+            self._node(type="path", path="./vendor")
+        ) == "path/./vendor"
+
+    def test_original_url_keeps_dir(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="git", url="https://example.com/r.git", dir="flake1"
+            )
+        ) == "git+https://example.com/r.git?dir=flake1"
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="tarball",
+                url="https://example.com/t.tar.gz",
+                dir="sub",
+            )
+        ) == "https://example.com/t.tar.gz?dir=sub"
+        assert flake_tidy.node_original_url(
+            self._node(type="file", url="https://example.com/t", dir="sub")
+        ) == "file+https://example.com/t?dir=sub"
+        assert flake_tidy.node_original_url(
+            self._node(type="path", path="./vendor", dir="sub")
+        ) == "path:./vendor?dir=sub"
+
+    def test_original_url_dir_joins_existing_query_with_ampersand(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="tarball",
+                url="https://example.com/t.tar.gz?x=1",
+                dir="sub",
+            )
+        ) == "https://example.com/t.tar.gz?x=1&dir=sub"
+
+    def test_locked_url_keeps_dir(self):
+        assert flake_tidy._locked_url(
+            {
+                "type": "git",
+                "url": "https://example.com/r.git",
+                "rev": "aaaa1111",
+                "dir": "flake1",
+            }
+        ) == "git+https://example.com/r.git?rev=aaaa1111&dir=flake1"
+        assert flake_tidy._locked_url(
+            {
+                "type": "tarball",
+                "url": "https://example.com/t.tar.gz",
+                "dir": "sub",
+            }
+        ) == "https://example.com/t.tar.gz?dir=sub"
+        assert flake_tidy._locked_url(
+            {"type": "file", "url": "https://example.com/t", "dir": "sub"}
+        ) == "file+https://example.com/t?dir=sub"
+        assert flake_tidy._locked_url(
+            {"type": "path", "path": "./vendor", "dir": "sub"}
+        ) == "path:./vendor?dir=sub"
+
+    def test_node_url_surfaces_dir(self):
+        assert "dir=sub" in flake_tidy.node_url(
+            self._node(
+                type="git", url="https://example.com/r.git", dir="sub"
+            )
+        )
+        assert "dir=sub" in flake_tidy.node_url(
+            self._node(
+                type="tarball",
+                url="https://example.com/t.tar.gz",
+                dir="sub",
+            )
+        )
+        assert "dir=sub" in flake_tidy.node_url(
+            self._node(type="path", path="./vendor", dir="sub")
+        )
+        # Guard: plain shapes unchanged.
+        assert flake_tidy.node_url(
+            self._node(type="path", path="./vendor")
+        ) == "path:./vendor"
