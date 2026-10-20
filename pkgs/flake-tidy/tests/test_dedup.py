@@ -649,3 +649,71 @@ class TestAnalyzeDedupPinnedVsUnpinned:
         assert [
             p for p in proposals if p["follows_parts"] == ["tool", "lib"]
         ] == [], f"proposals: {proposals}"
+
+
+class TestAnalyzeDedupGitRevDivergence:
+    """#519: same git URL pinned at two different revs must dedup to the
+    newest locked lastModified — the #509 consolidation, for git-type
+    inputs (which source_key's fallback never grouped)."""
+
+    _URL = "https://example.com/tool.git"
+
+    @classmethod
+    def _node(cls, rev, last_modified, nar_hash, pin=True):
+        original = {"type": "git", "url": cls._URL}
+        if pin:
+            original["rev"] = rev
+        return {
+            "locked": {
+                "lastModified": last_modified,
+                "narHash": nar_hash,
+                "rev": rev,
+                "type": "git",
+                "url": cls._URL,
+            },
+            "original": original,
+        }
+
+    def _two_root_lock(self, pinned_old=True, pinned_new=True):
+        return {
+            "nodes": {
+                "root": {"inputs": {"old": "old", "new": "new"}},
+                "old": self._node("aaaa", 100, "sha256-A", pin=pinned_old),
+                "new": self._node("bbbb", 200, "sha256-B", pin=pinned_new),
+            },
+            "root": "root",
+            "version": 7,
+        }
+
+    _TWO_ROOT_CONTENT = """{
+  inputs = {
+    old.url = "git+https://example.com/tool.git?rev=aaaa";
+    new.url = "git+https://example.com/tool.git?rev=bbbb";
+  };
+  outputs = _: {};
+}
+"""
+
+    def test_git_dedup_to_newest_rev(self, default_config):
+        proposals = flake_tidy.analyze_dedup(
+            self._two_root_lock(), self._TWO_ROOT_CONTENT, default_config
+        )
+        root_dedup = [p for p in proposals if p["follows_parts"] == ["old"]]
+        assert len(root_dedup) == 1, f"proposals: {proposals}"
+        p = root_dedup[0]
+        assert p["target"] == "new"
+        assert p.get("rev_dedup") is True
+        assert p["kept_rev"] == "bbbb"
+        assert p["dropped_rev"] == "aaaa"
+
+    def test_git_pinned_vs_unpinned_no_proposal(self, default_config):
+        """#512 for git: a pinned input and an unpinned one of the same
+        URL propose nothing, in either pin position."""
+        for lock in (
+            self._two_root_lock(pinned_old=True, pinned_new=False),
+            self._two_root_lock(pinned_old=False, pinned_new=True),
+        ):
+            proposals = flake_tidy.analyze_dedup(
+                lock, self._TWO_ROOT_CONTENT, default_config
+            )
+            assert proposals == [], f"proposals: {proposals}"
