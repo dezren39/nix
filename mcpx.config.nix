@@ -92,18 +92,41 @@ let
     };
     context7 = remote "https://mcp.context7.com/mcp";
     datadog = remote "https://mcp.datadoghq.com/v1/mcp?toolsets=core,workflows,alerting&omit_tools=delete_datadog_workflow";
-    atlassian = remote "https://mcp.atlassian.com/v2/mcp?tools=all";
+    # Pin staticOAuthClientMetadata.scope to the 20 read/search scopes granted
+    # during OAuth consent so mcp-remote's scopeRequestChanged(tokens) never
+    # wipes ~/.mcp-auth/mcp-remote-v1/884934a228803babc1724091e0d7956a_tokens.json
+    # when /.well-known/oauth-protected-resource/v2/mcp changes or times out.
+    atlassian = {
+      command = bin "mcp-remote";
+      args = [
+        "https://mcp.atlassian.com/v2/mcp?tools=all"
+        "--static-oauth-client-metadata"
+        (builtins.toJSON {
+          scope = "email offline_access read:account read:all:twg read:artifacts:agent-interface read:assets:agent-interface read:capacity-planning:agent-interface read:confluence:agent-interface read:focus:agent-interface read:goals:agent-interface read:jira:agent-interface read:loom:agent-interface read:me read:projects:agent-interface read:talent:agent-interface read:teams:agent-interface search:code:agent-interface search:confluence:agent-interface search:jira:agent-interface search:rovo:agent-interface";
+        })
+      ];
+    };
     github = {
       command = bin "github-mcp";
       args = [ ];
     };
+    # --skip-auth lets mcp-proxy-for-aws-cli initialize and advertise its 8 tools
+    # even when logged out of AWS. Reading `aws configure list-profiles` at start
+    # exposes an `aws_profile` enum on aws___run_script / aws___get_presigned_url /
+    # aws___get_tasks without hardcoding profile names in this repo.
     aws = {
-      command = bin "uvx";
+      command = "/bin/sh";
       args = [
-        "mcp-proxy-for-aws-cli@1.7.0"
-        "https://aws-mcp.us-east-1.api.aws/mcp"
-        "--metadata"
-        "AWS_REGION=us-east-1"
+        "-c"
+        ''
+          profiles="$(/run/current-system/sw/bin/aws configure list-profiles </dev/null 2>/dev/null | /usr/bin/grep -v '^mfa$' | /usr/bin/tr '\n' ' ')"
+          if [ -n "$profiles" ]; then
+            # shellcheck disable=SC2086
+            exec /run/current-system/sw/bin/uvx mcp-proxy-for-aws-cli@1.7.0 https://aws-mcp.us-east-1.api.aws/mcp --metadata AWS_REGION=us-east-1 --skip-auth --profile mfa $profiles
+          else
+            exec /run/current-system/sw/bin/uvx mcp-proxy-for-aws-cli@1.7.0 https://aws-mcp.us-east-1.api.aws/mcp --metadata AWS_REGION=us-east-1 --skip-auth
+          fi
+        ''
       ];
     };
     aws-knowledge = {
