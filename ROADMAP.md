@@ -110,3 +110,9 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ARCHITECTURE.md flake summary brought up to date             | 2026-10-20 | #493       |
 | flake-tidy parse-result isolation gate (for #454)            | 2026-10-20 | #494       |
 | mcpx-nixbuild push runs get their own group (code#392 half)  | 2026-10-20 | #495       |
+| DeterminateSystems action pinned to a v23 SHA (code#375 set) | 2026-10-20 | #483       |
+| ROADMAP Done records the 2026-10-19/20 merges                | 2026-10-20 | #489       |
+| ROADMAP Done records the #487 and #492 merges                | 2026-10-20 | #498       |
+| ROADMAP Done records the #494 and #495 merges                | 2026-10-20 | #500       |
+| flake-tidy dedups same-repo pins at different revs           | 2026-10-20 | #511       |
+| mcpx-src bumped for the 30m check timeout (code#510)         | 2026-10-20 | #513       |
