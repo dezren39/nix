@@ -193,6 +193,23 @@ def _load_config_file(path: str, verbose: bool = False) -> dict[str, Any]:
     return cfg
 
 
+def _nix_string_literal(value: str) -> str:
+    """Render a Python string as a Nix double-quoted string literal.
+
+    Escapes the characters Nix treats specially inside a string —
+    backslash, the quote itself, and the `${` antiquotation opener —
+    plus the whitespace control characters."""
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("${", "\\${")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
 def load_config(
     flake_dir: str,
     verbose: bool = False,
@@ -251,8 +268,15 @@ def load_config(
     # when full flake evaluation (Try 1) fails.
     probe_ok = False
     if cfg is None:
+        # The path must reach Nix as a quoted string, not as a path
+        # literal: a path literal cannot contain a space (or several
+        # other characters legal in directory names), so interpolating
+        # flake_dir unquoted made the probe fail for any checkout under
+        # e.g. "~/My Projects" (#487). builtins.toPath needs an absolute
+        # path, so resolve flake_dir first (main() already passes one).
+        flake_nix = os.path.join(os.path.abspath(flake_dir), "flake.nix")
         expr = (
-            f"let f = import {flake_dir}/flake.nix; "
+            f"let f = import (builtins.toPath {_nix_string_literal(flake_nix)}); "
             "o = (f.outputs or (_: {})) {}; "
             "in o.flakeTidy or f.flakeTidy or {}"
         )

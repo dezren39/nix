@@ -152,6 +152,53 @@ class TestLoadConfigStrict:
         result = flake_tidy.load_config(str(tmp_path), strict=True)
         assert result["exclude"]["follows"] == ["opencode.nixpkgs"]
 
+    def test_import_probe_quotes_space_in_flake_dir(self, tmp_path, monkeypatch):
+        """Regression (#487): the probe interpolated flake_dir unquoted
+        into the Nix expression, and a Nix path literal cannot contain a
+        space — so for a checkout under a spaced path the probe could
+        never succeed. The path must be passed as a quoted string via
+        builtins.toPath."""
+        spaced = tmp_path / "probe test"
+        spaced.mkdir()
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            if "--impure" in cmd:
+                captured["expr"] = cmd[cmd.index("--expr") + 1]
+                payload = {"exclude": {"follows": ["a.b"]}}
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout=json.dumps(payload), stderr=""
+                )
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+
+        monkeypatch.setattr(flake_tidy.subprocess, "run", fake_run)
+        monkeypatch.delenv("FLAKE_TIDY_CONFIG", raising=False)
+        result = flake_tidy.load_config(str(spaced), strict=True)
+        assert result["exclude"]["follows"] == ["a.b"]
+        # The spaced path appears only inside a quoted Nix string handed
+        # to builtins.toPath — never as a bare path literal after import.
+        assert f'builtins.toPath "{spaced}/flake.nix"' in captured["expr"]
+        assert f"import {spaced}" not in captured["expr"]
+
+    def test_import_probe_escapes_nix_string_characters(self, monkeypatch):
+        """Directory names may also contain characters that are special
+        inside a Nix string (quote, backslash, the `${` antiquotation
+        opener); the generated expression must escape all of them."""
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            if "--impure" in cmd:
+                captured["expr"] = cmd[cmd.index("--expr") + 1]
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="{}", stderr=""
+                )
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+
+        monkeypatch.setattr(flake_tidy.subprocess, "run", fake_run)
+        monkeypatch.delenv("FLAKE_TIDY_CONFIG", raising=False)
+        flake_tidy.load_config('/tmp/we"ird\\${x}', strict=True)
+        assert 'builtins.toPath "/tmp/we\\"ird\\\\\\${x}/flake.nix"' in captured["expr"]
+
 
 class TestMergeCLI:
     def _make_args(self, **kwargs):
