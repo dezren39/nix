@@ -626,6 +626,23 @@ def _locked_url(locked: dict) -> str | None:
     lt = locked.get("type", "")
     if lt in ("github", "gitlab", "sourcehut"):
         return f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+    if lt == "tarball":
+        # #533: tarball/file/path locked nodes fell through to None, so
+        # indirect overrides for them were silently dropped. Mirror
+        # node_original_url's conventions for these types.
+        return locked.get("url", "") or None
+    if lt == "file":
+        raw = locked.get("url", "")
+        if not raw:
+            return None
+        if raw.startswith(("https://", "http://")):
+            return f"file+{raw}"
+        return raw
+    if lt == "path":
+        raw = locked.get("path", "")
+        if not raw:
+            return None
+        return f"path:{raw}"
     if lt == "git":
         raw = locked.get("url", "")
         if not raw:
