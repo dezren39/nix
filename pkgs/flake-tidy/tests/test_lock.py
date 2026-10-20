@@ -154,3 +154,67 @@ class TestSourceKeyRevGrouping:
             }
         }
         assert flake_tidy.source_key(pinned) != flake_tidy.source_key(ref_only)
+
+
+class TestSourceKeyGit:
+    """#519: git-type inputs fell through to source_key's JSON-dump
+    fallback, which embeds the rev value — the #509 bug for git inputs,
+    and pin-ness only separated by accident."""
+
+    @staticmethod
+    def _node(**orig):
+        base = {"type": "git", "url": "https://example.com/tool.git"}
+        base.update(orig)
+        return {"original": base}
+
+    def test_rev_not_part_of_source_key(self):
+        """Two git pins of one URL at different revs share a key."""
+        assert flake_tidy.source_key(self._node(rev="aaaa")) == (
+            flake_tidy.source_key(self._node(rev="bbbb"))
+        )
+
+    def test_rev_pinned_key_differs_from_unpinned(self):
+        """A git rev pin must not group with an unpinned git node."""
+        assert flake_tidy.source_key(self._node(rev="aaaa")) != (
+            flake_tidy.source_key(self._node())
+        )
+
+    def test_rev_pinned_key_differs_from_ref_only(self):
+        """A git rev pin alongside a ref must not group with ref-only."""
+        assert flake_tidy.source_key(
+            self._node(rev="aaaa", ref="main")
+        ) != flake_tidy.source_key(self._node(ref="main"))
+
+    def test_url_and_ref_still_distinguish(self):
+        """Different URLs, or different refs, keep separate keys."""
+        assert flake_tidy.source_key(self._node(rev="aaaa")) != (
+            flake_tidy.source_key(
+                self._node(rev="aaaa", url="https://example.com/other.git")
+            )
+        )
+        assert flake_tidy.source_key(self._node(ref="main")) != (
+            flake_tidy.source_key(self._node(ref="dev"))
+        )
+
+    def test_other_original_fields_still_distinguish(self):
+        """Fields like submodules describe a different fetch of the same
+        URL; only the rev value is dropped from the key."""
+        assert flake_tidy.source_key(self._node(rev="aaaa")) != (
+            flake_tidy.source_key(self._node(rev="aaaa", submodules=True))
+        )
+
+    def test_node_url_git_is_the_url_not_a_json_dump(self):
+        """node_url for a git node returns the URL (ref/rev readable),
+        so exclusion patterns can match it."""
+        assert (
+            flake_tidy.node_url(self._node())
+            == "https://example.com/tool.git"
+        )
+        assert (
+            flake_tidy.node_url(self._node(rev="aaaa111122223333"))
+            == "https://example.com/tool.git/aaaa11112222"
+        )
+        assert (
+            flake_tidy.node_url(self._node(ref="main"))
+            == "https://example.com/tool.git/main"
+        )

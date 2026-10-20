@@ -490,6 +490,24 @@ def source_key(node_data: dict) -> str:
             # the marker can never collide with a real ref component.
             return f"{t}/{owner}/{repo}/{ref}:rev-pinned"
         return f"{t}/{owner}/{repo}/{ref}"
+    elif t == "git":
+        url = orig.get("url", "")
+        ref = orig.get("ref", "")
+        # Same rev treatment as the forge types above (#519): the pinned
+        # rev VALUE is not part of the key (#509 — two pins of one repo at
+        # different revs must group), but pin-NESS is (#512 — a pinned
+        # node must never group with an unpinned or ref-only one). Any
+        # other original field (e.g. submodules) DOES distinguish the
+        # source, so it stays in the key as a sorted JSON suffix.
+        extras = {
+            k: v
+            for k, v in orig.items()
+            if k not in ("type", "url", "ref", "rev")
+        }
+        extra = f"/{json.dumps(extras, sort_keys=True)}" if extras else ""
+        if "rev" in orig:
+            return f"git/{url}/{ref}:rev-pinned{extra}"
+        return f"git/{url}/{ref}{extra}"
     elif t == "tarball":
         return f"tarball/{orig.get('url', '')}"
     elif t == "file":
@@ -522,6 +540,16 @@ def node_url(node_data: dict) -> str:
     t = orig.get("type", "")
     if t in ("github", "gitlab", "sourcehut"):
         s = f"{t}:{orig.get('owner', '')}/{orig.get('repo', '')}"
+        if "ref" in orig:
+            s += f"/{orig['ref']}"
+        elif "rev" in orig:
+            s += f"/{orig['rev'][:12]}"
+        return s
+    elif t == "git":
+        # The fallback below JSON-dumps the original, which no user
+        # exclusion pattern can ever match (#519) — return the URL with
+        # the ref/rev readable, like the forge branch above.
+        s = orig.get("url", "")
         if "ref" in orig:
             s += f"/{orig['ref']}"
         elif "rev" in orig:
