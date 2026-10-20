@@ -231,15 +231,15 @@ class TestCrossTypeDedup:
         root_original = (
             {"owner": "numtide", "repo": "flake-utils", "type": root_type}
             if root_type in ("github", "gitlab")
-            else {"url": "https://github.com/numtide/flake-utils.git", "type": "git"}
-            if root_type == "git"
+            else {"url": "https://github.com/numtide/flake-utils.git", "type": root_type}
+            if root_type in ("git", "hg")
             else {"id": "flake-utils", "type": root_type}
         )
         trans_original = (
             {"id": "flake-utils", "type": trans_type}
             if trans_type == "indirect"
-            else {"url": "https://github.com/numtide/flake-utils.git", "type": "git"}
-            if trans_type == "git"
+            else {"url": "https://github.com/numtide/flake-utils.git", "type": trans_type}
+            if trans_type in ("git", "hg")
             else {"owner": "numtide", "repo": "flake-utils", "type": trans_type}
         )
         return {
@@ -341,6 +341,46 @@ class TestCrossTypeDedup:
             root_type="indirect", trans_type="github", same_hash=True
         )
         # Adjust content to match indirect root
+        content = """{
+  inputs = {
+    flake-utils.url = "indirect:flake-utils";
+    mac-app-util.url = "github:hraban/mac-app-util";
+  };
+  outputs = _: {};
+}
+"""
+        proposals = flake_tidy.analyze_dedup(lock, content, default_config)
+        cross = [
+            p
+            for p in proposals
+            if p["follows_parts"] == ["mac-app-util", "flake-utils"]
+            and "cross-type" in p.get("source_key", "")
+        ]
+        assert len(cross) == 0
+
+    def test_cross_type_indirect_follows_hg(self, default_config):
+        """#539: hg was unlisted in _TYPE_PREF (default 99, below
+        indirect), so an explicit hg root was never chosen."""
+        lock = self._make_cross_type_lock(
+            root_type="hg", trans_type="indirect", same_hash=True
+        )
+        proposals = flake_tidy.analyze_dedup(lock, self.CONTENT, default_config)
+        cross = [
+            p
+            for p in proposals
+            if p["follows_parts"] == ["mac-app-util", "flake-utils"]
+            and p["target"] == "flake-utils"
+        ]
+        assert len(cross) == 1, f"Expected cross-type dedup proposal, got: {proposals}"
+
+    def test_cross_type_skips_if_transitive_hg_more_explicit(
+        self, default_config
+    ):
+        """#539: an hg transitive node must not be folded into an
+        indirect root — hg ranks above indirect."""
+        lock = self._make_cross_type_lock(
+            root_type="indirect", trans_type="hg", same_hash=True
+        )
         content = """{
   inputs = {
     flake-utils.url = "indirect:flake-utils";
@@ -767,6 +807,72 @@ class TestAnalyzeDedupGitRevDivergence:
     def test_git_pinned_vs_unpinned_no_proposal(self, default_config):
         """#512 for git: a pinned input and an unpinned one of the same
         URL propose nothing, in either pin position."""
+        for lock in (
+            self._two_root_lock(pinned_old=True, pinned_new=False),
+            self._two_root_lock(pinned_old=False, pinned_new=True),
+        ):
+            proposals = flake_tidy.analyze_dedup(
+                lock, self._TWO_ROOT_CONTENT, default_config
+            )
+            assert proposals == [], f"proposals: {proposals}"
+
+
+class TestAnalyzeDedupHgRevDivergence:
+    """#539: same hg URL pinned at two different revs must dedup to
+    the newest locked lastModified — the #509 consolidation, for
+    hg-type inputs (which source_key's fallback never grouped)."""
+
+    _URL = "https://example.com/repo"
+
+    @classmethod
+    def _node(cls, rev, last_modified, nar_hash, pin=True):
+        original = {"type": "hg", "url": cls._URL}
+        if pin:
+            original["rev"] = rev
+        return {
+            "locked": {
+                "lastModified": last_modified,
+                "narHash": nar_hash,
+                "rev": rev,
+                "type": "hg",
+                "url": cls._URL,
+            },
+            "original": original,
+        }
+
+    def _two_root_lock(self, pinned_old=True, pinned_new=True):
+        return {
+            "nodes": {
+                "root": {"inputs": {"old": "old", "new": "new"}},
+                "old": self._node("aaaa", 100, "sha256-A", pin=pinned_old),
+                "new": self._node("bbbb", 200, "sha256-B", pin=pinned_new),
+            },
+            "root": "root",
+            "version": 7,
+        }
+
+    _TWO_ROOT_CONTENT = """{
+  inputs = {
+    old.url = "hg+https://example.com/repo?rev=aaaa";
+    new.url = "hg+https://example.com/repo?rev=bbbb";
+  };
+  outputs = _: {};
+}
+"""
+
+    def test_hg_dedup_to_newest_rev(self, default_config):
+        proposals = flake_tidy.analyze_dedup(
+            self._two_root_lock(), self._TWO_ROOT_CONTENT, default_config
+        )
+        root_dedup = [p for p in proposals if p["follows_parts"] == ["old"]]
+        assert len(root_dedup) == 1, f"proposals: {proposals}"
+        p = root_dedup[0]
+        assert p["target"] == "new"
+        assert p.get("rev_dedup") is True
+        assert p["kept_rev"] == "bbbb"
+        assert p["dropped_rev"] == "aaaa"
+
+    def test_hg_pinned_vs_unpinned_no_proposal(self, default_config):
         for lock in (
             self._two_root_lock(pinned_old=True, pinned_new=False),
             self._two_root_lock(pinned_old=False, pinned_new=True),

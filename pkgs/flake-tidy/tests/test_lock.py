@@ -229,6 +229,67 @@ class TestSourceKeyGit:
         )
 
 
+class TestSourceKeyHg:
+    """#539: hg-type inputs fell through to source_key's JSON-dump
+    fallback like git did before #519 — the rev value was embedded,
+    so two pins of one hg repo at different revs never grouped."""
+
+    @staticmethod
+    def _node(**orig):
+        base = {"type": "hg", "url": "https://example.com/repo"}
+        base.update(orig)
+        return {"original": base}
+
+    def test_rev_not_part_of_source_key(self):
+        """Two hg pins of one URL at different revs share a key."""
+        assert flake_tidy.source_key(self._node(rev="aaaa")) == (
+            flake_tidy.source_key(self._node(rev="ffff"))
+        )
+        assert flake_tidy.source_key(self._node(rev="aaaa")) == (
+            "hg/https://example.com/repo/:rev-pinned"
+        )
+
+    def test_rev_pinned_key_differs_from_unpinned(self):
+        assert flake_tidy.source_key(self._node(rev="aaaa")) != (
+            flake_tidy.source_key(self._node())
+        )
+
+    def test_rev_pinned_key_differs_from_ref_only(self):
+        assert flake_tidy.source_key(
+            self._node(rev="aaaa", ref="default")
+        ) != flake_tidy.source_key(self._node(ref="default"))
+
+    def test_url_ref_and_dir_still_distinguish(self):
+        assert flake_tidy.source_key(self._node(rev="aaaa")) != (
+            flake_tidy.source_key(
+                self._node(rev="aaaa", url="https://example.com/other")
+            )
+        )
+        assert flake_tidy.source_key(self._node(ref="default")) != (
+            flake_tidy.source_key(self._node(ref="stable"))
+        )
+        assert flake_tidy.source_key(self._node(rev="aaaa")) != (
+            flake_tidy.source_key(self._node(rev="aaaa", dir="sub"))
+        )
+
+    def test_node_url_hg_is_the_url_not_a_json_dump(self):
+        assert (
+            flake_tidy.node_url(self._node()) == "https://example.com/repo"
+        )
+        assert (
+            flake_tidy.node_url(self._node(rev="aaaa111122223333"))
+            == "https://example.com/repo/aaaa11112222"
+        )
+        assert (
+            flake_tidy.node_url(self._node(ref="default"))
+            == "https://example.com/repo/default"
+        )
+        assert (
+            flake_tidy.node_url(self._node(ref="default", dir="sub"))
+            == "https://example.com/repo/default?dir=sub"
+        )
+
+
 class TestNodeOriginalUrl:
     """#521: node_original_url must return a nix-resolvable URL for every
     type source_key/node_url recognise — its git and sourcehut nodes fell
@@ -260,6 +321,27 @@ class TestNodeOriginalUrl:
                 type="git", url="https://example.com/tool.git", ref="main", rev="aaaa"
             )
         ) == "git+https://example.com/tool.git?ref=main&rev=aaaa"
+
+    def test_hg_plain(self):
+        """#539: hg original URL is hg+<url>, not the JSON blob."""
+        assert flake_tidy.node_original_url(
+            self._node(type="hg", url="https://example.com/repo")
+        ) == "hg+https://example.com/repo"
+
+    def test_hg_ref_and_rev(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="hg",
+                url="https://example.com/repo",
+                ref="default",
+                rev="aaaa",
+            )
+        ) == "hg+https://example.com/repo?ref=default&rev=aaaa"
+
+    def test_hg_dir_kept_but_git_booleans_not_invented(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="hg", url="https://example.com/repo", dir="sub")
+        ) == "hg+https://example.com/repo?dir=sub"
 
     def test_sourcehut_ref(self):
         assert flake_tidy.node_original_url(
@@ -354,6 +436,30 @@ class TestLockedUrlFallbacks:
         assert flake_tidy._resolve_transitive_url(lock, "parent", "child") == (
             "git+https://example.com/child.git?rev=cccc3333"
         )
+
+    _HG_LOCKED = {
+        "type": "hg",
+        "url": "https://example.com/repo",
+        "rev": "aaaa1111",
+    }
+    _HG_URL = "hg+https://example.com/repo?rev=aaaa1111"
+
+    def test_locked_url_hg(self):
+        """#539: an hg locked node yields hg+<url>?rev=, not None."""
+        assert flake_tidy._locked_url(self._HG_LOCKED) == self._HG_URL
+        assert flake_tidy._locked_url({"type": "hg"}) is None
+
+    def test_build_override_from_flake_name_hg_locked(self):
+        lock = self._indirect_lock(self._HG_LOCKED)
+        assert flake_tidy.build_override_from_flake_name(
+            lock, "tool", "mytool"
+        ) == {"tool": self._HG_URL}
+
+    def test_compute_indirect_overrides_hg_locked(self):
+        lock = self._indirect_lock(self._HG_LOCKED)
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "tool": self._HG_URL
+        }
 
     def test_compute_indirect_overrides_sourcehut_locked(self):
         """The compute_indirect_overrides fallback only knew

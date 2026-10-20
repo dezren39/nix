@@ -503,7 +503,7 @@ def source_key(node_data: dict) -> str:
             # the marker can never collide with a real ref component.
             return f"{t}/{owner}/{repo}/{ref}:rev-pinned{extra}"
         return f"{t}/{owner}/{repo}/{ref}{extra}"
-    elif t == "git":
+    elif t in ("git", "hg"):
         url = orig.get("url", "")
         ref = orig.get("ref", "")
         # Same rev treatment as the forge types above (#519): the pinned
@@ -512,6 +512,8 @@ def source_key(node_data: dict) -> str:
         # node must never group with an unpinned or ref-only one). Any
         # other original field (e.g. submodules) DOES distinguish the
         # source, so it stays in the key as a sorted JSON suffix.
+        # hg (#539) shares git's url+ref/rev shape, so it takes the
+        # same branch; before this it fell through to the JSON dump.
         extras = {
             k: v
             for k, v in orig.items()
@@ -519,8 +521,8 @@ def source_key(node_data: dict) -> str:
         }
         extra = f"/{json.dumps(extras, sort_keys=True)}" if extras else ""
         if "rev" in orig:
-            return f"git/{url}/{ref}:rev-pinned{extra}"
-        return f"git/{url}/{ref}{extra}"
+            return f"{t}/{url}/{ref}:rev-pinned{extra}"
+        return f"{t}/{url}/{ref}{extra}"
     elif t == "tarball":
         # dir is a generic flake-ref attribute (#537): two sub-flakes
         # of one tarball must not share a dedup group. Keep the exact
@@ -619,6 +621,24 @@ def _git_params(spec: dict, include_ref_rev: bool = True) -> list:
     return params
 
 
+def _hg_params(spec: dict, include_ref_rev: bool = True) -> list:
+    """Query params that must survive an hg URL rebuild (#539).
+
+    Mercurial flake refs carry ref/rev and the generic dir attribute,
+    but none of git's boolean fetch attributes (submodules/shallow/
+    allRefs are git-only), so hg gets its own narrower helper rather
+    than reusing _git_params.
+    """
+    params = []
+    if include_ref_rev:
+        if "ref" in spec:
+            params.append(f"ref={spec['ref']}")
+        if "rev" in spec:
+            params.append(f"rev={spec['rev']}")
+    params += _dir_params(spec)
+    return params
+
+
 def node_url(node_data: dict) -> str:
     """Readable URL string for a node."""
     orig = node_data.get("original", {})
@@ -645,6 +665,18 @@ def node_url(node_data: dict) -> str:
         # patterns can distinguish a sub-flake / submodule / shallow /
         # allRefs fetch from the plain one (#537, #538, #528).
         params = _git_params(orig, include_ref_rev=False)
+        if params:
+            s += "?" + "&".join(params)
+        return s
+    elif t == "hg":
+        # Same JSON-dump fallback problem as git (#539): return the
+        # URL with ref/rev readable, surfacing dir via _hg_params.
+        s = orig.get("url", "")
+        if "ref" in orig:
+            s += f"/{orig['ref']}"
+        elif "rev" in orig:
+            s += f"/{orig['rev'][:12]}"
+        params = _hg_params(orig, include_ref_rev=False)
         if params:
             s += "?" + "&".join(params)
         return s
@@ -688,6 +720,12 @@ def node_original_url(node_data: dict) -> str:
         raw = orig.get("url", "")
         url = raw if raw.startswith("git+") else f"git+{raw}"
         return _append_query(url, _git_params(orig))
+    elif t == "hg":
+        # Mirror git (#539): hg+<url>?ref=/rev= is the resolvable
+        # flake-ref form Nix accepts for Mercurial inputs.
+        raw = orig.get("url", "")
+        url = raw if raw.startswith("hg+") else f"hg+{raw}"
+        return _append_query(url, _hg_params(orig))
     elif t == "tarball":
         return _append_query(orig.get("url", ""), _dir_params(orig))
     elif t == "file":
@@ -752,6 +790,14 @@ def _locked_url(locked: dict) -> str | None:
             return None
         url = raw if raw.startswith("git+") else f"git+{raw}"
         return _append_query(url, _git_params(locked))
+    if lt == "hg":
+        # #539: hg locked nodes fell through to None, dropping
+        # indirect overrides like git did before the fix above.
+        raw = locked.get("url", "")
+        if not raw:
+            return None
+        url = raw if raw.startswith("hg+") else f"hg+{raw}"
+        return _append_query(url, _hg_params(locked))
     return None
 
 
@@ -2193,19 +2239,21 @@ def analyze_dedup(
     # source_key grouping above misses cases where the original type differs
     # (e.g. github vs indirect) but locked content is byte-identical.
     # Fall back to locked hash comparison for these stragglers, preferring
-    # explicit types (github/gitlab/sourcehut/git) over indirect.
+    # explicit types (github/gitlab/sourcehut/git/hg) over indirect.
     # git must be listed (#526): unlisted types default to 99, which ranked
     # an explicit git URL below indirect — git roots were never chosen and
     # git transitive inputs were wrongly proposed as follows to indirect.
+    # hg must be listed for the same reason (#539).
     _TYPE_PREF = {
         "github": 0,
         "gitlab": 1,
         "sourcehut": 2,
         "git": 3,
-        "tarball": 4,
-        "file": 5,
-        "path": 6,
-        "indirect": 7,
+        "hg": 4,
+        "tarball": 5,
+        "file": 6,
+        "path": 7,
+        "indirect": 8,
     }
 
     grouped_nodes: set[str] = set()
