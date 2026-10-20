@@ -476,6 +476,19 @@ def source_key(node_data: dict) -> str:
         owner = orig.get("owner", "").lower()
         repo = orig.get("repo", "").lower()
         ref = orig.get("ref", "")
+        # Any other original field DOES distinguish the source (#535,
+        # the git branch's #519 treatment applied to the forge types):
+        # host names a different server (GitHub Enterprise, a
+        # self-hosted GitLab, hg.sr.ht instead of git.sr.ht) and dir
+        # names a different sub-flake of the same repo. Both stay in
+        # the key as a sorted JSON suffix; nodes without extra fields
+        # keep the exact pre-#535 key shape.
+        extras = {
+            k: v
+            for k, v in orig.items()
+            if k not in ("type", "owner", "repo", "ref", "rev")
+        }
+        extra = f"/{json.dumps(extras, sort_keys=True)}" if extras else ""
         if "rev" in orig:
             # The pinned rev VALUE is deliberately NOT part of the key
             # (#509): two pins of the same repo at different revs must
@@ -488,8 +501,8 @@ def source_key(node_data: dict) -> str:
             # silently discard a deliberate pin, or freeze a tracking
             # input at a fixed rev. ":" cannot appear in a git ref, so
             # the marker can never collide with a real ref component.
-            return f"{t}/{owner}/{repo}/{ref}:rev-pinned"
-        return f"{t}/{owner}/{repo}/{ref}"
+            return f"{t}/{owner}/{repo}/{ref}:rev-pinned{extra}"
+        return f"{t}/{owner}/{repo}/{ref}{extra}"
     elif t == "git":
         url = orig.get("url", "")
         ref = orig.get("ref", "")
@@ -534,6 +547,22 @@ def is_path_input(node_data: dict) -> bool:
     return node_data.get("original", {}).get("type") == "path"
 
 
+def _forge_query(spec: dict) -> str:
+    """Query string carrying a forge spec's host/dir, or "" (#535).
+
+    host points at a non-default server (GitHub Enterprise, a
+    self-hosted GitLab, hg.sr.ht) and dir at a sub-flake of the repo;
+    a rebuilt URL without them names a different source than the lock
+    records. Order is fixed (host, then dir) so URLs are deterministic.
+    """
+    params = []
+    if "host" in spec:
+        params.append(f"host={spec['host']}")
+    if "dir" in spec:
+        params.append(f"dir={spec['dir']}")
+    return f"?{'&'.join(params)}" if params else ""
+
+
 def node_url(node_data: dict) -> str:
     """Readable URL string for a node."""
     orig = node_data.get("original", {})
@@ -544,7 +573,9 @@ def node_url(node_data: dict) -> str:
             s += f"/{orig['ref']}"
         elif "rev" in orig:
             s += f"/{orig['rev'][:12]}"
-        return s
+        # Surface host/dir so exclusion patterns can distinguish a
+        # self-hosted or sub-flake input from the plain one (#535).
+        return s + _forge_query(orig)
     elif t == "git":
         # The fallback below JSON-dumps the original, which no user
         # exclusion pattern can ever match (#519) — return the URL with
@@ -580,7 +611,9 @@ def node_original_url(node_data: dict) -> str:
             # A rev-pinned node with no ref keeps its pin (#521) —
             # dropping it would rebuild the URL at the default branch.
             url += f"/{orig['rev']}"
-        return url
+        # host/dir name a different server / sub-flake (#535) —
+        # dropping them rebuilds the URL at the default host/root.
+        return url + _forge_query(orig)
     elif t == "git":
         # The JSON-dump fallback below is not a URL (#521): callers pass
         # this string to --override-input and write it into flake.nix.
@@ -625,7 +658,12 @@ def _locked_url(locked: dict) -> str | None:
     """
     lt = locked.get("type", "")
     if lt in ("github", "gitlab", "sourcehut"):
-        return f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+        # host/dir survive into the override URL (#535), mirroring
+        # node_original_url's forge branch.
+        return (
+            f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+            + _forge_query(locked)
+        )
     if lt == "tarball":
         # #533: tarball/file/path locked nodes fell through to None, so
         # indirect overrides for them were silently dropped. Mirror
