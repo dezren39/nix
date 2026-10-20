@@ -218,3 +218,61 @@ class TestSourceKeyGit:
             flake_tidy.node_url(self._node(ref="main"))
             == "https://example.com/tool.git/main"
         )
+
+
+class TestNodeOriginalUrl:
+    """#521: node_original_url must return a nix-resolvable URL for every
+    type source_key/node_url recognise — its git and sourcehut nodes fell
+    through to a json.dumps blob that callers pass to --override-input
+    and write into flake.nix as a hoisted root input's url."""
+
+    @staticmethod
+    def _node(**orig):
+        return {"original": orig}
+
+    def test_git_plain(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="git", url="https://example.com/tool.git")
+        ) == "git+https://example.com/tool.git"
+
+    def test_git_ref(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="git", url="https://example.com/tool.git", ref="main")
+        ) == "git+https://example.com/tool.git?ref=main"
+
+    def test_git_rev(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="git", url="https://example.com/tool.git", rev="aaaa")
+        ) == "git+https://example.com/tool.git?rev=aaaa"
+
+    def test_git_ref_and_rev(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="git", url="https://example.com/tool.git", ref="main", rev="aaaa"
+            )
+        ) == "git+https://example.com/tool.git?ref=main&rev=aaaa"
+
+    def test_sourcehut_ref(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="sourcehut", owner="~user", repo="proj", ref="main")
+        ) == "sourcehut:~user/proj/main"
+
+    def test_sourcehut_rev_kept_when_no_ref(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="sourcehut", owner="~user", repo="proj", rev="bbbb")
+        ) == "sourcehut:~user/proj/bbbb"
+
+    def test_github_rev_kept_when_no_ref(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="github", owner="nixos", repo="nixpkgs", rev="cccc")
+        ) == "github:nixos/nixpkgs/cccc"
+
+    def test_no_json_blob_for_recognised_types(self):
+        for orig in (
+            {"type": "git", "url": "https://example.com/tool.git", "ref": "main"},
+            {"type": "sourcehut", "owner": "~user", "repo": "proj"},
+            {"type": "github", "owner": "nixos", "repo": "nixpkgs", "rev": "cccc"},
+        ):
+            assert not flake_tidy.node_original_url(
+                self._node(**orig)
+            ).startswith("{")
