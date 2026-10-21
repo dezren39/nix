@@ -643,6 +643,62 @@ class TestLockedUrlFallbacks:
         ) == {"tool": "github:nixos/nixpkgs"}
 
 
+class TestBuildOverrideInputsIndirect:
+    """#568: build_override_inputs returned the unresolvable
+    indirect: ref itself as the --override-input, shadowing the
+    locked-URL fallback in run_nix_flake_lock_robust."""
+
+    _LOCK = {
+        "nodes": {
+            "root": {"inputs": {"a": "a"}},
+            "a": {"inputs": {"b": "b"}},
+            "b": {
+                "original": {"type": "indirect", "id": "y"},
+                "locked": {
+                    "type": "github",
+                    "owner": "o",
+                    "repo": "r",
+                    "rev": "abc123",
+                },
+            },
+        },
+        "root": "root",
+        "version": 7,
+    }
+
+    def test_indirect_node_yields_no_override(self):
+        assert flake_tidy.build_override_inputs(self._LOCK, "a/b") == {}
+
+    def test_fallback_reaches_locked_url(self):
+        """The chain run_nix_flake_lock_robust follows: an empty
+        path-based result lets the flake-name fallback produce the
+        concrete locked URL."""
+        assert flake_tidy.build_override_inputs(self._LOCK, "a/b") == {}
+        assert flake_tidy.build_override_from_flake_name(
+            self._LOCK, "a/b", "y"
+        ) == {"a/b": "github:o/r"}
+
+    def test_direct_node_still_overrides(self):
+        """Guard: a non-indirect node at the path is unchanged."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a"}},
+                "a": {
+                    "original": {
+                        "type": "git",
+                        "url": "https://example.com/tool.git",
+                        "rev": "aaaa1111",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy.build_override_inputs(lock, "a") == {
+            "a": "git+https://example.com/tool.git?rev=aaaa1111"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
