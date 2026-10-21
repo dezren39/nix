@@ -43,6 +43,7 @@ except (AttributeError, OSError):
     pass  # Stream not reconfigurable (older Python or non-tty); default encoding is fine
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from common import HelpOnErrorParser, get_clients, _clamp_score
 
 import openai
@@ -153,6 +154,7 @@ def main():
     # Quality
     parser.add_argument("--min-score", type=float, default=7.0, help="Minimum average quality score to keep")
     parser.add_argument("--skip-grading", action="store_true", help="Skip quality grading (keep all)")
+    parser.add_argument("--concurrency", type=int, default=4, help="Parallel grading workers")
 
     # Output
     parser.add_argument("--output-dir", default="./distillation_data", help="Output directory")
@@ -206,16 +208,27 @@ def main():
 
     # Step 3: Quality grade and filter
     if not args.skip_grading:
-        print(f"\nGrading with {judge}...")
-        for i, ex in enumerate(examples):
+        print(f"\nGrading with {judge} (concurrency={args.concurrency})...")
+
+        def grade_one(idx):
+            ex = examples[idx]
             scores = grade_output(client, judge, ex["response"])
-            if scores:
-                ex["scores"] = scores
-                ex["avg_score"] = sum(scores.values()) / len(scores)
-            else:
-                ex["avg_score"] = 0
-            if (i + 1) % 25 == 0:
-                print(f"  Graded {i+1}/{len(examples)}")
+            return idx, scores
+
+        with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+            futures = {pool.submit(grade_one, i): i for i in range(len(examples))}
+            done = 0
+            for future in as_completed(futures):
+                idx, scores = future.result()
+                ex = examples[idx]
+                if scores:
+                    ex["scores"] = scores
+                    ex["avg_score"] = sum(scores.values()) / len(scores)
+                else:
+                    ex["avg_score"] = 0
+                done += 1
+                if done % 25 == 0:
+                    print(f"  Graded {done}/{len(examples)}")
 
         filtered = [ex for ex in examples if ex["avg_score"] >= args.min_score]
         avgs = [ex["avg_score"] for ex in examples if ex["avg_score"] > 0]
