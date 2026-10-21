@@ -515,6 +515,11 @@ def _normalize_vcs_url(url: str) -> str:
       and "[2001:db8::1]" name the same server. (The #579 port parsing
       reassembled the literal verbatim and skipped the lowercasing
       the plain-host branch applies.)
+    - one trailing dot is stripped from the host (#584): it is the
+      DNS root label, so "github.com." and "github.com" name the same
+      server — in every spelling family. Stripping it before the
+      _CASE_INSENSITIVE_PATH_HOSTS test also keeps the path case rule
+      applying to trailing-dot spellings of forge hosts.
 
     Deliberate non-rules (#555, decided here so the behaviour is a
     documented choice rather than an accident): ssh spellings
@@ -554,6 +559,12 @@ def _normalize_vcs_url(url: str) -> str:
         else:
             host, colon, port = hostport.partition(":")
             host = host.lower()
+            # #584: a trailing dot is the DNS root label — "github.com."
+            # is the same host as "github.com". Strip ONE trailing dot
+            # so the spelling does not split the group (and so the
+            # _CASE_INSENSITIVE_PATH_HOSTS test below sees the real host).
+            if len(host) > 1 and host.endswith("."):
+                host = host[:-1]
         # #579: drop an explicit default port — same endpoint, so it
         # must not split the group. Non-default or non-numeric ports
         # (and ports on schemes with no known default) stay verbatim.
@@ -586,6 +597,9 @@ def _normalize_vcs_url(url: str) -> str:
         userhost, _, path = u.partition(":")
         user, _, host = userhost.rpartition("@")
         host = host.lower()
+        # #584: same trailing-dot rule as the "://" branch.
+        if len(host) > 1 and host.endswith("."):
+            host = host[:-1]
         if host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()
             # #575: same at-most-one rule as the "://" branch.
