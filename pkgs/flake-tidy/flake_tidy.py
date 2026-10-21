@@ -1887,7 +1887,16 @@ def compute_indirect_overrides(
     overrides: dict[str, str] = {}
 
     # --- Case 1: indirect registry refs not in known set ---
-    def walk(node_name: str, prefix: str) -> None:
+    def walk(node_name: str, prefix: str, ancestors: frozenset = frozenset()) -> None:
+        # Per-path ancestor guard (#563): a lock graph whose string
+        # refs form a cycle (A inputs B, B inputs A) otherwise recurses
+        # until RecursionError crashes the whole run. The guard is
+        # per-path, NOT a global visited set — overrides are keyed by
+        # path, so a diamond (same node via several distinct paths)
+        # must still be walked once per path.
+        if node_name in ancestors:
+            return
+        ancestors = ancestors | {node_name}
         node = nodes.get(node_name, {})
         for inp_name, ref in node.get("inputs", {}).items():
             path = f"{prefix}/{inp_name}" if prefix else inp_name
@@ -1909,7 +1918,7 @@ def compute_indirect_overrides(
                         url = node_original_url(child)
                         if url and not url.startswith("indirect:"):
                             overrides[path] = url
-                walk(ref, path)
+                walk(ref, path, ancestors)
 
     walk("root", "")
 
