@@ -898,6 +898,45 @@ class TestNormalizeVcsUrlQuery:
         )
 
 
+class TestNormalizeVcsUrlTrailingDotHost:
+    """#584: a trailing dot on the host is the DNS root label —
+    "github.com." is the same host as "github.com" — but the host was
+    kept verbatim, so the spelling split the dedup group in both the
+    "://" and scp-like branches; on forge hosts the dot also defeated
+    the _CASE_INSENSITIVE_PATH_HOSTS membership test, so the path case
+    rule silently stopped applying to that spelling."""
+
+    def test_trailing_dot_groups_url_branch(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com./owner/repo")
+        b = flake_tidy._normalize_vcs_url("https://github.com/owner/repo")
+        assert a == b == "https://github.com/owner/repo"
+
+    def test_trailing_dot_groups_scp_branch(self):
+        a = flake_tidy._normalize_vcs_url("git@github.com.:owner/repo")
+        b = flake_tidy._normalize_vcs_url("git@github.com:owner/repo")
+        assert a == b == "git@github.com:owner/repo"
+
+    def test_trailing_dot_keeps_path_case_rule(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com./Owner/Repo")
+        b = flake_tidy._normalize_vcs_url("https://github.com/owner/repo")
+        assert a == b
+
+    def test_trailing_dot_case_sensitive_host_keeps_path_case(self):
+        a = flake_tidy._normalize_vcs_url("https://example.com./Repo")
+        b = flake_tidy._normalize_vcs_url("https://example.com/Repo")
+        assert a == b == "https://example.com/Repo"
+
+    def test_only_one_trailing_dot_stripped(self):
+        assert flake_tidy._normalize_vcs_url(
+            "https://example.com../Repo"
+        ) == "https://example.com./Repo"
+
+    def test_trailing_dot_with_default_port_groups(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com.:443/owner/repo")
+        b = flake_tidy._normalize_vcs_url("https://github.com/owner/repo")
+        assert a == b
+
+
 class TestAnalyzeDedupHgRevDivergence:
     """#539: same hg URL pinned at two different revs must dedup to
     the newest locked lastModified — the #509 consolidation, for
