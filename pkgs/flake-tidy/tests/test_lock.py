@@ -793,6 +793,116 @@ class TestNodeOriginalUrl:
             ).startswith("{")
 
 
+class TestNodeOriginalUrlEncoding:
+    """#601: the lock records flake-ref values decoded, but the
+    Nix-facing builders interpolated them raw — a value containing
+    &, #, % or a space did not parse back to itself (a dir named
+    "x&rev=…" forged a rev pin). Values are now percent-encoded the
+    way Nix's own serializer encodes them; node_url's readable form
+    deliberately stays raw."""
+
+    @staticmethod
+    def _node(**orig):
+        return {"original": orig}
+
+    def test_git_dir_cannot_inject_rev(self):
+        url = flake_tidy.node_original_url(
+            self._node(
+                type="git",
+                url="https://example.com/tool.git",
+                ref="main",
+                dir="x&rev=deadbeef",
+            )
+        )
+        assert url == (
+            "git+https://example.com/tool.git"
+            "?ref=main&dir=x%26rev%3Ddeadbeef"
+        )
+        # Parsing the query back yields exactly the recorded fields.
+        from urllib.parse import parse_qs, urlsplit
+
+        assert parse_qs(urlsplit(url).query) == {
+            "ref": ["main"],
+            "dir": ["x&rev=deadbeef"],
+        }
+
+    def test_git_ref_with_ampersand(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="git", url="https://example.com/tool.git", ref="feat&x"
+            )
+        ) == "git+https://example.com/tool.git?ref=feat%26x"
+
+    def test_hg_dir_with_space(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="hg", url="https://example.com/repo", dir="my dir")
+        ) == "hg+https://example.com/repo?dir=my%20dir"
+
+    def test_forge_ref_with_hash(self):
+        """A raw # makes Nix reject the ref ("unexpected fragment")."""
+        assert flake_tidy.node_original_url(
+            self._node(type="github", owner="o", repo="r", ref="a#b")
+        ) == "github:o/r/a%23b"
+
+    def test_forge_ref_with_slash_unchanged(self):
+        """Multi-segment refs keep their raw slashes (guard)."""
+        assert flake_tidy.node_original_url(
+            self._node(type="github", owner="o", repo="r", ref="feature/foo")
+        ) == "github:o/r/feature/foo"
+
+    def test_forge_dir_with_ampersand(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="github", owner="o", repo="r", dir="a&b")
+        ) == "github:o/r?dir=a%26b"
+
+    def test_path_with_space(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="path", path="./my dir/foo")
+        ) == "path:./my%20dir/foo"
+
+    def test_tarball_dir_with_literal_percent(self):
+        """A literal % in the value is itself encoded (%25), so the
+        recorded spelling — not its mis-decoding — survives."""
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="tarball",
+                url="https://example.com/t.tar.gz",
+                dir="a%26b",
+            )
+        ) == "https://example.com/t.tar.gz?dir=a%2526b"
+
+    def test_locked_git_dir_cannot_inject_rev(self):
+        """_locked_url (the indirect-override fallback) encodes too."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"tool": "tool"}},
+                "tool": {
+                    "original": {"type": "indirect", "id": "mytool"},
+                    "locked": {
+                        "type": "git",
+                        "url": "https://example.com/tool.git",
+                        "rev": "aaaa1111",
+                        "dir": "x&rev=deadbeef",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "tool": "git+https://example.com/tool.git"
+            "?rev=aaaa1111&dir=x%26rev%3Ddeadbeef"
+        }
+
+    def test_node_url_stays_readable(self):
+        """node_url is the exclusion-pattern form: values stay raw."""
+        assert "dir=a&b" in flake_tidy.node_url(
+            self._node(
+                type="git", url="https://example.com/tool.git", dir="a&b"
+            )
+        )
+
+
 class TestLockedUrlFallbacks:
     """Follow-up to #521: PR #522 fixed node_original_url and taught two
     locked fallbacks sourcehut, but a git-locked node behind an indirect
