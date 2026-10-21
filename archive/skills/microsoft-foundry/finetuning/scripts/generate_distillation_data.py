@@ -43,6 +43,7 @@ except (AttributeError, OSError):
     pass  # Stream not reconfigurable (older Python or non-tty); default encoding is fine
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from common import HelpOnErrorParser, get_clients, _clamp_score
 
 import openai
@@ -141,6 +142,7 @@ def main():
     parser.add_argument("--teacher", required=True, help="Teacher model deployment name")
     parser.add_argument("--judge", default=None, help="Judge model (default: same as teacher)")
     parser.add_argument("--system-prompt", default="You are a helpful assistant.", help="System prompt for teacher")
+    parser.add_argument("--concurrency", type=int, default=4, help="Parallel generation and grading workers")
 
     # Prompt generation (either combinatorial or from file)
     parser.add_argument("--prompts-file", help="File with one prompt per line (skips combinatorial generation)")
@@ -194,28 +196,46 @@ def main():
         print(f"Generated {len(prompts)} prompts ({len(topics)} topics × {len(formats)} formats × {len(contexts)} contexts)")
 
     # Step 2: Teacher generates responses
-    print(f"\nTeacher ({args.teacher}) generating responses...")
-    examples = []
-    for i, prompt in enumerate(prompts):
-        response = teacher_generate(client, args.teacher, args.system_prompt, prompt)
-        if response:
-            examples.append({"prompt": prompt, "response": response})
-        if (i + 1) % 25 == 0:
-            print(f"  {i+1}/{len(prompts)} ({len(examples)} successful)")
+    print(f"\nTeacher ({args.teacher}) generating responses (concurrency={args.concurrency})...")
+
+    def generate_one(idx, p):
+        return idx, p, teacher_generate(client, args.teacher, args.system_prompt, p)
+
+    examples = [None] * len(prompts)
+    done = 0
+    with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+        futures = [pool.submit(generate_one, i, p) for i, p in enumerate(prompts)]
+        for future in as_completed(futures):
+            idx, p, resp = future.result()
+            if resp:
+                examples[idx] = {"prompt": p, "response": resp}
+            done += 1
+            if done % 25 == 0:
+                print(f"  {done}/{len(prompts)} completed")
+
+    examples = [ex for ex in examples if ex is not None]
     print(f"  Teacher produced {len(examples)}/{len(prompts)} responses")
 
     # Step 3: Quality grade and filter
     if not args.skip_grading:
-        print(f"\nGrading with {judge}...")
-        for i, ex in enumerate(examples):
-            scores = grade_output(client, judge, ex["response"])
-            if scores:
-                ex["scores"] = scores
-                ex["avg_score"] = sum(scores.values()) / len(scores)
-            else:
-                ex["avg_score"] = 0
-            if (i + 1) % 25 == 0:
-                print(f"  Graded {i+1}/{len(examples)}")
+        print(f"\nGrading with {judge} (concurrency={args.concurrency})...")
+
+        def grade_one(idx, ex):
+            return idx, grade_output(client, judge, ex["response"])
+
+        done = 0
+        with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+            futures = [pool.submit(grade_one, i, ex) for i, ex in enumerate(examples)]
+            for future in as_completed(futures):
+                idx, scores = future.result()
+                if scores:
+                    examples[idx]["scores"] = scores
+                    examples[idx]["avg_score"] = sum(scores.values()) / len(scores)
+                else:
+                    examples[idx]["avg_score"] = 0
+                done += 1
+                if done % 25 == 0:
+                    print(f"  Graded {done}/{len(examples)}")
 
         filtered = [ex for ex in examples if ex["avg_score"] >= args.min_score]
         avgs = [ex["avg_score"] for ex in examples if ex["avg_score"] > 0]
