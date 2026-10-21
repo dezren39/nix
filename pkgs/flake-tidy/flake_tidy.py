@@ -1796,7 +1796,12 @@ def build_override_inputs(lock: dict, input_path: str) -> dict[str, str]:
 
     node_data = nodes.get(current, {})
     url = node_original_url(node_data)
-    if url:
+    # An indirect: result is the very reference Nix just failed to
+    # resolve (#568) — overriding with it cannot progress, and
+    # returning it here shadows the locked-URL fallback
+    # (build_override_from_flake_name) in run_nix_flake_lock_robust.
+    # Every other node_original_url consumer already guards this.
+    if url and not url.startswith("indirect:"):
         return {input_path: url}
     return {}
 
