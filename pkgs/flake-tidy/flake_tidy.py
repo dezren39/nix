@@ -601,20 +601,27 @@ def _normalize_vcs_url(url: str) -> str:
         # #579: drop an explicit default port — same endpoint, so it
         # must not split the group. Non-default or non-numeric ports
         # (and ports on schemes with no known default) stay verbatim.
-        if (
-            port.isdigit()
-            and _DEFAULT_PORTS.get(scheme.lower()) == int(port)
-        ):
+        # #589: isdigit() accepts spellings int() rejects (superscript/
+        # circled digits) and int() refuses over-long digit strings,
+        # so convert once under a guard — an unconvertible port is
+        # effectively non-numeric and keys verbatim, never raises.
+        port_num = None
+        if port.isdigit():
+            try:
+                port_num = int(port)
+            except ValueError:
+                port_num = None
+        if port_num is not None and _DEFAULT_PORTS.get(scheme.lower()) == port_num:
             colon, port = "", ""
         elif port == "":
             # #583: an empty port ("host:") names the default port —
             # URL serialization drops the colon — so drop it too,
             # whether or not a port separator was present.
             colon = ""
-        elif port.isdigit():
+        elif port_num is not None:
             # #583: a port is a number — emit its canonical integer
             # spelling so ":08443" groups with ":8443".
-            port = str(int(port))
+            port = str(port_num)
         authority = f"{userinfo}{at}{host}{colon}{port}"
         if sep and host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()

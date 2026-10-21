@@ -593,6 +593,31 @@ class TestSourceKeyUrlSpelling:
             "https://example.com:abd/r"
         )
 
+    def test_port_unconvertible_digit_spellings_key_verbatim(self):
+        """#589: isdigit() is True for Unicode digits int() rejects
+        (superscripts, circled digits) and int() refuses digit
+        strings over the conversion limit — both raised ValueError
+        out of source_key. They are effectively non-numeric: key
+        verbatim, never raise, and stay distinct from each other
+        and from numeric ports."""
+        assert self._key("https://example.com:²/r") == (
+            "git/https://example.com:²/r/"
+        )
+        assert self._key("https://example.com:①/r") != self._key(
+            "https://example.com:²/r"
+        )
+        long_port = "9" * 5000
+        assert self._key(f"https://example.com:{long_port}/r") == (
+            f"git/https://example.com:{long_port}/r/"
+        )
+        assert self._key(f"https://example.com:{long_port}/r") != self._key(
+            "https://example.com:8443/r"
+        )
+        # Existing behaviour alongside: default still drops.
+        assert self._key("https://example.com:443/r") == self._key(
+            "https://example.com/r"
+        )
+
     def test_ssh_and_https_stay_separate(self):
         """#555 decision, documented in _normalize_vcs_url: ssh and
         https are different transports and never merge."""
