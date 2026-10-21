@@ -1085,16 +1085,23 @@ def _locked_url(locked: dict) -> str | None:
     the locked fallbacks enumerated only the forge types. The forge
     shape is the one those fallbacks have always used (type:owner/repo);
     a git locked node is pinned to its locked rev, mirroring
-    node_original_url's git convention.
+    node_original_url's git convention — and the forge shape carries
+    its locked rev as a path segment too (#609).
     """
     lt = locked.get("type", "")
     if lt in ("github", "gitlab", "sourcehut"):
-        # host/dir survive into the override URL (#535), mirroring
-        # node_original_url's forge branch.
-        return (
-            f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
-            + _forge_query(locked, encode=True)
-        )
+        # The locked rev is the pin this function exists to preserve:
+        # without it the override resolves at the default branch, not
+        # the revision the lock records (#609) — the git/hg branches
+        # below keep theirs via _git_params/_hg_params, and
+        # node_original_url's forge branch keeps it as a path segment
+        # for the same reason (#521). host/dir survive too (#535).
+        url = f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+        if "ref" in locked:
+            url += f"/{_encode_path_value(locked['ref'])}"
+        elif "rev" in locked:
+            url += f"/{_encode_path_value(locked['rev'])}"
+        return url + _forge_query(locked, encode=True)
     if lt == "tarball":
         # #533: tarball/file/path locked nodes fell through to None, so
         # indirect overrides for them were silently dropped. Mirror

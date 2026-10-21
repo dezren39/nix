@@ -994,7 +994,7 @@ class TestLockedUrlFallbacks:
             {"type": "sourcehut", "owner": "~user", "repo": "proj", "rev": "bbbb"}
         )
         assert flake_tidy.compute_indirect_overrides(lock) == {
-            "tool": "sourcehut:~user/proj"
+            "tool": "sourcehut:~user/proj/bbbb"
         }
 
     def test_compute_indirect_overrides_cycle(self):
@@ -1041,8 +1041,8 @@ class TestLockedUrlFallbacks:
             "version": 7,
         }
         assert flake_tidy.compute_indirect_overrides(lock) == {
-            "x/shared": "github:nixos/nixpkgs",
-            "y/shared": "github:nixos/nixpkgs",
+            "x/shared": "github:nixos/nixpkgs/dddd",
+            "y/shared": "github:nixos/nixpkgs/dddd",
         }
 
     def test_compute_indirect_overrides_tarball_locked(self):
@@ -1086,13 +1086,60 @@ class TestLockedUrlFallbacks:
         assert flake_tidy._locked_url({"type": "path"}) is None
 
     def test_locked_forge_shape_unchanged(self):
-        """Guard: the forge locked shape stays type:owner/repo."""
+        """Guard: a forge locked node with NO rev/ref keeps the plain
+        type:owner/repo shape — the rev segment appears only when the
+        lock actually records one (#609)."""
         lock = self._indirect_lock(
-            {"type": "github", "owner": "nixos", "repo": "nixpkgs", "rev": "dddd"}
+            {"type": "github", "owner": "nixos", "repo": "nixpkgs"}
         )
         assert flake_tidy.build_override_from_flake_name(
             lock, "tool", "mytool"
         ) == {"tool": "github:nixos/nixpkgs"}
+
+    def test_locked_url_forge_keeps_rev(self):
+        """#609: the forge locked rev is the pin — dropping it rebuilt
+        the override at the default branch while git/hg kept theirs."""
+        for t in ("github", "gitlab", "sourcehut"):
+            assert flake_tidy._locked_url(
+                {"type": t, "owner": "o", "repo": "r", "rev": "aaaa1111"}
+            ) == f"{t}:o/r/aaaa1111"
+
+    def test_locked_url_forge_ref_beats_rev(self):
+        """Mirror node_original_url: a recorded ref wins over the rev."""
+        assert flake_tidy._locked_url(
+            {
+                "type": "github",
+                "owner": "o",
+                "repo": "r",
+                "ref": "release-1",
+                "rev": "aaaa1111",
+            }
+        ) == "github:o/r/release-1"
+
+    def test_resolve_transitive_url_forge_locked(self):
+        """#609 end-to-end: the transitive fallback returns the pinned
+        forge URL, like the git case above."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"parent": "parent"}},
+                "parent": {"inputs": {"child": "child"}},
+                "child": {
+                    "original": {"type": "indirect", "id": "child"},
+                    "locked": {
+                        "type": "github",
+                        "owner": "o",
+                        "repo": "r",
+                        "rev": "cccc3333",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert (
+            flake_tidy._resolve_transitive_url(lock, "parent", "child")
+            == "github:o/r/cccc3333"
+        )
 
 
 class TestBuildOverrideInputsIndirect:
@@ -1128,7 +1175,7 @@ class TestBuildOverrideInputsIndirect:
         assert flake_tidy.build_override_inputs(self._LOCK, "a/b") == {}
         assert flake_tidy.build_override_from_flake_name(
             self._LOCK, "a/b", "y"
-        ) == {"a/b": "github:o/r"}
+        ) == {"a/b": "github:o/r/abc123"}
 
     def test_direct_node_still_overrides(self):
         """Guard: a non-indirect node at the path is unchanged."""
@@ -1227,7 +1274,7 @@ class TestForgeHostAndDir:
                 "host": "git.openldap.org",
                 "rev": "aaaa1111",
             }
-        ) == "gitlab:openldap/openldap?host=git.openldap.org"
+        ) == "gitlab:openldap/openldap/aaaa1111?host=git.openldap.org"
 
     def test_node_url_surfaces_host_and_dir(self):
         s = flake_tidy.node_url(
