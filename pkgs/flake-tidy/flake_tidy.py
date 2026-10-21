@@ -717,11 +717,24 @@ def _canonicalize_url_authority(url: str) -> str:
     for those, because a different path or query really can name a
     different artifact. URLs without a "://" authority are returned
     unchanged.
+
+    The authority ends at the first of "/", "?" or "#" (#613): a
+    path-less URL such as "https://example.com:443?file=A.tgz" carries
+    its query directly after the authority, and splitting on "/" alone
+    swallowed the query into the host/port parsing — lowercasing a
+    case-sensitive query value into the key (grouping genuinely
+    different artifacts) and defeating the default-port drop (the
+    "port" parsed as "443?file=…", non-numeric, kept verbatim).
     """
     if "://" not in url:
         return url
     scheme, rest = url.split("://", 1)
-    authority, sep, tail = rest.partition("/")
+    # The tail (delimiter included) is reattached verbatim at the end.
+    cut = min(
+        (i for i in (rest.find("/"), rest.find("?"), rest.find("#")) if i != -1),
+        default=len(rest),
+    )
+    authority, sep, tail = rest[:cut], rest[cut : cut + 1], rest[cut + 1 :]
     userinfo, at, hostport = authority.rpartition("@")
     if hostport.startswith("[") and "]" in hostport:
         # IPv6 literal: the host runs to "]", the port follows it.
