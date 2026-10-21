@@ -655,6 +655,23 @@ def _hg_params(spec: dict, include_ref_rev: bool = True) -> list:
     return params
 
 
+def _with_ref_segment(url: str, orig: dict) -> str:
+    """URL with the ref (or truncated rev) as a path segment.
+
+    The segment belongs to the path, so it goes BEFORE any query the
+    raw URL already embeds (#546): appending it to the whole string
+    lands it inside the query value on a query-carrying URL
+    (?shallow=1/main), corrupting that value and hiding the ref."""
+    if "ref" in orig:
+        seg = f"/{orig['ref']}"
+    elif "rev" in orig:
+        seg = f"/{orig['rev'][:12]}"
+    else:
+        return url
+    base, sep, query = url.partition("?")
+    return base + seg + (sep + query if sep else "")
+
+
 def node_url(node_data: dict) -> str:
     """Readable URL string for a node."""
     orig = node_data.get("original", {})
@@ -672,11 +689,7 @@ def node_url(node_data: dict) -> str:
         # The fallback below JSON-dumps the original, which no user
         # exclusion pattern can ever match (#519) — return the URL with
         # the ref/rev readable, like the forge branch above.
-        s = orig.get("url", "")
-        if "ref" in orig:
-            s += f"/{orig['ref']}"
-        elif "rev" in orig:
-            s += f"/{orig['rev'][:12]}"
+        s = _with_ref_segment(orig.get("url", ""), orig)
         # Surface dir and the boolean fetch attributes so exclusion
         # patterns can distinguish a sub-flake / submodule / shallow /
         # allRefs fetch from the plain one (#537, #538, #528).
@@ -686,11 +699,7 @@ def node_url(node_data: dict) -> str:
     elif t == "hg":
         # Same JSON-dump fallback problem as git (#539): return the
         # URL with ref/rev readable, surfacing dir via _hg_params.
-        s = orig.get("url", "")
-        if "ref" in orig:
-            s += f"/{orig['ref']}"
-        elif "rev" in orig:
-            s += f"/{orig['rev'][:12]}"
+        s = _with_ref_segment(orig.get("url", ""), orig)
         # _append_query for the same #544 reason as the git branch.
         return _append_query(s, _hg_params(orig, include_ref_rev=False))
     elif t in ("tarball", "file"):
