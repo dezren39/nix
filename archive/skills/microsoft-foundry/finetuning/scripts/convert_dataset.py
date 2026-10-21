@@ -32,6 +32,7 @@ try:
 except (AttributeError, OSError):
     pass  # Stream not reconfigurable (older Python or non-tty); default encoding is fine
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import HelpOnErrorParser, get_clients
 
@@ -79,7 +80,7 @@ def parquet_to_sft(input_path, output_path, user_col, assistant_col, system_prom
     print(f"Converted {count} examples to SFT JSONL → {output_path}")
 
 
-def sft_to_dpo(input_path, output_path, client, base_model):
+def sft_to_dpo(input_path, output_path, client, base_model, concurrency=4):
     """Convert SFT to DPO by generating non-preferred responses from a base model.
 
     DPO format uses: input (system+user messages), preferred_output, non_preferred_output.
@@ -93,50 +94,63 @@ def sft_to_dpo(input_path, output_path, client, base_model):
                 examples.append(json.loads(raw))
             except json.JSONDecodeError as e:
                 print(f"  ⚠️ Skipping malformed JSON on line {ln}: {e}")
+
+    def process_one(idx_and_ex):
+        i, ex = idx_and_ex
+        msgs = ex.get("messages", [])
+        system_msgs = [m for m in msgs if m.get("role") == "system"]
+        user_msg = next((m for m in msgs if m.get("role") == "user"), None)
+        asst_msg = next((m for m in msgs if m.get("role") == "assistant"), None)
+        if not user_msg or not asst_msg:
+            return i, None, None
+
+        # Generate a non-preferred response from the base model
+        try:
+            gen_msgs = system_msgs + [user_msg]
+            resp = client.chat.completions.create(
+                model=base_model,
+                messages=gen_msgs,
+                temperature=1.0,  # High temp for diversity
+                max_completion_tokens=2048,
+            )
+            rejected_content = resp.choices[0].message.content
+        except Exception as e:
+            return i, None, f"Skipping example {i}: {e}"
+
+        if not rejected_content:
+            # None or empty — content filter, finish=length with no text, etc.
+            # Skip rather than emit a DPO entry with null content (trainer rejects).
+            return i, None, f"Skipping example {i}: base model returned no content"
+
+        # Build DPO entry with correct format
+        input_messages = system_msgs + [user_msg]
+        dpo_entry = {
+            "input": {"messages": input_messages},
+            "preferred_output": [asst_msg],
+            "non_preferred_output": [{"role": "assistant", "content": rejected_content}],
+        }
+        return i, dpo_entry, None
+
+    results = [None] * len(examples)
+    done_count = 0
+
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = {pool.submit(process_one, (i, ex)): i for i, ex in enumerate(examples)}
+        for future in as_completed(futures):
+            i, dpo_entry, err_msg = future.result()
+            if err_msg:
+                print(f"  {err_msg}")
+            results[i] = dpo_entry
+            done_count += 1
+            if done_count % 50 == 0:
+                print(f"  Processed {done_count}/{len(examples)}")
+
     count = 0
-
     with open(output_path, "w", encoding="utf-8") as f:
-        for i, ex in enumerate(examples):
-            msgs = ex["messages"]
-            system_msgs = [m for m in msgs if m["role"] == "system"]
-            user_msg = next((m for m in msgs if m["role"] == "user"), None)
-            asst_msg = next((m for m in msgs if m["role"] == "assistant"), None)
-            if not user_msg or not asst_msg:
-                continue
-
-            # Generate a non-preferred response from the base model
-            try:
-                gen_msgs = system_msgs + [user_msg]
-                resp = client.chat.completions.create(
-                    model=base_model,
-                    messages=gen_msgs,
-                    temperature=1.0,  # High temp for diversity
-                    max_completion_tokens=2048,
-                )
-                rejected_content = resp.choices[0].message.content
-            except Exception as e:
-                print(f"  Skipping example {i}: {e}")
-                continue
-
-            if not rejected_content:
-                # None or empty — content filter, finish=length with no text, etc.
-                # Skip rather than emit a DPO entry with null content (trainer rejects).
-                print(f"  Skipping example {i}: base model returned no content")
-                continue
-
-            # Build DPO entry with correct format
-            input_messages = system_msgs + [user_msg]
-            dpo_entry = {
-                "input": {"messages": input_messages},
-                "preferred_output": [asst_msg],
-                "non_preferred_output": [{"role": "assistant", "content": rejected_content}],
-            }
-            f.write(json.dumps(dpo_entry, ensure_ascii=False) + "\n")
-            count += 1
-
-            if (i + 1) % 50 == 0:
-                print(f"  Processed {i+1}/{len(examples)}")
-                time.sleep(1)
+        for dpo_entry in results:
+            if dpo_entry is not None:
+                f.write(json.dumps(dpo_entry, ensure_ascii=False) + "\n")
+                count += 1
 
     print(f"Converted {count} examples to DPO JSONL → {output_path}")
 
@@ -229,6 +243,7 @@ def main():
                         help="Azure AI project endpoint (Foundry SDK)")
     parser.add_argument("--api-key", default=os.environ.get("AZURE_OPENAI_API_KEY"))
     parser.add_argument("--base-model", default="gpt-4.1-mini", help="Base model for generating rejections")
+    parser.add_argument("--concurrency", type=int, default=4, help="Parallel generation workers")
 
     args = parser.parse_args()
 
@@ -247,7 +262,7 @@ def main():
             base_url=args.base_url, azure_endpoint=args.endpoint,
             project_endpoint=args.project_endpoint, api_key=args.api_key
         )
-        sft_to_dpo(args.input, args.output, client, args.base_model)
+        sft_to_dpo(args.input, args.output, client, args.base_model, concurrency=args.concurrency)
 
     elif args.format == "rft":
         sft_to_rft(args.input, args.output)
