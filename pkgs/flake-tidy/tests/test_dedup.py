@@ -817,6 +817,47 @@ class TestAnalyzeDedupGitRevDivergence:
             assert proposals == [], f"proposals: {proposals}"
 
 
+class TestAnalyzeDedupUrlSpelling:
+    """#555: two root inputs naming the same git repo in different URL
+    spellings (".git" suffix vs trailing slash) lock to identical
+    content but never grouped before spelling normalization."""
+
+    @staticmethod
+    def _node(url):
+        return {
+            "locked": {
+                "lastModified": 100,
+                "narHash": "sha256-A",
+                "rev": "aaaa",
+                "type": "git",
+                "url": url,
+            },
+            "original": {"type": "git", "url": url, "rev": "aaaa"},
+        }
+
+    def test_spelling_variants_dedup(self, default_config):
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a", "b": "b"}},
+                "a": self._node("https://example.com/tool.git"),
+                "b": self._node("https://example.com/tool/"),
+            },
+            "root": "root",
+            "version": 7,
+        }
+        content = """{
+  inputs = {
+    a.url = "git+https://example.com/tool.git?rev=aaaa";
+    b.url = "git+https://example.com/tool/?rev=aaaa";
+  };
+  outputs = _: {};
+}
+"""
+        proposals = flake_tidy.analyze_dedup(lock, content, default_config)
+        assert len(proposals) == 1, f"proposals: {proposals}"
+        assert proposals[0]["follows_parts"] in (["a"], ["b"])
+
+
 class TestAnalyzeDedupHgRevDivergence:
     """#539: same hg URL pinned at two different revs must dedup to
     the newest locked lastModified — the #509 consolidation, for

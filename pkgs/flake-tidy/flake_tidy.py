@@ -464,6 +464,75 @@ def load_lock(flake_dir: str) -> dict:
         return json.load(f)
 
 
+# Hosts that route repository paths case-insensitively: a git URL to
+# one of them whose path differs only in case names the same repo the
+# forge branch already keys together by lowercasing owner/repo.
+_CASE_INSENSITIVE_PATH_HOSTS = ("github.com", "gitlab.com")
+
+
+def _normalize_vcs_url(url: str) -> str:
+    """Canonicalize a git/hg URL spelling for grouping (#555).
+
+    The same repository is routinely written several ways across a
+    flake's transitive inputs, and grouping embeds the URL verbatim,
+    so the copies never dedup. Rules — each conservative, none merges
+    different hosts or (after normalization) different paths:
+
+    - trailing slashes are dropped ("repo/" == "repo"), and one
+      trailing ".git" suffix is dropped ("repo.git" == "repo",
+      including "repo.git/");
+    - scheme and host are lowercased (both are case-insensitive);
+    - the path is lowercased only for hosts that route paths
+      case-insensitively (see _CASE_INSENSITIVE_PATH_HOSTS).
+
+    Deliberate non-rules (#555, decided here so the behaviour is a
+    documented choice rather than an accident): ssh spellings
+    (git@host:path, ssh://…) and https spellings of the same
+    host/path do NOT canonicalize together — they are different
+    transports that can resolve through different mirrors and
+    credentials. The tarball/file branches likewise keep their raw
+    URL: those name a specific fetched artifact, where a spelling
+    difference can be a genuinely different location.
+    """
+    u = url
+    # Suffix canonicalization on the whole spelling: trailing slashes
+    # go first so "repo.git/" also loses its one ".git" suffix.
+    u = u.rstrip("/")
+    if u.endswith(".git"):
+        u = u[: -len(".git")].rstrip("/")
+    if "://" in u:
+        scheme, rest = u.split("://", 1)
+        authority, sep, path = rest.partition("/")
+        userinfo, at, hostport = authority.rpartition("@")
+        host, colon, port = hostport.partition(":")
+        host = host.lower()
+        authority = f"{userinfo}{at}{host}{colon}{port}"
+        if sep and host in _CASE_INSENSITIVE_PATH_HOSTS:
+            path = path.lower()
+        return f"{scheme.lower()}://{authority}{sep}{path}"
+    if "@" in u and ":" in u.split("@", 1)[1]:
+        # scp-like ssh spelling, git@host:path — lowercase the host;
+        # the user and path keep their spelling (see docstring: ssh
+        # stays a separate group from https regardless).
+        userhost, _, path = u.partition(":")
+        user, _, host = userhost.rpartition("@")
+        return f"{user}@{host.lower()}:{path}"
+    return u
+
+
+def _normalize_ref(ref: str) -> str:
+    """Canonicalize a ref spelling for grouping (#555).
+
+    "refs/heads/<name>" and "<name>" name the same branch. Only the
+    heads prefix is stripped: a bare "<name>" could equally be a tag,
+    so "refs/tags/<name>" is left alone rather than risk merging a
+    branch group with a tag group.
+    """
+    if ref.startswith("refs/heads/"):
+        return ref[len("refs/heads/") :]
+    return ref
+
+
 def source_key(node_data: dict) -> str:
     """Compute a grouping key from a node's 'original' field.
 
@@ -475,7 +544,7 @@ def source_key(node_data: dict) -> str:
     if t in ("github", "gitlab", "sourcehut"):
         owner = orig.get("owner", "").lower()
         repo = orig.get("repo", "").lower()
-        ref = orig.get("ref", "")
+        ref = _normalize_ref(orig.get("ref", ""))
         # Any other original field DOES distinguish the source (#535,
         # the git branch's #519 treatment applied to the forge types):
         # host names a different server (GitHub Enterprise, a
@@ -504,8 +573,13 @@ def source_key(node_data: dict) -> str:
             return f"{t}/{owner}/{repo}/{ref}:rev-pinned{extra}"
         return f"{t}/{owner}/{repo}/{ref}{extra}"
     elif t in ("git", "hg"):
-        url = orig.get("url", "")
-        ref = orig.get("ref", "")
+        # URL and ref spellings are canonicalized (#555) so the same
+        # repo written with a trailing slash, a ".git" suffix, a
+        # differently-cased host, or a fully-qualified branch ref
+        # groups with its other spellings. The ORIGINAL url stays in
+        # the node — only the grouping key is canonical.
+        url = _normalize_vcs_url(orig.get("url", ""))
+        ref = _normalize_ref(orig.get("ref", ""))
         # Same rev treatment as the forge types above (#519): the pinned
         # rev VALUE is not part of the key (#509 — two pins of one repo at
         # different revs must group), but pin-NESS is (#512 — a pinned

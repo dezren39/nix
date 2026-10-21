@@ -290,6 +290,128 @@ class TestSourceKeyHg:
         )
 
 
+class TestSourceKeyUrlSpelling:
+    """#555: the same repo written in different URL spellings never
+    grouped — source_key embedded the raw URL and ref verbatim, so a
+    trailing slash, a ".git" suffix, host case, or a fully-qualified
+    branch ref each split the dedup group."""
+
+    @staticmethod
+    def _key(url, t="git", **orig):
+        base = {"type": t, "url": url}
+        base.update(orig)
+        return flake_tidy.source_key({"original": base})
+
+    def test_trailing_slash_groups(self):
+        assert self._key("https://example.com/tool") == self._key(
+            "https://example.com/tool/"
+        )
+
+    def test_dot_git_suffix_groups(self):
+        assert self._key("https://example.com/tool") == self._key(
+            "https://example.com/tool.git"
+        )
+        assert self._key("https://example.com/tool") == self._key(
+            "https://example.com/tool.git/"
+        )
+
+    def test_ref_format_groups(self):
+        """refs/heads/<name> and <name> name the same branch."""
+        assert self._key(
+            "https://example.com/tool", ref="main"
+        ) == self._key("https://example.com/tool", ref="refs/heads/main")
+
+    def test_forge_ref_format_groups(self):
+        """The forge branch canonicalizes the ref the same way."""
+        plain = {
+            "original": {
+                "type": "github",
+                "owner": "o",
+                "repo": "r",
+                "ref": "main",
+            }
+        }
+        qualified = {
+            "original": {
+                "type": "github",
+                "owner": "o",
+                "repo": "r",
+                "ref": "refs/heads/main",
+            }
+        }
+        assert flake_tidy.source_key(plain) == flake_tidy.source_key(
+            qualified
+        )
+
+    def test_host_and_scheme_case_group(self):
+        assert self._key("https://example.com/tool") == self._key(
+            "HTTPS://EXAMPLE.COM/tool"
+        )
+
+    def test_case_insensitive_forge_path_groups(self):
+        """github.com/gitlab.com route paths case-insensitively, like
+        the forge branch's owner/repo lowercasing."""
+        assert self._key("https://github.com/Owner/Repo") == self._key(
+            "https://github.com/owner/repo"
+        )
+
+    def test_other_host_path_case_still_distinguishes(self):
+        assert self._key("https://example.com/Owner/Repo") != self._key(
+            "https://example.com/owner/repo"
+        )
+
+    def test_scp_like_spelling_normalizes_within_itself(self):
+        assert self._key("git@github.com:o/r") == self._key(
+            "git@GitHub.com:o/r.git"
+        )
+
+    def test_ssh_and_https_stay_separate(self):
+        """#555 decision, documented in _normalize_vcs_url: ssh and
+        https are different transports and never merge."""
+        assert self._key("https://github.com/o/r") != self._key(
+            "git@github.com:o/r.git"
+        )
+
+    def test_near_misses_stay_separate(self):
+        base = self._key("https://example.com/tool")
+        assert base != self._key("https://other.example.com/tool")
+        assert base != self._key("https://example.com/tool2")
+        assert base != self._key("https://example.com/tool", dir="sub")
+        assert base != self._key(
+            "https://example.com/tool", submodules=True
+        )
+        assert base != self._key("https://example.com/tool", t="hg")
+
+    def test_tag_refs_are_not_unqualified(self):
+        """refs/tags/<name> is left alone: a bare <name> could be a
+        branch, so unqualifying a tag ref could merge two sources."""
+        assert self._key(
+            "https://example.com/tool", ref="v1"
+        ) != self._key("https://example.com/tool", ref="refs/tags/v1")
+
+    def test_rev_pinned_still_separate_after_normalization(self):
+        """#512's pin-ness marker survives spelling normalization, and
+        two pins in different spellings still group with each other."""
+        assert self._key(
+            "https://example.com/tool.git", rev="aaaa"
+        ) != self._key("https://example.com/tool")
+        assert self._key(
+            "https://example.com/tool.git", rev="aaaa"
+        ) == self._key("https://example.com/tool/", rev="bbbb")
+
+    def test_hg_spellings_group(self):
+        assert self._key(
+            "https://example.com/repo", t="hg"
+        ) == self._key("https://example.com/repo/", t="hg")
+
+    def test_plain_key_shape_unchanged(self):
+        """A URL with nothing to normalize keys exactly as before."""
+        assert (
+            self._key("https://example.com/tool", ref="main")
+            == "git/https://example.com/tool/main"
+        )
+
+
 class TestNodeOriginalUrl:
     """#521: node_original_url must return a nix-resolvable URL for every
     type source_key/node_url recognise — its git and sourcehut nodes fell
