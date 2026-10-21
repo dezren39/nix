@@ -483,7 +483,11 @@ def _normalize_vcs_url(url: str) -> str:
       including "repo.git/");
     - scheme and host are lowercased (both are case-insensitive);
     - the path is lowercased only for hosts that route paths
-      case-insensitively (see _CASE_INSENSITIVE_PATH_HOSTS).
+      case-insensitively (see _CASE_INSENSITIVE_PATH_HOSTS);
+    - an embedded query string is split off before all of the above
+      and reattached verbatim (#560): the suffix rules apply to the
+      path ahead of it, and case-sensitive query values (dir, ref)
+      are never lowercased.
 
     Deliberate non-rules (#555, decided here so the behaviour is a
     documented choice rather than an accident): ssh spellings
@@ -494,8 +498,15 @@ def _normalize_vcs_url(url: str) -> str:
     URL: those name a specific fetched artifact, where a spelling
     difference can be a genuinely different location.
     """
-    u = url
-    # Suffix canonicalization on the whole spelling: trailing slashes
+    # Split any embedded query off FIRST (#560): a raw git URL may
+    # already carry e.g. ?shallow=1 (#528/#544/#546). Treating the URL
+    # as one flat string defeated the suffix rules below (".git" is
+    # not at the end of "repo.git?shallow=1", so it was never
+    # stripped) and lowercased case-sensitive query values (?dir=,
+    # ?ref=) on the case-insensitive-path hosts. The query is
+    # reattached verbatim at the end.
+    u, qsep, query = url.partition("?")
+    # Suffix canonicalization on the base spelling: trailing slashes
     # go first so "repo.git/" also loses its one ".git" suffix.
     u = u.rstrip("/")
     if u.endswith(".git"):
@@ -509,15 +520,15 @@ def _normalize_vcs_url(url: str) -> str:
         authority = f"{userinfo}{at}{host}{colon}{port}"
         if sep and host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()
-        return f"{scheme.lower()}://{authority}{sep}{path}"
-    if "@" in u and ":" in u.split("@", 1)[1]:
+        u = f"{scheme.lower()}://{authority}{sep}{path}"
+    elif "@" in u and ":" in u.split("@", 1)[1]:
         # scp-like ssh spelling, git@host:path — lowercase the host;
         # the user and path keep their spelling (see docstring: ssh
         # stays a separate group from https regardless).
         userhost, _, path = u.partition(":")
         user, _, host = userhost.rpartition("@")
-        return f"{user}@{host.lower()}:{path}"
-    return u
+        u = f"{user}@{host.lower()}:{path}"
+    return u + (qsep + query if qsep else "")
 
 
 def _normalize_ref(ref: str) -> str:

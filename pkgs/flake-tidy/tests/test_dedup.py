@@ -858,6 +858,46 @@ class TestAnalyzeDedupUrlSpelling:
         assert proposals[0]["follows_parts"] in (["a"], ["b"])
 
 
+class TestNormalizeVcsUrlQuery:
+    """#560: a raw git URL with an embedded query (?shallow=1, #528)
+    defeated the #555 suffix rules — ".git" is not at the end of
+    "repo.git?shallow=1" — and its query values were lowercased on
+    github/gitlab hosts. The query is split off first and reattached
+    verbatim."""
+
+    def test_dotgit_before_query_groups(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com/Foo/Bar.git?shallow=1")
+        b = flake_tidy._normalize_vcs_url("https://github.com/foo/bar?shallow=1")
+        assert a == b == "https://github.com/foo/bar?shallow=1"
+
+    def test_trailing_slash_before_query_groups(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com/foo/bar/?shallow=1")
+        b = flake_tidy._normalize_vcs_url("https://github.com/foo/bar?shallow=1")
+        assert a == b
+
+    def test_query_reattached_verbatim(self):
+        url = "https://github.com/foo/bar?dir=Sub/Flake&ref=FeatureBranch"
+        assert flake_tidy._normalize_vcs_url(url) == url
+
+    def test_source_key_groups_dotgit_before_query(self):
+        def node(url):
+            return {"original": {"type": "git", "url": url}}
+
+        assert flake_tidy.source_key(
+            node("https://example.com/tool.git?shallow=1")
+        ) == flake_tidy.source_key(node("https://example.com/tool?shallow=1"))
+
+    def test_source_key_keeps_query_case_distinct(self):
+        def node(url):
+            return {"original": {"type": "git", "url": url}}
+
+        assert flake_tidy.source_key(
+            node("https://github.com/foo/bar?dir=Sub/Flake")
+        ) != flake_tidy.source_key(
+            node("https://github.com/foo/bar?dir=sub/flake")
+        )
+
+
 class TestAnalyzeDedupHgRevDivergence:
     """#539: same hg URL pinned at two different revs must dedup to
     the newest locked lastModified — the #509 consolidation, for
