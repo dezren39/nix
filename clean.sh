@@ -1144,10 +1144,16 @@ elif [ "$DRY_RUN" = "1" ]; then
   echo "  would clear /private/var/folders (keeping zz)"
 else
   folders=/private/var/folders
-  for i in "$folders"/*; do
-    [ "$(basename "$i")" != "zz" ] && rm -rf "$i" 2>/dev/null
-  done
-  rm -rf "$folders/zz/"* 2>/dev/null
+  if [ -d "$folders" ]; then
+    while IFS= read -r -d "" i; do
+      [ "$(basename "$i")" != "zz" ] && rm -rf "$i" 2>/dev/null
+    done < <(find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+    if [ -d "$folders/zz" ]; then
+      while IFS= read -r -d "" i; do
+        rm -rf "$i" 2>/dev/null
+      done < <(find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+    fi
+  fi
 fi
 
 del "$CALLER_USER_HOME/.Trash/"* "$ROOT_HOME/.Trash/"*
