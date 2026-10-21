@@ -124,3 +124,10 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy git-locked fallback for indirect overrides        | 2026-10-20 | #523       |
 | flake-tidy returns a path: URL for path inputs               | 2026-10-20 | #524, #525 |
 | flake-tidy cross-type dedup ranks git above indirect         | 2026-10-20 | #526, #527 |
+| ROADMAP Done records the #518–#527 merges                    | 2026-10-20 | #531, #532 |
+| flake-tidy `_locked_url` handles tarball/file/path nodes     | 2026-10-20 | #533, #534 |
+| flake-tidy forge handling keeps host and dir                 | 2026-10-20 | #535, #536 |
+| flake-tidy URL rebuild keeps submodules/shallow/allRefs/dir  | 2026-10-20 | #528, #537, #538, #541 |
+| flake-tidy handles hg (mercurial) inputs                     | 2026-10-20 | #539, #542 |
+| Darwin mcpx `-skip` rewrite fails loudly on drift (code#418) | 2026-10-20 | #543       |
+| flake-tidy `node_url`/`_append_query` dedupe query params    | 2026-10-20 | #544, #545 |
