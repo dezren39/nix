@@ -56,6 +56,7 @@ import sys
 from collections import defaultdict
 from itertools import groupby
 from typing import Any
+from urllib.parse import quote
 
 
 # ---------------------------------------------------------------------------
@@ -802,19 +803,51 @@ def is_path_input(node_data: dict) -> bool:
     return node_data.get("original", {}).get("type") == "path"
 
 
-def _forge_query(spec: dict) -> str:
+def _encode_query_value(value) -> str:
+    """Percent-encode a query value the way Nix's encodeQuery does (#601).
+
+    The lock records flake-ref attribute values decoded, so a value
+    interpolated raw into a rebuilt URL does not parse back to itself:
+    "&"/"=" split it into extra parameters (a dir named "x&rev=…" would
+    forge a rev pin), "#" starts a fragment, "%" mis-decodes, a space
+    is not a URL character. Nix's serializer (flakeRefToString) leaves
+    alphanumerics and -._~/?:@ raw and percent-encodes every other
+    UTF-8 byte as uppercase %XX — mirror that exactly, so ordinary
+    values (plain refs, hex revs, normal dirs/hosts) are byte-identical
+    and only the corrupt spellings change.
+    """
+    return quote(str(value), safe="-._~/?:@")
+
+
+def _encode_path_value(value) -> str:
+    """Percent-encode a value placed in a URL path position (#601).
+
+    Used for the forge ref/rev segment and the path: value in the
+    Nix-facing builders: "/" stays raw (Nix parses multi-segment forge
+    refs and slash-carrying paths exactly as it does today), while the
+    characters that break out of the path — "#", "?", "%", spaces and
+    other non-URL bytes — are encoded so the value round-trips.
+    """
+    return quote(str(value), safe="/-._~:@")
+
+
+def _forge_query(spec: dict, encode: bool = False) -> str:
     """Query string carrying a forge spec's host/dir, or "" (#535).
 
     host points at a non-default server (GitHub Enterprise, a
     self-hosted GitLab, hg.sr.ht) and dir at a sub-flake of the repo;
     a rebuilt URL without them names a different source than the lock
     records. Order is fixed (host, then dir) so URLs are deterministic.
+    The Nix-facing builders pass encode=True (#601): the values are
+    percent-encoded so a punctuated host/dir cannot corrupt the URL.
+    node_url passes False — it is the readable pattern-matching form.
     """
+    enc = _encode_query_value if encode else str
     params = []
     if "host" in spec:
-        params.append(f"host={spec['host']}")
+        params.append(f"host={enc(spec['host'])}")
     if "dir" in spec:
-        params.append(f"dir={spec['dir']}")
+        params.append(f"dir={enc(spec['dir'])}")
     return f"?{'&'.join(params)}" if params else ""
 
 
@@ -844,12 +877,20 @@ def _append_query(url: str, params: list) -> str:
     return url + sep + "&".join(params)
 
 
-def _dir_params(spec: dict) -> list:
-    """[dir=...] if the spec carries the generic dir attribute (#537)."""
-    return [f"dir={spec['dir']}"] if "dir" in spec else []
+def _dir_params(spec: dict, encode: bool = False) -> list:
+    """[dir=...] if the spec carries the generic dir attribute (#537).
+
+    encode=True percent-encodes the value for a Nix-facing URL (#601).
+    """
+    if "dir" not in spec:
+        return []
+    enc = _encode_query_value if encode else str
+    return [f"dir={enc(spec['dir'])}"]
 
 
-def _git_params(spec: dict, include_ref_rev: bool = True) -> list:
+def _git_params(
+    spec: dict, include_ref_rev: bool = True, encode: bool = False
+) -> list:
     """Query params that must survive a git URL rebuild.
 
     ref/rev name the revision; dir names a sub-flake (#537); the
@@ -858,35 +899,42 @@ def _git_params(spec: dict, include_ref_rev: bool = True) -> list:
     all of them as source-distinguishing — dropping them here rebuilds
     a URL for a different source than the lock records. Booleans are
     emitted as =1 only when true (false is the fetch default).
+    encode=True percent-encodes the values for a Nix-facing URL
+    (#601); node_url's readable form leaves them raw.
     """
+    enc = _encode_query_value if encode else str
     params = []
     if include_ref_rev:
         if "ref" in spec:
-            params.append(f"ref={spec['ref']}")
+            params.append(f"ref={enc(spec['ref'])}")
         if "rev" in spec:
-            params.append(f"rev={spec['rev']}")
-    params += _dir_params(spec)
+            params.append(f"rev={enc(spec['rev'])}")
+    params += _dir_params(spec, encode=encode)
     for field in ("submodules", "shallow", "allRefs"):
         if spec.get(field):
             params.append(f"{field}=1")
     return params
 
 
-def _hg_params(spec: dict, include_ref_rev: bool = True) -> list:
+def _hg_params(
+    spec: dict, include_ref_rev: bool = True, encode: bool = False
+) -> list:
     """Query params that must survive an hg URL rebuild (#539).
 
     Mercurial flake refs carry ref/rev and the generic dir attribute,
     but none of git's boolean fetch attributes (submodules/shallow/
     allRefs are git-only), so hg gets its own narrower helper rather
-    than reusing _git_params.
+    than reusing _git_params. encode=True percent-encodes the values
+    for a Nix-facing URL (#601).
     """
+    enc = _encode_query_value if encode else str
     params = []
     if include_ref_rev:
         if "ref" in spec:
-            params.append(f"ref={spec['ref']}")
+            params.append(f"ref={enc(spec['ref'])}")
         if "rev" in spec:
-            params.append(f"rev={spec['rev']}")
-    params += _dir_params(spec)
+            params.append(f"rev={enc(spec['rev'])}")
+    params += _dir_params(spec, encode=encode)
     return params
 
 
@@ -959,14 +1007,19 @@ def node_original_url(node_data: dict) -> str:
         repo = orig.get("repo", "")
         url = f"{t}:{owner}/{repo}"
         if "ref" in orig:
-            url += f"/{orig['ref']}"
+            # The ref lands in a path segment of a Nix-facing URL, so
+            # it is percent-encoded (#601): a raw "#" makes Nix reject
+            # the ref outright ("unexpected fragment"), a raw "%"
+            # mis-decodes. "/" stays raw — Nix parses multi-segment
+            # refs exactly as before.
+            url += f"/{_encode_path_value(orig['ref'])}"
         elif "rev" in orig:
             # A rev-pinned node with no ref keeps its pin (#521) —
             # dropping it would rebuild the URL at the default branch.
-            url += f"/{orig['rev']}"
+            url += f"/{_encode_path_value(orig['rev'])}"
         # host/dir name a different server / sub-flake (#535) —
         # dropping them rebuilds the URL at the default host/root.
-        return url + _forge_query(orig)
+        return url + _forge_query(orig, encode=True)
     elif t == "git":
         # The JSON-dump fallback below is not a URL (#521): callers pass
         # this string to --override-input and write it into flake.nix.
@@ -976,26 +1029,29 @@ def node_original_url(node_data: dict) -> str:
         # a query (#528, #537, #538).
         raw = orig.get("url", "")
         url = raw if raw.startswith("git+") else f"git+{raw}"
-        return _append_query(url, _git_params(orig))
+        return _append_query(url, _git_params(orig, encode=True))
     elif t == "hg":
         # Mirror git (#539): hg+<url>?ref=/rev= is the resolvable
         # flake-ref form Nix accepts for Mercurial inputs.
         raw = orig.get("url", "")
         url = raw if raw.startswith("hg+") else f"hg+{raw}"
-        return _append_query(url, _hg_params(orig))
+        return _append_query(url, _hg_params(orig, encode=True))
     elif t == "tarball":
-        return _append_query(orig.get("url", ""), _dir_params(orig))
+        return _append_query(orig.get("url", ""), _dir_params(orig, encode=True))
     elif t == "file":
         raw = orig.get("url", "")
         # Prefix with file+ so nix doesn't default to tarball fetching
         if raw.startswith(("https://", "http://")):
             raw = f"file+{raw}"
-        return _append_query(raw, _dir_params(orig))
+        return _append_query(raw, _dir_params(orig, encode=True))
     elif t == "path":
         # Callers pass this string to --override-input and write it into
         # flake.nix (#524) — the JSON-dump fallback is not a flake URL.
+        # The path itself is encoded (#601): Nix rejects a raw space in
+        # a path: ref and serializes it as %20 itself.
         return _append_query(
-            f"path:{orig.get('path', '')}", _dir_params(orig)
+            f"path:{_encode_path_value(orig.get('path', ''))}",
+            _dir_params(orig, encode=True),
         )
     elif t == "indirect":
         return f"indirect:{orig.get('id', '')}"
@@ -1019,7 +1075,7 @@ def _locked_url(locked: dict) -> str | None:
         # node_original_url's forge branch.
         return (
             f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
-            + _forge_query(locked)
+            + _forge_query(locked, encode=True)
         )
     if lt == "tarball":
         # #533: tarball/file/path locked nodes fell through to None, so
@@ -1028,25 +1084,28 @@ def _locked_url(locked: dict) -> str | None:
         raw = locked.get("url", "")
         if not raw:
             return None
-        return _append_query(raw, _dir_params(locked))
+        return _append_query(raw, _dir_params(locked, encode=True))
     if lt == "file":
         raw = locked.get("url", "")
         if not raw:
             return None
         if raw.startswith(("https://", "http://")):
             raw = f"file+{raw}"
-        return _append_query(raw, _dir_params(locked))
+        return _append_query(raw, _dir_params(locked, encode=True))
     if lt == "path":
         raw = locked.get("path", "")
         if not raw:
             return None
-        return _append_query(f"path:{raw}", _dir_params(locked))
+        return _append_query(
+            f"path:{_encode_path_value(raw)}",
+            _dir_params(locked, encode=True),
+        )
     if lt == "git":
         raw = locked.get("url", "")
         if not raw:
             return None
         url = raw if raw.startswith("git+") else f"git+{raw}"
-        return _append_query(url, _git_params(locked))
+        return _append_query(url, _git_params(locked, encode=True))
     if lt == "hg":
         # #539: hg locked nodes fell through to None, dropping
         # indirect overrides like git did before the fix above.
@@ -1054,7 +1113,7 @@ def _locked_url(locked: dict) -> str | None:
         if not raw:
             return None
         url = raw if raw.startswith("hg+") else f"hg+{raw}"
-        return _append_query(url, _hg_params(locked))
+        return _append_query(url, _hg_params(locked, encode=True))
     return None
 
 
