@@ -593,6 +593,54 @@ class TestLockedUrlFallbacks:
             "tool": "sourcehut:~user/proj"
         }
 
+    def test_compute_indirect_overrides_cycle(self):
+        """#563: a cyclic lock graph (A inputs B, B inputs A) must not
+        recurse to RecursionError — the walk skips refs to nodes
+        already on the current path and returns normally."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a"}},
+                "a": {
+                    "original": {"type": "github", "owner": "o", "repo": "r"},
+                    "inputs": {"b": "b"},
+                },
+                "b": {
+                    "original": {"type": "github", "owner": "o", "repo": "r2"},
+                    "inputs": {"a": "a"},
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy.compute_indirect_overrides(lock) == {}
+
+    def test_compute_indirect_overrides_self_loop_and_diamond(self):
+        """#563: a self-loop terminates, and a diamond still walks the
+        shared node once per path (guard is per-path, not global) —
+        the indirect child under both parents gets both overrides."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"x": "x", "y": "y"}},
+                "x": {"inputs": {"shared": "shared", "me": "x"}},
+                "y": {"inputs": {"shared": "shared"}},
+                "shared": {
+                    "original": {"type": "indirect", "id": "mytool"},
+                    "locked": {
+                        "type": "github",
+                        "owner": "nixos",
+                        "repo": "nixpkgs",
+                        "rev": "dddd",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "x/shared": "github:nixos/nixpkgs",
+            "y/shared": "github:nixos/nixpkgs",
+        }
+
     def test_compute_indirect_overrides_tarball_locked(self):
         """#533: a tarball-locked node behind an indirect original
         produced no override — _locked_url only knew forge+git."""
