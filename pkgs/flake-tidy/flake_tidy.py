@@ -509,7 +509,12 @@ def _normalize_vcs_url(url: str) -> str:
     - an explicit port is dropped when it is the scheme's well-known
       default (http 80, https 443, ssh 22, git 9418) (#579): it names
       the same endpoint as no port. Any other port is kept verbatim —
-      it can be a genuinely different server.
+      it can be a genuinely different server;
+    - a bracketed IPv6 literal host is lowercased like any other host
+      (#581): its hex digits are case-insensitive, so "[2001:DB8::1]"
+      and "[2001:db8::1]" name the same server. (The #579 port parsing
+      reassembled the literal verbatim and skipped the lowercasing
+      the plain-host branch applies.)
 
     Deliberate non-rules (#555, decided here so the behaviour is a
     documented choice rather than an accident): ssh spellings
@@ -541,8 +546,10 @@ def _normalize_vcs_url(url: str) -> str:
         userinfo, at, hostport = authority.rpartition("@")
         if hostport.startswith("[") and "]" in hostport:
             # IPv6 literal: the host runs to "]", the port follows it.
+            # Hex digits are case-insensitive — lowercase the literal
+            # like the plain-host branch below (#581).
             host, _, tail = hostport.partition("]")
-            host += "]"
+            host = host.lower() + "]"
             colon, port = (":", tail[1:]) if tail.startswith(":") else ("", "")
         else:
             host, colon, port = hostport.partition(":")

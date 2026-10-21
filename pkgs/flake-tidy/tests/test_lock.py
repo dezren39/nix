@@ -477,6 +477,40 @@ class TestSourceKeyUrlSpelling:
             "foo://example.com:443/r"
         )
 
+    def test_ipv6_host_case_groups(self):
+        """#581: the IPv6-literal branch (added for #579's port
+        parsing) reassembled the host verbatim, skipping the
+        lowercasing the plain-host branch applies — but IPv6 hex
+        digits are case-insensitive, so the same server written
+        with uppercase hex split the group."""
+        assert self._key("http://[2001:db8::1]/repo") == self._key(
+            "http://[2001:DB8::1]/repo"
+        )
+        # With userinfo and an explicit default port (#579 composes).
+        assert self._key("ssh://git@[2001:db8::1]/repo") == self._key(
+            "ssh://git@[2001:DB8::1]:22/repo"
+        )
+        # A kept non-default port stays, with the host case folded.
+        assert self._key("https://[2001:db8::1]:8443/repo") == self._key(
+            "https://[2001:DB8::1]:8443/repo"
+        )
+        # hg nodes share the git/hg branch.
+        assert self._key(
+            "https://[2001:db8::1]/repo", t="hg"
+        ) == self._key("https://[2001:DB8::1]/repo", t="hg")
+
+    def test_ipv6_near_misses_stay_separate(self):
+        """#581 conservatism: a different IPv6 address is a different
+        server, and an IPv6 host is not in
+        _CASE_INSENSITIVE_PATH_HOSTS, so path case still
+        distinguishes exactly as for other case-sensitive hosts."""
+        assert self._key("http://[2001:db8::1]/repo") != self._key(
+            "http://[2001:db8::2]/repo"
+        )
+        assert self._key("http://[2001:db8::1]/Repo") != self._key(
+            "http://[2001:DB8::1]/repo"
+        )
+
     def test_ssh_and_https_stay_separate(self):
         """#555 decision, documented in _normalize_vcs_url: ssh and
         https are different transports and never merge."""
