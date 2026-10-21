@@ -707,6 +707,17 @@ def source_key(node_data: dict) -> str:
             for k, v in orig.items()
             if k not in ("type", "owner", "repo", "ref", "rev")
         }
+        if isinstance(extras.get("host"), str):
+            # #599: a host is a DNS name — case-insensitive, and one
+            # trailing dot is the DNS root label — so the host extra is
+            # canonicalized the same way #584 treats hosts inside
+            # _normalize_vcs_url. Otherwise one enterprise/self-hosted
+            # server written "GitHub.Example.com" and "github.example.com"
+            # splits the dedup group despite owner/repo being lowercased.
+            host = extras["host"].lower()
+            if len(host) > 1 and host.endswith("."):
+                host = host[:-1]
+            extras["host"] = host
         extra = f"/{json.dumps(extras, sort_keys=True)}" if extras else ""
         if "rev" in orig:
             # The pinned rev VALUE is deliberately NOT part of the key
