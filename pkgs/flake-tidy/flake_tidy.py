@@ -469,6 +469,12 @@ def load_lock(flake_dir: str) -> dict:
 # forge branch already keys together by lowercasing owner/repo.
 _CASE_INSENSITIVE_PATH_HOSTS = ("github.com", "gitlab.com")
 
+# Well-known default port per scheme (#579): an explicit default port
+# (":443" on an https URL) names the same endpoint as no port at all,
+# so it is dropped from the grouping key. A non-default port can be a
+# genuinely different server and is always kept.
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ssh": 22, "git": 9418}
+
 
 def _normalize_vcs_url(url: str) -> str:
     """Canonicalize a git/hg URL spelling for grouping (#555).
@@ -499,7 +505,11 @@ def _normalize_vcs_url(url: str) -> str:
     - an embedded query string is split off before all of the above
       and reattached verbatim (#560): the suffix rules apply to the
       path ahead of it, and case-sensitive query values (dir, ref)
-      are never lowercased.
+      are never lowercased;
+    - an explicit port is dropped when it is the scheme's well-known
+      default (http 80, https 443, ssh 22, git 9418) (#579): it names
+      the same endpoint as no port. Any other port is kept verbatim —
+      it can be a genuinely different server.
 
     Deliberate non-rules (#555, decided here so the behaviour is a
     documented choice rather than an accident): ssh spellings
@@ -529,8 +539,22 @@ def _normalize_vcs_url(url: str) -> str:
         scheme, rest = u.split("://", 1)
         authority, sep, path = rest.partition("/")
         userinfo, at, hostport = authority.rpartition("@")
-        host, colon, port = hostport.partition(":")
-        host = host.lower()
+        if hostport.startswith("[") and "]" in hostport:
+            # IPv6 literal: the host runs to "]", the port follows it.
+            host, _, tail = hostport.partition("]")
+            host += "]"
+            colon, port = (":", tail[1:]) if tail.startswith(":") else ("", "")
+        else:
+            host, colon, port = hostport.partition(":")
+            host = host.lower()
+        # #579: drop an explicit default port — same endpoint, so it
+        # must not split the group. Non-default or non-numeric ports
+        # (and ports on schemes with no known default) stay verbatim.
+        if (
+            port.isdigit()
+            and _DEFAULT_PORTS.get(scheme.lower()) == int(port)
+        ):
+            colon, port = "", ""
         authority = f"{userinfo}{at}{host}{colon}{port}"
         if sep and host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()
