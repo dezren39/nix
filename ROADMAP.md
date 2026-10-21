@@ -145,3 +145,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy `_normalize_vcs_url` strips one trailing host dot   | 2026-10-21 | #584, #585 |
 | flake-tidy canonicalizes IPv6 and port spellings               | 2026-10-21 | #583, #588 |
 | flake-tidy keys unconvertible ports verbatim, never raises     | 2026-10-21 | #589, #592 |
+| flake-tidy `_normalize_vcs_url` drops compound default ports   | 2026-10-21 | #595, #596 |
