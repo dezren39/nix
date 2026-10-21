@@ -131,3 +131,8 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy handles hg (mercurial) inputs                     | 2026-10-20 | #539, #542 |
 | Darwin mcpx `-skip` rewrite fails loudly on drift (code#418) | 2026-10-20 | #543       |
 | flake-tidy `node_url`/`_append_query` dedupe query params    | 2026-10-20 | #544, #545 |
+| ROADMAP Done records the #533–#544 merges                    | 2026-10-21 | #547, #548 |
+| flake-tidy `node_url` ref segment precedes embedded query    | 2026-10-21 | #546, #552 |
+| flake-tidy groups same repo across URL spellings             | 2026-10-21 | #555, #559 |
+| flake-tidy `resolve_follows` returns None on cyclic follows  | 2026-10-21 | #565, #566 |
+| flake-tidy override builder drops unresolvable `indirect:` ref | 2026-10-21 | #568, #569 |
