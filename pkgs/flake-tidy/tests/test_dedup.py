@@ -937,6 +937,45 @@ class TestNormalizeVcsUrlTrailingDotHost:
         assert a == b
 
 
+class TestForgeSourceKeyHostSpelling:
+    """#599: for forge (github/gitlab/sourcehut) inputs the host extra
+    was copied verbatim into source_key while owner/repo were
+    lowercased — so one enterprise/self-hosted server written with a
+    different host case, or with the DNS root-label trailing dot,
+    split the dedup group."""
+
+    @staticmethod
+    def _node(host, **extra):
+        original = {
+            "type": "github",
+            "owner": "foo",
+            "repo": "bar",
+            "host": host,
+        }
+        original.update(extra)
+        return {"original": original}
+
+    def test_host_case_variants_group(self):
+        a = flake_tidy.source_key(self._node("GitHub.Example.com"))
+        b = flake_tidy.source_key(self._node("github.example.com"))
+        assert a == b
+
+    def test_host_trailing_dot_groups(self):
+        a = flake_tidy.source_key(self._node("github.example.com."))
+        b = flake_tidy.source_key(self._node("github.example.com"))
+        assert a == b
+
+    def test_different_hosts_still_split(self):
+        a = flake_tidy.source_key(self._node("github.example.com"))
+        b = flake_tidy.source_key(self._node("gitlab.example.com"))
+        assert a != b
+
+    def test_dir_case_still_splits(self):
+        a = flake_tidy.source_key(self._node("github.example.com", dir="Sub"))
+        b = flake_tidy.source_key(self._node("github.example.com", dir="sub"))
+        assert a != b
+
+
 class TestAnalyzeDedupHgRevDivergence:
     """#539: same hg URL pinned at two different revs must dedup to
     the newest locked lastModified — the #509 consolidation, for
