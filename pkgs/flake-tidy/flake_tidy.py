@@ -530,8 +530,11 @@ def _normalize_vcs_url(url: str) -> str:
       are never lowercased;
     - an explicit port is dropped when it is the scheme's well-known
       default (http 80, https 443, ssh 22, git 9418) (#579): it names
-      the same endpoint as no port. Any other port can be a genuinely
-      different server, so it is kept — but in its canonical integer
+      the same endpoint as no port. On the compound schemes Nix
+      prefixes git/hg flake URLs with ("git+https", "hg+ssh", …) the
+      default is the transport's, after the "+" (#595). Any other
+      port can be a genuinely different server, so it is kept — but
+      in its canonical integer
       spelling (#583): a port is a number, so ":08443" and ":8443"
       name the same server, and an empty port ("host:") names the
       default and is dropped like one. Non-numeric ports stay
@@ -611,7 +614,16 @@ def _normalize_vcs_url(url: str) -> str:
                 port_num = int(port)
             except ValueError:
                 port_num = None
-        if port_num is not None and _DEFAULT_PORTS.get(scheme.lower()) == port_num:
+        # #595: Nix prefixes git/hg flake URLs with a compound scheme
+        # ("git+https", "hg+ssh", …) — the transport after the "+" is
+        # what carries the default port, so look that up, not the raw
+        # scheme.
+        transport = scheme.lower()
+        for prefix in ("git+", "hg+"):
+            if transport.startswith(prefix):
+                transport = transport[len(prefix) :]
+                break
+        if port_num is not None and _DEFAULT_PORTS.get(transport) == port_num:
             colon, port = "", ""
         elif port == "":
             # #583: an empty port ("host:") names the default port —

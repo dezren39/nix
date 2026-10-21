@@ -477,6 +477,47 @@ class TestSourceKeyUrlSpelling:
             "foo://example.com:443/r"
         )
 
+    def test_compound_scheme_default_port_groups(self):
+        """#595: Nix prefixes git/hg flake URLs with a compound scheme
+        (git+https, git+ssh, hg+https, ...) — the #579 default-port
+        lookup keyed on the raw scheme missed them all, so an explicit
+        default port split the group on the most common URL family."""
+        assert self._key("git+https://github.com/o/r") == self._key(
+            "git+https://github.com:443/o/r"
+        )
+        assert self._key("git+http://example.com/r") == self._key(
+            "git+http://example.com:80/r"
+        )
+        assert self._key("git+ssh://git@example.com/r") == self._key(
+            "git+ssh://git@example.com:22/r"
+        )
+        # hg nodes share the git/hg branch and the hg+ prefix.
+        assert self._key("hg+https://example.com/r", t="hg") == self._key(
+            "hg+https://example.com:443/r", t="hg"
+        )
+        # A leading-zero default port still drops (#579/#583 compose).
+        assert self._key("git+https://github.com/o/r") == self._key(
+            "git+https://github.com:0443/o/r"
+        )
+        # Composes with the suffix rules: .git strip + path lowering.
+        assert self._key("git+https://github.com/O/R") == self._key(
+            "git+https://github.com:443/o/r.git"
+        )
+
+    def test_compound_scheme_nondefault_port_stays_separate(self):
+        """#595 conservatism, same as #579: only the TRANSPORT's
+        default drops — a port that is default for another transport
+        (or for no transport) can be a genuinely different server."""
+        assert self._key("git+https://example.com/r") != self._key(
+            "git+https://example.com:8443/r"
+        )
+        assert self._key("git+https://example.com/r") != self._key(
+            "git+https://example.com:22/r"
+        )
+        assert self._key("git+ssh://git@example.com/r") != self._key(
+            "git+ssh://git@example.com:443/r"
+        )
+
     def test_ipv6_host_case_groups(self):
         """#581: the IPv6-literal branch (added for #579's port
         parsing) reassembled the host verbatim, skipping the
