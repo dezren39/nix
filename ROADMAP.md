@@ -148,3 +148,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy `_normalize_vcs_url` drops compound default ports   | 2026-10-21 | #595, #596 |
 | flake-tidy `source_key` canonicalizes the forge host           | 2026-10-21 | #599, #600 |
 | flake-tidy rebuilt URLs percent-encode lock values             | 2026-10-21 | #601, #602 |
+| flake-tidy `source_key` drops the explicit default forge host  | 2026-10-21 | #605, #606 |
