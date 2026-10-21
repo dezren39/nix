@@ -79,6 +79,49 @@ class TestResolveFollows:
         # flake-utils node has inputs.systems = "systems_2"
         assert result == "systems_2"
 
+    def test_resolve_follows_mutual_cycle(self):
+        """mutual follows cycle returns None instead of RecursionError (#565)."""
+        lock = {"nodes": {"root": {"inputs": {"a": ["b"], "b": ["a"]}}}}
+        assert flake_tidy.resolve_follows(lock, ["a"]) is None
+        assert flake_tidy.resolve_follows(lock, ["b"]) is None
+
+    def test_resolve_follows_self_cycle(self):
+        """self follows returns None instead of RecursionError (#565)."""
+        lock = {"nodes": {"root": {"inputs": {"a": ["a"]}}}}
+        assert flake_tidy.resolve_follows(lock, ["a"]) is None
+
+    def test_resolve_follows_sibling_reuse_not_a_cycle(self):
+        """same sub-path resolved in sibling steps still resolves (#565)."""
+        lock2 = {
+            "nodes": {
+                "root": {"inputs": {"x": "x", "y": "y", "shared": "shared"}},
+                "x": {"inputs": {"dep": ["shared"]}},
+                "y": {"inputs": {"dep": ["shared"]}},
+                "shared": {
+                    "inputs": {},
+                    "original": {"type": "github", "owner": "x", "repo": "s"},
+                    "locked": {"narHash": "sha256-s"},
+                },
+            }
+        }
+        assert flake_tidy.resolve_follows(lock2, ["x", "dep"]) == "shared"
+        assert flake_tidy.resolve_follows(lock2, ["y", "dep"]) == "shared"
+
+    def test_find_all_paths_with_cyclic_follows(self):
+        """find_all_paths survives a cyclic follows in the lock (#565)."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": ["b"], "b": ["a"], "real": "real"}},
+                "real": {
+                    "inputs": {},
+                    "original": {"type": "github", "owner": "x", "repo": "r"},
+                    "locked": {"narHash": "sha256-r"},
+                },
+            }
+        }
+        paths = flake_tidy.find_all_paths(lock, "real")
+        assert any(len(p) == 1 and p[0][1] == "real" for p in paths)
+
     def test_resolve_follows_missing(self, sample_lock):
         """returns None for missing."""
         result = flake_tidy.resolve_follows(sample_lock, ["nonexistent"])

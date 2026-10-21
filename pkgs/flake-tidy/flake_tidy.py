@@ -970,8 +970,24 @@ def find_all_paths(lock: dict, target_node: str) -> list[list[tuple[str, str, bo
     return results
 
 
-def resolve_follows(lock: dict, follows_path: list[str]) -> str | None:
-    """Resolve a follows path like ["determinate", "nix", "nixpkgs"] to a node name."""
+def resolve_follows(
+    lock: dict, follows_path: list[str], _resolving: frozenset | None = None
+) -> str | None:
+    """Resolve a follows path like ["determinate", "nix", "nixpkgs"] to a node name.
+
+    Returns None when the path cannot be resolved, including when the
+    follows declarations form a cycle (e.g. ``a`` follows ``b`` while
+    ``b`` follows ``a`` in a hand-edited or corrupted lock): a follows
+    path that is already being resolved further up the call chain is a
+    cycle, not a reason to recurse until RecursionError (#565). Only
+    the active resolution chain is tracked, so the same sub-path
+    resolved again in a sibling step is not mistaken for a cycle.
+    """
+    key = tuple(follows_path)
+    resolving = _resolving if _resolving is not None else frozenset()
+    if key in resolving:
+        return None
+    resolving = resolving | {key}
     nodes = lock["nodes"]
     current = "root"
     for step in follows_path:
@@ -983,7 +999,7 @@ def resolve_follows(lock: dict, follows_path: list[str]) -> str | None:
         if isinstance(ref, str):
             current = ref
         elif isinstance(ref, list):
-            resolved = resolve_follows(lock, ref)
+            resolved = resolve_follows(lock, ref, resolving)
             if resolved is None:
                 return None
             current = resolved
