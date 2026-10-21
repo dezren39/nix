@@ -511,6 +511,88 @@ class TestSourceKeyUrlSpelling:
             "http://[2001:DB8::1]/repo"
         )
 
+    def test_ipv6_numeric_spellings_group(self):
+        """#583: #582 folded the literal's hex case but kept the
+        address verbatim, so equivalent numeric spellings of one
+        IPv6 address — leading zeros, expanded vs "::"-compressed,
+        IPv4-embedded vs hex — still split the group."""
+        assert self._key("http://[2001:db8::1]/repo") == self._key(
+            "http://[2001:0db8::1]/repo"
+        )
+        assert self._key("http://[2001:db8::1]/repo") == self._key(
+            "http://[2001:db8:0:0:0:0:0:1]/repo"
+        )
+        assert self._key("http://[::1]/repo") == self._key(
+            "http://[0:0:0:0:0:0:0:1]/repo"
+        )
+        assert self._key("http://[::ffff:192.0.2.1]/repo") == self._key(
+            "http://[::ffff:c000:201]/repo"
+        )
+        # Composes with case folding, userinfo, and the port rules.
+        assert self._key("ssh://git@[2001:DB8::1]/repo") == self._key(
+            "ssh://git@[2001:0db8::1]:022/repo"
+        )
+        # hg nodes share the git/hg branch.
+        assert self._key(
+            "https://[2001:db8::1]/repo", t="hg"
+        ) == self._key("https://[2001:0DB8::1]/repo", t="hg")
+
+    def test_ipv6_numeric_near_misses_stay_separate(self):
+        """#583 conservatism: a genuinely different address is a
+        different server, and path case on an IPv6 host still
+        distinguishes (the host is not in
+        _CASE_INSENSITIVE_PATH_HOSTS)."""
+        assert self._key("http://[2001:db8::1]/repo") != self._key(
+            "http://[2001:db8::2]/repo"
+        )
+        assert self._key("http://[2001:0db8::1]/Repo") != self._key(
+            "http://[2001:db8::1]/repo"
+        )
+
+    def test_ipv6_malformed_literal_falls_back(self):
+        """#583: bracketed contents that do not parse as an IPv6
+        address keep the #581 lowercased-verbatim key and never
+        raise out of source_key."""
+        assert self._key("http://[notanip]/repo") == self._key(
+            "http://[NOTANIP]/repo"
+        )
+        assert self._key("http://[2001:db8::1%25eth0]/repo") == self._key(
+            "http://[2001:0DB8::1%25eth0]/repo"
+        )
+        # A different zone is a different interface — stays separate.
+        assert self._key("http://[fe80::1%eth0]/repo") != self._key(
+            "http://[fe80::1%eth1]/repo"
+        )
+
+    def test_port_numeric_spellings_group(self):
+        """#583: #580 compared the port numerically for the
+        default-port drop but kept the original string for
+        non-default ports, so ":08443" split from ":8443"; an empty
+        port ("host:") split from no port at all."""
+        assert self._key("https://example.com:8443/r") == self._key(
+            "https://example.com:08443/r"
+        )
+        assert self._key("https://example.com/r") == self._key(
+            "https://example.com:/r"
+        )
+        # A leading-zero default port still drops (#579 composes).
+        assert self._key("https://github.com/o/r") == self._key(
+            "https://github.com:0443/o/r"
+        )
+
+    def test_port_numeric_near_misses_stay_separate(self):
+        """#583 conservatism: a genuinely different port is a
+        different server, and non-numeric ports stay verbatim."""
+        assert self._key("https://example.com:8443/r") != self._key(
+            "https://example.com:8444/r"
+        )
+        assert self._key("https://example.com:8443/r") != self._key(
+            "https://example.com:08444/r"
+        )
+        assert self._key("https://example.com:abc/r") != self._key(
+            "https://example.com:abd/r"
+        )
+
     def test_ssh_and_https_stay_separate(self):
         """#555 decision, documented in _normalize_vcs_url: ssh and
         https are different transports and never merge."""

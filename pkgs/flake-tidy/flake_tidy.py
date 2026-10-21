@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import ipaddress
 import json
 import os
 import re
@@ -476,6 +477,27 @@ _CASE_INSENSITIVE_PATH_HOSTS = ("github.com", "gitlab.com")
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ssh": 22, "git": 9418}
 
 
+def _canonical_ipv6_literal(host: str) -> str:
+    """Canonicalize a bracketed IPv6 literal host for grouping (#583).
+
+    `host` carries the leading "[" and no "]" (the caller split on
+    "]"). The address is emitted in canonical compressed form, so
+    leading zeros, "::" compression, hex case, and the IPv4-embedded
+    spelling of one address all key together. A zone/scope suffix
+    ("%…") is kept verbatim — it names an interface, not part of the
+    address spelling. Contents that do not parse as an IPv6 address
+    fall back to the #581 lowercased-verbatim spelling; a malformed
+    literal must never raise out of grouping.
+    """
+    inner = host[1:] if host.startswith("[") else host
+    addr, pct, zone = inner.partition("%")
+    try:
+        canonical = ipaddress.IPv6Address(addr).compressed
+    except ValueError:
+        return host.lower()
+    return "[" + canonical + (pct + zone if pct else "")
+
+
 def _normalize_vcs_url(url: str) -> str:
     """Canonicalize a git/hg URL spelling for grouping (#555).
 
@@ -508,13 +530,24 @@ def _normalize_vcs_url(url: str) -> str:
       are never lowercased;
     - an explicit port is dropped when it is the scheme's well-known
       default (http 80, https 443, ssh 22, git 9418) (#579): it names
-      the same endpoint as no port. Any other port is kept verbatim —
-      it can be a genuinely different server;
+      the same endpoint as no port. Any other port can be a genuinely
+      different server, so it is kept — but in its canonical integer
+      spelling (#583): a port is a number, so ":08443" and ":8443"
+      name the same server, and an empty port ("host:") names the
+      default and is dropped like one. Non-numeric ports stay
+      verbatim, as before;
     - a bracketed IPv6 literal host is lowercased like any other host
       (#581): its hex digits are case-insensitive, so "[2001:DB8::1]"
       and "[2001:db8::1]" name the same server. (The #579 port parsing
       reassembled the literal verbatim and skipped the lowercasing
-      the plain-host branch applies.)
+      the plain-host branch applies.) The address itself is also
+      emitted in canonical compressed form (#583): leading zeros,
+      "::" compression, and the IPv4-embedded spelling are all the
+      same address ("[2001:0db8::1]", "[2001:db8:0:0:0:0:0:1]" and
+      "[2001:db8::1]"; "[::ffff:192.0.2.1]" and "[::ffff:c000:201]").
+      A zone/scope suffix ("%…") is kept verbatim, and bracketed
+      contents that do not parse as an IPv6 address fall back to the
+      #581 lowercased-verbatim spelling — never an error;
     - one trailing dot is stripped from the host (#584): it is the
       DNS root label, so "github.com." and "github.com" name the same
       server — in every spelling family. Stripping it before the
@@ -554,7 +587,7 @@ def _normalize_vcs_url(url: str) -> str:
             # Hex digits are case-insensitive — lowercase the literal
             # like the plain-host branch below (#581).
             host, _, tail = hostport.partition("]")
-            host = host.lower() + "]"
+            host = _canonical_ipv6_literal(host) + "]"
             colon, port = (":", tail[1:]) if tail.startswith(":") else ("", "")
         else:
             host, colon, port = hostport.partition(":")
@@ -573,6 +606,15 @@ def _normalize_vcs_url(url: str) -> str:
             and _DEFAULT_PORTS.get(scheme.lower()) == int(port)
         ):
             colon, port = "", ""
+        elif port == "":
+            # #583: an empty port ("host:") names the default port —
+            # URL serialization drops the colon — so drop it too,
+            # whether or not a port separator was present.
+            colon = ""
+        elif port.isdigit():
+            # #583: a port is a number — emit its canonical integer
+            # spelling so ":08443" groups with ":8443".
+            port = str(int(port))
         authority = f"{userinfo}{at}{host}{colon}{port}"
         if sep and host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()
