@@ -398,6 +398,39 @@ class TestSourceKeyUrlSpelling:
             "git@github.com:owner/repo.GIT"
         )
 
+    def test_stacked_dot_git_strips_at_most_one(self):
+        """#575: PR #572's post-lowercase strip stacked with the
+        early strip, so repo.git.git lost BOTH suffixes on forge
+        hosts and grouped with the different repository repo.
+        One strip leaves a repository actually named repo.git,
+        whose key ends in /repo.git/ — all stacked spellings share
+        it, and it differs from the plain repo key."""
+        stacked = self._key("https://github.com/owner/repo.git.git")
+        assert stacked.endswith("/repo.git/")
+        assert self._key("https://github.com/owner/repo.GIT.git") == stacked
+        assert self._key("https://github.com/owner/repo.git.GIT") == stacked
+        assert self._key("https://github.com/owner/repo.GIT.GIT") == stacked
+        assert stacked != self._key("https://github.com/owner/repo")
+        assert stacked != self._key("https://github.com/owner/repo.git")
+        # The case-sensitive-host result is the reference (#575
+        # acceptance): exactly one strip there too, same shape.
+        assert self._key(
+            "https://example.com/owner/repo.git.git"
+        ).endswith("/repo.git/")
+        # hg nodes share the git/hg branch.
+        assert self._key(
+            "https://github.com/owner/repo.git.git", t="hg"
+        ).endswith("/repo.git/")
+
+    def test_stacked_dot_git_scp_like_strips_at_most_one(self):
+        """#575: the scp-like branch had the same stacked strip."""
+        stacked = self._key("git@github.com:owner/repo.git.git")
+        assert stacked.endswith(":owner/repo.git/")
+        assert self._key("git@github.com:owner/repo.GIT.git") == stacked
+        assert self._key("git@github.com:owner/repo.git.GIT") == stacked
+        assert stacked != self._key("git@github.com:owner/repo")
+        assert stacked != self._key("git@github.com:owner/repo.git")
+
     def test_uppercase_dot_git_kept_on_case_sensitive_hosts(self):
         """#562 documented choice: on a case-sensitive host repo.GIT
         can be a different repository, so the suffix is kept there."""

@@ -489,7 +489,11 @@ def _normalize_vcs_url(url: str) -> str:
     - where the path is case-normalized that way, a ".git" suffix in
       any case (".GIT", ".Git") is also dropped: lowercasing turns it
       into ".git" after the case-sensitive early strip has run
-      (#562). On case-sensitive hosts a ".GIT" suffix is KEPT —
+      (#562). At most ONE ".git" suffix is dropped in total (#575):
+      if the early strip already removed an exact ".git", the
+      post-lowercase strip does not fire, so "repo.git.git" keys as
+      "repo.git" (a repository actually named repo.git), not "repo".
+      On case-sensitive hosts a ".GIT" suffix is KEPT —
       there "repo.GIT" can be a genuinely different repository from
       "repo", so only the exact ".git" spelling is stripped;
     - an embedded query string is split off before all of the above
@@ -517,8 +521,10 @@ def _normalize_vcs_url(url: str) -> str:
     # Suffix canonicalization on the base spelling: trailing slashes
     # go first so "repo.git/" also loses its one ".git" suffix.
     u = u.rstrip("/")
+    stripped_dot_git = False
     if u.endswith(".git"):
         u = u[: -len(".git")].rstrip("/")
+        stripped_dot_git = True
     if "://" in u:
         scheme, rest = u.split("://", 1)
         authority, sep, path = rest.partition("/")
@@ -531,7 +537,11 @@ def _normalize_vcs_url(url: str) -> str:
             # #562: lowercasing may have just turned a ".GIT"/".Git"
             # suffix into ".git" — drop that one suffix too (the
             # early strip above only sees the exact spelling).
-            if path.endswith(".git"):
+            # #575: only when the early strip did NOT already fire —
+            # at most one ".git" is dropped in total, otherwise
+            # "repo.git.git" would lose both suffixes and group with
+            # the different repository "repo".
+            if not stripped_dot_git and path.endswith(".git"):
                 path = path[: -len(".git")].rstrip("/")
         u = f"{scheme.lower()}://{authority}{sep}{path}"
     elif "@" in u and ":" in u.split("@", 1)[1]:
@@ -547,7 +557,8 @@ def _normalize_vcs_url(url: str) -> str:
         host = host.lower()
         if host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()
-            if path.endswith(".git"):
+            # #575: same at-most-one rule as the "://" branch.
+            if not stripped_dot_git and path.endswith(".git"):
                 path = path[: -len(".git")].rstrip("/")
         u = f"{user}@{host}:{path}"
     return u + (qsep + query if qsep else "")
