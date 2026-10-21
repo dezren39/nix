@@ -337,11 +337,32 @@ phase_activate() {
   echo "softwareupdate --install-rosetta --agree-to-license"
   softwareupdate --install-rosetta --agree-to-license
 
-  # Activate as root. Build already happened (phase_build, or a previous
-  # `just build`), so the nix build inside this is a cache hit.
+  # Activate exactly the system phase_build made: register it as the next
+  # system generation, then run its activation. This is what
+  # `darwin-rebuild switch` does after its own build (nix-env --set, then
+  # activate); `darwin-rebuild activate` reads the system to activate from
+  # its own store path, so it is ./result's.
+  #
+  # This used to be `sudo darwin-rebuild switch --flake .`, which evaluates
+  # the flake again as root. Root's evaluation cache is cold, so it needs
+  # every flake input in the store, and flake input sources are not GC roots:
+  # after a `nix store gc` it re-downloaded and unpacked nixpkgs (50,250
+  # files, auto-optimise-store hardlinking each) and ran 27+ minutes before
+  # being interrupted (2026-10-21). The same fetch as the user took 86 s. It
+  # could also, in principle, activate something other than what was built
+  # and committed if the tree changed in between.
+  #
+  # Registering the profile before activating also matters for GC: what is
+  # activated is always a profile generation, so everything its activation
+  # writes outside the store (mcpx's config.json, OpenChamber's links,
+  # launchd plists) stays rooted. An activation of an unregistered build is
+  # how mcpx lost its mcp-remote binary on 2026-10-21.
   if [[ -x ./result/sw/bin/darwin-rebuild ]]; then
-    echo "darwin-rebuild switch (activate as root)"
-    sudo ./result/sw/bin/darwin-rebuild switch --flake . --keep-going
+    local system_config
+    system_config=$(readlink -f ./result)
+    echo "nix-env --set the system profile to $system_config, then darwin-rebuild activate (as root)"
+    sudo /nix/var/nix/profiles/default/bin/nix-env -p /nix/var/nix/profiles/system --set "$system_config"
+    sudo "$system_config/sw/bin/darwin-rebuild" activate
   else
     echo "no ./result to activate; run 'just build' first" >&2
     return 1
