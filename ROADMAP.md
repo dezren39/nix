@@ -149,3 +149,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy `source_key` canonicalizes the forge host           | 2026-10-21 | #599, #600 |
 | flake-tidy rebuilt URLs percent-encode lock values             | 2026-10-21 | #601, #602 |
 | flake-tidy `source_key` drops the explicit default forge host  | 2026-10-21 | #605, #606 |
+| flake-tidy `_locked_url` keeps the locked rev for forge types  | 2026-10-21 | #609, #610 |
+| flake-tidy `source_key` canonicalizes tarball/file hosts       | 2026-10-21 | #611, #612 |
+| flake-tidy `_canonicalize_url_authority` ends at `?` and `#`   | 2026-10-21 | #613, #614 |
