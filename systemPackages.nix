@@ -44,6 +44,8 @@ in
       nixfmt
       # awscli # removed 2026-09-15: reclaiming disk; use AWS SDK / CloudShell
       azure-cli
+      # Anthropic's Claude Code CLI (unfree; allowed by nixpkgs.config.allowUnfree).
+      claude-code
       direnv
       nix-direnv
       jujutsu
@@ -51,7 +53,10 @@ in
       bandwhich
       bash-completion
       bat
-      # bitwarden-cli
+      # Bitwarden: desktop app, personal vault CLI (`bw`), and Secrets Manager CLI (`bws`).
+      bitwarden-desktop
+      bitwarden-cli
+      bws
       # whalebrew?
       # kitty # removed 2026-09-15: reclaiming disk
       zellij
