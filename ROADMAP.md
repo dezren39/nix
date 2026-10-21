@@ -139,3 +139,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy `_normalize_vcs_url` splits embedded query first    | 2026-10-21 | #560, #561 |
 | flake-tidy `compute_indirect_overrides` cycle-guarded          | 2026-10-21 | #563, #564 |
 | flake-tidy `_normalize_vcs_url` case rules cover scp/`.GIT`    | 2026-10-21 | #562, #572 |
+| flake-tidy `_normalize_vcs_url` strips at most one `.git`      | 2026-10-21 | #575, #576 |
