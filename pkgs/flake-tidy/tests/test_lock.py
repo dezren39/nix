@@ -846,6 +846,50 @@ class TestEmbeddedQueryUrls:
         assert s.count("?") == 1
         assert s.count("dir=") == 1
 
+    def test_node_url_git_ref_goes_before_embedded_query(self):
+        # #546: the /ref segment is path, not query — appending it
+        # after the raw URL corrupted shallow's value to "1/main".
+        s = flake_tidy.node_url(
+            self._node(
+                type="git",
+                url="https://example.com/repo.git?shallow=1",
+                ref="main",
+                dir="sub",
+            )
+        )
+        assert s == "https://example.com/repo.git/main?shallow=1&dir=sub"
+
+    def test_node_url_git_rev_goes_before_embedded_query(self):
+        s = flake_tidy.node_url(
+            self._node(
+                type="git",
+                url="https://example.com/repo.git?shallow=1",
+                rev="abc1234567890def",
+            )
+        )
+        assert s == "https://example.com/repo.git/abc123456789?shallow=1"
+
+    def test_node_url_hg_ref_goes_before_embedded_query(self):
+        s = flake_tidy.node_url(
+            self._node(
+                type="hg",
+                url="https://example.com/repo?foo=1",
+                ref="default",
+                dir="sub",
+            )
+        )
+        assert s == "https://example.com/repo/default?foo=1&dir=sub"
+
+    def test_node_url_hg_rev_goes_before_embedded_query(self):
+        s = flake_tidy.node_url(
+            self._node(
+                type="hg",
+                url="https://example.com/repo?foo=1",
+                rev="abc1234567890def",
+            )
+        )
+        assert s == "https://example.com/repo/abc123456789?foo=1"
+
     def test_node_original_url_dedupes_embedded_params(self):
         s = flake_tidy.node_original_url(
             self._node(
