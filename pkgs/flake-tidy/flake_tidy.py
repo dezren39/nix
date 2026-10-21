@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import functools
 import json
 import os
 import re
@@ -1033,11 +1034,9 @@ def write_flake_nix(flake_dir: str, content: str) -> None:
         f.write(content)
 
 
-def get_input_file_order(content: str) -> list[str]:
-    """Parse flake.nix to determine input declaration order.
-
-    Returns a list of root input names in the order they appear in the file.
-    """
+@functools.lru_cache(maxsize=32)
+def _raw_get_input_file_order(content: str) -> tuple[str, ...]:
+    """Parse flake.nix to determine input declaration order (cached tuple)."""
     order: list[str] = []
     seen: set[str] = set()
     in_inputs_block = False
@@ -1090,17 +1089,24 @@ def get_input_file_order(content: str) -> list[str]:
                     order.append(name)
                     seen.add(name)
 
-    return order
+    return tuple(order)
 
 
-def _block_context_for_lines(content: str) -> list[str | None]:
-    """Return the enclosing block input name for each line.
+def get_input_file_order(content: str) -> list[str]:
+    """Parse flake.nix to determine input declaration order.
+
+    Returns a list of root input names in the order they appear in the file.
+    Returns a fresh list instance to avoid cache mutation poisoning.
+    """
+    return list(_raw_get_input_file_order(content))
+
+
+@functools.lru_cache(maxsize=32)
+def _raw_block_context_for_lines(content: str) -> tuple[str | None, ...]:
+    """Return the enclosing block input name for each line (cached tuple).
 
     For lines inside ``someInput = { ... };`` returns ``"someInput"``.
     For top-level dotted lines (outside any block) returns ``None``.
-
-    This is approximate but sufficient: it tracks ``<name> = {`` opens
-    and matching ``};`` closes at the same indent level.
     """
     lines = content.split("\n")
     result: list[str | None] = [None] * len(lines)
@@ -1147,7 +1153,18 @@ def _block_context_for_lines(content: str) -> list[str | None]:
         if stack:
             result[i] = stack[-1][0]
 
-    return result
+    return tuple(result)
+
+
+def _block_context_for_lines(content: str) -> list[str | None]:
+    """Return the enclosing block input name for each line.
+
+    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
+    For top-level dotted lines (outside any block) returns ``None``.
+
+    Returns a fresh list instance to avoid cache mutation poisoning.
+    """
+    return list(_raw_block_context_for_lines(content))
 
 
 def follows_exists_in_content(
@@ -1187,7 +1204,7 @@ def follows_exists_in_content(
         # Inside the block of the single part, bare follows matches
         block_candidates.append(f'follows = "{target}"')
 
-    block_context = _block_context_for_lines(content)
+    block_context = _raw_block_context_for_lines(content)
     lines = content.split("\n")
     first_part = follows_parts[0] if follows_parts else None
 
@@ -1239,7 +1256,7 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
     elif len(follows_parts) == 1:
         block_prefixes.append("follows")
 
-    block_context = _block_context_for_lines(content)
+    block_context = _raw_block_context_for_lines(content)
     lines = content.split("\n")
     first_part = follows_parts[0] if follows_parts else None
 
@@ -1401,6 +1418,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
     return None
 
 
+@functools.lru_cache(maxsize=32)
 def detect_inputs_style(
     content: str,
 ) -> tuple[str, int | None, int | None]:
@@ -1434,7 +1452,7 @@ def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, b
     """
     lines = content.split("\n")
     style, block_start, block_end = detect_inputs_style(content)
-    block_ctx = _block_context_for_lines(content)
+    block_ctx = _raw_block_context_for_lines(content)
 
     last = None
     inside_block = False
@@ -1469,7 +1487,7 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
     lines = content.split("\n")
     esc = re.escape(input_name)
     style, block_start, block_end = detect_inputs_style(content)
-    block_ctx = _block_context_for_lines(content)
+    block_ctx = _raw_block_context_for_lines(content)
 
     # --- Block style: look inside the input's own block ---
     if style == "block" and block_start is not None and block_end is not None:
