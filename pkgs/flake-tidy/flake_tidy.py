@@ -477,6 +477,18 @@ _CASE_INSENSITIVE_PATH_HOSTS = ("github.com", "gitlab.com")
 # genuinely different server and is always kept.
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ssh": 22, "git": 9418}
 
+# Default server per forge type (#605): an explicit host naming the
+# type's own default (e.g. ?host=github.com on a github input, which
+# Nix records verbatim in the lock's original) names the same server
+# as no host at all, so it must not split the dedup group — the host
+# analogue of the #579 default-port rule. Any other host (GitHub
+# Enterprise, a self-hosted GitLab, hg.sr.ht) stays distinguishing.
+_FORGE_DEFAULT_HOSTS = {
+    "github": "github.com",
+    "gitlab": "gitlab.com",
+    "sourcehut": "git.sr.ht",
+}
+
 
 def _canonical_ipv6_literal(host: str) -> str:
     """Canonicalize a bracketed IPv6 literal host for grouping (#583).
@@ -719,6 +731,12 @@ def source_key(node_data: dict) -> str:
             if len(host) > 1 and host.endswith("."):
                 host = host[:-1]
             extras["host"] = host
+            # #605: an explicit host that IS the type's default server
+            # distinguishes nothing — drop it, so the node groups with
+            # the identical hostless input (as an explicit default port
+            # is dropped in _normalize_vcs_url, #579).
+            if host == _FORGE_DEFAULT_HOSTS.get(t):
+                del extras["host"]
         extra = f"/{json.dumps(extras, sort_keys=True)}" if extras else ""
         if "rev" in orig:
             # The pinned rev VALUE is deliberately NOT part of the key

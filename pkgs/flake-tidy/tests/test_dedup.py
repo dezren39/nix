@@ -976,6 +976,87 @@ class TestForgeSourceKeyHostSpelling:
         assert a != b
 
 
+class TestForgeSourceKeyDefaultHost:
+    """#605: an explicit host naming the forge type's own default
+    server (github.com / gitlab.com / git.sr.ht — which Nix records
+    verbatim in the lock's original, e.g. from ?host=github.com)
+    names the same server as no host at all, but was kept in the
+    key, so the spelling never grouped with the hostless input."""
+
+    @staticmethod
+    def _key(original):
+        return flake_tidy.source_key({"original": original})
+
+    def test_github_default_host_groups_with_hostless(self):
+        a = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "github.com"}
+        )
+        assert a == b
+
+    def test_github_default_host_spelling_variants_group(self):
+        a = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "GitHub.com."}
+        )
+        assert a == b
+
+    def test_gitlab_default_host_groups_with_hostless(self):
+        a = self._key({"type": "gitlab", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "gitlab", "owner": "foo", "repo": "bar", "host": "gitlab.com"}
+        )
+        assert a == b
+
+    def test_sourcehut_default_host_groups_with_hostless(self):
+        a = self._key({"type": "sourcehut", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "sourcehut", "owner": "foo", "repo": "bar", "host": "git.sr.ht"}
+        )
+        assert a == b
+
+    def test_non_default_hosts_still_split(self):
+        hostless = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        ghe = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "ghe.example.com"}
+        )
+        hg = self._key(
+            {"type": "sourcehut", "owner": "foo", "repo": "bar", "host": "hg.sr.ht"}
+        )
+        assert ghe != hostless
+        assert hg != self._key({"type": "sourcehut", "owner": "foo", "repo": "bar"})
+
+    def test_dir_still_splits_with_default_host_dropped(self):
+        a = self._key(
+            {
+                "type": "github",
+                "owner": "foo",
+                "repo": "bar",
+                "host": "github.com",
+                "dir": "Sub",
+            }
+        )
+        b = self._key({"type": "github", "owner": "foo", "repo": "bar", "dir": "sub"})
+        c = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        assert a != b
+        assert a != c
+
+    def test_default_host_rev_pinned_still_separate(self):
+        a = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "github.com"}
+        )
+        b = self._key(
+            {
+                "type": "github",
+                "owner": "foo",
+                "repo": "bar",
+                "host": "github.com",
+                "rev": "abc123",
+            }
+        )
+        assert a != b
+
+
 class TestAnalyzeDedupHgRevDivergence:
     """#539: same hg URL pinned at two different revs must dedup to
     the newest locked lastModified — the #509 consolidation, for
