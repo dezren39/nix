@@ -576,8 +576,11 @@ def _normalize_vcs_url(url: str) -> str:
     host/path do NOT canonicalize together — they are different
     transports that can resolve through different mirrors and
     credentials. The tarball/file branches likewise keep their raw
-    URL: those name a specific fetched artifact, where a spelling
-    difference can be a genuinely different location.
+    URL past the authority: those name a specific fetched artifact,
+    where a path/query spelling difference can be a genuinely
+    different location. (Only their scheme + host + port are
+    canonicalized, by _canonicalize_url_authority — #611: a DNS host
+    spelling can never name a different location.)
     """
     # Split any embedded query off FIRST (#560): a raw git URL may
     # already carry e.g. ?shallow=1 (#528/#544/#546). Treating the URL
@@ -696,6 +699,61 @@ def _normalize_ref(ref: str) -> str:
     return ref
 
 
+def _canonicalize_url_authority(url: str) -> str:
+    """Canonicalize ONLY the scheme + authority of a URL for grouping (#611).
+
+    The tarball/file branches of source_key embed their URL verbatim,
+    so they never received the host rules the git/hg branch applies
+    via _normalize_vcs_url (#579/#581/#583/#584) and the forge branch
+    applies to its host extra (#599/#605): a DNS host is
+    case-insensitive, one trailing dot is the DNS root label, and an
+    explicit scheme-default port names the same endpoint as no port.
+    Two lock nodes fetching the same artifact from the same server
+    spelled "EXAMPLE.com", "example.com." and "example.com:443" split
+    the dedup group.
+
+    Everything after the authority — userinfo, path, query, fragment —
+    stays byte-for-byte verbatim: #555's deliberate non-rule stands
+    for those, because a different path or query really can name a
+    different artifact. URLs without a "://" authority are returned
+    unchanged.
+    """
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    authority, sep, tail = rest.partition("/")
+    userinfo, at, hostport = authority.rpartition("@")
+    if hostport.startswith("[") and "]" in hostport:
+        # IPv6 literal: the host runs to "]", the port follows it.
+        host, _, porttail = hostport.partition("]")
+        host = _canonical_ipv6_literal(host) + "]"
+        colon, port = (":", porttail[1:]) if porttail.startswith(":") else ("", "")
+    else:
+        host, colon, port = hostport.partition(":")
+        host = host.lower()
+        # #584: one trailing dot is the DNS root label.
+        if len(host) > 1 and host.endswith("."):
+            host = host[:-1]
+    # #579/#583 port rules, mirroring _normalize_vcs_url: drop an
+    # explicit default port, drop an empty port, and emit any other
+    # numeric port in canonical integer spelling. The guarded int()
+    # conversion is #589's: isdigit() accepts spellings int() rejects,
+    # and an unconvertible port keys verbatim, never raises.
+    port_num = None
+    if port.isdigit():
+        try:
+            port_num = int(port)
+        except ValueError:
+            port_num = None
+    if port_num is not None and _DEFAULT_PORTS.get(scheme.lower()) == port_num:
+        colon, port = "", ""
+    elif port == "":
+        colon = ""
+    elif port_num is not None:
+        port = str(port_num)
+    return f"{scheme.lower()}://{userinfo}{at}{host}{colon}{port}{sep}{tail}"
+
+
 def source_key(node_data: dict) -> str:
     """Compute a grouping key from a node's 'original' field.
 
@@ -786,14 +844,14 @@ def source_key(node_data: dict) -> str:
             if "dir" in orig
             else ""
         )
-        return f"tarball/{orig.get('url', '')}{extra}"
+        return f"tarball/{_canonicalize_url_authority(orig.get('url', ''))}{extra}"
     elif t == "file":
         extra = (
             f"/{json.dumps({'dir': orig['dir']}, sort_keys=True)}"
             if "dir" in orig
             else ""
         )
-        return f"file/{orig.get('url', '')}{extra}"
+        return f"file/{_canonicalize_url_authority(orig.get('url', ''))}{extra}"
     elif t == "path":
         extra = (
             f"/{json.dumps({'dir': orig['dir']}, sort_keys=True)}"

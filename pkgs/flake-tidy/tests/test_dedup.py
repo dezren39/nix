@@ -1057,6 +1057,72 @@ class TestForgeSourceKeyDefaultHost:
         assert a != b
 
 
+class TestTarballFileSourceKeyHostSpelling:
+    """#611: the tarball/file branches of source_key embedded the URL
+    completely verbatim, so they never got the host rules the git/hg
+    (#579/#584) and forge (#599/#605) branches apply — one artifact on
+    one server split the dedup group when the host was spelled with
+    different case, a trailing dot, or an explicit default port.
+    Only scheme + authority are canonicalized; the path/query stay
+    verbatim per #555's deliberate non-rule."""
+
+    @staticmethod
+    def _key(original):
+        return flake_tidy.source_key({"original": original})
+
+    def test_host_case_variants_group(self):
+        for t in ("tarball", "file"):
+            a = self._key({"type": t, "url": "https://EXAMPLE.com/a.tgz"})
+            b = self._key({"type": t, "url": "https://example.com/a.tgz"})
+            assert a == b
+
+    def test_host_trailing_dot_groups(self):
+        a = self._key({"type": "tarball", "url": "https://example.com./a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a == b
+
+    def test_default_port_groups(self):
+        a = self._key({"type": "tarball", "url": "https://example.com:443/a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a == b
+        c = self._key({"type": "file", "url": "http://example.com:80/a"})
+        d = self._key({"type": "file", "url": "http://example.com/a"})
+        assert c == d
+
+    def test_combined_spellings_group_with_dir(self):
+        a = self._key(
+            {"type": "tarball", "url": "https://EXAMPLE.com./a.tgz", "dir": "x"}
+        )
+        b = self._key(
+            {"type": "tarball", "url": "https://example.com/a.tgz", "dir": "x"}
+        )
+        assert a == b
+
+    def test_path_case_still_splits(self):
+        a = self._key({"type": "tarball", "url": "https://example.com/A.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a != b
+
+    def test_non_default_port_still_splits(self):
+        a = self._key({"type": "tarball", "url": "https://example.com:8443/a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a != b
+
+    def test_scheme_and_query_still_split(self):
+        a = self._key({"type": "tarball", "url": "http://example.com/a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a != b
+        c = self._key({"type": "tarball", "url": "https://example.com/a.tgz?dir=Sub"})
+        d = self._key({"type": "tarball", "url": "https://example.com/a.tgz?dir=sub"})
+        assert c != d
+
+    def test_plain_key_shape_unchanged(self):
+        """Guard: a canonically spelled URL keeps its pre-#611 key."""
+        assert self._key(
+            {"type": "tarball", "url": "https://example.com/t.tar.gz"}
+        ) == "tarball/https://example.com/t.tar.gz"
+
+
 class TestAnalyzeDedupHgRevDivergence:
     """#539: same hg URL pinned at two different revs must dedup to
     the newest locked lastModified — the #509 consolidation, for
