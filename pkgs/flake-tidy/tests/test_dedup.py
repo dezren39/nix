@@ -1116,6 +1116,32 @@ class TestTarballFileSourceKeyHostSpelling:
         d = self._key({"type": "tarball", "url": "https://example.com/a.tgz?dir=sub"})
         assert c != d
 
+    def test_pathless_query_url_authority_rules_apply(self):
+        """#613: the authority of a path-less URL ends at "?" — the
+        host rules must still apply, and the query stays verbatim."""
+        for t in ("tarball", "file"):
+            a = self._key(
+                {"type": t, "url": "https://EXAMPLE.com.:443?file=A.tgz"}
+            )
+            b = self._key({"type": t, "url": "https://example.com?file=A.tgz"})
+            assert a == b
+
+    def test_pathless_query_case_still_splits(self):
+        """#613: pre-fix the query was swallowed into the authority and
+        lowercased, so genuinely different artifacts grouped."""
+        a = self._key({"type": "tarball", "url": "https://example.com?File=A.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com?file=A.tgz"})
+        assert a != b
+
+    def test_pathless_fragment_url_authority_rules_apply(self):
+        """#613: same terminator rule for "#" — port drops, fragment
+        case stays distinguishing."""
+        a = self._key({"type": "tarball", "url": "https://EXAMPLE.com:443#Frag"})
+        b = self._key({"type": "tarball", "url": "https://example.com#Frag"})
+        assert a == b
+        c = self._key({"type": "tarball", "url": "https://example.com#frag"})
+        assert b != c
+
     def test_plain_key_shape_unchanged(self):
         """Guard: a canonically spelled URL keeps its pre-#611 key."""
         assert self._key(
