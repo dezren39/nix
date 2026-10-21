@@ -4,7 +4,7 @@ This is the roadmap for the repo. It is grouped by area, and each row has a hori
 
 A row records intent. It does not settle a decision and it is not a go-ahead to build.
 
-Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-20. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
+Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-21. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
 
 ## Areas
 
@@ -136,3 +136,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy groups same repo across URL spellings             | 2026-10-21 | #555, #559 |
 | flake-tidy `resolve_follows` returns None on cyclic follows  | 2026-10-21 | #565, #566 |
 | flake-tidy override builder drops unresolvable `indirect:` ref | 2026-10-21 | #568, #569 |
+| flake-tidy `_normalize_vcs_url` splits embedded query first    | 2026-10-21 | #560, #561 |
+| flake-tidy `compute_indirect_overrides` cycle-guarded          | 2026-10-21 | #563, #564 |
+| flake-tidy `_normalize_vcs_url` case rules cover scp/`.GIT`    | 2026-10-21 | #562, #572 |
