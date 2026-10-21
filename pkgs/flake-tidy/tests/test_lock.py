@@ -438,6 +438,45 @@ class TestSourceKeyUrlSpelling:
             "https://example.com/owner/repo.GIT"
         )
 
+    def test_default_port_groups(self):
+        """#579: an explicit default port names the same endpoint as
+        no port, so it must not split the dedup group."""
+        assert self._key("https://github.com/o/r") == self._key(
+            "https://github.com:443/o/r"
+        )
+        assert self._key("http://example.com/r") == self._key(
+            "http://example.com:80/r"
+        )
+        assert self._key("ssh://git@example.com/r") == self._key(
+            "ssh://git@example.com:22/r"
+        )
+        assert self._key("git://example.com/r") == self._key(
+            "git://example.com:9418/r"
+        )
+        # hg nodes share the git/hg branch.
+        assert self._key("https://example.com/r", t="hg") == self._key(
+            "https://example.com:443/r", t="hg"
+        )
+        # Composes with the suffix/query rules (#560/#575).
+        assert self._key("https://github.com/o/r?dir=Sub") == self._key(
+            "https://github.com:443/o/r.git?dir=Sub"
+        )
+
+    def test_nondefault_port_stays_separate(self):
+        """#579 conservatism: a non-default port can be a different
+        server, and a port that is default for one scheme is not
+        default for another."""
+        assert self._key("https://example.com/r") != self._key(
+            "https://example.com:8443/r"
+        )
+        assert self._key("https://example.com/r") != self._key(
+            "https://example.com:80/r"
+        )
+        # Unknown scheme: no default defined, port kept verbatim.
+        assert self._key("foo://example.com/r") != self._key(
+            "foo://example.com:443/r"
+        )
+
     def test_ssh_and_https_stay_separate(self):
         """#555 decision, documented in _normalize_vcs_url: ssh and
         https are different transports and never merge."""
