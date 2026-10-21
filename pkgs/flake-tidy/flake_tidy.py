@@ -483,7 +483,15 @@ def _normalize_vcs_url(url: str) -> str:
       including "repo.git/");
     - scheme and host are lowercased (both are case-insensitive);
     - the path is lowercased only for hosts that route paths
-      case-insensitively (see _CASE_INSENSITIVE_PATH_HOSTS);
+      case-insensitively (see _CASE_INSENSITIVE_PATH_HOSTS) — in
+      every spelling family, so an scp-like ssh path gets the same
+      rule the "://" branch applies (#562);
+    - where the path is case-normalized that way, a ".git" suffix in
+      any case (".GIT", ".Git") is also dropped: lowercasing turns it
+      into ".git" after the case-sensitive early strip has run
+      (#562). On case-sensitive hosts a ".GIT" suffix is KEPT —
+      there "repo.GIT" can be a genuinely different repository from
+      "repo", so only the exact ".git" spelling is stripped;
     - an embedded query string is split off before all of the above
       and reattached verbatim (#560): the suffix rules apply to the
       path ahead of it, and case-sensitive query values (dir, ref)
@@ -520,14 +528,28 @@ def _normalize_vcs_url(url: str) -> str:
         authority = f"{userinfo}{at}{host}{colon}{port}"
         if sep and host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()
+            # #562: lowercasing may have just turned a ".GIT"/".Git"
+            # suffix into ".git" — drop that one suffix too (the
+            # early strip above only sees the exact spelling).
+            if path.endswith(".git"):
+                path = path[: -len(".git")].rstrip("/")
         u = f"{scheme.lower()}://{authority}{sep}{path}"
     elif "@" in u and ":" in u.split("@", 1)[1]:
         # scp-like ssh spelling, git@host:path — lowercase the host;
-        # the user and path keep their spelling (see docstring: ssh
-        # stays a separate group from https regardless).
+        # the user keeps its spelling and ssh stays a separate group
+        # from https regardless (see docstring). The path gets the
+        # same case rule as the "://" branch (#562): hosts in
+        # _CASE_INSENSITIVE_PATH_HOSTS route it case-insensitively,
+        # so case alone must not split the group within the scp
+        # family either.
         userhost, _, path = u.partition(":")
         user, _, host = userhost.rpartition("@")
-        u = f"{user}@{host.lower()}:{path}"
+        host = host.lower()
+        if host in _CASE_INSENSITIVE_PATH_HOSTS:
+            path = path.lower()
+            if path.endswith(".git"):
+                path = path[: -len(".git")].rstrip("/")
+        u = f"{user}@{host}:{path}"
     return u + (qsep + query if qsep else "")
 
 

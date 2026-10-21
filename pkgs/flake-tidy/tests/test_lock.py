@@ -365,6 +365,46 @@ class TestSourceKeyUrlSpelling:
             "git@GitHub.com:o/r.git"
         )
 
+    def test_scp_like_path_case_groups_on_forge_hosts(self):
+        """#562: the scp-like branch skipped the case-insensitive
+        path rule, so git@github.com:Owner/Repo split from
+        git@github.com:owner/repo while the ssh:// and https://
+        spellings of the same repo grouped."""
+        assert self._key("git@github.com:Owner/Repo") == self._key(
+            "git@github.com:owner/repo"
+        )
+        assert self._key("git@gitlab.com:Owner/Repo") == self._key(
+            "git@gitlab.com:owner/repo"
+        )
+
+    def test_scp_like_path_case_still_distinguishes_elsewhere(self):
+        """#562 near-miss: on a case-sensitive host the scp path
+        case still distinguishes, exactly as the :// branch does."""
+        assert self._key("git@example.com:Owner/Repo") != self._key(
+            "git@example.com:owner/repo"
+        )
+
+    def test_uppercase_dot_git_groups_on_forge_hosts(self):
+        """#562: the suffix strip was case-sensitive and ran before
+        path lowercasing, so repo.GIT survived (then lowercased into
+        the key still carrying the suffix)."""
+        assert self._key("https://github.com/owner/repo") == self._key(
+            "https://github.com/owner/repo.GIT"
+        )
+        assert self._key("https://github.com/owner/repo") == self._key(
+            "https://github.com/owner/repo.Git/"
+        )
+        assert self._key("git@github.com:owner/repo") == self._key(
+            "git@github.com:owner/repo.GIT"
+        )
+
+    def test_uppercase_dot_git_kept_on_case_sensitive_hosts(self):
+        """#562 documented choice: on a case-sensitive host repo.GIT
+        can be a different repository, so the suffix is kept there."""
+        assert self._key("https://example.com/owner/repo") != self._key(
+            "https://example.com/owner/repo.GIT"
+        )
+
     def test_ssh_and_https_stay_separate(self):
         """#555 decision, documented in _normalize_vcs_url: ssh and
         https are different transports and never merge."""
