@@ -1411,16 +1411,25 @@ def get_input_file_order(content: str) -> list[str]:
                 seen.add(name)
             continue
 
-        # Detect start of inputs = { block
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        # Detect start of inputs = { block. A nested `inputs = {` inside
+        # another input's override is not the root block: re-entering here
+        # would reset the brace depth and lose every later root input (#640).
+        if not in_inputs_block and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_block = True
             brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_block:
+            depth_before = brace_depth
             brace_depth += _brace_delta(stripped)
             if brace_depth <= 0:
                 in_inputs_block = False
+                continue
+
+            # Only direct children of the root inputs block (depth 1) are
+            # root inputs; names inside a nested block belong to that
+            # input's override set, not the root (#640).
+            if depth_before != 1:
                 continue
 
             m = re.match(r"([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
@@ -2089,7 +2098,10 @@ def _insert_before_inputs_end(
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            if re.match(r"inputs\s*=\s*\{", stripped):
+            # A nested `inputs = {` inside another input's override is not
+            # the root block: re-entering here would reset the depth and
+            # insert the new line inside the override instead (#640).
+            if not in_inputs and re.match(r"inputs\s*=\s*\{", stripped):
                 in_inputs = True
                 depth = _brace_delta(stripped)
                 continue
@@ -2348,8 +2360,11 @@ def _add_deep_follows_overrides(
     for line in content.split("\n"):
         stripped = line.strip()
 
-        # Detect top-level inputs section
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        # Detect top-level inputs section. A nested `inputs = {` inside
+        # another input's override is not the root section: re-entering
+        # here would reset the brace depth and drop every deep path
+        # declared after the nested block (#640).
+        if not in_inputs_section and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_section = True
             brace_depth = 1
             continue
@@ -3103,8 +3118,11 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
         if stripped.startswith("#"):
             continue
 
-        # Detect top-level inputs = { block
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        # Detect top-level inputs = { block. A nested `inputs = {` inside
+        # another input's override is not the root block: re-entering here
+        # would reset the brace depth and drop every deep follows declared
+        # after the nested block (#640).
+        if not in_inputs_section and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_section = True
             brace_depth = _brace_delta(stripped)
             continue

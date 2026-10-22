@@ -518,6 +518,69 @@ class TestNestedBlockDoesNotShadowRootInput:
         assert result is not None
 
 
+class TestNestedInputsBlockDoesNotResetScanners:
+    """Regression tests for #640: PR #635 guarded the block-start branch in
+    three scanners, but a nested ``inputs = {`` line still re-entered the
+    block-start branch in four more, resetting each scanner's brace depth
+    so everything after the nested block was misread."""
+
+    NESTED_FLAKE = TestNestedBlockDoesNotShadowRootInput.NESTED_FLAKE
+
+    def test_file_order_counts_only_root_inputs(self):
+        """nested-only names are not root inputs; trailing roots survive."""
+        content = self.NESTED_FLAKE.replace(
+            """        foo = {
+          follows = "bar/nixpkgs";
+        };""",
+            """        foo = {
+          follows = "bar/nixpkgs";
+        };
+        onlyNested = {
+          follows = "nixpkgs";
+        };""",
+        )
+        assert "onlyNested" in content  # the replace actually applied
+        order = flake_tidy.get_input_file_order(content)
+        assert order == ["bar", "foo", "nixpkgs"]
+
+    def test_insert_before_inputs_end_uses_root_block_end(self):
+        """the new line lands before the ROOT inputs close, not bar's."""
+        content = """{
+  inputs = {
+    bar = {
+      inputs = {
+        foo = { follows = "nixpkgs"; };
+      };
+    };
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+  outputs = { self }: { };
+}
+"""
+        out = flake_tidy._insert_before_inputs_end(
+            content.split("\n"), '    newinput.url = "github:example/new";', True
+        )
+        lines = out.split("\n")
+        idx = next(i for i, line in enumerate(lines) if "newinput" in line)
+        # after the last root input, just before the root block's closing };
+        assert "nixpkgs.url" in lines[idx - 1]
+        assert lines[idx + 1].strip() == "};"
+        assert lines[idx + 1].startswith("  }")
+
+    def test_file_order_plain_block_unchanged(self):
+        """guard: a plain block with no nested override is unaffected."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+    };
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+}
+"""
+        assert flake_tidy.get_input_file_order(content) == ["foo", "nixpkgs"]
+
+
 class TestBraceCountingIgnoresCommentsAndStrings:
     """Regression tests for #623: braces in comments/strings are not structural."""
 
