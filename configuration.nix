@@ -15,10 +15,13 @@ let
   # executable, and the name macOS shows for it, never change.
   mcpxAgent = pkgs.writeShellScript "mcpx" ''
     cfg=/Users/drewry.pope/.config/mcpx/config.json
+    ${serviceEvents}/bin/service-event mcpx-agent agent.start pid=$$ \
+      mcpx=${inputs.self.packages.${system}.mcpx} || true
     ${inputs.self.packages.${system}.mcpx}/bin/mcpx --config "$cfg" stop || true
     exec ${inputs.self.packages.${system}.mcpx}/bin/mcpx daemon --config "$cfg"
   '';
   mcpxAgentPath = "/usr/local/libexec/mcpx/mcpx";
+  serviceEvents = inputs.self.packages.${system}.service-events;
 in
 lib.recursiveUpdate {
   imports = [
@@ -1047,8 +1050,31 @@ lib.recursiveUpdate {
         # running, it holds the socket, this daemon exits "a daemon is already
         # listening", and KeepAlive respawns it every 10 s (822 times that day).
         ProgramArguments = [ mcpxAgentPath ];
-        StandardErrorPath = "/tmp/mcpx.err.log";
-        StandardOutPath = "/tmp/mcpx.out.log";
+        # Not /tmp: that is emptied at boot, taking the evidence of what went
+        # wrong before it. service-monitor size-bounds this file
+        # (dezren39/nix#668).
+        StandardErrorPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
+        StandardOutPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
+      };
+    };
+    # The service lifecycle event log, ~/Library/Logs/nix-services/events.jsonl:
+    # every start, exit and replacement of OpenChamber (agent, desktop app and
+    # dev servers), their OpenCode processes and mcpx, and the connections
+    # their servers drop and regain, with timestamps; plus what the switch
+    # and the agents' wrappers record through `service-event`. It also
+    # size-bounds the agents' logs. Read it with `just service-events`;
+    # docs/services.md lists the events (dezren39/nix#670, #668).
+    service-events = {
+      serviceConfig = {
+        ProgramArguments = [ "${serviceEvents}/bin/service-monitor" ];
+        EnvironmentVariables.HOME = "/Users/drewry.pope";
+        EnvironmentVariables.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+        KeepAlive = true;
+        RunAtLoad = true;
+        ProcessType = "Background";
+        LowPriorityIO = true;
+        ThrottleInterval = 30;
+        StandardErrorPath = "/Users/drewry.pope/Library/Logs/nix-services/monitor.err.log";
       };
     };
   };

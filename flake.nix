@@ -425,6 +425,8 @@ rec {
         # mcp-remote and chrome-devtools-mcp, which mcpx.config.nix runs.
         npm-mcp-servers = pkgs.callPackage ./pkgs/npm-mcp-servers { };
         opencode-share = import ./pkgs/opencode-share { inherit pkgs; };
+        # The service lifecycle event log (org.nixos.service-events).
+        service-events = pkgs.callPackage ./pkgs/service-events { };
         symlinker = import ./pkgs/symlinker {
           inherit pkgs;
           symlinkerSrc = ./symlinker.sh;
