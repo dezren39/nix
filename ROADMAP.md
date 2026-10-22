@@ -164,4 +164,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #625 and #628 completions             | 2026-10-22 | #630, #631 |
 | flake-tidy nested same-name block must not shadow root input   | 2026-10-22 | #634, #635 |
 | ROADMAP Done records the #630 completion                       | 2026-10-22 | #632, #633 |
-| ROADMAP Done records the #636 completion                       | 2026-10-22 | #636, #637 |
+| ROADMAP Done records the #636 completion                       | 2026-10-22 | #638, #639 |
+| flake-tidy nested inputs override must not reset scanner depth | 2026-10-22 | #640, #641 |
+| flake-tidy `check_url_follows_conflicts` judges own-level only | 2026-10-22 | #642, #643 |
