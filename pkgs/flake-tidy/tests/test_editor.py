@@ -156,6 +156,205 @@ class TestFollowsExists:
         )
 
 
+class TestNestedInputsBlockFollowsExists:
+    """Regression tests for #647: a follows declared in the nested-block
+    override style (``foo = { inputs = { nixpkgs.follows = ...; }; }``)
+    was invisible to both existence checkers, so the apply paths that
+    guard on them would insert a duplicate declaration of the same
+    attribute path — a Nix duplicate-attribute error."""
+
+    NESTED = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    foo = {
+      url = "github:example/foo";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
+  };
+}
+"""
+
+    def test_exists_in_nested_block(self):
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.NESTED, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_any_target_in_nested_block(self):
+        assert (
+            flake_tidy.follows_path_has_any_target(
+                self.NESTED, ["foo", "nixpkgs"]
+            )
+            is True
+        )
+
+    def test_wrong_target_does_not_exist_but_path_does(self):
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.NESTED, ["foo", "nixpkgs"], "other"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(
+                self.NESTED, ["foo", "nixpkgs"]
+            )
+            is True
+        )
+
+    def test_nested_block_of_different_input_does_not_count(self):
+        content = self.NESTED.replace("foo = {", "bar = {")
+        assert "bar = {" in content
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is False
+        )
+
+    def test_nested_block_for_different_child_does_not_count(self):
+        content = self.NESTED.replace(
+            'nixpkgs.follows = "nixpkgs";', 'other.follows = "nixpkgs";'
+        )
+        assert "other.follows" in content
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is False
+        )
+
+    def test_bare_relative_line_directly_in_block_does_not_count(self):
+        """``nixpkgs.follows`` directly in foo's block (not inside its
+        nested ``inputs = {``) declares foo.nixpkgs.follows — a
+        different attribute — and must not count."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      nixpkgs.follows = "nixpkgs";
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is False
+        )
+
+    def test_shifted_form_inside_nested_block_does_not_count(self):
+        """``inputs.nixpkgs.follows`` INSIDE the nested block declares
+        foo.inputs.inputs.nixpkgs.follows, not foo.inputs.nixpkgs —
+        the nested scope is judged only on its own relative form."""
+        content = self.NESTED.replace(
+            'nixpkgs.follows = "nixpkgs";',
+            'inputs.nixpkgs.follows = "nixpkgs";',
+        )
+        assert "inputs.nixpkgs.follows" in content
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is False
+        )
+
+    def test_one_line_nested_block(self):
+        content = self.NESTED.replace(
+            """      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };""",
+            '      inputs = { nixpkgs.follows = "nixpkgs"; };',
+        )
+        assert 'inputs = { nixpkgs.follows = "nixpkgs"; };' in content
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is True
+        )
+
+    def test_deep_path_spelled_in_nested_block(self):
+        """foo's nested block can spell a deeper path relative to foo:
+        ``child.inputs.systems.follows`` = foo/child/systems."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = {
+        child.inputs.systems.follows = "systems";
+      };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "child", "systems"], "systems"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(
+                content, ["foo", "child", "systems"]
+            )
+            is True
+        )
+
+    def test_second_level_nested_block(self):
+        """A named block inside foo's nested block can carry its own
+        nested ``inputs = {``: its scope prefix is [foo, bar]."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = {
+        bar = {
+          inputs = {
+            nixpkgs.follows = "nixpkgs";
+          };
+        };
+      };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "bar", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+        # ... and it is not a declaration about foo/nixpkgs directly
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is False
+        )
+
+
 class TestBlockContextClosedBlocks:
     """Regression tests for #628: a block that does not close on a
     line of its own must still end.

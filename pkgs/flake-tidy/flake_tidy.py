@@ -1519,6 +1519,98 @@ def _block_context_for_lines(content: str) -> list[str | None]:
     return result
 
 
+def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
+    """Return the follows-path prefix a nested ``inputs = {`` scope proves.
+
+    For a line inside ``foo = { inputs = { ... }; }`` (a nested override
+    block inside the root input ``foo``'s block) returns ``["foo"]``: a
+    declaration ``nixpkgs.follows = "...";`` on such a line declares
+    ``inputs.foo.inputs.nixpkgs.follows``. Deeper shapes compose the
+    same way — inside ``foo``'s nested block, a ``bar = { inputs = {``
+    scope returns ``["foo", "bar"]``. Lines not directly inside a nested
+    ``inputs`` block return ``None``: in particular a line directly in
+    ``foo``'s own block (where ``nixpkgs.follows`` would declare
+    ``foo.nixpkgs.follows``, a different attribute) and a line inside a
+    named block *within* the nested block both return ``None`` (#647).
+
+    The opening line of the nested block itself also reports the prefix,
+    so a one-line ``inputs = { nixpkgs.follows = "..."; };`` is visible
+    to callers that judge the segment after the ``{``.
+    """
+    lines = content.split("\n")
+    result: list[list[str] | None] = [None] * len(lines)
+    # Stack of ("inputs", depth) / (name, depth); depth is the brace
+    # depth just before that block opened.
+    stack: list[tuple[str, int]] = []
+    brace_depth = 0
+
+    def prefix_from_stack() -> list[str] | None:
+        seq = [name for name, _ in stack]
+        if seq and seq[0] == "inputs":
+            seq = seq[1:]
+        if len(seq) >= 2 and seq[-1] == "inputs":
+            return [name for name in seq[:-1] if name != "inputs"]
+        return None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            result[i] = prefix_from_stack()
+            continue
+
+        opens, closes = _brace_counts(line)
+
+        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
+        if m:
+            name = m.group(2)
+            if name == "inputs":
+                stack.append(("inputs", brace_depth))
+            elif stack:
+                stack.append((name, brace_depth))
+
+        result[i] = prefix_from_stack()
+
+        brace_depth += opens - closes
+
+        while stack and brace_depth <= stack[-1][1]:
+            stack.pop()
+
+    return result
+
+
+def _nested_relative_path(follows_parts: list[str], prefix: list[str]) -> str | None:
+    """Relative follows path for the parts a nested scope does not cover.
+
+    ``prefix`` must be a proper prefix of ``follows_parts``; the rest is
+    joined the way dotted declarations spell it inside the nested block:
+    ``["nixpkgs"]`` -> ``nixpkgs``, ``["bar", "nixpkgs"]`` ->
+    ``bar.inputs.nixpkgs``. Returns ``None`` when the scope does not
+    line up with the requested path.
+    """
+    if len(prefix) >= len(follows_parts) or follows_parts[: len(prefix)] != prefix:
+        return None
+    rest = follows_parts[len(prefix) :]
+    return rest[0] + "".join(f".inputs.{p}" for p in rest[1:])
+
+
+def _nested_segment(normalized: str) -> str:
+    """Segment of a nested ``inputs = {`` opening line after the ``{``.
+
+    For an ordinary line inside the block this is the line itself; for a
+    one-line ``inputs = { nixpkgs.follows = "x"; };`` it is the
+    declaration between the braces.
+    """
+    m = re.match(r"inputs\s*=\s*\{", normalized)
+    if not m:
+        return normalized
+    seg = normalized[m.end() :].strip()
+    if seg.endswith("}"):
+        seg = seg[:-1].strip()
+    if seg.endswith(";"):
+        seg = seg[:-1].strip()
+    return seg
+
+
 def follows_exists_in_content(
     content: str, follows_parts: list[str], target: str
 ) -> bool:
@@ -1557,6 +1649,7 @@ def follows_exists_in_content(
         block_candidates.append(f'follows = "{target}"')
 
     block_context = _block_context_for_lines(content)
+    nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
     first_part = follows_parts[0] if follows_parts else None
 
@@ -1565,6 +1658,20 @@ def follows_exists_in_content(
         if stripped.startswith("#"):
             continue
         normalized = re.sub(r"\s+", " ", stripped)
+
+        # Nested inputs scope (#647): a line directly inside a nested
+        # ``inputs = { ... }`` override block is judged only against the
+        # relative form that scope spells — the root/block candidates
+        # would attribute the declaration to the wrong attribute path.
+        nested_prefix = nested_prefixes[i]
+        if nested_prefix is not None:
+            rel = _nested_relative_path(follows_parts, nested_prefix)
+            if rel is not None:
+                candidate = f'{rel}.follows = "{target}"'
+                if re.sub(r"\s+", " ", candidate) == _nested_segment(normalized):
+                    return True
+            continue
+
         ctx = block_context[i]
 
         if ctx is None:
@@ -1609,6 +1716,7 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         block_prefixes.append("follows")
 
     block_context = _block_context_for_lines(content)
+    nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
     first_part = follows_parts[0] if follows_parts else None
 
@@ -1617,6 +1725,18 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         if stripped.startswith("#"):
             continue
         normalized = re.sub(r"\s+", " ", stripped)
+
+        # Nested inputs scope (#647): see follows_exists_in_content.
+        nested_prefix = nested_prefixes[i]
+        if nested_prefix is not None:
+            rel = _nested_relative_path(follows_parts, nested_prefix)
+            if rel is not None:
+                pfx = f"{rel}.follows"
+                seg = _nested_segment(normalized)
+                if seg.startswith(pfx + " =") or seg.startswith(pfx + "="):
+                    return True
+            continue
+
         ctx = block_context[i]
 
         if ctx is None:
@@ -3093,6 +3213,14 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
           inputs.CHILD.inputs.X.follows = "target";
         };
 
+    the nested-block spelling of the same declaration::
+
+        parent = {
+          inputs = {
+            CHILD.inputs.X.follows = "target";
+          };
+        };
+
     or top-level dotted style::
 
         inputs.parent.inputs.CHILD.inputs.X.follows = "target";
@@ -3109,6 +3237,7 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
     """
     results: list[dict[str, Any]] = []
     lines = content.split("\n")
+    nested_prefixes = _nested_inputs_prefix_for_lines(content)
     in_inputs_section = False
     current_block: str | None = None
     brace_depth = 0
@@ -3138,6 +3267,25 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
 
             # Inside a named block: look for inputs.CHILD.inputs.SUB.follows
             if current_block is not None:
+                # Nested-block form (#647): directly inside the parent's
+                # nested ``inputs = { ... }`` override, the same deep
+                # follows is spelled CHILD.inputs.SUB.follows.
+                if nested_prefixes[i] == [current_block]:
+                    m = re.match(
+                        r'([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+                        _nested_segment(stripped),
+                    )
+                    if m:
+                        results.append(
+                            {
+                                "parent": current_block,
+                                "child": m.group(1),
+                                "sub_input": m.group(2),
+                                "target": m.group(3),
+                                "line_number": i,
+                                "line": line,
+                            }
+                        )
                 m = re.match(
                     r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
                     stripped,

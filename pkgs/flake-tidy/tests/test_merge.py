@@ -186,6 +186,29 @@ class TestParseDeepFollows:
         assert results[0]["sub_input"] == "systems"
         assert results[0]["target"] == "systems"
 
+    def test_parses_nested_block_style(self):
+        """#647: the nested-block spelling of a deep follows —
+        ``CHILD.inputs.X.follows`` inside the parent's nested
+        ``inputs = { ... }`` override — parses like the block style."""
+        content = """{
+  inputs = {
+    parent = {
+      url = "github:example/parent";
+      inputs = {
+        child.inputs.systems.follows = "systems";
+      };
+    };
+  };
+  outputs = _: {};
+}
+"""
+        results = flake_tidy._parse_deep_follows(content)
+        assert len(results) == 1
+        assert results[0]["parent"] == "parent"
+        assert results[0]["child"] == "child"
+        assert results[0]["sub_input"] == "systems"
+        assert results[0]["target"] == "systems"
+
     def test_no_deep_follows(self):
         content = """{
   inputs = {
