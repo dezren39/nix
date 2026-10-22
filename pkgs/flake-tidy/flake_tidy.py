@@ -1386,6 +1386,52 @@ def _brace_delta(line: str) -> int:
     return opens - closes
 
 
+def _own_level_text(line: str, start_depth: int, level: int = 1) -> tuple[str, int]:
+    """Return the parts of ``line`` sitting at brace ``level``, plus end depth.
+
+    Scanning is string/comment-aware like ``_brace_counts`` (#623): string
+    contents collapse to an empty string literal and everything from a
+    ``#`` comment start is dropped, so neither can fake or hide an
+    attribute (#646). Text inside a nested block (depth above ``level``)
+    or outside the block (depth below it) is replaced by spaces, so
+    fragments on either side of a nested block that opens and closes on
+    the same line are both returned, each judged at the level it actually
+    sits at. ``start_depth`` is the structural depth before the line; the
+    returned depth is the structural depth after it.
+    """
+    out: list[str] = []
+    depth = start_depth
+    in_string = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if in_string:
+            if ch == "\\":
+                i += 1  # skip the escaped character as well
+            elif ch == '"':
+                in_string = False
+                if depth == level:
+                    out.append('"')
+        elif ch == '"':
+            in_string = True
+            if depth == level:
+                out.append('"')
+        elif ch == "#":
+            break
+        elif ch == "{":
+            depth += 1
+            out.append(" ")
+        elif ch == "}":
+            depth -= 1
+            out.append(" ")
+        elif depth == level:
+            out.append(ch)
+        else:
+            out.append(" ")
+        i += 1
+    return "".join(out), depth
+
+
 def get_input_file_order(content: str) -> list[str]:
     """Parse flake.nix to determine input declaration order.
 
@@ -4093,10 +4139,11 @@ def check_url_follows_conflicts(content: str) -> list[str]:
         # behind a dotted ``inputs.X.`` prefix) belongs to that nested
         # input, not to the root input (#642 — the same nested-override
         # blindness #634/#640 fixed in the other scanners). So each line
-        # is judged only on its own-level segment — the text before the
-        # first ``{`` — only while it sits at the block's direct-attribute
-        # depth, and an attribute only counts when it stands alone at the
-        # start of the segment or right after a ``;``.
+        # is judged only on its own-level text (``_own_level_text``:
+        # structural text at the block's direct-attribute depth, with
+        # string contents and comments excluded — #646), and an attribute
+        # only counts when it stands alone at the start of the judged
+        # text or right after a ``;``.
         current_block: str | None = None
         has_url = False
         has_follows = False
@@ -4128,20 +4175,21 @@ def check_url_follows_conflicts(content: str) -> list[str]:
                 current_block = m.group(1)
                 has_url = False
                 has_follows = False
-                depth = _brace_delta(stripped)
-                # Attributes on the opening line itself count — but only
-                # up to the first nested ``{``.
-                _judge(stripped[stripped.index("{") + 1 :].split("{", 1)[0])
+                # Attributes on the opening line itself count, at the
+                # block's own level.
+                segment, depth = _own_level_text(stripped, 0)
+                _judge(segment)
                 if depth <= 0:
                     # One-line block: finalise it here, or its conflict
                     # is never reported (#642).
                     _finish_block()
                 continue
             if current_block:
-                if depth == 1:
-                    # Direct-attribute level of the current block.
-                    _judge(stripped.split("{", 1)[0])
-                depth += _brace_delta(stripped)
+                # Judge whatever part of the line sits at the block's own
+                # level — including text after a nested block that closes
+                # on this same line (#646).
+                segment, depth = _own_level_text(stripped, depth)
+                _judge(segment)
                 if depth <= 0:
                     _finish_block()
 

@@ -972,3 +972,78 @@ class TestUrlFollowsConflicts:
 }
 """
         assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]
+
+    def test_attribute_after_one_line_nested_block_same_line(self):
+        """a direct attribute after a nested block that opens and closes
+        on the same line sits at the block's own level and counts (#646)."""
+        content = """{
+  inputs = {
+    foo = {
+      inputs = { bar = { url = "github:a/b"; }; }; follows = "nixpkgs";
+      url = "github:x/y";
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]
+
+    def test_attribute_after_multiline_nested_block_closes_same_line(self):
+        """same, when the nested block spans lines but closes mid-line."""
+        content = """{
+  inputs = {
+    foo = {
+      inputs = {
+        bar = { url = "github:a/b"; };
+      }; follows = "nixpkgs";
+      url = "github:x/y";
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]
+
+    def test_follows_in_trailing_comment_is_not_an_attribute(self):
+        """a ``; follows =`` inside a trailing comment does not count."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:x/y"; # note; follows = "nixpkgs"
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == []
+
+    def test_url_in_trailing_comment_is_not_an_attribute(self):
+        """mirror: a ``url =`` inside a trailing comment does not count."""
+        content = """{
+  inputs = {
+    foo = {
+      follows = "nixpkgs"; # url = "github:x/y"
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == []
+
+    def test_brace_inside_string_value_does_not_truncate(self):
+        """a ``{`` inside a quoted url does not cut the judged segment."""
+        content = """{
+  inputs = {
+    foo = { url = "github:x/{y}"; follows = "nixpkgs"; };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]
+
+    def test_follows_inside_string_value_is_not_an_attribute(self):
+        """a ``; follows =`` inside a quoted value does not count."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:x/y; follows = nixpkgs";
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == []
