@@ -91,14 +91,12 @@ let
     export OPENCODE_DB="$HOME/.local/share/opencode/opencode.db"
     export OPENCHAMBER_SELF_HANDOFF=0
     # OpenChamber's terminals and git run with this PATH, so it is the full
-    # system path, with the OpenCode link and mcpx ahead of it.
-    export PATH="${state}/bin:${
-      lib.makeBinPath [
-        ocPkgs.mcpx
-        pkgs.git
-        pkgs.openssh
-      ]
-    }:${config.environment.systemPath}"
+    # system path, with the OpenCode link and the system profile's bin (mcpx,
+    # git, openssh) ahead of it. The system profile, not store paths: this
+    # script's store path is OpenChamber's deploy key, so naming
+    # mcpx/git/openssh by store path restarted OpenChamber, and dropped every
+    # client connection, whenever any of them changed (dezren39/nix#663).
+    export PATH="${state}/bin:/run/current-system/sw/bin:${config.environment.systemPath}"
     exec ${openchamber}/bin/openchamber serve --foreground \
       --port ${toString port} --host 127.0.0.1
   '';
