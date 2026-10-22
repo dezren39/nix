@@ -1505,7 +1505,9 @@ def _block_context_for_lines(content: str) -> list[str | None]:
     """Return the enclosing block input name for each line.
 
     For lines inside ``someInput = { ... };`` returns ``"someInput"``.
-    For top-level dotted lines (outside any block) returns ``None``.
+    A top-level dotted block (``inputs.someInput = { ... };``) counts
+    the same way (#655). For top-level dotted lines (outside any
+    block) returns ``None``.
 
     This is approximate but sufficient: it tracks ``<name> = {`` opens
     and ends a block when the structural brace depth (see
@@ -1541,6 +1543,27 @@ def _block_context_for_lines(content: str) -> list[str | None]:
             if name == "inputs":
                 inputs_stack.append(brace_depth)
             elif inputs_stack or stack:
+                stack.append((name, brace_depth))
+                result[i] = name
+                pushed = True
+
+        # Dotted-style block open: inputs.<name>... = { at top level
+        # (#655). The generic pattern above cannot see it — its name
+        # group stops at the first dot, so "inputs" never matches the
+        # following "=". Lines inside such a block are that input's own
+        # attributes and nested overrides (inputs.<child>... relative
+        # to it), not root declarations. Only the outermost dotted
+        # block is pushed: inside an already-tracked block the existing
+        # context already governs the lines, and inside a dotted block
+        # a nested inputs.<child> = { stays attributed to the outer
+        # input until its braces close.
+        if not pushed and not stack and not inputs_stack:
+            dm = re.match(
+                r"^(\s*)inputs\.([a-zA-Z_][\w'-]*)(?:\.[\w'-]+)*\s*=\s*\{",
+                line,
+            )
+            if dm:
+                name = dm.group(2)
                 stack.append((name, brace_depth))
                 result[i] = name
                 pushed = True
@@ -1874,10 +1897,22 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
             if depth <= 0 and i > block_start:
                 break
     else:
-        # Dotted style: look for top-level inputs.NAME declarations
-        for line in lines:
+        # Dotted style: look for top-level inputs.NAME declarations.
+        # Lines inside a dotted-style parent block (inputs.parent =
+        # { ... }) are that parent's attributes/overrides, not root
+        # declarations (#655) — except the block's own opening line,
+        # which IS the root declaration of the parent itself.
+        block_ctx = _block_context_for_lines(content)
+        for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("#"):
+                continue
+            ctx = block_ctx[i]
+            if ctx is not None:
+                if ctx == input_name and re.match(
+                    rf"inputs\.{esc}(?:\.[\w'-]+)*\s*=\s*\{{", stripped
+                ):
+                    return True
                 continue
             if re.match(rf"inputs\.{esc}\s*=", stripped):
                 return True

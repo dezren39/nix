@@ -549,6 +549,124 @@ class TestBlockContextClosedBlocks:
         )
 
 
+class TestDottedParentBlockRootScope:
+    """Regression tests for #655: declarations inside a dotted-style
+    parent block (``inputs.parent = { ... };``) are that parent's
+    attributes and nested overrides, not root declarations.
+
+    The root-scope checkers used to treat them as root: the dotted
+    branch of ``root_input_exists_in_content`` scanned every line
+    with no block context at all, and ``_block_context_for_lines``
+    could not see the dotted block open (its name group stops at the
+    first dot), so ``find_input_url_line`` / ``find_input_dotted_line``
+    also reported the nested lines as root scope.
+    """
+
+    DOTTED_PARENT = """{
+  inputs.parent = {
+    url = "github:example/parent";
+    inputs.child.url = "github:example/child";
+    inputs.child.follows = "parent";
+  };
+  inputs.real.url = "github:example/real";
+}
+"""
+
+    def test_block_context_attributes_lines_to_parent(self):
+        ctx = flake_tidy._block_context_for_lines(self.DOTTED_PARENT)
+        assert ctx[2] == "parent"
+        assert ctx[3] == "parent"
+        assert ctx[4] == "parent"
+        assert ctx[6] is None
+
+    def test_nested_child_is_not_a_root_input(self):
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "child")
+            is False
+        )
+
+    def test_parent_and_sibling_roots_still_exist(self):
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "parent")
+            is True
+        )
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "real")
+            is True
+        )
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "missing")
+            is False
+        )
+
+    def test_genuine_top_level_dotted_child_still_found(self):
+        content = '{\n  inputs.child.url = "github:example/child";\n}\n'
+        assert flake_tidy.root_input_exists_in_content(content, "child") is True
+
+    def test_find_url_line_ignores_nested_child(self):
+        assert flake_tidy.find_input_url_line(self.DOTTED_PARENT, "child") is None
+        assert flake_tidy.find_input_url_line(self.DOTTED_PARENT, "real") == 6
+
+    def test_find_dotted_line_ignores_nested_child(self):
+        assert flake_tidy.find_input_dotted_line(self.DOTTED_PARENT, "child") == (
+            None,
+            False,
+        )
+        assert flake_tidy.find_input_dotted_line(self.DOTTED_PARENT, "real") == (
+            6,
+            False,
+        )
+
+    def test_remove_url_line_leaves_nested_override_alone(self):
+        new_content, removed = flake_tidy.remove_input_url_line(
+            self.DOTTED_PARENT, "child"
+        )
+        assert removed is False
+        assert new_content == self.DOTTED_PARENT
+
+    def test_nested_overrides_are_the_parents_follows(self):
+        """guard: the nested lines still count as parent's overrides."""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.DOTTED_PARENT, ["parent", "child"], "parent"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.DOTTED_PARENT, ["child"], "parent"
+            )
+            is False
+        )
+
+    def test_one_line_dotted_parent_block(self):
+        content = """{
+  inputs.parent = { url = "github:example/parent"; inputs.child.url = "github:example/child"; };
+  inputs.real.url = "github:example/real";
+}
+"""
+        assert flake_tidy.root_input_exists_in_content(content, "child") is False
+        assert flake_tidy.root_input_exists_in_content(content, "parent") is True
+        assert flake_tidy.root_input_exists_in_content(content, "real") is True
+        assert flake_tidy.find_input_url_line(content, "child") is None
+
+    def test_sibling_dotted_parent_blocks(self):
+        content = """{
+  inputs.a = {
+    url = "github:example/a";
+  };
+  inputs.b = {
+    inputs.c.url = "github:example/c";
+  };
+  inputs.d.url = "github:example/d";
+}
+"""
+        assert flake_tidy.root_input_exists_in_content(content, "a") is True
+        assert flake_tidy.root_input_exists_in_content(content, "b") is True
+        assert flake_tidy.root_input_exists_in_content(content, "c") is False
+        assert flake_tidy.root_input_exists_in_content(content, "d") is True
+
+
 class TestInsertFollows:
     def test_insert_follows_block_style(self, sample_flake_nix):
         """inserts inside block."""
