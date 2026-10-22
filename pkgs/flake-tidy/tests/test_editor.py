@@ -349,3 +349,98 @@ class TestFollowsTargetForInput:
             sample_flake_nix, "nixpkgs-unstable"
         )
         assert target is None
+
+
+class TestBraceCountingIgnoresCommentsAndStrings:
+    """Regression tests for #623: braces in comments/strings are not structural."""
+
+    COMMENT_FLAKE = """{
+  inputs = {
+    foo = {
+      url = "github:a/b";
+    }; # } stray brace in a comment
+    bar = {
+      url = "github:c/d";
+    };
+    baz = {
+      url = "github:e/f";
+    };
+  };
+}
+"""
+
+    def test_order_survives_comment_brace(self):
+        """inputs after a `}; # }` line are still found."""
+        order = flake_tidy.get_input_file_order(self.COMMENT_FLAKE)
+        assert order == ["foo", "bar", "baz"]
+
+    def test_editor_finds_input_after_comment_brace(self):
+        """block end and url line resolve for an input after the comment."""
+        assert flake_tidy.find_input_block_end(self.COMMENT_FLAKE, "bar") == (
+            7,
+            "      ",
+        )
+        assert flake_tidy.find_input_url_line(self.COMMENT_FLAKE, "bar") == 6
+
+    def test_detect_style_end_survives_comment_brace(self):
+        """detect_inputs_style reports the real inputs-block end line."""
+        style, start, end = flake_tidy.detect_inputs_style(self.COMMENT_FLAKE)
+        assert style == "block"
+        assert end == 11
+
+    def test_open_brace_in_comment_does_not_extend_block(self):
+        """a `# {` comment must not keep the inputs block open either."""
+        content = self.COMMENT_FLAKE.replace("# } stray", "# { stray")
+        assert flake_tidy.get_input_file_order(content) == ["foo", "bar", "baz"]
+
+    def test_brace_in_string_is_not_structural(self):
+        """a `}` inside a quoted url value does not close the block."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "https://example.com/a}b";
+    };
+    bar.url = "github:c/d";
+  };
+}
+"""
+        assert flake_tidy.get_input_file_order(content) == ["foo", "bar"]
+        assert flake_tidy.find_input_url_line(content, "bar") == 5
+
+    def test_hash_in_string_does_not_start_comment(self):
+        """a `#` inside a quoted value is not a comment start."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "https://example.com/a#}b";
+    };
+    bar.url = "github:c/d";
+  };
+}
+"""
+        assert flake_tidy.get_input_file_order(content) == ["foo", "bar"]
+
+    def test_deep_follows_survives_comment_brace(self):
+        """_parse_deep_follows still sees blocks after a `}; # }` line."""
+        content = """{
+  inputs = {
+    parent = {
+      url = "github:a/b";
+    }; # }
+    other = {
+      inputs.child.inputs.systems.follows = "systems";
+    };
+  };
+}
+"""
+        results = flake_tidy._parse_deep_follows(content)
+        assert len(results) == 1
+        assert results[0]["parent"] == "other"
+        assert results[0]["child"] == "child"
+
+    def test_brace_counts_helper(self):
+        """the shared counter ignores comments and string contents."""
+        assert flake_tidy._brace_counts("foo = { # }") == (1, 0)
+        assert flake_tidy._brace_counts('url = "a{b}c";') == (0, 0)
+        assert flake_tidy._brace_counts("}; # { { {") == (0, 1)
+        assert flake_tidy._brace_counts('x = "a\\"}b"; }') == (0, 1)
