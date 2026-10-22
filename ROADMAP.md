@@ -152,3 +152,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy `_locked_url` keeps the locked rev for forge types  | 2026-10-21 | #609, #610 |
 | flake-tidy `source_key` canonicalizes tarball/file hosts       | 2026-10-21 | #611, #612 |
 | flake-tidy `_canonicalize_url_authority` ends at `?` and `#`   | 2026-10-21 | #613, #614 |
+| ROADMAP Done records the #599 and #601 completions             | 2026-10-21 | #603, #604 |
+| ROADMAP Done records the #605 completion                       | 2026-10-21 | #607, #608 |
+| ROADMAP Done records the #609, #611 and #613 completions       | 2026-10-21 | #615, #616 |
