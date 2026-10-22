@@ -1730,19 +1730,24 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
             block_start = i
             break
 
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        if not in_inputs_block and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_block = True
             inputs_brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_block:
+            # Only a direct child of the inputs block (depth 1) can be the
+            # root input's block; a same-name block nested inside another
+            # input's ``inputs = { ... }`` override must not shadow it.
+            if inputs_brace_depth == 1 and re.match(
+                rf"{re.escape(input_name)}\s*=\s*\{{", stripped
+            ):
+                block_start = i
+                break
             inputs_brace_depth += _brace_delta(stripped)
             if inputs_brace_depth <= 0:
                 in_inputs_block = False
                 continue
-            if re.match(rf"{re.escape(input_name)}\s*=\s*\{{", stripped):
-                block_start = i
-                break
 
     if block_start is None:
         return None
@@ -1839,18 +1844,27 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
             stripped = lines[i].strip()
             if stripped.startswith("#"):
                 continue
-            # Detect block open: ``name = {``
-            if not in_target and depth == 0:
-                if re.match(rf"{esc}\s*=\s*\{{", stripped):
+            # Detect block open: ``name = {`` — only at the top level of
+            # the inputs block (depth 0 while searching). A same-name block
+            # nested inside another input's ``inputs = { ... }`` override
+            # is a different input and must not shadow the root one.
+            if not in_target:
+                if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
                     depth = _brace_delta(stripped)
                     # Check if url is on the same line (unlikely but safe)
                     if re.search(r"\burl\s*=", stripped):
                         return i
+                    if depth <= 0:
+                        # One-line block without a url on the line itself
+                        break
                     continue
+                depth += _brace_delta(stripped)
+                continue
             if in_target:
                 depth += _brace_delta(stripped)
-                if re.match(r"url\s*=", stripped):
+                # Only the block's own top-level url counts (depth 1)
+                if depth == 1 and re.match(r"url\s*=", stripped):
                     return i
                 if depth <= 0:
                     break
@@ -1901,26 +1915,42 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
             stripped = lines[i].strip()
             if stripped.startswith("#"):
                 continue
-            if not in_target and depth == 0:
-                if re.match(rf"{esc}\s*=\s*\{{", stripped):
+            if not in_target:
+                # Only a block opened at the top level of the inputs block
+                # (depth 0 while searching) is the root input's block; a
+                # same-name block nested in another input's override is a
+                # different input and must not shadow it.
+                if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
                     depth = _brace_delta(stripped)
                     m = re.search(r'\bfollows\s*=\s*"([^"]+)"', stripped)
                     if m:
                         return m.group(1)
+                    if depth <= 0:
+                        # One-line block without a follows on the line
+                        break
                     continue
+                depth += _brace_delta(stripped)
+                continue
             if in_target:
                 depth += _brace_delta(stripped)
-                m = re.match(r'follows\s*=\s*"([^"]+)"', stripped)
-                if m:
-                    return m.group(1)
+                # Only the block's own top-level follows counts (depth 1)
+                if depth == 1:
+                    m = re.match(r'follows\s*=\s*"([^"]+)"', stripped)
+                    if m:
+                        return m.group(1)
                 if depth <= 0:
                     break
 
-    # Dotted style
-    for line in lines:
+    # Dotted style — root scope only: a ``inputs.NAME.follows`` line
+    # inside another input's block is a nested override of THAT input's
+    # NAME input, not a declaration about the root input.
+    block_ctx = _block_context_for_lines(content)
+    for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
+            continue
+        if block_ctx[i] is not None:
             continue
         m = re.match(rf'(?:inputs\.)?{esc}\.follows\s*=\s*"([^"]+)"', stripped)
         if m:
