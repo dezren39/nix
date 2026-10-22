@@ -161,3 +161,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy line scanners ignore braces in comments/strings     | 2026-10-21 | #623, #624 |
 | ROADMAP Done records the #621 and #623 completions             | 2026-10-21 | #625, #626 |
 | flake-tidy `_block_context_for_lines` closes one-line blocks   | 2026-10-22 | #628, #629 |
+| ROADMAP Done records the #625 and #628 completions             | 2026-10-22 | #630, #631 |
