@@ -674,3 +674,102 @@ class TestBraceCountingIgnoresCommentsAndStrings:
         assert flake_tidy._brace_counts('url = "a{b}c";') == (0, 0)
         assert flake_tidy._brace_counts("}; # { { {") == (0, 1)
         assert flake_tidy._brace_counts('x = "a\\"}b"; }') == (0, 1)
+
+
+class TestUrlFollowsConflicts:
+    """check_url_follows_conflicts: only a root input's OWN url/follows
+    count — attributes of a nested ``inputs = { ... }`` override belong
+    to the nested input (#642). First tests for this function."""
+
+    def test_nested_override_url_is_not_the_root_inputs(self):
+        """root input with follows only + nested bar url -> no conflict."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    foo = {
+      follows = "nixpkgs";
+      inputs = {
+        bar = { url = "github:x/y"; };
+      };
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == []
+
+    def test_nested_override_follows_is_not_the_root_inputs(self):
+        """root input with url only + nested bar follows -> no conflict."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:x/y";
+      inputs = {
+        bar = {
+          follows = "nixpkgs";
+        };
+      };
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == []
+
+    def test_dotted_nested_attrs_are_not_the_root_inputs(self):
+        """dotted inputs.bar.url inside foo's block is bar's, not foo's."""
+        content = """{
+  inputs = {
+    foo = {
+      inputs.bar.url = "github:x/y";
+      follows = "nixpkgs";
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == []
+
+    def test_one_line_block_conflict_detected(self):
+        """a genuine conflict written on one line is reported (#642)."""
+        content = """{
+  inputs = {
+    foo = { url = "github:x/y"; follows = "nixpkgs"; };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]
+
+    def test_multiline_block_conflict_detected(self):
+        """guard: the plain multi-line genuine conflict still reports."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:x/y";
+      follows = "nixpkgs";
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]
+
+    def test_opening_line_attributes_conflict_detected(self):
+        """guard: url on the opening line + follows below still reports."""
+        content = """{
+  inputs = {
+    foo = { url = "github:x/y";
+      follows = "nixpkgs";
+    };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]
+
+    def test_dotted_style_conflict_and_deep_follows_guard(self):
+        """guard: dotted url+follows reports; a deep follows does not."""
+        content = """{
+  inputs.foo.url = "github:x/y";
+  inputs.foo.follows = "nixpkgs";
+  inputs.bar.url = "github:a/b";
+  inputs.bar.inputs.baz.follows = "nixpkgs";
+  outputs = _: {};
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["foo"]

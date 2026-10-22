@@ -3940,11 +3940,36 @@ def check_url_follows_conflicts(content: str) -> list[str]:
     style, block_start, block_end = detect_inputs_style(content)
 
     if style == "block" and block_start is not None and block_end is not None:
-        # Walk through input blocks
+        # Walk through input blocks. Only a block's OWN attributes count:
+        # a url/follows inside a nested ``inputs = { ... }`` override (or
+        # behind a dotted ``inputs.X.`` prefix) belongs to that nested
+        # input, not to the root input (#642 — the same nested-override
+        # blindness #634/#640 fixed in the other scanners). So each line
+        # is judged only on its own-level segment — the text before the
+        # first ``{`` — only while it sits at the block's direct-attribute
+        # depth, and an attribute only counts when it stands alone at the
+        # start of the segment or right after a ``;``.
         current_block: str | None = None
         has_url = False
         has_follows = False
         depth = 0
+
+        def _judge(segment: str) -> None:
+            nonlocal has_url, has_follows
+            if re.search(r"(?:^|;)\s*url\s*=", segment):
+                has_url = True
+            if re.search(r"(?:^|;)\s*follows\s*=", segment):
+                has_follows = True
+
+        def _finish_block() -> None:
+            nonlocal current_block, has_url, has_follows, depth
+            if has_url and has_follows and current_block is not None:
+                conflicts.append(current_block)
+            current_block = None
+            has_url = False
+            has_follows = False
+            depth = 0
+
         for i in range(block_start + 1, block_end):
             stripped = lines[i].strip()
             if stripped.startswith("#"):
@@ -3956,25 +3981,21 @@ def check_url_follows_conflicts(content: str) -> list[str]:
                 has_url = False
                 has_follows = False
                 depth = _brace_delta(stripped)
-                if "url" in stripped and "=" in stripped:
-                    has_url = True
-                if re.search(r"\bfollows\s*=", stripped):
-                    has_follows = True
+                # Attributes on the opening line itself count — but only
+                # up to the first nested ``{``.
+                _judge(stripped[stripped.index("{") + 1 :].split("{", 1)[0])
+                if depth <= 0:
+                    # One-line block: finalise it here, or its conflict
+                    # is never reported (#642).
+                    _finish_block()
                 continue
             if current_block:
+                if depth == 1:
+                    # Direct-attribute level of the current block.
+                    _judge(stripped.split("{", 1)[0])
                 depth += _brace_delta(stripped)
-                if re.search(r"\burl\s*=", stripped):
-                    has_url = True
-                # Only top-level follows (not inputs.X.follows)
-                if re.match(r"follows\s*=", stripped):
-                    has_follows = True
                 if depth <= 0:
-                    if has_url and has_follows:
-                        conflicts.append(current_block)
-                    current_block = None
-                    has_url = False
-                    has_follows = False
-                    depth = 0
+                    _finish_block()
 
     # Also check dotted-style: inputs.name.url and inputs.name.follows
     # Only match direct follows (name.follows = "x"), NOT deep follows
