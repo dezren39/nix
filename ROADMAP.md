@@ -172,3 +172,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #644 and #647 completions             | 2026-10-22 | #650, #651 |
 | flake-tidy conflict judge uses own-level structural text       | 2026-10-22 | #646, #654 |
 | ROADMAP Done records the #657 completion                       | 2026-10-22 | #657, #658 |
+| ROADMAP Done records the #673 completion                       | 2026-10-22 | #673, #674 |
+| flake-tidy judges every declaration in one-line nested block   | 2026-10-22 | #649, #675 |
