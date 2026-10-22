@@ -88,6 +88,19 @@ lib.recursiveUpdate {
   # launchd.user.envVariables and homeUser.nix sessionVariables because each
   # reaches a context the others do not.
   environment.variables.OPENCODE_DB = "/Users/drewry.pope/.local/share/opencode/opencode.db";
+  # The OpenChamber desktop app reads these from the login shell's environment
+  # (packages/electron/README.md: "Desktop imports this from the user's
+  # login-shell environment"), not only from launchd's. launchd.user.envVariables
+  # below is set by `launchctl setenv` during activation only, so it is gone
+  # after every reboot until the next successful switch. On 2026-10-21 the app
+  # started at login without them, ran its own server (0.0.0.0:57123) and
+  # OpenCode next to the launchd agent's, and the two managers killed each
+  # other's OpenCode every 30 minutes through the shared
+  # ~/.config/openchamber/managed-opencode state (dezren39/nix#670). Exported
+  # here they are in every login shell, so the app always attaches to the
+  # agent's server instead.
+  environment.variables.OPENCHAMBER_SERVER_URL = "http://127.0.0.1:3000";
+  environment.variables.OPENCHAMBER_SKIP_LOCAL_SERVER = "1";
 
   nixpkgs = {
     # TODO: module nixpkgs
