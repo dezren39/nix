@@ -156,6 +156,91 @@ class TestFollowsExists:
         )
 
 
+class TestBlockContextClosedBlocks:
+    """Regression tests for #628: a block that does not close on a
+    line of its own must still end.
+
+    ``_block_context_for_lines`` used to pop its stack only for a
+    line that is exactly ``};``, so a one-line block
+    (``foo = { url = "..."; };``) — or a block whose ``};`` shares a
+    line with the last attribute — stayed "open" forever and every
+    later line in the inputs section was attributed to it. Existing
+    follows declarations after such a block were then invisible to
+    ``follows_exists_in_content`` — the guard the dedup/flatten
+    proposal filters rely on — so they were re-proposed and would be
+    duplicated on apply.
+    """
+
+    ONE_LINE = """{
+  inputs = {
+    foo = { url = "github:a/foo"; };
+    bar.url = "github:a/bar";
+    bar.inputs.nixpkgs.follows = "nixpkgs";
+  };
+}
+"""
+
+    SAME_LINE_CLOSE = """{
+  inputs = {
+    foo = {
+      url = "github:a/foo"; };
+    bar.inputs.nixpkgs.follows = "nixpkgs";
+  };
+}
+"""
+
+    def test_one_line_block_line_itself_is_in_block(self):
+        ctx = flake_tidy._block_context_for_lines(self.ONE_LINE)
+        assert ctx[2] == "foo"
+
+    def test_lines_after_one_line_block_are_root_scope(self):
+        ctx = flake_tidy._block_context_for_lines(self.ONE_LINE)
+        assert ctx[3] is None
+        assert ctx[4] is None
+
+    def test_lines_after_same_line_close_are_root_scope(self):
+        ctx = flake_tidy._block_context_for_lines(self.SAME_LINE_CLOSE)
+        assert ctx[3] == "foo"
+        assert ctx[4] is None
+
+    def test_follows_exists_after_one_line_block(self):
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.ONE_LINE, ["bar", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_follows_path_has_any_target_after_one_line_block(self):
+        assert (
+            flake_tidy.follows_path_has_any_target(
+                self.ONE_LINE, ["bar", "nixpkgs"]
+            )
+            is True
+        )
+
+    def test_block_after_one_line_block_still_tracked(self):
+        content = """{
+  inputs = {
+    foo = { url = "github:a/foo"; };
+    bar = {
+      url = "github:a/bar";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+}
+"""
+        ctx = flake_tidy._block_context_for_lines(content)
+        assert ctx[4] == "bar"
+        assert ctx[5] == "bar"
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["bar", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+
+
 class TestInsertFollows:
     def test_insert_follows_block_style(self, sample_flake_nix):
         """inserts inside block."""
