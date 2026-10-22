@@ -183,8 +183,17 @@ in
       initContent = ''
         ${sharedShellInit}
 
-        # opencode: shell completions (yargs-based)
-        eval "$(opencode completion 2>/dev/null)"
+        # opencode: shell completions. Generated once at build time from the
+        # same opencode package; `eval "$(opencode completion)"` here started
+        # the 190 MB binary in every new shell, and v2 has no `completion`
+        # command (it took the word as a directory and exited 1;
+        # dezren39/nix#666). v2's flag is `--completions zsh`.
+        source ${
+          pkgs.runCommand "opencode-zsh-completion" { } ''
+            HOME=$TMPDIR ${inputs.self.packages.${system}.opencode}/bin/opencode --completions zsh > $out
+            test -s $out
+          ''
+        }
       '';
     };
     fish = {
