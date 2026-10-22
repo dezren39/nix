@@ -676,6 +676,37 @@ class TestDottedParentBlockRootScope:
             is False
         )
 
+    def test_file_order_ignores_nested_child_in_dotted_parent(self):
+        """get_input_file_order must not list the dotted parent's nested
+        override child as a root input (#652 remainder: PR #653's
+        in_inputs_block guard cannot fire here — this content has no
+        `inputs = {` block)."""
+        assert flake_tidy.get_input_file_order(self.DOTTED_PARENT) == [
+            "parent",
+            "real",
+        ]
+
+    def test_file_order_genuine_top_level_dotted_child(self):
+        """guard: a genuine top-level dotted declaration is still a root
+        input in file order."""
+        content = '{\n  inputs.child.url = "github:example/child";\n}\n'
+        assert flake_tidy.get_input_file_order(content) == ["child"]
+
+    def test_file_order_sibling_dotted_parent_blocks(self):
+        """guard: each dotted parent block's own opening line is a root
+        declaration, and a later sibling's nested child is not."""
+        content = """{
+  inputs.a = {
+    url = "github:example/a";
+  };
+  inputs.b = {
+    inputs.c.url = "github:example/c";
+  };
+  inputs.d.url = "github:example/d";
+}
+"""
+        assert flake_tidy.get_input_file_order(content) == ["a", "b", "d"]
+
     def test_one_line_dotted_parent_block(self):
         content = """{
   inputs.parent = { url = "github:example/parent"; inputs.child.url = "github:example/child"; };
