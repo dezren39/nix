@@ -436,6 +436,88 @@ class TestFollowsTargetForInput:
         assert target is None
 
 
+class TestNestedBlockDoesNotShadowRootInput:
+    """Regression tests for #634: a same-name block nested inside another
+    input's ``inputs = { ... }`` override is a different input and must not
+    shadow the root input in the block-style editor scanners."""
+
+    NESTED_FLAKE = """{
+  inputs = {
+    bar = {
+      url = "github:example/bar";
+      inputs = {
+        foo = {
+          follows = "bar/nixpkgs";
+        };
+      };
+    };
+    foo = {
+      url = "github:example/foo";
+      follows = "nixpkgs";
+    };
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+}
+"""
+
+    def test_url_line_finds_root_input(self):
+        """the nested foo block (no url) does not hide the root foo url."""
+        line = flake_tidy.find_input_url_line(self.NESTED_FLAKE, "foo")
+        assert line is not None
+        assert "example/foo" in self.NESTED_FLAKE.split("\n")[line]
+
+    def test_remove_url_line_removes_root_input(self):
+        """remove_input_url_line removes the root foo url, not nothing."""
+        new_content, removed = flake_tidy.remove_input_url_line(
+            self.NESTED_FLAKE, "foo"
+        )
+        assert removed is True
+        assert "example/foo" not in new_content
+        assert "example/bar" in new_content
+
+    def test_follows_target_is_root_inputs(self):
+        """the root foo follows target wins over the nested override's."""
+        target = flake_tidy._follows_target_for_input(self.NESTED_FLAKE, "foo")
+        assert target == "nixpkgs"
+
+    def test_block_end_is_root_inputs(self):
+        """find_input_block_end returns the root foo block's closing line."""
+        result = flake_tidy.find_input_block_end(self.NESTED_FLAKE, "foo")
+        assert result is not None
+        end_line, _indent = result
+        lines = self.NESTED_FLAKE.split("\n")
+        # the root foo block closes right before the nixpkgs.url line
+        assert lines[end_line + 1].strip().startswith("nixpkgs.url")
+
+    def test_dotted_nested_override_is_not_root_follows(self):
+        """a dotted inputs.foo.follows inside bar's block is bar's override."""
+        content = """{
+  inputs = {
+    bar = {
+      url = "github:example/bar";
+      inputs.foo.follows = "bar/nixpkgs";
+    };
+    foo = {
+      url = "github:example/foo";
+    };
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+}
+"""
+        assert flake_tidy._follows_target_for_input(content, "foo") is None
+        line = flake_tidy.find_input_url_line(content, "foo")
+        assert line is not None
+        assert "example/foo" in content.split("\n")[line]
+
+    def test_sibling_block_still_found(self):
+        """guard: the enclosing input itself still resolves normally."""
+        line = flake_tidy.find_input_url_line(self.NESTED_FLAKE, "bar")
+        assert line is not None
+        assert "example/bar" in self.NESTED_FLAKE.split("\n")[line]
+        result = flake_tidy.find_input_block_end(self.NESTED_FLAKE, "bar")
+        assert result is not None
+
+
 class TestBraceCountingIgnoresCommentsAndStrings:
     """Regression tests for #623: braces in comments/strings are not structural."""
 
