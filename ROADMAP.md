@@ -176,3 +176,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy judges every declaration in one-line nested block   | 2026-10-22 | #649, #675 |
 | flake-tidy dotted-style parent blocks are not root scope       | 2026-10-22 | #655, #678 |
 | ROADMAP Done records the #676 completion                       | 2026-10-22 | #676, #677 |
+| flake-tidy `get_input_file_order` skips dotted override child  | 2026-10-22 | #652, #653, #681 |
+| ROADMAP Done records the #679 completion                       | 2026-10-22 | #679, #680 |
+| flake-tidy primed input names visible to block scanners        | 2026-10-22 | #683, #684 |
