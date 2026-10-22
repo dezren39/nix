@@ -64,6 +64,43 @@ class TestGetInputFileOrder:
         assert "late" in order
         assert order.index("early") < order.index("nixpkgs")
 
+    def test_get_input_file_order_nested_dotted_override_not_root(self):
+        """A nested `inputs.bar.follows` line inside an input's block is an
+        override on that input, not a root declaration of `bar` (#652)."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs";
+    foo = {
+      url = "github:example/foo";
+      inputs.bar.follows = "nixpkgs";
+    };
+    baz.url = "github:example/baz";
+  };
+}
+"""
+        order = flake_tidy.get_input_file_order(content)
+        assert order == ["nixpkgs", "foo", "baz"]
+        assert not flake_tidy.root_input_exists_in_content(content, "bar")
+
+    def test_get_input_file_order_nested_dotted_block_keeps_braces(self):
+        """A nested one-line `inputs.bar = { ... };` block inside a parent
+        block must not be recorded as a root input, and its braces must
+        still be counted so later root inputs appear in order (#652)."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs";
+    foo = {
+      url = "github:example/foo";
+      inputs.bar = { url = "github:example/bar"; };
+    };
+    baz.url = "github:example/baz";
+  };
+  outputs = { self }: { };
+}
+"""
+        order = flake_tidy.get_input_file_order(content)
+        assert order == ["nixpkgs", "foo", "baz"]
+
 
 class TestParseResultIsolation:
     """Callers must not be able to poison later parse results by mutating
