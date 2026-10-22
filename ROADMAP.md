@@ -169,3 +169,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy `check_url_follows_conflicts` judges own-level only | 2026-10-22 | #642, #643 |
 | ROADMAP Done records the #640 and #642 completions             | 2026-10-22 | #644, #645 |
 | flake-tidy nested-inputs follows visible to existence checkers | 2026-10-22 | #647, #648 |
+| ROADMAP Done records the #644 and #647 completions             | 2026-10-22 | #650, #651 |
+| flake-tidy conflict judge uses own-level structural text       | 2026-10-22 | #646, #654 |
