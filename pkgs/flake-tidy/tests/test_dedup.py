@@ -858,6 +858,297 @@ class TestAnalyzeDedupUrlSpelling:
         assert proposals[0]["follows_parts"] in (["a"], ["b"])
 
 
+class TestNormalizeVcsUrlQuery:
+    """#560: a raw git URL with an embedded query (?shallow=1, #528)
+    defeated the #555 suffix rules — ".git" is not at the end of
+    "repo.git?shallow=1" — and its query values were lowercased on
+    github/gitlab hosts. The query is split off first and reattached
+    verbatim."""
+
+    def test_dotgit_before_query_groups(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com/Foo/Bar.git?shallow=1")
+        b = flake_tidy._normalize_vcs_url("https://github.com/foo/bar?shallow=1")
+        assert a == b == "https://github.com/foo/bar?shallow=1"
+
+    def test_trailing_slash_before_query_groups(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com/foo/bar/?shallow=1")
+        b = flake_tidy._normalize_vcs_url("https://github.com/foo/bar?shallow=1")
+        assert a == b
+
+    def test_query_reattached_verbatim(self):
+        url = "https://github.com/foo/bar?dir=Sub/Flake&ref=FeatureBranch"
+        assert flake_tidy._normalize_vcs_url(url) == url
+
+    def test_source_key_groups_dotgit_before_query(self):
+        def node(url):
+            return {"original": {"type": "git", "url": url}}
+
+        assert flake_tidy.source_key(
+            node("https://example.com/tool.git?shallow=1")
+        ) == flake_tidy.source_key(node("https://example.com/tool?shallow=1"))
+
+    def test_source_key_keeps_query_case_distinct(self):
+        def node(url):
+            return {"original": {"type": "git", "url": url}}
+
+        assert flake_tidy.source_key(
+            node("https://github.com/foo/bar?dir=Sub/Flake")
+        ) != flake_tidy.source_key(
+            node("https://github.com/foo/bar?dir=sub/flake")
+        )
+
+
+class TestNormalizeVcsUrlTrailingDotHost:
+    """#584: a trailing dot on the host is the DNS root label —
+    "github.com." is the same host as "github.com" — but the host was
+    kept verbatim, so the spelling split the dedup group in both the
+    "://" and scp-like branches; on forge hosts the dot also defeated
+    the _CASE_INSENSITIVE_PATH_HOSTS membership test, so the path case
+    rule silently stopped applying to that spelling."""
+
+    def test_trailing_dot_groups_url_branch(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com./owner/repo")
+        b = flake_tidy._normalize_vcs_url("https://github.com/owner/repo")
+        assert a == b == "https://github.com/owner/repo"
+
+    def test_trailing_dot_groups_scp_branch(self):
+        a = flake_tidy._normalize_vcs_url("git@github.com.:owner/repo")
+        b = flake_tidy._normalize_vcs_url("git@github.com:owner/repo")
+        assert a == b == "git@github.com:owner/repo"
+
+    def test_trailing_dot_keeps_path_case_rule(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com./Owner/Repo")
+        b = flake_tidy._normalize_vcs_url("https://github.com/owner/repo")
+        assert a == b
+
+    def test_trailing_dot_case_sensitive_host_keeps_path_case(self):
+        a = flake_tidy._normalize_vcs_url("https://example.com./Repo")
+        b = flake_tidy._normalize_vcs_url("https://example.com/Repo")
+        assert a == b == "https://example.com/Repo"
+
+    def test_only_one_trailing_dot_stripped(self):
+        assert flake_tidy._normalize_vcs_url(
+            "https://example.com../Repo"
+        ) == "https://example.com./Repo"
+
+    def test_trailing_dot_with_default_port_groups(self):
+        a = flake_tidy._normalize_vcs_url("https://github.com.:443/owner/repo")
+        b = flake_tidy._normalize_vcs_url("https://github.com/owner/repo")
+        assert a == b
+
+
+class TestForgeSourceKeyHostSpelling:
+    """#599: for forge (github/gitlab/sourcehut) inputs the host extra
+    was copied verbatim into source_key while owner/repo were
+    lowercased — so one enterprise/self-hosted server written with a
+    different host case, or with the DNS root-label trailing dot,
+    split the dedup group."""
+
+    @staticmethod
+    def _node(host, **extra):
+        original = {
+            "type": "github",
+            "owner": "foo",
+            "repo": "bar",
+            "host": host,
+        }
+        original.update(extra)
+        return {"original": original}
+
+    def test_host_case_variants_group(self):
+        a = flake_tidy.source_key(self._node("GitHub.Example.com"))
+        b = flake_tidy.source_key(self._node("github.example.com"))
+        assert a == b
+
+    def test_host_trailing_dot_groups(self):
+        a = flake_tidy.source_key(self._node("github.example.com."))
+        b = flake_tidy.source_key(self._node("github.example.com"))
+        assert a == b
+
+    def test_different_hosts_still_split(self):
+        a = flake_tidy.source_key(self._node("github.example.com"))
+        b = flake_tidy.source_key(self._node("gitlab.example.com"))
+        assert a != b
+
+    def test_dir_case_still_splits(self):
+        a = flake_tidy.source_key(self._node("github.example.com", dir="Sub"))
+        b = flake_tidy.source_key(self._node("github.example.com", dir="sub"))
+        assert a != b
+
+
+class TestForgeSourceKeyDefaultHost:
+    """#605: an explicit host naming the forge type's own default
+    server (github.com / gitlab.com / git.sr.ht — which Nix records
+    verbatim in the lock's original, e.g. from ?host=github.com)
+    names the same server as no host at all, but was kept in the
+    key, so the spelling never grouped with the hostless input."""
+
+    @staticmethod
+    def _key(original):
+        return flake_tidy.source_key({"original": original})
+
+    def test_github_default_host_groups_with_hostless(self):
+        a = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "github.com"}
+        )
+        assert a == b
+
+    def test_github_default_host_spelling_variants_group(self):
+        a = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "GitHub.com."}
+        )
+        assert a == b
+
+    def test_gitlab_default_host_groups_with_hostless(self):
+        a = self._key({"type": "gitlab", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "gitlab", "owner": "foo", "repo": "bar", "host": "gitlab.com"}
+        )
+        assert a == b
+
+    def test_sourcehut_default_host_groups_with_hostless(self):
+        a = self._key({"type": "sourcehut", "owner": "foo", "repo": "bar"})
+        b = self._key(
+            {"type": "sourcehut", "owner": "foo", "repo": "bar", "host": "git.sr.ht"}
+        )
+        assert a == b
+
+    def test_non_default_hosts_still_split(self):
+        hostless = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        ghe = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "ghe.example.com"}
+        )
+        hg = self._key(
+            {"type": "sourcehut", "owner": "foo", "repo": "bar", "host": "hg.sr.ht"}
+        )
+        assert ghe != hostless
+        assert hg != self._key({"type": "sourcehut", "owner": "foo", "repo": "bar"})
+
+    def test_dir_still_splits_with_default_host_dropped(self):
+        a = self._key(
+            {
+                "type": "github",
+                "owner": "foo",
+                "repo": "bar",
+                "host": "github.com",
+                "dir": "Sub",
+            }
+        )
+        b = self._key({"type": "github", "owner": "foo", "repo": "bar", "dir": "sub"})
+        c = self._key({"type": "github", "owner": "foo", "repo": "bar"})
+        assert a != b
+        assert a != c
+
+    def test_default_host_rev_pinned_still_separate(self):
+        a = self._key(
+            {"type": "github", "owner": "foo", "repo": "bar", "host": "github.com"}
+        )
+        b = self._key(
+            {
+                "type": "github",
+                "owner": "foo",
+                "repo": "bar",
+                "host": "github.com",
+                "rev": "abc123",
+            }
+        )
+        assert a != b
+
+
+class TestTarballFileSourceKeyHostSpelling:
+    """#611: the tarball/file branches of source_key embedded the URL
+    completely verbatim, so they never got the host rules the git/hg
+    (#579/#584) and forge (#599/#605) branches apply — one artifact on
+    one server split the dedup group when the host was spelled with
+    different case, a trailing dot, or an explicit default port.
+    Only scheme + authority are canonicalized; the path/query stay
+    verbatim per #555's deliberate non-rule."""
+
+    @staticmethod
+    def _key(original):
+        return flake_tidy.source_key({"original": original})
+
+    def test_host_case_variants_group(self):
+        for t in ("tarball", "file"):
+            a = self._key({"type": t, "url": "https://EXAMPLE.com/a.tgz"})
+            b = self._key({"type": t, "url": "https://example.com/a.tgz"})
+            assert a == b
+
+    def test_host_trailing_dot_groups(self):
+        a = self._key({"type": "tarball", "url": "https://example.com./a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a == b
+
+    def test_default_port_groups(self):
+        a = self._key({"type": "tarball", "url": "https://example.com:443/a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a == b
+        c = self._key({"type": "file", "url": "http://example.com:80/a"})
+        d = self._key({"type": "file", "url": "http://example.com/a"})
+        assert c == d
+
+    def test_combined_spellings_group_with_dir(self):
+        a = self._key(
+            {"type": "tarball", "url": "https://EXAMPLE.com./a.tgz", "dir": "x"}
+        )
+        b = self._key(
+            {"type": "tarball", "url": "https://example.com/a.tgz", "dir": "x"}
+        )
+        assert a == b
+
+    def test_path_case_still_splits(self):
+        a = self._key({"type": "tarball", "url": "https://example.com/A.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a != b
+
+    def test_non_default_port_still_splits(self):
+        a = self._key({"type": "tarball", "url": "https://example.com:8443/a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a != b
+
+    def test_scheme_and_query_still_split(self):
+        a = self._key({"type": "tarball", "url": "http://example.com/a.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com/a.tgz"})
+        assert a != b
+        c = self._key({"type": "tarball", "url": "https://example.com/a.tgz?dir=Sub"})
+        d = self._key({"type": "tarball", "url": "https://example.com/a.tgz?dir=sub"})
+        assert c != d
+
+    def test_pathless_query_url_authority_rules_apply(self):
+        """#613: the authority of a path-less URL ends at "?" — the
+        host rules must still apply, and the query stays verbatim."""
+        for t in ("tarball", "file"):
+            a = self._key(
+                {"type": t, "url": "https://EXAMPLE.com.:443?file=A.tgz"}
+            )
+            b = self._key({"type": t, "url": "https://example.com?file=A.tgz"})
+            assert a == b
+
+    def test_pathless_query_case_still_splits(self):
+        """#613: pre-fix the query was swallowed into the authority and
+        lowercased, so genuinely different artifacts grouped."""
+        a = self._key({"type": "tarball", "url": "https://example.com?File=A.tgz"})
+        b = self._key({"type": "tarball", "url": "https://example.com?file=A.tgz"})
+        assert a != b
+
+    def test_pathless_fragment_url_authority_rules_apply(self):
+        """#613: same terminator rule for "#" — port drops, fragment
+        case stays distinguishing."""
+        a = self._key({"type": "tarball", "url": "https://EXAMPLE.com:443#Frag"})
+        b = self._key({"type": "tarball", "url": "https://example.com#Frag"})
+        assert a == b
+        c = self._key({"type": "tarball", "url": "https://example.com#frag"})
+        assert b != c
+
+    def test_plain_key_shape_unchanged(self):
+        """Guard: a canonically spelled URL keeps its pre-#611 key."""
+        assert self._key(
+            {"type": "tarball", "url": "https://example.com/t.tar.gz"}
+        ) == "tarball/https://example.com/t.tar.gz"
+
+
 class TestAnalyzeDedupHgRevDivergence:
     """#539: same hg URL pinned at two different revs must dedup to
     the newest locked lastModified — the #509 consolidation, for

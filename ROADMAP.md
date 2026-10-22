@@ -4,7 +4,7 @@ This is the roadmap for the repo. It is grouped by area, and each row has a hori
 
 A row records intent. It does not settle a decision and it is not a go-ahead to build.
 
-Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-20. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
+Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-22. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
 
 ## Areas
 
@@ -136,3 +136,36 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy groups same repo across URL spellings             | 2026-10-21 | #555, #559 |
 | flake-tidy `resolve_follows` returns None on cyclic follows  | 2026-10-21 | #565, #566 |
 | flake-tidy override builder drops unresolvable `indirect:` ref | 2026-10-21 | #568, #569 |
+| flake-tidy `_normalize_vcs_url` splits embedded query first    | 2026-10-21 | #560, #561 |
+| flake-tidy `compute_indirect_overrides` cycle-guarded          | 2026-10-21 | #563, #564 |
+| flake-tidy `_normalize_vcs_url` case rules cover scp/`.GIT`    | 2026-10-21 | #562, #572 |
+| flake-tidy `_normalize_vcs_url` strips at most one `.git`      | 2026-10-21 | #575, #576 |
+| flake-tidy `_normalize_vcs_url` drops explicit default ports   | 2026-10-21 | #579, #580 |
+| flake-tidy `_normalize_vcs_url` lowercases IPv6 literal hosts  | 2026-10-21 | #581, #582 |
+| flake-tidy `_normalize_vcs_url` strips one trailing host dot   | 2026-10-21 | #584, #585 |
+| flake-tidy canonicalizes IPv6 and port spellings               | 2026-10-21 | #583, #588 |
+| flake-tidy keys unconvertible ports verbatim, never raises     | 2026-10-21 | #589, #592 |
+| flake-tidy `_normalize_vcs_url` drops compound default ports   | 2026-10-21 | #595, #596 |
+| flake-tidy `source_key` canonicalizes the forge host           | 2026-10-21 | #599, #600 |
+| flake-tidy rebuilt URLs percent-encode lock values             | 2026-10-21 | #601, #602 |
+| flake-tidy `source_key` drops the explicit default forge host  | 2026-10-21 | #605, #606 |
+| flake-tidy `_locked_url` keeps the locked rev for forge types  | 2026-10-21 | #609, #610 |
+| flake-tidy `source_key` canonicalizes tarball/file hosts       | 2026-10-21 | #611, #612 |
+| flake-tidy `_canonicalize_url_authority` ends at `?` and `#`   | 2026-10-21 | #613, #614 |
+| ROADMAP Done records the #599 and #601 completions             | 2026-10-21 | #603, #604 |
+| ROADMAP Done records the #605 completion                       | 2026-10-21 | #607, #608 |
+| ROADMAP Done records the #609, #611 and #613 completions       | 2026-10-21 | #615, #616 |
+| ROADMAP Done records the #617 completion                       | 2026-10-21 | #617, #618 |
+| ROADMAP Done records the #619 completion                       | 2026-10-21 | #619, #620 |
+| ROADMAP Done records the #621 completion                       | 2026-10-21 | #621, #622 |
+| flake-tidy line scanners ignore braces in comments/strings     | 2026-10-21 | #623, #624 |
+| ROADMAP Done records the #621 and #623 completions             | 2026-10-21 | #625, #626 |
+| flake-tidy `_block_context_for_lines` closes one-line blocks   | 2026-10-22 | #628, #629 |
+| ROADMAP Done records the #625 and #628 completions             | 2026-10-22 | #630, #631 |
+| flake-tidy nested same-name block must not shadow root input   | 2026-10-22 | #634, #635 |
+| ROADMAP Done records the #630 completion                       | 2026-10-22 | #632, #633 |
+| ROADMAP Done records the #636 completion                       | 2026-10-22 | #638, #639 |
+| flake-tidy nested inputs override must not reset scanner depth | 2026-10-22 | #640, #641 |
+| flake-tidy `check_url_follows_conflicts` judges own-level only | 2026-10-22 | #642, #643 |
+| ROADMAP Done records the #640 and #642 completions             | 2026-10-22 | #644, #645 |
+| flake-tidy nested-inputs follows visible to existence checkers | 2026-10-22 | #647, #648 |

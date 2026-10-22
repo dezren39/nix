@@ -365,6 +365,300 @@ class TestSourceKeyUrlSpelling:
             "git@GitHub.com:o/r.git"
         )
 
+    def test_scp_like_path_case_groups_on_forge_hosts(self):
+        """#562: the scp-like branch skipped the case-insensitive
+        path rule, so git@github.com:Owner/Repo split from
+        git@github.com:owner/repo while the ssh:// and https://
+        spellings of the same repo grouped."""
+        assert self._key("git@github.com:Owner/Repo") == self._key(
+            "git@github.com:owner/repo"
+        )
+        assert self._key("git@gitlab.com:Owner/Repo") == self._key(
+            "git@gitlab.com:owner/repo"
+        )
+
+    def test_scp_like_path_case_still_distinguishes_elsewhere(self):
+        """#562 near-miss: on a case-sensitive host the scp path
+        case still distinguishes, exactly as the :// branch does."""
+        assert self._key("git@example.com:Owner/Repo") != self._key(
+            "git@example.com:owner/repo"
+        )
+
+    def test_uppercase_dot_git_groups_on_forge_hosts(self):
+        """#562: the suffix strip was case-sensitive and ran before
+        path lowercasing, so repo.GIT survived (then lowercased into
+        the key still carrying the suffix)."""
+        assert self._key("https://github.com/owner/repo") == self._key(
+            "https://github.com/owner/repo.GIT"
+        )
+        assert self._key("https://github.com/owner/repo") == self._key(
+            "https://github.com/owner/repo.Git/"
+        )
+        assert self._key("git@github.com:owner/repo") == self._key(
+            "git@github.com:owner/repo.GIT"
+        )
+
+    def test_stacked_dot_git_strips_at_most_one(self):
+        """#575: PR #572's post-lowercase strip stacked with the
+        early strip, so repo.git.git lost BOTH suffixes on forge
+        hosts and grouped with the different repository repo.
+        One strip leaves a repository actually named repo.git,
+        whose key ends in /repo.git/ — all stacked spellings share
+        it, and it differs from the plain repo key."""
+        stacked = self._key("https://github.com/owner/repo.git.git")
+        assert stacked.endswith("/repo.git/")
+        assert self._key("https://github.com/owner/repo.GIT.git") == stacked
+        assert self._key("https://github.com/owner/repo.git.GIT") == stacked
+        assert self._key("https://github.com/owner/repo.GIT.GIT") == stacked
+        assert stacked != self._key("https://github.com/owner/repo")
+        assert stacked != self._key("https://github.com/owner/repo.git")
+        # The case-sensitive-host result is the reference (#575
+        # acceptance): exactly one strip there too, same shape.
+        assert self._key(
+            "https://example.com/owner/repo.git.git"
+        ).endswith("/repo.git/")
+        # hg nodes share the git/hg branch.
+        assert self._key(
+            "https://github.com/owner/repo.git.git", t="hg"
+        ).endswith("/repo.git/")
+
+    def test_stacked_dot_git_scp_like_strips_at_most_one(self):
+        """#575: the scp-like branch had the same stacked strip."""
+        stacked = self._key("git@github.com:owner/repo.git.git")
+        assert stacked.endswith(":owner/repo.git/")
+        assert self._key("git@github.com:owner/repo.GIT.git") == stacked
+        assert self._key("git@github.com:owner/repo.git.GIT") == stacked
+        assert stacked != self._key("git@github.com:owner/repo")
+        assert stacked != self._key("git@github.com:owner/repo.git")
+
+    def test_uppercase_dot_git_kept_on_case_sensitive_hosts(self):
+        """#562 documented choice: on a case-sensitive host repo.GIT
+        can be a different repository, so the suffix is kept there."""
+        assert self._key("https://example.com/owner/repo") != self._key(
+            "https://example.com/owner/repo.GIT"
+        )
+
+    def test_default_port_groups(self):
+        """#579: an explicit default port names the same endpoint as
+        no port, so it must not split the dedup group."""
+        assert self._key("https://github.com/o/r") == self._key(
+            "https://github.com:443/o/r"
+        )
+        assert self._key("http://example.com/r") == self._key(
+            "http://example.com:80/r"
+        )
+        assert self._key("ssh://git@example.com/r") == self._key(
+            "ssh://git@example.com:22/r"
+        )
+        assert self._key("git://example.com/r") == self._key(
+            "git://example.com:9418/r"
+        )
+        # hg nodes share the git/hg branch.
+        assert self._key("https://example.com/r", t="hg") == self._key(
+            "https://example.com:443/r", t="hg"
+        )
+        # Composes with the suffix/query rules (#560/#575).
+        assert self._key("https://github.com/o/r?dir=Sub") == self._key(
+            "https://github.com:443/o/r.git?dir=Sub"
+        )
+
+    def test_nondefault_port_stays_separate(self):
+        """#579 conservatism: a non-default port can be a different
+        server, and a port that is default for one scheme is not
+        default for another."""
+        assert self._key("https://example.com/r") != self._key(
+            "https://example.com:8443/r"
+        )
+        assert self._key("https://example.com/r") != self._key(
+            "https://example.com:80/r"
+        )
+        # Unknown scheme: no default defined, port kept verbatim.
+        assert self._key("foo://example.com/r") != self._key(
+            "foo://example.com:443/r"
+        )
+
+    def test_compound_scheme_default_port_groups(self):
+        """#595: Nix prefixes git/hg flake URLs with a compound scheme
+        (git+https, git+ssh, hg+https, ...) — the #579 default-port
+        lookup keyed on the raw scheme missed them all, so an explicit
+        default port split the group on the most common URL family."""
+        assert self._key("git+https://github.com/o/r") == self._key(
+            "git+https://github.com:443/o/r"
+        )
+        assert self._key("git+http://example.com/r") == self._key(
+            "git+http://example.com:80/r"
+        )
+        assert self._key("git+ssh://git@example.com/r") == self._key(
+            "git+ssh://git@example.com:22/r"
+        )
+        # hg nodes share the git/hg branch and the hg+ prefix.
+        assert self._key("hg+https://example.com/r", t="hg") == self._key(
+            "hg+https://example.com:443/r", t="hg"
+        )
+        # A leading-zero default port still drops (#579/#583 compose).
+        assert self._key("git+https://github.com/o/r") == self._key(
+            "git+https://github.com:0443/o/r"
+        )
+        # Composes with the suffix rules: .git strip + path lowering.
+        assert self._key("git+https://github.com/O/R") == self._key(
+            "git+https://github.com:443/o/r.git"
+        )
+
+    def test_compound_scheme_nondefault_port_stays_separate(self):
+        """#595 conservatism, same as #579: only the TRANSPORT's
+        default drops — a port that is default for another transport
+        (or for no transport) can be a genuinely different server."""
+        assert self._key("git+https://example.com/r") != self._key(
+            "git+https://example.com:8443/r"
+        )
+        assert self._key("git+https://example.com/r") != self._key(
+            "git+https://example.com:22/r"
+        )
+        assert self._key("git+ssh://git@example.com/r") != self._key(
+            "git+ssh://git@example.com:443/r"
+        )
+
+    def test_ipv6_host_case_groups(self):
+        """#581: the IPv6-literal branch (added for #579's port
+        parsing) reassembled the host verbatim, skipping the
+        lowercasing the plain-host branch applies — but IPv6 hex
+        digits are case-insensitive, so the same server written
+        with uppercase hex split the group."""
+        assert self._key("http://[2001:db8::1]/repo") == self._key(
+            "http://[2001:DB8::1]/repo"
+        )
+        # With userinfo and an explicit default port (#579 composes).
+        assert self._key("ssh://git@[2001:db8::1]/repo") == self._key(
+            "ssh://git@[2001:DB8::1]:22/repo"
+        )
+        # A kept non-default port stays, with the host case folded.
+        assert self._key("https://[2001:db8::1]:8443/repo") == self._key(
+            "https://[2001:DB8::1]:8443/repo"
+        )
+        # hg nodes share the git/hg branch.
+        assert self._key(
+            "https://[2001:db8::1]/repo", t="hg"
+        ) == self._key("https://[2001:DB8::1]/repo", t="hg")
+
+    def test_ipv6_near_misses_stay_separate(self):
+        """#581 conservatism: a different IPv6 address is a different
+        server, and an IPv6 host is not in
+        _CASE_INSENSITIVE_PATH_HOSTS, so path case still
+        distinguishes exactly as for other case-sensitive hosts."""
+        assert self._key("http://[2001:db8::1]/repo") != self._key(
+            "http://[2001:db8::2]/repo"
+        )
+        assert self._key("http://[2001:db8::1]/Repo") != self._key(
+            "http://[2001:DB8::1]/repo"
+        )
+
+    def test_ipv6_numeric_spellings_group(self):
+        """#583: #582 folded the literal's hex case but kept the
+        address verbatim, so equivalent numeric spellings of one
+        IPv6 address — leading zeros, expanded vs "::"-compressed,
+        IPv4-embedded vs hex — still split the group."""
+        assert self._key("http://[2001:db8::1]/repo") == self._key(
+            "http://[2001:0db8::1]/repo"
+        )
+        assert self._key("http://[2001:db8::1]/repo") == self._key(
+            "http://[2001:db8:0:0:0:0:0:1]/repo"
+        )
+        assert self._key("http://[::1]/repo") == self._key(
+            "http://[0:0:0:0:0:0:0:1]/repo"
+        )
+        assert self._key("http://[::ffff:192.0.2.1]/repo") == self._key(
+            "http://[::ffff:c000:201]/repo"
+        )
+        # Composes with case folding, userinfo, and the port rules.
+        assert self._key("ssh://git@[2001:DB8::1]/repo") == self._key(
+            "ssh://git@[2001:0db8::1]:022/repo"
+        )
+        # hg nodes share the git/hg branch.
+        assert self._key(
+            "https://[2001:db8::1]/repo", t="hg"
+        ) == self._key("https://[2001:0DB8::1]/repo", t="hg")
+
+    def test_ipv6_numeric_near_misses_stay_separate(self):
+        """#583 conservatism: a genuinely different address is a
+        different server, and path case on an IPv6 host still
+        distinguishes (the host is not in
+        _CASE_INSENSITIVE_PATH_HOSTS)."""
+        assert self._key("http://[2001:db8::1]/repo") != self._key(
+            "http://[2001:db8::2]/repo"
+        )
+        assert self._key("http://[2001:0db8::1]/Repo") != self._key(
+            "http://[2001:db8::1]/repo"
+        )
+
+    def test_ipv6_malformed_literal_falls_back(self):
+        """#583: bracketed contents that do not parse as an IPv6
+        address keep the #581 lowercased-verbatim key and never
+        raise out of source_key."""
+        assert self._key("http://[notanip]/repo") == self._key(
+            "http://[NOTANIP]/repo"
+        )
+        assert self._key("http://[2001:db8::1%25eth0]/repo") == self._key(
+            "http://[2001:0DB8::1%25eth0]/repo"
+        )
+        # A different zone is a different interface — stays separate.
+        assert self._key("http://[fe80::1%eth0]/repo") != self._key(
+            "http://[fe80::1%eth1]/repo"
+        )
+
+    def test_port_numeric_spellings_group(self):
+        """#583: #580 compared the port numerically for the
+        default-port drop but kept the original string for
+        non-default ports, so ":08443" split from ":8443"; an empty
+        port ("host:") split from no port at all."""
+        assert self._key("https://example.com:8443/r") == self._key(
+            "https://example.com:08443/r"
+        )
+        assert self._key("https://example.com/r") == self._key(
+            "https://example.com:/r"
+        )
+        # A leading-zero default port still drops (#579 composes).
+        assert self._key("https://github.com/o/r") == self._key(
+            "https://github.com:0443/o/r"
+        )
+
+    def test_port_numeric_near_misses_stay_separate(self):
+        """#583 conservatism: a genuinely different port is a
+        different server, and non-numeric ports stay verbatim."""
+        assert self._key("https://example.com:8443/r") != self._key(
+            "https://example.com:8444/r"
+        )
+        assert self._key("https://example.com:8443/r") != self._key(
+            "https://example.com:08444/r"
+        )
+        assert self._key("https://example.com:abc/r") != self._key(
+            "https://example.com:abd/r"
+        )
+
+    def test_port_unconvertible_digit_spellings_key_verbatim(self):
+        """#589: isdigit() is True for Unicode digits int() rejects
+        (superscripts, circled digits) and int() refuses digit
+        strings over the conversion limit — both raised ValueError
+        out of source_key. They are effectively non-numeric: key
+        verbatim, never raise, and stay distinct from each other
+        and from numeric ports."""
+        assert self._key("https://example.com:²/r") == (
+            "git/https://example.com:²/r/"
+        )
+        assert self._key("https://example.com:①/r") != self._key(
+            "https://example.com:²/r"
+        )
+        long_port = "9" * 5000
+        assert self._key(f"https://example.com:{long_port}/r") == (
+            f"git/https://example.com:{long_port}/r/"
+        )
+        assert self._key(f"https://example.com:{long_port}/r") != self._key(
+            "https://example.com:8443/r"
+        )
+        # Existing behaviour alongside: default still drops.
+        assert self._key("https://example.com:443/r") == self._key(
+            "https://example.com/r"
+        )
+
     def test_ssh_and_https_stay_separate(self):
         """#555 decision, documented in _normalize_vcs_url: ssh and
         https are different transports and never merge."""
@@ -499,6 +793,116 @@ class TestNodeOriginalUrl:
             ).startswith("{")
 
 
+class TestNodeOriginalUrlEncoding:
+    """#601: the lock records flake-ref values decoded, but the
+    Nix-facing builders interpolated them raw — a value containing
+    &, #, % or a space did not parse back to itself (a dir named
+    "x&rev=…" forged a rev pin). Values are now percent-encoded the
+    way Nix's own serializer encodes them; node_url's readable form
+    deliberately stays raw."""
+
+    @staticmethod
+    def _node(**orig):
+        return {"original": orig}
+
+    def test_git_dir_cannot_inject_rev(self):
+        url = flake_tidy.node_original_url(
+            self._node(
+                type="git",
+                url="https://example.com/tool.git",
+                ref="main",
+                dir="x&rev=deadbeef",
+            )
+        )
+        assert url == (
+            "git+https://example.com/tool.git"
+            "?ref=main&dir=x%26rev%3Ddeadbeef"
+        )
+        # Parsing the query back yields exactly the recorded fields.
+        from urllib.parse import parse_qs, urlsplit
+
+        assert parse_qs(urlsplit(url).query) == {
+            "ref": ["main"],
+            "dir": ["x&rev=deadbeef"],
+        }
+
+    def test_git_ref_with_ampersand(self):
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="git", url="https://example.com/tool.git", ref="feat&x"
+            )
+        ) == "git+https://example.com/tool.git?ref=feat%26x"
+
+    def test_hg_dir_with_space(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="hg", url="https://example.com/repo", dir="my dir")
+        ) == "hg+https://example.com/repo?dir=my%20dir"
+
+    def test_forge_ref_with_hash(self):
+        """A raw # makes Nix reject the ref ("unexpected fragment")."""
+        assert flake_tidy.node_original_url(
+            self._node(type="github", owner="o", repo="r", ref="a#b")
+        ) == "github:o/r/a%23b"
+
+    def test_forge_ref_with_slash_unchanged(self):
+        """Multi-segment refs keep their raw slashes (guard)."""
+        assert flake_tidy.node_original_url(
+            self._node(type="github", owner="o", repo="r", ref="feature/foo")
+        ) == "github:o/r/feature/foo"
+
+    def test_forge_dir_with_ampersand(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="github", owner="o", repo="r", dir="a&b")
+        ) == "github:o/r?dir=a%26b"
+
+    def test_path_with_space(self):
+        assert flake_tidy.node_original_url(
+            self._node(type="path", path="./my dir/foo")
+        ) == "path:./my%20dir/foo"
+
+    def test_tarball_dir_with_literal_percent(self):
+        """A literal % in the value is itself encoded (%25), so the
+        recorded spelling — not its mis-decoding — survives."""
+        assert flake_tidy.node_original_url(
+            self._node(
+                type="tarball",
+                url="https://example.com/t.tar.gz",
+                dir="a%26b",
+            )
+        ) == "https://example.com/t.tar.gz?dir=a%2526b"
+
+    def test_locked_git_dir_cannot_inject_rev(self):
+        """_locked_url (the indirect-override fallback) encodes too."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"tool": "tool"}},
+                "tool": {
+                    "original": {"type": "indirect", "id": "mytool"},
+                    "locked": {
+                        "type": "git",
+                        "url": "https://example.com/tool.git",
+                        "rev": "aaaa1111",
+                        "dir": "x&rev=deadbeef",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "tool": "git+https://example.com/tool.git"
+            "?rev=aaaa1111&dir=x%26rev%3Ddeadbeef"
+        }
+
+    def test_node_url_stays_readable(self):
+        """node_url is the exclusion-pattern form: values stay raw."""
+        assert "dir=a&b" in flake_tidy.node_url(
+            self._node(
+                type="git", url="https://example.com/tool.git", dir="a&b"
+            )
+        )
+
+
 class TestLockedUrlFallbacks:
     """Follow-up to #521: PR #522 fixed node_original_url and taught two
     locked fallbacks sourcehut, but a git-locked node behind an indirect
@@ -590,7 +994,55 @@ class TestLockedUrlFallbacks:
             {"type": "sourcehut", "owner": "~user", "repo": "proj", "rev": "bbbb"}
         )
         assert flake_tidy.compute_indirect_overrides(lock) == {
-            "tool": "sourcehut:~user/proj"
+            "tool": "sourcehut:~user/proj/bbbb"
+        }
+
+    def test_compute_indirect_overrides_cycle(self):
+        """#563: a cyclic lock graph (A inputs B, B inputs A) must not
+        recurse to RecursionError — the walk skips refs to nodes
+        already on the current path and returns normally."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a"}},
+                "a": {
+                    "original": {"type": "github", "owner": "o", "repo": "r"},
+                    "inputs": {"b": "b"},
+                },
+                "b": {
+                    "original": {"type": "github", "owner": "o", "repo": "r2"},
+                    "inputs": {"a": "a"},
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy.compute_indirect_overrides(lock) == {}
+
+    def test_compute_indirect_overrides_self_loop_and_diamond(self):
+        """#563: a self-loop terminates, and a diamond still walks the
+        shared node once per path (guard is per-path, not global) —
+        the indirect child under both parents gets both overrides."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"x": "x", "y": "y"}},
+                "x": {"inputs": {"shared": "shared", "me": "x"}},
+                "y": {"inputs": {"shared": "shared"}},
+                "shared": {
+                    "original": {"type": "indirect", "id": "mytool"},
+                    "locked": {
+                        "type": "github",
+                        "owner": "nixos",
+                        "repo": "nixpkgs",
+                        "rev": "dddd",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert flake_tidy.compute_indirect_overrides(lock) == {
+            "x/shared": "github:nixos/nixpkgs/dddd",
+            "y/shared": "github:nixos/nixpkgs/dddd",
         }
 
     def test_compute_indirect_overrides_tarball_locked(self):
@@ -634,13 +1086,60 @@ class TestLockedUrlFallbacks:
         assert flake_tidy._locked_url({"type": "path"}) is None
 
     def test_locked_forge_shape_unchanged(self):
-        """Guard: the forge locked shape stays type:owner/repo."""
+        """Guard: a forge locked node with NO rev/ref keeps the plain
+        type:owner/repo shape — the rev segment appears only when the
+        lock actually records one (#609)."""
         lock = self._indirect_lock(
-            {"type": "github", "owner": "nixos", "repo": "nixpkgs", "rev": "dddd"}
+            {"type": "github", "owner": "nixos", "repo": "nixpkgs"}
         )
         assert flake_tidy.build_override_from_flake_name(
             lock, "tool", "mytool"
         ) == {"tool": "github:nixos/nixpkgs"}
+
+    def test_locked_url_forge_keeps_rev(self):
+        """#609: the forge locked rev is the pin — dropping it rebuilt
+        the override at the default branch while git/hg kept theirs."""
+        for t in ("github", "gitlab", "sourcehut"):
+            assert flake_tidy._locked_url(
+                {"type": t, "owner": "o", "repo": "r", "rev": "aaaa1111"}
+            ) == f"{t}:o/r/aaaa1111"
+
+    def test_locked_url_forge_ref_beats_rev(self):
+        """Mirror node_original_url: a recorded ref wins over the rev."""
+        assert flake_tidy._locked_url(
+            {
+                "type": "github",
+                "owner": "o",
+                "repo": "r",
+                "ref": "release-1",
+                "rev": "aaaa1111",
+            }
+        ) == "github:o/r/release-1"
+
+    def test_resolve_transitive_url_forge_locked(self):
+        """#609 end-to-end: the transitive fallback returns the pinned
+        forge URL, like the git case above."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"parent": "parent"}},
+                "parent": {"inputs": {"child": "child"}},
+                "child": {
+                    "original": {"type": "indirect", "id": "child"},
+                    "locked": {
+                        "type": "github",
+                        "owner": "o",
+                        "repo": "r",
+                        "rev": "cccc3333",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        assert (
+            flake_tidy._resolve_transitive_url(lock, "parent", "child")
+            == "github:o/r/cccc3333"
+        )
 
 
 class TestBuildOverrideInputsIndirect:
@@ -676,7 +1175,7 @@ class TestBuildOverrideInputsIndirect:
         assert flake_tidy.build_override_inputs(self._LOCK, "a/b") == {}
         assert flake_tidy.build_override_from_flake_name(
             self._LOCK, "a/b", "y"
-        ) == {"a/b": "github:o/r"}
+        ) == {"a/b": "github:o/r/abc123"}
 
     def test_direct_node_still_overrides(self):
         """Guard: a non-indirect node at the path is unchanged."""
@@ -775,7 +1274,7 @@ class TestForgeHostAndDir:
                 "host": "git.openldap.org",
                 "rev": "aaaa1111",
             }
-        ) == "gitlab:openldap/openldap?host=git.openldap.org"
+        ) == "gitlab:openldap/openldap/aaaa1111?host=git.openldap.org"
 
     def test_node_url_surfaces_host_and_dir(self):
         s = flake_tidy.node_url(

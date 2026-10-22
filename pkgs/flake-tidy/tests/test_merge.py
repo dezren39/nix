@@ -160,6 +160,55 @@ class TestParseDeepFollows:
         assert results[0]["sub_input"] == "systems"
         assert results[0]["target"] == "systems"
 
+    def test_parses_block_after_nested_inputs_override(self):
+        """#640: a nested `inputs = {` override in an earlier input must not
+        reset the scan — deep follows in a later block are still found."""
+        content = """{
+  inputs = {
+    bar = {
+      url = "github:example/bar";
+      inputs = {
+        foo = { follows = "nixpkgs"; };
+      };
+    };
+    parent = {
+      url = "github:example/parent";
+      inputs.child.inputs.systems.follows = "systems";
+    };
+  };
+  outputs = _: {};
+}
+"""
+        results = flake_tidy._parse_deep_follows(content)
+        assert len(results) == 1
+        assert results[0]["parent"] == "parent"
+        assert results[0]["child"] == "child"
+        assert results[0]["sub_input"] == "systems"
+        assert results[0]["target"] == "systems"
+
+    def test_parses_nested_block_style(self):
+        """#647: the nested-block spelling of a deep follows —
+        ``CHILD.inputs.X.follows`` inside the parent's nested
+        ``inputs = { ... }`` override — parses like the block style."""
+        content = """{
+  inputs = {
+    parent = {
+      url = "github:example/parent";
+      inputs = {
+        child.inputs.systems.follows = "systems";
+      };
+    };
+  };
+  outputs = _: {};
+}
+"""
+        results = flake_tidy._parse_deep_follows(content)
+        assert len(results) == 1
+        assert results[0]["parent"] == "parent"
+        assert results[0]["child"] == "child"
+        assert results[0]["sub_input"] == "systems"
+        assert results[0]["target"] == "systems"
+
     def test_no_deep_follows(self):
         content = """{
   inputs = {
@@ -188,6 +237,39 @@ class TestParseDeepFollows:
 """
         results = flake_tidy._parse_deep_follows(content)
         assert results == []
+
+
+# -- Tests for _add_deep_follows_overrides --
+
+
+class TestAddDeepFollowsOverrides:
+    def test_collects_paths_after_nested_inputs_override(
+        self, deep_follows_lock, deep_follows_flake_nix
+    ):
+        """#640: deep paths after another input's nested `inputs = {`
+        override are collected exactly as without the nested block."""
+        nested_first = deep_follows_flake_nix.replace(
+            "    mac-app-util = {",
+            """    bar = {
+      url = "github:example/bar";
+      inputs = {
+        foo = { follows = "nixpkgs"; };
+      };
+    };
+    mac-app-util = {""",
+        )
+        assert "bar" in nested_first  # the replace actually applied
+
+        plain_overrides: dict = {}
+        flake_tidy._add_deep_follows_overrides(
+            deep_follows_lock, deep_follows_flake_nix, plain_overrides
+        )
+        nested_overrides: dict = {}
+        flake_tidy._add_deep_follows_overrides(
+            deep_follows_lock, nested_first, nested_overrides
+        )
+        assert plain_overrides != {}
+        assert nested_overrides == plain_overrides
 
 
 # -- Tests for _resolve_transitive_url --

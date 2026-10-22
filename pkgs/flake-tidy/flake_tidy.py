@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import ipaddress
 import json
 import os
 import re
@@ -55,6 +56,7 @@ import sys
 from collections import defaultdict
 from itertools import groupby
 from typing import Any
+from urllib.parse import quote
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +471,45 @@ def load_lock(flake_dir: str) -> dict:
 # forge branch already keys together by lowercasing owner/repo.
 _CASE_INSENSITIVE_PATH_HOSTS = ("github.com", "gitlab.com")
 
+# Well-known default port per scheme (#579): an explicit default port
+# (":443" on an https URL) names the same endpoint as no port at all,
+# so it is dropped from the grouping key. A non-default port can be a
+# genuinely different server and is always kept.
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ssh": 22, "git": 9418}
+
+# Default server per forge type (#605): an explicit host naming the
+# type's own default (e.g. ?host=github.com on a github input, which
+# Nix records verbatim in the lock's original) names the same server
+# as no host at all, so it must not split the dedup group — the host
+# analogue of the #579 default-port rule. Any other host (GitHub
+# Enterprise, a self-hosted GitLab, hg.sr.ht) stays distinguishing.
+_FORGE_DEFAULT_HOSTS = {
+    "github": "github.com",
+    "gitlab": "gitlab.com",
+    "sourcehut": "git.sr.ht",
+}
+
+
+def _canonical_ipv6_literal(host: str) -> str:
+    """Canonicalize a bracketed IPv6 literal host for grouping (#583).
+
+    `host` carries the leading "[" and no "]" (the caller split on
+    "]"). The address is emitted in canonical compressed form, so
+    leading zeros, "::" compression, hex case, and the IPv4-embedded
+    spelling of one address all key together. A zone/scope suffix
+    ("%…") is kept verbatim — it names an interface, not part of the
+    address spelling. Contents that do not parse as an IPv6 address
+    fall back to the #581 lowercased-verbatim spelling; a malformed
+    literal must never raise out of grouping.
+    """
+    inner = host[1:] if host.startswith("[") else host
+    addr, pct, zone = inner.partition("%")
+    try:
+        canonical = ipaddress.IPv6Address(addr).compressed
+    except ValueError:
+        return host.lower()
+    return "[" + canonical + (pct + zone if pct else "")
+
 
 def _normalize_vcs_url(url: str) -> str:
     """Canonicalize a git/hg URL spelling for grouping (#555).
@@ -483,7 +524,51 @@ def _normalize_vcs_url(url: str) -> str:
       including "repo.git/");
     - scheme and host are lowercased (both are case-insensitive);
     - the path is lowercased only for hosts that route paths
-      case-insensitively (see _CASE_INSENSITIVE_PATH_HOSTS).
+      case-insensitively (see _CASE_INSENSITIVE_PATH_HOSTS) — in
+      every spelling family, so an scp-like ssh path gets the same
+      rule the "://" branch applies (#562);
+    - where the path is case-normalized that way, a ".git" suffix in
+      any case (".GIT", ".Git") is also dropped: lowercasing turns it
+      into ".git" after the case-sensitive early strip has run
+      (#562). At most ONE ".git" suffix is dropped in total (#575):
+      if the early strip already removed an exact ".git", the
+      post-lowercase strip does not fire, so "repo.git.git" keys as
+      "repo.git" (a repository actually named repo.git), not "repo".
+      On case-sensitive hosts a ".GIT" suffix is KEPT —
+      there "repo.GIT" can be a genuinely different repository from
+      "repo", so only the exact ".git" spelling is stripped;
+    - an embedded query string is split off before all of the above
+      and reattached verbatim (#560): the suffix rules apply to the
+      path ahead of it, and case-sensitive query values (dir, ref)
+      are never lowercased;
+    - an explicit port is dropped when it is the scheme's well-known
+      default (http 80, https 443, ssh 22, git 9418) (#579): it names
+      the same endpoint as no port. On the compound schemes Nix
+      prefixes git/hg flake URLs with ("git+https", "hg+ssh", …) the
+      default is the transport's, after the "+" (#595). Any other
+      port can be a genuinely different server, so it is kept — but
+      in its canonical integer
+      spelling (#583): a port is a number, so ":08443" and ":8443"
+      name the same server, and an empty port ("host:") names the
+      default and is dropped like one. Non-numeric ports stay
+      verbatim, as before;
+    - a bracketed IPv6 literal host is lowercased like any other host
+      (#581): its hex digits are case-insensitive, so "[2001:DB8::1]"
+      and "[2001:db8::1]" name the same server. (The #579 port parsing
+      reassembled the literal verbatim and skipped the lowercasing
+      the plain-host branch applies.) The address itself is also
+      emitted in canonical compressed form (#583): leading zeros,
+      "::" compression, and the IPv4-embedded spelling are all the
+      same address ("[2001:0db8::1]", "[2001:db8:0:0:0:0:0:1]" and
+      "[2001:db8::1]"; "[::ffff:192.0.2.1]" and "[::ffff:c000:201]").
+      A zone/scope suffix ("%…") is kept verbatim, and bracketed
+      contents that do not parse as an IPv6 address fall back to the
+      #581 lowercased-verbatim spelling — never an error;
+    - one trailing dot is stripped from the host (#584): it is the
+      DNS root label, so "github.com." and "github.com" name the same
+      server — in every spelling family. Stripping it before the
+      _CASE_INSENSITIVE_PATH_HOSTS test also keeps the path case rule
+      applying to trailing-dot spellings of forge hosts.
 
     Deliberate non-rules (#555, decided here so the behaviour is a
     documented choice rather than an accident): ssh spellings
@@ -491,33 +576,114 @@ def _normalize_vcs_url(url: str) -> str:
     host/path do NOT canonicalize together — they are different
     transports that can resolve through different mirrors and
     credentials. The tarball/file branches likewise keep their raw
-    URL: those name a specific fetched artifact, where a spelling
-    difference can be a genuinely different location.
+    URL past the authority: those name a specific fetched artifact,
+    where a path/query spelling difference can be a genuinely
+    different location. (Only their scheme + host + port are
+    canonicalized, by _canonicalize_url_authority — #611: a DNS host
+    spelling can never name a different location.)
     """
-    u = url
-    # Suffix canonicalization on the whole spelling: trailing slashes
+    # Split any embedded query off FIRST (#560): a raw git URL may
+    # already carry e.g. ?shallow=1 (#528/#544/#546). Treating the URL
+    # as one flat string defeated the suffix rules below (".git" is
+    # not at the end of "repo.git?shallow=1", so it was never
+    # stripped) and lowercased case-sensitive query values (?dir=,
+    # ?ref=) on the case-insensitive-path hosts. The query is
+    # reattached verbatim at the end.
+    u, qsep, query = url.partition("?")
+    # Suffix canonicalization on the base spelling: trailing slashes
     # go first so "repo.git/" also loses its one ".git" suffix.
     u = u.rstrip("/")
+    stripped_dot_git = False
     if u.endswith(".git"):
         u = u[: -len(".git")].rstrip("/")
+        stripped_dot_git = True
     if "://" in u:
         scheme, rest = u.split("://", 1)
         authority, sep, path = rest.partition("/")
         userinfo, at, hostport = authority.rpartition("@")
-        host, colon, port = hostport.partition(":")
-        host = host.lower()
+        if hostport.startswith("[") and "]" in hostport:
+            # IPv6 literal: the host runs to "]", the port follows it.
+            # Hex digits are case-insensitive — lowercase the literal
+            # like the plain-host branch below (#581).
+            host, _, tail = hostport.partition("]")
+            host = _canonical_ipv6_literal(host) + "]"
+            colon, port = (":", tail[1:]) if tail.startswith(":") else ("", "")
+        else:
+            host, colon, port = hostport.partition(":")
+            host = host.lower()
+            # #584: a trailing dot is the DNS root label — "github.com."
+            # is the same host as "github.com". Strip ONE trailing dot
+            # so the spelling does not split the group (and so the
+            # _CASE_INSENSITIVE_PATH_HOSTS test below sees the real host).
+            if len(host) > 1 and host.endswith("."):
+                host = host[:-1]
+        # #579: drop an explicit default port — same endpoint, so it
+        # must not split the group. Non-default or non-numeric ports
+        # (and ports on schemes with no known default) stay verbatim.
+        # #589: isdigit() accepts spellings int() rejects (superscript/
+        # circled digits) and int() refuses over-long digit strings,
+        # so convert once under a guard — an unconvertible port is
+        # effectively non-numeric and keys verbatim, never raises.
+        port_num = None
+        if port.isdigit():
+            try:
+                port_num = int(port)
+            except ValueError:
+                port_num = None
+        # #595: Nix prefixes git/hg flake URLs with a compound scheme
+        # ("git+https", "hg+ssh", …) — the transport after the "+" is
+        # what carries the default port, so look that up, not the raw
+        # scheme.
+        transport = scheme.lower()
+        for prefix in ("git+", "hg+"):
+            if transport.startswith(prefix):
+                transport = transport[len(prefix) :]
+                break
+        if port_num is not None and _DEFAULT_PORTS.get(transport) == port_num:
+            colon, port = "", ""
+        elif port == "":
+            # #583: an empty port ("host:") names the default port —
+            # URL serialization drops the colon — so drop it too,
+            # whether or not a port separator was present.
+            colon = ""
+        elif port_num is not None:
+            # #583: a port is a number — emit its canonical integer
+            # spelling so ":08443" groups with ":8443".
+            port = str(port_num)
         authority = f"{userinfo}{at}{host}{colon}{port}"
         if sep and host in _CASE_INSENSITIVE_PATH_HOSTS:
             path = path.lower()
-        return f"{scheme.lower()}://{authority}{sep}{path}"
-    if "@" in u and ":" in u.split("@", 1)[1]:
+            # #562: lowercasing may have just turned a ".GIT"/".Git"
+            # suffix into ".git" — drop that one suffix too (the
+            # early strip above only sees the exact spelling).
+            # #575: only when the early strip did NOT already fire —
+            # at most one ".git" is dropped in total, otherwise
+            # "repo.git.git" would lose both suffixes and group with
+            # the different repository "repo".
+            if not stripped_dot_git and path.endswith(".git"):
+                path = path[: -len(".git")].rstrip("/")
+        u = f"{scheme.lower()}://{authority}{sep}{path}"
+    elif "@" in u and ":" in u.split("@", 1)[1]:
         # scp-like ssh spelling, git@host:path — lowercase the host;
-        # the user and path keep their spelling (see docstring: ssh
-        # stays a separate group from https regardless).
+        # the user keeps its spelling and ssh stays a separate group
+        # from https regardless (see docstring). The path gets the
+        # same case rule as the "://" branch (#562): hosts in
+        # _CASE_INSENSITIVE_PATH_HOSTS route it case-insensitively,
+        # so case alone must not split the group within the scp
+        # family either.
         userhost, _, path = u.partition(":")
         user, _, host = userhost.rpartition("@")
-        return f"{user}@{host.lower()}:{path}"
-    return u
+        host = host.lower()
+        # #584: same trailing-dot rule as the "://" branch.
+        if len(host) > 1 and host.endswith("."):
+            host = host[:-1]
+        if host in _CASE_INSENSITIVE_PATH_HOSTS:
+            path = path.lower()
+            # #575: same at-most-one rule as the "://" branch.
+            if not stripped_dot_git and path.endswith(".git"):
+                path = path[: -len(".git")].rstrip("/")
+        u = f"{user}@{host}:{path}"
+    return u + (qsep + query if qsep else "")
 
 
 def _normalize_ref(ref: str) -> str:
@@ -531,6 +697,74 @@ def _normalize_ref(ref: str) -> str:
     if ref.startswith("refs/heads/"):
         return ref[len("refs/heads/") :]
     return ref
+
+
+def _canonicalize_url_authority(url: str) -> str:
+    """Canonicalize ONLY the scheme + authority of a URL for grouping (#611).
+
+    The tarball/file branches of source_key embed their URL verbatim,
+    so they never received the host rules the git/hg branch applies
+    via _normalize_vcs_url (#579/#581/#583/#584) and the forge branch
+    applies to its host extra (#599/#605): a DNS host is
+    case-insensitive, one trailing dot is the DNS root label, and an
+    explicit scheme-default port names the same endpoint as no port.
+    Two lock nodes fetching the same artifact from the same server
+    spelled "EXAMPLE.com", "example.com." and "example.com:443" split
+    the dedup group.
+
+    Everything after the authority — userinfo, path, query, fragment —
+    stays byte-for-byte verbatim: #555's deliberate non-rule stands
+    for those, because a different path or query really can name a
+    different artifact. URLs without a "://" authority are returned
+    unchanged.
+
+    The authority ends at the first of "/", "?" or "#" (#613): a
+    path-less URL such as "https://example.com:443?file=A.tgz" carries
+    its query directly after the authority, and splitting on "/" alone
+    swallowed the query into the host/port parsing — lowercasing a
+    case-sensitive query value into the key (grouping genuinely
+    different artifacts) and defeating the default-port drop (the
+    "port" parsed as "443?file=…", non-numeric, kept verbatim).
+    """
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    # The tail (delimiter included) is reattached verbatim at the end.
+    cut = min(
+        (i for i in (rest.find("/"), rest.find("?"), rest.find("#")) if i != -1),
+        default=len(rest),
+    )
+    authority, sep, tail = rest[:cut], rest[cut : cut + 1], rest[cut + 1 :]
+    userinfo, at, hostport = authority.rpartition("@")
+    if hostport.startswith("[") and "]" in hostport:
+        # IPv6 literal: the host runs to "]", the port follows it.
+        host, _, porttail = hostport.partition("]")
+        host = _canonical_ipv6_literal(host) + "]"
+        colon, port = (":", porttail[1:]) if porttail.startswith(":") else ("", "")
+    else:
+        host, colon, port = hostport.partition(":")
+        host = host.lower()
+        # #584: one trailing dot is the DNS root label.
+        if len(host) > 1 and host.endswith("."):
+            host = host[:-1]
+    # #579/#583 port rules, mirroring _normalize_vcs_url: drop an
+    # explicit default port, drop an empty port, and emit any other
+    # numeric port in canonical integer spelling. The guarded int()
+    # conversion is #589's: isdigit() accepts spellings int() rejects,
+    # and an unconvertible port keys verbatim, never raises.
+    port_num = None
+    if port.isdigit():
+        try:
+            port_num = int(port)
+        except ValueError:
+            port_num = None
+    if port_num is not None and _DEFAULT_PORTS.get(scheme.lower()) == port_num:
+        colon, port = "", ""
+    elif port == "":
+        colon = ""
+    elif port_num is not None:
+        port = str(port_num)
+    return f"{scheme.lower()}://{userinfo}{at}{host}{colon}{port}{sep}{tail}"
 
 
 def source_key(node_data: dict) -> str:
@@ -557,6 +791,23 @@ def source_key(node_data: dict) -> str:
             for k, v in orig.items()
             if k not in ("type", "owner", "repo", "ref", "rev")
         }
+        if isinstance(extras.get("host"), str):
+            # #599: a host is a DNS name — case-insensitive, and one
+            # trailing dot is the DNS root label — so the host extra is
+            # canonicalized the same way #584 treats hosts inside
+            # _normalize_vcs_url. Otherwise one enterprise/self-hosted
+            # server written "GitHub.Example.com" and "github.example.com"
+            # splits the dedup group despite owner/repo being lowercased.
+            host = extras["host"].lower()
+            if len(host) > 1 and host.endswith("."):
+                host = host[:-1]
+            extras["host"] = host
+            # #605: an explicit host that IS the type's default server
+            # distinguishes nothing — drop it, so the node groups with
+            # the identical hostless input (as an explicit default port
+            # is dropped in _normalize_vcs_url, #579).
+            if host == _FORGE_DEFAULT_HOSTS.get(t):
+                del extras["host"]
         extra = f"/{json.dumps(extras, sort_keys=True)}" if extras else ""
         if "rev" in orig:
             # The pinned rev VALUE is deliberately NOT part of the key
@@ -606,14 +857,14 @@ def source_key(node_data: dict) -> str:
             if "dir" in orig
             else ""
         )
-        return f"tarball/{orig.get('url', '')}{extra}"
+        return f"tarball/{_canonicalize_url_authority(orig.get('url', ''))}{extra}"
     elif t == "file":
         extra = (
             f"/{json.dumps({'dir': orig['dir']}, sort_keys=True)}"
             if "dir" in orig
             else ""
         )
-        return f"file/{orig.get('url', '')}{extra}"
+        return f"file/{_canonicalize_url_authority(orig.get('url', ''))}{extra}"
     elif t == "path":
         extra = (
             f"/{json.dumps({'dir': orig['dir']}, sort_keys=True)}"
@@ -641,19 +892,51 @@ def is_path_input(node_data: dict) -> bool:
     return node_data.get("original", {}).get("type") == "path"
 
 
-def _forge_query(spec: dict) -> str:
+def _encode_query_value(value) -> str:
+    """Percent-encode a query value the way Nix's encodeQuery does (#601).
+
+    The lock records flake-ref attribute values decoded, so a value
+    interpolated raw into a rebuilt URL does not parse back to itself:
+    "&"/"=" split it into extra parameters (a dir named "x&rev=…" would
+    forge a rev pin), "#" starts a fragment, "%" mis-decodes, a space
+    is not a URL character. Nix's serializer (flakeRefToString) leaves
+    alphanumerics and -._~/?:@ raw and percent-encodes every other
+    UTF-8 byte as uppercase %XX — mirror that exactly, so ordinary
+    values (plain refs, hex revs, normal dirs/hosts) are byte-identical
+    and only the corrupt spellings change.
+    """
+    return quote(str(value), safe="-._~/?:@")
+
+
+def _encode_path_value(value) -> str:
+    """Percent-encode a value placed in a URL path position (#601).
+
+    Used for the forge ref/rev segment and the path: value in the
+    Nix-facing builders: "/" stays raw (Nix parses multi-segment forge
+    refs and slash-carrying paths exactly as it does today), while the
+    characters that break out of the path — "#", "?", "%", spaces and
+    other non-URL bytes — are encoded so the value round-trips.
+    """
+    return quote(str(value), safe="/-._~:@")
+
+
+def _forge_query(spec: dict, encode: bool = False) -> str:
     """Query string carrying a forge spec's host/dir, or "" (#535).
 
     host points at a non-default server (GitHub Enterprise, a
     self-hosted GitLab, hg.sr.ht) and dir at a sub-flake of the repo;
     a rebuilt URL without them names a different source than the lock
     records. Order is fixed (host, then dir) so URLs are deterministic.
+    The Nix-facing builders pass encode=True (#601): the values are
+    percent-encoded so a punctuated host/dir cannot corrupt the URL.
+    node_url passes False — it is the readable pattern-matching form.
     """
+    enc = _encode_query_value if encode else str
     params = []
     if "host" in spec:
-        params.append(f"host={spec['host']}")
+        params.append(f"host={enc(spec['host'])}")
     if "dir" in spec:
-        params.append(f"dir={spec['dir']}")
+        params.append(f"dir={enc(spec['dir'])}")
     return f"?{'&'.join(params)}" if params else ""
 
 
@@ -683,12 +966,20 @@ def _append_query(url: str, params: list) -> str:
     return url + sep + "&".join(params)
 
 
-def _dir_params(spec: dict) -> list:
-    """[dir=...] if the spec carries the generic dir attribute (#537)."""
-    return [f"dir={spec['dir']}"] if "dir" in spec else []
+def _dir_params(spec: dict, encode: bool = False) -> list:
+    """[dir=...] if the spec carries the generic dir attribute (#537).
+
+    encode=True percent-encodes the value for a Nix-facing URL (#601).
+    """
+    if "dir" not in spec:
+        return []
+    enc = _encode_query_value if encode else str
+    return [f"dir={enc(spec['dir'])}"]
 
 
-def _git_params(spec: dict, include_ref_rev: bool = True) -> list:
+def _git_params(
+    spec: dict, include_ref_rev: bool = True, encode: bool = False
+) -> list:
     """Query params that must survive a git URL rebuild.
 
     ref/rev name the revision; dir names a sub-flake (#537); the
@@ -697,35 +988,42 @@ def _git_params(spec: dict, include_ref_rev: bool = True) -> list:
     all of them as source-distinguishing — dropping them here rebuilds
     a URL for a different source than the lock records. Booleans are
     emitted as =1 only when true (false is the fetch default).
+    encode=True percent-encodes the values for a Nix-facing URL
+    (#601); node_url's readable form leaves them raw.
     """
+    enc = _encode_query_value if encode else str
     params = []
     if include_ref_rev:
         if "ref" in spec:
-            params.append(f"ref={spec['ref']}")
+            params.append(f"ref={enc(spec['ref'])}")
         if "rev" in spec:
-            params.append(f"rev={spec['rev']}")
-    params += _dir_params(spec)
+            params.append(f"rev={enc(spec['rev'])}")
+    params += _dir_params(spec, encode=encode)
     for field in ("submodules", "shallow", "allRefs"):
         if spec.get(field):
             params.append(f"{field}=1")
     return params
 
 
-def _hg_params(spec: dict, include_ref_rev: bool = True) -> list:
+def _hg_params(
+    spec: dict, include_ref_rev: bool = True, encode: bool = False
+) -> list:
     """Query params that must survive an hg URL rebuild (#539).
 
     Mercurial flake refs carry ref/rev and the generic dir attribute,
     but none of git's boolean fetch attributes (submodules/shallow/
     allRefs are git-only), so hg gets its own narrower helper rather
-    than reusing _git_params.
+    than reusing _git_params. encode=True percent-encodes the values
+    for a Nix-facing URL (#601).
     """
+    enc = _encode_query_value if encode else str
     params = []
     if include_ref_rev:
         if "ref" in spec:
-            params.append(f"ref={spec['ref']}")
+            params.append(f"ref={enc(spec['ref'])}")
         if "rev" in spec:
-            params.append(f"rev={spec['rev']}")
-    params += _dir_params(spec)
+            params.append(f"rev={enc(spec['rev'])}")
+    params += _dir_params(spec, encode=encode)
     return params
 
 
@@ -798,14 +1096,19 @@ def node_original_url(node_data: dict) -> str:
         repo = orig.get("repo", "")
         url = f"{t}:{owner}/{repo}"
         if "ref" in orig:
-            url += f"/{orig['ref']}"
+            # The ref lands in a path segment of a Nix-facing URL, so
+            # it is percent-encoded (#601): a raw "#" makes Nix reject
+            # the ref outright ("unexpected fragment"), a raw "%"
+            # mis-decodes. "/" stays raw — Nix parses multi-segment
+            # refs exactly as before.
+            url += f"/{_encode_path_value(orig['ref'])}"
         elif "rev" in orig:
             # A rev-pinned node with no ref keeps its pin (#521) —
             # dropping it would rebuild the URL at the default branch.
-            url += f"/{orig['rev']}"
+            url += f"/{_encode_path_value(orig['rev'])}"
         # host/dir name a different server / sub-flake (#535) —
         # dropping them rebuilds the URL at the default host/root.
-        return url + _forge_query(orig)
+        return url + _forge_query(orig, encode=True)
     elif t == "git":
         # The JSON-dump fallback below is not a URL (#521): callers pass
         # this string to --override-input and write it into flake.nix.
@@ -815,26 +1118,29 @@ def node_original_url(node_data: dict) -> str:
         # a query (#528, #537, #538).
         raw = orig.get("url", "")
         url = raw if raw.startswith("git+") else f"git+{raw}"
-        return _append_query(url, _git_params(orig))
+        return _append_query(url, _git_params(orig, encode=True))
     elif t == "hg":
         # Mirror git (#539): hg+<url>?ref=/rev= is the resolvable
         # flake-ref form Nix accepts for Mercurial inputs.
         raw = orig.get("url", "")
         url = raw if raw.startswith("hg+") else f"hg+{raw}"
-        return _append_query(url, _hg_params(orig))
+        return _append_query(url, _hg_params(orig, encode=True))
     elif t == "tarball":
-        return _append_query(orig.get("url", ""), _dir_params(orig))
+        return _append_query(orig.get("url", ""), _dir_params(orig, encode=True))
     elif t == "file":
         raw = orig.get("url", "")
         # Prefix with file+ so nix doesn't default to tarball fetching
         if raw.startswith(("https://", "http://")):
             raw = f"file+{raw}"
-        return _append_query(raw, _dir_params(orig))
+        return _append_query(raw, _dir_params(orig, encode=True))
     elif t == "path":
         # Callers pass this string to --override-input and write it into
         # flake.nix (#524) — the JSON-dump fallback is not a flake URL.
+        # The path itself is encoded (#601): Nix rejects a raw space in
+        # a path: ref and serializes it as %20 itself.
         return _append_query(
-            f"path:{orig.get('path', '')}", _dir_params(orig)
+            f"path:{_encode_path_value(orig.get('path', ''))}",
+            _dir_params(orig, encode=True),
         )
     elif t == "indirect":
         return f"indirect:{orig.get('id', '')}"
@@ -850,16 +1156,23 @@ def _locked_url(locked: dict) -> str | None:
     the locked fallbacks enumerated only the forge types. The forge
     shape is the one those fallbacks have always used (type:owner/repo);
     a git locked node is pinned to its locked rev, mirroring
-    node_original_url's git convention.
+    node_original_url's git convention — and the forge shape carries
+    its locked rev as a path segment too (#609).
     """
     lt = locked.get("type", "")
     if lt in ("github", "gitlab", "sourcehut"):
-        # host/dir survive into the override URL (#535), mirroring
-        # node_original_url's forge branch.
-        return (
-            f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
-            + _forge_query(locked)
-        )
+        # The locked rev is the pin this function exists to preserve:
+        # without it the override resolves at the default branch, not
+        # the revision the lock records (#609) — the git/hg branches
+        # below keep theirs via _git_params/_hg_params, and
+        # node_original_url's forge branch keeps it as a path segment
+        # for the same reason (#521). host/dir survive too (#535).
+        url = f"{lt}:{locked.get('owner', '')}/{locked.get('repo', '')}"
+        if "ref" in locked:
+            url += f"/{_encode_path_value(locked['ref'])}"
+        elif "rev" in locked:
+            url += f"/{_encode_path_value(locked['rev'])}"
+        return url + _forge_query(locked, encode=True)
     if lt == "tarball":
         # #533: tarball/file/path locked nodes fell through to None, so
         # indirect overrides for them were silently dropped. Mirror
@@ -867,25 +1180,28 @@ def _locked_url(locked: dict) -> str | None:
         raw = locked.get("url", "")
         if not raw:
             return None
-        return _append_query(raw, _dir_params(locked))
+        return _append_query(raw, _dir_params(locked, encode=True))
     if lt == "file":
         raw = locked.get("url", "")
         if not raw:
             return None
         if raw.startswith(("https://", "http://")):
             raw = f"file+{raw}"
-        return _append_query(raw, _dir_params(locked))
+        return _append_query(raw, _dir_params(locked, encode=True))
     if lt == "path":
         raw = locked.get("path", "")
         if not raw:
             return None
-        return _append_query(f"path:{raw}", _dir_params(locked))
+        return _append_query(
+            f"path:{_encode_path_value(raw)}",
+            _dir_params(locked, encode=True),
+        )
     if lt == "git":
         raw = locked.get("url", "")
         if not raw:
             return None
         url = raw if raw.startswith("git+") else f"git+{raw}"
-        return _append_query(url, _git_params(locked))
+        return _append_query(url, _git_params(locked, encode=True))
     if lt == "hg":
         # #539: hg locked nodes fell through to None, dropping
         # indirect overrides like git did before the fix above.
@@ -893,7 +1209,7 @@ def _locked_url(locked: dict) -> str | None:
         if not raw:
             return None
         url = raw if raw.startswith("hg+") else f"hg+{raw}"
-        return _append_query(url, _hg_params(locked))
+        return _append_query(url, _hg_params(locked, encode=True))
     return None
 
 
@@ -1033,6 +1349,43 @@ def write_flake_nix(flake_dir: str, content: str) -> None:
         f.write(content)
 
 
+def _brace_counts(line: str) -> tuple[int, int]:
+    """Count the structural ``{`` and ``}`` in one line of Nix source.
+
+    Braces inside double-quoted strings and everything from a ``#``
+    comment start (outside a string) to end of line are not structural
+    and are ignored (#623). Indented (''...'') strings are not tracked —
+    the same documented approximation the other line scanners make.
+    """
+    opens = 0
+    closes = 0
+    in_string = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if in_string:
+            if ch == "\\":
+                i += 1  # skip the escaped character as well
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "#":
+            break
+        elif ch == "{":
+            opens += 1
+        elif ch == "}":
+            closes += 1
+        i += 1
+    return opens, closes
+
+
+def _brace_delta(line: str) -> int:
+    """Net structural brace delta of one line (see ``_brace_counts``)."""
+    opens, closes = _brace_counts(line)
+    return opens - closes
+
+
 def get_input_file_order(content: str) -> list[str]:
     """Parse flake.nix to determine input declaration order.
 
@@ -1058,16 +1411,25 @@ def get_input_file_order(content: str) -> list[str]:
                 seen.add(name)
             continue
 
-        # Detect start of inputs = { block
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        # Detect start of inputs = { block. A nested `inputs = {` inside
+        # another input's override is not the root block: re-entering here
+        # would reset the brace depth and lose every later root input (#640).
+        if not in_inputs_block and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_block = True
-            brace_depth = stripped.count("{") - stripped.count("}")
+            brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_block:
-            brace_depth += stripped.count("{") - stripped.count("}")
+            depth_before = brace_depth
+            brace_depth += _brace_delta(stripped)
             if brace_depth <= 0:
                 in_inputs_block = False
+                continue
+
+            # Only direct children of the root inputs block (depth 1) are
+            # root inputs; names inside a nested block belong to that
+            # input's override set, not the root (#640).
+            if depth_before != 1:
                 continue
 
             m = re.match(r"([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
@@ -1100,13 +1462,21 @@ def _block_context_for_lines(content: str) -> list[str | None]:
     For top-level dotted lines (outside any block) returns ``None``.
 
     This is approximate but sufficient: it tracks ``<name> = {`` opens
-    and matching ``};`` closes at the same indent level.
+    and ends a block when the structural brace depth (see
+    ``_brace_counts``) returns to the depth at which the block opened.
+    Tracking depth instead of looking for a line that is exactly
+    ``};`` also closes blocks that open and close on one line
+    (``foo = { url = "..."; };``) and blocks whose ``};`` shares a
+    line with the last attribute (#628) — exact-line matching left
+    those blocks open forever, so every later line in the inputs
+    section was attributed to them.
     """
     lines = content.split("\n")
     result: list[str | None] = [None] * len(lines)
-    # Stack of (block_name, open_line_index, indent_level)
-    stack: list[tuple[str, int, int]] = []
-    inputs_block_depth = 0
+    # Stacks of (block_name, brace depth just before the block opened)
+    stack: list[tuple[str, int]] = []
+    inputs_stack: list[int] = []
+    brace_depth = 0
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -1115,39 +1485,130 @@ def _block_context_for_lines(content: str) -> list[str | None]:
                 result[i] = stack[-1][0]
             continue
 
-        indent = len(line) - len(line.lstrip())
+        opens, closes = _brace_counts(line)
 
         # Check for block open: <name> = { (inside the inputs block)
+        pushed = False
         m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
         if m:
             name = m.group(2)
             if name == "inputs":
-                inputs_block_depth += 1
-            elif inputs_block_depth > 0 or stack:
-                stack.append((name, i, indent))
+                inputs_stack.append(brace_depth)
+            elif inputs_stack or stack:
+                stack.append((name, brace_depth))
                 result[i] = name
-                continue
+                pushed = True
 
-        # Check for block close: }; or }; # comment
-        if (
-            stripped == "};"
-            or stripped.startswith("}; #")
-            or stripped.startswith("};#")
-        ) and stack:
-            _name, _open_i, open_indent = stack[-1]
-            if indent <= open_indent + 2:  # allow for slight indent variation
-                stack.pop()
-                if stack:
-                    result[i] = stack[-1][0]
-                continue
+        if not pushed and stack and not stripped.startswith("}"):
+            # An ordinary line inside a block. A line starting with
+            # "}" is a closing line: it belongs to the enclosing
+            # scope, so its context is assigned after the pop below.
+            result[i] = stack[-1][0]
 
-        if stripped.startswith("inputs") and stripped.endswith("{"):
-            pass  # inputs = { handled above
+        brace_depth += opens - closes
 
-        if stack:
+        # Close every block whose opening depth has been reached again
+        while stack and brace_depth <= stack[-1][1]:
+            stack.pop()
+        while inputs_stack and brace_depth <= inputs_stack[-1]:
+            inputs_stack.pop()
+
+        if not pushed and stripped.startswith("}") and stack:
             result[i] = stack[-1][0]
 
     return result
+
+
+def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
+    """Return the follows-path prefix a nested ``inputs = {`` scope proves.
+
+    For a line inside ``foo = { inputs = { ... }; }`` (a nested override
+    block inside the root input ``foo``'s block) returns ``["foo"]``: a
+    declaration ``nixpkgs.follows = "...";`` on such a line declares
+    ``inputs.foo.inputs.nixpkgs.follows``. Deeper shapes compose the
+    same way — inside ``foo``'s nested block, a ``bar = { inputs = {``
+    scope returns ``["foo", "bar"]``. Lines not directly inside a nested
+    ``inputs`` block return ``None``: in particular a line directly in
+    ``foo``'s own block (where ``nixpkgs.follows`` would declare
+    ``foo.nixpkgs.follows``, a different attribute) and a line inside a
+    named block *within* the nested block both return ``None`` (#647).
+
+    The opening line of the nested block itself also reports the prefix,
+    so a one-line ``inputs = { nixpkgs.follows = "..."; };`` is visible
+    to callers that judge the segment after the ``{``.
+    """
+    lines = content.split("\n")
+    result: list[list[str] | None] = [None] * len(lines)
+    # Stack of ("inputs", depth) / (name, depth); depth is the brace
+    # depth just before that block opened.
+    stack: list[tuple[str, int]] = []
+    brace_depth = 0
+
+    def prefix_from_stack() -> list[str] | None:
+        seq = [name for name, _ in stack]
+        if seq and seq[0] == "inputs":
+            seq = seq[1:]
+        if len(seq) >= 2 and seq[-1] == "inputs":
+            return [name for name in seq[:-1] if name != "inputs"]
+        return None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            result[i] = prefix_from_stack()
+            continue
+
+        opens, closes = _brace_counts(line)
+
+        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
+        if m:
+            name = m.group(2)
+            if name == "inputs":
+                stack.append(("inputs", brace_depth))
+            elif stack:
+                stack.append((name, brace_depth))
+
+        result[i] = prefix_from_stack()
+
+        brace_depth += opens - closes
+
+        while stack and brace_depth <= stack[-1][1]:
+            stack.pop()
+
+    return result
+
+
+def _nested_relative_path(follows_parts: list[str], prefix: list[str]) -> str | None:
+    """Relative follows path for the parts a nested scope does not cover.
+
+    ``prefix`` must be a proper prefix of ``follows_parts``; the rest is
+    joined the way dotted declarations spell it inside the nested block:
+    ``["nixpkgs"]`` -> ``nixpkgs``, ``["bar", "nixpkgs"]`` ->
+    ``bar.inputs.nixpkgs``. Returns ``None`` when the scope does not
+    line up with the requested path.
+    """
+    if len(prefix) >= len(follows_parts) or follows_parts[: len(prefix)] != prefix:
+        return None
+    rest = follows_parts[len(prefix) :]
+    return rest[0] + "".join(f".inputs.{p}" for p in rest[1:])
+
+
+def _nested_segment(normalized: str) -> str:
+    """Segment of a nested ``inputs = {`` opening line after the ``{``.
+
+    For an ordinary line inside the block this is the line itself; for a
+    one-line ``inputs = { nixpkgs.follows = "x"; };`` it is the
+    declaration between the braces.
+    """
+    m = re.match(r"inputs\s*=\s*\{", normalized)
+    if not m:
+        return normalized
+    seg = normalized[m.end() :].strip()
+    if seg.endswith("}"):
+        seg = seg[:-1].strip()
+    if seg.endswith(";"):
+        seg = seg[:-1].strip()
+    return seg
 
 
 def follows_exists_in_content(
@@ -1188,6 +1649,7 @@ def follows_exists_in_content(
         block_candidates.append(f'follows = "{target}"')
 
     block_context = _block_context_for_lines(content)
+    nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
     first_part = follows_parts[0] if follows_parts else None
 
@@ -1196,6 +1658,20 @@ def follows_exists_in_content(
         if stripped.startswith("#"):
             continue
         normalized = re.sub(r"\s+", " ", stripped)
+
+        # Nested inputs scope (#647): a line directly inside a nested
+        # ``inputs = { ... }`` override block is judged only against the
+        # relative form that scope spells — the root/block candidates
+        # would attribute the declaration to the wrong attribute path.
+        nested_prefix = nested_prefixes[i]
+        if nested_prefix is not None:
+            rel = _nested_relative_path(follows_parts, nested_prefix)
+            if rel is not None:
+                candidate = f'{rel}.follows = "{target}"'
+                if re.sub(r"\s+", " ", candidate) == _nested_segment(normalized):
+                    return True
+            continue
+
         ctx = block_context[i]
 
         if ctx is None:
@@ -1240,6 +1716,7 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         block_prefixes.append("follows")
 
     block_context = _block_context_for_lines(content)
+    nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
     first_part = follows_parts[0] if follows_parts else None
 
@@ -1248,6 +1725,18 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         if stripped.startswith("#"):
             continue
         normalized = re.sub(r"\s+", " ", stripped)
+
+        # Nested inputs scope (#647): see follows_exists_in_content.
+        nested_prefix = nested_prefixes[i]
+        if nested_prefix is not None:
+            rel = _nested_relative_path(follows_parts, nested_prefix)
+            if rel is not None:
+                pfx = f"{rel}.follows"
+                seg = _nested_segment(normalized)
+                if seg.startswith(pfx + " =") or seg.startswith(pfx + "="):
+                    return True
+            continue
+
         ctx = block_context[i]
 
         if ctx is None:
@@ -1289,7 +1778,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
                 # NAME = { or NAME.url = etc.
                 if re.match(rf"{esc}\s*[.=]", stripped):
                     return True
-            depth += stripped.count("{") - stripped.count("}")
+            depth += _brace_delta(stripped)
             if depth <= 0 and i > block_start:
                 break
     else:
@@ -1370,26 +1859,31 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
             block_start = i
             break
 
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        if not in_inputs_block and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_block = True
-            inputs_brace_depth = stripped.count("{") - stripped.count("}")
+            inputs_brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_block:
-            inputs_brace_depth += stripped.count("{") - stripped.count("}")
+            # Only a direct child of the inputs block (depth 1) can be the
+            # root input's block; a same-name block nested inside another
+            # input's ``inputs = { ... }`` override must not shadow it.
+            if inputs_brace_depth == 1 and re.match(
+                rf"{re.escape(input_name)}\s*=\s*\{{", stripped
+            ):
+                block_start = i
+                break
+            inputs_brace_depth += _brace_delta(stripped)
             if inputs_brace_depth <= 0:
                 in_inputs_block = False
                 continue
-            if re.match(rf"{re.escape(input_name)}\s*=\s*\{{", stripped):
-                block_start = i
-                break
 
     if block_start is None:
         return None
 
     depth = 0
     for i in range(block_start, len(lines)):
-        depth += lines[i].count("{") - lines[i].count("}")
+        depth += _brace_delta(lines[i])
         if depth <= 0:
             indent = "    "
             for j in range(block_start + 1, i):
@@ -1414,9 +1908,9 @@ def detect_inputs_style(
         if stripped.startswith("#"):
             continue
         if re.match(r"inputs\s*=\s*\{", stripped):
-            depth = stripped.count("{") - stripped.count("}")
+            depth = _brace_delta(stripped)
             for j in range(i + 1, len(lines)):
-                depth += lines[j].count("{") - lines[j].count("}")
+                depth += _brace_delta(lines[j])
                 if depth <= 0:
                     return ("block", i, j)
             return ("block", i, len(lines) - 1)
@@ -1479,18 +1973,27 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
             stripped = lines[i].strip()
             if stripped.startswith("#"):
                 continue
-            # Detect block open: ``name = {``
-            if not in_target and depth == 0:
-                if re.match(rf"{esc}\s*=\s*\{{", stripped):
+            # Detect block open: ``name = {`` — only at the top level of
+            # the inputs block (depth 0 while searching). A same-name block
+            # nested inside another input's ``inputs = { ... }`` override
+            # is a different input and must not shadow the root one.
+            if not in_target:
+                if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
-                    depth = stripped.count("{") - stripped.count("}")
+                    depth = _brace_delta(stripped)
                     # Check if url is on the same line (unlikely but safe)
                     if re.search(r"\burl\s*=", stripped):
                         return i
+                    if depth <= 0:
+                        # One-line block without a url on the line itself
+                        break
                     continue
+                depth += _brace_delta(stripped)
+                continue
             if in_target:
-                depth += stripped.count("{") - stripped.count("}")
-                if re.match(r"url\s*=", stripped):
+                depth += _brace_delta(stripped)
+                # Only the block's own top-level url counts (depth 1)
+                if depth == 1 and re.match(r"url\s*=", stripped):
                     return i
                 if depth <= 0:
                     break
@@ -1541,26 +2044,42 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
             stripped = lines[i].strip()
             if stripped.startswith("#"):
                 continue
-            if not in_target and depth == 0:
-                if re.match(rf"{esc}\s*=\s*\{{", stripped):
+            if not in_target:
+                # Only a block opened at the top level of the inputs block
+                # (depth 0 while searching) is the root input's block; a
+                # same-name block nested in another input's override is a
+                # different input and must not shadow it.
+                if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
-                    depth = stripped.count("{") - stripped.count("}")
+                    depth = _brace_delta(stripped)
                     m = re.search(r'\bfollows\s*=\s*"([^"]+)"', stripped)
                     if m:
                         return m.group(1)
+                    if depth <= 0:
+                        # One-line block without a follows on the line
+                        break
                     continue
+                depth += _brace_delta(stripped)
+                continue
             if in_target:
-                depth += stripped.count("{") - stripped.count("}")
-                m = re.match(r'follows\s*=\s*"([^"]+)"', stripped)
-                if m:
-                    return m.group(1)
+                depth += _brace_delta(stripped)
+                # Only the block's own top-level follows counts (depth 1)
+                if depth == 1:
+                    m = re.match(r'follows\s*=\s*"([^"]+)"', stripped)
+                    if m:
+                        return m.group(1)
                 if depth <= 0:
                     break
 
-    # Dotted style
-    for line in lines:
+    # Dotted style — root scope only: a ``inputs.NAME.follows`` line
+    # inside another input's block is a nested override of THAT input's
+    # NAME input, not a declaration about the root input.
+    block_ctx = _block_context_for_lines(content)
+    for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
+            continue
+        if block_ctx[i] is not None:
             continue
         m = re.match(rf'(?:inputs\.)?{esc}\.follows\s*=\s*"([^"]+)"', stripped)
         if m:
@@ -1699,12 +2218,15 @@ def _insert_before_inputs_end(
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            if re.match(r"inputs\s*=\s*\{", stripped):
+            # A nested `inputs = {` inside another input's override is not
+            # the root block: re-entering here would reset the depth and
+            # insert the new line inside the override instead (#640).
+            if not in_inputs and re.match(r"inputs\s*=\s*\{", stripped):
                 in_inputs = True
-                depth = stripped.count("{") - stripped.count("}")
+                depth = _brace_delta(stripped)
                 continue
             if in_inputs:
-                depth += stripped.count("{") - stripped.count("}")
+                depth += _brace_delta(stripped)
                 if depth <= 0:
                     lines.insert(i, new_line)
                     return "\n".join(lines)
@@ -1876,7 +2398,16 @@ def compute_indirect_overrides(
     overrides: dict[str, str] = {}
 
     # --- Case 1: indirect registry refs not in known set ---
-    def walk(node_name: str, prefix: str) -> None:
+    def walk(node_name: str, prefix: str, ancestors: frozenset = frozenset()) -> None:
+        # Per-path ancestor guard (#563): a lock graph whose string
+        # refs form a cycle (A inputs B, B inputs A) otherwise recurses
+        # until RecursionError crashes the whole run. The guard is
+        # per-path, NOT a global visited set — overrides are keyed by
+        # path, so a diamond (same node via several distinct paths)
+        # must still be walked once per path.
+        if node_name in ancestors:
+            return
+        ancestors = ancestors | {node_name}
         node = nodes.get(node_name, {})
         for inp_name, ref in node.get("inputs", {}).items():
             path = f"{prefix}/{inp_name}" if prefix else inp_name
@@ -1898,7 +2429,7 @@ def compute_indirect_overrides(
                         url = node_original_url(child)
                         if url and not url.startswith("indirect:"):
                             overrides[path] = url
-                walk(ref, path)
+                walk(ref, path, ancestors)
 
     walk("root", "")
 
@@ -1949,16 +2480,18 @@ def _add_deep_follows_overrides(
     for line in content.split("\n"):
         stripped = line.strip()
 
-        # Detect top-level inputs section
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        # Detect top-level inputs section. A nested `inputs = {` inside
+        # another input's override is not the root section: re-entering
+        # here would reset the brace depth and drop every deep path
+        # declared after the nested block (#640).
+        if not in_inputs_section and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_section = True
             brace_depth = 1
             continue
 
         if in_inputs_section:
             # Count braces
-            opens = stripped.count("{")
-            closes = stripped.count("}")
+            opens, closes = _brace_counts(stripped)
 
             # Detect named input block: <name> = {
             if current_block is None and brace_depth == 1:
@@ -2680,6 +3213,14 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
           inputs.CHILD.inputs.X.follows = "target";
         };
 
+    the nested-block spelling of the same declaration::
+
+        parent = {
+          inputs = {
+            CHILD.inputs.X.follows = "target";
+          };
+        };
+
     or top-level dotted style::
 
         inputs.parent.inputs.CHILD.inputs.X.follows = "target";
@@ -2696,6 +3237,7 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
     """
     results: list[dict[str, Any]] = []
     lines = content.split("\n")
+    nested_prefixes = _nested_inputs_prefix_for_lines(content)
     in_inputs_section = False
     current_block: str | None = None
     brace_depth = 0
@@ -2705,15 +3247,17 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
         if stripped.startswith("#"):
             continue
 
-        # Detect top-level inputs = { block
-        if re.match(r"inputs\s*=\s*\{", stripped):
+        # Detect top-level inputs = { block. A nested `inputs = {` inside
+        # another input's override is not the root block: re-entering here
+        # would reset the brace depth and drop every deep follows declared
+        # after the nested block (#640).
+        if not in_inputs_section and re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_section = True
-            brace_depth = stripped.count("{") - stripped.count("}")
+            brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_section:
-            opens = stripped.count("{")
-            closes = stripped.count("}")
+            opens, closes = _brace_counts(stripped)
 
             # Detect named input block at depth 1
             if current_block is None and brace_depth == 1:
@@ -2723,6 +3267,25 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
 
             # Inside a named block: look for inputs.CHILD.inputs.SUB.follows
             if current_block is not None:
+                # Nested-block form (#647): directly inside the parent's
+                # nested ``inputs = { ... }`` override, the same deep
+                # follows is spelled CHILD.inputs.SUB.follows.
+                if nested_prefixes[i] == [current_block]:
+                    m = re.match(
+                        r'([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+                        _nested_segment(stripped),
+                    )
+                    if m:
+                        results.append(
+                            {
+                                "parent": current_block,
+                                "child": m.group(1),
+                                "sub_input": m.group(2),
+                                "target": m.group(3),
+                                "line_number": i,
+                                "line": line,
+                            }
+                        )
                 m = re.match(
                     r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
                     stripped,
@@ -3525,11 +4088,36 @@ def check_url_follows_conflicts(content: str) -> list[str]:
     style, block_start, block_end = detect_inputs_style(content)
 
     if style == "block" and block_start is not None and block_end is not None:
-        # Walk through input blocks
+        # Walk through input blocks. Only a block's OWN attributes count:
+        # a url/follows inside a nested ``inputs = { ... }`` override (or
+        # behind a dotted ``inputs.X.`` prefix) belongs to that nested
+        # input, not to the root input (#642 — the same nested-override
+        # blindness #634/#640 fixed in the other scanners). So each line
+        # is judged only on its own-level segment — the text before the
+        # first ``{`` — only while it sits at the block's direct-attribute
+        # depth, and an attribute only counts when it stands alone at the
+        # start of the segment or right after a ``;``.
         current_block: str | None = None
         has_url = False
         has_follows = False
         depth = 0
+
+        def _judge(segment: str) -> None:
+            nonlocal has_url, has_follows
+            if re.search(r"(?:^|;)\s*url\s*=", segment):
+                has_url = True
+            if re.search(r"(?:^|;)\s*follows\s*=", segment):
+                has_follows = True
+
+        def _finish_block() -> None:
+            nonlocal current_block, has_url, has_follows, depth
+            if has_url and has_follows and current_block is not None:
+                conflicts.append(current_block)
+            current_block = None
+            has_url = False
+            has_follows = False
+            depth = 0
+
         for i in range(block_start + 1, block_end):
             stripped = lines[i].strip()
             if stripped.startswith("#"):
@@ -3540,26 +4128,22 @@ def check_url_follows_conflicts(content: str) -> list[str]:
                 current_block = m.group(1)
                 has_url = False
                 has_follows = False
-                depth = stripped.count("{") - stripped.count("}")
-                if "url" in stripped and "=" in stripped:
-                    has_url = True
-                if re.search(r"\bfollows\s*=", stripped):
-                    has_follows = True
+                depth = _brace_delta(stripped)
+                # Attributes on the opening line itself count — but only
+                # up to the first nested ``{``.
+                _judge(stripped[stripped.index("{") + 1 :].split("{", 1)[0])
+                if depth <= 0:
+                    # One-line block: finalise it here, or its conflict
+                    # is never reported (#642).
+                    _finish_block()
                 continue
             if current_block:
-                depth += stripped.count("{") - stripped.count("}")
-                if re.search(r"\burl\s*=", stripped):
-                    has_url = True
-                # Only top-level follows (not inputs.X.follows)
-                if re.match(r"follows\s*=", stripped):
-                    has_follows = True
+                if depth == 1:
+                    # Direct-attribute level of the current block.
+                    _judge(stripped.split("{", 1)[0])
+                depth += _brace_delta(stripped)
                 if depth <= 0:
-                    if has_url and has_follows:
-                        conflicts.append(current_block)
-                    current_block = None
-                    has_url = False
-                    has_follows = False
-                    depth = 0
+                    _finish_block()
 
     # Also check dotted-style: inputs.name.url and inputs.name.follows
     # Only match direct follows (name.follows = "x"), NOT deep follows
@@ -3579,7 +4163,7 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if block_end is not None and i >= block_end:
                 break
             # Track brace depth to skip sub-block interiors
-            depth += stripped.count("{") - stripped.count("}")
+            depth += _brace_delta(stripped)
             if depth > 0:
                 continue
             depth = max(depth, 0)
