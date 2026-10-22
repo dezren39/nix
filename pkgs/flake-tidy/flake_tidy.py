@@ -1453,13 +1453,21 @@ def _block_context_for_lines(content: str) -> list[str | None]:
     For top-level dotted lines (outside any block) returns ``None``.
 
     This is approximate but sufficient: it tracks ``<name> = {`` opens
-    and matching ``};`` closes at the same indent level.
+    and ends a block when the structural brace depth (see
+    ``_brace_counts``) returns to the depth at which the block opened.
+    Tracking depth instead of looking for a line that is exactly
+    ``};`` also closes blocks that open and close on one line
+    (``foo = { url = "..."; };``) and blocks whose ``};`` shares a
+    line with the last attribute (#628) — exact-line matching left
+    those blocks open forever, so every later line in the inputs
+    section was attributed to them.
     """
     lines = content.split("\n")
     result: list[str | None] = [None] * len(lines)
-    # Stack of (block_name, open_line_index, indent_level)
-    stack: list[tuple[str, int, int]] = []
-    inputs_block_depth = 0
+    # Stacks of (block_name, brace depth just before the block opened)
+    stack: list[tuple[str, int]] = []
+    inputs_stack: list[int] = []
+    brace_depth = 0
 
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -1468,36 +1476,35 @@ def _block_context_for_lines(content: str) -> list[str | None]:
                 result[i] = stack[-1][0]
             continue
 
-        indent = len(line) - len(line.lstrip())
+        opens, closes = _brace_counts(line)
 
         # Check for block open: <name> = { (inside the inputs block)
+        pushed = False
         m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
         if m:
             name = m.group(2)
             if name == "inputs":
-                inputs_block_depth += 1
-            elif inputs_block_depth > 0 or stack:
-                stack.append((name, i, indent))
+                inputs_stack.append(brace_depth)
+            elif inputs_stack or stack:
+                stack.append((name, brace_depth))
                 result[i] = name
-                continue
+                pushed = True
 
-        # Check for block close: }; or }; # comment
-        if (
-            stripped == "};"
-            or stripped.startswith("}; #")
-            or stripped.startswith("};#")
-        ) and stack:
-            _name, _open_i, open_indent = stack[-1]
-            if indent <= open_indent + 2:  # allow for slight indent variation
-                stack.pop()
-                if stack:
-                    result[i] = stack[-1][0]
-                continue
+        if not pushed and stack and not stripped.startswith("}"):
+            # An ordinary line inside a block. A line starting with
+            # "}" is a closing line: it belongs to the enclosing
+            # scope, so its context is assigned after the pop below.
+            result[i] = stack[-1][0]
 
-        if stripped.startswith("inputs") and stripped.endswith("{"):
-            pass  # inputs = { handled above
+        brace_depth += opens - closes
 
-        if stack:
+        # Close every block whose opening depth has been reached again
+        while stack and brace_depth <= stack[-1][1]:
+            stack.pop()
+        while inputs_stack and brace_depth <= inputs_stack[-1]:
+            inputs_stack.pop()
+
+        if not pushed and stripped.startswith("}") and stack:
             result[i] = stack[-1][0]
 
     return result
