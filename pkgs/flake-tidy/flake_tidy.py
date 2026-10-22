@@ -1555,7 +1555,7 @@ def _block_context_for_lines(content: str) -> list[str | None]:
 
         # Check for block open: <name> = { (inside the inputs block)
         pushed = False
-        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
+        m = re.match(r"^(\s*)(\w[\w'-]*)\s*=\s*\{", line)
         if m:
             name = m.group(2)
             if name == "inputs":
@@ -1647,7 +1647,7 @@ def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
 
         opens, closes = _brace_counts(line)
 
-        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
+        m = re.match(r"^(\s*)(\w[\w'-]*)\s*=\s*\{", line)
         if m:
             name = m.group(2)
             if name == "inputs":
@@ -4270,7 +4270,7 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if stripped.startswith("#"):
                 continue
             # Detect block start: ``name = {``
-            m = re.match(r"(\w[\w-]*)\s*=\s*\{", stripped)
+            m = re.match(r"(\w[\w'-]*)\s*=\s*\{", stripped)
             if m and depth == 0:
                 current_block = m.group(1)
                 has_url = False
@@ -4315,10 +4315,10 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if depth > 0:
                 continue
             depth = max(depth, 0)
-        m = re.match(r"(?:inputs\.)?(\w[\w-]*)\.url\s*=", stripped)
+        m = re.match(r"(?:inputs\.)?(\w[\w'-]*)\.url\s*=", stripped)
         if m:
             url_names.add(m.group(1))
-        m = re.match(r"(?:inputs\.)?(\w[\w-]*)\.follows\s*=", stripped)
+        m = re.match(r"(?:inputs\.)?(\w[\w'-]*)\.follows\s*=", stripped)
         if m:
             follows_names.add(m.group(1))
 

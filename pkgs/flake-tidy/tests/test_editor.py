@@ -735,6 +735,69 @@ class TestDottedParentBlockRootScope:
         assert flake_tidy.root_input_exists_in_content(content, "d") is True
 
 
+class TestPrimedInputNames:
+    """Regression tests for #683: primed input names (``nixpkgs'``) were
+    invisible to the block-context and nested-prefix scanners — their
+    block-open patterns used ``(\\w[\\w-]*)`` while every other name
+    pattern in the file accepts the apostrophe — so a follows declared
+    inside a primed input's blocks was not seen."""
+
+    PRIMED_BLOCK = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs' = {
+      url = "github:NixOS/nixpkgs/pinned";
+      inputs.child = {
+        url = "github:example/child";
+      };
+    };
+    real.url = "github:example/real";
+  };
+}
+"""
+
+    PRIMED_NESTED = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs' = {
+      url = "github:NixOS/nixpkgs/pinned";
+      inputs = {
+        child.follows = "nixpkgs";
+      };
+    };
+  };
+}
+"""
+
+    def test_block_context_attributes_lines_to_primed_parent(self):
+        ctx = flake_tidy._block_context_for_lines(self.PRIMED_BLOCK)
+        lines = self.PRIMED_BLOCK.split("\n")
+        url_line = lines.index('      url = "github:NixOS/nixpkgs/pinned";')
+        assert ctx[url_line] == "nixpkgs'"
+        nested_line = lines.index("      inputs.child = {")
+        assert ctx[nested_line] == "nixpkgs'"
+
+    def test_nested_prefix_for_primed_parent(self):
+        prefixes = flake_tidy._nested_inputs_prefix_for_lines(self.PRIMED_NESTED)
+        assert ["nixpkgs'"] in prefixes
+
+    def test_follows_exists_in_primed_parents_nested_block(self):
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.PRIMED_NESTED, ["nixpkgs'", "child"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_primed_dotted_url_follows_conflict_detected(self):
+        content = """{
+  inputs.nixpkgs'.url = "github:NixOS/nixpkgs/pinned";
+  inputs.nixpkgs'.follows = "nixpkgs";
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["nixpkgs'"]
+
+
 class TestInsertFollows:
     def test_insert_follows_block_style(self, sample_flake_nix):
         """inserts inside block."""
