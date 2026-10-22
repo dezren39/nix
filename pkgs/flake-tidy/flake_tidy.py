@@ -1403,7 +1403,16 @@ def get_input_file_order(content: str) -> list[str]:
             continue
 
         # Dotted style: inputs.NAME.xxx or inputs.NAME = {
-        m = re.match(r"inputs\.([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
+        # Only at top level, though: inside the root inputs block an
+        # `inputs.NAME...` line is a nested override inside some input's
+        # own block, not a root declaration — recording it would invent a
+        # root input (and the early continue would skip the line's brace
+        # accounting) (#652).
+        m = (
+            None
+            if in_inputs_block
+            else re.match(r"inputs\.([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
+        )
         if m:
             name = m.group(1)
             if name not in seen:
