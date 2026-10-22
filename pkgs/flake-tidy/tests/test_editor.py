@@ -295,6 +295,115 @@ class TestNestedInputsBlockFollowsExists:
             is True
         )
 
+    def test_one_line_nested_block_multiple_declarations(self):
+        """#649: a one-line nested block with two declarations must be
+        judged per-declaration — every position counts, for both
+        checkers (previously equality missed both, prefix missed all
+        but the first)."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = { other.follows = "other"; nixpkgs.follows = "nixpkgs"; };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "other"], "other"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "other"])
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is True
+        )
+        # swapped order: the first position counts too
+        swapped = content.replace(
+            'other.follows = "other"; nixpkgs.follows = "nixpkgs";',
+            'nixpkgs.follows = "nixpkgs"; other.follows = "other";',
+        )
+        assert "nixpkgs.follows" in swapped
+        assert (
+            flake_tidy.follows_exists_in_content(
+                swapped, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(swapped, ["foo", "nixpkgs"])
+            is True
+        )
+
+    def test_one_line_multi_decl_wrong_child_and_shifted_do_not_count(self):
+        """#649 guards: a different child in a multi-declaration
+        one-line block does not count, and the shifted
+        ``inputs.nixpkgs.follows`` form inside it still does not
+        count (the #647 guard, in the multi-declaration shape)."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = { other.follows = "other"; inputs.nixpkgs.follows = "nixpkgs"; };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is False
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "missing"], "missing"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "missing"])
+            is False
+        )
+
+    def test_one_line_multi_decl_semicolon_in_target(self):
+        """#649: a ``;`` inside a quoted target must not split the
+        declaration."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = { other.follows = "a;b"; nixpkgs.follows = "nixpkgs"; };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(content, ["foo", "other"], "a;b")
+            is True
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+
     def test_deep_path_spelled_in_nested_block(self):
         """foo's nested block can spell a deeper path relative to foo:
         ``child.inputs.systems.follows`` = foo/child/systems."""

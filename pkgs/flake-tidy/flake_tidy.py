@@ -1657,6 +1657,52 @@ def _nested_segment(normalized: str) -> str:
     return seg
 
 
+def _nested_segments(normalized: str) -> list[str]:
+    """Individual declarations on a nested ``inputs = {`` line (#649).
+
+    A one-line nested block can carry several declarations
+    (``inputs = { a.follows = "a"; b.follows = "b"; };``); judging the
+    whole segment after the ``{`` as one declaration misses every one
+    of them (equality), or all but the first (prefix/match). Split the
+    segment on ``;`` outside double-quoted strings so each declaration
+    is judged on its own. Ordinary lines return a single-element list.
+    """
+    m = re.match(r"inputs\s*=\s*\{", normalized)
+    if not m:
+        return [normalized] if normalized else []
+    seg = normalized[m.end() :].strip()
+    if seg.endswith("}"):
+        seg = seg[:-1].strip()
+    parts: list[str] = []
+    buf: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in seg:
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            continue
+        if ch == "\\" and in_string:
+            buf.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            buf.append(ch)
+            continue
+        if ch == ";" and not in_string:
+            part = "".join(buf).strip()
+            if part:
+                parts.append(part)
+            buf = []
+            continue
+        buf.append(ch)
+    part = "".join(buf).strip()
+    if part:
+        parts.append(part)
+    return parts
+
+
 def follows_exists_in_content(
     content: str, follows_parts: list[str], target: str
 ) -> bool:
@@ -1714,7 +1760,7 @@ def follows_exists_in_content(
             rel = _nested_relative_path(follows_parts, nested_prefix)
             if rel is not None:
                 candidate = f'{rel}.follows = "{target}"'
-                if re.sub(r"\s+", " ", candidate) == _nested_segment(normalized):
+                if re.sub(r"\s+", " ", candidate) in _nested_segments(normalized):
                     return True
             continue
 
@@ -1778,9 +1824,9 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
             rel = _nested_relative_path(follows_parts, nested_prefix)
             if rel is not None:
                 pfx = f"{rel}.follows"
-                seg = _nested_segment(normalized)
-                if seg.startswith(pfx + " =") or seg.startswith(pfx + "="):
-                    return True
+                for seg in _nested_segments(normalized):
+                    if seg.startswith(pfx + " =") or seg.startswith(pfx + "="):
+                        return True
             continue
 
         ctx = block_context[i]
@@ -3317,21 +3363,22 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
                 # nested ``inputs = { ... }`` override, the same deep
                 # follows is spelled CHILD.inputs.SUB.follows.
                 if nested_prefixes[i] == [current_block]:
-                    m = re.match(
-                        r'([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
-                        _nested_segment(stripped),
-                    )
-                    if m:
-                        results.append(
-                            {
-                                "parent": current_block,
-                                "child": m.group(1),
-                                "sub_input": m.group(2),
-                                "target": m.group(3),
-                                "line_number": i,
-                                "line": line,
-                            }
+                    for seg in _nested_segments(stripped):
+                        m = re.match(
+                            r'([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+                            seg,
                         )
+                        if m:
+                            results.append(
+                                {
+                                    "parent": current_block,
+                                    "child": m.group(1),
+                                    "sub_input": m.group(2),
+                                    "target": m.group(3),
+                                    "line_number": i,
+                                    "line": line,
+                                }
+                            )
                 m = re.match(
                     r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
                     stripped,

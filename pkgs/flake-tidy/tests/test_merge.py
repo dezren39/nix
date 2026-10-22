@@ -209,6 +209,28 @@ class TestParseDeepFollows:
         assert results[0]["sub_input"] == "systems"
         assert results[0]["target"] == "systems"
 
+    def test_parses_nested_block_one_line_multiple_declarations(self):
+        """#649: every deep follows in a multi-declaration one-line
+        nested block is parsed, not only the first."""
+        content = """{
+  inputs = {
+    parent = {
+      url = "github:example/parent";
+      inputs = { other.inputs.foo.follows = "foo"; child.inputs.systems.follows = "systems"; };
+    };
+  };
+  outputs = _: {};
+}
+"""
+        results = flake_tidy._parse_deep_follows(content)
+        assert len(results) == 2
+        by_child = {r["child"]: r for r in results}
+        assert by_child["other"]["sub_input"] == "foo"
+        assert by_child["other"]["target"] == "foo"
+        assert by_child["child"]["sub_input"] == "systems"
+        assert by_child["child"]["target"] == "systems"
+        assert all(r["parent"] == "parent" for r in results)
+
     def test_no_deep_follows(self):
         content = """{
   inputs = {
