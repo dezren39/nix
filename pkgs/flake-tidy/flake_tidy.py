@@ -1442,8 +1442,9 @@ def get_input_file_order(content: str) -> list[str]:
     in_inputs_block = False
     brace_depth = 0
     lines = content.split("\n")
+    contexts = _block_context_for_lines(content)
 
-    for line in lines:
+    for idx, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
             continue
@@ -1453,12 +1454,20 @@ def get_input_file_order(content: str) -> list[str]:
         # `inputs.NAME...` line is a nested override inside some input's
         # own block, not a root declaration — recording it would invent a
         # root input (and the early continue would skip the line's brace
-        # accounting) (#652).
-        m = (
-            None
-            if in_inputs_block
-            else re.match(r"inputs\.([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
-        )
+        # accounting) (#652). The same applies inside a dotted-style
+        # parent block (inputs.parent = { ... }): its interior
+        # `inputs.child...` lines are the parent's overrides, not root
+        # declarations — #653's in_inputs_block guard cannot see them
+        # because that content has no `inputs = {` block at all, so
+        # consult the block context instead: a dotted line is a root
+        # declaration only at top level (context None) or on the parent
+        # block's own opening line (context == the declared name)
+        # (#652 remainder, context tracking from #655).
+        m = None
+        if not in_inputs_block:
+            dm = re.match(r"inputs\.([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
+            if dm and (contexts[idx] is None or contexts[idx] == dm.group(1)):
+                m = dm
         if m:
             name = m.group(1)
             if name not in seen:
