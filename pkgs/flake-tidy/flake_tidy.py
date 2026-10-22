@@ -1349,6 +1349,43 @@ def write_flake_nix(flake_dir: str, content: str) -> None:
         f.write(content)
 
 
+def _brace_counts(line: str) -> tuple[int, int]:
+    """Count the structural ``{`` and ``}`` in one line of Nix source.
+
+    Braces inside double-quoted strings and everything from a ``#``
+    comment start (outside a string) to end of line are not structural
+    and are ignored (#623). Indented (''...'') strings are not tracked —
+    the same documented approximation the other line scanners make.
+    """
+    opens = 0
+    closes = 0
+    in_string = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if in_string:
+            if ch == "\\":
+                i += 1  # skip the escaped character as well
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "#":
+            break
+        elif ch == "{":
+            opens += 1
+        elif ch == "}":
+            closes += 1
+        i += 1
+    return opens, closes
+
+
+def _brace_delta(line: str) -> int:
+    """Net structural brace delta of one line (see ``_brace_counts``)."""
+    opens, closes = _brace_counts(line)
+    return opens - closes
+
+
 def get_input_file_order(content: str) -> list[str]:
     """Parse flake.nix to determine input declaration order.
 
@@ -1377,11 +1414,11 @@ def get_input_file_order(content: str) -> list[str]:
         # Detect start of inputs = { block
         if re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_block = True
-            brace_depth = stripped.count("{") - stripped.count("}")
+            brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_block:
-            brace_depth += stripped.count("{") - stripped.count("}")
+            brace_depth += _brace_delta(stripped)
             if brace_depth <= 0:
                 in_inputs_block = False
                 continue
@@ -1605,7 +1642,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
                 # NAME = { or NAME.url = etc.
                 if re.match(rf"{esc}\s*[.=]", stripped):
                     return True
-            depth += stripped.count("{") - stripped.count("}")
+            depth += _brace_delta(stripped)
             if depth <= 0 and i > block_start:
                 break
     else:
@@ -1688,11 +1725,11 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
 
         if re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_block = True
-            inputs_brace_depth = stripped.count("{") - stripped.count("}")
+            inputs_brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_block:
-            inputs_brace_depth += stripped.count("{") - stripped.count("}")
+            inputs_brace_depth += _brace_delta(stripped)
             if inputs_brace_depth <= 0:
                 in_inputs_block = False
                 continue
@@ -1705,7 +1742,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
 
     depth = 0
     for i in range(block_start, len(lines)):
-        depth += lines[i].count("{") - lines[i].count("}")
+        depth += _brace_delta(lines[i])
         if depth <= 0:
             indent = "    "
             for j in range(block_start + 1, i):
@@ -1730,9 +1767,9 @@ def detect_inputs_style(
         if stripped.startswith("#"):
             continue
         if re.match(r"inputs\s*=\s*\{", stripped):
-            depth = stripped.count("{") - stripped.count("}")
+            depth = _brace_delta(stripped)
             for j in range(i + 1, len(lines)):
-                depth += lines[j].count("{") - lines[j].count("}")
+                depth += _brace_delta(lines[j])
                 if depth <= 0:
                     return ("block", i, j)
             return ("block", i, len(lines) - 1)
@@ -1799,13 +1836,13 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
             if not in_target and depth == 0:
                 if re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
-                    depth = stripped.count("{") - stripped.count("}")
+                    depth = _brace_delta(stripped)
                     # Check if url is on the same line (unlikely but safe)
                     if re.search(r"\burl\s*=", stripped):
                         return i
                     continue
             if in_target:
-                depth += stripped.count("{") - stripped.count("}")
+                depth += _brace_delta(stripped)
                 if re.match(r"url\s*=", stripped):
                     return i
                 if depth <= 0:
@@ -1860,13 +1897,13 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
             if not in_target and depth == 0:
                 if re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
-                    depth = stripped.count("{") - stripped.count("}")
+                    depth = _brace_delta(stripped)
                     m = re.search(r'\bfollows\s*=\s*"([^"]+)"', stripped)
                     if m:
                         return m.group(1)
                     continue
             if in_target:
-                depth += stripped.count("{") - stripped.count("}")
+                depth += _brace_delta(stripped)
                 m = re.match(r'follows\s*=\s*"([^"]+)"', stripped)
                 if m:
                     return m.group(1)
@@ -2017,10 +2054,10 @@ def _insert_before_inputs_end(
                 continue
             if re.match(r"inputs\s*=\s*\{", stripped):
                 in_inputs = True
-                depth = stripped.count("{") - stripped.count("}")
+                depth = _brace_delta(stripped)
                 continue
             if in_inputs:
-                depth += stripped.count("{") - stripped.count("}")
+                depth += _brace_delta(stripped)
                 if depth <= 0:
                     lines.insert(i, new_line)
                     return "\n".join(lines)
@@ -2282,8 +2319,7 @@ def _add_deep_follows_overrides(
 
         if in_inputs_section:
             # Count braces
-            opens = stripped.count("{")
-            closes = stripped.count("}")
+            opens, closes = _brace_counts(stripped)
 
             # Detect named input block: <name> = {
             if current_block is None and brace_depth == 1:
@@ -3033,12 +3069,11 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
         # Detect top-level inputs = { block
         if re.match(r"inputs\s*=\s*\{", stripped):
             in_inputs_section = True
-            brace_depth = stripped.count("{") - stripped.count("}")
+            brace_depth = _brace_delta(stripped)
             continue
 
         if in_inputs_section:
-            opens = stripped.count("{")
-            closes = stripped.count("}")
+            opens, closes = _brace_counts(stripped)
 
             # Detect named input block at depth 1
             if current_block is None and brace_depth == 1:
@@ -3865,14 +3900,14 @@ def check_url_follows_conflicts(content: str) -> list[str]:
                 current_block = m.group(1)
                 has_url = False
                 has_follows = False
-                depth = stripped.count("{") - stripped.count("}")
+                depth = _brace_delta(stripped)
                 if "url" in stripped and "=" in stripped:
                     has_url = True
                 if re.search(r"\bfollows\s*=", stripped):
                     has_follows = True
                 continue
             if current_block:
-                depth += stripped.count("{") - stripped.count("}")
+                depth += _brace_delta(stripped)
                 if re.search(r"\burl\s*=", stripped):
                     has_url = True
                 # Only top-level follows (not inputs.X.follows)
@@ -3904,7 +3939,7 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if block_end is not None and i >= block_end:
                 break
             # Track brace depth to skip sub-block interiors
-            depth += stripped.count("{") - stripped.count("}")
+            depth += _brace_delta(stripped)
             if depth > 0:
                 continue
             depth = max(depth, 0)
