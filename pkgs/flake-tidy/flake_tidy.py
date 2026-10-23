@@ -2673,17 +2673,27 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # followed by a character outside its lookahead set (a'!b -> a,
     # #714) — worse than a miss, because the callers trust the
     # truncated prefix and override/match a different input.
-    # Parse the wrapper instead of the name: the closing quote is the
-    # first quote that (a) is not immediately followed by another
-    # quote — a doubled quote is a name prime plus the next quote
+    # Parse the wrapper instead of the name.  A quote is name text,
+    # never the wrapper's close, when it can only continue a name or
+    # a word: (a) a doubled quote is a prime plus the next quote
     # ('nixpkgs'' is the wrapped nixpkgs', 'nixpkgs''' the wrapped
-    # nixpkgs'') — and (b) leaves an even number of quotes in the rest
-    # of the line.  Following text quotes its own words in pairs
-    # ('…' and then 'other'), so a close that strands one quote is a
-    # name apostrophe, whatever character follows it (!, %, ~, :, a
-    # space, a non-ASCII letter).  If no quote qualifies, the name is
-    # genuinely ambiguous and the line yields no match rather than a
-    # truncated prefix.
+    # nixpkgs''); (b) a quote immediately followed by "/" ends a
+    # primed path segment ('parent'/child) — no message template puts
+    # a "/" right after the closing quote; (c) a quote with a word
+    # character on both sides is an apostrophe inside a word (a'b in
+    # a name, user's in following prose).  The closing quote is the
+    # first remaining quote that leaves the name a plausible path
+    # (non-empty, no empty segment, no leading/trailing whitespace)
+    # and an even number of delimiter quotes in the rest of the line
+    # — following text quotes its own words in pairs ('…' and then
+    # 'other'), so a close that strands one delimiter quote is a name
+    # apostrophe, whatever character follows it (!, %, ~, :, a space,
+    # a non-ASCII letter).  #720 counted every rest quote, so a path
+    # primed in two segments ('a'/b'') looked closed at its first
+    # prime and a possessive in following text (user's) was taken as
+    # a close, swallowing prose into the name (#722).  If no quote
+    # qualifies, the name is genuinely ambiguous and the line yields
+    # no match rather than a truncated prefix.
     for line in stderr.split("\n"):
         name = _wrapped_name(line, "while updating the flake input '")
         if name is not None:
@@ -2702,7 +2712,7 @@ def _wrapped_name(line: str, prefix: str) -> str | None:
     registry form's ends with "flake:", just after its opening
     quote).  Returns None when the prefix is absent or no quote on
     the line can be the wrapper's closing quote (see
-    extract_failed_input for the two rules).
+    extract_failed_input for the name-text rules).
     """
     start = line.find(prefix)
     if start < 0:
@@ -2713,9 +2723,54 @@ def _wrapped_name(line: str, prefix: str) -> str | None:
             continue
         if i + 1 < len(line) and line[i + 1] == "'":
             continue  # doubled quote: a prime in the name, not the close
-        if line[i + 1 :].count("'") % 2 == 0:
-            return line[start:i]
+        if i + 1 < len(line) and line[i + 1] == "/":
+            continue  # prime ending a path segment: 'parent'/child
+        if _is_word_apostrophe(line, i):
+            continue  # apostrophe inside a word: a'b, not the close
+        name = line[start:i]
+        if not _plausible_input_path(name):
+            continue
+        if _rest_delimiter_quotes(line, i) % 2 == 0:
+            return name
     return None
+
+
+def _is_word_apostrophe(line: str, i: int) -> bool:
+    """True when line[i] is an apostrophe inside a word — a word
+    character on both sides (a'b in a name, user's in prose).  Such a
+    quote is never a wrapper delimiter: a closing quote is followed
+    by a space, punctuation or the end of the line, and a quoted span
+    in following text is bounded the same way."""
+    return (
+        0 < i < len(line) - 1
+        and (line[i - 1].isalnum() or line[i - 1] == "_")
+        and (line[i + 1].isalnum() or line[i + 1] == "_")
+    )
+
+
+def _rest_delimiter_quotes(line: str, i: int) -> int:
+    """Delimiter quotes in line after index i: single quotes that are
+    not word apostrophes.  Following text quotes its own words in
+    pairs, so a genuine closing quote leaves an even count; a
+    possessive like user's is an apostrophe, not a delimiter, and
+    must not skew the parity (#722)."""
+    return sum(
+        1
+        for j in range(i + 1, len(line))
+        if line[j] == "'" and not _is_word_apostrophe(line, j)
+    )
+
+
+def _plausible_input_path(name: str) -> bool:
+    """True when name can be a flake input path or registry name:
+    non-empty, no empty "/" segment, no leading or trailing
+    whitespace.  A supposed close that leaves prose in the name
+    ('nixpkgs' and then 'other -> nixpkgs' and then ) fails the
+    whitespace rule, so an ambiguous line yields no match instead of
+    a swallowed name (#722)."""
+    if not name or name != name.strip():
+        return False
+    return all(segment for segment in name.split("/"))
 
 
 def build_override_inputs(lock: dict, input_path: str) -> dict[str, str]:
