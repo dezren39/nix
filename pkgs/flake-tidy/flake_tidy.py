@@ -1412,6 +1412,27 @@ def _name_ref(name: str) -> str:
     return rf'(?:"{esc}"|{esc})'
 
 
+_BARE_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_'-]*$")
+
+
+def _quote_name(name: str) -> str:
+    """Spelling of ``name`` for a generated declaration line (#709).
+
+    A bare-spellable name keeps its bare spelling (no churn in
+    existing outputs).  Any other name — one containing a dot, slash
+    or space, or starting with a digit — MUST be quoted: written bare
+    it denotes a different attribute (``inputs.my.input`` is a nested
+    attribute, not the single input named ``my.input``), and the
+    scanners then report the wrong input as present.
+    """
+    if _BARE_NAME_RE.match(name):
+        return name
+    escaped = (
+        name.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
+    )
+    return f'"{escaped}"'
+
+
 def _unquote_attr_names(text: str) -> str:
     """Strip the quotes around attribute names in a declaration line.
 
@@ -1995,18 +2016,24 @@ def find_commented_follows(
     target_part = follows_parts[-1] if follows_parts else ""
     patterns = []
 
-    full_path = ".".join(f"inputs.{p}" for p in follows_parts)
-    patterns.append(rf'#\s*{re.escape(full_path)}\.follows\s*=\s*"{re.escape(target)}"')
+    # Each segment may be spelled bare or quoted (#709); the target is
+    # a string value, so its quotes are part of the pattern, not a
+    # name spelling.
+    def _path_ref(parts: list[str]) -> str:
+        return r"\.".join(rf"inputs\.{_name_ref(p)}" for p in parts)
+
+    patterns.append(
+        rf'#\s*{_path_ref(follows_parts)}\.follows\s*=\s*"{re.escape(target)}"'
+    )
 
     if len(follows_parts) >= 2:
-        relative = ".".join(f"inputs.{p}" for p in follows_parts[1:])
         patterns.append(
-            rf'#\s*{re.escape(relative)}\.follows\s*=\s*"{re.escape(target)}"'
+            rf'#\s*{_path_ref(follows_parts[1:])}\.follows\s*=\s*"{re.escape(target)}"'
         )
 
     if target_part:
         patterns.append(
-            rf'#\s*inputs\.{re.escape(target_part)}\.follows\s*=\s*"{re.escape(target)}"'
+            rf'#\s*inputs\.{_name_ref(target_part)}\.follows\s*=\s*"{re.escape(target)}"'
         )
 
     lines = content.split("\n")
@@ -2414,29 +2441,31 @@ def insert_follows_in_content(
         if last_line is not None:
             indent = re.match(r"^(\s*)", lines[last_line]).group(1)
             if is_inside:
-                nix_line = f'{parent_input}.follows = "{target}";'
+                nix_line = f'{_quote_name(parent_input)}.follows = "{target}";'
             else:
-                nix_line = f'inputs.{parent_input}.follows = "{target}";'
+                nix_line = f'inputs.{_quote_name(parent_input)}.follows = "{target}";'
             lines.insert(last_line + 1, f"{indent}{nix_line}")
             return "\n".join(lines)
 
         if in_block:
-            nix_line = f'    {parent_input}.follows = "{target}";'
+            nix_line = f'    {_quote_name(parent_input)}.follows = "{target}";'
         else:
-            nix_line = f'    inputs.{parent_input}.follows = "{target}";'
+            nix_line = f'    inputs.{_quote_name(parent_input)}.follows = "{target}";'
         return _insert_before_inputs_end(lines, nix_line, in_block)
 
     # Multi-level follows
     full_nix = (
-        ".".join(f"inputs.{p}" for p in follows_parts) + f'.follows = "{target}";'
+        ".".join(f"inputs.{_quote_name(p)}" for p in follows_parts)
+        + f'.follows = "{target}";'
     )
     relative_to_parent = (
-        ".".join(f"inputs.{p}" for p in follows_parts[1:]) + f'.follows = "{target}";'
+        ".".join(f"inputs.{_quote_name(p)}" for p in follows_parts[1:])
+        + f'.follows = "{target}";'
     )
     relative_to_inputs = (
-        follows_parts[0]
+        _quote_name(follows_parts[0])
         + "."
-        + ".".join(f"inputs.{p}" for p in follows_parts[1:])
+        + ".".join(f"inputs.{_quote_name(p)}" for p in follows_parts[1:])
         + f'.follows = "{target}";'
     )
 
@@ -2511,10 +2540,12 @@ def insert_root_input(
                 if m and lines[i].strip():
                     indent = m.group(1)
                     break
-        new_line = f'{indent}{input_name}.url = "{url}";'
+        new_line = f'{indent}{_quote_name(input_name)}.url = "{url}";'
         lines.insert(block_end, new_line)
         if not flake:
-            lines.insert(block_end + 1, f"{indent}{input_name}.flake = false;")
+            lines.insert(
+                block_end + 1, f"{indent}{_quote_name(input_name)}.flake = false;"
+            )
     else:
         last_input_line = _last_dotted_anchor(lines, content)
         indent = "    "
@@ -2522,12 +2553,12 @@ def insert_root_input(
             m = re.match(r"^(\s*)", lines[last_input_line])
             if m:
                 indent = m.group(1)
-        new_line = f'{indent}inputs.{input_name}.url = "{url}";'
+        new_line = f'{indent}inputs.{_quote_name(input_name)}.url = "{url}";'
         lines.insert(last_input_line + 1, new_line)
         if not flake:
             lines.insert(
                 last_input_line + 2,
-                f"{indent}inputs.{input_name}.flake = false;",
+                f"{indent}inputs.{_quote_name(input_name)}.flake = false;",
             )
 
     return "\n".join(lines)
@@ -3754,10 +3785,12 @@ def insert_root_input_block(
                 break
 
     # Build the block
-    block_lines = [f"{indent}{input_name} = {{"]
+    block_lines = [f"{indent}{_quote_name(input_name)} = {{"]
     block_lines.append(f'{indent}  url = "{url}";')
     for sub_input, target in sub_follows:
-        block_lines.append(f'{indent}  inputs.{sub_input}.follows = "{target}";')
+        block_lines.append(
+            f'{indent}  inputs.{_quote_name(sub_input)}.follows = "{target}";'
+        )
     block_lines.append(f"{indent}}};")
 
     if style == "block" and block_end is not None:
@@ -3768,7 +3801,7 @@ def insert_root_input_block(
         # spelled inputs.NAME = { ... }; — a bare NAME = { ... } at the
         # flake's top level is an unrelated attribute, not an input (#696).
         last_input_line = _last_dotted_anchor(lines, content)
-        dotted_lines = [f"{indent}inputs.{input_name} = {{"] + block_lines[1:]
+        dotted_lines = [f"{indent}inputs.{_quote_name(input_name)} = {{"] + block_lines[1:]
         for j, line_str in enumerate(dotted_lines):
             lines.insert(last_input_line + 1 + j, line_str)
 
