@@ -1360,6 +1360,94 @@ class TestExtractFailedInputGeneralNames:
         ) == ("my input", None)
 
 
+class TestExtractFailedInputApostropheContinuation:
+    """#714: PR #713's structural parse still truncated a name at an
+    apostrophe followed by a character outside its lookahead set
+    [A-Za-z0-9_+@./-] (a'!b -> a) and admitted only one trailing
+    prime (nixpkgs'' -> nixpkgs'). A truncated prefix is worse than
+    the pre-#713 miss: build_override_inputs and
+    _match_failure_to_proposal trust it and act on a different input.
+    The closing quote is now the first quote that is not part of a
+    doubled quote and leaves the rest of the line's quotes paired."""
+
+    def test_apostrophe_before_punctuation(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'!b'"
+        ) == ("a'!b", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'%b'"
+        ) == ("a'%b", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'~b'"
+        ) == ("a'~b", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a':b'"
+        ) == ("a':b", None)
+
+    def test_apostrophe_before_space_and_non_ascii(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'foo' bar'"
+        ) == ("foo' bar", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'éb'"
+        ) == ("a'éb", None)
+
+    def test_apostrophe_continuation_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:a'!b' in the registry"
+        ) == (None, "a'!b")
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:a':b' in the registry"
+        ) == (None, "a':b")
+
+    def test_double_trailing_prime(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs'''"
+        ) == ("nixpkgs''", None)
+
+    def test_doubled_prime_inside_name(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a''b'"
+        ) == ("a''b", None)
+
+    def test_continuation_name_with_following_text(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'!b' and then 'other'"
+        ) == ("a'!b", None)
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #714 harm, end to end: the extracted path must resolve
+        through the lock to the failing input's override, not to the
+        unrelated input named by the truncated prefix."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "na", "a'!b": "nb"}},
+                "na": {
+                    "original": {
+                        "type": "github",
+                        "owner": "example",
+                        "repo": "a-tool",
+                    }
+                },
+                "nb": {
+                    "original": {
+                        "type": "github",
+                        "owner": "example",
+                        "repo": "ab-tool",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'!b'"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "a'!b": "github:example/ab-tool"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)

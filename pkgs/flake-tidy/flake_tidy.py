@@ -2649,29 +2649,54 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # accept any quoted name (#705) — so a character set for the name
     # will always lag the next legal one: the apostrophe for primed
     # names (#691) and the dot for dotted names (#710) each arrived as
-    # their own bug, and "+", " " or "@" names still missed (#712).
-    # Parse the wrapper instead of the name: every character except
-    # the quote itself is name text, and an apostrophe belongs to the
-    # name only where it can continue one — followed by an identifier
-    # character or a path separator (parent'/child, my'input) — or as
-    # the doubled quote of a primed name at the end ('nixpkgs'').  The
-    # closing quote is the first quote that cannot continue the name,
-    # so following text on the line ('…' and then 'other') is never
-    # swallowed.  (A name with an apostrophe before a space, foo' bar,
-    # is the one spelling this cannot tell from the wrapper; no real
-    # input name does that.)
-    name = r"((?:[^'\n]|'(?=[A-Za-z0-9_+@./-]))*'?)"
+    # their own bug, "+", " " or "@" names still missed (#712), and
+    # #713's structural parse still truncated a name at an apostrophe
+    # followed by a character outside its lookahead set (a'!b -> a,
+    # #714) — worse than a miss, because the callers trust the
+    # truncated prefix and override/match a different input.
+    # Parse the wrapper instead of the name: the closing quote is the
+    # first quote that (a) is not immediately followed by another
+    # quote — a doubled quote is a name prime plus the next quote
+    # ('nixpkgs'' is the wrapped nixpkgs', 'nixpkgs''' the wrapped
+    # nixpkgs'') — and (b) leaves an even number of quotes in the rest
+    # of the line.  Following text quotes its own words in pairs
+    # ('…' and then 'other'), so a close that strands one quote is a
+    # name apostrophe, whatever character follows it (!, %, ~, :, a
+    # space, a non-ASCII letter).  If no quote qualifies, the name is
+    # genuinely ambiguous and the line yields no match rather than a
+    # truncated prefix.
     for line in stderr.split("\n"):
-        m = re.search(
-            r"while updating the flake input " rf"'{name}'",
-            line,
-        )
-        if m:
-            input_path = m.group(1)
-        m = re.search(rf"cannot find flake 'flake:{name}'", line)
-        if m:
-            flake_name = m.group(1)
+        name = _wrapped_name(line, "while updating the flake input '")
+        if name is not None:
+            input_path = name
+        name = _wrapped_name(line, "cannot find flake 'flake:")
+        if name is not None:
+            flake_name = name
     return input_path, flake_name
+
+
+def _wrapped_name(line: str, prefix: str) -> str | None:
+    """Extract the single-quoted name after prefix on one stderr line.
+
+    Both callers' prefixes end exactly where the name text begins
+    (the input form's prefix ends with the opening quote; the
+    registry form's ends with "flake:", just after its opening
+    quote).  Returns None when the prefix is absent or no quote on
+    the line can be the wrapper's closing quote (see
+    extract_failed_input for the two rules).
+    """
+    start = line.find(prefix)
+    if start < 0:
+        return None
+    start += len(prefix)
+    for i in range(start, len(line)):
+        if line[i] != "'":
+            continue
+        if i + 1 < len(line) and line[i + 1] == "'":
+            continue  # doubled quote: a prime in the name, not the close
+        if line[i + 1 :].count("'") % 2 == 0:
+            return line[start:i]
+    return None
 
 
 def build_override_inputs(lock: dict, input_path: str) -> dict[str, str]:
