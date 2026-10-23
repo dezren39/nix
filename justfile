@@ -57,6 +57,15 @@ context7-login:
     echo "Context7 still works anonymously; this only raises the rate limit." >&2
     exit 1
 
+# Show the last N service start/stop/connection events (docs/services.md)
+[group('services')]
+service-events n="50":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    log="$HOME/Library/Logs/nix-services/events.jsonl"
+    [ -s "$log" ] || { echo "no events yet in $log (org.nixos.service-events starts with the first switch that has it)"; exit 0; }
+    tail -n {{ n }} "$log" | jq -r '[.ts[11:23], .source, .event, (del(.ts, .source, .event) | to_entries | map("\(.key)=\(.value | tostring)") | join(" "))] | join("  ")'
+
 # Check the mcpx daemon, list every server's state, and call one tool on each
 # of the servers agents use most
 [group('mcp')]

@@ -16,15 +16,32 @@ Written 2026-10-19. Upstream file:line references are to the revisions pinned in
 |---|---|---|---|---|
 | OpenChamber | `org.nixos.openchamber` (`openchamber.nix`) | `~/.local/state/openchamber/start`, a link to the start script in the store | `127.0.0.1:3000` | `~/Library/Logs/openchamber.log` |
 | OpenCode (the one OpenChamber manages) | none: a child of OpenChamber, left running across OpenChamber restarts (`AbandonProcessGroup = true`) | `~/.local/state/openchamber/bin/opencode`, a link to the wrapped fork build | a random `127.0.0.1` port | `~/.local/share/opencode/log/` |
-| mcpx | `org.nixos.mcpx` (`configuration.nix`) | `/usr/local/libexec/mcpx/mcpx`, a root-owned copy of a store wrapper refreshed at activation (fixed path, so macOS lists it as "mcpx"; activation restarts the agent when the copy changes), that runs `mcpx --config ~/.config/mcpx/config.json stop`, then `exec mcpx daemon --config …` | a unix socket `~/.local/state/mcpx/daemon-<hash>.sock`, plus a loopback HTTP port | `/tmp/mcpx.err.log`, `~/.local/state/mcpx/logs/mcpx-<date>.jsonl` |
+| mcpx | `org.nixos.mcpx` (`configuration.nix`) | `/usr/local/libexec/mcpx/mcpx`, a root-owned copy of a store wrapper refreshed at activation (fixed path, so macOS lists it as "mcpx"; activation restarts the agent when the copy changes), that runs `mcpx --config ~/.config/mcpx/config.json stop`, then `exec mcpx daemon --config …` | a unix socket `~/.local/state/mcpx/daemon-<hash>.sock`, plus a loopback HTTP port | `~/Library/Logs/mcpx.log` (was `/tmp/mcpx.err.log`, emptied at boot), `~/.local/state/mcpx/logs/mcpx-<date>.jsonl` |
+| service-monitor | `org.nixos.service-events` (`configuration.nix`) | `service-monitor` from `pkgs/service-events` | nothing | `~/Library/Logs/nix-services/events.jsonl` (see [the service event log](#the-service-event-log)) |
 
-The desktop app (`/Applications/Nix Apps/OpenChamber.app`) is only a window onto
-the server at port 3000 (`OPENCHAMBER_SERVER_URL`, `OPENCHAMBER_SKIP_LOCAL_SERVER=1`
-in `launchd.user.envVariables`). A second app at `/Applications/OpenChamber.app`
-(version 2.1.0, installed by hand) is not managed by nix and goes stale.
+The desktop app (`/Applications/Nix Apps/OpenChamber.app`) is meant to be only a
+window onto the server at port 3000. It decides that from
+`OPENCHAMBER_SERVER_URL` and `OPENCHAMBER_SKIP_LOCAL_SERVER=1`, which it reads
+after merging the **login shell's** environment (`packages/electron/main.mjs`,
+`inheritUserShellEnv`, then `shouldSkipLocalServer`). They are set in
+`environment.variables` for that reason. `launchd.user.envVariables` alone is
+applied by `launchctl setenv` during activation and is gone after every reboot.
+Without them the app runs its own server (`0.0.0.0:<random port>`, reachable from
+the LAN) and its own OpenCode beside the agent's. Both OpenChamber servers then
+share `~/.config/openchamber/managed-opencode`. Before developing-today/openchamber
+`93eecbf7b` they killed each other's OpenCode every 30 minutes; see
+[What a deploy does to connections](#what-a-deploy-does-to-connections).
+Check which you have: `lsof -nP -a -p $(pgrep -f 'OpenChamber.app/Contents/MacOS/OpenChamber$') -iTCP -sTCP:LISTEN`
+should list nothing.
+
+A second app at `/Applications/OpenChamber.app` (version 2.1.0, installed by hand)
+is not managed by nix and goes stale.
 
 The terminal UI runs its own shared OpenCode service (`opencode serve --service`,
-state in `~/.local/state/opencode/service.json`), separate from OpenChamber's.
+state in `~/.local/state/opencode/service.json`), separate from OpenChamber's. The
+first terminal client starts it detached, in its own process group with no
+terminal, so closing that terminal does not stop it; it is reparented to launchd
+and has no idle exit (dezren39/nix#669).
 Both open the one database `~/.local/share/opencode/opencode.db` (`OPENCODE_DB`,
 forced by the wrapper in `flake.nix`).
 
@@ -60,8 +77,9 @@ once. `home.activation.openchamberDeploy` decides instead:
 - After linking, it checks that `start` resolves to an executable and fails the
   activation otherwise; launchd's only signal for a bad link is exit 78.
 
-The start script puts mcpx's store path on OpenChamber's PATH, so **every mcpx
-update also changes the start script and restarts OpenChamber**.
+The start script names mcpx, git and openssh through `/run/current-system/sw/bin`,
+not their store paths, so updating them no longer changes the deploy key. Before
+dezren39/nix#663 every mcpx update restarted OpenChamber.
 
 ### OpenCode (handover)
 
@@ -179,6 +197,84 @@ log, and `just switch` exits non-zero. Rollbacks skip it. One-shot agents
 A passing `just build` tests none of this. Activation scripts, launchd agents and
 this check only run on `just switch`, which needs sudo and the user.
 
+## What a deploy does to connections
+
+Investigated 2026-10-22 (dezren39/nix#670) from `~/Library/Logs/OpenChamber/main.log`,
+`~/Library/Logs/openchamber.log`, `~/.local/share/opencode/log/opencode.log` and
+the process table.
+
+- **Two services, not one.**
+  - The boot service is the launchd agent `org.nixos.openchamber` (RunAtLoad,
+    KeepAlive): `openchamber serve` on `127.0.0.1:3000`, plus the OpenCode it
+    manages.
+  - The desktop app should only be a window onto it. But when it starts without
+    `OPENCHAMBER_SKIP_LOCAL_SERVER`, it runs a second OpenChamber server inside
+    the app, with its own OpenCode, and the UI uses that one. This is what
+    happened from the 2026-10-21 reboot onward, because the variable was only in
+    `launchctl setenv`.
+- **A deploy replaces the boot service only when its deploy key changes:** a new
+  OpenChamber, a new start script, or a new UI password, through `launchctl
+  kickstart -k`.
+  - Before #663, every mcpx, git or openssh update counted as a new start script.
+  - A new OpenCode alone is handed over in place (SIGHUP).
+  - A changed plist restarts the agent from nix-darwin's launchd step, which
+    runs before home-manager.
+  - The desktop app is never restarted by a switch. Its bundle in
+    `/Applications/Nix Apps` is replaced underneath it.
+- **What dropped the connections:**
+  - Mostly not the deploys. The two servers shared
+    `~/.config/openchamber/managed-opencode`. Each read the other's OpenCode as
+    its own predecessor, logged `handoff (binary-changed)` because their
+    binaries differ, and drained it 30 minutes later.
+  - The other server's health check then saw its OpenCode exit (exit 130) and
+    started a new one, and the cycle repeated.
+  - Every hour at about :15, the desktop app's OpenCode was stopped with its
+    busy sessions in it: 6 at 12:15 on 2026-10-22. For about 5 s every request
+    failed with `ECONNREFUSED`.
+- **Why they did not resume:** the turns running in that OpenCode were
+  interrupted ("shutdown ended with sessions or requests still running;
+  interrupting them"), not paused. The clients reconnected to the new OpenCode
+  within seconds, but the work in flight was gone.
+- **Fixes:**
+  - The login-shell variables (`configuration.nix`), so the app attaches to the
+    agent.
+  - developing-today/openchamber `93eecbf7b` and follow-ups (pinned here from
+    `b4c7ec9`): a server never adopts, hands over from or drains an OpenCode
+    another live server owns.
+  - #663: mcpx updates no longer restart OpenChamber.
+- **Separately, every idle event stream was reopened every 10.25 s.**
+  OpenChamber's 10 s stall window was shorter than OpenCode's 15 s heartbeat.
+  This is the `[PushWatcher] connected` line that made up about 80% of both logs
+  (#668).
+
+## The service event log
+
+`~/Library/Logs/nix-services/events.jsonl`, one JSON object per line, written by
+the `org.nixos.service-events` agent (`pkgs/service-events/monitor.py`, sampling
+every 5 s) and by `service-event` calls in scripts. Read it with `just
+service-events` (the last 50) or `just service-events 500`. It records names,
+pids, ports, exit codes and store paths, never secrets.
+
+| source | event | means |
+|---|---|---|
+| service-monitor | `service.start`, `service.exit` | a watched launchd job got a new pid or lost one (`label`, `pid`, `previous_pid`, `last_exit_status`) |
+| service-monitor | `service.running`, `process.running` | what was already running when the monitor started |
+| service-monitor | `process.start`, `process.exit` | an OpenChamber server (`openchamber-server`, `openchamber-desktop`, `openchamber-dev`), an `opencode` or `opencode-service`, or an `mcpx-daemon` started or exited, with its parent's role |
+| service-monitor | `conn.drop` | a server exited while clients were connected (`count`, `ports`, `cause: server-exit`) |
+| service-monitor | `conn.reconnect` | a replacement (same role, same parent) took new connections after a drop (`gap_s`) |
+| service-monitor | `conn.close` | connections open 30 s or longer (streams, sockets) closed while the server stayed up |
+| service-monitor | `conn.stats` | every 5 minutes per server: connections opened and closed |
+| service-monitor | `log.rotate` | an agent log passed 20 MB and was rotated (copy, then truncate; 3 kept) |
+| rebuild | `switch.begin`, `switch.activated`, `switch.fail`, `switch.incomplete`, `switch.recorded` | a `just switch`. Activation output goes to `~/Library/Logs/nix-services/switch-<time>.log`; `switch.incomplete` means `/run/current-system` did not move (#656) |
+| openchamber-deploy | `deploy.restart`, `deploy.opencode-handover`, `deploy.unchanged` | what the switch decided for OpenChamber, with `cause` (`first-deploy`, `start-script-changed`, `ui-password-changed`, `opencode-changed`) |
+| openchamber-agent, mcpx-agent | `agent.start` | the agent's start script ran (pid, store path) |
+
+Limits:
+- It samples, so a connection shorter than about 5 s may never be seen.
+- It cannot see inside a connection. Whether a client re-subscribed is in the
+  apps' own logs.
+- It starts with the first switch that includes it.
+
 ## Debugging
 
 - **Read launchd's view first:** `launchctl print gui/$(id -u)/<label>` (state,
@@ -199,6 +295,13 @@ this check only run on `just switch`, which needs sudo and the user.
   with no daemon; `mcpx ls` does not.
 - **OpenChamber "Unreachable" / connection refused on 3000:** the agent is not
   running; start with `launchctl print`. 401s are the UI password, not a fault.
+- **Sessions interrupted, or "OpenCode restarted while a response was still
+  running":** `just service-events 500` and look for `process.exit` of `opencode`
+  next to `conn.drop`. Then check that the desktop app runs no server of its own
+  ([What runs](#what-runs)).
+- **A switch that did not finish:** the newest
+  `~/Library/Logs/nix-services/switch-*.log` has the activation's output. It ends
+  where activation stopped.
 
 ## Credentials these services hold
 
