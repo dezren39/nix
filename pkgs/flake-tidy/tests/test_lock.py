@@ -1703,6 +1703,95 @@ class TestExtractFailedInputMultiWordSpan:
         }
 
 
+class TestExtractFailedInputPrimedSpanEnd:
+    """#733: PR #732's span tracker in _rest_delimiter_quotes
+    counted a closing run per quote, so a following span quoting
+    a prime-ending name ('power users'') closed at its first
+    prime and the second prime — preceded by a quote, not a word
+    character — opened a phantom span that was never closed.
+    The genuine close was left with an odd delimiter count and
+    rejected, and a later candidate returned a swallowed name:
+    a regression of the multi-word cases #731/#732 fixed. A
+    span's closing run now counts as the single delimiter it
+    is — the primes before its last quote are name text, as
+    _wrapped_name already treats a doubled quote in the name
+    itself."""
+
+    def test_multi_word_span_quoting_primed_name(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users''"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'my flake''"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the 'power users'' flake"
+        ) == ("nixpkgs", None)
+
+    def test_primed_span_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the 'the registry'' thing"
+        ) == (None, "nixpkgs")
+
+    def test_single_word_span_quoting_primed_name(self):
+        """The single-word shape also failed (pre-existing, same
+        root area): the span's close at the first prime stranded
+        the second prime as a phantom opening."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'other''"
+        ) == ("nixpkgs", None)
+
+    def test_span_quoting_double_primed_name(self):
+        """A run of three: two primes of name text plus the
+        span's close is still the one closing delimiter."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'nixpkgs'''"
+        ) == ("nixpkgs", None)
+
+    def test_primed_wrapper_name_then_primed_span(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs'' and then 'other''"
+        ) == ("nixpkgs'", None)
+
+    def test_primed_span_with_final_possessive(self):
+        """Both orders: the possessive discount and the primed
+        span's closing run must each be judged correctly in one
+        line."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the users' flake"
+            " and then 'power users''"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users''"
+            " in the users' flake"
+        ) == ("nixpkgs", None)
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #733 harm, end to end: the swallowed name matches
+        no input, so the override comes back empty and the robust
+        lock retry silently targets nothing."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users''"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)

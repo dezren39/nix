@@ -2707,9 +2707,14 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # never recognised because the word walk stopped at the
     # hyphen: the parity now tracks quoted spans in the rest (a
     # span's closing quote always counts) and the possessive
-    # walk crosses a flanked hyphen (#731).  If no quote
-    # qualifies, the name is genuinely ambiguous and the line
-    # yields no match rather than a truncated prefix.
+    # walk crosses a flanked hyphen (#731).  A span quoting a
+    # prime-ending name ends in a run of quotes ('power
+    # users'') whose second prime the span tracker mistook
+    # for a new span's opening, stranding the parity again:
+    # a closing run now counts as the single delimiter it
+    # is, its earlier primes being name text (#733).  If no
+    # quote qualifies, the name is genuinely ambiguous and
+    # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
         name = _wrapped_name(line, "while updating the flake input '")
         if name is not None:
@@ -2831,25 +2836,44 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     wrapper's own close seen from an earlier in-name candidate,
     which counts) and never opens a span, so a possessive after
     an in-name apostrophe's genuine close is still judged on its
-    own rather than swallowed by a phantom span."""
+    own rather than swallowed by a phantom span.
+
+    A span quoting a prime-ending name ends in a run of quotes
+    ('power users''): the primes before the run's last quote are
+    name text and the last quote is the span's close, so the
+    whole run is the span's single closing delimiter.  Counting
+    the run per quote closed the span at its first prime and
+    then treated the second prime — preceded by a quote, not a
+    word character — as the opening of a new span that was
+    never closed, stranding the parity and rejecting the
+    genuine close (#733)."""
     count = 0
     in_span = False
-    for j in range(i + 1, len(line)):
+    j = i + 1
+    while j < len(line):
         if line[j] != "'":
+            j += 1
             continue
         if _is_word_apostrophe(line, j):
+            j += 1
             continue
         if in_span:
             count += 1
             in_span = False
+            while j + 1 < len(line) and line[j + 1] == "'":
+                j += 1  # primes in the span's name, before its close
+            j += 1
             continue
         if not (line[j - 1].isalnum() or line[j - 1] == "_"):
             count += 1
             in_span = True
+            j += 1
             continue
         if _is_final_possessive(line, i, j):
+            j += 1
             continue
         count += 1
+        j += 1
     return count
 
 
