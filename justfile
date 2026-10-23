@@ -57,6 +57,47 @@ context7-login:
     echo "Context7 still works anonymously; this only raises the rate limit." >&2
     exit 1
 
+# Rotate the managed OpenCode password and agent tool token (stops OpenCode)
+[group('services')]
+openchamber-rotate-credentials:
+    #!/usr/bin/env bash
+    # OpenChamber reuses both across restarts on purpose, so only a start with
+    # no saved state makes new ones (docs/services.md, "Credentials these
+    # services hold"; dezren39/nix#660). This interrupts running OpenCode turns.
+    # Values are never printed: only SHA-256 hashes are compared.
+    set -euo pipefail
+    state="$HOME/.config/openchamber/managed-opencode/state.json"
+    job="gui/$(id -u)/org.nixos.openchamber"
+    plist="$HOME/Library/LaunchAgents/org.nixos.openchamber.plist"
+    hashes() { python3 -c 'import hashlib,json,sys; d=json.load(open(sys.argv[1])); print(" ".join(hashlib.sha256(str(d.get(k,"")).encode()).hexdigest() for k in ("password","agentToolToken")))' "$1"; }
+    [ -f "$state" ] || { echo "no $state; nothing to rotate"; exit 0; }
+    # pgrep -f cannot read the desktop app's arguments; ps's comm column can.
+    desktop="$(ps -axo pid=,comm= | awk '$0 ~ /\/MacOS\/OpenChamber$/ && !p {p=$1} END {print p}')"
+    if [ -n "$desktop" ] && lsof -nP -a -p "$desktop" -iTCP -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "The desktop app runs its own OpenChamber server, which shares $state and would keep the old values."
+      echo "Quit it first (it reconnects to the agent on port 3000 when reopened), then run this again."
+      exit 1
+    fi
+    before="$(hashes "$state")"
+    pid="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("pid") or "")' "$state")"
+    read -r -p "Stop OpenChamber and its OpenCode (pid ${pid:-none}), interrupting running turns? [y/N] " ok
+    [ "$ok" = y ] || { echo "cancelled"; exit 1; }
+    launchctl bootout "$job" 2>/dev/null || true
+    if [ -n "$pid" ] && ps -p "$pid" -o command= | grep -q 'opencode.* serve'; then
+      kill "$pid"
+      for _ in $(seq 1 60); do ps -p "$pid" >/dev/null || break; sleep 0.5; done
+      ps -p "$pid" >/dev/null && kill -9 "$pid"
+    fi
+    rm -f "$state"
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+    for _ in $(seq 1 120); do [ -f "$state" ] && break; sleep 1; done
+    [ -f "$state" ] || { echo "OpenChamber has not written $state after 2 minutes; check ~/Library/Logs/openchamber.log"; exit 1; }
+    after="$(hashes "$state")"
+    read -r bp bt <<<"$before"; read -r ap at <<<"$after"
+    [ "$bp" != "$ap" ] && echo "password: rotated" || { echo "password: UNCHANGED"; exit 1; }
+    [ "$bt" != "$at" ] && echo "agent tool token: rotated" || { echo "agent tool token: UNCHANGED"; exit 1; }
+    curl -s -o /dev/null -w "OpenChamber on :3000 answers %{http_code}\n" http://127.0.0.1:3000/
+
 # Show the last N service start/stop/connection events (docs/services.md)
 [group('services')]
 service-events n="50":

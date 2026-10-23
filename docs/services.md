@@ -31,7 +31,7 @@ the LAN) and its own OpenCode beside the agent's. Both OpenChamber servers then
 share `~/.config/openchamber/managed-opencode`. Before developing-today/openchamber
 `93eecbf7b` they killed each other's OpenCode every 30 minutes; see
 [What a deploy does to connections](#what-a-deploy-does-to-connections).
-Check which you have: `lsof -nP -a -p $(pgrep -f 'OpenChamber.app/Contents/MacOS/OpenChamber$') -iTCP -sTCP:LISTEN`
+Check which you have: `lsof -nP -a -p $(ps -axo pid=,comm= | awk '/MacOS\/OpenChamber$/ {print $1}') -iTCP -sTCP:LISTEN`
 should list nothing.
 
 A second app at `/Applications/OpenChamber.app` (version 2.1.0, installed by hand)
