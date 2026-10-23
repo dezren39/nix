@@ -183,8 +183,19 @@ in
       initContent = ''
         ${sharedShellInit}
 
-        # opencode: shell completions (yargs-based)
-        eval "$(opencode completion 2>/dev/null)"
+        # opencode: shell completions (yargs-based, same hook as bash/fish)
+        # Lazy: opencode runs only when a completion is requested, never at
+        # shell start-up. (The old `eval "$(opencode completion)"` started the
+        # binary in every new shell — and OpenCode v2 has no `completion`
+        # command; it treats the word as a directory and launches the TUI.)
+        _opencode_yargs_completions() {
+          local reply
+          local si=$IFS
+          IFS=$'\n' reply=($(COMP_CWORD="$((CURRENT-1))" COMP_LINE="$BUFFER" COMP_POINT="$CURSOR" opencode --get-yargs-completions "''${words[@]}"))
+          IFS=$si
+          _describe 'values' reply
+        }
+        compdef _opencode_yargs_completions opencode
       '';
     };
     fish = {
