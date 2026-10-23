@@ -1308,6 +1308,58 @@ class TestExtractFailedInputDotted:
         ) == ("my.input", None)
 
 
+class TestExtractFailedInputGeneralNames:
+    """#712: extract_failed_input's character set still rejected every
+    other quote-requiring name — my+input, my input, my@input all
+    returned (None, None), so the robust lock retry silently gave up
+    for exactly the names the content scanners (#705) accept. The
+    parser now takes a name structurally (any character except the
+    wrapping quote, "/" and newline, with the #691 apostrophe rules),
+    not one character at a time."""
+
+    def test_plus_input_path(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my+input'"
+        ) == ("my+input", None)
+
+    def test_space_input_path(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my input'"
+        ) == ("my input", None)
+
+    def test_at_input_path(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my@input'"
+        ) == ("my@input", None)
+
+    def test_general_nested_segment(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'parent/my+input'"
+        ) == ("parent/my+input", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my input/child@x'"
+        ) == ("my input/child@x", None)
+
+    def test_general_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:my+input' in the registry"
+        ) == (None, "my+input")
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:my@input' in the registry"
+        ) == (None, "my@input")
+
+    def test_general_primed_and_following_text(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my+input''"
+        ) == ("my+input'", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my+input' and then 'other'"
+        ) == ("my+input", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my input' and then 'other'"
+        ) == ("my input", None)
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
