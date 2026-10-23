@@ -1023,6 +1023,105 @@ class TestRemoveInputUrlLine:
         assert new_content == sample_flake_nix
 
 
+class TestRemoveInputUrlLineSharedLine:
+    """#700: when the url shares its line with other declarations, only
+    the ``url = ...;`` assignment is removed — deleting the whole line
+    took the rest of the input with it.  These are the shapes
+    ``check_url_follows_conflicts`` (#642) and ``apply_dedup`` act on."""
+
+    def test_one_line_block_keeps_follows(self):
+        """the run_all conflict-fix shape: one-line url+follows block
+        loses only its url, not the whole input."""
+        content = """{
+  inputs = {
+    foo = { url = "github:x/y"; follows = "nixpkgs"; };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:x/y" not in new_content
+        assert 'foo = { follows = "nixpkgs"; };' in new_content
+        # and the conflict the checker reported is actually resolved
+        assert flake_tidy.check_url_follows_conflicts(new_content) == []
+
+    def test_url_on_opening_line_keeps_block_header(self):
+        """url on a multi-line block's opening line: the header line
+        must survive, or the block's remaining attributes are orphaned
+        directly inside ``inputs = { ... }``."""
+        content = """{
+  inputs = {
+    foo = { url = "github:x/y";
+      follows = "nixpkgs";
+    };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:x/y" not in new_content
+        assert "foo = {" in new_content
+        assert 'follows = "nixpkgs";' in new_content
+        assert flake_tidy.check_url_follows_conflicts(new_content) == []
+
+    def test_one_line_block_keeps_other_attributes(self):
+        """a one-line block's other attributes (and nested follows)
+        survive the url removal."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    foo = { url = "github:a/b"; inputs.nixpkgs.follows = "nixpkgs"; };
+    bar.url = "github:c/d";
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:a/b" not in new_content
+        assert 'foo = { inputs.nixpkgs.follows = "nixpkgs"; };' in new_content
+        assert 'bar.url = "github:c/d";' in new_content
+
+    def test_nested_only_url_is_refused(self):
+        """when the only ``url =`` on the located line belongs to a
+        nested override, removal refuses instead of deleting the line
+        (or the nested input's url)."""
+        content = """{
+  inputs = {
+    foo = { inputs = { bar = { url = "github:b/b"; }; }; };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is False
+        assert new_content == content
+
+    def test_sole_line_still_deleted_and_comment_kept(self):
+        """guard: a sole-content url line is still deleted whole, and a
+        trailing comment on a url line survives the excision."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:x/y"; # pinned for a reason
+      follows = "nixpkgs";
+    };
+    bar = {
+      url = "github:b/b";
+      follows = "nixpkgs";
+    };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:x/y" not in new_content
+        assert "# pinned for a reason" in new_content
+        new_content, removed = flake_tidy.remove_input_url_line(new_content, "bar")
+        assert removed is True
+        assert "github:b/b" not in new_content
+        assert new_content.count("url =") == 0
+        assert new_content.count('follows = "nixpkgs";') == 2
+
+
 class TestFollowsTargetForInput:
     def test_block_style(self):
         """finds follows target in block style."""

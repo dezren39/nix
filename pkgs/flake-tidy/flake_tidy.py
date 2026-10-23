@@ -2126,7 +2126,10 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
                 if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
                     depth = _brace_delta(stripped)
-                    # Check if url is on the same line (unlikely but safe)
+                    # Check if url is on the same line — the line is
+                    # shared with the block header, so callers must not
+                    # delete it whole (#700; remove_input_url_line
+                    # excises just the assignment).
                     if re.search(r"\burl\s*=", stripped):
                         return i
                     if depth <= 0:
@@ -2156,18 +2159,128 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
     return None
 
 
+def _excise_url_assignment(line: str, input_name: str) -> str | None:
+    """Remove just the ``url = ...;`` assignment from one line (#700).
+
+    The assignment may share the line with other declarations — a
+    one-line block (``foo = { url = "..."; follows = "nixpkgs"; };``),
+    a block header (``foo = { url = "...";``), or a dotted line carrying
+    a second assignment — in which case deleting the whole line would
+    take the rest of the input with it.  Returns the line with only the
+    url assignment excised (``""`` when nothing else remains), or *None*
+    when no url assignment can be excised safely: no terminating ``;``
+    on the line, or the only ``url =`` on it belongs to a nested
+    attribute path / a deeper block level.
+    """
+    esc = re.escape(input_name)
+
+    # Dotted form: the assignment starts the line's own content.
+    m = re.match(rf"\s*(?:inputs\.)?{esc}\.url\s*=\s*", line)
+    if m:
+        start = len(line) - len(line.lstrip())
+        value_start = m.end()
+    else:
+        # Block form: find a ``url`` token at a statement boundary
+        # (start of line, after ``{`` or after ``;``), string/comment
+        # aware like ``_brace_counts``.  On the input's own block-opening
+        # line its attributes sit one level below the header's ``{``;
+        # on any other line they sit at the line's starting level.
+        stripped = line.strip()
+        is_open_line = (
+            re.match(rf"(?:inputs\.)?{esc}\s*=\s*\{{", stripped) is not None
+        )
+        target_depth = 1 if is_open_line else 0
+        start = -1
+        value_start = -1
+        depth = 0
+        in_string = False
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if in_string:
+                if ch == "\\":
+                    i += 1  # skip the escaped character as well
+                elif ch == '"':
+                    in_string = False
+                i += 1
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "#":
+                break
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            elif depth == target_depth and (
+                line.startswith("url", i)
+                and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] in "_'-"))
+            ):
+                prev = line[:i].rstrip()
+                if not prev or prev.endswith("{") or prev.endswith(";"):
+                    vm = re.match(r"\s*=\s*", line[i + 3 :])
+                    if vm:
+                        start = i
+                        value_start = i + 3 + vm.end()
+                        break
+            i += 1
+        if start < 0:
+            return None
+
+    # The assignment ends at the first ``;`` outside a string.
+    in_string = False
+    semi = -1
+    i = value_start
+    while i < len(line):
+        ch = line[i]
+        if in_string:
+            if ch == "\\":
+                i += 1  # skip the escaped character as well
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "#":
+            break
+        elif ch == ";":
+            semi = i
+            break
+        i += 1
+    if semi < 0:
+        return None
+
+    left = line[:start]
+    right = line[semi + 1 :]
+    if left.strip() and right.strip():
+        return left.rstrip() + " " + right.strip()
+    if left.strip():
+        return left.rstrip()
+    if right.strip():
+        # ``left`` is pure indentation (or empty); keep it so a trailing
+        # comment or a following assignment keeps its indent.
+        return left + right.strip()
+    return ""
+
+
 def remove_input_url_line(content: str, input_name: str) -> tuple[str, bool]:
-    """Remove the ``url = ...`` line for a root input.
+    """Remove the ``url = ...`` assignment for a root input.
 
     Returns ``(new_content, was_removed)``.  If the input has no url line
-    the content is returned unchanged.
+    the content is returned unchanged.  When the url shares its line
+    with other declarations only the assignment is excised (#700); if
+    it cannot be excised safely the content is returned unchanged.
     """
     line_no = find_input_url_line(content, input_name)
     if line_no is None:
         return content, False
     lines = content.split("\n")
-    removed_line = lines[line_no].strip()
-    del lines[line_no]
+    excised = _excise_url_assignment(lines[line_no], input_name)
+    if excised is None:
+        return content, False
+    if excised.strip() == "":
+        del lines[line_no]
+    else:
+        lines[line_no] = excised
     return "\n".join(lines), True
 
 
