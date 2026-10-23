@@ -2712,7 +2712,11 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # users'') whose second prime the span tracker mistook
     # for a new span's opening, stranding the parity again:
     # a closing run now counts as the single delimiter it
-    # is, its earlier primes being name text (#733).  If no
+    # is, its earlier primes being name text (#733) — unless
+    # a word character follows the run, which makes its last
+    # quote the opening of the next, adjacently written span
+    # ('a''b'), so the run counts as close plus opening
+    # (#743).  If no
     # quote qualifies, the name is genuinely ambiguous and
     # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
@@ -2846,7 +2850,13 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     then treated the second prime — preceded by a quote, not a
     word character — as the opening of a new span that was
     never closed, stranding the parity and rejecting the
-    genuine close (#733)."""
+    genuine close (#733).  The run is only collapsed that way
+    when what follows it ends the quoted phrase (a space,
+    punctuation or end-of-line): when a word character follows
+    a multi-quote run, the run is two delimiters — this span's
+    close and the opening of the next span written adjacently
+    ('a''b') — and both count, with the next span tracked
+    (#743)."""
     count = 0
     in_span = False
     j = i + 1
@@ -2858,11 +2868,27 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
             j += 1
             continue
         if in_span:
-            count += 1
+            # Scan the whole closing run before judging it: what
+            # follows the run decides what its last quote is.
+            run_end = j
+            while run_end + 1 < len(line) and line[run_end + 1] == "'":
+                run_end += 1
+            count += 1  # the span's close; earlier run quotes are primes
+            after = line[run_end + 1] if run_end + 1 < len(line) else ""
+            if run_end > j and (after.isalnum() or after == "_"):
+                # A word character after a multi-quote run: the
+                # run's last quote opens the next span, written
+                # adjacently ('a''b') — it is a delimiter too, and
+                # the span it opens stays tracked so its own close
+                # counts.  Collapsing the whole run to the close —
+                # the #733 reading, right when a space, punctuation
+                # or end-of-line follows — ate that opening, flipped
+                # the parity and rejected the genuine close (#743).
+                count += 1
+                j = run_end + 1
+                continue  # in_span stays True: the next span is open
             in_span = False
-            while j + 1 < len(line) and line[j + 1] == "'":
-                j += 1  # primes in the span's name, before its close
-            j += 1
+            j = run_end + 1
             continue
         if not (line[j - 1].isalnum() or line[j - 1] == "_"):
             count += 1

@@ -1792,6 +1792,80 @@ class TestExtractFailedInputPrimedSpanEnd:
         }
 
 
+class TestExtractFailedInputAdjacentSpans:
+    """#743: PR #740's closing-run collapse is unconditional, so
+    it also swallows a run that is two delimiters — the close of
+    one span and the opening of the next, written adjacently
+    ('a''b').  The second span's opening was eaten as name text,
+    its close was judged outside any span, the parity flipped,
+    and a later candidate returned a swallowed name.  A run is
+    only the #733 single close when what follows it ends the
+    quoted phrase; a word character after the run makes its
+    last quote the next span's opening."""
+
+    def test_adjacent_spans_after_the_name(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'a''b'"
+        ) == ("nixpkgs", None)
+
+    def test_adjacent_spans_then_a_third_span(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'a''b' and 'c'"
+        ) == ("nixpkgs", None)
+
+    def test_adjacent_spans_before_more_prose(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the 'a''b' flake"
+        ) == ("nixpkgs", None)
+
+    def test_adjacent_spans_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the 'a''b' thing"
+        ) == (None, "nixpkgs")
+
+    def test_primed_span_adjacent_to_next_span(self):
+        """A run of three with a word after it: the primed span's
+        prime is name text, then close plus the next opening."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users'''b'"
+        ) == ("nixpkgs", None)
+
+    def test_primed_span_end_still_a_single_close(self):
+        """Guard (#733 unchanged): a run followed by a space or
+        end-of-line is still the span's one closing delimiter."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users''"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the 'power users'' flake"
+        ) == ("nixpkgs", None)
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #743 harm, end to end: the swallowed name matches
+        no input, so the override comes back empty and the robust
+        lock retry silently targets nothing."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'a''b'"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
