@@ -180,3 +180,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #679 completion                       | 2026-10-22 | #679, #680 |
 | flake-tidy primed input names visible to block scanners        | 2026-10-22 | #683, #684 |
 | flake-tidy primed names visible to deep-follows overrides      | 2026-10-22 | #685, #688 |
+| ROADMAP Done records the #652, #679 and #683 completions       | 2026-10-22 | #686, #687 |
+| ROADMAP Done records the #685 completion                       | 2026-10-22 | #689, #690 |
+| flake-tidy `extract_failed_input` keeps primed names intact    | 2026-10-22 | #691, #692 |
