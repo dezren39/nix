@@ -2621,16 +2621,20 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # joined by "/"): the greedy capture takes a trailing apostrophe
     # as part of the name and leaves the final quote as the wrapper,
     # while following text on the line (separated by characters
-    # outside the name set) is never swallowed.
+    # outside the name set) is never swallowed.  A name may also
+    # contain a dot — a dotted name is a single input, spelled quoted
+    # in flake.nix (#705) — so "." belongs in the segment set too
+    # (#710); the pre-#692 [^']+ capture parsed dotted names, and the
+    # charset narrowing for primed names dropped them by accident.
     for line in stderr.split("\n"):
         m = re.search(
             r"while updating the flake input "
-            r"'([a-zA-Z0-9_'-]+(?:/[a-zA-Z0-9_'-]+)*)'",
+            r"'([a-zA-Z0-9_.'-]+(?:/[a-zA-Z0-9_.'-]+)*)'",
             line,
         )
         if m:
             input_path = m.group(1)
-        m = re.search(r"cannot find flake 'flake:([a-zA-Z0-9_'-]+)'", line)
+        m = re.search(r"cannot find flake 'flake:([a-zA-Z0-9_.'-]+)'", line)
         if m:
             flake_name = m.group(1)
     return input_path, flake_name
