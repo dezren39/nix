@@ -203,3 +203,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #722 and #727 completions             | 2026-10-23 | #729, #730 |
 | flake-tidy `extract_failed_input` handles multi-word spans     | 2026-10-23 | #731, #732 |
 | ROADMAP Done records the #724, #729 and #731 completions       | 2026-10-23 | #734, #735 |
+| ROADMAP Done records the #734 completion                       | 2026-10-23 | #736, #737 |
