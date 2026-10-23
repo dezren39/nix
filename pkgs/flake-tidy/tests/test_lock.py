@@ -1198,6 +1198,82 @@ class TestBuildOverrideInputsIndirect:
         }
 
 
+class TestExtractFailedInputPrimed:
+    """#691: extract_failed_input truncated primed names at the
+    apostrophe — Nix wraps the name in single quotes verbatim, so
+    nixpkgs' appears as 'nixpkgs'' in stderr. The truncated path
+    missed in build_override_inputs and in _match_failure_to_proposal,
+    defeating the robust lock retry."""
+
+    def test_primed_input_path(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs''"
+        ) == ("nixpkgs'", None)
+
+    def test_primed_path_segments(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'parent/child''"
+        ) == ("parent/child'", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'parent'/child'"
+        ) == ("parent'/child", None)
+
+    def test_unprimed_input_path_unchanged(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs-unstable'"
+        ) == ("nixpkgs-unstable", None)
+
+    def test_following_text_not_swallowed(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs'' and then 'other'"
+        ) == ("nixpkgs'", None)
+
+    def test_primed_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:cl-nix-lite'' in the registry"
+        ) == (None, "cl-nix-lite'")
+
+    def test_unprimed_flake_name_unchanged(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs'"
+        ) == (None, "nixpkgs")
+
+    def test_primed_failure_produces_override_and_retry(self, monkeypatch):
+        """End-to-end run_nix_flake_lock_robust shape: a primed failed
+        input resolves through the lock to an override and the retry
+        is attempted with it."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs'": "np"}},
+                "np": {
+                    "original": {
+                        "type": "github",
+                        "owner": "example",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        seen_overrides = []
+        calls = {"n": 0}
+
+        def fake_lock(_flake_dir, overrides=None):
+            calls["n"] += 1
+            seen_overrides.append(dict(overrides) if overrides else {})
+            if calls["n"] == 1:
+                return False, "… while updating the flake input 'nixpkgs''"
+            return True, ""
+
+        monkeypatch.setattr(flake_tidy, "run_nix_flake_lock", fake_lock)
+        ok, err = flake_tidy.run_nix_flake_lock_robust(
+            "/nonexistent", lock_data=lock
+        )
+        assert (ok, err) == (True, "")
+        assert seen_overrides[-1] == {"nixpkgs'": "github:example/nixpkgs"}
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)

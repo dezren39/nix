@@ -2432,11 +2432,24 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     """
     input_path = None
     flake_name = None
+    # Nix wraps the name in single quotes verbatim, and a valid input
+    # name may itself end in (or contain) an apostrophe — the primed
+    # names the content scanners accept as [a-zA-Z0-9_'-]+ (#683/#685).
+    # A [^']+ capture therefore truncates nixpkgs' to nixpkgs.
+    # Instead, capture only valid name characters (path segments
+    # joined by "/"): the greedy capture takes a trailing apostrophe
+    # as part of the name and leaves the final quote as the wrapper,
+    # while following text on the line (separated by characters
+    # outside the name set) is never swallowed.
     for line in stderr.split("\n"):
-        m = re.search(r"while updating the flake input '([^']+)'", line)
+        m = re.search(
+            r"while updating the flake input "
+            r"'([a-zA-Z0-9_'-]+(?:/[a-zA-Z0-9_'-]+)*)'",
+            line,
+        )
         if m:
             input_path = m.group(1)
-        m = re.search(r"cannot find flake 'flake:([^']+)'", line)
+        m = re.search(r"cannot find flake 'flake:([a-zA-Z0-9_'-]+)'", line)
         if m:
             flake_name = m.group(1)
     return input_path, flake_name
