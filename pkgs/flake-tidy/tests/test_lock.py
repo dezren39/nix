@@ -1448,6 +1448,91 @@ class TestExtractFailedInputApostropheContinuation:
         }
 
 
+class TestExtractFailedInputMultiPrimedPaths:
+    """#722: PR #720's rest-parity rule still truncated a path primed
+    in more than one segment ('a'/b'' -> a): the first segment's
+    prime leaves an even number of quotes after it, so it was taken
+    as the close. The same parity assumption swallowed prose when
+    following text held a possessive (nixpkgs' in the user's flake
+    -> nixpkgs' in the user). Quotes that can only continue a name
+    or a word are now never the close: a quote before "/" ends a
+    primed segment, a quote with a word character on both sides is
+    an apostrophe inside a word, and the rest parity counts only
+    delimiter quotes; a candidate name must also be a plausible
+    path, so an ambiguous line yields no match."""
+
+    def test_primed_nonfinal_and_final_segments(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'/b''"
+        ) == ("a'/b'", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'parent'/child''"
+        ) == ("parent'/child'", None)
+
+    def test_multi_primed_with_following_text(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'/b'' and then 'other'"
+        ) == ("a'/b'", None)
+
+    def test_multi_primed_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:a'b'' in the registry"
+        ) == (None, "a'b'")
+
+    def test_possessive_in_following_text_not_swallowed(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the user's flake"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs'' in the user's flake"
+        ) == ("nixpkgs'", None)
+
+    def test_unbalanced_following_text_yields_no_match(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'other"
+        ) == (None, None)
+
+    def test_extracted_path_overrides_the_right_input(self):
+        """The #722 harm, end to end: with both the unrelated input
+        a and the real path a'/b' in the lock, the override must
+        target the failing path, not its first segment."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "na", "a'": "np"}},
+                "na": {
+                    "original": {
+                        "type": "github",
+                        "owner": "example",
+                        "repo": "a-tool",
+                    }
+                },
+                "np": {
+                    "inputs": {"b'": "nb"},
+                    "original": {
+                        "type": "github",
+                        "owner": "example",
+                        "repo": "a-tool",
+                    }
+                },
+                "nb": {
+                    "original": {
+                        "type": "github",
+                        "owner": "example",
+                        "repo": "ab-tool",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'/b''"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "a'/b'": "github:example/ab-tool"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
