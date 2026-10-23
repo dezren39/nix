@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import functools
 import ipaddress
 import json
 import os
@@ -1519,24 +1520,8 @@ def get_input_file_order(content: str) -> list[str]:
     return order
 
 
-def _block_context_for_lines(content: str) -> list[str | None]:
-    """Return the enclosing block input name for each line.
-
-    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
-    A top-level dotted block (``inputs.someInput = { ... };``) counts
-    the same way (#655). For top-level dotted lines (outside any
-    block) returns ``None``.
-
-    This is approximate but sufficient: it tracks ``<name> = {`` opens
-    and ends a block when the structural brace depth (see
-    ``_brace_counts``) returns to the depth at which the block opened.
-    Tracking depth instead of looking for a line that is exactly
-    ``};`` also closes blocks that open and close on one line
-    (``foo = { url = "..."; };``) and blocks whose ``};`` shares a
-    line with the last attribute (#628) — exact-line matching left
-    those blocks open forever, so every later line in the inputs
-    section was attributed to them.
-    """
+@functools.lru_cache(maxsize=128)
+def _block_context_for_lines_cached(content: str) -> tuple[str | None, ...]:
     lines = content.split("\n")
     result: list[str | None] = [None] * len(lines)
     # Stacks of (block_name, brace depth just before the block opened)
@@ -1603,40 +1588,46 @@ def _block_context_for_lines(content: str) -> list[str | None]:
         if not pushed and stripped.startswith("}") and stack:
             result[i] = stack[-1][0]
 
-    return result
+    return tuple(result)
 
 
-def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
-    """Return the follows-path prefix a nested ``inputs = {`` scope proves.
+def _block_context_for_lines(content: str) -> list[str | None]:
+    """Return the enclosing block input name for each line.
 
-    For a line inside ``foo = { inputs = { ... }; }`` (a nested override
-    block inside the root input ``foo``'s block) returns ``["foo"]``: a
-    declaration ``nixpkgs.follows = "...";`` on such a line declares
-    ``inputs.foo.inputs.nixpkgs.follows``. Deeper shapes compose the
-    same way — inside ``foo``'s nested block, a ``bar = { inputs = {``
-    scope returns ``["foo", "bar"]``. Lines not directly inside a nested
-    ``inputs`` block return ``None``: in particular a line directly in
-    ``foo``'s own block (where ``nixpkgs.follows`` would declare
-    ``foo.nixpkgs.follows``, a different attribute) and a line inside a
-    named block *within* the nested block both return ``None`` (#647).
+    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
+    A top-level dotted block (``inputs.someInput = { ... };``) counts
+    the same way (#655). For top-level dotted lines (outside any
+    block) returns ``None``.
 
-    The opening line of the nested block itself also reports the prefix,
-    so a one-line ``inputs = { nixpkgs.follows = "..."; };`` is visible
-    to callers that judge the segment after the ``{``.
+    This is approximate but sufficient: it tracks ``<name> = {`` opens
+    and ends a block when the structural brace depth (see
+    ``_brace_counts``) returns to the depth at which the block opened.
+    Tracking depth instead of looking for a line that is exactly
+    ``};`` also closes blocks that open and close on one line
+    (``foo = { url = "..."; };``) and blocks whose ``};`` shares a
+    line with the last attribute (#628) — exact-line matching left
+    those blocks open forever, so every later line in the inputs
+    section was attributed to them.
     """
+    return list(_block_context_for_lines_cached(content))
+
+
+@functools.lru_cache(maxsize=128)
+def _nested_inputs_prefix_for_lines_cached(content: str) -> tuple[tuple[str, ...] | None, ...]:
     lines = content.split("\n")
-    result: list[list[str] | None] = [None] * len(lines)
+    result: list[tuple[str, ...] | None] = [None] * len(lines)
     # Stack of ("inputs", depth) / (name, depth); depth is the brace
     # depth just before that block opened.
     stack: list[tuple[str, int]] = []
     brace_depth = 0
 
-    def prefix_from_stack() -> list[str] | None:
+    def prefix_from_stack() -> tuple[str, ...] | None:
         seq = [name for name, _ in stack]
         if seq and seq[0] == "inputs":
             seq = seq[1:]
         if len(seq) >= 2 and seq[-1] == "inputs":
-            return [name for name in seq[:-1] if name != "inputs"]
+            res = [name for name in seq[:-1] if name != "inputs"]
+            return tuple(res)
         return None
 
     for i, line in enumerate(lines):
@@ -1662,7 +1653,29 @@ def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
         while stack and brace_depth <= stack[-1][1]:
             stack.pop()
 
-    return result
+    return tuple(result)
+
+
+def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
+    """Return the follows-path prefix a nested ``inputs = {`` scope proves.
+
+    For a line inside ``foo = { inputs = { ... }; }`` (a nested override
+    block inside the root input ``foo``'s block) returns ``["foo"]``: a
+    declaration ``nixpkgs.follows = "...";`` on such a line declares
+    ``inputs.foo.inputs.nixpkgs.follows``. Deeper shapes compose the
+    same way — inside ``foo``'s nested block, a ``bar = { inputs = {``
+    scope returns ``["foo", "bar"]``. Lines not directly inside a nested
+    ``inputs`` block return ``None``: in particular a line directly in
+    ``foo``'s own block (where ``nixpkgs.follows`` would declare
+    ``foo.nixpkgs.follows``, a different attribute) and a line inside a
+    named block *within* the nested block both return ``None`` (#647).
+
+    The opening line of the nested block itself also reports the prefix,
+    so a one-line ``inputs = { nixpkgs.follows = "..."; };`` is visible
+    to callers that judge the segment after the ``{``.
+    """
+    cached = _nested_inputs_prefix_for_lines_cached(content)
+    return [list(x) if x is not None else None for x in cached]
 
 
 def _nested_relative_path(follows_parts: list[str], prefix: list[str]) -> str | None:
@@ -1763,24 +1776,30 @@ def follows_exists_in_content(
         if len(follows_parts) >= 2
         else f'{follows_parts[0]}.follows = "{target}"'
     )
-    root_candidates = [full, relative_inputs]
+    # Bolt Optimization: Pre-normalize whitespace in candidate strings ONCE
+    # outside the loop to eliminate redundant re.sub calls inside the line loop.
+    root_candidates = [re.sub(r"\s+", " ", full), re.sub(r"\s+", " ", relative_inputs)]
 
     # Build candidate strings for BLOCK scope (inside follows_parts[0] block)
-    block_candidates: list[str] = []
+    raw_block_candidates: list[str] = []
     if len(follows_parts) >= 2:
         # Inside the block of follows_parts[0], the path is relative
         inner = (
             ".".join(f"inputs.{p}" for p in follows_parts[1:])
             + f'.follows = "{target}"'
         )
-        block_candidates.append(inner)
+        raw_block_candidates.append(inner)
         # bare follows for depth 2
         if len(follows_parts) == 2:
-            block_candidates.append(f'follows = "{target}"')
+            raw_block_candidates.append(f'follows = "{target}"')
     elif len(follows_parts) == 1:
         # Inside the block of the single part, bare follows matches
-        block_candidates.append(f'follows = "{target}"')
+        raw_block_candidates.append(f'follows = "{target}"')
+    block_candidates = [re.sub(r"\s+", " ", c) for c in raw_block_candidates]
 
+    # Bolt Optimization: _block_context_for_lines and _nested_inputs_prefix_for_lines
+    # are cached with @functools.lru_cache to avoid re-parsing flake.nix line-by-line
+    # across multiple analysis checks.
     block_context = _block_context_for_lines(content)
     nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
@@ -1809,14 +1828,12 @@ def follows_exists_in_content(
 
         if ctx is None:
             # Root scope: match full or relative forms
-            for c in root_candidates:
-                if re.sub(r"\s+", " ", c) == normalized:
-                    return True
+            if normalized in root_candidates:
+                return True
         elif ctx == first_part:
             # Inside the block of the first follows_parts element
-            for c in block_candidates:
-                if re.sub(r"\s+", " ", c) == normalized:
-                    return True
+            if normalized in block_candidates:
+                return True
 
     return False
 
