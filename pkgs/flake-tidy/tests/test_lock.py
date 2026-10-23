@@ -1274,6 +1274,40 @@ class TestExtractFailedInputPrimed:
         assert seen_overrides[-1] == {"nixpkgs'": "github:example/nixpkgs"}
 
 
+class TestExtractFailedInputDotted:
+    """#710: extract_failed_input returned (None, None) for dotted
+    names — a dotted name is a single input (spelled quoted in
+    flake.nix, #705), but the parser's segment set had no dot, a
+    regression from the pre-#692 [^']+ capture. On a miss the robust
+    lock retry gives up and flatten elimination fails every proposal.
+    """
+
+    def test_dotted_input_path(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my.input'"
+        ) == ("my.input", None)
+
+    def test_dotted_nested_segment(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'parent/my.input'"
+        ) == ("parent/my.input", None)
+
+    def test_dotted_and_primed_input_path(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my.input''"
+        ) == ("my.input'", None)
+
+    def test_dotted_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:my.input' in the registry"
+        ) == (None, "my.input")
+
+    def test_dotted_following_text_not_swallowed(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'my.input' and then 'other'"
+        ) == ("my.input", None)
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
