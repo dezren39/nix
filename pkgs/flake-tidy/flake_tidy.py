@@ -2640,7 +2640,7 @@ def _add_deep_follows_overrides(
 
             # Detect named input block: <name> = {
             if current_block is None and brace_depth == 1:
-                m = re.match(r"([a-zA-Z0-9_-]+)\s*=\s*\{", stripped)
+                m = re.match(r"([a-zA-Z0-9_'-]+)\s*=\s*\{", stripped)
                 if m:
                     current_block = m.group(1)
                     brace_depth += opens  # count the { we just matched
@@ -2653,11 +2653,11 @@ def _add_deep_follows_overrides(
             if current_block is not None:
                 # Look for: inputs.X.inputs.Y.follows (or .url, etc.)
                 m_deep = re.match(
-                    r"inputs\.([a-zA-Z0-9_-]+)(?:\.inputs\.([a-zA-Z0-9_-]+))+",
+                    r"inputs\.([a-zA-Z0-9_'-]+)(?:\.inputs\.([a-zA-Z0-9_'-]+))+",
                     stripped,
                 )
                 if m_deep:
-                    parts = re.findall(r"inputs\.([a-zA-Z0-9_-]+)", stripped)
+                    parts = re.findall(r"inputs\.([a-zA-Z0-9_'-]+)", stripped)
                     # Full path is current_block / parts[0] / parts[1] / ...
                     # The transitive inputs that need resolving are the
                     # intermediate ones: current_block/parts[0],
@@ -2668,7 +2668,7 @@ def _add_deep_follows_overrides(
 
                 # Also catch: inputs.X.follows (X is transitive of current_block)
                 m_shallow = re.match(
-                    r"inputs\.([a-zA-Z0-9_-]+)\.(follows|url)\b", stripped
+                    r"inputs\.([a-zA-Z0-9_'-]+)\.(follows|url)\b", stripped
                 )
                 if m_shallow and not m_deep:
                     # inputs.X.follows inside block = current_block/X is transitive
@@ -2691,11 +2691,11 @@ def _add_deep_follows_overrides(
         if stripped.startswith("#"):
             continue
         m = re.match(
-            r"inputs\.([a-zA-Z0-9_-]+)(?:\.inputs\.([a-zA-Z0-9_-]+))+",
+            r"inputs\.([a-zA-Z0-9_'-]+)(?:\.inputs\.([a-zA-Z0-9_'-]+))+",
             stripped,
         )
         if m and not in_inputs_section:
-            parts = re.findall(r"inputs\.([a-zA-Z0-9_-]+)", stripped)
+            parts = re.findall(r"inputs\.([a-zA-Z0-9_'-]+)", stripped)
             if len(parts) >= 2:
                 for i in range(2, len(parts) + 1):
                     path = "/".join(parts[:i])
