@@ -2691,9 +2691,18 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # a non-ASCII letter).  #720 counted every rest quote, so a path
     # primed in two segments ('a'/b'') looked closed at its first
     # prime and a possessive in following text (user's) was taken as
-    # a close, swallowing prose into the name (#722).  If no quote
-    # qualifies, the name is genuinely ambiguous and the line yields
-    # no match rather than a truncated prefix.
+    # a close, swallowing prose into the name (#722).  The parity
+    # likewise discounts a word-final possessive (users', James'):
+    # its word is a standalone prose word, preceded by whitespace
+    # and by further prose after the candidate close, whereas a
+    # delimiter closing a span in the rest is preceded by that
+    # span's opening quote and a name quote in the rest is the
+    # first word after an in-name apostrophe (the bar of
+    # 'foo' bar') — #726 counted only the medial user's shape, so
+    # a plural possessive still skewed the parity and the true
+    # close was rejected (#727).  If no quote qualifies, the name
+    # is genuinely ambiguous and the line yields no match rather
+    # than a truncated prefix.
     for line in stderr.split("\n"):
         name = _wrapped_name(line, "while updating the flake input '")
         if name is not None:
@@ -2748,16 +2757,48 @@ def _is_word_apostrophe(line: str, i: int) -> bool:
     )
 
 
+def _is_final_possessive(line: str, i: int, j: int) -> bool:
+    """True when line[j], in the rest after candidate close i, is a
+    word-final possessive apostrophe (users', James'): a word
+    character before it, no word character after it, the word it
+    ends is a standalone prose word (the character before that
+    word is whitespace), and at least one further word of prose
+    stands between the candidate close and that word.  The two
+    prose conditions are what separate a possessive in following
+    text from a delimiter: a quote closing a quoted span in the
+    rest ends a word the span's opening quote precedes ('other');
+    a quote closing the wrapper itself, seen in the rest of an
+    earlier in-name candidate, either ends a name fragment a name
+    character precedes (the b of a'!b) or is the first word after
+    that candidate (the bar of 'foo' bar') — both keep counting
+    as delimiters, so the #714 continuation cases keep their
+    parity (#727)."""
+    if not (line[j - 1].isalnum() or line[j - 1] == "_"):
+        return False
+    if j + 1 < len(line) and (line[j + 1].isalnum() or line[j + 1] == "_"):
+        return False
+    k = j
+    while k > 0 and (line[k - 1].isalnum() or line[k - 1] == "_"):
+        k -= 1
+    if not (k > 0 and line[k - 1].isspace()):
+        return False
+    return " " in line[i + 1 : j].strip()
+
+
 def _rest_delimiter_quotes(line: str, i: int) -> int:
     """Delimiter quotes in line after index i: single quotes that are
     not word apostrophes.  Following text quotes its own words in
     pairs, so a genuine closing quote leaves an even count; a
     possessive like user's is an apostrophe, not a delimiter, and
-    must not skew the parity (#722)."""
+    must not skew the parity (#722) — and neither is a word-final
+    possessive like users', whose apostrophe is word-final rather
+    than medial (#727)."""
     return sum(
         1
         for j in range(i + 1, len(line))
-        if line[j] == "'" and not _is_word_apostrophe(line, j)
+        if line[j] == "'"
+        and not _is_word_apostrophe(line, j)
+        and not _is_final_possessive(line, i, j)
     )
 
 
