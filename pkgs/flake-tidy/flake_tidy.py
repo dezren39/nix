@@ -2613,28 +2613,31 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     """
     input_path = None
     flake_name = None
-    # Nix wraps the name in single quotes verbatim, and a valid input
-    # name may itself end in (or contain) an apostrophe — the primed
-    # names the content scanners accept as [a-zA-Z0-9_'-]+ (#683/#685).
-    # A [^']+ capture therefore truncates nixpkgs' to nixpkgs.
-    # Instead, capture only valid name characters (path segments
-    # joined by "/"): the greedy capture takes a trailing apostrophe
-    # as part of the name and leaves the final quote as the wrapper,
-    # while following text on the line (separated by characters
-    # outside the name set) is never swallowed.  A name may also
-    # contain a dot — a dotted name is a single input, spelled quoted
-    # in flake.nix (#705) — so "." belongs in the segment set too
-    # (#710); the pre-#692 [^']+ capture parsed dotted names, and the
-    # charset narrowing for primed names dropped them by accident.
+    # Nix wraps the name in single quotes verbatim.  A quoted attribute
+    # name may contain almost any character — the content scanners
+    # accept any quoted name (#705) — so a character set for the name
+    # will always lag the next legal one: the apostrophe for primed
+    # names (#691) and the dot for dotted names (#710) each arrived as
+    # their own bug, and "+", " " or "@" names still missed (#712).
+    # Parse the wrapper instead of the name: every character except
+    # the quote itself is name text, and an apostrophe belongs to the
+    # name only where it can continue one — followed by an identifier
+    # character or a path separator (parent'/child, my'input) — or as
+    # the doubled quote of a primed name at the end ('nixpkgs'').  The
+    # closing quote is the first quote that cannot continue the name,
+    # so following text on the line ('…' and then 'other') is never
+    # swallowed.  (A name with an apostrophe before a space, foo' bar,
+    # is the one spelling this cannot tell from the wrapper; no real
+    # input name does that.)
+    name = r"((?:[^'\n]|'(?=[A-Za-z0-9_+@./-]))*'?)"
     for line in stderr.split("\n"):
         m = re.search(
-            r"while updating the flake input "
-            r"'([a-zA-Z0-9_.'-]+(?:/[a-zA-Z0-9_.'-]+)*)'",
+            r"while updating the flake input " rf"'{name}'",
             line,
         )
         if m:
             input_path = m.group(1)
-        m = re.search(r"cannot find flake 'flake:([a-zA-Z0-9_.'-]+)'", line)
+        m = re.search(rf"cannot find flake 'flake:{name}'", line)
         if m:
             flake_name = m.group(1)
     return input_path, flake_name
