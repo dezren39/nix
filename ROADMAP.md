@@ -4,7 +4,7 @@ This is the roadmap for the repo. It is grouped by area, and each row has a hori
 
 A row records intent. It does not settle a decision and it is not a go-ahead to build.
 
-Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-22. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
+Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-23. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
 
 ## Areas
 
@@ -188,3 +188,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy root-input inserts anchor outside dotted parents    | 2026-10-22 | #696, #697 |
 | ROADMAP Done records the #666, #693 and #696 completions       | 2026-10-22 | #698, #699 |
 | flake-tidy `remove_input_url_line` excises the url only        | 2026-10-22 | #700, #701 |
+| ROADMAP Done records the #698 and #700 completions             | 2026-10-22 | #702, #703 |
+| flake-tidy quoted input names visible to root-input scanners   | 2026-10-23 | #705, #706 |
