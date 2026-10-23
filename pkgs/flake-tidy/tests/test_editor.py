@@ -1068,6 +1068,125 @@ class TestQuotedNameGenerators:
         )
 
 
+class TestEscapableQuotedNames:
+    """Regression tests for #721: PR #719's ``_quote_name`` escapes
+    ``"``, ``\\`` and ``${`` in the quoted spelling it generates, but
+    ``_name_ref`` built its pattern from the raw name only — so every
+    ``_name_ref`` scanner missed the very spelling the generators
+    write, and a re-run inserted a duplicate declaration."""
+
+    ESCAPABLE = ['a"b', "a\\b", "a${b}"]
+
+    DOTTED_BASE = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+}
+"""
+
+    def test_name_ref_matches_escaped_quoted_spelling(self):
+        import re
+
+        for name in self.ESCAPABLE:
+            pat = flake_tidy._name_ref(name)
+            quoted = flake_tidy._quote_name(name)
+            assert re.fullmatch(pat, quoted), (name, quoted)
+            assert re.fullmatch(pat, f'"{name}"'), name
+            assert re.fullmatch(pat, name), name
+            assert not re.fullmatch(pat, "other")
+            assert not re.fullmatch(pat, '"other"')
+
+    def test_insert_root_input_escapable_round_trip(self):
+        for name in self.ESCAPABLE:
+            result = flake_tidy.insert_root_input(
+                self.DOTTED_BASE, name, "github:foo/bar"
+            )
+            quoted = flake_tidy._quote_name(name)
+            assert f"inputs.{quoted}.url" in result, name
+            assert flake_tidy.get_input_file_order(result) == [
+                "nixpkgs",
+                name,
+            ], name
+            assert (
+                flake_tidy.root_input_exists_in_content(result, name) is True
+            ), name
+            assert flake_tidy.find_input_url_line(result, name) is not None, name
+            assert flake_tidy.find_input_dotted_line(result, name)[0] is not None, (
+                name
+            )
+            # A second insert is a no-op: the existence guard fires.
+            assert (
+                flake_tidy.insert_root_input(result, name, "github:foo/bar")
+                == result
+            ), name
+            # A different name is still reported absent.
+            assert (
+                flake_tidy.root_input_exists_in_content(result, "other") is False
+            ), name
+
+    def test_insert_root_input_block_escapable_round_trip(self):
+        for name in self.ESCAPABLE:
+            result = flake_tidy.insert_root_input_block(
+                self.DOTTED_BASE, name, "github:foo/bar", []
+            )
+            assert (
+                flake_tidy.root_input_exists_in_content(result, name) is True
+            ), name
+            assert flake_tidy.find_input_block_end(result, name) is not None, name
+
+    def test_block_style_escapable_url_line_and_removal(self):
+        for name in self.ESCAPABLE:
+            quoted = flake_tidy._quote_name(name)
+            content = (
+                "{\n  inputs = {\n"
+                f"    {quoted} = {{\n"
+                '      url = "github:foo/bar";\n'
+                "    };\n  };\n}\n"
+            )
+            assert (
+                flake_tidy.root_input_exists_in_content(content, name) is True
+            ), name
+            assert flake_tidy.find_input_url_line(content, name) is not None, name
+            removed, changed = flake_tidy.remove_input_url_line(content, name)
+            assert changed is True, name
+            assert "github:foo/bar" not in removed, name
+
+    def test_remove_input_url_line_dotted_escapable(self):
+        for name in self.ESCAPABLE:
+            result = flake_tidy.insert_root_input(
+                self.DOTTED_BASE, name, "github:foo/bar"
+            )
+            removed, changed = flake_tidy.remove_input_url_line(result, name)
+            assert changed is True, name
+            assert "github:foo/bar" not in removed, name
+
+    def test_follows_target_escapable(self):
+        for name in self.ESCAPABLE:
+            quoted = flake_tidy._quote_name(name)
+            content = f'{{\n  inputs.{quoted}.follows = "nixpkgs";\n}}\n'
+            assert (
+                flake_tidy._follows_target_for_input(content, name) == "nixpkgs"
+            ), name
+
+    def test_find_commented_follows_escapable_spellings(self):
+        for name in self.ESCAPABLE:
+            quoted = flake_tidy._quote_name(name)
+            line = f'# inputs.{quoted}.follows = "nixpkgs";'
+            assert flake_tidy.find_commented_follows(line, [name], "nixpkgs") == (
+                0,
+                line,
+            ), name
+            assert (
+                flake_tidy.find_commented_follows(line, [name], "other") is None
+            ), name
+
+    def test_find_commented_follows_escapable_multilevel(self):
+        name = 'a"b'
+        quoted = flake_tidy._quote_name(name)
+        line = f'# inputs.{quoted}.inputs."child".follows = "nixpkgs";'
+        assert flake_tidy.find_commented_follows(
+            line, [name, "child"], "nixpkgs"
+        ) == (0, line)
+
+
 class TestInsertFollows:
     def test_insert_follows_block_style(self, sample_flake_nix):
         """inserts inside block."""

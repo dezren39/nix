@@ -1406,10 +1406,32 @@ def _unquote_name(token: str) -> str:
     return token
 
 
+def _escape_name(name: str) -> str:
+    """Nix string escapes for ``name`` inside a quoted spelling (#709).
+
+    ``\\`` -> ``\\\\``, ``"`` -> ``\\"`` and ``${`` -> ``\\${`` — the
+    exact transformation ``_quote_name`` writes and ``_unquote_name``
+    reverses.  Shared so the writer and the matcher cannot drift.
+    """
+    return name.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
+
+
 def _name_ref(name: str) -> str:
-    """Regex matching ``name`` spelled bare or quoted (``"name"``)."""
+    """Regex matching ``name`` spelled bare or quoted (``"name"``).
+
+    The quoted alternative must match the spelling ``_quote_name``
+    actually emits: for a name containing ``"``, ``\\`` or ``${`` that
+    spelling carries backslash escapes (``"a\\"b"``, ``"a\\\\b"``,
+    ``"a\\${b}"``), so a pattern built from the raw name alone never
+    matches the generated line (#721).  Match the escaped quoted
+    spelling first, then the plain quoted spelling and the bare
+    spelling, so hand-written plain forms keep matching too.
+    """
     esc = re.escape(name)
-    return rf'(?:"{esc}"|{esc})'
+    quoted_esc = re.escape(_escape_name(name))
+    if quoted_esc == esc:
+        return rf'(?:"{esc}"|{esc})'
+    return rf'(?:"{quoted_esc}"|"{esc}"|{esc})'
 
 
 _BARE_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_'-]*$")
@@ -1427,10 +1449,7 @@ def _quote_name(name: str) -> str:
     """
     if _BARE_NAME_RE.match(name):
         return name
-    escaped = (
-        name.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
-    )
-    return f'"{escaped}"'
+    return f'"{_escape_name(name)}"'
 
 
 def _unquote_attr_names(text: str) -> str:
