@@ -864,6 +864,73 @@ class TestInsertRootInput:
         assert result == sample_flake_nix
 
 
+class TestInsertRootInputDottedParentScope:
+    """#696: the dotted anchor scan must not land inside a dotted parent block."""
+
+    DOTTED_PARENT_LAST = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+  inputs.parent = {
+    url = "github:example/parent";
+    inputs.child.follows = "nixpkgs";
+  };
+}
+"""
+
+    def _parent_block_lines(self, content):
+        lines = content.split("\n")
+        start = next(i for i, l in enumerate(lines) if "inputs.parent = {" in l)
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "};")
+        return lines[start : end + 1]
+
+    def test_insert_root_input_after_dotted_parent_block(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_PARENT_LAST, "newinput", "github:example/new"
+        )
+        assert flake_tidy.root_input_exists_in_content(result, "newinput") is True
+        assert not any("newinput" in l for l in self._parent_block_lines(result))
+        url_line = flake_tidy.find_input_url_line(result, "newinput")
+        assert url_line is not None
+        ctx = flake_tidy._block_context_for_lines(result)
+        assert ctx[url_line] is None
+
+    def test_insert_root_input_block_after_dotted_parent_block(self):
+        result = flake_tidy.insert_root_input_block(
+            self.DOTTED_PARENT_LAST,
+            "newinput",
+            "github:example/new",
+            [("sub", "nixpkgs")],
+        )
+        assert flake_tidy.root_input_exists_in_content(result, "newinput") is True
+        assert not any("newinput" in l for l in self._parent_block_lines(result))
+        assert flake_tidy.follows_exists_in_content(
+            result, ["newinput", "sub"], "nixpkgs"
+        )
+
+    def test_commented_inputs_line_inside_parent_is_not_anchor(self):
+        content = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+  inputs.parent = {
+    url = "github:example/parent";
+    # inputs.ghost.url = "github:example/ghost";
+  };
+}
+"""
+        result = flake_tidy.insert_root_input(content, "newinput", "github:example/new")
+        assert flake_tidy.root_input_exists_in_content(result, "newinput") is True
+        assert not any("newinput" in l for l in self._parent_block_lines(result))
+
+    def test_plain_dotted_anchor_unchanged(self):
+        content = """{
+  inputs.nixpkgs.url = "github:nixos/nixpkgs";
+  outputs = _: {};
+}
+"""
+        result = flake_tidy.insert_root_input(content, "new-input", "github:foo/bar")
+        lines = result.split("\n")
+        anchor = lines.index('  inputs.nixpkgs.url = "github:nixos/nixpkgs";')
+        assert lines[anchor + 1] == '  inputs.new-input.url = "github:foo/bar";'
+
+
 class TestRootInputExists:
     def test_root_input_exists(self, sample_flake_nix):
         """detects existing input."""

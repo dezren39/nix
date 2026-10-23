@@ -2305,6 +2305,34 @@ def insert_follows_in_content(
         return _insert_before_inputs_end(lines, f"    {full_nix}", False)
 
 
+def _last_dotted_anchor(lines: list[str], content: str) -> int:
+    """Index of the last root-scope dotted inputs line (insertion anchor).
+
+    Comment lines and lines attributed to another input's block by
+    ``_block_context_for_lines`` are not anchors: a dotted-style parent
+    block (``inputs.parent = { ... };``) contains ``inputs.child.…`` lines
+    that must not attract a root insertion into the parent's block (#696).
+    The parent block itself is a root input, so its opening line anchors
+    at the block's closing line instead.
+    """
+    block_ctx = _block_context_for_lines(content)
+    anchor = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if block_ctx[i] is None:
+            if re.match(r"inputs\.", stripped):
+                anchor = i
+            continue
+        m = re.match(r"inputs\.([a-zA-Z0-9_'-]+)\s*=\s*\{", stripped)
+        if m and block_ctx[i] == m.group(1):
+            end = find_input_block_end(content, m.group(1))
+            if end is not None:
+                anchor = max(anchor, end[0])
+    return anchor
+
+
 def insert_root_input(
     content: str, input_name: str, url: str, *, flake: bool = True
 ) -> str:
@@ -2332,10 +2360,7 @@ def insert_root_input(
         if not flake:
             lines.insert(block_end + 1, f"{indent}{input_name}.flake = false;")
     else:
-        last_input_line = 0
-        for i, line in enumerate(lines):
-            if re.match(r"\s*inputs\.", line.strip()):
-                last_input_line = i
+        last_input_line = _last_dotted_anchor(lines, content)
         indent = "    "
         if last_input_line > 0:
             m = re.match(r"^(\s*)", lines[last_input_line])
@@ -3571,12 +3596,12 @@ def insert_root_input_block(
         for line_str in reversed(block_lines):
             lines.insert(block_end, line_str)
     else:
-        # Dotted style: find last input line
-        last_input_line = 0
-        for k, line_str in enumerate(lines):
-            if re.match(r"\s*inputs\.", line_str.strip()):
-                last_input_line = k
-        for j, line_str in enumerate(block_lines):
+        # Dotted style: find last root-scope input line. The block must be
+        # spelled inputs.NAME = { ... }; — a bare NAME = { ... } at the
+        # flake's top level is an unrelated attribute, not an input (#696).
+        last_input_line = _last_dotted_anchor(lines, content)
+        dotted_lines = [f"{indent}inputs.{input_name} = {{"] + block_lines[1:]
+        for j, line_str in enumerate(dotted_lines):
             lines.insert(last_input_line + 1 + j, line_str)
 
     return "\n".join(lines)
