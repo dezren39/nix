@@ -1386,6 +1386,47 @@ def _brace_delta(line: str) -> int:
     return opens - closes
 
 
+# A Nix attribute name may be spelled bare (``my-input``) or quoted
+# (``"my-input"``); the two spellings denote the SAME attribute —
+# ``nix-instantiate --parse`` normalises the quoted form away — and a
+# name containing characters outside the bare set (dots, slashes) MUST
+# be quoted (#705).  The token patterns below match either spelling as
+# a single capture (quotes included when present); ``_unquote_name``
+# recovers the attribute name from a match.
+_QUOTED_NAME = r'"(?:[^"\\]|\\.)*"'
+_NAME_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z_][a-zA-Z0-9_'-]*)"
+_SEG_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
+_SEG_TOKEN_NC = rf"(?:{_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
+
+
+def _unquote_name(token: str) -> str:
+    """Attribute name for a matched name token (see ``_NAME_TOKEN``)."""
+    if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
+        return re.sub(r"\\(.)", r"\1", token[1:-1])
+    return token
+
+
+def _name_ref(name: str) -> str:
+    """Regex matching ``name`` spelled bare or quoted (``"name"``)."""
+    esc = re.escape(name)
+    return rf'(?:"{esc}"|{esc})'
+
+
+def _unquote_attr_names(text: str) -> str:
+    """Strip the quotes around attribute names in a declaration line.
+
+    Only quotes in attribute position — followed by ``.`` or ``=`` —
+    are stripped, so string *values* (a follows target, a url) keep
+    theirs.  Used by the follows checkers, which compare whole lines
+    against candidate strings built from bare names (#705).
+    """
+    return re.sub(
+        rf"{_QUOTED_NAME}(?=\s*(?:\.|=))",
+        lambda m: _unquote_name(m.group(0)),
+        text,
+    )
+
+
 def _own_level_text(line: str, start_depth: int, level: int = 1) -> tuple[str, int]:
     """Return the parts of ``line`` sitting at brace ``level``, plus end depth.
 
@@ -1465,11 +1506,13 @@ def get_input_file_order(content: str) -> list[str]:
         # (#652 remainder, context tracking from #655).
         m = None
         if not in_inputs_block:
-            dm = re.match(r"inputs\.([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
-            if dm and (contexts[idx] is None or contexts[idx] == dm.group(1)):
+            dm = re.match(rf"inputs\.{_NAME_TOKEN}\s*[.=]", stripped)
+            if dm and (
+                contexts[idx] is None or contexts[idx] == _unquote_name(dm.group(1))
+            ):
                 m = dm
         if m:
-            name = m.group(1)
+            name = _unquote_name(m.group(1))
             if name not in seen:
                 order.append(name)
                 seen.add(name)
@@ -1496,9 +1539,9 @@ def get_input_file_order(content: str) -> list[str]:
             if depth_before != 1:
                 continue
 
-            m = re.match(r"([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
+            m = re.match(rf"{_NAME_TOKEN}\s*[.=]", stripped)
             if m:
-                name = m.group(1)
+                name = _unquote_name(m.group(1))
                 if (
                     name
                     not in (
@@ -1555,9 +1598,9 @@ def _block_context_for_lines(content: str) -> list[str | None]:
 
         # Check for block open: <name> = { (inside the inputs block)
         pushed = False
-        m = re.match(r"^(\s*)(\w[\w'-]*)\s*=\s*\{", line)
+        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
         if m:
-            name = m.group(2)
+            name = _unquote_name(m.group(2))
             if name == "inputs":
                 inputs_stack.append(brace_depth)
             elif inputs_stack or stack:
@@ -1577,11 +1620,11 @@ def _block_context_for_lines(content: str) -> list[str | None]:
         # input until its braces close.
         if not pushed and not stack and not inputs_stack:
             dm = re.match(
-                r"^(\s*)inputs\.([a-zA-Z_][\w'-]*)(?:\.[\w'-]+)*\s*=\s*\{",
+                rf"^(\s*)inputs\.{_NAME_TOKEN}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{",
                 line,
             )
             if dm:
-                name = dm.group(2)
+                name = _unquote_name(dm.group(2))
                 stack.append((name, brace_depth))
                 result[i] = name
                 pushed = True
@@ -1647,9 +1690,9 @@ def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
 
         opens, closes = _brace_counts(line)
 
-        m = re.match(r"^(\s*)(\w[\w'-]*)\s*=\s*\{", line)
+        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
         if m:
-            name = m.group(2)
+            name = _unquote_name(m.group(2))
             if name == "inputs":
                 stack.append(("inputs", brace_depth))
             elif stack:
@@ -1790,7 +1833,7 @@ def follows_exists_in_content(
         stripped = line.strip().rstrip(";").strip()
         if stripped.startswith("#"):
             continue
-        normalized = re.sub(r"\s+", " ", stripped)
+        normalized = _unquote_attr_names(re.sub(r"\s+", " ", stripped))
 
         # Nested inputs scope (#647): a line directly inside a nested
         # ``inputs = { ... }`` override block is judged only against the
@@ -1857,7 +1900,7 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         stripped = line.strip().rstrip(";").strip()
         if stripped.startswith("#"):
             continue
-        normalized = re.sub(r"\s+", " ", stripped)
+        normalized = _unquote_attr_names(re.sub(r"\s+", " ", stripped))
 
         # Nested inputs scope (#647): see follows_exists_in_content.
         nested_prefix = nested_prefixes[i]
@@ -1895,7 +1938,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
     inside another input's block (e.g. ``inputs.parent.inputs.CHILD...``
     inside a parent block is NOT a root declaration of CHILD).
     """
-    esc = re.escape(input_name)
+    esc = _name_ref(input_name)
     lines = content.split("\n")
     style, block_start, block_end = detect_inputs_style(content)
 
@@ -1928,7 +1971,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
             ctx = block_ctx[i]
             if ctx is not None:
                 if ctx == input_name and re.match(
-                    rf"inputs\.{esc}(?:\.[\w'-]+)*\s*=\s*\{{", stripped
+                    rf"inputs\.{esc}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{", stripped
                 ):
                     return True
                 continue
@@ -1938,7 +1981,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
                 return True
             # inputs.NAME.inputs.X.follows is a shallow override on NAME
             if re.match(
-                rf"inputs\.{esc}\.inputs\.[a-zA-Z0-9_'-]+\.(follows|url)\s*=",
+                rf"inputs\.{esc}\.inputs\.{_SEG_TOKEN_NC}\.(follows|url)\s*=",
                 stripped,
             ):
                 return True
@@ -2000,7 +2043,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
         if stripped.startswith("#"):
             continue
 
-        if re.match(rf"inputs\.{re.escape(input_name)}\s*=\s*\{{", stripped):
+        if re.match(rf"inputs\.{_name_ref(input_name)}\s*=\s*\{{", stripped):
             block_start = i
             break
 
@@ -2014,7 +2057,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
             # root input's block; a same-name block nested inside another
             # input's ``inputs = { ... }`` override must not shadow it.
             if inputs_brace_depth == 1 and re.match(
-                rf"{re.escape(input_name)}\s*=\s*\{{", stripped
+                rf"{_name_ref(input_name)}\s*=\s*\{{", stripped
             ):
                 block_start = i
                 break
@@ -2059,7 +2102,7 @@ def detect_inputs_style(
                 if depth <= 0:
                     return ("block", i, j)
             return ("block", i, len(lines) - 1)
-        if re.match(r"inputs\.[a-zA-Z_]", stripped):
+        if re.match(r"inputs\.(?:[a-zA-Z_]|\"[^\"])", stripped):
             return ("dotted", None, None)
     return ("dotted", None, None)
 
@@ -2086,12 +2129,12 @@ def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, b
         # Only match lines at root scope (context is None)
         if ctx is not None:
             continue
-        if re.match(rf"inputs\.{re.escape(input_name)}\.", stripped):
+        if re.match(rf"inputs\.{_name_ref(input_name)}\.", stripped):
             last = i
             inside_block = False
         if style == "block" and block_start is not None and block_end is not None:
             if block_start < i < block_end:
-                if re.match(rf"{re.escape(input_name)}\.", stripped):
+                if re.match(rf"{_name_ref(input_name)}\.", stripped):
                     last = i
                     inside_block = True
 
@@ -2106,7 +2149,7 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
     or *None* if no url line is found.
     """
     lines = content.split("\n")
-    esc = re.escape(input_name)
+    esc = _name_ref(input_name)
     style, block_start, block_end = detect_inputs_style(content)
     block_ctx = _block_context_for_lines(content)
 
@@ -2172,7 +2215,7 @@ def _excise_url_assignment(line: str, input_name: str) -> str | None:
     on the line, or the only ``url =`` on it belongs to a nested
     attribute path / a deeper block level.
     """
-    esc = re.escape(input_name)
+    esc = _name_ref(input_name)
 
     # Dotted form: the assignment starts the line's own content.
     m = re.match(rf"\s*(?:inputs\.)?{esc}\.url\s*=\s*", line)
@@ -2291,7 +2334,7 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
     (``inputs.name.follows = "target";`` / ``name.follows = "target";``).
     """
     lines = content.split("\n")
-    esc = re.escape(input_name)
+    esc = _name_ref(input_name)
     style, block_start, block_end = detect_inputs_style(content)
 
     # Block style: look inside the input's block for bare ``follows = "X";``
@@ -2438,9 +2481,9 @@ def _last_dotted_anchor(lines: list[str], content: str) -> int:
             if re.match(r"inputs\.", stripped):
                 anchor = i
             continue
-        m = re.match(r"inputs\.([a-zA-Z0-9_'-]+)\s*=\s*\{", stripped)
-        if m and block_ctx[i] == m.group(1):
-            end = find_input_block_end(content, m.group(1))
+        m = re.match(rf"inputs\.{_SEG_TOKEN}\s*=\s*\{{", stripped)
+        if m and block_ctx[i] == _unquote_name(m.group(1)):
+            end = find_input_block_end(content, _unquote_name(m.group(1)))
             if end is not None:
                 anchor = max(anchor, end[0])
     return anchor
@@ -2791,9 +2834,9 @@ def _add_deep_follows_overrides(
 
             # Detect named input block: <name> = {
             if current_block is None and brace_depth == 1:
-                m = re.match(r"([a-zA-Z0-9_'-]+)\s*=\s*\{", stripped)
+                m = re.match(rf"{_SEG_TOKEN}\s*=\s*\{{", stripped)
                 if m:
-                    current_block = m.group(1)
+                    current_block = _unquote_name(m.group(1))
                     brace_depth += opens  # count the { we just matched
                     brace_depth -= closes
                     # Check for deep follows inside this block on the same line
@@ -2804,11 +2847,14 @@ def _add_deep_follows_overrides(
             if current_block is not None:
                 # Look for: inputs.X.inputs.Y.follows (or .url, etc.)
                 m_deep = re.match(
-                    r"inputs\.([a-zA-Z0-9_'-]+)(?:\.inputs\.([a-zA-Z0-9_'-]+))+",
+                    rf"inputs\.{_SEG_TOKEN}(?:\.inputs\.{_SEG_TOKEN})+",
                     stripped,
                 )
                 if m_deep:
-                    parts = re.findall(r"inputs\.([a-zA-Z0-9_'-]+)", stripped)
+                    parts = [
+                        _unquote_name(t)
+                        for t in re.findall(rf"inputs\.{_SEG_TOKEN}", stripped)
+                    ]
                     # Full path is current_block / parts[0] / parts[1] / ...
                     # The transitive inputs that need resolving are the
                     # intermediate ones: current_block/parts[0],
@@ -2819,7 +2865,7 @@ def _add_deep_follows_overrides(
 
                 # Also catch: inputs.X.follows (X is transitive of current_block)
                 m_shallow = re.match(
-                    r"inputs\.([a-zA-Z0-9_'-]+)\.(follows|url)\b", stripped
+                    rf"inputs\.{_SEG_TOKEN}\.(follows|url)\b", stripped
                 )
                 if m_shallow and not m_deep:
                     # inputs.X.follows inside block = current_block/X is transitive
@@ -2842,11 +2888,13 @@ def _add_deep_follows_overrides(
         if stripped.startswith("#"):
             continue
         m = re.match(
-            r"inputs\.([a-zA-Z0-9_'-]+)(?:\.inputs\.([a-zA-Z0-9_'-]+))+",
+            rf"inputs\.{_SEG_TOKEN}(?:\.inputs\.{_SEG_TOKEN})+",
             stripped,
         )
         if m and not in_inputs_section:
-            parts = re.findall(r"inputs\.([a-zA-Z0-9_'-]+)", stripped)
+            parts = [
+                _unquote_name(t) for t in re.findall(rf"inputs\.{_SEG_TOKEN}", stripped)
+            ]
             if len(parts) >= 2:
                 for i in range(2, len(parts) + 1):
                     path = "/".join(parts[:i])
@@ -3557,9 +3605,9 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
 
             # Detect named input block at depth 1
             if current_block is None and brace_depth == 1:
-                m = re.match(r"([a-zA-Z0-9_'-]+)\s*=\s*\{", stripped)
+                m = re.match(rf"{_SEG_TOKEN}\s*=\s*\{{", stripped)
                 if m:
-                    current_block = m.group(1)
+                    current_block = _unquote_name(m.group(1))
 
             # Inside a named block: look for inputs.CHILD.inputs.SUB.follows
             if current_block is not None:
@@ -3569,30 +3617,30 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
                 if nested_prefixes[i] == [current_block]:
                     for seg in _nested_segments(stripped):
                         m = re.match(
-                            r'([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+                            rf'{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.follows\s*=\s*"([^"]+)"',
                             seg,
                         )
                         if m:
                             results.append(
                                 {
                                     "parent": current_block,
-                                    "child": m.group(1),
-                                    "sub_input": m.group(2),
+                                    "child": _unquote_name(m.group(1)),
+                                    "sub_input": _unquote_name(m.group(2)),
                                     "target": m.group(3),
                                     "line_number": i,
                                     "line": line,
                                 }
                             )
                 m = re.match(
-                    r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+                    rf'inputs\.{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.follows\s*=\s*"([^"]+)"',
                     stripped,
                 )
                 if m:
                     results.append(
                         {
                             "parent": current_block,
-                            "child": m.group(1),
-                            "sub_input": m.group(2),
+                            "child": _unquote_name(m.group(1)),
+                            "sub_input": _unquote_name(m.group(2)),
                             "target": m.group(3),
                             "line_number": i,
                             "line": line,
@@ -3609,15 +3657,15 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
 
         # Dotted-style: inputs.PARENT.inputs.CHILD.inputs.SUB.follows
         m = re.match(
-            r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+            rf'inputs\.{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.follows\s*=\s*"([^"]+)"',
             stripped,
         )
         if m and not in_inputs_section:
             results.append(
                 {
-                    "parent": m.group(1),
-                    "child": m.group(2),
-                    "sub_input": m.group(3),
+                    "parent": _unquote_name(m.group(1)),
+                    "child": _unquote_name(m.group(2)),
+                    "sub_input": _unquote_name(m.group(3)),
                     "target": m.group(4),
                     "line_number": i,
                     "line": line,
@@ -4421,9 +4469,9 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if stripped.startswith("#"):
                 continue
             # Detect block start: ``name = {``
-            m = re.match(r"(\w[\w'-]*)\s*=\s*\{", stripped)
+            m = re.match(rf"{_SEG_TOKEN}\s*=\s*\{{", stripped)
             if m and depth == 0:
-                current_block = m.group(1)
+                current_block = _unquote_name(m.group(1))
                 has_url = False
                 has_follows = False
                 # Attributes on the opening line itself count, at the
@@ -4466,12 +4514,12 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if depth > 0:
                 continue
             depth = max(depth, 0)
-        m = re.match(r"(?:inputs\.)?(\w[\w'-]*)\.url\s*=", stripped)
+        m = re.match(rf"(?:inputs\.)?{_SEG_TOKEN}\.url\s*=", stripped)
         if m:
-            url_names.add(m.group(1))
-        m = re.match(r"(?:inputs\.)?(\w[\w'-]*)\.follows\s*=", stripped)
+            url_names.add(_unquote_name(m.group(1)))
+        m = re.match(rf"(?:inputs\.)?{_SEG_TOKEN}\.follows\s*=", stripped)
         if m:
-            follows_names.add(m.group(1))
+            follows_names.add(_unquote_name(m.group(1)))
 
     for name in url_names & follows_names:
         if name not in conflicts:
