@@ -179,3 +179,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy `get_input_file_order` skips dotted override child  | 2026-10-22 | #652, #653, #681 |
 | ROADMAP Done records the #679 completion                       | 2026-10-22 | #679, #680 |
 | flake-tidy primed input names visible to block scanners        | 2026-10-22 | #683, #684 |
+| flake-tidy primed names visible to deep-follows overrides      | 2026-10-22 | #685, #688 |
