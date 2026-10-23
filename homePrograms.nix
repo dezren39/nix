@@ -15,6 +15,10 @@ let
     setup-ops-creds = "ops-dd-creds && gh-token && og-creds && jira-creds";
     cargo-build-release = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build --release 2>&1";
     cargo-build-debug = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build 2>&1";
+    # Copilot CLI's built-in GitHub MCP server bypasses mcpx, and it has no
+    # config key to turn it off, only this flag. Its MCP servers come from
+    # mcpx alone (mcp-clients.py; dezren39/nix#671).
+    copilot = "copilot --disable-builtin-mcps";
   };
 
   # Shared POSIX shell init — sourced by bash, zsh, and fish (fish tolerates POSIX via implicit translation)
