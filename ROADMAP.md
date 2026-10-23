@@ -197,3 +197,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy generators quote quote-requiring names              | 2026-10-23 | #709, #719 |
 | flake-tidy `extract_failed_input` structural closing quote     | 2026-10-23 | #714, #720 |
 | flake-tidy `_name_ref` matches `_quote_name` escapes           | 2026-10-23 | #721, #723 |
+| flake-tidy `extract_failed_input` handles multi-primed paths   | 2026-10-23 | #722, #726 |
+| flake-tidy `extract_failed_input` word-final possessives       | 2026-10-23 | #727, #728 |
