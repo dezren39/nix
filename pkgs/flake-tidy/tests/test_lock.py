@@ -1616,6 +1616,93 @@ class TestExtractFailedInputFinalPossessive:
         }
 
 
+class TestExtractFailedInputMultiWordSpan:
+    """#731: PR #728's _is_final_possessive judged every rest quote
+    on its own, so the closing quote of a multi-word quoted span
+    ('power users') met its standalone-word test — the span's last
+    word is preceded by the space inside the span — was discounted
+    as a possessive, and the genuine close was rejected for an odd
+    rest count, swallowing the whole span into the name. The same
+    helper's word walk stopped at a hyphen, so a hyphenated
+    compound's possessive (end-users') was never discounted and
+    the name was truncated at it. The rest parity now tracks
+    quoted spans (a span's closing quote always counts, whatever
+    word it ends) and the possessive walk crosses a hyphen flanked
+    by word characters, so the compound's first segment is what
+    must be a standalone prose word."""
+
+    def test_multi_word_span_in_following_text(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users'"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'my flake'"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'the users'"
+        ) == ("nixpkgs", None)
+
+    def test_multi_word_span_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the 'the registry' thing"
+        ) == (None, "nixpkgs")
+
+    def test_final_possessive_with_multi_word_span(self):
+        """Both orders: the possessive discount and the span
+        closing must each be judged correctly in one line."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the users' flake"
+            " and then 'power users'"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users'"
+            " in the users' flake"
+        ) == ("nixpkgs", None)
+
+    def test_hyphenated_compound_possessive(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the end-users' flake"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the power-users' flake"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the end-users' registry"
+        ) == (None, "nixpkgs")
+
+    def test_unclosed_multi_word_span_yields_no_match(self):
+        """Guard: an opening quote that is never closed still
+        strands the parity — no swallowed name."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users"
+        ) == (None, None)
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #731 harm, end to end: the swallowed name matches
+        no input, so the override comes back empty and the robust
+        lock retry silently targets nothing."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users'"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
