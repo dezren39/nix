@@ -2700,9 +2700,16 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # first word after an in-name apostrophe (the bar of
     # 'foo' bar') — #726 counted only the medial user's shape, so
     # a plural possessive still skewed the parity and the true
-    # close was rejected (#727).  If no quote qualifies, the name
-    # is genuinely ambiguous and the line yields no match rather
-    # than a truncated prefix.
+    # close was rejected (#727).  #728 judged each rest quote on
+    # its own, so a multi-word span's closing quote ('power
+    # users') met that standalone-word test and was discounted,
+    # and a hyphenated compound's possessive (end-users') was
+    # never recognised because the word walk stopped at the
+    # hyphen: the parity now tracks quoted spans in the rest (a
+    # span's closing quote always counts) and the possessive
+    # walk crosses a flanked hyphen (#731).  If no quote
+    # qualifies, the name is genuinely ambiguous and the line
+    # yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
         name = _wrapped_name(line, "while updating the flake input '")
         if name is not None:
@@ -2763,22 +2770,39 @@ def _is_final_possessive(line: str, i: int, j: int) -> bool:
     character before it, no word character after it, the word it
     ends is a standalone prose word (the character before that
     word is whitespace), and at least one further word of prose
-    stands between the candidate close and that word.  The two
-    prose conditions are what separate a possessive in following
-    text from a delimiter: a quote closing a quoted span in the
-    rest ends a word the span's opening quote precedes ('other');
-    a quote closing the wrapper itself, seen in the rest of an
-    earlier in-name candidate, either ends a name fragment a name
-    character precedes (the b of a'!b) or is the first word after
-    that candidate (the bar of 'foo' bar') — both keep counting
-    as delimiters, so the #714 continuation cases keep their
-    parity (#727)."""
+    stands between the candidate close and that word.  The word
+    it ends may be a hyphenated compound (end-users'): the walk
+    back crosses a hyphen flanked by word characters, so the
+    compound's first segment is what must be standalone — #728's
+    walk stopped at the hyphen, found the last segment preceded
+    by "-" instead of whitespace, and never discounted the
+    possessive (#731).  The two prose conditions are what
+    separate a possessive in following text from a delimiter: a
+    quote closing a quoted span in the rest ends a word the
+    span's opening quote precedes ('other'); a quote closing the
+    wrapper itself, seen in the rest of an earlier in-name
+    candidate, either ends a name fragment a name character
+    precedes (the b of a'!b) or is the first word after that
+    candidate (the bar of 'foo' bar') — both keep counting as
+    delimiters, so the #714 continuation cases keep their parity
+    (#727).  This judgement is only consulted for a quote outside
+    any quoted span in the rest: _rest_delimiter_quotes tracks
+    span state, so a multi-word span's closing quote is never
+    judged here at all (#731)."""
     if not (line[j - 1].isalnum() or line[j - 1] == "_"):
         return False
     if j + 1 < len(line) and (line[j + 1].isalnum() or line[j + 1] == "_"):
         return False
     k = j
-    while k > 0 and (line[k - 1].isalnum() or line[k - 1] == "_"):
+    while k > 0 and (
+        line[k - 1].isalnum()
+        or line[k - 1] == "_"
+        or (
+            line[k - 1] == "-"
+            and k > 1
+            and (line[k - 2].isalnum() or line[k - 2] == "_")
+        )
+    ):
         k -= 1
     if not (k > 0 and line[k - 1].isspace()):
         return False
@@ -2792,14 +2816,41 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     possessive like user's is an apostrophe, not a delimiter, and
     must not skew the parity (#722) — and neither is a word-final
     possessive like users', whose apostrophe is word-final rather
-    than medial (#727)."""
-    return sum(
-        1
-        for j in range(i + 1, len(line))
-        if line[j] == "'"
-        and not _is_word_apostrophe(line, j)
-        and not _is_final_possessive(line, i, j)
-    )
+    than medial (#727).
+
+    The scan tracks quoted spans in the rest: a quote with no
+    word character before it opens a span, and the next
+    non-apostrophe quote closes it and counts as a delimiter
+    whatever word it ends.  #728 judged every quote on its own,
+    so the closing quote of a multi-word span ('power users')
+    met the standalone-word possessive test — its last word is
+    preceded by the space inside the span — was discounted, and
+    the genuine close left an odd count and was rejected (#731).
+    A word-final quote outside any span is closing-like (a
+    possessive, discounted per _is_final_possessive, or the
+    wrapper's own close seen from an earlier in-name candidate,
+    which counts) and never opens a span, so a possessive after
+    an in-name apostrophe's genuine close is still judged on its
+    own rather than swallowed by a phantom span."""
+    count = 0
+    in_span = False
+    for j in range(i + 1, len(line)):
+        if line[j] != "'":
+            continue
+        if _is_word_apostrophe(line, j):
+            continue
+        if in_span:
+            count += 1
+            in_span = False
+            continue
+        if not (line[j - 1].isalnum() or line[j - 1] == "_"):
+            count += 1
+            in_span = True
+            continue
+        if _is_final_possessive(line, i, j):
+            continue
+        count += 1
+    return count
 
 
 def _plausible_input_path(name: str) -> bool:
