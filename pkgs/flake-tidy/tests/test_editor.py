@@ -935,6 +935,139 @@ class TestQuotedInputNames:
         assert deep[0]["sub_input"] == "systems"
 
 
+class TestQuotedNameGenerators:
+    """Regression tests for #709: PR #706 taught the scanners quoted
+    names, but the generators still wrote a quote-requiring name back
+    BARE — ``inputs.my.input.url`` declares a nested attribute (an
+    input ``my`` with a sub-attribute ``input``), not the single input
+    ``my.input`` — and ``find_commented_follows`` only matched the
+    bare spelling, so a quoted commented follows was missed and a
+    fresh active line was inserted instead of uncommenting it."""
+
+    DOTTED_BASE = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+}
+"""
+
+    BLOCK_BASE = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+}
+"""
+
+    def test_insert_root_input_dotted_quotes_name(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_BASE, "my.input", "github:foo/bar"
+        )
+        assert 'inputs."my.input".url = "github:foo/bar";' in result
+        # Round-trip: the generated line is ONE input named my.input.
+        assert flake_tidy.get_input_file_order(result) == ["nixpkgs", "my.input"]
+        assert (
+            flake_tidy.root_input_exists_in_content(result, "my.input") is True
+        )
+
+    def test_insert_root_input_block_style_quotes_name(self):
+        result = flake_tidy.insert_root_input(
+            self.BLOCK_BASE, "my.input", "github:foo/bar", flake=False
+        )
+        assert '"my.input".url = "github:foo/bar";' in result
+        assert '"my.input".flake = false;' in result
+        assert flake_tidy.get_input_file_order(result) == ["nixpkgs", "my.input"]
+
+    def test_insert_root_input_leading_digit_quoted(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_BASE, "9lives", "github:foo/bar"
+        )
+        assert 'inputs."9lives".url = "github:foo/bar";' in result
+        assert flake_tidy.get_input_file_order(result) == ["nixpkgs", "9lives"]
+
+    def test_insert_root_input_bare_name_stays_bare(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_BASE, "my-input", "github:foo/bar"
+        )
+        assert 'inputs.my-input.url = "github:foo/bar";' in result
+
+    def test_insert_root_input_block_quotes_name_and_sub(self):
+        dotted = flake_tidy.insert_root_input_block(
+            self.DOTTED_BASE, "my.input", "github:foo/bar", [("sub", "nixpkgs")]
+        )
+        assert 'inputs."my.input" = {' in dotted
+        assert flake_tidy.get_input_file_order(dotted) == ["nixpkgs", "my.input"]
+        block = flake_tidy.insert_root_input_block(
+            self.BLOCK_BASE,
+            "my.input",
+            "github:foo/bar",
+            [("my.child", "nixpkgs")],
+        )
+        assert '"my.input" = {' in block
+        assert 'inputs."my.child".follows = "nixpkgs";' in block
+        assert (
+            flake_tidy.follows_exists_in_content(
+                block, ["my.input", "my.child"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_insert_follows_beside_quoted_input(self):
+        content = """{
+  inputs."my.input".url = "github:foo/bar";
+}
+"""
+        result = flake_tidy.insert_follows_in_content(
+            content, ["my.input"], "nixpkgs"
+        )
+        assert 'inputs."my.input".follows = "nixpkgs";' in result
+        assert (
+            flake_tidy.follows_exists_in_content(result, ["my.input"], "nixpkgs")
+            is True
+        )
+
+    def test_insert_follows_multilevel_quoted_parent(self):
+        content = """{
+  inputs."my.input".url = "github:foo/bar";
+}
+"""
+        result = flake_tidy.insert_follows_in_content(
+            content, ["my.input", "child"], "nixpkgs"
+        )
+        assert 'inputs."my.input".inputs.child.follows = "nixpkgs";' in result
+        assert (
+            flake_tidy.follows_exists_in_content(
+                result, ["my.input", "child"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_find_commented_follows_quoted_spellings(self):
+        bare = '# inputs.my-input.follows = "nixpkgs";'
+        quoted = '# inputs."my-input".follows = "nixpkgs";'
+        quoted_dot = '# inputs."my.input".follows = "nixpkgs";'
+        assert flake_tidy.find_commented_follows(bare, ["my-input"], "nixpkgs") == (
+            0,
+            bare,
+        )
+        assert flake_tidy.find_commented_follows(
+            quoted, ["my-input"], "nixpkgs"
+        ) == (0, quoted)
+        assert flake_tidy.find_commented_follows(
+            quoted_dot, ["my.input"], "nixpkgs"
+        ) == (0, quoted_dot)
+
+    def test_find_commented_follows_quoted_multilevel(self):
+        line = '# inputs."parent".inputs."child".follows = "nixpkgs";'
+        assert flake_tidy.find_commented_follows(
+            line, ["parent", "child"], "nixpkgs"
+        ) == (0, line)
+
+    def test_find_commented_follows_wrong_target_still_missed(self):
+        line = '# inputs."my-input".follows = "other";'
+        assert (
+            flake_tidy.find_commented_follows(line, ["my-input"], "nixpkgs")
+            is None
+        )
+
+
 class TestInsertFollows:
     def test_insert_follows_block_style(self, sample_flake_nix):
         """inserts inside block."""
