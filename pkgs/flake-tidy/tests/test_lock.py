@@ -1533,6 +1533,89 @@ class TestExtractFailedInputMultiPrimedPaths:
         }
 
 
+class TestExtractFailedInputFinalPossessive:
+    """#727: PR #726's possessive rule covered only the medial
+    shape (user's): _rest_delimiter_quotes counted a word-final
+    (plural) possessive — users', James' — as a delimiter, so the
+    genuine closing quote left an odd rest count and was rejected,
+    and the possessive itself was accepted as the close, swallowing
+    prose into the name (nixpkgs' in the users). A word-final
+    possessive in the rest is now discounted when its word is a
+    standalone prose word preceded by further prose; a delimiter
+    closing a quoted span ('other') or the wrapper itself (the bar
+    of 'foo' bar', the b of a'!b) still counts."""
+
+    def test_final_possessive_in_following_text(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the users' flake"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in James' flake"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the developers' flake"
+        ) == ("nixpkgs", None)
+
+    def test_final_possessive_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the users' registry"
+        ) == (None, "nixpkgs")
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in James' registry"
+        ) == (None, "nixpkgs")
+
+    def test_primed_name_with_final_possessive(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs'' in the users' flake"
+        ) == ("nixpkgs'", None)
+
+    def test_final_possessive_with_quoted_following_text(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the users' flake"
+            " and then 'other'"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'other'"
+            " in the users' flake"
+        ) == ("nixpkgs", None)
+
+    def test_name_final_word_after_apostrophe_still_counts(self):
+        """Guard (#714 shape): the closing quote of 'foo' bar' ends
+        the first word after the in-name apostrophe, so it is a
+        delimiter, not a possessive — the name is not truncated."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'foo' bar'"
+        ) == ("foo' bar", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'!b' and then 'other'"
+        ) == ("a'!b", None)
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #727 harm, end to end: the extracted path must
+        resolve through the lock to the failing input, not to
+        nothing (the swallowed name matches no input)."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the users' flake"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
