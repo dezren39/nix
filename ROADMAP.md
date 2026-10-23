@@ -186,3 +186,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | zsh init no longer runs `opencode completion` at shell start   | 2026-10-22 | #666, #695 |
 | ROADMAP Done records the #686, #689 and #691 completions       | 2026-10-22 | #693, #694 |
 | flake-tidy root-input inserts anchor outside dotted parents    | 2026-10-22 | #696, #697 |
+| ROADMAP Done records the #666, #693 and #696 completions       | 2026-10-22 | #698, #699 |
+| flake-tidy `remove_input_url_line` excises the url only        | 2026-10-22 | #700, #701 |
