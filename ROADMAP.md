@@ -215,3 +215,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #747 and #750 completions           | 2026-10-24 | #754, #755 |
 | flake-tidy closing-run: glued suffix is not an opening       | 2026-10-24 | #756, #757 |
 | ROADMAP Done records the #758 completion                     | 2026-10-24 | #758, #759 |
+| ROADMAP Done records the #761 completion                     | 2026-10-24 | #761, #762 |
