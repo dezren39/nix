@@ -77,7 +77,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 | Title                                          | Horizon | Status   | Intent                                                                                                                                                                                                                                                            | Links                                                                  |
 | ---------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Stale dependency PRs                           | Next    | proposed | Renovate PRs for `pkgs/buffer-backup` (TypeScript 7, @types/node, @types/vscode) and two Bolt drafts, #364 and #388, have sat open since 2026-10-01 or later. Merge or close the rest and pin them in `renovate.json`. | #317, #320, #324, #364, #388 |
 | macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo — that build has landed (#469), so this is moot as predicted.                                                                                                                                               | #366                                                                   |
 
 ## Done
@@ -221,3 +220,9 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #768 completion                     | 2026-10-24 | #768, #769 |
 | ROADMAP Done records the #770 completion                     | 2026-10-24 | #770, #771 |
 | flake-tidy unclosed span no longer truncates the name        | 2026-10-24 | #772, #773 |
+| flake-tidy `_brace_counts` fast paths (Bolt ledger)           | 2026-10-24 | #774, #752 |
+| ROADMAP Done records the #770 and #772 completions            | 2026-10-24 | #779, #780 |
+| flake-tidy: punctuation-start span is not a close             | 2026-10-24 | #778, #782 |
+| buffer-backup lockfiles synced; lock-sync check added         | 2026-10-24 | #781, #783 |
+| Stale dependency PRs triaged and landed                       | 2026-10-24 | #424, #775, #776, #777 |
+| clean.sh var/folders sweep factored; its test is real         | 2026-10-24 | #557, #784 |
