@@ -2206,6 +2206,65 @@ class TestExtractFailedInputSeparatorPrefixedLaterSpan:
         }
 
 
+class TestExtractFailedInputUnclosedSpanTruncation:
+    """#772: a span in the following text that never closes
+    still counted its opening quote in the parity, so it
+    could balance the wrapper's genuine close seen from an
+    in-name candidate: 'a'!b' ' returned the truncated
+    prefix 'a' — the exact outcome #714 exists to prevent,
+    because the callers trust the result and override/match
+    a different input.  A rest that ends inside an unclosed
+    span is not balanced, so _rest_delimiter_quotes now
+    forces its count odd and the line yields no match.
+    (The mirror shape 'nixpkgs' trailing' is NOT part of
+    this fix: it is structurally identical to the settled
+    #727 reading 'foo' bar', where the later quote is the
+    genuine close of a name whose first word is primed.)"""
+
+    def test_unclosed_span_does_not_balance_truncated_prefix(self):
+        for rest in (" '", " x 'unclosed"):
+            assert flake_tidy.extract_failed_input(
+                f"… while updating the flake input 'a'!b'{rest}"
+            ) == (None, None), rest
+            assert flake_tidy.extract_failed_input(
+                f"cannot find flake 'flake:a'!b'{rest}"
+            ) == (None, None), rest
+
+    def test_unclosed_span_simple_names_yield_no_match(self):
+        for name in ("nixpkgs", "nixpkgs'", "parent'/child"):
+            assert flake_tidy.extract_failed_input(
+                f"… while updating the flake input '{name}' x 'unclosed"
+            ) == (None, None), name
+
+    def test_unbalanced_following_text_still_no_match(self):
+        """Guards: the #722/#731 unclosed-span readings keep
+        yielding no match — the unclosed opening must not be
+        flipped into balancing the genuine close either."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'other"
+        ) == (None, None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users"
+        ) == (None, None)
+
+    def test_closed_spans_and_names_still_parse(self):
+        """Guards: balanced following text, primed names, the
+        #714 punctuation name and the #727 primed-first-word
+        name are unaffected."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'a'!b'"
+        ) == ("a'!b", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs'' and then 'other'"
+        ) == ("nixpkgs'", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' in the users' flake"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'foo' bar'"
+        ) == ("foo' bar", None)
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
