@@ -2118,6 +2118,94 @@ class TestExtractFailedInputAdjacentSpanGluedSuffix:
         }
 
 
+class TestExtractFailedInputSeparatorPrefixedLaterSpan:
+    """#760: PR #757's _span_opened_at_closes judged its
+    candidate close by the prose before it alone — non-empty,
+    not ending in whitespace, and not ending in one of four
+    opening separators ('(', '[', '{', '"').  When a
+    punctuation-ending adjacent span carries a glued suffix
+    and a later independent span is preceded by any other
+    separator (':', ',', ';', '-', '/', '=', ']', ')', '}',
+    '.', '!', '?'), the prose between the genuine close and
+    that later span's opening ends in the separator, so the
+    opening was taken for the suffix candidate's close, the
+    suffix was believed to open a span, the run collapsed to
+    a single close, the parity flipped, and the wrapper's
+    genuine close was rejected.  A candidate close is now
+    itself displaced when it has the opening signature and
+    a span opened at it closes later — the separator family
+    is judged generally, by the non-word character before
+    the quote, not by listing its members."""
+
+    def test_separator_before_later_span_after_glued_suffix(self):
+        for sep in (":", ",", ";", "-", "/", "=", "]", ")", "}", ".", "!", "?"):
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'a''b-'s flake{sep}'other'"
+            ) == ("nixpkgs", None), sep
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'a''b-'s{sep}'other'"
+            ) == ("nixpkgs", None), sep
+
+    def test_separator_before_later_span_flake_name(self):
+        for sep in (":", ",", ";", "-", "/", "=", "]", ")", "}", ".", "!", "?"):
+            assert flake_tidy.extract_failed_input(
+                "cannot find flake 'flake:nixpkgs' in the"
+                f" 'a''b-'s flake{sep}'other'"
+            ) == (None, "nixpkgs"), sep
+
+    def test_already_working_separator_shapes_still_hold(self):
+        for sep in (" ", "(", "[", "{", '"'):
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'a''b-'s flake{sep}'other'"
+            ) == ("nixpkgs", None), sep
+
+    def test_guards_still_hold(self):
+        """The #747 separator cases (a span opened at the later
+        quote does close later), the #756 glued-suffix battery,
+        and genuinely punctuation-ending later spans."""
+        for rest in (
+            "'users''s flake, ('other')",
+            "'users''s flake:'other'",
+            "'users''s flake:'b-'",
+            "'a''b'",
+            "'a''-b'",
+            "'users''-owned'",
+            "'a''b-' flake",
+            "'a''b-'s flake and then 'other'",
+        ):
+            assert flake_tidy.extract_failed_input(
+                f"… while updating the flake input 'nixpkgs' and then {rest}"
+            ) == ("nixpkgs", None), rest
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #760 harm, end to end: the swallowed name matches
+        no input, so the override comes back empty and the robust
+        lock retry silently targets nothing."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'a''b-'s flake:'other'"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
