@@ -1357,6 +1357,14 @@ def _brace_counts(line: str) -> tuple[int, int]:
     and are ignored (#623). Indented (''...'') strings are not tracked —
     the same documented approximation the other line scanners make.
     """
+    # Fast path 1: if no braces exist on the line, net brace count is (0, 0).
+    if "{" not in line and "}" not in line:
+        return 0, 0
+
+    # Fast path 2: if no quotes or comments exist, simple string counting works directly.
+    if '"' not in line and "#" not in line:
+        return line.count("{"), line.count("}")
+
     opens = 0
     closes = 0
     in_string = False
