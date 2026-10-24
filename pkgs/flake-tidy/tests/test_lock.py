@@ -2265,6 +2265,98 @@ class TestExtractFailedInputUnclosedSpanTruncation:
         ) == ("foo' bar", None)
 
 
+class TestExtractFailedInputPunctStartSpan:
+    """#778: the opening-signature tests in
+    _closing_run_opens_next_span and _span_opened_at_closes
+    refused a span whose content starts with prose
+    punctuation (')]}.,;:!?'), so an independent span like
+    ('.other') in the following text was never recognised
+    as a span: its opening quote was taken for the close
+    of a span opened at the 'users'' closing run, the
+    parity skewed, the wrapper's genuine close was
+    rejected, and a later candidate yielded the swollen
+    name "nixpkgs' and then 'users'".  Punctuation-start
+    content is legitimate (a dot-start quoted name is
+    legal, #709/#710); the recursive closes-later check,
+    not the character after the opening quote, is what
+    separates such a span from prose punctuation that
+    follows a genuine close."""
+
+    def test_punct_start_independent_span(self):
+        for punct in ")]}.,;:!?":
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'users''s flake, ('{punct}other')"
+            ) == ("nixpkgs", None), punct
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'users''s flake, '{punct}other'"
+            ) == ("nixpkgs", None), punct
+
+    def test_punct_start_span_flake_name(self):
+        for punct in (".", ",", ")"):
+            assert flake_tidy.extract_failed_input(
+                "cannot find flake 'flake:nixpkgs' in the"
+                f" 'users''s flake, ('{punct}other')"
+            ) == (None, "nixpkgs"), punct
+
+    def test_punct_start_span_after_glued_suffix(self):
+        """The _span_opened_at_closes path: the same span
+        after a punctuation-ending adjacent span carrying a
+        glued suffix is displaced the same way — both in
+        parentheses and directly after a separator."""
+        for punct in (".", ",", ")"):
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'a''b-'s flake, ('{punct}other')"
+            ) == ("nixpkgs", None), punct
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'a''b-'s flake:'{punct}other'"
+            ) == ("nixpkgs", None), punct
+
+    def test_guards_still_hold(self):
+        """Controls: no following span, a plain span, a span
+        whose genuine close is followed by prose punctuation,
+        and the #756/#760 glued-suffix shapes."""
+        for rest in (
+            "'users''s flake",
+            "'users''s flake, ('other')",
+            "'users''s flake, ('other').",
+            "'users''s flake, ('other'), and then 'next'",
+            "'a''b-'s flake:'other'",
+            "'a''b-'s flake, ('other')",
+        ):
+            assert flake_tidy.extract_failed_input(
+                f"… while updating the flake input 'nixpkgs' and then {rest}"
+            ) == ("nixpkgs", None), rest
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #778 harm, end to end: the swollen name matches
+        no input, so the override comes back empty."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then"
+            " 'users''s flake, ('.other')"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
