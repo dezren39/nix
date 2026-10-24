@@ -91,26 +91,29 @@ export function describeSession(session) {
  */
 export function resolveSession(sessions, selector) {
   const list = Array.isArray(sessions) ? sessions.filter(Boolean) : []
-  const recent = list.slice().sort(byRecent).slice(0, RECENT_LIMIT)
   if (list.length === 0) return { status: "empty", candidates: [] }
 
   const term = typeof selector === "string" ? selector.trim() : ""
+  // Lazily evaluate recent candidates to avoid eager array copying & O(N log N) sorting
+  // on successful exact ID or unique title lookups.
+  const getRecent = () => list.slice().sort(byRecent).slice(0, RECENT_LIMIT)
+
   if (!term) {
-    return { status: "none", candidates: recent, reason: "No session selector was provided." }
+    return { status: "none", candidates: getRecent(), reason: "No session selector was provided." }
   }
 
   const exact = list.find((item) => item && item.id === term)
   if (exact) return { status: "ok", session: exact, matchedBy: "id" }
 
   if (/^ses_/i.test(term)) {
-    return { status: "none", candidates: recent, reason: `No session has id "${term}".` }
+    return { status: "none", candidates: getRecent(), reason: `No session has id "${term}".` }
   }
 
   const needle = term.toLowerCase()
   const matches = list.filter((item) => title(item).toLowerCase().includes(needle)).sort(byRecent)
   if (matches.length === 1) return { status: "ok", session: matches[0], matchedBy: "title" }
   if (matches.length > 1) return { status: "ambiguous", candidates: matches.slice(0, RECENT_LIMIT) }
-  return { status: "none", candidates: recent, reason: `No session title matches "${term}".` }
+  return { status: "none", candidates: getRecent(), reason: `No session title matches "${term}".` }
 }
 
 function errorText(value) {
