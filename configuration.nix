@@ -9,6 +9,17 @@
   system,
   ...
 }:
+let
+  # The mcpx launchd agent's program (see launchd.user.agents.mcpx). Built in
+  # the store, installed as a copy at the fixed mcpxAgentPath so the agent's
+  # executable, and the name macOS shows for it, never change.
+  mcpxAgent = pkgs.writeShellScript "mcpx" ''
+    cfg=/Users/drewry.pope/.config/mcpx/config.json
+    ${inputs.self.packages.${system}.mcpx}/bin/mcpx --config "$cfg" stop || true
+    exec ${inputs.self.packages.${system}.mcpx}/bin/mcpx daemon --config "$cfg"
+  '';
+  mcpxAgentPath = "/usr/local/libexec/mcpx/mcpx";
+in
 lib.recursiveUpdate {
   imports = [
     ./systemPackages.nix
@@ -619,6 +630,20 @@ lib.recursiveUpdate {
   # src/sidepulse/lid_sleep.py, or sidepulse decides the file drifted and
   # re-prompts on every launch.
   system.activationScripts.extraActivation.text = ''
+    # mcpx's launchd agent runs the fixed path ${mcpxAgentPath} (see
+    # launchd.user.agents.mcpx). Refresh the copy here, before launchd is set
+    # up, and remember whether it changed so postActivation restarts the
+    # agent: its plist no longer changes when mcpx does. Root-owned and not
+    # user-writable, like the store copy it mirrors.
+    mcpxAgentChanged=0
+    if ! /usr/bin/cmp -s ${mcpxAgent} ${mcpxAgentPath}; then
+      echo "installing ${mcpxAgentPath}" >&2
+      /bin/mkdir -p "$(/usr/bin/dirname ${mcpxAgentPath})"
+      /usr/bin/install -o root -g wheel -m 0755 ${mcpxAgent} ${mcpxAgentPath}.tmp
+      /bin/mv -f ${mcpxAgentPath}.tmp ${mcpxAgentPath}
+      mcpxAgentChanged=1
+    fi
+
     sidepulseSudoers=/etc/sudoers.d/sidepulse-disablesleep
     sidepulseRule='${config.system.primaryUser} ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 0, /usr/bin/pmset -a disablesleep 1'
 
@@ -655,6 +680,23 @@ lib.recursiveUpdate {
 
     if /bin/launchctl list | grep -q org.nixos.skhd; then
       /bin/launchctl kickstart -k "gui/$(id -u)/org.nixos.skhd" || true
+    fi
+
+    # A new mcpx (or launcher) was installed at ${mcpxAgentPath} in
+    # extraActivation; restart the agent onto it. The plist is unchanged, so
+    # nix-darwin's user launchd step did not.
+    if [ "''${mcpxAgentChanged:-0}" = 1 ]; then
+      echo "restarting org.nixos.mcpx onto the new ${mcpxAgentPath}" >&2
+      /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u ${config.system.primaryUser})/org.nixos.mcpx" || true
+    fi
+
+    # Xcode and the Command Line Tools ask for their license to be accepted
+    # again after each update, and until then xcodebuild (and builds that
+    # call it) fail with "You have not agreed to the Xcode license". Accept it
+    # here when it is pending; a no-op otherwise.
+    if /usr/bin/xcode-select -p >/dev/null 2>&1 && ! /usr/bin/xcodebuild -license check >/dev/null 2>&1; then
+      echo "accepting the Xcode license (xcodebuild -license accept)" >&2
+      /usr/bin/xcodebuild -license accept || true
     fi
 
     # Root's git: /etc/gitconfig already applies at system scope, but root has no
@@ -942,8 +984,14 @@ lib.recursiveUpdate {
     # from a directory with no project config finds the same set, so it uses
     # this daemon instead of starting its own.
     #
-    # The program is a store path, so `just switch` after an mcpx change writes
-    # a new plist and launchd restarts the agent on the new binary.
+    # The program is a fixed path, /usr/local/libexec/mcpx/mcpx, not a store
+    # path. macOS lists a background item under its executable's file name and
+    # tracks it by path: the store path of the old writeShellScript wrapper
+    # showed as "d0b6q5234j1gab2qwswfimg23zgk1w2f-mcpx-agent", and every mcpx
+    # build (9 path changes Oct 2-22) gave it a new name and executable. The
+    # fixed file is a copy of mcpxAgent, refreshed by extraActivation below
+    # before launchd is set up; since the plist no longer changes with mcpx,
+    # postActivation kickstarts the agent whenever the copy changed.
     mcpx = {
       serviceConfig = {
         EnvironmentVariables.HOME = "/Users/drewry.pope";
@@ -985,13 +1033,7 @@ lib.recursiveUpdate {
         # (developing-today/opencode#134). Left
         # running, it holds the socket, this daemon exits "a daemon is already
         # listening", and KeepAlive respawns it every 10 s (822 times that day).
-        ProgramArguments = [
-          "${pkgs.writeShellScript "mcpx-agent" ''
-            cfg=/Users/drewry.pope/.config/mcpx/config.json
-            ${inputs.self.packages.${system}.mcpx}/bin/mcpx --config "$cfg" stop || true
-            exec ${inputs.self.packages.${system}.mcpx}/bin/mcpx daemon --config "$cfg"
-          ''}"
-        ];
+        ProgramArguments = [ mcpxAgentPath ];
         StandardErrorPath = "/tmp/mcpx.err.log";
         StandardOutPath = "/tmp/mcpx.out.log";
       };

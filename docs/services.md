@@ -16,7 +16,7 @@ Written 2026-10-19. Upstream file:line references are to the revisions pinned in
 |---|---|---|---|---|
 | OpenChamber | `org.nixos.openchamber` (`openchamber.nix`) | `~/.local/state/openchamber/start`, a link to the start script in the store | `127.0.0.1:3000` | `~/Library/Logs/openchamber.log` |
 | OpenCode (the one OpenChamber manages) | none: a child of OpenChamber, left running across OpenChamber restarts (`AbandonProcessGroup = true`) | `~/.local/state/openchamber/bin/opencode`, a link to the wrapped fork build | a random `127.0.0.1` port | `~/.local/share/opencode/log/` |
-| mcpx | `org.nixos.mcpx` (`configuration.nix`) | a store wrapper (`mcpx-agent`) that runs `mcpx --config ~/.config/mcpx/config.json stop`, then `exec mcpx daemon --config …` | a unix socket `~/.local/state/mcpx/daemon-<hash>.sock`, plus a loopback HTTP port | `/tmp/mcpx.err.log`, `~/.local/state/mcpx/logs/mcpx-<date>.jsonl` |
+| mcpx | `org.nixos.mcpx` (`configuration.nix`) | `/usr/local/libexec/mcpx/mcpx`, a root-owned copy of a store wrapper refreshed at activation (fixed path, so macOS lists it as "mcpx"; activation restarts the agent when the copy changes), that runs `mcpx --config ~/.config/mcpx/config.json stop`, then `exec mcpx daemon --config …` | a unix socket `~/.local/state/mcpx/daemon-<hash>.sock`, plus a loopback HTTP port | `/tmp/mcpx.err.log`, `~/.local/state/mcpx/logs/mcpx-<date>.jsonl` |
 
 The desktop app (`/Applications/Nix Apps/OpenChamber.app`) is only a window onto
 the server at port 3000 (`OPENCHAMBER_SERVER_URL`, `OPENCHAMBER_SKIP_LOCAL_SERVER=1`

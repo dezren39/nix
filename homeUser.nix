@@ -71,6 +71,22 @@ lib.recursiveUpdate {
       createScreenshotsDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run /bin/mkdir -p "$HOME/Pictures/Screenshots"
       '';
+      # Keep the generation being activated alive in the store, whether or
+      # not it is a registered profile generation. Activation copies or links
+      # store paths to places Nix cannot see (~/.config/mcpx/config.json
+      # below, OpenChamber's state links, sidepulse's launchd plists); those
+      # stay valid only while something roots the generation that wrote them.
+      # simple-rebuild.sh always registers the system profile before
+      # activating, which roots it, but a hand-run ./result/activate does
+      # not: that is how a `nix store gc` deleted mcpx's mcp-remote on
+      # 2026-10-21 (config written Oct 20 02:38 by a build that never became
+      # a generation). One indirect root, replaced by each activation.
+      rootActivatedGeneration = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+        run /bin/mkdir -p "$HOME/.local/state/nix/gcroots"
+        run /nix/var/nix/profiles/default/bin/nix-store --add-root \
+          "$HOME/.local/state/nix/gcroots/home-manager-last-activated" --indirect \
+          --realise "$newGenPath" >/dev/null
+      '';
       # ~/.config/mcpx/config.json (every MCP server; see mcpx.config.nix) is
       # a real file written here, not a home.file link into the store. mcpx
       # names its daemon's socket after the config file's path *with symlinks

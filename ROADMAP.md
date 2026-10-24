@@ -4,7 +4,7 @@ This is the roadmap for the repo. It is grouped by area, and each row has a hori
 
 A row records intent. It does not settle a decision and it is not a go-ahead to build.
 
-Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-21. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
+Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-23. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
 
 ## Areas
 
@@ -159,3 +159,63 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #619 completion                       | 2026-10-21 | #619, #620 |
 | ROADMAP Done records the #621 completion                       | 2026-10-21 | #621, #622 |
 | flake-tidy line scanners ignore braces in comments/strings     | 2026-10-21 | #623, #624 |
+| ROADMAP Done records the #621 and #623 completions             | 2026-10-21 | #625, #626 |
+| flake-tidy `_block_context_for_lines` closes one-line blocks   | 2026-10-22 | #628, #629 |
+| ROADMAP Done records the #625 and #628 completions             | 2026-10-22 | #630, #631 |
+| flake-tidy nested same-name block must not shadow root input   | 2026-10-22 | #634, #635 |
+| ROADMAP Done records the #630 completion                       | 2026-10-22 | #632, #633 |
+| ROADMAP Done records the #636 completion                       | 2026-10-22 | #638, #639 |
+| flake-tidy nested inputs override must not reset scanner depth | 2026-10-22 | #640, #641 |
+| flake-tidy `check_url_follows_conflicts` judges own-level only | 2026-10-22 | #642, #643 |
+| ROADMAP Done records the #640 and #642 completions             | 2026-10-22 | #644, #645 |
+| flake-tidy nested-inputs follows visible to existence checkers | 2026-10-22 | #647, #648 |
+| ROADMAP Done records the #644 and #647 completions             | 2026-10-22 | #650, #651 |
+| flake-tidy conflict judge uses own-level structural text       | 2026-10-22 | #646, #654 |
+| ROADMAP Done records the #657 completion                       | 2026-10-22 | #657, #658 |
+| ROADMAP Done records the #673 completion                       | 2026-10-22 | #673, #674 |
+| flake-tidy judges every declaration in one-line nested block   | 2026-10-22 | #649, #675 |
+| flake-tidy dotted-style parent blocks are not root scope       | 2026-10-22 | #655, #678 |
+| ROADMAP Done records the #676 completion                       | 2026-10-22 | #676, #677 |
+| flake-tidy `get_input_file_order` skips dotted override child  | 2026-10-22 | #652, #653, #681 |
+| ROADMAP Done records the #679 completion                       | 2026-10-22 | #679, #680 |
+| flake-tidy primed input names visible to block scanners        | 2026-10-22 | #683, #684 |
+| flake-tidy primed names visible to deep-follows overrides      | 2026-10-22 | #685, #688 |
+| ROADMAP Done records the #652, #679 and #683 completions       | 2026-10-22 | #686, #687 |
+| ROADMAP Done records the #685 completion                       | 2026-10-22 | #689, #690 |
+| flake-tidy `extract_failed_input` keeps primed names intact    | 2026-10-22 | #691, #692 |
+| zsh init no longer runs `opencode completion` at shell start   | 2026-10-22 | #666, #695 |
+| ROADMAP Done records the #686, #689 and #691 completions       | 2026-10-22 | #693, #694 |
+| flake-tidy root-input inserts anchor outside dotted parents    | 2026-10-22 | #696, #697 |
+| ROADMAP Done records the #666, #693 and #696 completions       | 2026-10-22 | #698, #699 |
+| flake-tidy `remove_input_url_line` excises the url only        | 2026-10-22 | #700, #701 |
+| ROADMAP Done records the #698 and #700 completions             | 2026-10-22 | #702, #703 |
+| flake-tidy quoted input names visible to root-input scanners   | 2026-10-23 | #705, #706 |
+| ROADMAP Done records the #702 and #705 completions             | 2026-10-23 | #707, #708 |
+| flake-tidy `extract_failed_input` parses dotted input names    | 2026-10-23 | #710, #711 |
+| flake-tidy `extract_failed_input` parses names structurally    | 2026-10-23 | #712, #713 |
+| ROADMAP Done records the #715 completion                       | 2026-10-23 | #715, #716 |
+| flake-tidy generators quote quote-requiring names              | 2026-10-23 | #709, #719 |
+| flake-tidy `extract_failed_input` structural closing quote     | 2026-10-23 | #714, #720 |
+| flake-tidy `_name_ref` matches `_quote_name` escapes           | 2026-10-23 | #721, #723 |
+| flake-tidy `extract_failed_input` handles multi-primed paths   | 2026-10-23 | #722, #726 |
+| flake-tidy `extract_failed_input` word-final possessives       | 2026-10-23 | #727, #728 |
+| ROADMAP Done records the #709, #714 and #721 completions       | 2026-10-23 | #724, #725 |
+| ROADMAP Done records the #722 and #727 completions             | 2026-10-23 | #729, #730 |
+| flake-tidy `extract_failed_input` handles multi-word spans     | 2026-10-23 | #731, #732 |
+| ROADMAP Done records the #724, #729 and #731 completions       | 2026-10-23 | #734, #735 |
+| ROADMAP Done records the #734 completion                       | 2026-10-23 | #736, #737 |
+| flake-tidy: a span's closing quote run is one delimiter      | 2026-10-23 | #733, #740 |
+| ROADMAP Done records the #736 completion                     | 2026-10-23 | #738, #739 |
+| ROADMAP Done records the #733 and #738 completions              | 2026-10-23 | #741, #742 |
+| flake-tidy closing-run rule keeps adjacent quoted spans separate | 2026-10-23 | #743, #744 |
+| flake-tidy closing run judged by whether the next span closes   | 2026-10-24 | #745, #746 |
+| ROADMAP Done records the #748 completion                     | 2026-10-24 | #748, #749 |
+| flake-tidy: separator before independent span is not a close | 2026-10-24 | #747, #753 |
+| ROADMAP Done records the #750 completion                     | 2026-10-24 | #750, #751 |
+| ROADMAP Done records the #747 and #750 completions           | 2026-10-24 | #754, #755 |
+| flake-tidy closing-run: glued suffix is not an opening       | 2026-10-24 | #756, #757 |
+| ROADMAP Done records the #758 completion                     | 2026-10-24 | #758, #759 |
+| ROADMAP Done records the #761 completion                     | 2026-10-24 | #761, #762 |
+| ROADMAP Done records the #761 completion                     | 2026-10-24 | #765, #766 |
+| flake-tidy separator-prefixed span no longer swallows prose  | 2026-10-24 | #760, #767 |
+| ROADMAP Done records the #768 completion                     | 2026-10-24 | #768, #769 |
