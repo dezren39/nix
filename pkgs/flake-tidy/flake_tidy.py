@@ -2713,10 +2713,19 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # for a new span's opening, stranding the parity again:
     # a closing run now counts as the single delimiter it
     # is, its earlier primes being name text (#733) — unless
-    # a word character follows the run, which makes its last
-    # quote the opening of the next, adjacently written span
-    # ('a''b'), so the run counts as close plus opening
-    # (#743).  If no
+    # the run's last quote is also the opening of the next,
+    # adjacently written span ('a''b'), in which case the
+    # run counts as close plus opening (#743).  #744 judged
+    # that by the single character after the run — a word
+    # character meant close plus opening, anything else a
+    # single close — and misjudged in both directions: a
+    # prose suffix after a primed span ('users''s) was taken
+    # for a new span that never closes, and an adjacent span
+    # starting with punctuation ('a''-b') was collapsed to a
+    # single close.  The run is now judged by the rest of
+    # the line: it counts as close plus opening only when a
+    # span opened at its last quote actually closes later
+    # (_closing_run_opens_next_span, #745).  If no
     # quote qualifies, the name is genuinely ambiguous and
     # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
@@ -2818,6 +2827,35 @@ def _is_final_possessive(line: str, i: int, j: int) -> bool:
     return " " in line[i + 1 : j].strip()
 
 
+def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
+    """True when a span opened at line[run_end] — the last quote
+    of a closing run, taken as the opening of an adjacently
+    written next span — actually closes later in the line.
+
+    The next non-apostrophe quote after the run is that span's
+    would-be close.  It can close the span only when the span's
+    content is non-empty and does not end in whitespace (a
+    quoted name never trails a space): when no quote follows
+    the run at all, the character after the run is a prose
+    suffix on the span that just closed ('users''s flake,
+    'users''-owned), and when the next quote is preceded by
+    whitespace it is the opening of a later, independent span
+    ('users''s … 'other'), not this one's close.  #744 judged
+    the run by the single character after it, so the first
+    shape was mistaken for an opening and the genuinely
+    adjacent punctuation-start spans ('a''-b', 'a''/nix/…')
+    were collapsed to a single close (#745)."""
+    start = run_end + 1
+    for j in range(start, len(line)):
+        if line[j] != "'":
+            continue
+        if _is_word_apostrophe(line, j):
+            continue
+        content = line[start:j]
+        return bool(content) and not content[-1].isspace()
+    return False
+
+
 def _rest_delimiter_quotes(line: str, i: int) -> int:
     """Delimiter quotes in line after index i: single quotes that are
     not word apostrophes.  Following text quotes its own words in
@@ -2850,13 +2888,18 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     then treated the second prime — preceded by a quote, not a
     word character — as the opening of a new span that was
     never closed, stranding the parity and rejecting the
-    genuine close (#733).  The run is only collapsed that way
-    when what follows it ends the quoted phrase (a space,
-    punctuation or end-of-line): when a word character follows
-    a multi-quote run, the run is two delimiters — this span's
-    close and the opening of the next span written adjacently
-    ('a''b') — and both count, with the next span tracked
-    (#743)."""
+    genuine close (#733).  A multi-quote run can instead be
+    two delimiters — this span's close and the opening of
+    the next span written adjacently ('a''b') — and both
+    count, with the next span tracked (#743).  #744 told the
+    two apart by the one character after the run, which
+    misjudges both ways: a word character can be a prose
+    suffix on the primed span ('users''s flake — no span
+    follows), and a punctuation character can start the next
+    span ('a''-b').  The run is therefore judged by the
+    rest of the line: _closing_run_opens_next_span asks
+    whether a span opened at the run's last quote actually
+    closes later (#745)."""
     count = 0
     in_span = False
     j = i + 1
@@ -2868,22 +2911,22 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
             j += 1
             continue
         if in_span:
-            # Scan the whole closing run before judging it: what
-            # follows the run decides what its last quote is.
+            # Scan the whole closing run before judging it: the
+            # rest of the line decides what its last quote is.
             run_end = j
             while run_end + 1 < len(line) and line[run_end + 1] == "'":
                 run_end += 1
             count += 1  # the span's close; earlier run quotes are primes
-            after = line[run_end + 1] if run_end + 1 < len(line) else ""
-            if run_end > j and (after.isalnum() or after == "_"):
-                # A word character after a multi-quote run: the
-                # run's last quote opens the next span, written
-                # adjacently ('a''b') — it is a delimiter too, and
-                # the span it opens stays tracked so its own close
-                # counts.  Collapsing the whole run to the close —
-                # the #733 reading, right when a space, punctuation
-                # or end-of-line follows — ate that opening, flipped
-                # the parity and rejected the genuine close (#743).
+            if run_end > j and _closing_run_opens_next_span(line, run_end):
+                # The run's last quote opens the next span,
+                # written adjacently ('a''b', 'a''-b') — it is a
+                # delimiter too, and the span it opens stays
+                # tracked so its own close counts.  Collapsing
+                # the whole run to the close — the #733 reading,
+                # right when the quoted phrase really ends there
+                # ('power users'' , 'users''s) — ate that opening,
+                # flipped the parity and rejected the genuine
+                # close (#743).
                 count += 1
                 j = run_end + 1
                 continue  # in_span stays True: the next span is open
