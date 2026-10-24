@@ -1,71 +1,62 @@
 #!/usr/bin/env bash
-# Unit test for /private/var/folders cleaning logic in clean.sh
-set -euo pipefail
+# Test for the /private/var/folders sweep clean.sh runs with --tmpdir.
+#
+# This drives the REAL sweep — var-folders-clean.sh, the script
+# clean.sh calls — against a mock root (#557: the original version
+# pasted a copy of the loops into itself, so it passed even when the
+# shipped logic regressed, and its failure branch ended in
+# `return 1 2>/dev/null || true` at top level, exiting 0 on failure).
+# It is run by the flake check `var-folders-clean-tests`.
+set -uo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HELPER="$SELF_DIR/var-folders-clean.sh"
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+
+failures=0
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
 
 mock_folders="$TMP_ROOT/folders"
 mkdir -p "$mock_folders/aa" "$mock_folders/bb" "$mock_folders/zz/sub1" "$mock_folders/zz/sub2"
 touch "$mock_folders/aa/file1" "$mock_folders/zz/file2" "$mock_folders/zz/sub1/file3"
 
-# Verify initial setup
-[ -d "$mock_folders/aa" ]
-[ -d "$mock_folders/bb" ]
-[ -d "$mock_folders/zz/sub1" ]
-[ -f "$mock_folders/zz/file2" ]
+bash "$HELPER" "$mock_folders"
 
-# Run the cleaning logic against mock_folders
-folders="$mock_folders"
-if [ -d "$folders" ]; then
-  while IFS= read -r -d "" i; do
-    [ "$(basename "$i")" != "zz" ] && rm -rf "$i" 2>/dev/null
-  done < <(find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-  if [ -d "$folders/zz" ]; then
-    while IFS= read -r -d "" i; do
-      rm -rf "$i" 2>/dev/null
-    done < <(find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-  fi
-fi
-
-failures=0
-
-# Check non-zz folders are deleted
+# Non-zz folders are deleted
 if [ -e "$mock_folders/aa" ] || [ -e "$mock_folders/bb" ]; then
-  echo "FAIL: Non-zz folders were not removed" >&2
-  failures=$((failures + 1))
+  fail "non-zz folders were not removed"
 fi
 
-# Check zz directory itself is kept
+# The zz directory itself is kept
 if [ ! -d "$mock_folders/zz" ]; then
-  echo "FAIL: zz directory was deleted" >&2
-  failures=$((failures + 1))
+  fail "zz directory was deleted"
 fi
 
-# Check contents of zz directory are deleted
+# Contents of zz are deleted
 zz_contents=$(find "$mock_folders/zz" -mindepth 1 2>/dev/null | wc -l)
 if [ "$zz_contents" -ne 0 ]; then
-  echo "FAIL: zz directory contents were not cleared" >&2
-  failures=$((failures + 1))
+  fail "zz directory contents were not cleared"
 fi
 
-# Test edge case: missing zz directory
+# Edge case: missing zz directory — the rest is still swept, no error
 rm -rf "$mock_folders/zz"
-folders="$mock_folders"
-if [ -d "$folders" ]; then
-  while IFS= read -r -d "" i; do
-    [ "$(basename "$i")" != "zz" ] && rm -rf "$i" 2>/dev/null
-  done < <(find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-  if [ -d "$folders/zz" ]; then
-    while IFS= read -r -d "" i; do
-      rm -rf "$i" 2>/dev/null
-    done < <(find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-  fi
+mkdir -p "$mock_folders/cc"
+bash "$HELPER" "$mock_folders"
+if [ -e "$mock_folders/cc" ]; then
+  fail "folders were not removed when zz is missing"
 fi
+
+# Edge case: missing root entirely — a no-op, not an error
+bash "$HELPER" "$TMP_ROOT/does-not-exist"
 
 if [ "$failures" -eq 0 ]; then
   echo "PASS: /private/var/folders cleaning logic verified successfully."
 else
   echo "FAIL: test failed with $failures errors" >&2
-  return 1 2>/dev/null || true
+  exit 1
 fi
