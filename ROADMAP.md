@@ -206,3 +206,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #734 completion                       | 2026-10-23 | #736, #737 |
 | flake-tidy: a span's closing quote run is one delimiter      | 2026-10-23 | #733, #740 |
 | ROADMAP Done records the #736 completion                     | 2026-10-23 | #738, #739 |
+| ROADMAP Done records the #733 and #738 completions              | 2026-10-23 | #741, #742 |
+| flake-tidy closing-run rule keeps adjacent quoted spans separate | 2026-10-23 | #743, #744 |
+| flake-tidy closing run judged by whether the next span closes   | 2026-10-24 | #745, #746 |
