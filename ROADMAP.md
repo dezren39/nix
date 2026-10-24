@@ -15,7 +15,7 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 | [OpenCode and OpenChamber integration](#opencode-and-openchamber-integration) | Pins, the mcpx config, MCP sign-ins                       |
 | [Sidepulse patches](#sidepulse-patches)                                       | Port a 12-patch stack to upstream                         |
 | [The darwin system](#the-darwin-system)                                       | Old notes only, no open work                              |
-| [CI and housekeeping](#ci-and-housekeeping)                                   | Stale dependency PRs, concurrency groups, cleanup scripts |
+| [CI and housekeeping](#ci-and-housekeeping)                                   | Concurrency groups, cleanup scripts                       |
 
 ## mcpx moves to developing-today/code
 
@@ -226,3 +226,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | buffer-backup lockfiles synced; lock-sync check added         | 2026-10-24 | #781, #783 |
 | Stale dependency PRs triaged and landed                       | 2026-10-24 | #424, #775, #776, #777 |
 | clean.sh var/folders sweep factored; its test is real         | 2026-10-24 | #557, #784 |
+| ROADMAP Done records the #785 completion                     | 2026-10-24 | #785, #786 |
