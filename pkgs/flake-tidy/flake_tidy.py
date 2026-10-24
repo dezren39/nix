@@ -2732,6 +2732,12 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # ending adjacent span's genuine close carrying a glued
     # suffix ('a''b-'s): that quote is now an opening only
     # when a span opened at it also closes later (#756).
+    # #757's helper for that judgement took the next quote
+    # as the candidate's close whenever the prose before it
+    # ended in a separator outside its four-char set
+    # ('a''b-'s flake:'other'): the candidate close is now
+    # itself displaced when it has the opening signature
+    # and a span opened at it closes later (#760).
     # If no quote qualifies, the name is genuinely ambiguous and
     # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
@@ -2913,7 +2919,30 @@ def _span_opened_at_closes(line: str, opening: int) -> bool:
     quote's would-be content fails those tests, what follows
     the opening candidate is prose — a glued suffix such as
     the 's of 'b-'s, plus the rest of the sentence — not a
-    span, so the candidate quote never opens one (#756)."""
+    span, so the candidate quote never opens one (#756).
+
+    The content test alone is not enough when the prose after
+    a glued suffix ends in a separator other than the four
+    above — 'a''b-'s flake:'other', and likewise with ',',
+    ';', '-', '/', '=', ']', ')', '}', '.', '!' or '?' as the
+    separator before a later independent span.  The would-be
+    content 's flake:' then ends in that separator, which is
+    not whitespace and not in the four, so the later span's
+    opening quote was taken for this candidate's close and
+    the suffix was believed to open a span (#760).  That
+    quote is recognised as an opening the same way #756
+    recognised the candidate itself: a non-word character
+    before it (whatever separator the prose happens to end
+    in — the family is judged generally, not by listing its
+    members) and span content after it, and the reading
+    holds only when a span opened at that quote itself
+    closes later (this function, one span further on).  A
+    genuine close is not displaced by the recursion: a
+    punctuation-ending span's close with a glued suffix
+    ('b-'s …) reaches no closing quote with plausible
+    content through its suffix prose, exactly as before,
+    because the suffix's own candidate close — the later
+    span's opening — is displaced the same way."""
     start = opening + 1
     for k in range(start, len(line)):
         if line[k] != "'":
@@ -2923,6 +2952,15 @@ def _span_opened_at_closes(line: str, opening: int) -> bool:
         content = line[start:k]
         if not content or content[-1].isspace() or content[-1] in '([{"':
             return False
+        if not (line[k - 1].isalnum() or line[k - 1] == "_"):
+            after = line[k + 1] if k + 1 < len(line) else ""
+            if (
+                after
+                and not after.isspace()
+                and after not in ")]}.,;:!?'"
+                and _span_opened_at_closes(line, k)
+            ):
+                return False
         return True
     return False
 
@@ -2976,7 +3014,10 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     a reading that itself holds only when a span opened at
     that quote closes later, lest a punctuation-ending
     adjacent span's close with a glued suffix ('a''b-'s)
-    be taken for such an opening (#756)."""
+    be taken for such an opening (#756) — and that later
+    closing judgement itself displaces a candidate close
+    that opens a further independent span after any
+    separator, not only the four it first listed (#760)."""
     count = 0
     in_span = False
     j = i + 1
