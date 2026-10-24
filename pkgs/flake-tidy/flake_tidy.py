@@ -2771,6 +2771,20 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # A rest that ends inside an unclosed span is not
     # balanced, so its count is forced odd for every
     # candidate and the line yields no match (#772).
+    # The opening-signature tests in the two lookahead
+    # helpers refused to recognise a span whose content
+    # starts with prose punctuation (')]}.,;:!?'), so an
+    # independent span like ('.other') was never recognised
+    # as a span at all — its opening was taken for another
+    # span's close, the parity skewed, and the wrapper's
+    # genuine close was rejected for a swollen name
+    # ('nixpkgs' and then 'users').  A punctuation-start
+    # span is legitimate content (a dot-start name is a
+    # legal quoted name, #709/#710), and the recursive
+    # closes-later check is what separates it from prose
+    # punctuation following a genuine close, so the
+    # character after a candidate opening no longer
+    # disqualifies it on its own (#778).
     # If no quote qualifies, the name is genuinely ambiguous and
     # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
@@ -2898,12 +2912,15 @@ def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
     not whitespace, and so passed the test above (#747).  An
     opening quote is recognised directly: a non-word character
     before it (the separator: space, '(', ':', '[', '-', '/',
-    '"' …) and span content after it — a character that is
-    neither whitespace nor the prose punctuation that follows
-    a close (')]}.,;:!?').  A genuine close is preceded by its
-    span's content, so when it ends in punctuation the
-    character after it is that prose punctuation, whitespace
-    or the end of the line, never a content character.
+    '"' …) and a non-whitespace character after it.  That
+    character class alone cannot decide the question: the
+    prose punctuation that follows a genuine close
+    (')]}.,;:!?') is the same set a legitimate span's
+    content can start with ('.other' — a dot-start quoted
+    name is legal, #709/#710), so a candidate whose content
+    starts with that punctuation is judged by the same
+    closes-later check as any other candidate, not refused
+    outright (#778).
 
     That last claim is false for a glued prose suffix: an
     adjacently written span that ends in punctuation and
@@ -2933,7 +2950,6 @@ def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
             if (
                 after
                 and not after.isspace()
-                and after not in ")]}.,;:!?'"
                 and _span_opened_at_closes(line, j)
             ):
                 return False
@@ -2990,7 +3006,6 @@ def _span_opened_at_closes(line: str, opening: int) -> bool:
             if (
                 after
                 and not after.isspace()
-                and after not in ")]}.,;:!?'"
                 and _span_opened_at_closes(line, k)
             ):
                 return False
