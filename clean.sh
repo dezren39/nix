@@ -1143,17 +1143,10 @@ if [ "$CLEAN_TMPDIR" != "1" ]; then
 elif [ "$DRY_RUN" = "1" ]; then
   echo "  would clear /private/var/folders (keeping zz)"
 else
-  folders=/private/var/folders
-  if [ -d "$folders" ]; then
-    while IFS= read -r -d "" i; do
-      [ "$(basename "$i")" != "zz" ] && rm -rf "$i" 2>/dev/null
-    done < <(find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-    if [ -d "$folders/zz" ]; then
-      while IFS= read -r -d "" i; do
-        rm -rf "$i" 2>/dev/null
-      done < <(find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-    fi
-  fi
+  # The sweep itself lives in var-folders-clean.sh so its test
+  # (var-folders-clean.test.sh, run by the flake check) exercises the
+  # shipped logic instead of a pasted copy (#557).
+  bash "$SELF_DIR/var-folders-clean.sh" /private/var/folders
 fi
 
 del "$CALLER_USER_HOME/.Trash/"* "$ROOT_HOME/.Trash/"*

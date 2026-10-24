@@ -540,6 +540,24 @@ rec {
               bash ./opencode-db-pids.test.sh
               touch $out
             '';
+        # #557: var-folders-clean.test.sh (the #553 test for clean.sh's
+        # /private/var/folders sweep) was run by nothing, tested a pasted
+        # copy of the loops instead of the shipped logic, and exited 0 on
+        # failure. The sweep now lives in var-folders-clean.sh (which
+        # clean.sh calls), the test drives that script, and failures exit
+        # non-zero — run it here, by name, like opencode-db-pids above.
+        var-folders-clean-tests =
+          pkgs.runCommandLocal "var-folders-clean-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/var-folders-clean.sh $src/var-folders-clean.test.sh ./
+              chmod u+w ./var-folders-clean.sh ./var-folders-clean.test.sh
+              bash ./var-folders-clean.test.sh
+              touch $out
+            '';
         # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
         # repo's only *.test.ts suite) was run by nothing — no check,
         # workflow, or recipe referenced it, unlike the flake-tidy,
