@@ -1866,6 +1866,99 @@ class TestExtractFailedInputAdjacentSpans:
         }
 
 
+class TestExtractFailedInputClosingRunLookahead:
+    """#745: PR #744 judged a closing run by the single character
+    after it — a word character meant close plus the next span's
+    opening, anything else a single close — and misjudged in
+    both directions.  A prose suffix after a primed span
+    ('users''s) was taken for a span that never closes, flipping
+    the parity and swallowing prose into the name (a regression
+    of the #733 reading), while an adjacent span starting with
+    punctuation ('a''-b') was collapsed to a single close, its
+    own close judged outside any span (the #743 bug for
+    punctuation-start names).  A run now counts as close plus
+    opening only when a span opened at its last quote actually
+    closes later in the line."""
+
+    def test_prose_suffix_after_primed_span(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users''s flake"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'power users''s flake"
+        ) == ("nixpkgs", None)
+
+    def test_prose_suffix_after_primed_span_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the 'users''s thing"
+        ) == (None, "nixpkgs")
+
+    def test_prose_suffix_then_an_independent_span(self):
+        """The next quote after the run opens a later span; it is
+        preceded by whitespace, so it cannot be the close of a
+        span the run supposedly opened."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users''s"
+            " flake and then 'other'"
+        ) == ("nixpkgs", None)
+
+    def test_punctuation_start_adjacent_spans(self):
+        for second in ("-b", "/nix/store/abc", "$HOME/x", ".foo", "@foo", "--rebuild"):
+            assert flake_tidy.extract_failed_input(
+                f"… while updating the flake input 'nixpkgs' and then 'a''{second}'"
+            ) == ("nixpkgs", None), second
+
+    def test_punctuation_start_adjacent_span_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the 'a''--rebuild' thing"
+        ) == (None, "nixpkgs")
+
+    def test_punctuation_start_adjacent_span_then_a_third(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'a''-b' and 'c'"
+        ) == ("nixpkgs", None)
+
+    def test_ambiguous_guards_still_hold(self):
+        """'users''-owned is a primed span plus a hyphen suffix
+        (single close, #733) even though '-owned' starts with
+        the same character as the '-b' span above: no span
+        opened at the run closes later, because none opens."""
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users''-owned"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'a''b'"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users'''b'"
+        ) == ("nixpkgs", None)
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #745 harm, end to end: the swallowed name matches
+        no input, so the override comes back empty and the robust
+        lock retry silently targets nothing."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'a''-b'"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
