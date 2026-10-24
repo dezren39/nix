@@ -1959,6 +1959,78 @@ class TestExtractFailedInputClosingRunLookahead:
         }
 
 
+class TestExtractFailedInputIndependentSpanSeparator:
+    """#747: PR #746's lookahead only recognised an independent
+    later span when its opening quote was preceded by whitespace.
+    A non-space separator before that quote — '(' , ':', '[',
+    '-', '/', '"' — left the separator as the would-be span
+    content's last character, which is not whitespace, so the
+    opening quote was mistaken for the close of a span opened
+    at the closing run, the parity flipped, and the genuine
+    close was rejected.  The lookahead now recognises an
+    opening quote directly: a non-word character before it and
+    span content after it."""
+
+    def test_separator_before_independent_span(self):
+        for sep in ("(", ":", "[", "-", "/", '"'):
+            assert flake_tidy.extract_failed_input(
+                "… while updating the flake input 'nixpkgs' and then"
+                f" 'users''s flake,{sep}'other'"
+            ) == ("nixpkgs", None), sep
+
+    def test_separator_before_independent_span_in_prose_shapes(self):
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users''s"
+            " flake, ('other')"
+        ) == ("nixpkgs", None)
+        assert flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users''s"
+            " flake:'other'"
+        ) == ("nixpkgs", None)
+
+    def test_separator_before_independent_span_flake_name(self):
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the 'users''s flake, ('other')"
+        ) == (None, "nixpkgs")
+        assert flake_tidy.extract_failed_input(
+            "cannot find flake 'flake:nixpkgs' in the 'users''s flake:'other'"
+        ) == (None, "nixpkgs")
+
+    def test_guards_still_hold(self):
+        """The #745 guards: genuinely adjacent spans, the prose
+        suffix, and the space-separated independent span."""
+        for rest in ("'a''b'", "'a''-b'", "'users''-owned'", "'users''s flake, 'other'"):
+            assert flake_tidy.extract_failed_input(
+                f"… while updating the flake input 'nixpkgs' and then {rest}"
+            ) == ("nixpkgs", None), rest
+
+    def test_extracted_name_overrides_the_right_input(self):
+        """The #747 harm, end to end: the swallowed name matches
+        no input, so the override comes back empty and the robust
+        lock retry silently targets nothing."""
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"nixpkgs": "n1"}},
+                "n1": {
+                    "original": {
+                        "type": "github",
+                        "owner": "NixOS",
+                        "repo": "nixpkgs",
+                    }
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+        input_path, _ = flake_tidy.extract_failed_input(
+            "… while updating the flake input 'nixpkgs' and then 'users''s"
+            " flake, ('other')"
+        )
+        assert flake_tidy.build_override_inputs(lock, input_path) == {
+            "nixpkgs": "github:NixOS/nixpkgs"
+        }
+
+
 class TestForgeHostAndDir:
     """#535: forge host/dir are source-distinguishing — host names a
     different server (GitHub Enterprise, self-hosted GitLab, hg.sr.ht)
