@@ -2844,7 +2844,21 @@ def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
     the run by the single character after it, so the first
     shape was mistaken for an opening and the genuinely
     adjacent punctuation-start spans ('a''-b', 'a''/nix/…')
-    were collapsed to a single close (#745)."""
+    were collapsed to a single close (#745).
+
+    The whitespace test alone misses an independent span whose
+    opening quote is preceded by a non-space separator —
+    'users''s flake, ('other')', 'users''s flake:'other'' —
+    where the separator is the content's last character, is
+    not whitespace, and so passed the test above (#747).  An
+    opening quote is recognised directly: a non-word character
+    before it (the separator: space, '(', ':', '[', '-', '/',
+    '"' …) and span content after it — a character that is
+    neither whitespace nor the prose punctuation that follows
+    a close (')]}.,;:!?').  A genuine close is preceded by its
+    span's content, so when it ends in punctuation the
+    character after it is that prose punctuation, whitespace
+    or the end of the line, never a content character."""
     start = run_end + 1
     for j in range(start, len(line)):
         if line[j] != "'":
@@ -2852,7 +2866,13 @@ def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
         if _is_word_apostrophe(line, j):
             continue
         content = line[start:j]
-        return bool(content) and not content[-1].isspace()
+        if not content or content[-1].isspace():
+            return False
+        if not (line[j - 1].isalnum() or line[j - 1] == "_"):
+            after = line[j + 1] if j + 1 < len(line) else ""
+            if after and not after.isspace() and after not in ")]}.,;:!?'":
+                return False
+        return True
     return False
 
 
@@ -2899,7 +2919,9 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     span ('a''-b').  The run is therefore judged by the
     rest of the line: _closing_run_opens_next_span asks
     whether a span opened at the run's last quote actually
-    closes later (#745)."""
+    closes later (#745) — and whether the quote it finds
+    there closes anything at all, rather than opening an
+    independent span after a non-space separator (#747)."""
     count = 0
     in_span = False
     j = i + 1
