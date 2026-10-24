@@ -30,6 +30,12 @@
 
           buildPhase = ''
             export HOME=$(mktemp -d)
+            # This build installs from bun.lock ONLY, while Renovate
+            # updates package-lock.json ONLY (#781): the two lockfiles
+            # drift unless bun.lock is regenerated (`bun install`)
+            # when a Renovate PR lands. The lock-sync check below
+            # (`nix flake check` here, or check-lock-sync.py) fails
+            # when they resolve a dependency to different versions.
             bun install --frozen-lockfile 2>/dev/null || bun install
             bun x tsc -p ./
           '';
@@ -54,6 +60,18 @@
             fi
           done
         '';
+
+        # #781: fail when bun.lock and package-lock.json resolve the
+        # same package.json dependency to different versions.
+        checks.lock-sync =
+          pkgs.runCommand "buffer-backup-lock-sync"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+            }
+            ''
+              python3 ${./check-lock-sync.py} ${./.}
+              touch $out
+            '';
 
         devShells.default = pkgs.mkShell {
           packages = [

@@ -177,6 +177,22 @@ ln -s "$(pwd)" ~/.vscode/extensions/drewry-pope.buffer-backup-0.2.0
 
 Reload the window and the extension activates immediately.
 
+### Dependency lockfiles: keep both in sync
+
+This package has **two** lockfiles for one `package.json`, maintained by
+different tools: Renovate updates `package-lock.json` (npm) only, while the
+nix build installs from `bun.lock` only (`bun install --frozen-lockfile`).
+When a Renovate PR for this package lands, regenerate `bun.lock` in the same
+change (`bun install` here) — otherwise the npm and nix paths silently
+compile against different dependency versions (#781). Verify with:
+
+```bash
+python3 check-lock-sync.py   # or: nix flake check  (runs the lock-sync check)
+```
+
+The check fails when the two lockfiles resolve any `package.json`
+dependency to different versions.
+
 ### With Nix
 
 ```bash
