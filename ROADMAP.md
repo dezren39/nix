@@ -208,17 +208,17 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #733 and #738 completions              | 2026-10-23 | #741, #742 |
 | flake-tidy closing-run rule keeps adjacent quoted spans separate | 2026-10-23 | #743, #744 |
 | flake-tidy closing run judged by whether the next span closes   | 2026-10-24 | #745, #746 |
-| ROADMAP Done records the #748 completion                     | 2026-10-24 | #748, #749 |
+| ROADMAP Done records the #741, #743 and #745 completions     | 2026-10-24 | #748, #749 |
 | flake-tidy: separator before independent span is not a close | 2026-10-24 | #747, #753 |
-| ROADMAP Done records the #750 completion                     | 2026-10-24 | #750, #751 |
+| ROADMAP Done records the #748 completion                     | 2026-10-24 | #750, #751 |
 | ROADMAP Done records the #747 and #750 completions           | 2026-10-24 | #754, #755 |
 | flake-tidy closing-run: glued suffix is not an opening       | 2026-10-24 | #756, #757 |
-| ROADMAP Done records the #758 completion                     | 2026-10-24 | #758, #759 |
-| ROADMAP Done records the #761 completion                     | 2026-10-24 | #761, #762 |
+| ROADMAP Done records the #754 and #756 completions           | 2026-10-24 | #758, #759 |
+| ROADMAP Done records the #758 completion                     | 2026-10-24 | #761, #762 |
 | ROADMAP Done records the #761 completion                     | 2026-10-24 | #765, #766 |
 | flake-tidy separator-prefixed span no longer swallows prose  | 2026-10-24 | #760, #767 |
-| ROADMAP Done records the #768 completion                     | 2026-10-24 | #768, #769 |
-| ROADMAP Done records the #770 completion                     | 2026-10-24 | #770, #771 |
+| ROADMAP Done records the #765 and #760 completions           | 2026-10-24 | #768, #769 |
+| ROADMAP Done records the #768 completion                     | 2026-10-24 | #770, #771 |
 | flake-tidy unclosed span no longer truncates the name        | 2026-10-24 | #772, #773 |
 | flake-tidy `_brace_counts` fast paths (Bolt ledger)           | 2026-10-24 | #774, #752 |
 | ROADMAP Done records the #770 and #772 completions            | 2026-10-24 | #779, #780 |
