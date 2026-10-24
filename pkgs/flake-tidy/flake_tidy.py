@@ -2725,8 +2725,14 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # single close.  The run is now judged by the rest of
     # the line: it counts as close plus opening only when a
     # span opened at its last quote actually closes later
-    # (_closing_run_opens_next_span, #745).  If no
-    # quote qualifies, the name is genuinely ambiguous and
+    # (_closing_run_opens_next_span, #745).  #747's lookahead
+    # inside that judgement recognised an independent span's
+    # opening after a non-space separator by the characters
+    # around it alone, which also matches a punctuation-
+    # ending adjacent span's genuine close carrying a glued
+    # suffix ('a''b-'s): that quote is now an opening only
+    # when a span opened at it also closes later (#756).
+    # If no quote qualifies, the name is genuinely ambiguous and
     # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
         name = _wrapped_name(line, "while updating the flake input '")
@@ -2858,7 +2864,22 @@ def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
     a close (')]}.,;:!?').  A genuine close is preceded by its
     span's content, so when it ends in punctuation the
     character after it is that prose punctuation, whitespace
-    or the end of the line, never a content character."""
+    or the end of the line, never a content character.
+
+    That last claim is false for a glued prose suffix: an
+    adjacently written span that ends in punctuation and
+    carries a suffix — 'a''b-'s, the 'users''s paradigm of
+    #744 with a punctuation-ending second span — has a word
+    character after its genuine close, so the single
+    character after the would-be close cannot decide the
+    question on its own (#756).  The opening signature is
+    therefore only a candidate: the quote is an opening only
+    when a span opened at it actually closes later
+    (_span_opened_at_closes) — 'other' after a separator
+    closes at its own quote, while the suffix after 'b-'
+    reaches no closing quote with plausible span content
+    (what follows it is prose, ending in whitespace or an
+    opening separator before any later span's quote)."""
     start = run_end + 1
     for j in range(start, len(line)):
         if line[j] != "'":
@@ -2870,8 +2891,38 @@ def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
             return False
         if not (line[j - 1].isalnum() or line[j - 1] == "_"):
             after = line[j + 1] if j + 1 < len(line) else ""
-            if after and not after.isspace() and after not in ")]}.,;:!?'":
+            if (
+                after
+                and not after.isspace()
+                and after not in ")]}.,;:!?'"
+                and _span_opened_at_closes(line, j)
+            ):
                 return False
+        return True
+    return False
+
+
+def _span_opened_at_closes(line: str, opening: int) -> bool:
+    """True when a span opened at line[opening] closes later:
+    the next non-apostrophe quote after it has plausible span
+    content before it — non-empty, not ending in whitespace
+    (a quoted name never trails a space) and not ending in an
+    opening separator ('(', '[', '{' or '"'), which stands
+    outside a span in prose and so cannot be its last content
+    character.  When no quote follows at all, or the next
+    quote's would-be content fails those tests, what follows
+    the opening candidate is prose — a glued suffix such as
+    the 's of 'b-'s, plus the rest of the sentence — not a
+    span, so the candidate quote never opens one (#756)."""
+    start = opening + 1
+    for k in range(start, len(line)):
+        if line[k] != "'":
+            continue
+        if _is_word_apostrophe(line, k):
+            continue
+        content = line[start:k]
+        if not content or content[-1].isspace() or content[-1] in '([{"':
+            return False
         return True
     return False
 
@@ -2921,7 +2972,11 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     whether a span opened at the run's last quote actually
     closes later (#745) — and whether the quote it finds
     there closes anything at all, rather than opening an
-    independent span after a non-space separator (#747)."""
+    independent span after a non-space separator (#747),
+    a reading that itself holds only when a span opened at
+    that quote closes later, lest a punctuation-ending
+    adjacent span's close with a glued suffix ('a''b-'s)
+    be taken for such an opening (#756)."""
     count = 0
     in_span = False
     j = i + 1
