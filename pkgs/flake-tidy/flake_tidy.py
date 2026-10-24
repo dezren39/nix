@@ -2755,6 +2755,14 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     # ('a''b-'s flake:'other'): the candidate close is now
     # itself displaced when it has the opening signature
     # and a span opened at it closes later (#760).
+    # A span in the following text that never closes still
+    # counted its opening quote in the parity, so it could
+    # balance the wrapper's genuine close seen from an
+    # in-name candidate and yield a truncated prefix
+    # ('a'!b' ' -> a, the #714 harm through the back door).
+    # A rest that ends inside an unclosed span is not
+    # balanced, so its count is forced odd for every
+    # candidate and the line yields no match (#772).
     # If no quote qualifies, the name is genuinely ambiguous and
     # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
@@ -3034,7 +3042,10 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
     be taken for such an opening (#756) — and that later
     closing judgement itself displaces a candidate close
     that opens a further independent span after any
-    separator, not only the four it first listed (#760)."""
+    separator, not only the four it first listed (#760).
+    A span that is still open at the end of the line never
+    closes, so it cannot balance the genuine close: if the
+    count reached is even, it is forced odd (#772)."""
     count = 0
     in_span = False
     j = i + 1
@@ -3078,6 +3089,14 @@ def _rest_delimiter_quotes(line: str, i: int) -> int:
             continue
         count += 1
         j += 1
+    if in_span and count % 2 == 0:
+        # The rest ends inside a span that never closes: its
+        # opening quote counted above, but it has no closing
+        # partner, so the rest is not balanced — force the
+        # count odd rather than let an unclosed span make an
+        # in-name candidate look balanced and yield a
+        # truncated prefix ('a'!b' ' -> a, #772).
+        count += 1
     return count
 
 
