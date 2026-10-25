@@ -217,6 +217,21 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# --docker-age is used only in bash arithmetic ($((DOCKER_AGE_DAYS * 24)) and
+# the volume cutoff), where a bare word silently evaluates to 0 -- so
+# `--docker-age abc` used to collapse the age filter to until=0h and prune
+# EVERYTHING, and junk like 10junk/1.5 aborted mid-run with a raw arithmetic
+# error (#829). Judge it whole, at parse time, like opencode-db-prune.sh
+# judges --protect-days/--batch. Covers the DOCKER_AGE_DAYS env var too.
+if [ -n "$DOCKER_AGE_DAYS" ]; then
+  case "$DOCKER_AGE_DAYS" in
+    *[!0-9]*|'')
+      echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
+      exit 2 ;;
+  esac
+  [ "$DOCKER_AGE_DAYS" -gt 0 ] || { echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2; exit 2; }
+fi
+
 # --system touches no repositories, so repository-scoped flags are meaningless
 # alongside it. Erroring beats silently ignoring them.
 if [ "$SCOPE" = "system" ] && [ -n "$REPO_FLAGS_USED" ]; then
