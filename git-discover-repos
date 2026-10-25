@@ -156,6 +156,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# --depth is turned into a find -maxdepth fragment below, where a
+# non-numeric value fails mid-walk and 0 silently means "the path itself
+# only". Judge it whole, at parse time, like opencode-db-prune.sh judges
+# --protect-days/--batch (#830). Empty means unbounded (--recursive).
+# This block is identical in all four discovery-vocabulary scripts.
+if [ -n "$DEPTH_LIMIT" ]; then
+  case "$DEPTH_LIMIT" in
+    *[!0-9]*|'')
+      echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+      exit 2 ;;
+  esac
+  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+fi
+
 if [ "$DEPTH_LIMIT" = "1" ] && [ "${FOLLOW:-0}" = "1" ] && [ "$RECURSIVE_SET" = "1" ]; then
   echo "git-discover-repos: --no-recursive conflicts with --follow" >&2
   echo "                    (use --depth N with N>1 if you want a bounded walk plus following)" >&2
