@@ -420,6 +420,10 @@ rec {
           lib = pkgs.lib;
         };
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
+        # Cloudflare Wrangler 4.147.0 — custom package (copied from
+        # developing-today/code pkgs/wrangler) because nixpkgs lags npm
+        # by 50+ minor versions and Wrangler tracks the Workers runtime.
+        wrangler = pkgs.callPackage ./pkgs/wrangler { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
         twg-cli = pkgs.callPackage ./pkgs/twg-cli/package.nix { };
         # mcp-remote and chrome-devtools-mcp, which mcpx.config.nix runs.
@@ -698,6 +702,7 @@ rec {
         default = pkgs.mkShell {
           packages = [
             selfPkgs.opencode
+            selfPkgs.wrangler
             selfPkgs.flake-tidy
             selfPkgs.symlinker
             inputs.just.packages.${pkgs.stdenv.hostPlatform.system}.default
