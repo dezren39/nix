@@ -227,3 +227,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | Stale dependency PRs triaged and landed                       | 2026-10-24 | #424, #775, #776, #777 |
 | clean.sh var/folders sweep factored; its test is real         | 2026-10-24 | #557, #784 |
 | ROADMAP Done records the #785 completion                     | 2026-10-24 | #785, #786 |
+| ROADMAP Done records the #787 completion                     | 2026-10-24 | #787, #789 |
+| ROADMAP Done rows match the completions their PRs record     | 2026-10-24 | #788, #791 |
