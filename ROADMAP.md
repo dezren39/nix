@@ -239,3 +239,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy follows checks fast paths (Bolt ledger)           | 2026-10-25 | #808, #805 |
 | ROADMAP Done records the #809 completion                     | 2026-10-25 | #809, #810 |
 | ROADMAP Done records the #811 completion                     | 2026-10-25 | #811, #812 |
+| ROADMAP Done records the #813 completion                     | 2026-10-25 | #813, #814 |
