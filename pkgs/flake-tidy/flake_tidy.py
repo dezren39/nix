@@ -1869,7 +1869,8 @@ def follows_exists_in_content(
     )
     # Bolt Optimization: Pre-normalize whitespace in candidate strings ONCE
     # outside the loop to eliminate redundant re.sub calls inside the line loop.
-    root_candidates = [re.sub(r"\s+", " ", full), re.sub(r"\s+", " ", relative_inputs)]
+    # Store candidates in sets for O(1) membership testing.
+    root_candidates = {re.sub(r"\s+", " ", full), re.sub(r"\s+", " ", relative_inputs)}
 
     # Build candidate strings for BLOCK scope (inside follows_parts[0] block)
     raw_block_candidates: list[str] = []
@@ -1886,7 +1887,7 @@ def follows_exists_in_content(
     elif len(follows_parts) == 1:
         # Inside the block of the single part, bare follows matches
         raw_block_candidates.append(f'follows = "{target}"')
-    block_candidates = [re.sub(r"\s+", " ", c) for c in raw_block_candidates]
+    block_candidates = {re.sub(r"\s+", " ", c) for c in raw_block_candidates}
 
     # Bolt Optimization: _block_context_for_lines and _nested_inputs_prefix_for_lines
     # are cached with @functools.lru_cache to avoid re-parsing flake.nix line-by-line
@@ -1956,6 +1957,10 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
     elif len(follows_parts) == 1:
         block_prefixes.append("follows")
 
+    # Bolt Optimization: Construct prefix tuples ONCE for fast C-level startswith checks
+    root_pfx_tuple = tuple(p + " =" for p in root_prefixes) + tuple(p + "=" for p in root_prefixes)
+    block_pfx_tuple = tuple(p + " =" for p in block_prefixes) + tuple(p + "=" for p in block_prefixes)
+
     block_context = _block_context_for_lines(content)
     nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
@@ -1973,25 +1978,20 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
             rel = _nested_relative_path(follows_parts, nested_prefix)
             if rel is not None:
                 pfx = f"{rel}.follows"
+                pfx_tuple = (pfx + " =", pfx + "=")
                 for seg in _nested_segments(normalized):
-                    if seg.startswith(pfx + " =") or seg.startswith(pfx + "="):
+                    if seg.startswith(pfx_tuple):
                         return True
             continue
 
         ctx = block_context[i]
 
         if ctx is None:
-            for pfx in root_prefixes:
-                if normalized.startswith(pfx + " =") or normalized.startswith(
-                    pfx + "="
-                ):
-                    return True
+            if normalized.startswith(root_pfx_tuple):
+                return True
         elif ctx == first_part:
-            for pfx in block_prefixes:
-                if normalized.startswith(pfx + " =") or normalized.startswith(
-                    pfx + "="
-                ):
-                    return True
+            if normalized.startswith(block_pfx_tuple):
+                return True
 
     return False
 
