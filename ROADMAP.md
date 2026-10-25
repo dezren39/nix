@@ -229,3 +229,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #785 completion                     | 2026-10-24 | #785, #786 |
 | ROADMAP Done records the #787 completion                     | 2026-10-24 | #787, #789 |
 | ROADMAP Done rows match the completions their PRs record     | 2026-10-24 | #788, #791 |
+| ROADMAP Done records the #793 completion                     | 2026-10-24 | #793, #794 |
