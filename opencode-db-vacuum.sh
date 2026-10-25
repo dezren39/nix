@@ -71,7 +71,10 @@ opencode_pids() {
       # starts with spaces and the "(^|/)opencode" test below can never
       # anchor ^ at the real argv[0] -- a process started as a bare
       # "opencode" (the normal PATH invocation) was missed entirely
-      # (#467). Trim the padding so cmd holds the true cmdline.
+      # (#467). Trim the padding so cmd holds the true cmdline. The
+      # match itself requires a boundary after the name ($ or space),
+      # so argv[0]s that merely start with "opencode" (opencode-share,
+      # opencode-server, opencodefoo) are not counted (#828).
       cmd[pid] = $0
       sub(/^ +/, "", cmd[pid])
       order[++n] = pid
@@ -86,7 +89,7 @@ opencode_pids() {
       }
       for (i = 1; i <= n; i++) {
         pid = order[i]
-        if (cmd[pid] !~ "(^|/)opencode") continue
+        if (cmd[pid] !~ "(^|/)opencode($| )") continue
         if (pid in chain) continue
         # Descendants of self (subshells, pipelines) are self too.
         c = pid; isself = 0
