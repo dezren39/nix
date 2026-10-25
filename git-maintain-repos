@@ -196,6 +196,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
+# where a non-numeric value fails mid-walk and 0 silently means "the path
+# itself only". Judge it whole, at parse time, like opencode-db-prune.sh
+# judges --protect-days/--batch (#830). Empty means unbounded (--recursive).
+# This block is identical in all four discovery-vocabulary scripts.
+if [ -n "$DEPTH_LIMIT" ]; then
+  case "$DEPTH_LIMIT" in
+    *[!0-9]*|'')
+      echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+      exit 2 ;;
+  esac
+  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+fi
+
 # ---------------------------------------------------------------------------
 # Internal single-repo mode (re-entered via xargs for parallelism)
 # ---------------------------------------------------------------------------
