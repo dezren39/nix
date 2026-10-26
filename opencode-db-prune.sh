@@ -891,6 +891,19 @@ integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;' | head -1)"
 note "integrity_check: $integrity"
 [ "$integrity" = "ok" ] || die "integrity check failed -- refusing to modify a damaged database"
 
+# Confirm BEFORE the backup step (#901): the backup is a full-size copy, so
+# prompting after it meant an abort stranded that copy on disk -- and every
+# retry then died on the overwrite refusal below. Asking first means an
+# abort leaves the filesystem exactly as it was found.
+if [ "$ASSUME_YES" -eq 0 ]; then
+  printf '\nDelete %s rows (%s) from `event`? [y/N] ' "$(commas "$total_rows")" "$(gb "$total_bytes")"
+  read -r reply
+  case "$reply" in
+    [yY]|[yY][eE][sS]) ;;
+    *) note "aborted; nothing deleted"; exit 0 ;;
+  esac
+fi
+
 if [ "$DO_BACKUP" -eq 1 ]; then
   BACKUP="${BACKUP:-${DB}.prune-backup}"
   [ -e "$BACKUP" ] && die "refusing to overwrite existing backup at $BACKUP"
@@ -905,15 +918,6 @@ if [ "$DO_BACKUP" -eq 1 ]; then
   note "done ($(gb "$(filesize "$BACKUP")"))"
 else
   note "skipping backup (--no-backup)"
-fi
-
-if [ "$ASSUME_YES" -eq 0 ]; then
-  printf '\nDelete %s rows (%s) from `event`? [y/N] ' "$(commas "$total_rows")" "$(gb "$total_bytes")"
-  read -r reply
-  case "$reply" in
-    [yY]|[yY][eE][sS]) ;;
-    *) note "aborted; nothing deleted"; exit 0 ;;
-  esac
 fi
 
 # ---------------------------------------------------------------------------
