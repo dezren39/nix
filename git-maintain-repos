@@ -207,6 +207,21 @@ if [ -n "$DEPTH_LIMIT" ]; then
       echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
       exit 2 ;;
   esac
+  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
+  # value above 2147483647 passes the case above yet find rejects it at walk
+  # time ("Numerical result out of range") while the run still exits 0. The
+  # shell's own integer tests cannot judge this — they are 64-bit — so, like
+  # the --pack-threads backstop (#839/#840), compare by digit count first
+  # (leading zeros stripped; at most 10 digits always fits the shell's
+  # arithmetic), then by value against INT_MAX. Judging the stripped value
+  # here, before the -gt 0 test below, also rejects >64-bit digit strings
+  # cleanly instead of tripping "integer expression expected".
+  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
+  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
+    echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+    exit 2
+  fi
+  unset _dl
   [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
 fi
 
@@ -220,6 +235,18 @@ case "$JOBS" in
     echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2
     exit 2 ;;
 esac
+# Range backstop (#858): xargs parses -P as a C int, so a digits-only value
+# above 2147483647 passes the case above yet xargs rejects it after
+# discovery while the run still exits 0. Same technique as the
+# --pack-threads backstop below (#839/#840): judge the stripped value by
+# digit count first, then by value against INT_MAX, before the -gt 0 test
+# below so >64-bit digit strings are rejected cleanly too.
+_j=${JOBS#"${JOBS%%[!0]*}"}; _j=${_j:-0}
+if [ "${#_j}" -gt 10 ] || [ "$_j" -gt 2147483647 ]; then
+  echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2
+  exit 2
+fi
+unset _j
 [ "$JOBS" -gt 0 ] || { echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2; exit 2; }
 
 # --pack-threads is forwarded verbatim to git -c pack.threads=, where junk

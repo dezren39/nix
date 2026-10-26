@@ -230,6 +230,21 @@ if [ -n "$DEPTH_LIMIT" ]; then
       echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
       exit 2 ;;
   esac
+  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
+  # value above 2147483647 passes the case above yet find rejects it at walk
+  # time ("Numerical result out of range") while the run still exits 0. The
+  # shell's own integer tests cannot judge this — they are 64-bit — so, like
+  # the --pack-threads backstop (#839/#840), compare by digit count first
+  # (leading zeros stripped; at most 10 digits always fits the shell's
+  # arithmetic), then by value against INT_MAX. Judging the stripped value
+  # here, before the -gt 0 test below, also rejects >64-bit digit strings
+  # cleanly instead of tripping "integer expression expected".
+  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
+  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
+    echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+    exit 2
+  fi
+  unset _dl
   [ "$DEPTH_LIMIT" -gt 0 ] || { echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
 fi
 
