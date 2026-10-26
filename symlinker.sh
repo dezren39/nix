@@ -103,6 +103,12 @@ UNDO
                           the timestamp is the digits-only run id shown at link time
   --skip-restore          With --undo, don't restore backed-up conflicts
 
+  Run ids are digits-only. If several runs start in the same second, each
+  later run's id is bumped to the next free value, so their log, undo and
+  backup files never collide or overwrite each other.
+  Undo exits non-zero when any item could not be restored (irrecoverable)
+  or any operation errored; a fully successful undo exits 0.
+
   Undo supports the same flags as normal operation:
     --dry-run             Preview what undo would do
     --force               Force restore even if paths are occupied (removes them)
@@ -118,16 +124,19 @@ UNDO
   If the original run used --skip-backup, deleted items cannot be restored.
   Undo will report these as irrecoverable and explain why.
 
-UNDO FILE FORMAT (v2)
+UNDO FILE FORMAT (v3)
   Undo files are written to:
     ${XDG_CACHE_HOME:-~/.config}/symlinker/<timestamp>.undo
 
   Records:
     SYMLINK:<link>\t<target>     Symlink created (undo: remove it)
-    BACKUP:<original>:<backup>   Backup created (undo: restore it)
+    BACKUP:<original>\t<backup>  Backup created (undo: restore it)
     DELETE:<backup>\t<original>  Backup deleted (undo: irrecoverable)
     RELINK:<link>\t<target>      Symlink to recreate (from undo-of-undo)
 
+  v2 files are still supported: their BACKUP records are colon-separated
+  (BACKUP:<original>:<backup>) and split at the first colon, which is
+  unambiguous only for paths containing no colon — the flaw v3 fixes.
   v1 files (LINK:<path>) are still supported for backward compatibility.
 
 EXCLUDES
@@ -255,6 +264,26 @@ if $ONLY_FILES && $ONLY_DIRS; then
   echo "Error: --only-files and --only-dirs are mutually exclusive" >&2; exit 1
 fi
 
+# ─── Run-id uniqueness (#886) ──────────────────────────────────────────────
+# RUN_TIMESTAMP has one-second resolution (date +%s) and names every per-run
+# artifact: the .log, the .undo, the undo-of-undo file, and the backup
+# suffix. Two invocations started in the same second would otherwise share
+# an id — worst case, an undo's undo-of-undo file IS the undo file it is
+# about to read, and writing its header truncates the source records before
+# the loop reads them ("0 unlinked", exit 0, undo file destroyed). Bump the
+# id (staying digits-only, per the #884 --undo validation) until none of
+# this run's artifacts exist yet, and keep a default backup suffix in step.
+_run_id_base="$RUN_TIMESTAMP"
+while [[ -e "$LOG_DIR/$RUN_TIMESTAMP.undo" \
+      || -e "$LOG_DIR/$RUN_TIMESTAMP.log" \
+      || -e "$LOG_DIR/$RUN_TIMESTAMP.undo-log" ]]; do
+  RUN_TIMESTAMP="$((RUN_TIMESTAMP + 1))"
+done
+if [[ "$RUN_TIMESTAMP" != "$_run_id_base" && "$BACKUP_SUFFIX" == ".bak.$_run_id_base" ]]; then
+  BACKUP_SUFFIX=".bak.$RUN_TIMESTAMP"
+fi
+unset _run_id_base
+
 # ─── Display helpers (basic — enhanced after validate for forward path) ──────
 
 # Common prefix for shorter display; set to "" until forward path computes it
@@ -329,6 +358,7 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
   while IFS= read -r hdr; do
     case "$hdr" in
       "# UNDO_VERSION:2") UNDO_VERSION=2 ;;
+      "# UNDO_VERSION:3") UNDO_VERSION=3 ;;
       "# ORIGINAL_CMD:"*) UNDO_ORIG_CMD="${hdr#"# ORIGINAL_CMD:"}" ;;
       "# input-dir:"*)    UNDO_ORIG_INPUT_DIR="${hdr#"# input-dir: "}" ;;
       "# output-dir:"*)   UNDO_ORIG_OUTPUT_DIR="${hdr#"# output-dir: "}" ;;
@@ -349,7 +379,7 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
   # Set up undo-of-undo file (so this undo can itself be reversed)
   UNDO_OF_UNDO_FILE="$LOG_DIR/${RUN_TIMESTAMP}.undo"
   {
-    echo "# UNDO_VERSION:2"
+    echo "# UNDO_VERSION:3"
     echo "# symlinker undo — $RUN_TIMESTAMP"
     echo "# ORIGINAL_CMD:$ORIGINAL_CMD"
     echo "# undoing: $UNDO_TIMESTAMP"
@@ -430,10 +460,18 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
         ;;
 
       BACKUP:*)
-        # v1+v2: BACKUP:<original>:<backup>
+        # v3: BACKUP:<original><TAB><backup> — tab-separated like the
+        # SYMLINK:/DELETE:/RELINK: records, so paths containing ':' parse
+        # unambiguously (#883). v1+v2 records are colon-separated
+        # (BACKUP:<original>:<backup>) and split at the first colon, which
+        # stays exact for the colon-free paths those files could record.
         rest="${line#BACKUP:}"
-        original="${rest%%:*}"
-        backup="${rest#*:}"
+        if [[ "$rest" == *$'\t'* ]]; then
+          IFS=$'\t' read -r original backup <<< "$rest"
+        else
+          original="${rest%%:*}"
+          backup="${rest#*:}"
+        fi
 
         if $SKIP_RESTORE; then
           undo_skipped_restore+=("$original")
@@ -446,7 +484,7 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
             undo_restored_orig+=("$original")
             undo_restored_bak+=("$backup")
             # Record for undo-of-undo: move it back (swap fields)
-            echo "BACKUP:${backup}:${original}" >> "$UNDO_OF_UNDO_FILE"
+            echo "BACKUP:${backup}	${original}" >> "$UNDO_OF_UNDO_FILE"
           else
             ulog "  Backup gone: $backup (cannot restore $original)"
             undo_irrecoverable_paths+=("$original")
@@ -465,7 +503,7 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
                   ulog "  mv $backup $original (forced)"
                   undo_restored_orig+=("$original")
                   undo_restored_bak+=("$backup")
-                  echo "BACKUP:${backup}:${original}" >> "$UNDO_OF_UNDO_FILE"
+                  echo "BACKUP:${backup}	${original}" >> "$UNDO_OF_UNDO_FILE"
                 else
                   ulog "  Error: Failed to restore $backup -> $original: $err_msg" >&2
                   undo_error_paths+=("$original")
@@ -493,7 +531,7 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
               ulog "  mv $backup $original"
               undo_restored_orig+=("$original")
               undo_restored_bak+=("$backup")
-              echo "BACKUP:${backup}:${original}" >> "$UNDO_OF_UNDO_FILE"
+              echo "BACKUP:${backup}	${original}" >> "$UNDO_OF_UNDO_FILE"
             else
               ulog "  Error: Failed to restore $backup -> $original: $err_msg" >&2
               undo_error_paths+=("$original")
@@ -578,6 +616,13 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
         ;;
     esac
   done < "$UNDO_FILE"
+
+  # An undo that could not restore everything is not a success (#883):
+  # irrecoverable items (missing backups, DELETE records) fail the run
+  # instead of being reported under a 0 exit code.
+  if (( ${#undo_irrecoverable_paths[@]} > 0 )); then
+    UNDO_EXIT_CODE=1
+  fi
 
   # ─── Undo: print results ──────────────────────────────────────────────
 
@@ -1146,10 +1191,10 @@ if $DRY_RUN; then
   log ""
   log "Log: $LOG_FILE"
 else
-  # Write undo file header (v2 format)
+  # Write undo file header (v3 format)
   UNDO_FILE="$LOG_DIR/$RUN_TIMESTAMP.undo"
   {
-    echo "# UNDO_VERSION:2"
+    echo "# UNDO_VERSION:3"
     echo "# symlinker undo — $RUN_TIMESTAMP"
     echo "# ORIGINAL_CMD:$ORIGINAL_CMD"
     echo "# input-dir: $INPUT_DIR"
@@ -1205,13 +1250,13 @@ else
         done_linked_links+=("$lnk")
         done_linked_targets+=("$tgt")
         if ! $SKIP_BACKUP; then
-          echo "BACKUP:$lnk:$bak" >> "$UNDO_FILE"
+          echo "BACKUP:$lnk	$bak" >> "$UNDO_FILE"
         fi
         deletable_orig+=("$lnk")
         deletable_bak+=("$bak")
       else
         # Symlink failed after backup — record backup in undo for restore
-        echo "BACKUP:$lnk:$bak" >> "$UNDO_FILE"
+        echo "BACKUP:$lnk	$bak" >> "$UNDO_FILE"
         done_error_paths+=("$lnk")
         done_error_msgs+=("symlink failed after backup: $err_msg")
         EXIT_CODE=1
@@ -1229,7 +1274,7 @@ else
           done_deleted_paths+=("$bak")
         else
           # Deletion failed — record backup in undo so it can be restored
-          echo "BACKUP:$orig:$bak" >> "$UNDO_FILE"
+          echo "BACKUP:$orig	$bak" >> "$UNDO_FILE"
           done_error_paths+=("$bak")
           done_error_msgs+=("delete failed: $err_msg")
           EXIT_CODE=1
