@@ -27,12 +27,20 @@
 #     generated from the published package.json with devDependencies/scripts
 #     stripped and `npm install --package-lock-only`. The same strip is
 #     reapplied in postPatch so the lock matches package.json.
+#   * The stripped package.json itself is also vendored alongside the lock
+#     (#842): without it Dependabot's npm updater aborts with
+#     "package.json not found" for this directory and no security fix PR
+#     for the lock's contents can ever be produced. The build does NOT use
+#     the vendored copy — src is the tarball, postPatch strips the
+#     tarball's own package.json, and only package-lock.json is copied in
+#     from this directory — so it changes no derivation input.
 #   * fsevents is an optionalDependency and macOS-only; it resolves to nothing
 #     on Linux.
 #   * Upstream publishes three bin names -- wrangler, wrangler2 and cf-wrangler
 #     -- all pointing at the same entrypoint. npmInstallHook creates all three.
 #   * To update: bump version, update `hash`, regenerate package-lock.json as
-#     above, then set npmDepsHash from the build failure message.
+#     above, refresh the vendored package.json with the same strip, then set
+#     npmDepsHash from the build failure message.
 
 let
   version = "4.147.0";
