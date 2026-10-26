@@ -5,6 +5,11 @@
 #          be restored (the original was stranded under its .bak.<ts> name
 #          while undo exited 0). v3 records are tab-separated; v2 colon
 #          records still parse for colon-free paths.
+#   #889 — undo-of-undo files list RELINK before the swapped BACKUP record
+#          that frees the link path, so in written order the relink always
+#          failed "already exists" and the original was stranded under
+#          .bak.<ts> with no symlink recreated. RELINK records are now
+#          processed after the BACKUP restores.
 #   #886 — RUN_TIMESTAMP has one-second resolution, so a run and its undo
 #          started in the same second shared an id and the undo's
 #          undo-of-undo header truncated the source undo file before it was
@@ -128,6 +133,40 @@ check "D: same-second undo restored the original" cmp -s "$D/out1/f.txt" <(print
 [[ ! -L "$D/out1/f.txt" ]] || fail "D: same-second undo left the symlink in place"
 grep -q "SYMLINK:$D/out1/f.txt" "$D/cache/symlinker/1700000000.undo" \
   || fail "D: same-second undo destroyed the source undo file"
+
+# ─── Scenario E (#889): run → undo → undo-of-undo round-trip ───────────────
+E="$TMP_ROOT/e"; mkdir -p "$E/in" "$E/out" "$E/cache"
+printf 'new\n' > "$E/in/plain.txt"; printf 'old\n' > "$E/out/plain.txt"
+
+XDG_CACHE_HOME="$E/cache" bash "$SCRIPT" --input-dir "$E/in" --output-dir "$E/out" \
+  --force --no-input >"$E/run.log" 2>&1 || fail "E: link run exited non-zero"
+ts_e="$(undo_ts_of "$E/cache")"
+[[ -n "$ts_e" ]] || fail "E: no undo file written"
+sleep 1
+
+XDG_CACHE_HOME="$E/cache" bash "$SCRIPT" --undo "$ts_e" --no-input >"$E/undo.log" 2>&1 \
+  || fail "E: undo exited non-zero"
+check "E: undo restored the original" cmp -s "$E/out/plain.txt" <(printf 'old\n')
+sleep 1
+
+# The undo-of-undo file is the .undo file that is not the run's own.
+ts_eu=""
+for f in "$E/cache"/symlinker/*.undo; do
+  b="$(basename "$f" .undo)"
+  [[ "$b" != "$ts_e" ]] && ts_eu="$b"
+done
+[[ -n "$ts_eu" ]] || fail "E: no undo-of-undo file written"
+
+XDG_CACHE_HOME="$E/cache" bash "$SCRIPT" --undo "$ts_eu" --no-input >"$E/undo2.log" 2>&1 \
+  || fail "E: undo-of-undo of a --force run exited non-zero"
+check "E: undo-of-undo recreated the symlink" test -L "$E/out/plain.txt"
+if [[ -L "$E/out/plain.txt" && "$(readlink "$E/out/plain.txt")" == "$E/in/plain.txt" ]]; then
+  echo "ok: E: recreated symlink points at the input file"
+else
+  fail "E: recreated symlink does not point at the input file"
+fi
+check "E: original left under its .bak.<run-ts> name" \
+  cmp -s "$E/out/plain.txt.bak.$ts_e" <(printf 'old\n')
 
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2

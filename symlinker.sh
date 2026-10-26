@@ -404,7 +404,30 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
   ulog ""
 
   # ─── Undo: process records ────────────────────────────────────────────
-  while IFS= read -r line; do
+  # RELINK records are processed after all other records (#889): an
+  # undo-of-undo file lists each RELINK before the swapped BACKUP record
+  # that moves the restored original file out of the link path (to its
+  # .bak.<ts> name). Processed in written order the relink always fails
+  # "already exists, cannot relink", and the BACKUP then strands the
+  # original under .bak.<ts> with no symlink recreated. Deferring every
+  # RELINK until the BACKUP restores have freed their paths fixes the
+  # round-trip generally; records keep their relative order within each
+  # class, and single-undo files (no RELINK records) process as before.
+  undo_records=()
+  while IFS= read -r _rec || [[ -n "$_rec" ]]; do
+    case "$_rec" in
+      RELINK:*) ;;
+      *) undo_records+=("$_rec") ;;
+    esac
+  done < "$UNDO_FILE"
+  while IFS= read -r _rec || [[ -n "$_rec" ]]; do
+    case "$_rec" in
+      RELINK:*) undo_records+=("$_rec") ;;
+    esac
+  done < "$UNDO_FILE"
+  unset _rec
+
+  for line in "${undo_records[@]}"; do
     case "$line" in
       "#"*) continue ;;  # skip comments/headers
 
@@ -615,7 +638,8 @@ if [[ -n "$UNDO_TIMESTAMP" ]]; then
         fi
         ;;
     esac
-  done < "$UNDO_FILE"
+  done
+  unset undo_records
 
   # An undo that could not restore everything is not a success (#883):
   # irrecoverable items (missing backups, DELETE records) fail the run
