@@ -102,6 +102,10 @@ ARCHIVE_ESCAPE_FACTOR=1.10
 ARCHIVE_ENVELOPE_BYTES=110
 
 die() { printf 'opencode-db-prune: %s\n' "$*" >&2; exit 1; }
+# Single-quote a value so it can be pasted back into a shell command line
+# verbatim (embedded single quotes become '\'' ). Used for the suggested
+# commands printed by the dry-run footers (#900).
+shell_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 note() { printf '  %s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
 gb() { awk -v b="$1" 'BEGIN{ printf "%.2f GB", b/1073741824 }'; }
@@ -485,7 +489,7 @@ EOF
 
 Dry run only -- nothing was changed.
 
-To restore:  ./opencode-db-prune.sh --restore-session ${RESTORE_SESSION} --from ${FROM} --apply
+To restore:  ./opencode-db-prune.sh --db $(shell_quote "$DB") --restore-session $(shell_quote "$RESTORE_SESSION") --from $(shell_quote "$FROM") --apply
 EOF
   fi
 }
@@ -848,16 +852,30 @@ fi
 if [ "$APPLY" -eq 0 ]; then
   # Echo back exactly the flags that produced this report, so the suggested
   # command cannot silently differ from what was just measured.
-  SUGGEST_FLAGS=" --protect-days ${PROTECT_DAYS}"
+  SUGGEST_FLAGS=" --db $(shell_quote "$DB") --protect-days ${PROTECT_DAYS}"
   [ "$PROTECT_ROOTS" -eq 1 ] && SUGGEST_FLAGS="${SUGGEST_FLAGS} --protect-roots"
-  [ -n "$ARCHIVE" ] && SUGGEST_FLAGS="${SUGGEST_FLAGS} --archive ${ARCHIVE}"
+  [ -n "$ARCHIVE" ] && SUGGEST_FLAGS="${SUGGEST_FLAGS} --archive $(shell_quote "$ARCHIVE")"
+  if [ "$DO_BACKUP" -eq 0 ]; then
+    SUGGEST_FLAGS="${SUGGEST_FLAGS} --no-backup"
+  elif [ -n "$BACKUP" ]; then
+    SUGGEST_FLAGS="${SUGGEST_FLAGS} --backup $(shell_quote "$BACKUP")"
+  fi
+  SUGGEST_FLAGS="${SUGGEST_FLAGS} --batch ${BATCH}"
+  [ "$ASSUME_YES" -eq 1 ] && SUGGEST_FLAGS="${SUGGEST_FLAGS} --yes"
   cat <<EOF
 
 Dry run only -- nothing was changed.
 
 To prune:   ./opencode-db-prune.sh${SUGGEST_FLAGS} --apply
 Then:       ./opencode-db-vacuum.sh --auto-vacuum
-Finally:    rm '${BACKUP:-${DB}.prune-backup}'   # once opencode starts cleanly
+EOF
+  # The suggested command only creates a backup when backups are enabled;
+  # under --no-backup there is no backup file to remove (#900).
+  if [ "$DO_BACKUP" -eq 1 ]; then
+    printf 'Finally:    rm %s   # once opencode starts cleanly\n' \
+      "$(shell_quote "${BACKUP:-${DB}.prune-backup}")"
+  fi
+  cat <<'EOF'
 
 Deleting rows alone will NOT shrink the file; auto_vacuum is disabled on this
 database, so VACUUM is required to return pages to the OS.
@@ -873,6 +891,19 @@ integrity="$(sqlite3 "$DB" 'PRAGMA integrity_check;' | head -1)"
 note "integrity_check: $integrity"
 [ "$integrity" = "ok" ] || die "integrity check failed -- refusing to modify a damaged database"
 
+# Confirm BEFORE the backup step (#901): the backup is a full-size copy, so
+# prompting after it meant an abort stranded that copy on disk -- and every
+# retry then died on the overwrite refusal below. Asking first means an
+# abort leaves the filesystem exactly as it was found.
+if [ "$ASSUME_YES" -eq 0 ]; then
+  printf '\nDelete %s rows (%s) from `event`? [y/N] ' "$(commas "$total_rows")" "$(gb "$total_bytes")"
+  read -r reply
+  case "$reply" in
+    [yY]|[yY][eE][sS]) ;;
+    *) note "aborted; nothing deleted"; exit 0 ;;
+  esac
+fi
+
 if [ "$DO_BACKUP" -eq 1 ]; then
   BACKUP="${BACKUP:-${DB}.prune-backup}"
   [ -e "$BACKUP" ] && die "refusing to overwrite existing backup at $BACKUP"
@@ -887,15 +918,6 @@ if [ "$DO_BACKUP" -eq 1 ]; then
   note "done ($(gb "$(filesize "$BACKUP")"))"
 else
   note "skipping backup (--no-backup)"
-fi
-
-if [ "$ASSUME_YES" -eq 0 ]; then
-  printf '\nDelete %s rows (%s) from `event`? [y/N] ' "$(commas "$total_rows")" "$(gb "$total_bytes")"
-  read -r reply
-  case "$reply" in
-    [yY]|[yY][eE][sS]) ;;
-    *) note "aborted; nothing deleted"; exit 0 ;;
-  esac
 fi
 
 # ---------------------------------------------------------------------------
