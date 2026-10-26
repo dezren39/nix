@@ -207,6 +207,26 @@ done
 
 case "$PROTECT_DAYS" in (*[!0-9]*|'') die "--protect-days must be a non-negative integer" ;; esac
 case "$BATCH" in (*[!0-9]*|'') die "--batch must be a positive integer" ;; esac
+# Range backstop (#867): both values are interpolated into SQLite, whose
+# integers are 64-bit — PROTECT_DAYS into the *86400 cutoff multiplication
+# (overflow converts the cutoff to a REAL), BATCH into a LIMIT in the delete
+# loop (an over-int64 literal fails there with a datatype-mismatch error,
+# after staging/archive work). The shell's own integer tests are also 64-bit
+# and trip "integer expression expected" on longer digit strings, so, like
+# the clean.sh backstops (#862/#858), compare by digit count first (leading
+# zeros stripped; at most 10 digits always fits the shell's arithmetic), then
+# by value against INT_MAX, before the -gt 0 test below. INT_MAX is
+# wrap-proof here: 2147483647*86400 ~ 1.9e14 fits int64 easily.
+_pd=${PROTECT_DAYS#"${PROTECT_DAYS%%[!0]*}"}; _pd=${_pd:-0}
+if [ "${#_pd}" -gt 10 ] || [ "$_pd" -gt 2147483647 ]; then
+  die "--protect-days must be a non-negative integer"
+fi
+unset _pd
+_b=${BATCH#"${BATCH%%[!0]*}"}; _b=${_b:-0}
+if [ "${#_b}" -gt 10 ] || [ "$_b" -gt 2147483647 ]; then
+  die "--batch must be a positive integer"
+fi
+unset _b
 [ "$BATCH" -gt 0 ] || die "--batch must be > 0"
 
 # ---------------------------------------------------------------------------
