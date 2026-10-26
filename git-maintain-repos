@@ -233,6 +233,19 @@ case "$PACK_THREADS" in
     echo "git-maintain-repos: --pack-threads must be a non-negative integer (got: $PACK_THREADS)" >&2
     exit 2 ;;
 esac
+# Range backstop (#839): git parses pack.threads as a C int, so a digits-only
+# value above 2147483647 passes the case above yet git rejects it per-repo at
+# gc time ("bad numeric config value ... out of range") while the run still
+# exits 0. The shell's own integer tests cannot judge this — they are 64-bit
+# and accept e.g. 2147483648 — so compare by digit count first (leading zeros
+# stripped; a stripped value of at most 10 digits always fits the shell's
+# arithmetic), then by value against git's INT_MAX.
+_pt=${PACK_THREADS#"${PACK_THREADS%%[!0]*}"}; _pt=${_pt:-0}
+if [ "${#_pt}" -gt 10 ] || [ "$_pt" -gt 2147483647 ]; then
+  echo "git-maintain-repos: --pack-threads must be a non-negative integer (got: $PACK_THREADS)" >&2
+  exit 2
+fi
+unset _pt
 
 # ---------------------------------------------------------------------------
 # Internal single-repo mode (re-entered via xargs for parallelism)
