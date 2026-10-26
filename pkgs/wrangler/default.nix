@@ -10,7 +10,7 @@
 #   Source: https://github.com/cloudflare/workers-sdk (packages/wrangler)
 #
 # Why this exists rather than using pkgs.wrangler:
-#   nixpkgs carries 4.94.0 while npm latest is 4.147.0 -- fifty-three minor
+#   nixpkgs carries 4.94.0 while npm latest is 4.153.0 -- fifty-three minor
 #   versions behind, the largest gap of anything in this config. Wrangler tracks
 #   the Workers runtime closely, so that gap is not cosmetic.
 #
@@ -49,7 +49,7 @@
 #     npmDepsHash from the build failure message.
 
 let
-  version = "4.147.0";
+  version = "4.153.0";
 in
 buildNpmPackage {
   pname = "wrangler";
@@ -57,7 +57,7 @@ buildNpmPackage {
 
   src = fetchurl {
     url = "https://registry.npmjs.org/wrangler/-/wrangler-${version}.tgz";
-    hash = "sha256-xC0hD6GfbkC2Oo3zsSd0ATbf/nUl7p7YK4qxg9LNg5U=";
+    hash = "sha256-e+LS8s32V/fSSDMQHk4+xWCHPcwCw4APWiqMjjulJEg=";
   };
 
   postPatch = ''
@@ -74,7 +74,7 @@ buildNpmPackage {
     '
   '';
 
-  npmDepsHash = "sha256-jRqQr6X4Z8cchDhDDVGOszCavEjSY6GSGkPyL4TMfB4=";
+  npmDepsHash = "sha256-i2+A6c4RxCQ/+KuOW0qXBu7P7zalH8l7TMjXncCrMlo=";
 
   npmFlags = [
     "--ignore-scripts"
