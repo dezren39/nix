@@ -68,7 +68,7 @@
   },
   "dependencies": {
     "blake3-wasm": "2.1.5",
-    "esbuild": "0.28.1",
+    "esbuild": "0.28.2",
     "path-to-regexp": "6.3.0",
     "unenv": "2.0.0-rc.24",
     "workerd": "1.20261001.1",
