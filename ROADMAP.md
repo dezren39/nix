@@ -260,3 +260,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | INT_MAX range backstop for --jobs and --depth                | 2026-10-26 | #858, #859 |
 | backup-zed.sh regenerates installed.txt via temp file + mv   | 2026-10-26 | #860, #861 |
 | clean.sh INT_MAX backstop for all validated tunables         | 2026-10-26 | #862, #863 |
+| ROADMAP Done records the #864 completion                     | 2026-10-26 | #864, #865 |
