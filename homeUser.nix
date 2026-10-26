@@ -125,6 +125,13 @@ lib.recursiveUpdate {
           run /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u)/org.nixos.mcpx" || true
         fi
       '';
+      # Every other MCP client (Copilot CLI, Claude Code, Codex, Zed) gets mcpx
+      # as its only MCP server, `mcpx --config <that file> serve`; see
+      # mcp-clients.py. Real files the clients also write, so only their MCP
+      # key is set, on every switch. dezren39/nix#671.
+      mcpClients = lib.hm.dag.entryAfter [ "mcpxConfig" ] ''
+        run ${pkgs.python3}/bin/python3 ${./mcp-clients.py} || true
+      '';
       installPlaywright = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
         run ${pkgs.nodejs}/bin/npm install -g playwright@latest 2>/dev/null || true
       '';

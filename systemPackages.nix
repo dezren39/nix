@@ -179,6 +179,9 @@ in
       # mcp-remote and chrome-devtools-mcp, which are only on npm (pinned by
       # pkgs/npm-mcp-servers/package-lock.json).
       inputs.self.packages.${system}.npm-mcp-servers
+      # service-event, for scripts that record into the service event log
+      # (configuration.nix launchd.user.agents.service-events).
+      inputs.self.packages.${system}.service-events
       # AWS credentials for the `aws` MCP server (mcp-proxy-for-aws signs with
       # the default profile): `aws configure sso`, then `aws sso login`.
       awscli2

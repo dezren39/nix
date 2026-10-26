@@ -389,7 +389,31 @@ phase_activate() {
     system_config=$(readlink -f ./result)
     echo "nix-env --set the system profile to $system_config, then darwin-rebuild activate (as root)"
     sudo /nix/var/nix/profiles/default/bin/nix-env -p /nix/var/nix/profiles/system --set "$system_config"
-    sudo "$system_config/sw/bin/darwin-rebuild" activate
+    # The activation's output is kept, and its start and end recorded in the
+    # service event log: three switches on 2026-10-22 registered generations
+    # 305-307 and never made them current, and nothing said where they
+    # stopped (dezren39/nix#656, #670).
+    local log_dir="$HOME/Library/Logs/nix-services" log
+    mkdir -p "$log_dir"
+    log="$log_dir/switch-$(date +%Y%m%dT%H%M%S).log"
+    service_event switch.begin system="$system_config" \
+      previous="$(readlink -f /run/current-system)" log="$log"
+    if sudo "$system_config/sw/bin/darwin-rebuild" activate 2>&1 | tee "$log"; then
+      service_event switch.activated system="$system_config"
+    else
+      local -a st=("${pipestatus[@]}")
+      service_event switch.fail system="$system_config" exit="${st[1]}" log="$log"
+      echo "darwin-rebuild activate failed (exit ${st[1]}); its output is in $log" >&2
+      return 1
+    fi
+    # The profile can name a generation the activation never finished, so
+    # check what is actually running, which activation links last.
+    if [[ "$(readlink -f /run/current-system)" != "$system_config" ]]; then
+      service_event switch.incomplete system="$system_config" \
+        current="$(readlink -f /run/current-system)" log="$log"
+      echo "activation exited 0 but /run/current-system is still $(readlink -f /run/current-system); see $log" >&2
+      return 1
+    fi
   else
     echo "no ./result to activate; run 'just build' first" >&2
     return 1
@@ -429,12 +453,25 @@ phase_activate() {
 # which takes the profile lock and needs root:
 #   readlink    /nix/var/nix/profiles/system  -> system-283-link  (the number)
 #   readlink -f /nix/var/nix/profiles/system  -> /nix/store/...   (the closure)
+# Append to the service event log (~/Library/Logs/nix-services/events.jsonl,
+# dezren39/nix#670). Prefers the new build's service-event, since the running
+# system may predate it; never fails the switch.
+service_event() {
+  local bin=./result/sw/bin/service-event
+  [[ -x "$bin" ]] || bin=/run/current-system/sw/bin/service-event
+  if [[ -x "$bin" ]]; then
+    "$bin" rebuild "$@" || true
+  fi
+}
+
 record_activation() {
   local how="$1" gen store
   gen=$(readlink /nix/var/nix/profiles/system 2>/dev/null || echo "system-?-link")
   gen="${${gen#system-}%-link}"
   store=$(basename "$(readlink -f /nix/var/nix/profiles/system 2>/dev/null || echo unknown)")
   echo "now: generation $gen -> $store"
+  service_event "$how.recorded" generation="$gen" store="$store" \
+    current="$(basename "$(readlink -f /run/current-system)")"
   reclaim_root_owned
   git add .
   commit_marker "$(hostname) $how gen $gen $store"

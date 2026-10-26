@@ -36,11 +36,17 @@
 #             create_datadog_monitor (creates in draft: no notifications,
 #             priority 5, published by hand in the UI) and
 #             update_datadog_monitor.
-# omit_tools removes delete_datadog_workflow. delete_datadog_notebook (core)
-# and update_datadog_monitor appeared later and are still exposed (checked
-# with `mcpx types datadog`, 2026-10-19). omit_tools takes exact names, not
-# patterns; a new toolset needs its own delete_* names added. All tools:
+# omit_tools removes delete_datadog_workflow server-side. The other deletes,
+# execute_code, and changes to live monitors, dashboards and workflows are
+# hidden by mcpx instead (datadog.excludeTools below), which needs no new
+# sign-in. omit_tools takes exact names, not patterns. All tools:
 # https://docs.datadoghq.com/mcp_server/tools
+#
+# elicit.confirmDestructive stays off (mcpx's default): a caller that cannot
+# answer, which is every script, waits out elicit.askTimeout and then the call
+# proceeds anyway (internal/settings/consumer.go), so it would add a delay and
+# stop nothing. Hiding the dangerous tools protects every caller
+# (dezren39/nix#664).
 # Changing the URL is a new identity to mcp-remote and needs `just mcp-login
 # datadog` again.
 { lib }:
@@ -190,14 +196,41 @@ let
     # repository (private: false), or one in the personal account when
     # organization is omitted; a fork of a public repository is public;
     # delete_repository is irreversible (and needs a delete_repo scope the
-    # gh token lacks today). Kept: merge_pull_request, push_files and the
-    # rest -- branch protection still applies, and no tool force-pushes
-    # (both ref updates hard-code Force: false in github-mcp-server).
-    # Re-allowing create_repository for private repositories only is #355.
+    # gh token lacks today). Re-allowing create_repository for private
+    # repositories only is #355.
+    #
+    # Agents here do open and comment on issues and pull requests (that is
+    # how this repo's bots work), so those tools stay. What changes repository
+    # contents or merges goes through git and the normal PR merge path
+    # instead, where hooks, signing and branch protection apply: push_files,
+    # create_or_update_file, delete_file and merge_pull_request are hidden
+    # (dezren39/nix#371, #664).
     github.excludeTools = [
       "create_repository"
       "fork_repository"
       "delete_repository"
+      "push_files"
+      "create_or_update_file"
+      "delete_file"
+      "merge_pull_request"
+    ];
+    # Reads, searches and drafts stay (create_datadog_monitor creates a
+    # draft with no notifications; notebooks are documents). Hidden: anything
+    # that deletes, runs arbitrary actions (execute_code runs JavaScript
+    # against the Datadog API; execute_datadog_workflow runs a workflow), or
+    # changes a live production object -- monitors, dashboards, published
+    # workflows (dezren39/nix#664). Filtered by mcpx, so the server URL, and
+    # with it the OAuth sign-in, is unchanged.
+    datadog.excludeTools = [
+      "delete_*"
+      "execute_code"
+      "execute_datadog_workflow"
+      "update_datadog_monitor"
+      "upsert_datadog_dashboard"
+      "update_datadog_workflow"
+      "publish_datadog_workflow"
+      "unpublish_datadog_workflow"
+      "cancel_datadog_workflow_instance"
     ];
   };
 in

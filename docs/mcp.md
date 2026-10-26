@@ -27,8 +27,11 @@ date in its heading; re-run its checks before relying on them.
     shared.
   - `aws` gets `startTimeout = "180s"`, because `uvx` downloads the proxy on its
     first start.
-  - `github` hides `create_repository`, `fork_repository` and `delete_repository`
-    (`excludeTools`).
+  - `github` hides `create_repository`, `fork_repository`, `delete_repository`,
+    `push_files`, `create_or_update_file`, `delete_file` and `merge_pull_request`;
+    `datadog` hides `delete_*`, `execute_code`, `execute_datadog_workflow` and the
+    tools that change live monitors, dashboards and workflows (`excludeTools`,
+    dezren39/nix#664). Issue and PR tools stay.
 - **Only the launchd agent starts a daemon** (`daemon.autostart = false`). See
   `services.md`.
 - **Smoke test.** `just mcpx-check` lists every server's state and calls one tool
@@ -85,23 +88,43 @@ values were read for this page.
 | sequential-thinking | Step-by-step reasoning scratchpad                                       | stdio `mcp-server-sequential-thinking`                                                                                              | None                                                                                                                      | —                                                                                                                                                             | 1     | —                                                                                                                                                                                                        |
 | terraform           | Public Terraform registry lookups                                       | stdio `terraform-mcp-server stdio --toolsets=registry`                                                                              | None                                                                                                                      | —                                                                                                                                                             | 9     | —                                                                                                                                                                                                        |
 
-mcpx's `elicit.confirmDestructive` is off, so destructive tools run without a
-confirmation prompt.
+mcpx's `elicit.confirmDestructive` stays off: a caller that cannot answer the
+question, which is every script, waits out the deadline and the call then
+proceeds, so it would only add a delay. The dangerous tools are hidden instead
+(above). The table's last column was written before that: the GitHub and
+Datadog tools it names are now hidden, and Datadog lists 54 tools.
 
-## Other MCP configurations on this machine (2026-10-19)
+## Other MCP clients: mcpx only (2026-10-22)
 
-- **Copilot CLI** (`~/.copilot/mcp-config.json`, installed via Homebrew): codedb and
-  deepwiki. GitHub's documentation says Copilot CLI also includes a GitHub MCP
-  server by default; that was not checked here.
-- **Claude Code** (`~/.claude.json`) and **Codex** (`~/.codex/config.toml`):
-  codedb and deepwiki. Neither CLI is installed, so these are unused.
-- These three configs run `~/bin/codedb` (0.2.5860), a copy outside nix that comes
-  before nix's codedb (0.2.5855) on PATH.
-- **Zed:** the GitHub, Context7 and Postgres extensions are installed. GitHub signs
-  in through the browser and keeps its token in memory; Postgres has no
-  `database_url`.
-- **OpenCode and OpenChamber** have no MCP servers of their own; every
-  `opencode.json(c)` found has no or an empty `mcp` key.
+Every other MCP client gets one MCP server, mcpx, as
+`/run/current-system/sw/bin/mcpx --config ~/.config/mcpx/config.json serve`
+(stdio). `mcp-clients.py`, run by home-manager on every switch
+(`home.activation.mcpClients`), sets it and changes nothing else in each file.
+The first time it changes a file, it keeps a copy in
+`~/.local/state/mcp-clients/backup/`. The `--config` matters: without it mcpx
+searches upward from the client's working directory, a repository's
+`.mcp.json` changes which daemon it looks for, and with autostart off none is
+there.
+
+A client sees mcpx's gateway, not the 18 servers' tools by name: about 80
+`mcpx_*` tools (`mcpx_search`, `mcpx_types`, `mcpx_call`, `mcpx_exec`, ...).
+`mcpx_call {namespace, tool, arguments}` reaches any server; namespaces use `_`
+for `-` (`chrome_devtools`). The daemon also serves MCP over HTTP at `/mcp` on
+its loopback port, but that port is chosen at random on each start, so the
+clients use stdio.
+
+| Client | Installed | Config | Before | Now |
+|---|---|---|---|---|
+| Copilot CLI | yes (Homebrew) | `~/.copilot/mcp-config.json` | codedb (`~/bin/codedb`), deepwiki, plus its built-in GitHub server | mcpx. The built-in server has no config key; the `copilot` shell alias passes `--disable-builtin-mcps`. Checked: `copilot --model gpt-6-luna -p` called `mcpx_namespaces` through it and got 18 namespaces |
+| Zed | yes | `~/.config/zed/settings.json` (`context_servers`) | GitHub, Context7 and Postgres extensions (Postgres had no `database_url` and errored at every start) | mcpx. Zed started `mcpx ... serve` itself on the settings change. The three extensions were moved to `~/.local/state/mcp-clients/backup/zed-extensions/`, and Zed unloaded them |
+| Claude Code | no | `~/.claude.json` (`mcpServers`) | codedb, deepwiki | mcpx |
+| Codex | no | `~/.codex/config.toml` (`[mcp_servers.*]`) | codedb, deepwiki | mcpx |
+| OpenCode | yes | none needed | the fork's built-in mcpx plugin | unchanged; an `mcp` entry would list the tools twice |
+| OpenChamber | yes | none | drives OpenCode | unchanged |
+
+No config was found for VS Code (application data left, app removed), Cursor (a
+dangling `/usr/local/bin/cursor` link), Windsurf, Claude Desktop or Gemini CLI.
+A client added later needs an entry in `mcp-clients.py`.
 
 ## Tool namespaces that are not MCP servers
 

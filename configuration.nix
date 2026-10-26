@@ -15,10 +15,13 @@ let
   # executable, and the name macOS shows for it, never change.
   mcpxAgent = pkgs.writeShellScript "mcpx" ''
     cfg=/Users/drewry.pope/.config/mcpx/config.json
+    ${serviceEvents}/bin/service-event mcpx-agent agent.start pid=$$ \
+      mcpx=${inputs.self.packages.${system}.mcpx} || true
     ${inputs.self.packages.${system}.mcpx}/bin/mcpx --config "$cfg" stop || true
     exec ${inputs.self.packages.${system}.mcpx}/bin/mcpx daemon --config "$cfg"
   '';
   mcpxAgentPath = "/usr/local/libexec/mcpx/mcpx";
+  serviceEvents = inputs.self.packages.${system}.service-events;
 in
 lib.recursiveUpdate {
   imports = [
@@ -88,6 +91,19 @@ lib.recursiveUpdate {
   # launchd.user.envVariables and homeUser.nix sessionVariables because each
   # reaches a context the others do not.
   environment.variables.OPENCODE_DB = "/Users/drewry.pope/.local/share/opencode/opencode.db";
+  # The OpenChamber desktop app reads these from the login shell's environment
+  # (packages/electron/README.md: "Desktop imports this from the user's
+  # login-shell environment"), not only from launchd's. launchd.user.envVariables
+  # below is set by `launchctl setenv` during activation only, so it is gone
+  # after every reboot until the next successful switch. On 2026-10-21 the app
+  # started at login without them, ran its own server (0.0.0.0:57123) and
+  # OpenCode next to the launchd agent's, and the two managers killed each
+  # other's OpenCode every 30 minutes through the shared
+  # ~/.config/openchamber/managed-opencode state (dezren39/nix#670). Exported
+  # here they are in every login shell, so the app always attaches to the
+  # agent's server instead.
+  environment.variables.OPENCHAMBER_SERVER_URL = "http://127.0.0.1:3000";
+  environment.variables.OPENCHAMBER_SKIP_LOCAL_SERVER = "1";
 
   nixpkgs = {
     # TODO: module nixpkgs
@@ -1034,8 +1050,31 @@ lib.recursiveUpdate {
         # running, it holds the socket, this daemon exits "a daemon is already
         # listening", and KeepAlive respawns it every 10 s (822 times that day).
         ProgramArguments = [ mcpxAgentPath ];
-        StandardErrorPath = "/tmp/mcpx.err.log";
-        StandardOutPath = "/tmp/mcpx.out.log";
+        # Not /tmp: that is emptied at boot, taking the evidence of what went
+        # wrong before it. service-monitor size-bounds this file
+        # (dezren39/nix#668).
+        StandardErrorPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
+        StandardOutPath = "/Users/drewry.pope/Library/Logs/mcpx.log";
+      };
+    };
+    # The service lifecycle event log, ~/Library/Logs/nix-services/events.jsonl:
+    # every start, exit and replacement of OpenChamber (agent, desktop app and
+    # dev servers), their OpenCode processes and mcpx, and the connections
+    # their servers drop and regain, with timestamps; plus what the switch
+    # and the agents' wrappers record through `service-event`. It also
+    # size-bounds the agents' logs. Read it with `just service-events`;
+    # docs/services.md lists the events (dezren39/nix#670, #668).
+    service-events = {
+      serviceConfig = {
+        ProgramArguments = [ "${serviceEvents}/bin/service-monitor" ];
+        EnvironmentVariables.HOME = "/Users/drewry.pope";
+        EnvironmentVariables.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+        KeepAlive = true;
+        RunAtLoad = true;
+        ProcessType = "Background";
+        LowPriorityIO = true;
+        ThrottleInterval = 30;
+        StandardErrorPath = "/Users/drewry.pope/Library/Logs/nix-services/monitor.err.log";
       };
     };
   };

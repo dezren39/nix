@@ -7,6 +7,20 @@
 let
   homeDir = "/Users/drewry.pope";
 
+  # opencode's shell completion scripts, generated once at build time from the
+  # same opencode package, so no shell starts the 190 MB binary at start-up or
+  # on Tab. v2's flag is `--completions <shell>`. It has no `completion`
+  # command (`eval "$(opencode completion)"` took the word as a directory),
+  # and `--get-yargs-completions` prints the general help instead of
+  # candidates (checked 2026-10-26 on 2.0.30), so a hook calling either one
+  # offers nothing useful (dezren39/nix#666).
+  opencodeCompletions =
+    shell:
+    pkgs.runCommand "opencode-${shell}-completion" { } ''
+      HOME=$TMPDIR ${inputs.self.packages.${system}.opencode}/bin/opencode --completions ${shell} > $out
+      test -s $out
+    '';
+
   sharedShellAliases = {
     rm = "trash";
     ll = "ls -lah --group-directories-first --color=auto";
@@ -15,6 +29,10 @@ let
     setup-ops-creds = "ops-dd-creds && gh-token && og-creds && jira-creds";
     cargo-build-release = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build --release 2>&1";
     cargo-build-debug = "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/bin/cc cargo build 2>&1";
+    # Copilot CLI's built-in GitHub MCP server bypasses mcpx, and it has no
+    # config key to turn it off, only this flag. Its MCP servers come from
+    # mcpx alone (mcp-clients.py; dezren39/nix#671).
+    copilot = "copilot --disable-builtin-mcps";
   };
 
   # Shared POSIX shell init — sourced by bash, zsh, and fish (fish tolerates POSIX via implicit translation)
@@ -165,16 +183,8 @@ in
       initExtra = ''
         ${sharedShellInit}
 
-        # opencode: shell completions (yargs-based)
-        _opencode_yargs_completions() {
-          local cur_word args type_list
-          cur_word="''${COMP_WORDS[COMP_CWORD]}"
-          args=("''${COMP_WORDS[@]}")
-          type_list=$(opencode --get-yargs-completions "''${args[@]}" 2>/dev/null)
-          COMPREPLY=($(compgen -W "''${type_list}" -- "''${cur_word}"))
-          return 0
-        }
-        complete -o bashdefault -o default -F _opencode_yargs_completions opencode
+        # opencode: shell completions, generated at build time (opencodeCompletions).
+        source ${opencodeCompletions "bash"}
       '';
     };
     zsh = {
@@ -183,19 +193,8 @@ in
       initContent = ''
         ${sharedShellInit}
 
-        # opencode: shell completions (yargs-based, same hook as bash/fish)
-        # Lazy: opencode runs only when a completion is requested, never at
-        # shell start-up. (The old `eval "$(opencode completion)"` started the
-        # binary in every new shell — and OpenCode v2 has no `completion`
-        # command; it treats the word as a directory and launches the TUI.)
-        _opencode_yargs_completions() {
-          local reply
-          local si=$IFS
-          IFS=$'\n' reply=($(COMP_CWORD="$((CURRENT-1))" COMP_LINE="$BUFFER" COMP_POINT="$CURSOR" opencode --get-yargs-completions "''${words[@]}"))
-          IFS=$si
-          _describe 'values' reply
-        }
-        compdef _opencode_yargs_completions opencode
+        # opencode: shell completions, generated at build time (opencodeCompletions).
+        source ${opencodeCompletions "zsh"}
       '';
     };
     fish = {

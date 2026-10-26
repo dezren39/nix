@@ -34,8 +34,9 @@
 #     systemd avoids that with MAINPID, which has no launchd equivalent.
 #
 # The desktop app finds this server through OPENCHAMBER_SERVER_URL and
-# OPENCHAMBER_SKIP_LOCAL_SERVER (launchd.user.envVariables in
-# configuration.nix), so it never starts a server or an OpenCode of its own.
+# OPENCHAMBER_SKIP_LOCAL_SERVER, so it never starts a server or an OpenCode of
+# its own. It reads them from the login shell (environment.variables in
+# configuration.nix); launchd.user.envVariables alone is lost at reboot.
 {
   config,
   lib,
@@ -79,6 +80,13 @@ let
   };
 
   start = pkgs.writeShellScript "openchamber-serve" ''
+    # The service event log (dezren39/nix#670). By its stable profile path:
+    # a store path here would make every service-events change restart
+    # OpenChamber (see PATH below).
+    if [ -x /run/current-system/sw/bin/service-event ]; then
+      /run/current-system/sw/bin/service-event openchamber-agent agent.start pid=$$ \
+        openchamber=${openchamber} || true
+    fi
     # OPENCHAMBER_UI_PASSWORD, from sops (see home-manager.users below):
     # required before OpenChamber will serve a public tunnel. Loopback-only
     # either way, so this is defence in depth, not what keeps it private.
@@ -91,14 +99,12 @@ let
     export OPENCODE_DB="$HOME/.local/share/opencode/opencode.db"
     export OPENCHAMBER_SELF_HANDOFF=0
     # OpenChamber's terminals and git run with this PATH, so it is the full
-    # system path, with the OpenCode link and mcpx ahead of it.
-    export PATH="${state}/bin:${
-      lib.makeBinPath [
-        ocPkgs.mcpx
-        pkgs.git
-        pkgs.openssh
-      ]
-    }:${config.environment.systemPath}"
+    # system path, with the OpenCode link and the system profile's bin (mcpx,
+    # git, openssh) ahead of it. The system profile, not store paths: this
+    # script's store path is OpenChamber's deploy key, so naming
+    # mcpx/git/openssh by store path restarted OpenChamber, and dropped every
+    # client connection, whenever any of them changed (dezren39/nix#663).
+    export PATH="${state}/bin:/run/current-system/sw/bin:${config.environment.systemPath}"
     exec ${openchamber}/bin/openchamber serve --foreground \
       --port ${toString port} --host 127.0.0.1
   '';
@@ -106,7 +112,7 @@ in
 {
   # nix-darwin links it into /Applications/Nix Apps; mac-app-util adds the
   # Launchpad/Spotlight trampoline. It reads OPENCHAMBER_SERVER_URL and
-  # OPENCHAMBER_SKIP_LOCAL_SERVER from launchd.user.envVariables, attaches to
+  # OPENCHAMBER_SKIP_LOCAL_SERVER from the login shell, attaches to
   # the agent below as a local (desktop-local) client, and starts no server or
   # OpenCode of its own. Its "open at login" setting is unnecessary: the
   # agent is what must run at login, and the app is only a window onto it.
@@ -228,10 +234,26 @@ in
           echo "openchamberDeploy: $state/start -> $(/usr/bin/readlink "$state/start") is not an executable; launchd cannot start OpenChamber" >&2
           exit 1
         fi
-        if [ "$(/bin/cat "$state/deployed" 2>/dev/null)" != "$key" ]; then
+        # Recorded in the service event log (dezren39/nix#670): what this
+        # switch decided and why. Names which part of the key changed, never
+        # the password or its hash.
+        event() {
+          [[ -v DRY_RUN ]] || ${ocPkgs.service-events}/bin/service-event openchamber-deploy "$@" || true
+        }
+        deployed="$(/bin/cat "$state/deployed" 2>/dev/null || true)"
+        if [ -z "$deployed" ]; then
+          why=first-deploy
+        elif [ "''${deployed%%:*}" != "$script" ]; then
+          why=start-script-changed
+        else
+          why=ui-password-changed
+        fi
+        if [ "$deployed" != "$key" ]; then
           # New OpenChamber (or start script, or UI password): restart.
           # SIGTERM leaves the managed OpenCode running and the new process
           # adopts it.
+          event deploy.restart cause="$why" running="$running" \
+            previous_script="''${deployed%%:*}" script="$script"
           if [ "$running" = 1 ]; then
             run /bin/launchctl kickstart -k "$job"
           else
@@ -240,7 +262,10 @@ in
           run /bin/sh -c 'printf "%s\n" "$1" > "$2"' _ "$key" "$state/deployed"
         elif [ "$running" = 1 ] && [ "$previous" != "$target" ]; then
           # Same OpenChamber, new OpenCode: hand over in place.
+          event deploy.opencode-handover cause=opencode-changed previous="$previous" opencode="$target"
           run /bin/launchctl kill SIGHUP "$job"
+        else
+          event deploy.unchanged running="$running"
         fi
       '';
     };
