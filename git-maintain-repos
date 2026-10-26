@@ -274,6 +274,14 @@ if [ "${#_pt}" -gt 10 ] || [ "$_pt" -gt 2147483647 ]; then
 fi
 unset _pt
 
+# Judge REFLOG_EXPIRE exactly once here. git's approxidate grammar is too broad
+# for a regex, so ask git itself to parse it. If it fails, catch it and exit
+# here instead of silently failing per-repo later.
+if ! git config --default "$REFLOG_EXPIRE" --type=expiry-date default.date >/dev/null 2>&1; then
+  echo "git-maintain-repos: failed to parse reflog-expire value '$REFLOG_EXPIRE'" >&2
+  exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # Internal single-repo mode (re-entered via xargs for parallelism)
 # ---------------------------------------------------------------------------
@@ -323,7 +331,7 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
     # making a week-old reset or abandoned detached HEAD unrecoverable.
     if [ "$EXPIRE_REFLOG" = "1" ]; then
       git -C "$repo" reflog expire --expire="$REFLOG_EXPIRE" \
-        --expire-unreachable="$REFLOG_EXPIRE" --all          2>/dev/null  # release unreachable objects for prune
+        --expire-unreachable="$REFLOG_EXPIRE" --all 2>&1 | sed "s|^|  [$name] |" # release unreachable objects for prune
     fi
     git -C "$repo" -c gc.autoDetach=false -c pack.threads="$PACK_THREADS" \
       gc --prune=now --force 2>&1 | sed "s|^|  [$name] |"                 # full repack + prune + clear tmp garbage
