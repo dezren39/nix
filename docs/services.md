@@ -45,6 +45,21 @@ and has no idle exit (dezren39/nix#669).
 Both open the one database `~/.local/share/opencode/opencode.db` (`OPENCODE_DB`,
 forced by the wrapper in `flake.nix`).
 
+**Which OpenCode config is live.** `~/.config/opencode` links through
+`~/nix/.opencode` and `~/Documents/.opencode` to `~/.opencode`, so every OpenCode
+here reads `~/.opencode/opencode.jsonc`. That is a plain file that OpenChamber
+owns. Its settings UI and the `opencode.config.set` action rewrite it in place
+(a temporary file renamed over the resolved target, `atomic-write.js`), so it
+cannot be a home-manager link into the read-only store. The repo's
+`opencode-global.jsonc` is the reference, not the live file; `just` recipes
+link it only on demand. Change the live file through OpenChamber, which keeps
+its comments; OpenCode picks the change up by itself.
+v2 still reads v1's `small_model` and turns it into the `title` agent's model
+(`packages/core/src/config/normalize.ts`), so a `small_model` left in the live
+file makes the premium model write every session title. Leave it out, as the
+repo file does, and Copilot titles sessions with its free utility model
+(dezren39/nix#661).
+
 ## How a switch reaches each one
 
 `just switch` builds as you, activates as root, then checks the services
