@@ -273,8 +273,13 @@ if [ -n "$DOCKER_AGE_DAYS" ]; then
     echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
     exit 2
   fi
+  [ "$_da" -gt 0 ] || { echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2; exit 2; }
+  # Normalize to the judged form (#881): the strip above was only judging —
+  # the use sites do bash arithmetic, where a leading zero means octal
+  # (010 silently = 8, 008/009 error mid-sweep). The judged form and the
+  # used form must agree, so hand every use site the stripped decimal.
+  DOCKER_AGE_DAYS="$_da"
   unset _da
-  [ "$DOCKER_AGE_DAYS" -gt 0 ] || { echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2; exit 2; }
 fi
 
 # The numeric env tunables (see TUNABLES in usage) gate deletion — age,
@@ -312,7 +317,11 @@ for _v in $_clean_positive_vars; do
     echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
     exit 2
   fi
-  [ "$_val" -gt 0 ] || { echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2; exit 2; }
+  [ "$_sv" -gt 0 ] || { echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2; exit 2; }
+  # Normalize to the judged form (#881), same as --docker-age above: bash
+  # arithmetic at the use sites reads a leading zero as octal, so the
+  # stripped decimal that was judged must be the value that is used.
+  printf -v "$_v" '%s' "$_sv"
 done
 unset _clean_positive_vars _v _val _sv
 # Non-negative tunables: 0 is a documented, meaningful value for each of
@@ -337,6 +346,12 @@ for _v in $_clean_nonnegative_vars; do
     echo "clean.sh: $_v must be a non-negative integer (got: $_val)" >&2
     exit 2
   fi
+  # Normalize to the judged form (#881), same as --docker-age above: bash
+  # arithmetic at the use sites reads a leading zero as octal, so the
+  # stripped decimal that was judged must be the value that is used
+  # (this also keeps the blessed NIX_KEEP_DAYS=000 scorched-earth form:
+  # it normalizes to 0 and still selects that branch).
+  printf -v "$_v" '%s' "$_sv"
 done
 unset _clean_nonnegative_vars _v _val _sv
 
