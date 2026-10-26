@@ -252,3 +252,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | git-maintain-repos --jobs/--pack-threads validated           | 2026-10-25 | #836, #838 |
 | git-maintain-repos --pack-threads range rejected early       | 2026-10-25 | #839, #840 |
 | clean.sh numeric env tunables validated at parse time        | 2026-10-25 | #837, #841 |
+| ROADMAP Done records the #843 completion                     | 2026-10-25 | #843, #844 |
