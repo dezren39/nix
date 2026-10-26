@@ -245,3 +245,11 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | ROADMAP Done records the #822 completion                     | 2026-10-25 | #822, #823 |
 | ROADMAP Done records the #824 completion                     | 2026-10-25 | #824, #825 |
 | ROADMAP Done records the #826 completion                     | 2026-10-25 | #826, #827 |
+| opencode_pids requires a boundary after the binary name      | 2026-10-25 | #828, #831 |
+| clean.sh --docker-age validated as positive integer          | 2026-10-25 | #829, #832 |
+| full-clean opencode guard requires a name boundary           | 2026-10-25 | #833, #834 |
+| --depth validated as positive integer in four scripts        | 2026-10-25 | #830, #835 |
+| git-maintain-repos --jobs/--pack-threads validated           | 2026-10-25 | #836, #838 |
+| git-maintain-repos --pack-threads range rejected early       | 2026-10-25 | #839, #840 |
+| clean.sh numeric env tunables validated at parse time        | 2026-10-25 | #837, #841 |
+| ROADMAP Done records the #843 completion                     | 2026-10-25 | #843, #844 |
