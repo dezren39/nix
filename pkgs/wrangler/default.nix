@@ -34,6 +34,12 @@
 #     the vendored copy — src is the tarball, postPatch strips the
 #     tarball's own package.json, and only package-lock.json is copied in
 #     from this directory — so it changes no derivation input.
+#   * Renovate ignores this directory (ignorePaths in the root
+#     renovate.json, #849): the vendored package.json + lock mirror the
+#     published release, so their dependencies change only via a wrangler
+#     version bump, never via independent Renovate dep PRs (the #846/#847
+#     pair it opened within a minute of the package.json landing).
+#     GitHub-side Dependabot security updates do not read renovate.json.
 #   * fsevents is an optionalDependency and macOS-only; it resolves to nothing
 #     on Linux.
 #   * Upstream publishes three bin names -- wrangler, wrangler2 and cf-wrangler
