@@ -256,3 +256,4 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | pkgs/wrangler package.json vendored so Dependabot parses it  | 2026-10-26 | #842, #845 |
 | renovate.json ignores the vendored pkgs/wrangler mirror      | 2026-10-26 | #849, #850 |
 | backup-zed.sh: zsh script_dir + valid find depth limits      | 2026-10-26 | #854, #856 |
+| ROADMAP Done records the #855 completion                     | 2026-10-26 | #855, #857 |
