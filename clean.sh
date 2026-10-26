@@ -286,12 +286,15 @@ fi
 # integer test errors into the wrong branch. #829 judged DOCKER_AGE_DAYS
 # alone; judge every remaining tunable the same way, here at parse time,
 # before any sweep runs and before the sudo re-exec below forwards the
-# values via --preserve-env. Most must be positive; 0 is meaningful only
-# for LOG_STALE_DAYS (documented "0 = drop all logs"), so it is judged
-# non-negative. Unset or empty is fine and skips the check: the later
+# values via --preserve-env. Most must be positive; 0 is meaningful for
+# LOG_STALE_DAYS (documented "0 = drop all logs") and for the NIX_KEEP_*
+# pair (NIX_KEEP_DAYS=0 is the documented scorched-earth nix GC mode, and
+# NIX_KEEP_GENS=0 means the current generation alone satisfies the keep
+# floor), so those are judged non-negative (#871). Unset or empty is fine
+# and skips the check: the later
 # ${VAR:-default} assignments supply a known-good literal, and an empty
 # env value takes that default the same way.
-_clean_positive_vars="ARTIFACT_STALE_DAYS HOME_ARTIFACT_STALE_DAYS CACHE_STALE_DAYS COLIMA_STOPPED_STALE_DAYS OPENCODE_TMP_STALE_DAYS OPENCODE_WORKTREE_STALE_DAYS OPENCODE_ROOT_STALE_DAYS OPENCODE_TIDY_PROTECT_DAYS OPENCODE_TIDY_LARGE_MB SHORT_SCRATCH_STALE_HOURS PG_SCRATCH_STALE_HOURS ACTIVE_ARTIFACT_STALE_HOURS PYTEST_KEEP_HOURS UNKNOWN_SCRATCH_MIN_MB UNKNOWN_SCRATCH_STALE_DAYS NIX_KEEP_DAYS NIX_KEEP_GENS"
+_clean_positive_vars="ARTIFACT_STALE_DAYS HOME_ARTIFACT_STALE_DAYS CACHE_STALE_DAYS COLIMA_STOPPED_STALE_DAYS OPENCODE_TMP_STALE_DAYS OPENCODE_WORKTREE_STALE_DAYS OPENCODE_ROOT_STALE_DAYS OPENCODE_TIDY_PROTECT_DAYS OPENCODE_TIDY_LARGE_MB SHORT_SCRATCH_STALE_HOURS PG_SCRATCH_STALE_HOURS ACTIVE_ARTIFACT_STALE_HOURS PYTEST_KEEP_HOURS UNKNOWN_SCRATCH_MIN_MB UNKNOWN_SCRATCH_STALE_DAYS"
 for _v in $_clean_positive_vars; do
   _val="${!_v:-}"
   [ -n "$_val" ] || continue
@@ -312,22 +315,30 @@ for _v in $_clean_positive_vars; do
   [ "$_val" -gt 0 ] || { echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2; exit 2; }
 done
 unset _clean_positive_vars _v _val _sv
-if [ -n "${LOG_STALE_DAYS:-}" ]; then
-  case "$LOG_STALE_DAYS" in
+# Non-negative tunables: 0 is a documented, meaningful value for each of
+# these (see the header comment above), so they are judged like the
+# positive tunables but without the -gt 0 test (#871).
+_clean_nonnegative_vars="LOG_STALE_DAYS NIX_KEEP_DAYS NIX_KEEP_GENS"
+for _v in $_clean_nonnegative_vars; do
+  _val="${!_v:-}"
+  [ -n "$_val" ] || continue
+  case "$_val" in
     *[!0-9]*|'')
-      echo "clean.sh: LOG_STALE_DAYS must be a non-negative integer (got: $LOG_STALE_DAYS)" >&2
+      echo "clean.sh: $_v must be a non-negative integer (got: $_val)" >&2
       exit 2 ;;
   esac
-  # Range backstop (#862): the value is forwarded to find -mtime, a C-int
-  # consumer, so cap it at INT_MAX with the same strip/digit-count/value
-  # technique as the positive tunables above.
-  _sv=${LOG_STALE_DAYS#"${LOG_STALE_DAYS%%[!0]*}"}; _sv=${_sv:-0}
+  # Range backstop (#862): LOG_STALE_DAYS is forwarded to find -mtime, a
+  # C-int consumer, and NIX_KEEP_DAYS is multiplied at its use sites
+  # (* 86400, and doubled while widening in nix_keep_window), so cap all
+  # of them at INT_MAX with the same strip/digit-count/value technique
+  # as the positive tunables above.
+  _sv=${_val#"${_val%%[!0]*}"}; _sv=${_sv:-0}
   if [ "${#_sv}" -gt 10 ] || [ "$_sv" -gt 2147483647 ]; then
-    echo "clean.sh: LOG_STALE_DAYS must be a non-negative integer (got: $LOG_STALE_DAYS)" >&2
+    echo "clean.sh: $_v must be a non-negative integer (got: $_val)" >&2
     exit 2
   fi
-  unset _sv
-fi
+done
+unset _clean_nonnegative_vars _v _val _sv
 
 # --system touches no repositories, so repository-scoped flags are meaningless
 # alongside it. Erroring beats silently ignoring them.
@@ -1039,7 +1050,10 @@ nix_keep_window() {
   printf '%s' "$days"
 }
 
-if [ "$NIX_KEEP_DAYS" = "0" ]; then
+# Arithmetic -eq, not a string test: a zero written with leading zeros
+# (000) also selects scorched-earth; as days=0 in nix_keep_window it would
+# double 0 forever and never widen (#871).
+if [ "$NIX_KEEP_DAYS" -eq 0 ]; then
   echo "🧊 nix store garbage collection (deleting ALL old generations)"
   run nix-collect-garbage -d || warn "nix-collect-garbage failed"
 else
