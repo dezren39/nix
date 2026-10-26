@@ -583,6 +583,25 @@ rec {
               bash ./symlinker.test.sh
               touch $out
             '';
+        # #907: opencode-share.test.sh drives the real opencode-share.sh
+        # in --dry-run mode through [good, missing, good], all-good, and
+        # all-fail target lists — the post-increment error counter used
+        # to abort the run at the first failing target under `set -e`,
+        # so multi-target runs cannot silently skip later targets again.
+        opencode-share-tests =
+          pkgs.runCommandLocal "opencode-share-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = ./pkgs/opencode-share;
+            }
+            ''
+              cp $src/opencode-share.sh $src/opencode-share.test.sh ./
+              chmod u+w ./opencode-share.sh ./opencode-share.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-share.test.sh
+              touch $out
+            '';
         # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
         # repo's only *.test.ts suite) was run by nothing — no check,
         # workflow, or recipe referenced it, unlike the flake-tidy,
