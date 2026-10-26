@@ -460,8 +460,17 @@ fi
 
 ROOT_HOME="$(realpath ~)"
 if [ -z "${CALLER_USER_HOME:-}" ]; then
-  if [ -n "${SUDO_USER:-}" ]; then CALLER_USER_HOME="$(eval echo "~$SUDO_USER")"
-  else CALLER_USER_HOME="$ROOT_HOME"; fi
+  # The tilde expansion goes through eval, so only evaluate a SUDO_USER that
+  # is a plain username (#875, same gate as git-discover-repos --user);
+  # anything else is treated as unset and falls back to ROOT_HOME.
+  _sudo_user_ok=0
+  case "${SUDO_USER:-}" in
+    -*|'~'*|*[!A-Za-z0-9._-]*) ;;
+    ?*) _sudo_user_ok=1 ;;
+  esac
+  if [ "$_sudo_user_ok" = "1" ]; then CALLER_USER_HOME="$(eval echo "~$SUDO_USER")"
+  else CALLER_USER_HOME="$ROOT_HOME"; SUDO_USER=""; fi
+  unset _sudo_user_ok
 fi
 CALLER_USER="${SUDO_USER:-$(basename "$CALLER_USER_HOME")}"
 

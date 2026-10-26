@@ -202,6 +202,16 @@ fi
 
 # Resolve the home directory being scanned.
 if [ -n "$TARGET_USER" ]; then
+  # The tilde expansion below goes through eval, so judge the username whole
+  # first (#875): a value carrying shell metacharacters ($(...), backticks,
+  # ';', whitespace, '/') would otherwise execute as commands during the
+  # eval, before the "no home" check ever runs. A real username is only
+  # letters, digits, '.', '_' and '-', and never starts with '-' or '~'.
+  case "$TARGET_USER" in
+    -*|'~'*|*[!A-Za-z0-9._-]*)
+      echo "git-discover-repos: --user must be a plain username (got: $TARGET_USER)" >&2
+      exit 2 ;;
+  esac
   SCAN_HOME="$(eval echo "~$TARGET_USER")"
   [ -d "$SCAN_HOME" ] || { echo "git-discover-repos: no home for $TARGET_USER" >&2; exit 1; }
 else
