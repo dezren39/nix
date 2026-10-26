@@ -253,3 +253,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | git-maintain-repos --pack-threads range rejected early       | 2026-10-25 | #839, #840 |
 | clean.sh numeric env tunables validated at parse time        | 2026-10-25 | #837, #841 |
 | ROADMAP Done records the #843 completion                     | 2026-10-25 | #843, #844 |
+| pkgs/wrangler package.json vendored so Dependabot parses it  | 2026-10-26 | #842, #845 |
+| renovate.json ignores the vendored pkgs/wrangler mirror      | 2026-10-26 | #849, #850 |
+| backup-zed.sh: zsh script_dir + valid find depth limits      | 2026-10-26 | #854, #856 |
