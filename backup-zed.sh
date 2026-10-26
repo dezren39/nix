@@ -17,4 +17,11 @@ echo "entered: $script_dir"
 
 cp -f "$HOME/.config/zed/settings.json" ./.zed/settings.json
 cp -f "$HOME/Library/Application Support/Zed/extensions/index.json" ./.zed/index.json
-find "$HOME/Library/Application Support/Zed/extensions/installed" -mindepth 1 -maxdepth 1 -exec basename {} \; > ./.zed/installed.txt
+# Write to a temp file and mv on success (#860): a direct "> ./.zed/installed.txt"
+# truncates the committed list before find runs, so a missing extensions/installed
+# dir (or any other find failure) would leave it emptied when set -e exits.
+installed_tmp=$(mktemp ./.zed/.installed.txt.XXXXXX)
+trap 'rm -f "$installed_tmp"' EXIT
+find "$HOME/Library/Application Support/Zed/extensions/installed" -mindepth 1 -maxdepth 1 -exec basename {} \; > "$installed_tmp"
+mv -f "$installed_tmp" ./.zed/installed.txt
+trap - EXIT
