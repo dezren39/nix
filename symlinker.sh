@@ -99,7 +99,8 @@ NAME FILTERS
     symlinker.sh ... --match git --suffix config  # contains "git" AND ends in "config"
 
 UNDO
-  --undo <timestamp>      Undo a previous run (unlink symlinks, restore backups)
+  --undo <timestamp>      Undo a previous run (unlink symlinks, restore backups);
+                          the timestamp is the digits-only run id shown at link time
   --skip-restore          With --undo, don't restore backed-up conflicts
 
   Undo supports the same flags as normal operation:
@@ -293,6 +294,15 @@ ulog() {
 # ─── Undo operation ─────────────────────────────────────────────────────────
 
 if [[ -n "$UNDO_TIMESTAMP" ]]; then
+  # The timestamp becomes a path component below, so judge it whole first
+  # (#884): timestamps this script generates are pure digits (date +%s), and
+  # anything else — above all a value containing '/' or '..' — would load an
+  # undo file outside the log directory and act on its records.
+  case "$UNDO_TIMESTAMP" in
+    *[!0-9]*|'')
+      echo "Error: --undo timestamp must be digits only (got: $UNDO_TIMESTAMP)" >&2
+      exit 1 ;;
+  esac
   UNDO_FILE="$LOG_DIR/$UNDO_TIMESTAMP.undo"
   if [[ ! -f "$UNDO_FILE" ]]; then
     echo "Error: No undo file found for timestamp $UNDO_TIMESTAMP" >&2
