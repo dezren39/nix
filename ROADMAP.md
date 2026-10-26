@@ -264,3 +264,5 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | flake-tidy memoizes pure helpers (Bolt ledger)               | 2026-10-26 | #866, #853 |
 | opencode-db-prune INT_MAX backstop: --protect-days/--batch   | 2026-10-26 | #867, #868 |
 | ROADMAP Done records the #869 completion                     | 2026-10-26 | #869, #870 |
+| clean.sh NIX_KEEP_DAYS=0 non-negative, scorched-earth GC     | 2026-10-26 | #871, #872 |
+| ROADMAP Done records the #873 completion                     | 2026-10-26 | #873, #874 |
