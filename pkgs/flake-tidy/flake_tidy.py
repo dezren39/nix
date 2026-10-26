@@ -512,6 +512,7 @@ def _canonical_ipv6_literal(host: str) -> str:
     return "[" + canonical + (pct + zone if pct else "")
 
 
+@functools.lru_cache(maxsize=256)
 def _normalize_vcs_url(url: str) -> str:
     """Canonicalize a git/hg URL spelling for grouping (#555).
 
@@ -1350,6 +1351,7 @@ def write_flake_nix(flake_dir: str, content: str) -> None:
         f.write(content)
 
 
+@functools.lru_cache(maxsize=1024)
 def _brace_counts(line: str) -> tuple[int, int]:
     """Count the structural ``{`` and ``}`` in one line of Nix source.
 
@@ -1408,6 +1410,7 @@ _SEG_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
 _SEG_TOKEN_NC = rf"(?:{_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
 
 
+@functools.lru_cache(maxsize=512)
 def _unquote_name(token: str) -> str:
     """Attribute name for a matched name token (see ``_NAME_TOKEN``)."""
     if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
@@ -1425,6 +1428,7 @@ def _escape_name(name: str) -> str:
     return name.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
 
 
+@functools.lru_cache(maxsize=512)
 def _name_ref(name: str) -> str:
     """Regex matching ``name`` spelled bare or quoted (``"name"``).
 
@@ -1522,11 +1526,8 @@ def _own_level_text(line: str, start_depth: int, level: int = 1) -> tuple[str, i
     return "".join(out), depth
 
 
-def get_input_file_order(content: str) -> list[str]:
-    """Parse flake.nix to determine input declaration order.
-
-    Returns a list of root input names in the order they appear in the file.
-    """
+@functools.lru_cache(maxsize=128)
+def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
     order: list[str] = []
     seen: set[str] = set()
     in_inputs_block = False
@@ -1608,7 +1609,17 @@ def get_input_file_order(content: str) -> list[str]:
                     order.append(name)
                     seen.add(name)
 
-    return order
+    return tuple(order)
+
+
+def get_input_file_order(content: str) -> list[str]:
+    """Parse flake.nix to determine input declaration order.
+
+    Returns a list of root input names in the order they appear in the file.
+    Cached via ``_get_input_file_order_cached`` to avoid re-parsing line-by-line;
+    returns a fresh list copy per call to guarantee caller list isolation.
+    """
+    return list(_get_input_file_order_cached(content))
 
 
 @functools.lru_cache(maxsize=128)
@@ -2154,6 +2165,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
     return None
 
 
+@functools.lru_cache(maxsize=128)
 def detect_inputs_style(
     content: str,
 ) -> tuple[str, int | None, int | None]:
