@@ -257,3 +257,6 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | renovate.json ignores the vendored pkgs/wrangler mirror      | 2026-10-26 | #849, #850 |
 | backup-zed.sh: zsh script_dir + valid find depth limits      | 2026-10-26 | #854, #856 |
 | ROADMAP Done records the #855 completion                     | 2026-10-26 | #855, #857 |
+| INT_MAX range backstop for --jobs and --depth                | 2026-10-26 | #858, #859 |
+| backup-zed.sh regenerates installed.txt via temp file + mv   | 2026-10-26 | #860, #861 |
+| clean.sh INT_MAX backstop for all validated tunables         | 2026-10-26 | #862, #863 |
