@@ -36,16 +36,21 @@ Examples:
   brew-repair -s 1password        # Fix everything except 1password
   brew-repair -q -n               # Quietly list only broken casks
 EOF
-  exit 0
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n|--dry-run) DRY_RUN=true; shift ;;
     -q|--quiet) QUIET=true; shift ;;
-    -s|--skip) SKIP_LIST+=("$2"); shift 2 ;;
-    -h|--help) usage ;;
-    *) echo "Unknown option: $1"; usage ;;
+    -s|--skip)
+      if [[ $# -lt 2 ]]; then
+        echo "brew-repair: $1 requires a cask name" >&2
+        usage >&2
+        exit 2
+      fi
+      SKIP_LIST+=("$2"); shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "brew-repair: unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
