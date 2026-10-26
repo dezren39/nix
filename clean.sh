@@ -230,6 +230,21 @@ if [ -n "$DEPTH_LIMIT" ]; then
       echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
       exit 2 ;;
   esac
+  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
+  # value above 2147483647 passes the case above yet find rejects it at walk
+  # time ("Numerical result out of range") while the run still exits 0. The
+  # shell's own integer tests cannot judge this — they are 64-bit — so, like
+  # the --pack-threads backstop (#839/#840), compare by digit count first
+  # (leading zeros stripped; at most 10 digits always fits the shell's
+  # arithmetic), then by value against INT_MAX. Judging the stripped value
+  # here, before the -gt 0 test below, also rejects >64-bit digit strings
+  # cleanly instead of tripping "integer expression expected".
+  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
+  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
+    echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+    exit 2
+  fi
+  unset _dl
   [ "$DEPTH_LIMIT" -gt 0 ] || { echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
 fi
 
@@ -245,6 +260,20 @@ if [ -n "$DOCKER_AGE_DAYS" ]; then
       echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
       exit 2 ;;
   esac
+  # Range backstop (#862): the use sites multiply this value (* 24, * 86400)
+  # in bash's 64-bit arithmetic, so a digits-only value that merely fits
+  # 64-bit can still wrap at the multiplication (the * 86400 products wrap
+  # negative from ~1.07e14, inverting the stale cutoff to the far future).
+  # Judge the stripped value by digit count first, then by value against
+  # INT_MAX, before the -gt 0 test below — the #840/#858 technique. INT_MAX
+  # is wrap-proof here: the largest multiplier in this file is 86400 and
+  # 2147483647 * 86400 ~ 1.9e14 fits 64-bit easily.
+  _da=${DOCKER_AGE_DAYS#"${DOCKER_AGE_DAYS%%[!0]*}"}; _da=${_da:-0}
+  if [ "${#_da}" -gt 10 ] || [ "$_da" -gt 2147483647 ]; then
+    echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
+    exit 2
+  fi
+  unset _da
   [ "$DOCKER_AGE_DAYS" -gt 0 ] || { echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2; exit 2; }
 fi
 
@@ -271,15 +300,33 @@ for _v in $_clean_positive_vars; do
       echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
       exit 2 ;;
   esac
+  # Range backstop (#862), same reasoning as --docker-age above: these
+  # values are multiplied at their use sites (* 86400, * 1440, * 60), so
+  # cap them at INT_MAX with the strip/digit-count/value technique before
+  # the -gt 0 test, which also rejects >64-bit digit strings cleanly.
+  _sv=${_val#"${_val%%[!0]*}"}; _sv=${_sv:-0}
+  if [ "${#_sv}" -gt 10 ] || [ "$_sv" -gt 2147483647 ]; then
+    echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
+    exit 2
+  fi
   [ "$_val" -gt 0 ] || { echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2; exit 2; }
 done
-unset _clean_positive_vars _v _val
+unset _clean_positive_vars _v _val _sv
 if [ -n "${LOG_STALE_DAYS:-}" ]; then
   case "$LOG_STALE_DAYS" in
     *[!0-9]*|'')
       echo "clean.sh: LOG_STALE_DAYS must be a non-negative integer (got: $LOG_STALE_DAYS)" >&2
       exit 2 ;;
   esac
+  # Range backstop (#862): the value is forwarded to find -mtime, a C-int
+  # consumer, so cap it at INT_MAX with the same strip/digit-count/value
+  # technique as the positive tunables above.
+  _sv=${LOG_STALE_DAYS#"${LOG_STALE_DAYS%%[!0]*}"}; _sv=${_sv:-0}
+  if [ "${#_sv}" -gt 10 ] || [ "$_sv" -gt 2147483647 ]; then
+    echo "clean.sh: LOG_STALE_DAYS must be a non-negative integer (got: $LOG_STALE_DAYS)" >&2
+    exit 2
+  fi
+  unset _sv
 fi
 
 # --system touches no repositories, so repository-scoped flags are meaningless
