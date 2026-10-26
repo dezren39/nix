@@ -126,6 +126,8 @@ OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
                     same as a full run.
 
 TUNABLES (environment)
+  (validated at startup: a non-integer value — or 0 where 0 is not
+  meaningful — is rejected with exit 2 before anything runs)
   ARTIFACT_STALE_DAYS       default 1   repo/worktree idle period before artifacts
                                         are removed (paired with a clean-tree check)
   HOME_ARTIFACT_STALE_DAYS  default 7   same, for artifact dirs directly in ~, where
@@ -244,6 +246,40 @@ if [ -n "$DOCKER_AGE_DAYS" ]; then
       exit 2 ;;
   esac
   [ "$DOCKER_AGE_DAYS" -gt 0 ] || { echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2; exit 2; }
+fi
+
+# The numeric env tunables (see TUNABLES in usage) gate deletion — age,
+# idle and size floors — and reach three kinds of use site, each of which
+# fails differently on a junk value (#837): bash arithmetic silently
+# evaluates a bare word to 0 (the age gate vanishes), a find -mtime/-mmin
+# argument errors while the idle checks discard stderr and read the empty
+# result as "nothing modified recently" (the idle gate inverts), and an
+# integer test errors into the wrong branch. #829 judged DOCKER_AGE_DAYS
+# alone; judge every remaining tunable the same way, here at parse time,
+# before any sweep runs and before the sudo re-exec below forwards the
+# values via --preserve-env. Most must be positive; 0 is meaningful only
+# for LOG_STALE_DAYS (documented "0 = drop all logs"), so it is judged
+# non-negative. Unset or empty is fine and skips the check: the later
+# ${VAR:-default} assignments supply a known-good literal, and an empty
+# env value takes that default the same way.
+_clean_positive_vars="ARTIFACT_STALE_DAYS HOME_ARTIFACT_STALE_DAYS CACHE_STALE_DAYS COLIMA_STOPPED_STALE_DAYS OPENCODE_TMP_STALE_DAYS OPENCODE_WORKTREE_STALE_DAYS OPENCODE_ROOT_STALE_DAYS OPENCODE_TIDY_PROTECT_DAYS OPENCODE_TIDY_LARGE_MB SHORT_SCRATCH_STALE_HOURS PG_SCRATCH_STALE_HOURS ACTIVE_ARTIFACT_STALE_HOURS PYTEST_KEEP_HOURS UNKNOWN_SCRATCH_MIN_MB UNKNOWN_SCRATCH_STALE_DAYS NIX_KEEP_DAYS NIX_KEEP_GENS"
+for _v in $_clean_positive_vars; do
+  _val="${!_v:-}"
+  [ -n "$_val" ] || continue
+  case "$_val" in
+    *[!0-9]*|'')
+      echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
+      exit 2 ;;
+  esac
+  [ "$_val" -gt 0 ] || { echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2; exit 2; }
+done
+unset _clean_positive_vars _v _val
+if [ -n "${LOG_STALE_DAYS:-}" ]; then
+  case "$LOG_STALE_DAYS" in
+    *[!0-9]*|'')
+      echo "clean.sh: LOG_STALE_DAYS must be a non-negative integer (got: $LOG_STALE_DAYS)" >&2
+      exit 2 ;;
+  esac
 fi
 
 # --system touches no repositories, so repository-scoped flags are meaningless
