@@ -69,7 +69,7 @@
   "dependencies": {
     "blake3-wasm": "2.1.5",
     "esbuild": "0.28.1",
-    "path-to-regexp": "6.3.0",
+    "path-to-regexp": "9.0.0",
     "unenv": "2.0.0-rc.24",
     "workerd": "1.20261001.1",
     "@cloudflare/kv-asset-handler": "0.5.0",
