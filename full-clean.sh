@@ -22,8 +22,8 @@ step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 # ---------------------------------------------------------------------------
 step "Checking for running opencode processes"
 # ---------------------------------------------------------------------------
-if pgrep -f '(^|/)opencode' >/dev/null 2>&1; then
-  pgrep -lf '(^|/)opencode' | cut -c1-100 | head -10
+if pgrep -f '(^|/)opencode($| )' >/dev/null 2>&1; then
+  pgrep -lf '(^|/)opencode($| )' | cut -c1-100 | head -10
   echo
   echo "opencode is still running. Stop it first:" >&2
   echo "  pkill -f opencode && sleep 5 && pgrep -lf opencode" >&2

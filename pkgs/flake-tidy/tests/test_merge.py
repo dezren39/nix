@@ -209,6 +209,28 @@ class TestParseDeepFollows:
         assert results[0]["sub_input"] == "systems"
         assert results[0]["target"] == "systems"
 
+    def test_parses_nested_block_one_line_multiple_declarations(self):
+        """#649: every deep follows in a multi-declaration one-line
+        nested block is parsed, not only the first."""
+        content = """{
+  inputs = {
+    parent = {
+      url = "github:example/parent";
+      inputs = { other.inputs.foo.follows = "foo"; child.inputs.systems.follows = "systems"; };
+    };
+  };
+  outputs = _: {};
+}
+"""
+        results = flake_tidy._parse_deep_follows(content)
+        assert len(results) == 2
+        by_child = {r["child"]: r for r in results}
+        assert by_child["other"]["sub_input"] == "foo"
+        assert by_child["other"]["target"] == "foo"
+        assert by_child["child"]["sub_input"] == "systems"
+        assert by_child["child"]["target"] == "systems"
+        assert all(r["parent"] == "parent" for r in results)
+
     def test_no_deep_follows(self):
         content = """{
   inputs = {
@@ -270,6 +292,121 @@ class TestAddDeepFollowsOverrides:
         )
         assert plain_overrides != {}
         assert nested_overrides == plain_overrides
+
+    # -- #685: primed input names (nixpkgs') in deep-follows overrides --
+
+    @staticmethod
+    def _primed_lock(parent, child):
+        """Lock whose root -> parent -> child -> systems chain resolves."""
+        return {
+            "nodes": {
+                "root": {"inputs": {parent: "parent-node", "systems": "systems"}},
+                "parent-node": {
+                    "inputs": {child: "child-node"},
+                    "locked": {"type": "github"},
+                    "original": {
+                        "owner": "example",
+                        "repo": "parent",
+                        "type": "github",
+                    },
+                },
+                "child-node": {
+                    "inputs": {"systems": "systems2"},
+                    "locked": {"type": "github"},
+                    "original": {
+                        "owner": "example",
+                        "repo": "child",
+                        "type": "github",
+                    },
+                },
+                "systems": {
+                    "locked": {"type": "github"},
+                    "original": {
+                        "owner": "nix-systems",
+                        "repo": "default",
+                        "type": "github",
+                    },
+                },
+                "systems2": {
+                    "locked": {"type": "github"},
+                    "original": {
+                        "owner": "nix-systems",
+                        "repo": "default",
+                        "type": "github",
+                    },
+                },
+            },
+            "root": "root",
+            "version": 7,
+        }
+
+    @staticmethod
+    def _expected(parent, child):
+        return {
+            f"{parent}/{child}": "github:example/child",
+            f"{parent}/{child}/systems": "github:nix-systems/default",
+        }
+
+    @staticmethod
+    def _block_content(parent, child):
+        return (
+            "{\n  inputs = {\n"
+            f"    {parent} = {{\n"
+            '      url = "github:example/parent";\n'
+            f"      inputs.{child}.inputs.systems.follows = \"systems\";\n"
+            "    };\n  };\n}\n"
+        )
+
+    @staticmethod
+    def _dotted_content(parent, child):
+        return (
+            "{\n"
+            f'  inputs.{parent}.url = "github:example/parent";\n'
+            f"  inputs.{parent}.inputs.{child}.inputs.systems.follows"
+            ' = "systems";\n}\n'
+        )
+
+    def test_primed_parent_block_style(self):
+        """#685: a primed parent block was never entered — its name
+        pattern stopped at the apostrophe — so no overrides were added."""
+        overrides: dict = {}
+        flake_tidy._add_deep_follows_overrides(
+            self._primed_lock("nixpkgs'", "child"),
+            self._block_content("nixpkgs'", "child"),
+            overrides,
+        )
+        assert overrides == self._expected("nixpkgs'", "child")
+
+    def test_primed_parent_dotted_style(self):
+        """#685: dotted `inputs.nixpkgs'.inputs.…` failed the same way."""
+        overrides: dict = {}
+        flake_tidy._add_deep_follows_overrides(
+            self._primed_lock("nixpkgs'", "child"),
+            self._dotted_content("nixpkgs'", "child"),
+            overrides,
+        )
+        assert overrides == self._expected("nixpkgs'", "child")
+
+    def test_primed_child_block_style(self):
+        """#685: a primed child segment failed even under an unprimed
+        parent (block style)."""
+        overrides: dict = {}
+        flake_tidy._add_deep_follows_overrides(
+            self._primed_lock("mac-app-util", "child'"),
+            self._block_content("mac-app-util", "child'"),
+            overrides,
+        )
+        assert overrides == self._expected("mac-app-util", "child'")
+
+    def test_primed_child_dotted_style(self):
+        """#685: a primed child segment failed in dotted style too."""
+        overrides: dict = {}
+        flake_tidy._add_deep_follows_overrides(
+            self._primed_lock("mac-app-util", "child'"),
+            self._dotted_content("mac-app-util", "child'"),
+            overrides,
+        )
+        assert overrides == self._expected("mac-app-util", "child'")
 
 
 # -- Tests for _resolve_transitive_url --

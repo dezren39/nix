@@ -42,6 +42,19 @@ die() {
   printf 'opencode-db-vacuum: %s\n' "$*" >&2
   exit 1
 }
+
+# Percent-encode the characters SQLite's URI parser treats specially in a
+# path (% first, then ? and #), so a --db/--into path containing them opens
+# the file actually named (#890). For sqlite3 CLI "file:" arguments, which
+# are URIs, not SQL literals -- a single quote needs no escaping there.
+uri_escape_path() {
+  printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/?/%3f/g' -e 's/#/%23/g'
+}
+
+# Escape a path for interpolation into a single-quoted SQL literal (#891).
+sql_literal_escape() {
+  printf '%s' "$1" | sed -e "s/'/''/g"
+}
 note() { printf '  %s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
 
@@ -71,7 +84,10 @@ opencode_pids() {
       # starts with spaces and the "(^|/)opencode" test below can never
       # anchor ^ at the real argv[0] -- a process started as a bare
       # "opencode" (the normal PATH invocation) was missed entirely
-      # (#467). Trim the padding so cmd holds the true cmdline.
+      # (#467). Trim the padding so cmd holds the true cmdline. The
+      # match itself requires a boundary after the name ($ or space),
+      # so argv[0]s that merely start with "opencode" (opencode-share,
+      # opencode-server, opencodefoo) are not counted (#828).
       cmd[pid] = $0
       sub(/^ +/, "", cmd[pid])
       order[++n] = pid
@@ -86,7 +102,7 @@ opencode_pids() {
       }
       for (i = 1; i <= n; i++) {
         pid = order[i]
-        if (cmd[pid] !~ "(^|/)opencode") continue
+        if (cmd[pid] !~ "(^|/)opencode($| )") continue
         if (pid in chain) continue
         # Descendants of self (subshells, pipelines) are self too.
         c = pid; isself = 0
@@ -204,12 +220,18 @@ fi
 # ---------------------------------------------------------------------------
 step "Measuring"
 
-# Read-only URI so this is safe even while opencode is attached.
+# Read-only URI so this is safe even while opencode is attached. A failed
+# open must die here: blank measurements flowing onward used to end in a
+# line-233 integer error and a successful exit (#890).
+measure="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
+  "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA auto_vacuum; PRAGMA journal_mode;")" \
+  || die "sqlite3 could not open/read $DB"
 read -r page_size page_count freelist auto_vac journal <<EOF
-$(sqlite3 -readonly "file:${DB}?mode=ro" \
-  "PRAGMA page_size; PRAGMA page_count; PRAGMA freelist_count; PRAGMA auto_vacuum; PRAGMA journal_mode;" \
-  | tr '\n' ' ')
+$(printf '%s' "$measure" | tr '\n' ' ')
 EOF
+case "${page_size}${page_count}${freelist}" in
+  *[!0-9]*|'') die "unexpected measurements from $DB (page_size='$page_size' page_count='$page_count' freelist_count='$freelist')" ;;
+esac
 
 live_pages=$(( page_count - freelist ))
 total_bytes=$(( page_size * page_count ))
@@ -293,22 +315,26 @@ fi
 # ---------------------------------------------------------------------------
 COMPACT="${INTO:-${DB}.compact}"
 [ -e "$COMPACT" ] && die "refusing to overwrite existing $COMPACT"
+# The swap below would silently replace an existing ${DB}.old -- the only
+# rollback copy from a previous run (#892). Same refusal shape as $COMPACT
+# above and prune's $BACKUP guard.
+[ -e "${DB}.old" ] && die "refusing to overwrite existing backup ${DB}.old -- move or delete it first"
 
 step "Vacuuming into $COMPACT"
 note "this rewrites $(gb "$live_bytes") and may take a while..."
-sqlite3 "$DB" "VACUUM INTO '$COMPACT';"
+sqlite3 "$DB" "VACUUM INTO '$(sql_literal_escape "$COMPACT")';"
 
 new_bytes="$(wc -c <"$COMPACT" | tr -d ' ')"
 note "new size: $(gb "$new_bytes")  (was $(gb "$total_bytes"))"
 
 step "Verifying the compacted copy"
-new_integrity="$(sqlite3 -readonly "file:${COMPACT}?mode=ro" 'PRAGMA integrity_check;' | head -1)"
+new_integrity="$(sqlite3 -readonly "file:$(uri_escape_path "$COMPACT")?mode=ro" 'PRAGMA integrity_check;' | head -1)"
 note "integrity_check: $new_integrity"
 [ "$new_integrity" = "ok" ] || die "compacted copy failed integrity check; original untouched at $DB"
 
 for t in session message part event; do
-  old_n="$(sqlite3 -readonly "file:${DB}?mode=ro" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo skip)"
-  new_n="$(sqlite3 -readonly "file:${COMPACT}?mode=ro" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo skip)"
+  old_n="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo skip)"
+  new_n="$(sqlite3 -readonly "file:$(uri_escape_path "$COMPACT")?mode=ro" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo skip)"
   [ "$old_n" = skip ] && continue
   note "$(printf '%-8s %12s -> %12s' "$t" "$old_n" "$new_n")"
   [ "$old_n" = "$new_n" ] || die "row count mismatch in $t; original untouched at $DB"

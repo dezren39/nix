@@ -196,6 +196,115 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# DEPTH and SCOPE are mode vocabularies, not free text. DEPTH comes from the
+# environment (or --quick/--safe/--deep) and is dispatched on below: anything
+# that is not quick|repack|safe falls through to the deep pass — gc
+# --prune=now --force — in both the single-repo dispatch and the dry-run
+# printer. An unvalidated typo'd or inherited value (DEPTH=bogus) therefore
+# silently escalated to the most destructive mode across every discovered
+# repo (#896). Judge both vocabularies whole, at parse time, like the
+# --jobs/--pack-threads/--depth judges below: illegal values exit 2 before
+# any discovery. This also covers the --one child re-entry, which inherits
+# DEPTH through the environment and passes through here again.
+case "$DEPTH" in
+  quick|repack|safe|deep) ;;
+  *)
+    echo "git-maintain-repos: DEPTH must be one of quick|repack|safe|deep (got: $DEPTH)" >&2
+    exit 2 ;;
+esac
+case "$SCOPE" in
+  auto|system|walk) ;;
+  *)
+    echo "git-maintain-repos: SCOPE must be one of auto|system|walk (got: $SCOPE)" >&2
+    exit 2 ;;
+esac
+
+# --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
+# where a non-numeric value fails mid-walk and 0 silently means "the path
+# itself only". Judge it whole, at parse time, like opencode-db-prune.sh
+# judges --protect-days/--batch (#830). Empty means unbounded (--recursive).
+# This block is identical in all four discovery-vocabulary scripts.
+if [ -n "$DEPTH_LIMIT" ]; then
+  case "$DEPTH_LIMIT" in
+    *[!0-9]*|'')
+      echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+      exit 2 ;;
+  esac
+  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
+  # value above 2147483647 passes the case above yet find rejects it at walk
+  # time ("Numerical result out of range") while the run still exits 0. The
+  # shell's own integer tests cannot judge this — they are 64-bit — so, like
+  # the --pack-threads backstop (#839/#840), compare by digit count first
+  # (leading zeros stripped; at most 10 digits always fits the shell's
+  # arithmetic), then by value against INT_MAX. Judging the stripped value
+  # here, before the -gt 0 test below, also rejects >64-bit digit strings
+  # cleanly instead of tripping "integer expression expected".
+  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
+  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
+    echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+    exit 2
+  fi
+  unset _dl
+  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+fi
+
+# --jobs is forwarded verbatim to xargs -P, where a non-numeric value fails
+# only after discovery (and the run still exits 0, maintaining nothing) and
+# 0 silently means UNLIMITED parallel git gc across every repo. Judge it
+# whole, at parse time, like --depth above (#836). Covers the JOBS env var
+# too: this judges the variable after parsing, wherever it came from.
+case "$JOBS" in
+  *[!0-9]*|'')
+    echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2
+    exit 2 ;;
+esac
+# Range backstop (#858): xargs parses -P as a C int, so a digits-only value
+# above 2147483647 passes the case above yet xargs rejects it after
+# discovery while the run still exits 0. Same technique as the
+# --pack-threads backstop below (#839/#840): judge the stripped value by
+# digit count first, then by value against INT_MAX, before the -gt 0 test
+# below so >64-bit digit strings are rejected cleanly too.
+_j=${JOBS#"${JOBS%%[!0]*}"}; _j=${_j:-0}
+if [ "${#_j}" -gt 10 ] || [ "$_j" -gt 2147483647 ]; then
+  echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2
+  exit 2
+fi
+unset _j
+[ "$JOBS" -gt 0 ] || { echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2; exit 2; }
+
+# --pack-threads is forwarded verbatim to git -c pack.threads=, where junk
+# (abc/10junk/1.5) or a negative value makes every repo's gc fail with a
+# fatal while the run still reports success (#836). Digits only, judged at
+# parse time like --jobs; covers the PACK_THREADS env var too. 0 stays
+# legal here, deliberately: git documents pack.threads=0 as auto-detect
+# (online CPUs), unlike xargs -P 0, which is unlimited.
+case "$PACK_THREADS" in
+  *[!0-9]*|'')
+    echo "git-maintain-repos: --pack-threads must be a non-negative integer (got: $PACK_THREADS)" >&2
+    exit 2 ;;
+esac
+# Range backstop (#839): git parses pack.threads as a C int, so a digits-only
+# value above 2147483647 passes the case above yet git rejects it per-repo at
+# gc time ("bad numeric config value ... out of range") while the run still
+# exits 0. The shell's own integer tests cannot judge this — they are 64-bit
+# and accept e.g. 2147483648 — so compare by digit count first (leading zeros
+# stripped; a stripped value of at most 10 digits always fits the shell's
+# arithmetic), then by value against git's INT_MAX.
+_pt=${PACK_THREADS#"${PACK_THREADS%%[!0]*}"}; _pt=${_pt:-0}
+if [ "${#_pt}" -gt 10 ] || [ "$_pt" -gt 2147483647 ]; then
+  echo "git-maintain-repos: --pack-threads must be a non-negative integer (got: $PACK_THREADS)" >&2
+  exit 2
+fi
+unset _pt
+
+# Judge REFLOG_EXPIRE exactly once here. git's approxidate grammar is too broad
+# for a regex, so ask git itself to parse it. If it fails, catch it and exit
+# here instead of silently failing per-repo later.
+if ! git config --default "$REFLOG_EXPIRE" --type=expiry-date default.date >/dev/null 2>&1; then
+  echo "git-maintain-repos: failed to parse reflog-expire value '$REFLOG_EXPIRE'" >&2
+  exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # Internal single-repo mode (re-entered via xargs for parallelism)
 # ---------------------------------------------------------------------------
@@ -245,7 +354,7 @@ if [ "${GMR_ONE:-0}" = "1" ]; then
     # making a week-old reset or abandoned detached HEAD unrecoverable.
     if [ "$EXPIRE_REFLOG" = "1" ]; then
       git -C "$repo" reflog expire --expire="$REFLOG_EXPIRE" \
-        --expire-unreachable="$REFLOG_EXPIRE" --all          2>/dev/null  # release unreachable objects for prune
+        --expire-unreachable="$REFLOG_EXPIRE" --all 2>&1 | sed "s|^|  [$name] |" # release unreachable objects for prune
     fi
     git -C "$repo" -c gc.autoDetach=false -c pack.threads="$PACK_THREADS" \
       gc --prune=now --force 2>&1 | sed "s|^|  [$name] |"                 # full repack + prune + clear tmp garbage

@@ -4,7 +4,7 @@ This is the roadmap for the repo. It is grouped by area, and each row has a hori
 
 A row records intent. It does not settle a decision and it is not a go-ahead to build.
 
-Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-22. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
+Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md) and the merged PRs of 2026-10-18 through 2026-10-23. About 60 of the 167 open issues were read, so the mcpx design backlog is only partly listed here.
 
 ## Areas
 
@@ -15,7 +15,7 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 | [OpenCode and OpenChamber integration](#opencode-and-openchamber-integration) | Pins, the mcpx config, MCP sign-ins                       |
 | [Sidepulse patches](#sidepulse-patches)                                       | Port a 12-patch stack to upstream                         |
 | [The darwin system](#the-darwin-system)                                       | Old notes only, no open work                              |
-| [CI and housekeeping](#ci-and-housekeeping)                                   | Stale dependency PRs, concurrency groups, cleanup scripts |
+| [CI and housekeeping](#ci-and-housekeeping)                                   | Concurrency groups, cleanup scripts                       |
 
 ## mcpx moves to developing-today/code
 
@@ -77,97 +77,8 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 | Title                                          | Horizon | Status   | Intent                                                                                                                                                                                                                                                            | Links                                                                  |
 | ---------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Stale dependency PRs                           | Next    | proposed | Renovate PRs for `pkgs/buffer-backup` (TypeScript 7, @types/node, @types/vscode) and two Bolt drafts, #364 and #388, have sat open since 2026-10-01 or later. Merge or close the rest and pin them in `renovate.json`. | #317, #320, #324, #364, #388 |
 | macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo — that build has landed (#469), so this is moot as predicted.                                                                                                                                               | #366                                                                   |
 
 ## Done
 
-| Title                                                        | Date       | Result     |
-| ------------------------------------------------------------ | ---------- | ---------- |
-| Concurrency groups that keep queued `/oc` runs               | 2026-10-18 | #425       |
-| Restart path waits for orphan DELETEs                        | 2026-10-18 | #421       |
-| Orphaned upstream sessions end off the takeover serving path | 2026-10-18 | #404       |
-| `EnsureDaemon` honours a cancelled context                   | 2026-10-18 | #400       |
-| `MCPX_STATE_DIR` in daemon discovery                         | 2026-10-18 | #410       |
-| node scripts run with `--experimental-transform-types`       | 2026-10-18 | #387       |
-| `Group.Messages` filled in statistics                        | 2026-10-18 | #394       |
-| flake-tidy tests as a flake check                            | 2026-10-18 | #401       |
-| Plugin tests as a flake check                                | 2026-10-18 | #415       |
-| `timeout-minutes` on every job                               | 2026-10-18 | #406, #417 |
-| Concurrency groups on workflows                              | 2026-10-18 | #399       |
-| `clean.sh` prunes `.worktrees` in the postgres sweep         | 2026-10-18 | #412       |
-| mcpx built from the code repo; vendored copy deleted         | 2026-10-19 | #469       |
-| `.pytest_cache` ignored; tracked cache marker dropped        | 2026-10-19 | #456       |
-| `.ruff_cache` / `.mypy_cache` ignored; marker dropped        | 2026-10-19 | #464       |
-| opencode-db guard counts a bare `opencode` argv[0]           | 2026-10-19 | #470       |
-| opencode-db-pids test as a flake check                       | 2026-10-19 | #477       |
-| Archived skill tests as a flake check                        | 2026-10-19 | #479       |
-| Formatting flake check green (nixfmt)                        | 2026-10-19 | #481       |
-| LoginExtension `.dmg` untracked; `lootbox.db` ignored        | 2026-10-19 | #482       |
-| Checkout and opencode actions SHA-pinned                     | 2026-10-20 | #485       |
-| flake-tidy loads its config; tidy check green                | 2026-10-20 | #486       |
-| flake-tidy import probe quotes the flake path                | 2026-10-20 | #490       |
-| ARCHITECTURE.md flake summary brought up to date             | 2026-10-20 | #493       |
-| flake-tidy parse-result isolation gate (for #454)            | 2026-10-20 | #494       |
-| mcpx-nixbuild push runs get their own group (code#392 half)  | 2026-10-20 | #495       |
-| DeterminateSystems action pinned to a v23 SHA (code#375 set) | 2026-10-20 | #483       |
-| ROADMAP Done records the 2026-10-19/20 merges                | 2026-10-20 | #489       |
-| ROADMAP Done records the #487 and #492 merges                | 2026-10-20 | #498       |
-| ROADMAP Done records the #494 and #495 merges                | 2026-10-20 | #500       |
-| flake-tidy dedups same-repo pins at different revs           | 2026-10-20 | #511       |
-| mcpx-src bumped for the 30m check timeout (code#510)         | 2026-10-20 | #513       |
-| ROADMAP Done records six 2026-10-20 merges                   | 2026-10-20 | #515       |
-| flake-tidy: rev-pinned inputs never deduped against unpinned | 2026-10-20 | #516       |
-| ROADMAP Done records the #512 and #514 merges                | 2026-10-20 | #518       |
-| flake-tidy rev-dedup covers git-type inputs                  | 2026-10-20 | #519, #520 |
-| flake-tidy returns real URLs for git/sourcehut inputs        | 2026-10-20 | #521, #522 |
-| flake-tidy git-locked fallback for indirect overrides        | 2026-10-20 | #523       |
-| flake-tidy returns a path: URL for path inputs               | 2026-10-20 | #524, #525 |
-| flake-tidy cross-type dedup ranks git above indirect         | 2026-10-20 | #526, #527 |
-| ROADMAP Done records the #518–#527 merges                    | 2026-10-20 | #531, #532 |
-| flake-tidy `_locked_url` handles tarball/file/path nodes     | 2026-10-20 | #533, #534 |
-| flake-tidy forge handling keeps host and dir                 | 2026-10-20 | #535, #536 |
-| flake-tidy URL rebuild keeps submodules/shallow/allRefs/dir  | 2026-10-20 | #528, #537, #538, #541 |
-| flake-tidy handles hg (mercurial) inputs                     | 2026-10-20 | #539, #542 |
-| Darwin mcpx `-skip` rewrite fails loudly on drift (code#418) | 2026-10-20 | #543       |
-| flake-tidy `node_url`/`_append_query` dedupe query params    | 2026-10-20 | #544, #545 |
-| ROADMAP Done records the #533–#544 merges                    | 2026-10-21 | #547, #548 |
-| flake-tidy `node_url` ref segment precedes embedded query    | 2026-10-21 | #546, #552 |
-| flake-tidy groups same repo across URL spellings             | 2026-10-21 | #555, #559 |
-| flake-tidy `resolve_follows` returns None on cyclic follows  | 2026-10-21 | #565, #566 |
-| flake-tidy override builder drops unresolvable `indirect:` ref | 2026-10-21 | #568, #569 |
-| flake-tidy `_normalize_vcs_url` splits embedded query first    | 2026-10-21 | #560, #561 |
-| flake-tidy `compute_indirect_overrides` cycle-guarded          | 2026-10-21 | #563, #564 |
-| flake-tidy `_normalize_vcs_url` case rules cover scp/`.GIT`    | 2026-10-21 | #562, #572 |
-| flake-tidy `_normalize_vcs_url` strips at most one `.git`      | 2026-10-21 | #575, #576 |
-| flake-tidy `_normalize_vcs_url` drops explicit default ports   | 2026-10-21 | #579, #580 |
-| flake-tidy `_normalize_vcs_url` lowercases IPv6 literal hosts  | 2026-10-21 | #581, #582 |
-| flake-tidy `_normalize_vcs_url` strips one trailing host dot   | 2026-10-21 | #584, #585 |
-| flake-tidy canonicalizes IPv6 and port spellings               | 2026-10-21 | #583, #588 |
-| flake-tidy keys unconvertible ports verbatim, never raises     | 2026-10-21 | #589, #592 |
-| flake-tidy `_normalize_vcs_url` drops compound default ports   | 2026-10-21 | #595, #596 |
-| flake-tidy `source_key` canonicalizes the forge host           | 2026-10-21 | #599, #600 |
-| flake-tidy rebuilt URLs percent-encode lock values             | 2026-10-21 | #601, #602 |
-| flake-tidy `source_key` drops the explicit default forge host  | 2026-10-21 | #605, #606 |
-| flake-tidy `_locked_url` keeps the locked rev for forge types  | 2026-10-21 | #609, #610 |
-| flake-tidy `source_key` canonicalizes tarball/file hosts       | 2026-10-21 | #611, #612 |
-| flake-tidy `_canonicalize_url_authority` ends at `?` and `#`   | 2026-10-21 | #613, #614 |
-| ROADMAP Done records the #599 and #601 completions             | 2026-10-21 | #603, #604 |
-| ROADMAP Done records the #605 completion                       | 2026-10-21 | #607, #608 |
-| ROADMAP Done records the #609, #611 and #613 completions       | 2026-10-21 | #615, #616 |
-| ROADMAP Done records the #617 completion                       | 2026-10-21 | #617, #618 |
-| ROADMAP Done records the #619 completion                       | 2026-10-21 | #619, #620 |
-| ROADMAP Done records the #621 completion                       | 2026-10-21 | #621, #622 |
-| flake-tidy line scanners ignore braces in comments/strings     | 2026-10-21 | #623, #624 |
-| ROADMAP Done records the #621 and #623 completions             | 2026-10-21 | #625, #626 |
-| flake-tidy `_block_context_for_lines` closes one-line blocks   | 2026-10-22 | #628, #629 |
-| ROADMAP Done records the #625 and #628 completions             | 2026-10-22 | #630, #631 |
-| flake-tidy nested same-name block must not shadow root input   | 2026-10-22 | #634, #635 |
-| ROADMAP Done records the #630 completion                       | 2026-10-22 | #632, #633 |
-| ROADMAP Done records the #636 completion                       | 2026-10-22 | #638, #639 |
-| flake-tidy nested inputs override must not reset scanner depth | 2026-10-22 | #640, #641 |
-| flake-tidy `check_url_follows_conflicts` judges own-level only | 2026-10-22 | #642, #643 |
-| ROADMAP Done records the #640 and #642 completions             | 2026-10-22 | #644, #645 |
-| flake-tidy nested-inputs follows visible to existence checkers | 2026-10-22 | #647, #648 |
-| ROADMAP Done records the #644 and #647 completions             | 2026-10-22 | #650, #651 |
-| flake-tidy conflict judge uses own-level structural text       | 2026-10-22 | #646, #654 |
+Completed work is recorded in GitHub — see closed issues and merged PRs.

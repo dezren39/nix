@@ -64,6 +64,43 @@ class TestGetInputFileOrder:
         assert "late" in order
         assert order.index("early") < order.index("nixpkgs")
 
+    def test_get_input_file_order_nested_dotted_override_not_root(self):
+        """A nested `inputs.bar.follows` line inside an input's block is an
+        override on that input, not a root declaration of `bar` (#652)."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs";
+    foo = {
+      url = "github:example/foo";
+      inputs.bar.follows = "nixpkgs";
+    };
+    baz.url = "github:example/baz";
+  };
+}
+"""
+        order = flake_tidy.get_input_file_order(content)
+        assert order == ["nixpkgs", "foo", "baz"]
+        assert not flake_tidy.root_input_exists_in_content(content, "bar")
+
+    def test_get_input_file_order_nested_dotted_block_keeps_braces(self):
+        """A nested one-line `inputs.bar = { ... };` block inside a parent
+        block must not be recorded as a root input, and its braces must
+        still be counted so later root inputs appear in order (#652)."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs";
+    foo = {
+      url = "github:example/foo";
+      inputs.bar = { url = "github:example/bar"; };
+    };
+    baz.url = "github:example/baz";
+  };
+  outputs = { self }: { };
+}
+"""
+        order = flake_tidy.get_input_file_order(content)
+        assert order == ["nixpkgs", "foo", "baz"]
+
 
 class TestParseResultIsolation:
     """Callers must not be able to poison later parse results by mutating
@@ -295,6 +332,115 @@ class TestNestedInputsBlockFollowsExists:
             is True
         )
 
+    def test_one_line_nested_block_multiple_declarations(self):
+        """#649: a one-line nested block with two declarations must be
+        judged per-declaration — every position counts, for both
+        checkers (previously equality missed both, prefix missed all
+        but the first)."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = { other.follows = "other"; nixpkgs.follows = "nixpkgs"; };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "other"], "other"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "other"])
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is True
+        )
+        # swapped order: the first position counts too
+        swapped = content.replace(
+            'other.follows = "other"; nixpkgs.follows = "nixpkgs";',
+            'nixpkgs.follows = "nixpkgs"; other.follows = "other";',
+        )
+        assert "nixpkgs.follows" in swapped
+        assert (
+            flake_tidy.follows_exists_in_content(
+                swapped, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(swapped, ["foo", "nixpkgs"])
+            is True
+        )
+
+    def test_one_line_multi_decl_wrong_child_and_shifted_do_not_count(self):
+        """#649 guards: a different child in a multi-declaration
+        one-line block does not count, and the shifted
+        ``inputs.nixpkgs.follows`` form inside it still does not
+        count (the #647 guard, in the multi-declaration shape)."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = { other.follows = "other"; inputs.nixpkgs.follows = "nixpkgs"; };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "nixpkgs"])
+            is False
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "missing"], "missing"
+            )
+            is False
+        )
+        assert (
+            flake_tidy.follows_path_has_any_target(content, ["foo", "missing"])
+            is False
+        )
+
+    def test_one_line_multi_decl_semicolon_in_target(self):
+        """#649: a ``;`` inside a quoted target must not split the
+        declaration."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:example/foo";
+      inputs = { other.follows = "a;b"; nixpkgs.follows = "nixpkgs"; };
+    };
+  };
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(content, ["foo", "other"], "a;b")
+            is True
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                content, ["foo", "nixpkgs"], "nixpkgs"
+            )
+            is True
+        )
+
     def test_deep_path_spelled_in_nested_block(self):
         """foo's nested block can spell a deeper path relative to foo:
         ``child.inputs.systems.follows`` = foo/child/systems."""
@@ -440,6 +586,607 @@ class TestBlockContextClosedBlocks:
         )
 
 
+class TestDottedParentBlockRootScope:
+    """Regression tests for #655: declarations inside a dotted-style
+    parent block (``inputs.parent = { ... };``) are that parent's
+    attributes and nested overrides, not root declarations.
+
+    The root-scope checkers used to treat them as root: the dotted
+    branch of ``root_input_exists_in_content`` scanned every line
+    with no block context at all, and ``_block_context_for_lines``
+    could not see the dotted block open (its name group stops at the
+    first dot), so ``find_input_url_line`` / ``find_input_dotted_line``
+    also reported the nested lines as root scope.
+    """
+
+    DOTTED_PARENT = """{
+  inputs.parent = {
+    url = "github:example/parent";
+    inputs.child.url = "github:example/child";
+    inputs.child.follows = "parent";
+  };
+  inputs.real.url = "github:example/real";
+}
+"""
+
+    def test_block_context_attributes_lines_to_parent(self):
+        ctx = flake_tidy._block_context_for_lines(self.DOTTED_PARENT)
+        assert ctx[2] == "parent"
+        assert ctx[3] == "parent"
+        assert ctx[4] == "parent"
+        assert ctx[6] is None
+
+    def test_nested_child_is_not_a_root_input(self):
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "child")
+            is False
+        )
+
+    def test_parent_and_sibling_roots_still_exist(self):
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "parent")
+            is True
+        )
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "real")
+            is True
+        )
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED_PARENT, "missing")
+            is False
+        )
+
+    def test_genuine_top_level_dotted_child_still_found(self):
+        content = '{\n  inputs.child.url = "github:example/child";\n}\n'
+        assert flake_tidy.root_input_exists_in_content(content, "child") is True
+
+    def test_find_url_line_ignores_nested_child(self):
+        assert flake_tidy.find_input_url_line(self.DOTTED_PARENT, "child") is None
+        assert flake_tidy.find_input_url_line(self.DOTTED_PARENT, "real") == 6
+
+    def test_find_dotted_line_ignores_nested_child(self):
+        assert flake_tidy.find_input_dotted_line(self.DOTTED_PARENT, "child") == (
+            None,
+            False,
+        )
+        assert flake_tidy.find_input_dotted_line(self.DOTTED_PARENT, "real") == (
+            6,
+            False,
+        )
+
+    def test_remove_url_line_leaves_nested_override_alone(self):
+        new_content, removed = flake_tidy.remove_input_url_line(
+            self.DOTTED_PARENT, "child"
+        )
+        assert removed is False
+        assert new_content == self.DOTTED_PARENT
+
+    def test_nested_overrides_are_the_parents_follows(self):
+        """guard: the nested lines still count as parent's overrides."""
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.DOTTED_PARENT, ["parent", "child"], "parent"
+            )
+            is True
+        )
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.DOTTED_PARENT, ["child"], "parent"
+            )
+            is False
+        )
+
+    def test_file_order_ignores_nested_child_in_dotted_parent(self):
+        """get_input_file_order must not list the dotted parent's nested
+        override child as a root input (#652 remainder: PR #653's
+        in_inputs_block guard cannot fire here — this content has no
+        `inputs = {` block)."""
+        assert flake_tidy.get_input_file_order(self.DOTTED_PARENT) == [
+            "parent",
+            "real",
+        ]
+
+    def test_file_order_genuine_top_level_dotted_child(self):
+        """guard: a genuine top-level dotted declaration is still a root
+        input in file order."""
+        content = '{\n  inputs.child.url = "github:example/child";\n}\n'
+        assert flake_tidy.get_input_file_order(content) == ["child"]
+
+    def test_file_order_sibling_dotted_parent_blocks(self):
+        """guard: each dotted parent block's own opening line is a root
+        declaration, and a later sibling's nested child is not."""
+        content = """{
+  inputs.a = {
+    url = "github:example/a";
+  };
+  inputs.b = {
+    inputs.c.url = "github:example/c";
+  };
+  inputs.d.url = "github:example/d";
+}
+"""
+        assert flake_tidy.get_input_file_order(content) == ["a", "b", "d"]
+
+    def test_one_line_dotted_parent_block(self):
+        content = """{
+  inputs.parent = { url = "github:example/parent"; inputs.child.url = "github:example/child"; };
+  inputs.real.url = "github:example/real";
+}
+"""
+        assert flake_tidy.root_input_exists_in_content(content, "child") is False
+        assert flake_tidy.root_input_exists_in_content(content, "parent") is True
+        assert flake_tidy.root_input_exists_in_content(content, "real") is True
+        assert flake_tidy.find_input_url_line(content, "child") is None
+
+    def test_sibling_dotted_parent_blocks(self):
+        content = """{
+  inputs.a = {
+    url = "github:example/a";
+  };
+  inputs.b = {
+    inputs.c.url = "github:example/c";
+  };
+  inputs.d.url = "github:example/d";
+}
+"""
+        assert flake_tidy.root_input_exists_in_content(content, "a") is True
+        assert flake_tidy.root_input_exists_in_content(content, "b") is True
+        assert flake_tidy.root_input_exists_in_content(content, "c") is False
+        assert flake_tidy.root_input_exists_in_content(content, "d") is True
+
+
+class TestPrimedInputNames:
+    """Regression tests for #683: primed input names (``nixpkgs'``) were
+    invisible to the block-context and nested-prefix scanners — their
+    block-open patterns used ``(\\w[\\w-]*)`` while every other name
+    pattern in the file accepts the apostrophe — so a follows declared
+    inside a primed input's blocks was not seen."""
+
+    PRIMED_BLOCK = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs' = {
+      url = "github:NixOS/nixpkgs/pinned";
+      inputs.child = {
+        url = "github:example/child";
+      };
+    };
+    real.url = "github:example/real";
+  };
+}
+"""
+
+    PRIMED_NESTED = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs' = {
+      url = "github:NixOS/nixpkgs/pinned";
+      inputs = {
+        child.follows = "nixpkgs";
+      };
+    };
+  };
+}
+"""
+
+    def test_block_context_attributes_lines_to_primed_parent(self):
+        ctx = flake_tidy._block_context_for_lines(self.PRIMED_BLOCK)
+        lines = self.PRIMED_BLOCK.split("\n")
+        url_line = lines.index('      url = "github:NixOS/nixpkgs/pinned";')
+        assert ctx[url_line] == "nixpkgs'"
+        nested_line = lines.index("      inputs.child = {")
+        assert ctx[nested_line] == "nixpkgs'"
+
+    def test_nested_prefix_for_primed_parent(self):
+        prefixes = flake_tidy._nested_inputs_prefix_for_lines(self.PRIMED_NESTED)
+        assert ["nixpkgs'"] in prefixes
+
+    def test_follows_exists_in_primed_parents_nested_block(self):
+        assert (
+            flake_tidy.follows_exists_in_content(
+                self.PRIMED_NESTED, ["nixpkgs'", "child"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_primed_dotted_url_follows_conflict_detected(self):
+        content = """{
+  inputs.nixpkgs'.url = "github:NixOS/nixpkgs/pinned";
+  inputs.nixpkgs'.follows = "nixpkgs";
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(content) == ["nixpkgs'"]
+
+
+class TestQuotedInputNames:
+    """Regression tests for #705: quoted input names (``inputs."NAME"``)
+    were invisible to the root-input scanners — every name pattern only
+    accepted the bare spelling — so ``insert_root_input``'s existence
+    guard missed a quoted declaration and inserted a duplicate attribute
+    (``nix-instantiate --parse`` then fails: already defined).  Quoted
+    and bare spellings are the same attribute in Nix, and a name with a
+    dot in it MUST be quoted."""
+
+    DOTTED = """{
+  inputs."my-input".url = "github:foo/bar";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+}
+"""
+
+    BLOCK = """{
+  inputs = {
+    "my-input" = { url = "github:foo/bar"; };
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+}
+"""
+
+    def test_root_input_exists_dotted_quoted(self):
+        assert (
+            flake_tidy.root_input_exists_in_content(self.DOTTED, "my-input") is True
+        )
+
+    def test_root_input_exists_block_quoted(self):
+        assert flake_tidy.root_input_exists_in_content(self.BLOCK, "my-input") is True
+
+    def test_find_input_url_line_quoted(self):
+        assert flake_tidy.find_input_url_line(self.DOTTED, "my-input") == 1
+        assert flake_tidy.find_input_url_line(self.BLOCK, "my-input") == 2
+
+    def test_find_input_dotted_line_quoted(self):
+        assert flake_tidy.find_input_dotted_line(self.DOTTED, "my-input") == (1, False)
+
+    def test_get_input_file_order_includes_quoted(self):
+        assert flake_tidy.get_input_file_order(self.DOTTED) == [
+            "my-input",
+            "nixpkgs",
+        ]
+        assert flake_tidy.get_input_file_order(self.BLOCK) == [
+            "my-input",
+            "nixpkgs",
+        ]
+
+    def test_insert_root_input_does_not_duplicate_quoted(self):
+        assert (
+            flake_tidy.insert_root_input(self.DOTTED, "my-input", "github:foo/bar")
+            == self.DOTTED
+        )
+        assert (
+            flake_tidy.insert_root_input(self.BLOCK, "my-input", "github:foo/bar")
+            == self.BLOCK
+        )
+
+    def test_quoted_name_requiring_quotes(self):
+        # A name containing a dot can only be spelled quoted; it is ONE
+        # attribute, not a `my` input with a nested `input`.
+        content = """{
+  inputs."my.input".url = "github:foo/bar";
+}
+"""
+        assert (
+            flake_tidy.root_input_exists_in_content(content, "my.input") is True
+        )
+        assert flake_tidy.get_input_file_order(content) == ["my.input"]
+        assert (
+            flake_tidy.insert_root_input(content, "my.input", "github:foo/bar")
+            == content
+        )
+
+    def test_quoted_dotted_parent_block_scopes_interior_lines(self):
+        content = """{
+  inputs."parent" = {
+    inputs.child.follows = "nixpkgs";
+  };
+  inputs.real.url = "github:example/real";
+}
+"""
+        ctx = flake_tidy._block_context_for_lines(content)
+        lines = content.split("\n")
+        interior = lines.index('    inputs.child.follows = "nixpkgs";')
+        assert ctx[interior] == "parent"
+        # The interior inputs.child line is the parent's override, not
+        # a root declaration of `child`.
+        assert flake_tidy.root_input_exists_in_content(content, "child") is False
+        assert flake_tidy.root_input_exists_in_content(content, "parent") is True
+        assert flake_tidy.get_input_file_order(content) == ["parent", "real"]
+
+    def test_follows_and_url_removal_quoted(self):
+        content = """{
+  inputs."my-input".url = "github:foo/bar";
+  inputs."my-input".follows = "nixpkgs";
+}
+"""
+        assert (
+            flake_tidy.follows_exists_in_content(content, ["my-input"], "nixpkgs")
+            is True
+        )
+        assert flake_tidy.follows_path_has_any_target(content, ["my-input"]) is True
+        assert flake_tidy._follows_target_for_input(content, "my-input") == "nixpkgs"
+        new_content, removed = flake_tidy.remove_input_url_line(content, "my-input")
+        assert removed is True
+        assert "url" not in new_content
+        assert '"my-input".follows' in new_content
+
+    def test_quoted_url_follows_conflict_detected(self):
+        assert flake_tidy.check_url_follows_conflicts(self.BLOCK) == []
+        one_line = """{
+  inputs = {
+    "my-input" = { url = "github:foo/bar"; follows = "nixpkgs"; };
+  };
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(one_line) == ["my-input"]
+        dotted = """{
+  inputs."my-input".url = "github:foo/bar";
+  inputs."my-input".follows = "nixpkgs";
+}
+"""
+        assert flake_tidy.check_url_follows_conflicts(dotted) == ["my-input"]
+
+    def test_parse_deep_follows_quoted_segments(self):
+        content = """{
+  inputs."parent".inputs."child".inputs.systems.follows = "systems";
+}
+"""
+        deep = flake_tidy._parse_deep_follows(content)
+        assert len(deep) == 1
+        assert deep[0]["parent"] == "parent"
+        assert deep[0]["child"] == "child"
+        assert deep[0]["sub_input"] == "systems"
+
+
+class TestQuotedNameGenerators:
+    """Regression tests for #709: PR #706 taught the scanners quoted
+    names, but the generators still wrote a quote-requiring name back
+    BARE — ``inputs.my.input.url`` declares a nested attribute (an
+    input ``my`` with a sub-attribute ``input``), not the single input
+    ``my.input`` — and ``find_commented_follows`` only matched the
+    bare spelling, so a quoted commented follows was missed and a
+    fresh active line was inserted instead of uncommenting it."""
+
+    DOTTED_BASE = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+}
+"""
+
+    BLOCK_BASE = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+  };
+}
+"""
+
+    def test_insert_root_input_dotted_quotes_name(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_BASE, "my.input", "github:foo/bar"
+        )
+        assert 'inputs."my.input".url = "github:foo/bar";' in result
+        # Round-trip: the generated line is ONE input named my.input.
+        assert flake_tidy.get_input_file_order(result) == ["nixpkgs", "my.input"]
+        assert (
+            flake_tidy.root_input_exists_in_content(result, "my.input") is True
+        )
+
+    def test_insert_root_input_block_style_quotes_name(self):
+        result = flake_tidy.insert_root_input(
+            self.BLOCK_BASE, "my.input", "github:foo/bar", flake=False
+        )
+        assert '"my.input".url = "github:foo/bar";' in result
+        assert '"my.input".flake = false;' in result
+        assert flake_tidy.get_input_file_order(result) == ["nixpkgs", "my.input"]
+
+    def test_insert_root_input_leading_digit_quoted(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_BASE, "9lives", "github:foo/bar"
+        )
+        assert 'inputs."9lives".url = "github:foo/bar";' in result
+        assert flake_tidy.get_input_file_order(result) == ["nixpkgs", "9lives"]
+
+    def test_insert_root_input_bare_name_stays_bare(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_BASE, "my-input", "github:foo/bar"
+        )
+        assert 'inputs.my-input.url = "github:foo/bar";' in result
+
+    def test_insert_root_input_block_quotes_name_and_sub(self):
+        dotted = flake_tidy.insert_root_input_block(
+            self.DOTTED_BASE, "my.input", "github:foo/bar", [("sub", "nixpkgs")]
+        )
+        assert 'inputs."my.input" = {' in dotted
+        assert flake_tidy.get_input_file_order(dotted) == ["nixpkgs", "my.input"]
+        block = flake_tidy.insert_root_input_block(
+            self.BLOCK_BASE,
+            "my.input",
+            "github:foo/bar",
+            [("my.child", "nixpkgs")],
+        )
+        assert '"my.input" = {' in block
+        assert 'inputs."my.child".follows = "nixpkgs";' in block
+        assert (
+            flake_tidy.follows_exists_in_content(
+                block, ["my.input", "my.child"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_insert_follows_beside_quoted_input(self):
+        content = """{
+  inputs."my.input".url = "github:foo/bar";
+}
+"""
+        result = flake_tidy.insert_follows_in_content(
+            content, ["my.input"], "nixpkgs"
+        )
+        assert 'inputs."my.input".follows = "nixpkgs";' in result
+        assert (
+            flake_tidy.follows_exists_in_content(result, ["my.input"], "nixpkgs")
+            is True
+        )
+
+    def test_insert_follows_multilevel_quoted_parent(self):
+        content = """{
+  inputs."my.input".url = "github:foo/bar";
+}
+"""
+        result = flake_tidy.insert_follows_in_content(
+            content, ["my.input", "child"], "nixpkgs"
+        )
+        assert 'inputs."my.input".inputs.child.follows = "nixpkgs";' in result
+        assert (
+            flake_tidy.follows_exists_in_content(
+                result, ["my.input", "child"], "nixpkgs"
+            )
+            is True
+        )
+
+    def test_find_commented_follows_quoted_spellings(self):
+        bare = '# inputs.my-input.follows = "nixpkgs";'
+        quoted = '# inputs."my-input".follows = "nixpkgs";'
+        quoted_dot = '# inputs."my.input".follows = "nixpkgs";'
+        assert flake_tidy.find_commented_follows(bare, ["my-input"], "nixpkgs") == (
+            0,
+            bare,
+        )
+        assert flake_tidy.find_commented_follows(
+            quoted, ["my-input"], "nixpkgs"
+        ) == (0, quoted)
+        assert flake_tidy.find_commented_follows(
+            quoted_dot, ["my.input"], "nixpkgs"
+        ) == (0, quoted_dot)
+
+    def test_find_commented_follows_quoted_multilevel(self):
+        line = '# inputs."parent".inputs."child".follows = "nixpkgs";'
+        assert flake_tidy.find_commented_follows(
+            line, ["parent", "child"], "nixpkgs"
+        ) == (0, line)
+
+    def test_find_commented_follows_wrong_target_still_missed(self):
+        line = '# inputs."my-input".follows = "other";'
+        assert (
+            flake_tidy.find_commented_follows(line, ["my-input"], "nixpkgs")
+            is None
+        )
+
+
+class TestEscapableQuotedNames:
+    """Regression tests for #721: PR #719's ``_quote_name`` escapes
+    ``"``, ``\\`` and ``${`` in the quoted spelling it generates, but
+    ``_name_ref`` built its pattern from the raw name only — so every
+    ``_name_ref`` scanner missed the very spelling the generators
+    write, and a re-run inserted a duplicate declaration."""
+
+    ESCAPABLE = ['a"b', "a\\b", "a${b}"]
+
+    DOTTED_BASE = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+}
+"""
+
+    def test_name_ref_matches_escaped_quoted_spelling(self):
+        import re
+
+        for name in self.ESCAPABLE:
+            pat = flake_tidy._name_ref(name)
+            quoted = flake_tidy._quote_name(name)
+            assert re.fullmatch(pat, quoted), (name, quoted)
+            assert re.fullmatch(pat, f'"{name}"'), name
+            assert re.fullmatch(pat, name), name
+            assert not re.fullmatch(pat, "other")
+            assert not re.fullmatch(pat, '"other"')
+
+    def test_insert_root_input_escapable_round_trip(self):
+        for name in self.ESCAPABLE:
+            result = flake_tidy.insert_root_input(
+                self.DOTTED_BASE, name, "github:foo/bar"
+            )
+            quoted = flake_tidy._quote_name(name)
+            assert f"inputs.{quoted}.url" in result, name
+            assert flake_tidy.get_input_file_order(result) == [
+                "nixpkgs",
+                name,
+            ], name
+            assert (
+                flake_tidy.root_input_exists_in_content(result, name) is True
+            ), name
+            assert flake_tidy.find_input_url_line(result, name) is not None, name
+            assert flake_tidy.find_input_dotted_line(result, name)[0] is not None, (
+                name
+            )
+            # A second insert is a no-op: the existence guard fires.
+            assert (
+                flake_tidy.insert_root_input(result, name, "github:foo/bar")
+                == result
+            ), name
+            # A different name is still reported absent.
+            assert (
+                flake_tidy.root_input_exists_in_content(result, "other") is False
+            ), name
+
+    def test_insert_root_input_block_escapable_round_trip(self):
+        for name in self.ESCAPABLE:
+            result = flake_tidy.insert_root_input_block(
+                self.DOTTED_BASE, name, "github:foo/bar", []
+            )
+            assert (
+                flake_tidy.root_input_exists_in_content(result, name) is True
+            ), name
+            assert flake_tidy.find_input_block_end(result, name) is not None, name
+
+    def test_block_style_escapable_url_line_and_removal(self):
+        for name in self.ESCAPABLE:
+            quoted = flake_tidy._quote_name(name)
+            content = (
+                "{\n  inputs = {\n"
+                f"    {quoted} = {{\n"
+                '      url = "github:foo/bar";\n'
+                "    };\n  };\n}\n"
+            )
+            assert (
+                flake_tidy.root_input_exists_in_content(content, name) is True
+            ), name
+            assert flake_tidy.find_input_url_line(content, name) is not None, name
+            removed, changed = flake_tidy.remove_input_url_line(content, name)
+            assert changed is True, name
+            assert "github:foo/bar" not in removed, name
+
+    def test_remove_input_url_line_dotted_escapable(self):
+        for name in self.ESCAPABLE:
+            result = flake_tidy.insert_root_input(
+                self.DOTTED_BASE, name, "github:foo/bar"
+            )
+            removed, changed = flake_tidy.remove_input_url_line(result, name)
+            assert changed is True, name
+            assert "github:foo/bar" not in removed, name
+
+    def test_follows_target_escapable(self):
+        for name in self.ESCAPABLE:
+            quoted = flake_tidy._quote_name(name)
+            content = f'{{\n  inputs.{quoted}.follows = "nixpkgs";\n}}\n'
+            assert (
+                flake_tidy._follows_target_for_input(content, name) == "nixpkgs"
+            ), name
+
+    def test_find_commented_follows_escapable_spellings(self):
+        for name in self.ESCAPABLE:
+            quoted = flake_tidy._quote_name(name)
+            line = f'# inputs.{quoted}.follows = "nixpkgs";'
+            assert flake_tidy.find_commented_follows(line, [name], "nixpkgs") == (
+                0,
+                line,
+            ), name
+            assert (
+                flake_tidy.find_commented_follows(line, [name], "other") is None
+            ), name
+
+    def test_find_commented_follows_escapable_multilevel(self):
+        name = 'a"b'
+        quoted = flake_tidy._quote_name(name)
+        line = f'# inputs.{quoted}.inputs."child".follows = "nixpkgs";'
+        assert flake_tidy.find_commented_follows(
+            line, [name, "child"], "nixpkgs"
+        ) == (0, line)
+
+
 class TestInsertFollows:
     def test_insert_follows_block_style(self, sample_flake_nix):
         """inserts inside block."""
@@ -504,6 +1251,73 @@ class TestInsertRootInput:
         )
         # Should be unchanged since nixpkgs already exists
         assert result == sample_flake_nix
+
+
+class TestInsertRootInputDottedParentScope:
+    """#696: the dotted anchor scan must not land inside a dotted parent block."""
+
+    DOTTED_PARENT_LAST = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+  inputs.parent = {
+    url = "github:example/parent";
+    inputs.child.follows = "nixpkgs";
+  };
+}
+"""
+
+    def _parent_block_lines(self, content):
+        lines = content.split("\n")
+        start = next(i for i, l in enumerate(lines) if "inputs.parent = {" in l)
+        end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "};")
+        return lines[start : end + 1]
+
+    def test_insert_root_input_after_dotted_parent_block(self):
+        result = flake_tidy.insert_root_input(
+            self.DOTTED_PARENT_LAST, "newinput", "github:example/new"
+        )
+        assert flake_tidy.root_input_exists_in_content(result, "newinput") is True
+        assert not any("newinput" in l for l in self._parent_block_lines(result))
+        url_line = flake_tidy.find_input_url_line(result, "newinput")
+        assert url_line is not None
+        ctx = flake_tidy._block_context_for_lines(result)
+        assert ctx[url_line] is None
+
+    def test_insert_root_input_block_after_dotted_parent_block(self):
+        result = flake_tidy.insert_root_input_block(
+            self.DOTTED_PARENT_LAST,
+            "newinput",
+            "github:example/new",
+            [("sub", "nixpkgs")],
+        )
+        assert flake_tidy.root_input_exists_in_content(result, "newinput") is True
+        assert not any("newinput" in l for l in self._parent_block_lines(result))
+        assert flake_tidy.follows_exists_in_content(
+            result, ["newinput", "sub"], "nixpkgs"
+        )
+
+    def test_commented_inputs_line_inside_parent_is_not_anchor(self):
+        content = """{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
+  inputs.parent = {
+    url = "github:example/parent";
+    # inputs.ghost.url = "github:example/ghost";
+  };
+}
+"""
+        result = flake_tidy.insert_root_input(content, "newinput", "github:example/new")
+        assert flake_tidy.root_input_exists_in_content(result, "newinput") is True
+        assert not any("newinput" in l for l in self._parent_block_lines(result))
+
+    def test_plain_dotted_anchor_unchanged(self):
+        content = """{
+  inputs.nixpkgs.url = "github:nixos/nixpkgs";
+  outputs = _: {};
+}
+"""
+        result = flake_tidy.insert_root_input(content, "new-input", "github:foo/bar")
+        lines = result.split("\n")
+        anchor = lines.index('  inputs.nixpkgs.url = "github:nixos/nixpkgs";')
+        assert lines[anchor + 1] == '  inputs.new-input.url = "github:foo/bar";'
 
 
 class TestRootInputExists:
@@ -596,6 +1410,105 @@ class TestRemoveInputUrlLine:
         )
         assert removed is False
         assert new_content == sample_flake_nix
+
+
+class TestRemoveInputUrlLineSharedLine:
+    """#700: when the url shares its line with other declarations, only
+    the ``url = ...;`` assignment is removed — deleting the whole line
+    took the rest of the input with it.  These are the shapes
+    ``check_url_follows_conflicts`` (#642) and ``apply_dedup`` act on."""
+
+    def test_one_line_block_keeps_follows(self):
+        """the run_all conflict-fix shape: one-line url+follows block
+        loses only its url, not the whole input."""
+        content = """{
+  inputs = {
+    foo = { url = "github:x/y"; follows = "nixpkgs"; };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:x/y" not in new_content
+        assert 'foo = { follows = "nixpkgs"; };' in new_content
+        # and the conflict the checker reported is actually resolved
+        assert flake_tidy.check_url_follows_conflicts(new_content) == []
+
+    def test_url_on_opening_line_keeps_block_header(self):
+        """url on a multi-line block's opening line: the header line
+        must survive, or the block's remaining attributes are orphaned
+        directly inside ``inputs = { ... }``."""
+        content = """{
+  inputs = {
+    foo = { url = "github:x/y";
+      follows = "nixpkgs";
+    };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:x/y" not in new_content
+        assert "foo = {" in new_content
+        assert 'follows = "nixpkgs";' in new_content
+        assert flake_tidy.check_url_follows_conflicts(new_content) == []
+
+    def test_one_line_block_keeps_other_attributes(self):
+        """a one-line block's other attributes (and nested follows)
+        survive the url removal."""
+        content = """{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs";
+    foo = { url = "github:a/b"; inputs.nixpkgs.follows = "nixpkgs"; };
+    bar.url = "github:c/d";
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:a/b" not in new_content
+        assert 'foo = { inputs.nixpkgs.follows = "nixpkgs"; };' in new_content
+        assert 'bar.url = "github:c/d";' in new_content
+
+    def test_nested_only_url_is_refused(self):
+        """when the only ``url =`` on the located line belongs to a
+        nested override, removal refuses instead of deleting the line
+        (or the nested input's url)."""
+        content = """{
+  inputs = {
+    foo = { inputs = { bar = { url = "github:b/b"; }; }; };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is False
+        assert new_content == content
+
+    def test_sole_line_still_deleted_and_comment_kept(self):
+        """guard: a sole-content url line is still deleted whole, and a
+        trailing comment on a url line survives the excision."""
+        content = """{
+  inputs = {
+    foo = {
+      url = "github:x/y"; # pinned for a reason
+      follows = "nixpkgs";
+    };
+    bar = {
+      url = "github:b/b";
+      follows = "nixpkgs";
+    };
+  };
+}
+"""
+        new_content, removed = flake_tidy.remove_input_url_line(content, "foo")
+        assert removed is True
+        assert "github:x/y" not in new_content
+        assert "# pinned for a reason" in new_content
+        new_content, removed = flake_tidy.remove_input_url_line(new_content, "bar")
+        assert removed is True
+        assert "github:b/b" not in new_content
+        assert new_content.count("url =") == 0
+        assert new_content.count('follows = "nixpkgs";') == 2
 
 
 class TestFollowsTargetForInput:

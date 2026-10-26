@@ -156,6 +156,35 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# --depth is turned into a find -maxdepth fragment below, where a
+# non-numeric value fails mid-walk and 0 silently means "the path itself
+# only". Judge it whole, at parse time, like opencode-db-prune.sh judges
+# --protect-days/--batch (#830). Empty means unbounded (--recursive).
+# This block is identical in all four discovery-vocabulary scripts.
+if [ -n "$DEPTH_LIMIT" ]; then
+  case "$DEPTH_LIMIT" in
+    *[!0-9]*|'')
+      echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+      exit 2 ;;
+  esac
+  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
+  # value above 2147483647 passes the case above yet find rejects it at walk
+  # time ("Numerical result out of range") while the run still exits 0. The
+  # shell's own integer tests cannot judge this — they are 64-bit — so, like
+  # the --pack-threads backstop (#839/#840), compare by digit count first
+  # (leading zeros stripped; at most 10 digits always fits the shell's
+  # arithmetic), then by value against INT_MAX. Judging the stripped value
+  # here, before the -gt 0 test below, also rejects >64-bit digit strings
+  # cleanly instead of tripping "integer expression expected".
+  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
+  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
+    echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+    exit 2
+  fi
+  unset _dl
+  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+fi
+
 if [ "$DEPTH_LIMIT" = "1" ] && [ "${FOLLOW:-0}" = "1" ] && [ "$RECURSIVE_SET" = "1" ]; then
   echo "git-discover-repos: --no-recursive conflicts with --follow" >&2
   echo "                    (use --depth N with N>1 if you want a bounded walk plus following)" >&2
@@ -173,6 +202,16 @@ fi
 
 # Resolve the home directory being scanned.
 if [ -n "$TARGET_USER" ]; then
+  # The tilde expansion below goes through eval, so judge the username whole
+  # first (#875): a value carrying shell metacharacters ($(...), backticks,
+  # ';', whitespace, '/') would otherwise execute as commands during the
+  # eval, before the "no home" check ever runs. A real username is only
+  # letters, digits, '.', '_' and '-', and never starts with '-' or '~'.
+  case "$TARGET_USER" in
+    -*|'~'*|*[!A-Za-z0-9._-]*)
+      echo "git-discover-repos: --user must be a plain username (got: $TARGET_USER)" >&2
+      exit 2 ;;
+  esac
   SCAN_HOME="$(eval echo "~$TARGET_USER")"
   [ -d "$SCAN_HOME" ] || { echo "git-discover-repos: no home for $TARGET_USER" >&2; exit 1; }
 else

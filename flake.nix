@@ -420,6 +420,10 @@ rec {
           lib = pkgs.lib;
         };
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
+        # Cloudflare Wrangler 4.147.0 — custom package (copied from
+        # developing-today/code pkgs/wrangler) because nixpkgs lags npm
+        # by 50+ minor versions and Wrangler tracks the Workers runtime.
+        wrangler = pkgs.callPackage ./pkgs/wrangler { };
         flake-tidy = import ./pkgs/flake-tidy { inherit pkgs; };
         twg-cli = pkgs.callPackage ./pkgs/twg-cli/package.nix { };
         # mcp-remote and chrome-devtools-mcp, which mcpx.config.nix runs.
@@ -540,6 +544,43 @@ rec {
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./opencode-db-pids.test.sh
+              touch $out
+            '';
+        # #557: var-folders-clean.test.sh (the #553 test for clean.sh's
+        # /private/var/folders sweep) was run by nothing, tested a pasted
+        # copy of the loops instead of the shipped logic, and exited 0 on
+        # failure. The sweep now lives in var-folders-clean.sh (which
+        # clean.sh calls), the test drives that script, and failures exit
+        # non-zero — run it here, by name, like opencode-db-pids above.
+        var-folders-clean-tests =
+          pkgs.runCommandLocal "var-folders-clean-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/var-folders-clean.sh $src/var-folders-clean.test.sh ./
+              chmod u+w ./var-folders-clean.sh ./var-folders-clean.test.sh
+              bash ./var-folders-clean.test.sh
+              touch $out
+            '';
+        # #883/#886: symlinker.test.sh drives the real symlinker.sh through
+        # run -> undo round-trips — colon-named conflicts (BACKUP records),
+        # legacy v2 colon-format undo files, the irrecoverable-undo exit
+        # code, and same-second run-id collisions (via a stubbed date) — so
+        # the undo safety net cannot regress silently.
+        symlinker-tests =
+          pkgs.runCommandLocal "symlinker-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/symlinker.sh $src/symlinker.test.sh ./
+              chmod u+w ./symlinker.sh ./symlinker.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./symlinker.test.sh
               touch $out
             '';
         # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
@@ -682,6 +723,7 @@ rec {
         default = pkgs.mkShell {
           packages = [
             selfPkgs.opencode
+            selfPkgs.wrangler
             selfPkgs.flake-tidy
             selfPkgs.symlinker
             inputs.just.packages.${pkgs.stdenv.hostPlatform.system}.default

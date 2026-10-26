@@ -244,6 +244,33 @@ health_services=(
   "org.nixos.mcpx cmd:cd ~ && mcpx ls"
 )
 
+# HEALTH_TIMEOUT is used only in zsh arithmetic ($(( SECONDS + ... ))) in
+# check_services below, where a bare word silently evaluates to 0 -- so
+# HEALTH_TIMEOUT=abc used to collapse the deadline to *now* and report
+# still-starting agents as not up after a successful switch, 10junk aborted
+# the run with a raw "bad math expression" (under set -e, after the switch
+# was already recorded), and a >64-bit value truncated and wrapped negative
+# (#880). Judge it whole, once, here before the health check, like clean.sh
+# judges its tunables (#829/#862): digits only, positive, with an INT_MAX
+# range backstop judged on the stripped value by digit count first, then by
+# value (at most 10 digits always fits zsh's 64-bit arithmetic). Unset or
+# empty is fine: the ${HEALTH_TIMEOUT:-60} default at the use site supplies
+# a known-good literal.
+if [[ -n "${HEALTH_TIMEOUT:-}" ]]; then
+  case "$HEALTH_TIMEOUT" in
+    *[!0-9]*|'')
+      echo "simple-rebuild.sh: HEALTH_TIMEOUT must be a positive integer (got: $HEALTH_TIMEOUT)" >&2
+      exit 2 ;;
+  esac
+  _ht="$HEALTH_TIMEOUT"
+  while [[ "$_ht" == 0?* ]]; do _ht="${_ht#0}"; done
+  if (( ${#_ht} > 10 || _ht > 2147483647 || _ht <= 0 )); then
+    echo "simple-rebuild.sh: HEALTH_TIMEOUT must be a positive integer (got: $HEALTH_TIMEOUT)" >&2
+    exit 2
+  fi
+  unset _ht
+fi
+
 agent_pid() {
   launchctl list | awk -v l="$1" '$3 == l && $1 != "-" { print $1 }'
 }

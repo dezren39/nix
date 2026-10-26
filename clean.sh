@@ -126,6 +126,8 @@ OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
                     same as a full run.
 
 TUNABLES (environment)
+  (validated at startup: a non-integer value — or 0 where 0 is not
+  meaningful — is rejected with exit 2 before anything runs)
   ARTIFACT_STALE_DAYS       default 1   repo/worktree idle period before artifacts
                                         are removed (paired with a clean-tree check)
   HOME_ARTIFACT_STALE_DAYS  default 7   same, for artifact dirs directly in ~, where
@@ -216,6 +218,142 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
+# where a non-numeric value fails mid-walk and 0 silently means "the path
+# itself only". Judge it whole, at parse time, like opencode-db-prune.sh
+# judges --protect-days/--batch (#830). Empty means unbounded (--recursive).
+# This block is identical in all four discovery-vocabulary scripts.
+if [ -n "$DEPTH_LIMIT" ]; then
+  case "$DEPTH_LIMIT" in
+    *[!0-9]*|'')
+      echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+      exit 2 ;;
+  esac
+  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
+  # value above 2147483647 passes the case above yet find rejects it at walk
+  # time ("Numerical result out of range") while the run still exits 0. The
+  # shell's own integer tests cannot judge this — they are 64-bit — so, like
+  # the --pack-threads backstop (#839/#840), compare by digit count first
+  # (leading zeros stripped; at most 10 digits always fits the shell's
+  # arithmetic), then by value against INT_MAX. Judging the stripped value
+  # here, before the -gt 0 test below, also rejects >64-bit digit strings
+  # cleanly instead of tripping "integer expression expected".
+  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
+  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
+    echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+    exit 2
+  fi
+  unset _dl
+  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+fi
+
+# --docker-age is used only in bash arithmetic ($((DOCKER_AGE_DAYS * 24)) and
+# the volume cutoff), where a bare word silently evaluates to 0 -- so
+# `--docker-age abc` used to collapse the age filter to until=0h and prune
+# EVERYTHING, and junk like 10junk/1.5 aborted mid-run with a raw arithmetic
+# error (#829). Judge it whole, at parse time, like opencode-db-prune.sh
+# judges --protect-days/--batch. Covers the DOCKER_AGE_DAYS env var too.
+if [ -n "$DOCKER_AGE_DAYS" ]; then
+  case "$DOCKER_AGE_DAYS" in
+    *[!0-9]*|'')
+      echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
+      exit 2 ;;
+  esac
+  # Range backstop (#862): the use sites multiply this value (* 24, * 86400)
+  # in bash's 64-bit arithmetic, so a digits-only value that merely fits
+  # 64-bit can still wrap at the multiplication (the * 86400 products wrap
+  # negative from ~1.07e14, inverting the stale cutoff to the far future).
+  # Judge the stripped value by digit count first, then by value against
+  # INT_MAX, before the -gt 0 test below — the #840/#858 technique. INT_MAX
+  # is wrap-proof here: the largest multiplier in this file is 86400 and
+  # 2147483647 * 86400 ~ 1.9e14 fits 64-bit easily.
+  _da=${DOCKER_AGE_DAYS#"${DOCKER_AGE_DAYS%%[!0]*}"}; _da=${_da:-0}
+  if [ "${#_da}" -gt 10 ] || [ "$_da" -gt 2147483647 ]; then
+    echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
+    exit 2
+  fi
+  [ "$_da" -gt 0 ] || { echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2; exit 2; }
+  # Normalize to the judged form (#881): the strip above was only judging —
+  # the use sites do bash arithmetic, where a leading zero means octal
+  # (010 silently = 8, 008/009 error mid-sweep). The judged form and the
+  # used form must agree, so hand every use site the stripped decimal.
+  DOCKER_AGE_DAYS="$_da"
+  unset _da
+fi
+
+# The numeric env tunables (see TUNABLES in usage) gate deletion — age,
+# idle and size floors — and reach three kinds of use site, each of which
+# fails differently on a junk value (#837): bash arithmetic silently
+# evaluates a bare word to 0 (the age gate vanishes), a find -mtime/-mmin
+# argument errors while the idle checks discard stderr and read the empty
+# result as "nothing modified recently" (the idle gate inverts), and an
+# integer test errors into the wrong branch. #829 judged DOCKER_AGE_DAYS
+# alone; judge every remaining tunable the same way, here at parse time,
+# before any sweep runs and before the sudo re-exec below forwards the
+# values via --preserve-env. Most must be positive; 0 is meaningful for
+# LOG_STALE_DAYS (documented "0 = drop all logs") and for the NIX_KEEP_*
+# pair (NIX_KEEP_DAYS=0 is the documented scorched-earth nix GC mode, and
+# NIX_KEEP_GENS=0 means the current generation alone satisfies the keep
+# floor), so those are judged non-negative (#871). Unset or empty is fine
+# and skips the check: the later
+# ${VAR:-default} assignments supply a known-good literal, and an empty
+# env value takes that default the same way.
+_clean_positive_vars="ARTIFACT_STALE_DAYS HOME_ARTIFACT_STALE_DAYS CACHE_STALE_DAYS COLIMA_STOPPED_STALE_DAYS OPENCODE_TMP_STALE_DAYS OPENCODE_WORKTREE_STALE_DAYS OPENCODE_ROOT_STALE_DAYS OPENCODE_TIDY_PROTECT_DAYS OPENCODE_TIDY_LARGE_MB SHORT_SCRATCH_STALE_HOURS PG_SCRATCH_STALE_HOURS ACTIVE_ARTIFACT_STALE_HOURS PYTEST_KEEP_HOURS UNKNOWN_SCRATCH_MIN_MB UNKNOWN_SCRATCH_STALE_DAYS"
+for _v in $_clean_positive_vars; do
+  _val="${!_v:-}"
+  [ -n "$_val" ] || continue
+  case "$_val" in
+    *[!0-9]*|'')
+      echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
+      exit 2 ;;
+  esac
+  # Range backstop (#862), same reasoning as --docker-age above: these
+  # values are multiplied at their use sites (* 86400, * 1440, * 60), so
+  # cap them at INT_MAX with the strip/digit-count/value technique before
+  # the -gt 0 test, which also rejects >64-bit digit strings cleanly.
+  _sv=${_val#"${_val%%[!0]*}"}; _sv=${_sv:-0}
+  if [ "${#_sv}" -gt 10 ] || [ "$_sv" -gt 2147483647 ]; then
+    echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
+    exit 2
+  fi
+  [ "$_sv" -gt 0 ] || { echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2; exit 2; }
+  # Normalize to the judged form (#881), same as --docker-age above: bash
+  # arithmetic at the use sites reads a leading zero as octal, so the
+  # stripped decimal that was judged must be the value that is used.
+  printf -v "$_v" '%s' "$_sv"
+done
+unset _clean_positive_vars _v _val _sv
+# Non-negative tunables: 0 is a documented, meaningful value for each of
+# these (see the header comment above), so they are judged like the
+# positive tunables but without the -gt 0 test (#871).
+_clean_nonnegative_vars="LOG_STALE_DAYS NIX_KEEP_DAYS NIX_KEEP_GENS"
+for _v in $_clean_nonnegative_vars; do
+  _val="${!_v:-}"
+  [ -n "$_val" ] || continue
+  case "$_val" in
+    *[!0-9]*|'')
+      echo "clean.sh: $_v must be a non-negative integer (got: $_val)" >&2
+      exit 2 ;;
+  esac
+  # Range backstop (#862): LOG_STALE_DAYS is forwarded to find -mtime, a
+  # C-int consumer, and NIX_KEEP_DAYS is multiplied at its use sites
+  # (* 86400, and doubled while widening in nix_keep_window), so cap all
+  # of them at INT_MAX with the same strip/digit-count/value technique
+  # as the positive tunables above.
+  _sv=${_val#"${_val%%[!0]*}"}; _sv=${_sv:-0}
+  if [ "${#_sv}" -gt 10 ] || [ "$_sv" -gt 2147483647 ]; then
+    echo "clean.sh: $_v must be a non-negative integer (got: $_val)" >&2
+    exit 2
+  fi
+  # Normalize to the judged form (#881), same as --docker-age above: bash
+  # arithmetic at the use sites reads a leading zero as octal, so the
+  # stripped decimal that was judged must be the value that is used
+  # (this also keeps the blessed NIX_KEEP_DAYS=000 scorched-earth form:
+  # it normalizes to 0 and still selects that branch).
+  printf -v "$_v" '%s' "$_sv"
+done
+unset _clean_nonnegative_vars _v _val _sv
 
 # --system touches no repositories, so repository-scoped flags are meaningless
 # alongside it. Erroring beats silently ignoring them.
@@ -337,8 +475,17 @@ fi
 
 ROOT_HOME="$(realpath ~)"
 if [ -z "${CALLER_USER_HOME:-}" ]; then
-  if [ -n "${SUDO_USER:-}" ]; then CALLER_USER_HOME="$(eval echo "~$SUDO_USER")"
-  else CALLER_USER_HOME="$ROOT_HOME"; fi
+  # The tilde expansion goes through eval, so only evaluate a SUDO_USER that
+  # is a plain username (#875, same gate as git-discover-repos --user);
+  # anything else is treated as unset and falls back to ROOT_HOME.
+  _sudo_user_ok=0
+  case "${SUDO_USER:-}" in
+    -*|'~'*|*[!A-Za-z0-9._-]*) ;;
+    ?*) _sudo_user_ok=1 ;;
+  esac
+  if [ "$_sudo_user_ok" = "1" ]; then CALLER_USER_HOME="$(eval echo "~$SUDO_USER")"
+  else CALLER_USER_HOME="$ROOT_HOME"; SUDO_USER=""; fi
+  unset _sudo_user_ok
 fi
 CALLER_USER="${SUDO_USER:-$(basename "$CALLER_USER_HOME")}"
 
@@ -927,7 +1074,10 @@ nix_keep_window() {
   printf '%s' "$days"
 }
 
-if [ "$NIX_KEEP_DAYS" = "0" ]; then
+# Arithmetic -eq, not a string test: a zero written with leading zeros
+# (000) also selects scorched-earth; as days=0 in nix_keep_window it would
+# double 0 forever and never widen (#871).
+if [ "$NIX_KEEP_DAYS" -eq 0 ]; then
   echo "🧊 nix store garbage collection (deleting ALL old generations)"
   run nix-collect-garbage -d || warn "nix-collect-garbage failed"
 else
@@ -1143,11 +1293,10 @@ if [ "$CLEAN_TMPDIR" != "1" ]; then
 elif [ "$DRY_RUN" = "1" ]; then
   echo "  would clear /private/var/folders (keeping zz)"
 else
-  folders=/private/var/folders
-  for i in "$folders"/*; do
-    [ "$(basename "$i")" != "zz" ] && rm -rf "$i" 2>/dev/null
-  done
-  rm -rf "$folders/zz/"* 2>/dev/null
+  # The sweep itself lives in var-folders-clean.sh so its test
+  # (var-folders-clean.test.sh, run by the flake check) exercises the
+  # shipped logic instead of a pasted copy (#557).
+  bash "$SELF_DIR/var-folders-clean.sh" /private/var/folders
 fi
 
 del "$CALLER_USER_HOME/.Trash/"* "$ROOT_HOME/.Trash/"*

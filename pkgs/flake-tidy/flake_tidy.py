@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import functools
 import ipaddress
 import json
 import os
@@ -511,6 +512,7 @@ def _canonical_ipv6_literal(host: str) -> str:
     return "[" + canonical + (pct + zone if pct else "")
 
 
+@functools.lru_cache(maxsize=256)
 def _normalize_vcs_url(url: str) -> str:
     """Canonicalize a git/hg URL spelling for grouping (#555).
 
@@ -1349,6 +1351,7 @@ def write_flake_nix(flake_dir: str, content: str) -> None:
         f.write(content)
 
 
+@functools.lru_cache(maxsize=1024)
 def _brace_counts(line: str) -> tuple[int, int]:
     """Count the structural ``{`` and ``}`` in one line of Nix source.
 
@@ -1357,6 +1360,14 @@ def _brace_counts(line: str) -> tuple[int, int]:
     and are ignored (#623). Indented (''...'') strings are not tracked —
     the same documented approximation the other line scanners make.
     """
+    # Fast path 1: if no braces exist on the line, net brace count is (0, 0).
+    if "{" not in line and "}" not in line:
+        return 0, 0
+
+    # Fast path 2: if no quotes or comments exist, simple string counting works directly.
+    if '"' not in line and "#" not in line:
+        return line.count("{"), line.count("}")
+
     opens = 0
     closes = 0
     in_string = False
@@ -1384,6 +1395,89 @@ def _brace_delta(line: str) -> int:
     """Net structural brace delta of one line (see ``_brace_counts``)."""
     opens, closes = _brace_counts(line)
     return opens - closes
+
+
+# A Nix attribute name may be spelled bare (``my-input``) or quoted
+# (``"my-input"``); the two spellings denote the SAME attribute —
+# ``nix-instantiate --parse`` normalises the quoted form away — and a
+# name containing characters outside the bare set (dots, slashes) MUST
+# be quoted (#705).  The token patterns below match either spelling as
+# a single capture (quotes included when present); ``_unquote_name``
+# recovers the attribute name from a match.
+_QUOTED_NAME = r'"(?:[^"\\]|\\.)*"'
+_NAME_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z_][a-zA-Z0-9_'-]*)"
+_SEG_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
+_SEG_TOKEN_NC = rf"(?:{_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
+
+
+@functools.lru_cache(maxsize=512)
+def _unquote_name(token: str) -> str:
+    """Attribute name for a matched name token (see ``_NAME_TOKEN``)."""
+    if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
+        return re.sub(r"\\(.)", r"\1", token[1:-1])
+    return token
+
+
+def _escape_name(name: str) -> str:
+    """Nix string escapes for ``name`` inside a quoted spelling (#709).
+
+    ``\\`` -> ``\\\\``, ``"`` -> ``\\"`` and ``${`` -> ``\\${`` — the
+    exact transformation ``_quote_name`` writes and ``_unquote_name``
+    reverses.  Shared so the writer and the matcher cannot drift.
+    """
+    return name.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
+
+
+@functools.lru_cache(maxsize=512)
+def _name_ref(name: str) -> str:
+    """Regex matching ``name`` spelled bare or quoted (``"name"``).
+
+    The quoted alternative must match the spelling ``_quote_name``
+    actually emits: for a name containing ``"``, ``\\`` or ``${`` that
+    spelling carries backslash escapes (``"a\\"b"``, ``"a\\\\b"``,
+    ``"a\\${b}"``), so a pattern built from the raw name alone never
+    matches the generated line (#721).  Match the escaped quoted
+    spelling first, then the plain quoted spelling and the bare
+    spelling, so hand-written plain forms keep matching too.
+    """
+    esc = re.escape(name)
+    quoted_esc = re.escape(_escape_name(name))
+    if quoted_esc == esc:
+        return rf'(?:"{esc}"|{esc})'
+    return rf'(?:"{quoted_esc}"|"{esc}"|{esc})'
+
+
+_BARE_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_'-]*$")
+
+
+def _quote_name(name: str) -> str:
+    """Spelling of ``name`` for a generated declaration line (#709).
+
+    A bare-spellable name keeps its bare spelling (no churn in
+    existing outputs).  Any other name — one containing a dot, slash
+    or space, or starting with a digit — MUST be quoted: written bare
+    it denotes a different attribute (``inputs.my.input`` is a nested
+    attribute, not the single input named ``my.input``), and the
+    scanners then report the wrong input as present.
+    """
+    if _BARE_NAME_RE.match(name):
+        return name
+    return f'"{_escape_name(name)}"'
+
+
+def _unquote_attr_names(text: str) -> str:
+    """Strip the quotes around attribute names in a declaration line.
+
+    Only quotes in attribute position — followed by ``.`` or ``=`` —
+    are stripped, so string *values* (a follows target, a url) keep
+    theirs.  Used by the follows checkers, which compare whole lines
+    against candidate strings built from bare names (#705).
+    """
+    return re.sub(
+        rf"{_QUOTED_NAME}(?=\s*(?:\.|=))",
+        lambda m: _unquote_name(m.group(0)),
+        text,
+    )
 
 
 def _own_level_text(line: str, start_depth: int, level: int = 1) -> tuple[str, int]:
@@ -1432,26 +1526,43 @@ def _own_level_text(line: str, start_depth: int, level: int = 1) -> tuple[str, i
     return "".join(out), depth
 
 
-def get_input_file_order(content: str) -> list[str]:
-    """Parse flake.nix to determine input declaration order.
-
-    Returns a list of root input names in the order they appear in the file.
-    """
+@functools.lru_cache(maxsize=128)
+def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
     order: list[str] = []
     seen: set[str] = set()
     in_inputs_block = False
     brace_depth = 0
     lines = content.split("\n")
+    contexts = _block_context_for_lines(content)
 
-    for line in lines:
+    for idx, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
             continue
 
         # Dotted style: inputs.NAME.xxx or inputs.NAME = {
-        m = re.match(r"inputs\.([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
+        # Only at top level, though: inside the root inputs block an
+        # `inputs.NAME...` line is a nested override inside some input's
+        # own block, not a root declaration — recording it would invent a
+        # root input (and the early continue would skip the line's brace
+        # accounting) (#652). The same applies inside a dotted-style
+        # parent block (inputs.parent = { ... }): its interior
+        # `inputs.child...` lines are the parent's overrides, not root
+        # declarations — #653's in_inputs_block guard cannot see them
+        # because that content has no `inputs = {` block at all, so
+        # consult the block context instead: a dotted line is a root
+        # declaration only at top level (context None) or on the parent
+        # block's own opening line (context == the declared name)
+        # (#652 remainder, context tracking from #655).
+        m = None
+        if not in_inputs_block:
+            dm = re.match(rf"inputs\.{_NAME_TOKEN}\s*[.=]", stripped)
+            if dm and (
+                contexts[idx] is None or contexts[idx] == _unquote_name(dm.group(1))
+            ):
+                m = dm
         if m:
-            name = m.group(1)
+            name = _unquote_name(m.group(1))
             if name not in seen:
                 order.append(name)
                 seen.add(name)
@@ -1478,9 +1589,9 @@ def get_input_file_order(content: str) -> list[str]:
             if depth_before != 1:
                 continue
 
-            m = re.match(r"([a-zA-Z_][a-zA-Z0-9_'-]*)\s*[.=]", stripped)
+            m = re.match(rf"{_NAME_TOKEN}\s*[.=]", stripped)
             if m:
-                name = m.group(1)
+                name = _unquote_name(m.group(1))
                 if (
                     name
                     not in (
@@ -1498,25 +1609,21 @@ def get_input_file_order(content: str) -> list[str]:
                     order.append(name)
                     seen.add(name)
 
-    return order
+    return tuple(order)
 
 
-def _block_context_for_lines(content: str) -> list[str | None]:
-    """Return the enclosing block input name for each line.
+def get_input_file_order(content: str) -> list[str]:
+    """Parse flake.nix to determine input declaration order.
 
-    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
-    For top-level dotted lines (outside any block) returns ``None``.
-
-    This is approximate but sufficient: it tracks ``<name> = {`` opens
-    and ends a block when the structural brace depth (see
-    ``_brace_counts``) returns to the depth at which the block opened.
-    Tracking depth instead of looking for a line that is exactly
-    ``};`` also closes blocks that open and close on one line
-    (``foo = { url = "..."; };``) and blocks whose ``};`` shares a
-    line with the last attribute (#628) — exact-line matching left
-    those blocks open forever, so every later line in the inputs
-    section was attributed to them.
+    Returns a list of root input names in the order they appear in the file.
+    Cached via ``_get_input_file_order_cached`` to avoid re-parsing line-by-line;
+    returns a fresh list copy per call to guarantee caller list isolation.
     """
+    return list(_get_input_file_order_cached(content))
+
+
+@functools.lru_cache(maxsize=128)
+def _block_context_for_lines_cached(content: str) -> tuple[str | None, ...]:
     lines = content.split("\n")
     result: list[str | None] = [None] * len(lines)
     # Stacks of (block_name, brace depth just before the block opened)
@@ -1535,12 +1642,33 @@ def _block_context_for_lines(content: str) -> list[str | None]:
 
         # Check for block open: <name> = { (inside the inputs block)
         pushed = False
-        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
+        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
         if m:
-            name = m.group(2)
+            name = _unquote_name(m.group(2))
             if name == "inputs":
                 inputs_stack.append(brace_depth)
             elif inputs_stack or stack:
+                stack.append((name, brace_depth))
+                result[i] = name
+                pushed = True
+
+        # Dotted-style block open: inputs.<name>... = { at top level
+        # (#655). The generic pattern above cannot see it — its name
+        # group stops at the first dot, so "inputs" never matches the
+        # following "=". Lines inside such a block are that input's own
+        # attributes and nested overrides (inputs.<child>... relative
+        # to it), not root declarations. Only the outermost dotted
+        # block is pushed: inside an already-tracked block the existing
+        # context already governs the lines, and inside a dotted block
+        # a nested inputs.<child> = { stays attributed to the outer
+        # input until its braces close.
+        if not pushed and not stack and not inputs_stack:
+            dm = re.match(
+                rf"^(\s*)inputs\.{_NAME_TOKEN}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{",
+                line,
+            )
+            if dm:
+                name = _unquote_name(dm.group(2))
                 stack.append((name, brace_depth))
                 result[i] = name
                 pushed = True
@@ -1562,7 +1690,72 @@ def _block_context_for_lines(content: str) -> list[str | None]:
         if not pushed and stripped.startswith("}") and stack:
             result[i] = stack[-1][0]
 
-    return result
+    return tuple(result)
+
+
+def _block_context_for_lines(content: str) -> list[str | None]:
+    """Return the enclosing block input name for each line.
+
+    For lines inside ``someInput = { ... };`` returns ``"someInput"``.
+    A top-level dotted block (``inputs.someInput = { ... };``) counts
+    the same way (#655). For top-level dotted lines (outside any
+    block) returns ``None``.
+
+    This is approximate but sufficient: it tracks ``<name> = {`` opens
+    and ends a block when the structural brace depth (see
+    ``_brace_counts``) returns to the depth at which the block opened.
+    Tracking depth instead of looking for a line that is exactly
+    ``};`` also closes blocks that open and close on one line
+    (``foo = { url = "..."; };``) and blocks whose ``};`` shares a
+    line with the last attribute (#628) — exact-line matching left
+    those blocks open forever, so every later line in the inputs
+    section was attributed to them.
+    """
+    return list(_block_context_for_lines_cached(content))
+
+
+@functools.lru_cache(maxsize=128)
+def _nested_inputs_prefix_for_lines_cached(content: str) -> tuple[tuple[str, ...] | None, ...]:
+    lines = content.split("\n")
+    result: list[tuple[str, ...] | None] = [None] * len(lines)
+    # Stack of ("inputs", depth) / (name, depth); depth is the brace
+    # depth just before that block opened.
+    stack: list[tuple[str, int]] = []
+    brace_depth = 0
+
+    def prefix_from_stack() -> tuple[str, ...] | None:
+        seq = [name for name, _ in stack]
+        if seq and seq[0] == "inputs":
+            seq = seq[1:]
+        if len(seq) >= 2 and seq[-1] == "inputs":
+            res = [name for name in seq[:-1] if name != "inputs"]
+            return tuple(res)
+        return None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            result[i] = prefix_from_stack()
+            continue
+
+        opens, closes = _brace_counts(line)
+
+        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
+        if m:
+            name = _unquote_name(m.group(2))
+            if name == "inputs":
+                stack.append(("inputs", brace_depth))
+            elif stack:
+                stack.append((name, brace_depth))
+
+        result[i] = prefix_from_stack()
+
+        brace_depth += opens - closes
+
+        while stack and brace_depth <= stack[-1][1]:
+            stack.pop()
+
+    return tuple(result)
 
 
 def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
@@ -1583,45 +1776,8 @@ def _nested_inputs_prefix_for_lines(content: str) -> list[list[str] | None]:
     so a one-line ``inputs = { nixpkgs.follows = "..."; };`` is visible
     to callers that judge the segment after the ``{``.
     """
-    lines = content.split("\n")
-    result: list[list[str] | None] = [None] * len(lines)
-    # Stack of ("inputs", depth) / (name, depth); depth is the brace
-    # depth just before that block opened.
-    stack: list[tuple[str, int]] = []
-    brace_depth = 0
-
-    def prefix_from_stack() -> list[str] | None:
-        seq = [name for name, _ in stack]
-        if seq and seq[0] == "inputs":
-            seq = seq[1:]
-        if len(seq) >= 2 and seq[-1] == "inputs":
-            return [name for name in seq[:-1] if name != "inputs"]
-        return None
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            result[i] = prefix_from_stack()
-            continue
-
-        opens, closes = _brace_counts(line)
-
-        m = re.match(r"^(\s*)(\w[\w-]*)\s*=\s*\{", line)
-        if m:
-            name = m.group(2)
-            if name == "inputs":
-                stack.append(("inputs", brace_depth))
-            elif stack:
-                stack.append((name, brace_depth))
-
-        result[i] = prefix_from_stack()
-
-        brace_depth += opens - closes
-
-        while stack and brace_depth <= stack[-1][1]:
-            stack.pop()
-
-    return result
+    cached = _nested_inputs_prefix_for_lines_cached(content)
+    return [list(x) if x is not None else None for x in cached]
 
 
 def _nested_relative_path(follows_parts: list[str], prefix: list[str]) -> str | None:
@@ -1657,6 +1813,52 @@ def _nested_segment(normalized: str) -> str:
     return seg
 
 
+def _nested_segments(normalized: str) -> list[str]:
+    """Individual declarations on a nested ``inputs = {`` line (#649).
+
+    A one-line nested block can carry several declarations
+    (``inputs = { a.follows = "a"; b.follows = "b"; };``); judging the
+    whole segment after the ``{`` as one declaration misses every one
+    of them (equality), or all but the first (prefix/match). Split the
+    segment on ``;`` outside double-quoted strings so each declaration
+    is judged on its own. Ordinary lines return a single-element list.
+    """
+    m = re.match(r"inputs\s*=\s*\{", normalized)
+    if not m:
+        return [normalized] if normalized else []
+    seg = normalized[m.end() :].strip()
+    if seg.endswith("}"):
+        seg = seg[:-1].strip()
+    parts: list[str] = []
+    buf: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in seg:
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            continue
+        if ch == "\\" and in_string:
+            buf.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            buf.append(ch)
+            continue
+        if ch == ";" and not in_string:
+            part = "".join(buf).strip()
+            if part:
+                parts.append(part)
+            buf = []
+            continue
+        buf.append(ch)
+    part = "".join(buf).strip()
+    if part:
+        parts.append(part)
+    return parts
+
+
 def follows_exists_in_content(
     content: str, follows_parts: list[str], target: str
 ) -> bool:
@@ -1676,24 +1878,31 @@ def follows_exists_in_content(
         if len(follows_parts) >= 2
         else f'{follows_parts[0]}.follows = "{target}"'
     )
-    root_candidates = [full, relative_inputs]
+    # Bolt Optimization: Pre-normalize whitespace in candidate strings ONCE
+    # outside the loop to eliminate redundant re.sub calls inside the line loop.
+    # Store candidates in sets for O(1) membership testing.
+    root_candidates = {re.sub(r"\s+", " ", full), re.sub(r"\s+", " ", relative_inputs)}
 
     # Build candidate strings for BLOCK scope (inside follows_parts[0] block)
-    block_candidates: list[str] = []
+    raw_block_candidates: list[str] = []
     if len(follows_parts) >= 2:
         # Inside the block of follows_parts[0], the path is relative
         inner = (
             ".".join(f"inputs.{p}" for p in follows_parts[1:])
             + f'.follows = "{target}"'
         )
-        block_candidates.append(inner)
+        raw_block_candidates.append(inner)
         # bare follows for depth 2
         if len(follows_parts) == 2:
-            block_candidates.append(f'follows = "{target}"')
+            raw_block_candidates.append(f'follows = "{target}"')
     elif len(follows_parts) == 1:
         # Inside the block of the single part, bare follows matches
-        block_candidates.append(f'follows = "{target}"')
+        raw_block_candidates.append(f'follows = "{target}"')
+    block_candidates = {re.sub(r"\s+", " ", c) for c in raw_block_candidates}
 
+    # Bolt Optimization: _block_context_for_lines and _nested_inputs_prefix_for_lines
+    # are cached with @functools.lru_cache to avoid re-parsing flake.nix line-by-line
+    # across multiple analysis checks.
     block_context = _block_context_for_lines(content)
     nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
@@ -1703,7 +1912,7 @@ def follows_exists_in_content(
         stripped = line.strip().rstrip(";").strip()
         if stripped.startswith("#"):
             continue
-        normalized = re.sub(r"\s+", " ", stripped)
+        normalized = _unquote_attr_names(re.sub(r"\s+", " ", stripped))
 
         # Nested inputs scope (#647): a line directly inside a nested
         # ``inputs = { ... }`` override block is judged only against the
@@ -1714,7 +1923,7 @@ def follows_exists_in_content(
             rel = _nested_relative_path(follows_parts, nested_prefix)
             if rel is not None:
                 candidate = f'{rel}.follows = "{target}"'
-                if re.sub(r"\s+", " ", candidate) == _nested_segment(normalized):
+                if re.sub(r"\s+", " ", candidate) in _nested_segments(normalized):
                     return True
             continue
 
@@ -1722,14 +1931,12 @@ def follows_exists_in_content(
 
         if ctx is None:
             # Root scope: match full or relative forms
-            for c in root_candidates:
-                if re.sub(r"\s+", " ", c) == normalized:
-                    return True
+            if normalized in root_candidates:
+                return True
         elif ctx == first_part:
             # Inside the block of the first follows_parts element
-            for c in block_candidates:
-                if re.sub(r"\s+", " ", c) == normalized:
-                    return True
+            if normalized in block_candidates:
+                return True
 
     return False
 
@@ -1761,6 +1968,10 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
     elif len(follows_parts) == 1:
         block_prefixes.append("follows")
 
+    # Bolt Optimization: Construct prefix tuples ONCE for fast C-level startswith checks
+    root_pfx_tuple = tuple(p + " =" for p in root_prefixes) + tuple(p + "=" for p in root_prefixes)
+    block_pfx_tuple = tuple(p + " =" for p in block_prefixes) + tuple(p + "=" for p in block_prefixes)
+
     block_context = _block_context_for_lines(content)
     nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
@@ -1770,7 +1981,7 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         stripped = line.strip().rstrip(";").strip()
         if stripped.startswith("#"):
             continue
-        normalized = re.sub(r"\s+", " ", stripped)
+        normalized = _unquote_attr_names(re.sub(r"\s+", " ", stripped))
 
         # Nested inputs scope (#647): see follows_exists_in_content.
         nested_prefix = nested_prefixes[i]
@@ -1778,25 +1989,20 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
             rel = _nested_relative_path(follows_parts, nested_prefix)
             if rel is not None:
                 pfx = f"{rel}.follows"
-                seg = _nested_segment(normalized)
-                if seg.startswith(pfx + " =") or seg.startswith(pfx + "="):
-                    return True
+                pfx_tuple = (pfx + " =", pfx + "=")
+                for seg in _nested_segments(normalized):
+                    if seg.startswith(pfx_tuple):
+                        return True
             continue
 
         ctx = block_context[i]
 
         if ctx is None:
-            for pfx in root_prefixes:
-                if normalized.startswith(pfx + " =") or normalized.startswith(
-                    pfx + "="
-                ):
-                    return True
+            if normalized.startswith(root_pfx_tuple):
+                return True
         elif ctx == first_part:
-            for pfx in block_prefixes:
-                if normalized.startswith(pfx + " =") or normalized.startswith(
-                    pfx + "="
-                ):
-                    return True
+            if normalized.startswith(block_pfx_tuple):
+                return True
 
     return False
 
@@ -1808,7 +2014,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
     inside another input's block (e.g. ``inputs.parent.inputs.CHILD...``
     inside a parent block is NOT a root declaration of CHILD).
     """
-    esc = re.escape(input_name)
+    esc = _name_ref(input_name)
     lines = content.split("\n")
     style, block_start, block_end = detect_inputs_style(content)
 
@@ -1828,10 +2034,22 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
             if depth <= 0 and i > block_start:
                 break
     else:
-        # Dotted style: look for top-level inputs.NAME declarations
-        for line in lines:
+        # Dotted style: look for top-level inputs.NAME declarations.
+        # Lines inside a dotted-style parent block (inputs.parent =
+        # { ... }) are that parent's attributes/overrides, not root
+        # declarations (#655) — except the block's own opening line,
+        # which IS the root declaration of the parent itself.
+        block_ctx = _block_context_for_lines(content)
+        for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("#"):
+                continue
+            ctx = block_ctx[i]
+            if ctx is not None:
+                if ctx == input_name and re.match(
+                    rf"inputs\.{esc}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{", stripped
+                ):
+                    return True
                 continue
             if re.match(rf"inputs\.{esc}\s*=", stripped):
                 return True
@@ -1839,7 +2057,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
                 return True
             # inputs.NAME.inputs.X.follows is a shallow override on NAME
             if re.match(
-                rf"inputs\.{esc}\.inputs\.[a-zA-Z0-9_'-]+\.(follows|url)\s*=",
+                rf"inputs\.{esc}\.inputs\.{_SEG_TOKEN_NC}\.(follows|url)\s*=",
                 stripped,
             ):
                 return True
@@ -1853,18 +2071,24 @@ def find_commented_follows(
     target_part = follows_parts[-1] if follows_parts else ""
     patterns = []
 
-    full_path = ".".join(f"inputs.{p}" for p in follows_parts)
-    patterns.append(rf'#\s*{re.escape(full_path)}\.follows\s*=\s*"{re.escape(target)}"')
+    # Each segment may be spelled bare or quoted (#709); the target is
+    # a string value, so its quotes are part of the pattern, not a
+    # name spelling.
+    def _path_ref(parts: list[str]) -> str:
+        return r"\.".join(rf"inputs\.{_name_ref(p)}" for p in parts)
+
+    patterns.append(
+        rf'#\s*{_path_ref(follows_parts)}\.follows\s*=\s*"{re.escape(target)}"'
+    )
 
     if len(follows_parts) >= 2:
-        relative = ".".join(f"inputs.{p}" for p in follows_parts[1:])
         patterns.append(
-            rf'#\s*{re.escape(relative)}\.follows\s*=\s*"{re.escape(target)}"'
+            rf'#\s*{_path_ref(follows_parts[1:])}\.follows\s*=\s*"{re.escape(target)}"'
         )
 
     if target_part:
         patterns.append(
-            rf'#\s*inputs\.{re.escape(target_part)}\.follows\s*=\s*"{re.escape(target)}"'
+            rf'#\s*inputs\.{_name_ref(target_part)}\.follows\s*=\s*"{re.escape(target)}"'
         )
 
     lines = content.split("\n")
@@ -1901,7 +2125,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
         if stripped.startswith("#"):
             continue
 
-        if re.match(rf"inputs\.{re.escape(input_name)}\s*=\s*\{{", stripped):
+        if re.match(rf"inputs\.{_name_ref(input_name)}\s*=\s*\{{", stripped):
             block_start = i
             break
 
@@ -1915,7 +2139,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
             # root input's block; a same-name block nested inside another
             # input's ``inputs = { ... }`` override must not shadow it.
             if inputs_brace_depth == 1 and re.match(
-                rf"{re.escape(input_name)}\s*=\s*\{{", stripped
+                rf"{_name_ref(input_name)}\s*=\s*\{{", stripped
             ):
                 block_start = i
                 break
@@ -1941,6 +2165,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
     return None
 
 
+@functools.lru_cache(maxsize=128)
 def detect_inputs_style(
     content: str,
 ) -> tuple[str, int | None, int | None]:
@@ -1960,7 +2185,7 @@ def detect_inputs_style(
                 if depth <= 0:
                     return ("block", i, j)
             return ("block", i, len(lines) - 1)
-        if re.match(r"inputs\.[a-zA-Z_]", stripped):
+        if re.match(r"inputs\.(?:[a-zA-Z_]|\"[^\"])", stripped):
             return ("dotted", None, None)
     return ("dotted", None, None)
 
@@ -1987,12 +2212,12 @@ def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, b
         # Only match lines at root scope (context is None)
         if ctx is not None:
             continue
-        if re.match(rf"inputs\.{re.escape(input_name)}\.", stripped):
+        if re.match(rf"inputs\.{_name_ref(input_name)}\.", stripped):
             last = i
             inside_block = False
         if style == "block" and block_start is not None and block_end is not None:
             if block_start < i < block_end:
-                if re.match(rf"{re.escape(input_name)}\.", stripped):
+                if re.match(rf"{_name_ref(input_name)}\.", stripped):
                     last = i
                     inside_block = True
 
@@ -2007,7 +2232,7 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
     or *None* if no url line is found.
     """
     lines = content.split("\n")
-    esc = re.escape(input_name)
+    esc = _name_ref(input_name)
     style, block_start, block_end = detect_inputs_style(content)
     block_ctx = _block_context_for_lines(content)
 
@@ -2027,7 +2252,10 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
                 if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
                     in_target = True
                     depth = _brace_delta(stripped)
-                    # Check if url is on the same line (unlikely but safe)
+                    # Check if url is on the same line — the line is
+                    # shared with the block header, so callers must not
+                    # delete it whole (#700; remove_input_url_line
+                    # excises just the assignment).
                     if re.search(r"\burl\s*=", stripped):
                         return i
                     if depth <= 0:
@@ -2057,18 +2285,128 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
     return None
 
 
+def _excise_url_assignment(line: str, input_name: str) -> str | None:
+    """Remove just the ``url = ...;`` assignment from one line (#700).
+
+    The assignment may share the line with other declarations — a
+    one-line block (``foo = { url = "..."; follows = "nixpkgs"; };``),
+    a block header (``foo = { url = "...";``), or a dotted line carrying
+    a second assignment — in which case deleting the whole line would
+    take the rest of the input with it.  Returns the line with only the
+    url assignment excised (``""`` when nothing else remains), or *None*
+    when no url assignment can be excised safely: no terminating ``;``
+    on the line, or the only ``url =`` on it belongs to a nested
+    attribute path / a deeper block level.
+    """
+    esc = _name_ref(input_name)
+
+    # Dotted form: the assignment starts the line's own content.
+    m = re.match(rf"\s*(?:inputs\.)?{esc}\.url\s*=\s*", line)
+    if m:
+        start = len(line) - len(line.lstrip())
+        value_start = m.end()
+    else:
+        # Block form: find a ``url`` token at a statement boundary
+        # (start of line, after ``{`` or after ``;``), string/comment
+        # aware like ``_brace_counts``.  On the input's own block-opening
+        # line its attributes sit one level below the header's ``{``;
+        # on any other line they sit at the line's starting level.
+        stripped = line.strip()
+        is_open_line = (
+            re.match(rf"(?:inputs\.)?{esc}\s*=\s*\{{", stripped) is not None
+        )
+        target_depth = 1 if is_open_line else 0
+        start = -1
+        value_start = -1
+        depth = 0
+        in_string = False
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if in_string:
+                if ch == "\\":
+                    i += 1  # skip the escaped character as well
+                elif ch == '"':
+                    in_string = False
+                i += 1
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "#":
+                break
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            elif depth == target_depth and (
+                line.startswith("url", i)
+                and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] in "_'-"))
+            ):
+                prev = line[:i].rstrip()
+                if not prev or prev.endswith("{") or prev.endswith(";"):
+                    vm = re.match(r"\s*=\s*", line[i + 3 :])
+                    if vm:
+                        start = i
+                        value_start = i + 3 + vm.end()
+                        break
+            i += 1
+        if start < 0:
+            return None
+
+    # The assignment ends at the first ``;`` outside a string.
+    in_string = False
+    semi = -1
+    i = value_start
+    while i < len(line):
+        ch = line[i]
+        if in_string:
+            if ch == "\\":
+                i += 1  # skip the escaped character as well
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch == "#":
+            break
+        elif ch == ";":
+            semi = i
+            break
+        i += 1
+    if semi < 0:
+        return None
+
+    left = line[:start]
+    right = line[semi + 1 :]
+    if left.strip() and right.strip():
+        return left.rstrip() + " " + right.strip()
+    if left.strip():
+        return left.rstrip()
+    if right.strip():
+        # ``left`` is pure indentation (or empty); keep it so a trailing
+        # comment or a following assignment keeps its indent.
+        return left + right.strip()
+    return ""
+
+
 def remove_input_url_line(content: str, input_name: str) -> tuple[str, bool]:
-    """Remove the ``url = ...`` line for a root input.
+    """Remove the ``url = ...`` assignment for a root input.
 
     Returns ``(new_content, was_removed)``.  If the input has no url line
-    the content is returned unchanged.
+    the content is returned unchanged.  When the url shares its line
+    with other declarations only the assignment is excised (#700); if
+    it cannot be excised safely the content is returned unchanged.
     """
     line_no = find_input_url_line(content, input_name)
     if line_no is None:
         return content, False
     lines = content.split("\n")
-    removed_line = lines[line_no].strip()
-    del lines[line_no]
+    excised = _excise_url_assignment(lines[line_no], input_name)
+    if excised is None:
+        return content, False
+    if excised.strip() == "":
+        del lines[line_no]
+    else:
+        lines[line_no] = excised
     return "\n".join(lines), True
 
 
@@ -2079,7 +2417,7 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
     (``inputs.name.follows = "target";`` / ``name.follows = "target";``).
     """
     lines = content.split("\n")
-    esc = re.escape(input_name)
+    esc = _name_ref(input_name)
     style, block_start, block_end = detect_inputs_style(content)
 
     # Block style: look inside the input's block for bare ``follows = "X";``
@@ -2159,29 +2497,31 @@ def insert_follows_in_content(
         if last_line is not None:
             indent = re.match(r"^(\s*)", lines[last_line]).group(1)
             if is_inside:
-                nix_line = f'{parent_input}.follows = "{target}";'
+                nix_line = f'{_quote_name(parent_input)}.follows = "{target}";'
             else:
-                nix_line = f'inputs.{parent_input}.follows = "{target}";'
+                nix_line = f'inputs.{_quote_name(parent_input)}.follows = "{target}";'
             lines.insert(last_line + 1, f"{indent}{nix_line}")
             return "\n".join(lines)
 
         if in_block:
-            nix_line = f'    {parent_input}.follows = "{target}";'
+            nix_line = f'    {_quote_name(parent_input)}.follows = "{target}";'
         else:
-            nix_line = f'    inputs.{parent_input}.follows = "{target}";'
+            nix_line = f'    inputs.{_quote_name(parent_input)}.follows = "{target}";'
         return _insert_before_inputs_end(lines, nix_line, in_block)
 
     # Multi-level follows
     full_nix = (
-        ".".join(f"inputs.{p}" for p in follows_parts) + f'.follows = "{target}";'
+        ".".join(f"inputs.{_quote_name(p)}" for p in follows_parts)
+        + f'.follows = "{target}";'
     )
     relative_to_parent = (
-        ".".join(f"inputs.{p}" for p in follows_parts[1:]) + f'.follows = "{target}";'
+        ".".join(f"inputs.{_quote_name(p)}" for p in follows_parts[1:])
+        + f'.follows = "{target}";'
     )
     relative_to_inputs = (
-        follows_parts[0]
+        _quote_name(follows_parts[0])
         + "."
-        + ".".join(f"inputs.{p}" for p in follows_parts[1:])
+        + ".".join(f"inputs.{_quote_name(p)}" for p in follows_parts[1:])
         + f'.follows = "{target}";'
     )
 
@@ -2206,6 +2546,34 @@ def insert_follows_in_content(
         return _insert_before_inputs_end(lines, f"    {full_nix}", False)
 
 
+def _last_dotted_anchor(lines: list[str], content: str) -> int:
+    """Index of the last root-scope dotted inputs line (insertion anchor).
+
+    Comment lines and lines attributed to another input's block by
+    ``_block_context_for_lines`` are not anchors: a dotted-style parent
+    block (``inputs.parent = { ... };``) contains ``inputs.child.…`` lines
+    that must not attract a root insertion into the parent's block (#696).
+    The parent block itself is a root input, so its opening line anchors
+    at the block's closing line instead.
+    """
+    block_ctx = _block_context_for_lines(content)
+    anchor = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if block_ctx[i] is None:
+            if re.match(r"inputs\.", stripped):
+                anchor = i
+            continue
+        m = re.match(rf"inputs\.{_SEG_TOKEN}\s*=\s*\{{", stripped)
+        if m and block_ctx[i] == _unquote_name(m.group(1)):
+            end = find_input_block_end(content, _unquote_name(m.group(1)))
+            if end is not None:
+                anchor = max(anchor, end[0])
+    return anchor
+
+
 def insert_root_input(
     content: str, input_name: str, url: str, *, flake: bool = True
 ) -> str:
@@ -2228,26 +2596,25 @@ def insert_root_input(
                 if m and lines[i].strip():
                     indent = m.group(1)
                     break
-        new_line = f'{indent}{input_name}.url = "{url}";'
+        new_line = f'{indent}{_quote_name(input_name)}.url = "{url}";'
         lines.insert(block_end, new_line)
         if not flake:
-            lines.insert(block_end + 1, f"{indent}{input_name}.flake = false;")
+            lines.insert(
+                block_end + 1, f"{indent}{_quote_name(input_name)}.flake = false;"
+            )
     else:
-        last_input_line = 0
-        for i, line in enumerate(lines):
-            if re.match(r"\s*inputs\.", line.strip()):
-                last_input_line = i
+        last_input_line = _last_dotted_anchor(lines, content)
         indent = "    "
         if last_input_line > 0:
             m = re.match(r"^(\s*)", lines[last_input_line])
             if m:
                 indent = m.group(1)
-        new_line = f'{indent}inputs.{input_name}.url = "{url}";'
+        new_line = f'{indent}inputs.{_quote_name(input_name)}.url = "{url}";'
         lines.insert(last_input_line + 1, new_line)
         if not flake:
             lines.insert(
                 last_input_line + 2,
-                f"{indent}inputs.{input_name}.flake = false;",
+                f"{indent}inputs.{_quote_name(input_name)}.flake = false;",
             )
 
     return "\n".join(lines)
@@ -2333,14 +2700,451 @@ def extract_failed_input(stderr: str) -> tuple[str | None, str | None]:
     """
     input_path = None
     flake_name = None
+    # Nix wraps the name in single quotes verbatim.  A quoted attribute
+    # name may contain almost any character — the content scanners
+    # accept any quoted name (#705) — so a character set for the name
+    # will always lag the next legal one: the apostrophe for primed
+    # names (#691) and the dot for dotted names (#710) each arrived as
+    # their own bug, "+", " " or "@" names still missed (#712), and
+    # #713's structural parse still truncated a name at an apostrophe
+    # followed by a character outside its lookahead set (a'!b -> a,
+    # #714) — worse than a miss, because the callers trust the
+    # truncated prefix and override/match a different input.
+    # Parse the wrapper instead of the name.  A quote is name text,
+    # never the wrapper's close, when it can only continue a name or
+    # a word: (a) a doubled quote is a prime plus the next quote
+    # ('nixpkgs'' is the wrapped nixpkgs', 'nixpkgs''' the wrapped
+    # nixpkgs''); (b) a quote immediately followed by "/" ends a
+    # primed path segment ('parent'/child) — no message template puts
+    # a "/" right after the closing quote; (c) a quote with a word
+    # character on both sides is an apostrophe inside a word (a'b in
+    # a name, user's in following prose).  The closing quote is the
+    # first remaining quote that leaves the name a plausible path
+    # (non-empty, no empty segment, no leading/trailing whitespace)
+    # and an even number of delimiter quotes in the rest of the line
+    # — following text quotes its own words in pairs ('…' and then
+    # 'other'), so a close that strands one delimiter quote is a name
+    # apostrophe, whatever character follows it (!, %, ~, :, a space,
+    # a non-ASCII letter).  #720 counted every rest quote, so a path
+    # primed in two segments ('a'/b'') looked closed at its first
+    # prime and a possessive in following text (user's) was taken as
+    # a close, swallowing prose into the name (#722).  The parity
+    # likewise discounts a word-final possessive (users', James'):
+    # its word is a standalone prose word, preceded by whitespace
+    # and by further prose after the candidate close, whereas a
+    # delimiter closing a span in the rest is preceded by that
+    # span's opening quote and a name quote in the rest is the
+    # first word after an in-name apostrophe (the bar of
+    # 'foo' bar') — #726 counted only the medial user's shape, so
+    # a plural possessive still skewed the parity and the true
+    # close was rejected (#727).  #728 judged each rest quote on
+    # its own, so a multi-word span's closing quote ('power
+    # users') met that standalone-word test and was discounted,
+    # and a hyphenated compound's possessive (end-users') was
+    # never recognised because the word walk stopped at the
+    # hyphen: the parity now tracks quoted spans in the rest (a
+    # span's closing quote always counts) and the possessive
+    # walk crosses a flanked hyphen (#731).  A span quoting a
+    # prime-ending name ends in a run of quotes ('power
+    # users'') whose second prime the span tracker mistook
+    # for a new span's opening, stranding the parity again:
+    # a closing run now counts as the single delimiter it
+    # is, its earlier primes being name text (#733) — unless
+    # the run's last quote is also the opening of the next,
+    # adjacently written span ('a''b'), in which case the
+    # run counts as close plus opening (#743).  #744 judged
+    # that by the single character after the run — a word
+    # character meant close plus opening, anything else a
+    # single close — and misjudged in both directions: a
+    # prose suffix after a primed span ('users''s) was taken
+    # for a new span that never closes, and an adjacent span
+    # starting with punctuation ('a''-b') was collapsed to a
+    # single close.  The run is now judged by the rest of
+    # the line: it counts as close plus opening only when a
+    # span opened at its last quote actually closes later
+    # (_closing_run_opens_next_span, #745).  #747's lookahead
+    # inside that judgement recognised an independent span's
+    # opening after a non-space separator by the characters
+    # around it alone, which also matches a punctuation-
+    # ending adjacent span's genuine close carrying a glued
+    # suffix ('a''b-'s): that quote is now an opening only
+    # when a span opened at it also closes later (#756).
+    # #757's helper for that judgement took the next quote
+    # as the candidate's close whenever the prose before it
+    # ended in a separator outside its four-char set
+    # ('a''b-'s flake:'other'): the candidate close is now
+    # itself displaced when it has the opening signature
+    # and a span opened at it closes later (#760).
+    # A span in the following text that never closes still
+    # counted its opening quote in the parity, so it could
+    # balance the wrapper's genuine close seen from an
+    # in-name candidate and yield a truncated prefix
+    # ('a'!b' ' -> a, the #714 harm through the back door).
+    # A rest that ends inside an unclosed span is not
+    # balanced, so its count is forced odd for every
+    # candidate and the line yields no match (#772).
+    # The opening-signature tests in the two lookahead
+    # helpers refused to recognise a span whose content
+    # starts with prose punctuation (')]}.,;:!?'), so an
+    # independent span like ('.other') was never recognised
+    # as a span at all — its opening was taken for another
+    # span's close, the parity skewed, and the wrapper's
+    # genuine close was rejected for a swollen name
+    # ('nixpkgs' and then 'users').  A punctuation-start
+    # span is legitimate content (a dot-start name is a
+    # legal quoted name, #709/#710), and the recursive
+    # closes-later check is what separates it from prose
+    # punctuation following a genuine close, so the
+    # character after a candidate opening no longer
+    # disqualifies it on its own (#778).
+    # If no quote qualifies, the name is genuinely ambiguous and
+    # the line yields no match rather than a truncated prefix.
     for line in stderr.split("\n"):
-        m = re.search(r"while updating the flake input '([^']+)'", line)
-        if m:
-            input_path = m.group(1)
-        m = re.search(r"cannot find flake 'flake:([^']+)'", line)
-        if m:
-            flake_name = m.group(1)
+        name = _wrapped_name(line, "while updating the flake input '")
+        if name is not None:
+            input_path = name
+        name = _wrapped_name(line, "cannot find flake 'flake:")
+        if name is not None:
+            flake_name = name
     return input_path, flake_name
+
+
+def _wrapped_name(line: str, prefix: str) -> str | None:
+    """Extract the single-quoted name after prefix on one stderr line.
+
+    Both callers' prefixes end exactly where the name text begins
+    (the input form's prefix ends with the opening quote; the
+    registry form's ends with "flake:", just after its opening
+    quote).  Returns None when the prefix is absent or no quote on
+    the line can be the wrapper's closing quote (see
+    extract_failed_input for the name-text rules).
+    """
+    start = line.find(prefix)
+    if start < 0:
+        return None
+    start += len(prefix)
+    for i in range(start, len(line)):
+        if line[i] != "'":
+            continue
+        if i + 1 < len(line) and line[i + 1] == "'":
+            continue  # doubled quote: a prime in the name, not the close
+        if i + 1 < len(line) and line[i + 1] == "/":
+            continue  # prime ending a path segment: 'parent'/child
+        if _is_word_apostrophe(line, i):
+            continue  # apostrophe inside a word: a'b, not the close
+        name = line[start:i]
+        if not _plausible_input_path(name):
+            continue
+        if _rest_delimiter_quotes(line, i) % 2 == 0:
+            return name
+    return None
+
+
+def _is_word_apostrophe(line: str, i: int) -> bool:
+    """True when line[i] is an apostrophe inside a word — a word
+    character on both sides (a'b in a name, user's in prose).  Such a
+    quote is never a wrapper delimiter: a closing quote is followed
+    by a space, punctuation or the end of the line, and a quoted span
+    in following text is bounded the same way."""
+    return (
+        0 < i < len(line) - 1
+        and (line[i - 1].isalnum() or line[i - 1] == "_")
+        and (line[i + 1].isalnum() or line[i + 1] == "_")
+    )
+
+
+def _is_final_possessive(line: str, i: int, j: int) -> bool:
+    """True when line[j], in the rest after candidate close i, is a
+    word-final possessive apostrophe (users', James'): a word
+    character before it, no word character after it, the word it
+    ends is a standalone prose word (the character before that
+    word is whitespace), and at least one further word of prose
+    stands between the candidate close and that word.  The word
+    it ends may be a hyphenated compound (end-users'): the walk
+    back crosses a hyphen flanked by word characters, so the
+    compound's first segment is what must be standalone — #728's
+    walk stopped at the hyphen, found the last segment preceded
+    by "-" instead of whitespace, and never discounted the
+    possessive (#731).  The two prose conditions are what
+    separate a possessive in following text from a delimiter: a
+    quote closing a quoted span in the rest ends a word the
+    span's opening quote precedes ('other'); a quote closing the
+    wrapper itself, seen in the rest of an earlier in-name
+    candidate, either ends a name fragment a name character
+    precedes (the b of a'!b) or is the first word after that
+    candidate (the bar of 'foo' bar') — both keep counting as
+    delimiters, so the #714 continuation cases keep their parity
+    (#727).  This judgement is only consulted for a quote outside
+    any quoted span in the rest: _rest_delimiter_quotes tracks
+    span state, so a multi-word span's closing quote is never
+    judged here at all (#731)."""
+    if not (line[j - 1].isalnum() or line[j - 1] == "_"):
+        return False
+    if j + 1 < len(line) and (line[j + 1].isalnum() or line[j + 1] == "_"):
+        return False
+    k = j
+    while k > 0 and (
+        line[k - 1].isalnum()
+        or line[k - 1] == "_"
+        or (
+            line[k - 1] == "-"
+            and k > 1
+            and (line[k - 2].isalnum() or line[k - 2] == "_")
+        )
+    ):
+        k -= 1
+    if not (k > 0 and line[k - 1].isspace()):
+        return False
+    return " " in line[i + 1 : j].strip()
+
+
+def _closing_run_opens_next_span(line: str, run_end: int) -> bool:
+    """True when a span opened at line[run_end] — the last quote
+    of a closing run, taken as the opening of an adjacently
+    written next span — actually closes later in the line.
+
+    The next non-apostrophe quote after the run is that span's
+    would-be close.  It can close the span only when the span's
+    content is non-empty and does not end in whitespace (a
+    quoted name never trails a space): when no quote follows
+    the run at all, the character after the run is a prose
+    suffix on the span that just closed ('users''s flake,
+    'users''-owned), and when the next quote is preceded by
+    whitespace it is the opening of a later, independent span
+    ('users''s … 'other'), not this one's close.  #744 judged
+    the run by the single character after it, so the first
+    shape was mistaken for an opening and the genuinely
+    adjacent punctuation-start spans ('a''-b', 'a''/nix/…')
+    were collapsed to a single close (#745).
+
+    The whitespace test alone misses an independent span whose
+    opening quote is preceded by a non-space separator —
+    'users''s flake, ('other')', 'users''s flake:'other'' —
+    where the separator is the content's last character, is
+    not whitespace, and so passed the test above (#747).  An
+    opening quote is recognised directly: a non-word character
+    before it (the separator: space, '(', ':', '[', '-', '/',
+    '"' …) and a non-whitespace character after it.  That
+    character class alone cannot decide the question: the
+    prose punctuation that follows a genuine close
+    (')]}.,;:!?') is the same set a legitimate span's
+    content can start with ('.other' — a dot-start quoted
+    name is legal, #709/#710), so a candidate whose content
+    starts with that punctuation is judged by the same
+    closes-later check as any other candidate, not refused
+    outright (#778).
+
+    That last claim is false for a glued prose suffix: an
+    adjacently written span that ends in punctuation and
+    carries a suffix — 'a''b-'s, the 'users''s paradigm of
+    #744 with a punctuation-ending second span — has a word
+    character after its genuine close, so the single
+    character after the would-be close cannot decide the
+    question on its own (#756).  The opening signature is
+    therefore only a candidate: the quote is an opening only
+    when a span opened at it actually closes later
+    (_span_opened_at_closes) — 'other' after a separator
+    closes at its own quote, while the suffix after 'b-'
+    reaches no closing quote with plausible span content
+    (what follows it is prose, ending in whitespace or an
+    opening separator before any later span's quote)."""
+    start = run_end + 1
+    for j in range(start, len(line)):
+        if line[j] != "'":
+            continue
+        if _is_word_apostrophe(line, j):
+            continue
+        content = line[start:j]
+        if not content or content[-1].isspace():
+            return False
+        if not (line[j - 1].isalnum() or line[j - 1] == "_"):
+            after = line[j + 1] if j + 1 < len(line) else ""
+            if (
+                after
+                and not after.isspace()
+                and _span_opened_at_closes(line, j)
+            ):
+                return False
+        return True
+    return False
+
+
+def _span_opened_at_closes(line: str, opening: int) -> bool:
+    """True when a span opened at line[opening] closes later:
+    the next non-apostrophe quote after it has plausible span
+    content before it — non-empty, not ending in whitespace
+    (a quoted name never trails a space) and not ending in an
+    opening separator ('(', '[', '{' or '"'), which stands
+    outside a span in prose and so cannot be its last content
+    character.  When no quote follows at all, or the next
+    quote's would-be content fails those tests, what follows
+    the opening candidate is prose — a glued suffix such as
+    the 's of 'b-'s, plus the rest of the sentence — not a
+    span, so the candidate quote never opens one (#756).
+
+    The content test alone is not enough when the prose after
+    a glued suffix ends in a separator other than the four
+    above — 'a''b-'s flake:'other', and likewise with ',',
+    ';', '-', '/', '=', ']', ')', '}', '.', '!' or '?' as the
+    separator before a later independent span.  The would-be
+    content 's flake:' then ends in that separator, which is
+    not whitespace and not in the four, so the later span's
+    opening quote was taken for this candidate's close and
+    the suffix was believed to open a span (#760).  That
+    quote is recognised as an opening the same way #756
+    recognised the candidate itself: a non-word character
+    before it (whatever separator the prose happens to end
+    in — the family is judged generally, not by listing its
+    members) and span content after it, and the reading
+    holds only when a span opened at that quote itself
+    closes later (this function, one span further on).  A
+    genuine close is not displaced by the recursion: a
+    punctuation-ending span's close with a glued suffix
+    ('b-'s …) reaches no closing quote with plausible
+    content through its suffix prose, exactly as before,
+    because the suffix's own candidate close — the later
+    span's opening — is displaced the same way."""
+    start = opening + 1
+    for k in range(start, len(line)):
+        if line[k] != "'":
+            continue
+        if _is_word_apostrophe(line, k):
+            continue
+        content = line[start:k]
+        if not content or content[-1].isspace() or content[-1] in '([{"':
+            return False
+        if not (line[k - 1].isalnum() or line[k - 1] == "_"):
+            after = line[k + 1] if k + 1 < len(line) else ""
+            if (
+                after
+                and not after.isspace()
+                and _span_opened_at_closes(line, k)
+            ):
+                return False
+        return True
+    return False
+
+
+def _rest_delimiter_quotes(line: str, i: int) -> int:
+    """Delimiter quotes in line after index i: single quotes that are
+    not word apostrophes.  Following text quotes its own words in
+    pairs, so a genuine closing quote leaves an even count; a
+    possessive like user's is an apostrophe, not a delimiter, and
+    must not skew the parity (#722) — and neither is a word-final
+    possessive like users', whose apostrophe is word-final rather
+    than medial (#727).
+
+    The scan tracks quoted spans in the rest: a quote with no
+    word character before it opens a span, and the next
+    non-apostrophe quote closes it and counts as a delimiter
+    whatever word it ends.  #728 judged every quote on its own,
+    so the closing quote of a multi-word span ('power users')
+    met the standalone-word possessive test — its last word is
+    preceded by the space inside the span — was discounted, and
+    the genuine close left an odd count and was rejected (#731).
+    A word-final quote outside any span is closing-like (a
+    possessive, discounted per _is_final_possessive, or the
+    wrapper's own close seen from an earlier in-name candidate,
+    which counts) and never opens a span, so a possessive after
+    an in-name apostrophe's genuine close is still judged on its
+    own rather than swallowed by a phantom span.
+
+    A span quoting a prime-ending name ends in a run of quotes
+    ('power users''): the primes before the run's last quote are
+    name text and the last quote is the span's close, so the
+    whole run is the span's single closing delimiter.  Counting
+    the run per quote closed the span at its first prime and
+    then treated the second prime — preceded by a quote, not a
+    word character — as the opening of a new span that was
+    never closed, stranding the parity and rejecting the
+    genuine close (#733).  A multi-quote run can instead be
+    two delimiters — this span's close and the opening of
+    the next span written adjacently ('a''b') — and both
+    count, with the next span tracked (#743).  #744 told the
+    two apart by the one character after the run, which
+    misjudges both ways: a word character can be a prose
+    suffix on the primed span ('users''s flake — no span
+    follows), and a punctuation character can start the next
+    span ('a''-b').  The run is therefore judged by the
+    rest of the line: _closing_run_opens_next_span asks
+    whether a span opened at the run's last quote actually
+    closes later (#745) — and whether the quote it finds
+    there closes anything at all, rather than opening an
+    independent span after a non-space separator (#747),
+    a reading that itself holds only when a span opened at
+    that quote closes later, lest a punctuation-ending
+    adjacent span's close with a glued suffix ('a''b-'s)
+    be taken for such an opening (#756) — and that later
+    closing judgement itself displaces a candidate close
+    that opens a further independent span after any
+    separator, not only the four it first listed (#760).
+    A span that is still open at the end of the line never
+    closes, so it cannot balance the genuine close: if the
+    count reached is even, it is forced odd (#772)."""
+    count = 0
+    in_span = False
+    j = i + 1
+    while j < len(line):
+        if line[j] != "'":
+            j += 1
+            continue
+        if _is_word_apostrophe(line, j):
+            j += 1
+            continue
+        if in_span:
+            # Scan the whole closing run before judging it: the
+            # rest of the line decides what its last quote is.
+            run_end = j
+            while run_end + 1 < len(line) and line[run_end + 1] == "'":
+                run_end += 1
+            count += 1  # the span's close; earlier run quotes are primes
+            if run_end > j and _closing_run_opens_next_span(line, run_end):
+                # The run's last quote opens the next span,
+                # written adjacently ('a''b', 'a''-b') — it is a
+                # delimiter too, and the span it opens stays
+                # tracked so its own close counts.  Collapsing
+                # the whole run to the close — the #733 reading,
+                # right when the quoted phrase really ends there
+                # ('power users'' , 'users''s) — ate that opening,
+                # flipped the parity and rejected the genuine
+                # close (#743).
+                count += 1
+                j = run_end + 1
+                continue  # in_span stays True: the next span is open
+            in_span = False
+            j = run_end + 1
+            continue
+        if not (line[j - 1].isalnum() or line[j - 1] == "_"):
+            count += 1
+            in_span = True
+            j += 1
+            continue
+        if _is_final_possessive(line, i, j):
+            j += 1
+            continue
+        count += 1
+        j += 1
+    if in_span and count % 2 == 0:
+        # The rest ends inside a span that never closes: its
+        # opening quote counted above, but it has no closing
+        # partner, so the rest is not balanced — force the
+        # count odd rather than let an unclosed span make an
+        # in-name candidate look balanced and yield a
+        # truncated prefix ('a'!b' ' -> a, #772).
+        count += 1
+    return count
+
+
+def _plausible_input_path(name: str) -> bool:
+    """True when name can be a flake input path or registry name:
+    non-empty, no empty "/" segment, no leading or trailing
+    whitespace.  A supposed close that leaves prose in the name
+    ('nixpkgs' and then 'other -> nixpkgs' and then ) fails the
+    whitespace rule, so an ambiguous line yields no match instead of
+    a swallowed name (#722)."""
+    if not name or name != name.strip():
+        return False
+    return all(segment for segment in name.split("/"))
 
 
 def build_override_inputs(lock: dict, input_path: str) -> dict[str, str]:
@@ -2541,9 +3345,9 @@ def _add_deep_follows_overrides(
 
             # Detect named input block: <name> = {
             if current_block is None and brace_depth == 1:
-                m = re.match(r"([a-zA-Z0-9_-]+)\s*=\s*\{", stripped)
+                m = re.match(rf"{_SEG_TOKEN}\s*=\s*\{{", stripped)
                 if m:
-                    current_block = m.group(1)
+                    current_block = _unquote_name(m.group(1))
                     brace_depth += opens  # count the { we just matched
                     brace_depth -= closes
                     # Check for deep follows inside this block on the same line
@@ -2554,11 +3358,14 @@ def _add_deep_follows_overrides(
             if current_block is not None:
                 # Look for: inputs.X.inputs.Y.follows (or .url, etc.)
                 m_deep = re.match(
-                    r"inputs\.([a-zA-Z0-9_-]+)(?:\.inputs\.([a-zA-Z0-9_-]+))+",
+                    rf"inputs\.{_SEG_TOKEN}(?:\.inputs\.{_SEG_TOKEN})+",
                     stripped,
                 )
                 if m_deep:
-                    parts = re.findall(r"inputs\.([a-zA-Z0-9_-]+)", stripped)
+                    parts = [
+                        _unquote_name(t)
+                        for t in re.findall(rf"inputs\.{_SEG_TOKEN}", stripped)
+                    ]
                     # Full path is current_block / parts[0] / parts[1] / ...
                     # The transitive inputs that need resolving are the
                     # intermediate ones: current_block/parts[0],
@@ -2569,7 +3376,7 @@ def _add_deep_follows_overrides(
 
                 # Also catch: inputs.X.follows (X is transitive of current_block)
                 m_shallow = re.match(
-                    r"inputs\.([a-zA-Z0-9_-]+)\.(follows|url)\b", stripped
+                    rf"inputs\.{_SEG_TOKEN}\.(follows|url)\b", stripped
                 )
                 if m_shallow and not m_deep:
                     # inputs.X.follows inside block = current_block/X is transitive
@@ -2592,11 +3399,13 @@ def _add_deep_follows_overrides(
         if stripped.startswith("#"):
             continue
         m = re.match(
-            r"inputs\.([a-zA-Z0-9_-]+)(?:\.inputs\.([a-zA-Z0-9_-]+))+",
+            rf"inputs\.{_SEG_TOKEN}(?:\.inputs\.{_SEG_TOKEN})+",
             stripped,
         )
         if m and not in_inputs_section:
-            parts = re.findall(r"inputs\.([a-zA-Z0-9_-]+)", stripped)
+            parts = [
+                _unquote_name(t) for t in re.findall(rf"inputs\.{_SEG_TOKEN}", stripped)
+            ]
             if len(parts) >= 2:
                 for i in range(2, len(parts) + 1):
                     path = "/".join(parts[:i])
@@ -3307,9 +4116,9 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
 
             # Detect named input block at depth 1
             if current_block is None and brace_depth == 1:
-                m = re.match(r"([a-zA-Z0-9_'-]+)\s*=\s*\{", stripped)
+                m = re.match(rf"{_SEG_TOKEN}\s*=\s*\{{", stripped)
                 if m:
-                    current_block = m.group(1)
+                    current_block = _unquote_name(m.group(1))
 
             # Inside a named block: look for inputs.CHILD.inputs.SUB.follows
             if current_block is not None:
@@ -3317,31 +4126,32 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
                 # nested ``inputs = { ... }`` override, the same deep
                 # follows is spelled CHILD.inputs.SUB.follows.
                 if nested_prefixes[i] == [current_block]:
-                    m = re.match(
-                        r'([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
-                        _nested_segment(stripped),
-                    )
-                    if m:
-                        results.append(
-                            {
-                                "parent": current_block,
-                                "child": m.group(1),
-                                "sub_input": m.group(2),
-                                "target": m.group(3),
-                                "line_number": i,
-                                "line": line,
-                            }
+                    for seg in _nested_segments(stripped):
+                        m = re.match(
+                            rf'{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.follows\s*=\s*"([^"]+)"',
+                            seg,
                         )
+                        if m:
+                            results.append(
+                                {
+                                    "parent": current_block,
+                                    "child": _unquote_name(m.group(1)),
+                                    "sub_input": _unquote_name(m.group(2)),
+                                    "target": m.group(3),
+                                    "line_number": i,
+                                    "line": line,
+                                }
+                            )
                 m = re.match(
-                    r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+                    rf'inputs\.{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.follows\s*=\s*"([^"]+)"',
                     stripped,
                 )
                 if m:
                     results.append(
                         {
                             "parent": current_block,
-                            "child": m.group(1),
-                            "sub_input": m.group(2),
+                            "child": _unquote_name(m.group(1)),
+                            "sub_input": _unquote_name(m.group(2)),
                             "target": m.group(3),
                             "line_number": i,
                             "line": line,
@@ -3358,15 +4168,15 @@ def _parse_deep_follows(content: str) -> list[dict[str, Any]]:
 
         # Dotted-style: inputs.PARENT.inputs.CHILD.inputs.SUB.follows
         m = re.match(
-            r'inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.inputs\.([a-zA-Z0-9_\'-]+)\.follows\s*=\s*"([^"]+)"',
+            rf'inputs\.{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.inputs\.{_SEG_TOKEN}\.follows\s*=\s*"([^"]+)"',
             stripped,
         )
         if m and not in_inputs_section:
             results.append(
                 {
-                    "parent": m.group(1),
-                    "child": m.group(2),
-                    "sub_input": m.group(3),
+                    "parent": _unquote_name(m.group(1)),
+                    "child": _unquote_name(m.group(2)),
+                    "sub_input": _unquote_name(m.group(3)),
                     "target": m.group(4),
                     "line_number": i,
                     "line": line,
@@ -3448,22 +4258,24 @@ def insert_root_input_block(
                 break
 
     # Build the block
-    block_lines = [f"{indent}{input_name} = {{"]
+    block_lines = [f"{indent}{_quote_name(input_name)} = {{"]
     block_lines.append(f'{indent}  url = "{url}";')
     for sub_input, target in sub_follows:
-        block_lines.append(f'{indent}  inputs.{sub_input}.follows = "{target}";')
+        block_lines.append(
+            f'{indent}  inputs.{_quote_name(sub_input)}.follows = "{target}";'
+        )
     block_lines.append(f"{indent}}};")
 
     if style == "block" and block_end is not None:
         for line_str in reversed(block_lines):
             lines.insert(block_end, line_str)
     else:
-        # Dotted style: find last input line
-        last_input_line = 0
-        for k, line_str in enumerate(lines):
-            if re.match(r"\s*inputs\.", line_str.strip()):
-                last_input_line = k
-        for j, line_str in enumerate(block_lines):
+        # Dotted style: find last root-scope input line. The block must be
+        # spelled inputs.NAME = { ... }; — a bare NAME = { ... } at the
+        # flake's top level is an unrelated attribute, not an input (#696).
+        last_input_line = _last_dotted_anchor(lines, content)
+        dotted_lines = [f"{indent}inputs.{_quote_name(input_name)} = {{"] + block_lines[1:]
+        for j, line_str in enumerate(dotted_lines):
             lines.insert(last_input_line + 1 + j, line_str)
 
     return "\n".join(lines)
@@ -4170,9 +4982,9 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if stripped.startswith("#"):
                 continue
             # Detect block start: ``name = {``
-            m = re.match(r"(\w[\w-]*)\s*=\s*\{", stripped)
+            m = re.match(rf"{_SEG_TOKEN}\s*=\s*\{{", stripped)
             if m and depth == 0:
-                current_block = m.group(1)
+                current_block = _unquote_name(m.group(1))
                 has_url = False
                 has_follows = False
                 # Attributes on the opening line itself count, at the
@@ -4215,12 +5027,12 @@ def check_url_follows_conflicts(content: str) -> list[str]:
             if depth > 0:
                 continue
             depth = max(depth, 0)
-        m = re.match(r"(?:inputs\.)?(\w[\w-]*)\.url\s*=", stripped)
+        m = re.match(rf"(?:inputs\.)?{_SEG_TOKEN}\.url\s*=", stripped)
         if m:
-            url_names.add(m.group(1))
-        m = re.match(r"(?:inputs\.)?(\w[\w-]*)\.follows\s*=", stripped)
+            url_names.add(_unquote_name(m.group(1)))
+        m = re.match(rf"(?:inputs\.)?{_SEG_TOKEN}\.follows\s*=", stripped)
         if m:
-            follows_names.add(m.group(1))
+            follows_names.add(_unquote_name(m.group(1)))
 
     for name in url_names & follows_names:
         if name not in conflicts:

@@ -13,7 +13,10 @@
 #   excluded: this script itself, its invocation chain (ancestors whose
 #             cmdlines name the script), and its descendants (#465);
 #             processes whose cmdline merely mentions opencode as a
-#             later argument, and unrelated processes.
+#             later argument, unrelated processes, and argv[0]s that
+#             merely START with opencode (opencode-foo, opencodefoo,
+#             opencode-server, opencode.bak -- #828: the awk test needs
+#             a boundary after the name, not just a prefix).
 #
 # Run: ./opencode-db-pids.test.sh [script ...]
 # With no arguments it tests both db scripts next to this file.
@@ -42,6 +45,10 @@ $((B + 3)) 1 /home/user/.opencode/bin/opencode serve
 $((B + 50)) 1 bash $1 --dry-run
 $$ $((B + 50)) bash $1 --dry-run
 $((B + 51)) $$ opencode serve
+$((B + 7)) 1 opencode-foo serve
+$((B + 8)) 1 opencodefoo serve
+$((B + 9)) 1 /usr/local/bin/opencode-server
+$((B + 10)) 1 /usr/local/bin/opencode.bak serve
 $((B + 60)) 1 vim notes.txt
 $((B + 61)) 1 watch opencode serve
 EOF
@@ -63,7 +70,7 @@ for script in "${scripts[@]}"; do
   rm -f "$fixture"
 
   if [ "$got" = "$want" ]; then
-    printf 'PASS %s: bare, ./, and path opencode counted; self/ancestor/descendant and non-argv0 mentions excluded\n' "$script"
+    printf 'PASS %s: bare, ./, and path opencode counted; self/ancestor/descendant, non-argv0 mentions and opencode-prefixed argv0s excluded\n' "$script"
   else
     printf 'FAIL %s\n  want pids:\n%s\n  got pids:\n%s\n' "$script" "$want" "$got" >&2
     failures=$((failures + 1))

@@ -134,6 +134,35 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
+# where a non-numeric value fails mid-walk and 0 silently means "the path
+# itself only". Judge it whole, at parse time, like opencode-db-prune.sh
+# judges --protect-days/--batch (#830). Empty means unbounded (--recursive).
+# This block is identical in all four discovery-vocabulary scripts.
+if [ -n "$DEPTH_LIMIT" ]; then
+  case "$DEPTH_LIMIT" in
+    *[!0-9]*|'')
+      echo "spotlight-exclude-artifacts: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+      exit 2 ;;
+  esac
+  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
+  # value above 2147483647 passes the case above yet find rejects it at walk
+  # time ("Numerical result out of range") while the run still exits 0. The
+  # shell's own integer tests cannot judge this — they are 64-bit — so, like
+  # the --pack-threads backstop (#839/#840), compare by digit count first
+  # (leading zeros stripped; at most 10 digits always fits the shell's
+  # arithmetic), then by value against INT_MAX. Judging the stripped value
+  # here, before the -gt 0 test below, also rejects >64-bit digit strings
+  # cleanly instead of tripping "integer expression expected".
+  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
+  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
+    echo "spotlight-exclude-artifacts: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
+    exit 2
+  fi
+  unset _dl
+  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "spotlight-exclude-artifacts: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+fi
+
 if [ "$AUTO_SET" = "1" ] && [ "$SCOPE_SET" = "1" ]; then
   echo "spotlight-exclude-artifacts: --auto conflicts with --system/--no-system" >&2
   echo "                            (--auto just names the default: system + repos)" >&2

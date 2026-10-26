@@ -7,6 +7,20 @@
 let
   homeDir = "/Users/drewry.pope";
 
+  # opencode's shell completion scripts, generated once at build time from the
+  # same opencode package, so no shell starts the 190 MB binary at start-up or
+  # on Tab. v2's flag is `--completions <shell>`. It has no `completion`
+  # command (`eval "$(opencode completion)"` took the word as a directory),
+  # and `--get-yargs-completions` prints the general help instead of
+  # candidates (checked 2026-10-26 on 2.0.30), so a hook calling either one
+  # offers nothing useful (dezren39/nix#666).
+  opencodeCompletions =
+    shell:
+    pkgs.runCommand "opencode-${shell}-completion" { } ''
+      HOME=$TMPDIR ${inputs.self.packages.${system}.opencode}/bin/opencode --completions ${shell} > $out
+      test -s $out
+    '';
+
   sharedShellAliases = {
     rm = "trash";
     ll = "ls -lah --group-directories-first --color=auto";
@@ -169,16 +183,8 @@ in
       initExtra = ''
         ${sharedShellInit}
 
-        # opencode: shell completions (yargs-based)
-        _opencode_yargs_completions() {
-          local cur_word args type_list
-          cur_word="''${COMP_WORDS[COMP_CWORD]}"
-          args=("''${COMP_WORDS[@]}")
-          type_list=$(opencode --get-yargs-completions "''${args[@]}" 2>/dev/null)
-          COMPREPLY=($(compgen -W "''${type_list}" -- "''${cur_word}"))
-          return 0
-        }
-        complete -o bashdefault -o default -F _opencode_yargs_completions opencode
+        # opencode: shell completions, generated at build time (opencodeCompletions).
+        source ${opencodeCompletions "bash"}
       '';
     };
     zsh = {
@@ -187,17 +193,8 @@ in
       initContent = ''
         ${sharedShellInit}
 
-        # opencode: shell completions. Generated once at build time from the
-        # same opencode package; `eval "$(opencode completion)"` here started
-        # the 190 MB binary in every new shell, and v2 has no `completion`
-        # command (it took the word as a directory and exited 1;
-        # dezren39/nix#666). v2's flag is `--completions zsh`.
-        source ${
-          pkgs.runCommand "opencode-zsh-completion" { } ''
-            HOME=$TMPDIR ${inputs.self.packages.${system}.opencode}/bin/opencode --completions zsh > $out
-            test -s $out
-          ''
-        }
+        # opencode: shell completions, generated at build time (opencodeCompletions).
+        source ${opencodeCompletions "zsh"}
       '';
     };
     fish = {
