@@ -67,7 +67,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "blake3-wasm": "2.1.5",
+    "blake3-wasm": "3.0.0",
     "esbuild": "0.28.1",
     "path-to-regexp": "6.3.0",
     "unenv": "2.0.0-rc.24",
