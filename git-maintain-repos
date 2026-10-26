@@ -210,6 +210,30 @@ if [ -n "$DEPTH_LIMIT" ]; then
   [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
 fi
 
+# --jobs is forwarded verbatim to xargs -P, where a non-numeric value fails
+# only after discovery (and the run still exits 0, maintaining nothing) and
+# 0 silently means UNLIMITED parallel git gc across every repo. Judge it
+# whole, at parse time, like --depth above (#836). Covers the JOBS env var
+# too: this judges the variable after parsing, wherever it came from.
+case "$JOBS" in
+  *[!0-9]*|'')
+    echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2
+    exit 2 ;;
+esac
+[ "$JOBS" -gt 0 ] || { echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2; exit 2; }
+
+# --pack-threads is forwarded verbatim to git -c pack.threads=, where junk
+# (abc/10junk/1.5) or a negative value makes every repo's gc fail with a
+# fatal while the run still reports success (#836). Digits only, judged at
+# parse time like --jobs; covers the PACK_THREADS env var too. 0 stays
+# legal here, deliberately: git documents pack.threads=0 as auto-detect
+# (online CPUs), unlike xargs -P 0, which is unlimited.
+case "$PACK_THREADS" in
+  *[!0-9]*|'')
+    echo "git-maintain-repos: --pack-threads must be a non-negative integer (got: $PACK_THREADS)" >&2
+    exit 2 ;;
+esac
+
 # ---------------------------------------------------------------------------
 # Internal single-repo mode (re-entered via xargs for parallelism)
 # ---------------------------------------------------------------------------
