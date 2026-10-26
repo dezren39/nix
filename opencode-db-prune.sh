@@ -370,10 +370,26 @@ source_kind() {
   esac
 }
 
-# SQLite's URI parser only treats % ? and # specially inside the path, and the
-# result still has to survive being pasted into a single-quoted SQL literal.
+# SQLite's URI parser only treats % ? and # specially inside the path.
+# Percent-encode them (% first) so a --db path containing them opens the
+# file actually named (#890). For sqlite3 CLI "file:" arguments, which are
+# URIs, not SQL literals -- a single quote needs no escaping there.
+uri_escape_path() {
+  printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/?/%3f/g' -e 's/#/%23/g'
+}
+
+# The URI-escaped result still has to survive being pasted into a
+# single-quoted SQL literal.
 sql_uri_literal() {
-  printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/?/%3f/g' -e 's/#/%23/g' -e "s/'/''/g"
+  uri_escape_path "$1" | sed -e "s/'/''/g"
+}
+
+# .backup is a sqlite3 shell dot-command, not SQL (#891): its argument is
+# parsed shell-style, so single-quoted SQL doubling breaks on a path quote.
+# Double quotes with \ and " backslash-escaped survive spaces, single
+# quotes, and double quotes in the path.
+dotcmd_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
 # ---------------------------------------------------------------------------
@@ -405,12 +421,12 @@ restore_session_mode() {
 
   check_not_running
 
-  sqlite3 -readonly "file:${DB}?mode=ro" "PRAGMA table_info(event);" \
+  sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "PRAGMA table_info(event);" \
     | cut -d'|' -f2 | grep -qx 'aggregate_id' \
     || die "event table shape unexpected -- refusing to run"
 
   local before_rows
-  before_rows="$(sqlite3 -readonly "file:${DB}?mode=ro" \
+  before_rows="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
     "SELECT COUNT(*) FROM event WHERE aggregate_id = '${RESTORE_SESSION}';")"
   note "rows now      : $(commas "$before_rows") event row(s) for this session"
 
@@ -435,7 +451,7 @@ restore_session_mode() {
   # than leaving the user to work out whether warp will now succeed. In dry run
   # this describes the CURRENT state, which is by definition still gappy.
   local stats mn mx cnt hw
-  stats="$(sqlite3 -readonly "file:${DB}?mode=ro" \
+  stats="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
     "SELECT COALESCE(MIN(seq),0), COALESCE(MAX(seq),0), COUNT(*) FROM event WHERE aggregate_id = '${RESTORE_SESSION}';")"
   IFS='|' read -r mn mx cnt <<EOF
 $stats
@@ -445,7 +461,7 @@ EOF
   # that is dense but starts above 0, or stops below the high-water mark, still
   # dies. A single surviving row trivially satisfies count == max-min+1, which
   # is exactly the false positive this avoids.
-  hw="$(sqlite3 -readonly "file:${DB}?mode=ro" \
+  hw="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
     "SELECT COALESCE(MAX(seq),-1) FROM event_sequence WHERE aggregate_id = '${RESTORE_SESSION}';")"
   step "Sequence contiguity for ${RESTORE_SESSION}"
   note "min seq        : $(commas "$mn")"
@@ -484,12 +500,12 @@ restore_from_sqlite() {
   local uri
   uri="$(sql_uri_literal "$FROM")"
 
-  sqlite3 -readonly "file:${DB}?mode=ro" "ATTACH 'file:${uri}?mode=ro' AS src; SELECT 1 FROM src.event LIMIT 1;" >/dev/null 2>&1 \
-    || sqlite3 -readonly "file:${DB}?mode=ro" "ATTACH 'file:${uri}?mode=ro' AS src; SELECT COUNT(*) FROM src.event;" >/dev/null \
+  sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "ATTACH 'file:${uri}?mode=ro' AS src; SELECT 1 FROM src.event LIMIT 1;" >/dev/null 2>&1 \
+    || sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "ATTACH 'file:${uri}?mode=ro' AS src; SELECT COUNT(*) FROM src.event;" >/dev/null \
     || die "$FROM is a SQLite file but has no readable 'event' table"
 
   step "Scanning backup"
-  RESTORE_CANDIDATES="$(sqlite3 -readonly "file:${DB}?mode=ro" <<SQL
+  RESTORE_CANDIDATES="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" <<SQL
 ATTACH 'file:${uri}?mode=ro' AS src;
 SELECT COUNT(*) FROM src.event s
 WHERE s.aggregate_id = '${RESTORE_SESSION}'
@@ -578,7 +594,7 @@ SQL
   # the staging file. json_valid is checked before anything calls json_extract,
   # which would abort the whole statement on a malformed line.
   local checks staged bad
-  checks="$(sqlite3 -readonly "file:${DB}?mode=ro" <<SQL
+  checks="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" <<SQL
 ${import_sql}
 SELECT COUNT(*) FROM stg;
 SELECT COUNT(*) FROM stg WHERE json_valid(j) = 0;
@@ -590,7 +606,7 @@ SQL
     || die "staged ${staged:-0} line(s) but grep matched ${matched} -- archive is malformed, refusing to insert"
   [ "${bad:-0}" -eq 0 ] || die "${bad} archive line(s) are not valid JSON -- refusing to insert"
 
-  RESTORE_CANDIDATES="$(sqlite3 -readonly "file:${DB}?mode=ro" <<SQL
+  RESTORE_CANDIDATES="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" <<SQL
 ${import_sql}
 SELECT COUNT(*) FROM stg s
 WHERE json_extract(s.j,'\$.aggregate_id') = '${RESTORE_SESSION}'
@@ -649,11 +665,11 @@ check_not_running
 
 # Guard against a schema that does not match what this script was written for.
 for col in aggregate_id seq owner_id; do
-  sqlite3 -readonly "file:${DB}?mode=ro" "PRAGMA table_info(event_sequence);" \
+  sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "PRAGMA table_info(event_sequence);" \
     | cut -d'|' -f2 | grep -qx "$col" \
     || die "event_sequence has no '$col' column -- schema changed, refusing to run"
 done
-sqlite3 -readonly "file:${DB}?mode=ro" "PRAGMA table_info(event);" \
+sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "PRAGMA table_info(event);" \
   | cut -d'|' -f2 | grep -qx 'aggregate_id' \
   || die "event table shape unexpected -- refusing to run"
 
@@ -709,7 +725,7 @@ step "Analyzing (this scans the event table and takes a while)"
 before_bytes="$(filesize "$DB")"
 note "current file size: $(gb "$before_bytes")"
 
-summary="$(sqlite3 -readonly "file:${DB}?mode=ro" "
+summary="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "
 WITH elig AS ($ELIGIBLE)
 SELECT typ, COUNT(*), SUM(len) FROM elig GROUP BY typ ORDER BY SUM(len) DESC;")"
 
@@ -730,15 +746,15 @@ $summary
 EOF
 printf '  %-26s %14s %14s\n' 'TOTAL' "$(commas "$total_rows")" "$(gb "$total_bytes")"
 
-excluded="$(sqlite3 -readonly "file:${DB}?mode=ro" \
+excluded="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
   "SELECT COUNT(*) FROM event_sequence WHERE owner_id IS NOT NULL;")"
-protected="$(sqlite3 -readonly "file:${DB}?mode=ro" \
+protected="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
   "SELECT COUNT(*) FROM session WHERE time_updated >= ${CUTOFF_SQL};")"
 note ""
 note "excluded: $excluded sync-owned aggregate(s) (event_sequence.owner_id set)"
 note "excluded: $protected session(s) active within ${PROTECT_DAYS} day(s)"
 if [ "$PROTECT_ROOTS" -eq 1 ]; then
-  roots="$(sqlite3 -readonly "file:${DB}?mode=ro" "SELECT COUNT(*) FROM session WHERE parent_id IS NULL;")"
+  roots="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "SELECT COUNT(*) FROM session WHERE parent_id IS NULL;")"
   note "excluded: $roots root session(s) (--protect-roots)"
 fi
 note "kept    : the newest snapshot of every entity"
@@ -867,7 +883,7 @@ if [ "$DO_BACKUP" -eq 1 ]; then
   note "$BACKUP"
   note "transient crash insurance -- delete this once opencode starts cleanly"
   # .backup is WAL-safe; plain cp is not.
-  sqlite3 "$DB" ".backup '$BACKUP'"
+  sqlite3 "$DB" ".backup \"$(dotcmd_escape "$BACKUP")\""
   note "done ($(gb "$(filesize "$BACKUP")"))"
 else
   note "skipping backup (--no-backup)"
@@ -921,7 +937,7 @@ archive_targets() {
   # IS-identical to the original value, that row is written as data_hex instead.
   # unhex() reproduces those bytes exactly. Correctness is therefore structural,
   # not a property we hope holds -- no row can be archived lossily.
-  sqlite3 -readonly "file:${DB}?mode=ro" <<SQL | "${COMPRESS_CMD[@]}" >"$ARCHIVE_TMP"
+  sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" <<SQL | "${COMPRESS_CMD[@]}" >"$ARCHIVE_TMP"
 .mode list
 .headers off
 SELECT CASE
@@ -1012,15 +1028,15 @@ if [ "$post_integrity" != "ok" ]; then
 fi
 
 for t in session message part event_sequence; do
-  n="$(sqlite3 -readonly "file:${DB}?mode=ro" "SELECT COUNT(*) FROM $t;")"
+  n="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "SELECT COUNT(*) FROM $t;")"
   note "$(printf '%-16s %12s rows (untouched)' "$t" "$(commas "$n")")"
 done
 
 sqlite3 "$DB" 'PRAGMA wal_checkpoint(TRUNCATE);' >/dev/null
 
 after_bytes="$(filesize "$DB")"
-freelist="$(sqlite3 -readonly "file:${DB}?mode=ro" 'PRAGMA freelist_count;')"
-page_size="$(sqlite3 -readonly "file:${DB}?mode=ro" 'PRAGMA page_size;')"
+freelist="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" 'PRAGMA freelist_count;')"
+page_size="$(sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" 'PRAGMA page_size;')"
 
 cat <<EOF
 
