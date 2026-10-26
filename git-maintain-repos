@@ -196,6 +196,29 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# DEPTH and SCOPE are mode vocabularies, not free text. DEPTH comes from the
+# environment (or --quick/--safe/--deep) and is dispatched on below: anything
+# that is not quick|repack|safe falls through to the deep pass — gc
+# --prune=now --force — in both the single-repo dispatch and the dry-run
+# printer. An unvalidated typo'd or inherited value (DEPTH=bogus) therefore
+# silently escalated to the most destructive mode across every discovered
+# repo (#896). Judge both vocabularies whole, at parse time, like the
+# --jobs/--pack-threads/--depth judges below: illegal values exit 2 before
+# any discovery. This also covers the --one child re-entry, which inherits
+# DEPTH through the environment and passes through here again.
+case "$DEPTH" in
+  quick|repack|safe|deep) ;;
+  *)
+    echo "git-maintain-repos: DEPTH must be one of quick|repack|safe|deep (got: $DEPTH)" >&2
+    exit 2 ;;
+esac
+case "$SCOPE" in
+  auto|system|walk) ;;
+  *)
+    echo "git-maintain-repos: SCOPE must be one of auto|system|walk (got: $SCOPE)" >&2
+    exit 2 ;;
+esac
+
 # --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
 # where a non-numeric value fails mid-walk and 0 silently means "the path
 # itself only". Judge it whole, at parse time, like opencode-db-prune.sh
