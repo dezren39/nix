@@ -562,6 +562,25 @@ rec {
               bash ./var-folders-clean.test.sh
               touch $out
             '';
+        # #883/#886: symlinker.test.sh drives the real symlinker.sh through
+        # run -> undo round-trips — colon-named conflicts (BACKUP records),
+        # legacy v2 colon-format undo files, the irrecoverable-undo exit
+        # code, and same-second run-id collisions (via a stubbed date) — so
+        # the undo safety net cannot regress silently.
+        symlinker-tests =
+          pkgs.runCommandLocal "symlinker-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/symlinker.sh $src/symlinker.test.sh ./
+              chmod u+w ./symlinker.sh ./symlinker.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./symlinker.test.sh
+              touch $out
+            '';
         # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
         # repo's only *.test.ts suite) was run by nothing — no check,
         # workflow, or recipe referenced it, unlike the flake-tidy,
