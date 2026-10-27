@@ -7,6 +7,9 @@ Covers the two PR #904 fallout bugs:
 - #905: a Zed settings.json with a foreign context_servers block gets that
   block replaced with the mcpx-only entry (brace-matched, string/comment
   aware); everything outside the block is preserved byte-for-byte.
+- #944: Codex servers spelled as inline-table entries under [mcp_servers]
+  or as [[mcp_servers.*]] array-of-tables blocks are removed (not just
+  plain [mcp_servers.*] tables) and named in the removed: report.
 
 Run: python3 mcp-clients.test.py  (exit 0 = all probes passed)
 """
@@ -198,6 +201,75 @@ check("929 string mention does not absorb the replacement",
       '"context_servers": {"mcpx":' in out and '"other"' not in out, out)
 check("929 string mention preserved",
       '"note": "see \\"context_servers\\": {\\"x\\"} docs"' in out, out)
+shutil.rmtree(home)
+
+# #944: Codex servers spelled as inline-table entries under the
+# [mcp_servers] parent table -- removed, named in the report, [other]
+# preserved, second run no-op.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers]\n'
+                  'foo = { command = "evil", args = [] }\n'
+                  'bar = { command = "evil2", args = [] }\n'
+                  '\n'
+                  '[other]\n'
+                  'x = 1\n')
+r = run(home)
+out = read(codex_path)
+check("944 inline-table entries removed", "evil" not in out and "foo" not in out and "bar" not in out, out)
+check("944 inline-table report names removed servers", "removed: bar, foo" in r.stdout, r.stdout)
+check("944 inline case leaves only mcpx plus other sections",
+      "[mcp_servers.mcpx]" in out and "[other]" in out and "x = 1" in out, out)
+r2 = run(home)
+check("944 inline second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #944: Codex servers spelled as [[mcp_servers.<name>]] array-of-tables
+# blocks -- removed whole, named in the report, following sections kept.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[[mcp_servers.foo]]\n'
+                  'command = "evil"\n'
+                  '\n'
+                  '[[mcp_servers.bar]]\n'
+                  'command = "evil2"\n'
+                  '\n'
+                  '[other]\n'
+                  'x = 1\n')
+r = run(home)
+out = read(codex_path)
+check("944 array-table blocks removed", "evil" not in out and "mcp_servers.foo" not in out
+      and "mcp_servers.bar" not in out, out)
+check("944 array-table report names removed servers", "removed: bar, foo" in r.stdout, r.stdout)
+check("944 array case leaves only mcpx plus other sections",
+      "[mcp_servers.mcpx]" in out and "[other]" in out and "x = 1" in out, out)
+r2 = run(home)
+check("944 array second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #944: all three spellings in one file -- plain table, parent inline
+# entry, and array table are all removed and all named in the report.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers.plain]\n'
+                  'command = "evil"\n'
+                  '\n'
+                  '[mcp_servers]\n'
+                  'inlined = { command = "evil", args = [] }\n'
+                  '\n'
+                  '[[mcp_servers.arra]]\n'
+                  'command = "evil"\n')
+r = run(home)
+out = read(codex_path)
+check("944 mixed spellings all removed", "evil" not in out and "[mcp_servers.plain]" not in out
+      and "[[mcp_servers.arra]]" not in out and "inlined" not in out
+      and "[mcp_servers.mcpx]" in out, out)
+check("944 mixed report names all removed servers",
+      "removed: arra, inlined, plain" in r.stdout, r.stdout)
+r2 = run(home)
+check("944 mixed second run no-op", r2.returncode == 0 and read(codex_path) == out)
 shutil.rmtree(home)
 
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")

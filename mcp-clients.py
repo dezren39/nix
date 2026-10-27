@@ -63,22 +63,164 @@ def json_client(path, entry):
     write(path, json.dumps(data, indent=2) + "\n", f"mcpServers = mcpx only (removed: {', '.join(removed) or 'none'})")
 
 
+def _split_dotted(name):
+    """Split a TOML dotted name on dots outside quotes, unquoting each part."""
+    parts, buf, quote, i = [], [], None, 0
+    while i < len(name):
+        c = name[i]
+        if quote:
+            buf.append(c)
+            if quote == '"' and c == "\\" and i + 1 < len(name):
+                buf.append(name[i + 1])
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+        elif c in "\"'":
+            quote = c
+            buf.append(c)
+            i += 1
+        elif c == ".":
+            parts.append("".join(buf).strip())
+            buf = []
+            i += 1
+        else:
+            buf.append(c)
+            i += 1
+    parts.append("".join(buf).strip())
+    out = []
+    for part in parts:
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'":
+            try:
+                out.append(json.loads(part) if part[0] == '"' else part[1:-1])
+            except ValueError:
+                out.append(part[1:-1])
+        else:
+            out.append(part)
+    return out
+
+
+def _value_bracket_depth(text):
+    """Net open-bracket depth of a TOML value, ignoring brackets inside
+    strings and comments, so a multi-line inline table or array value is
+    known to continue on the following lines."""
+    depth, i, n = 0, 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "#":
+            break
+        if text.startswith('"""', i) or text.startswith("'''", i):
+            j = text.find(text[i : i + 3], i + 3)
+            i = n if j < 0 else j + 3
+        elif c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif c == "'":
+            j = text.find("'", i + 1)
+            i = n if j < 0 else j + 1
+        elif c in "{[(":
+            depth += 1
+            i += 1
+        elif c in "}])":
+            depth -= 1
+            i += 1
+        else:
+            i += 1
+    return depth
+
+
+def _first_key(line):
+    """(name, rest) for the first key of a TOML assignment line, or
+    (None, line) when the line does not start with a key followed by '='."""
+    i, n = 0, len(line)
+    while i < n and line[i] in " \t":
+        i += 1
+    if i >= n:
+        return None, line
+    if line[i] in "\"'":
+        q, j = line[i], i + 1
+        while j < n and line[j] != q:
+            j += 2 if q == '"' and line[j] == "\\" else 1
+        if j >= n:
+            return None, line
+        raw, rest = line[i : j + 1], j + 1
+        try:
+            name = json.loads(raw) if q == '"' else raw[1:-1]
+        except ValueError:
+            name = raw[1:-1]
+    else:
+        m = re.match(r"[A-Za-z0-9_-]+", line[i:])
+        if not m:
+            return None, line
+        name, rest = m.group(0), i + m.end()
+    # The key (possibly dotted) must be followed by '='.
+    tail = line[rest:]
+    if not re.match(r"(\s*\.\s*(\"[^\"]*\"|'[^']*'|[A-Za-z0-9_-]+))*\s*=", tail):
+        return None, line
+    return name, line
+
+
 def codex(path):
-    """~/.codex/config.toml: drop every [mcp_servers.*] table, add [mcp_servers.mcpx]."""
+    """~/.codex/config.toml: drop every mcp_servers entry, however spelled
+    ([mcp_servers.<name>] tables, [[mcp_servers.<name>]] array tables, and
+    inline entries under the [mcp_servers] parent table), then add
+    [mcp_servers.mcpx]."""
     if not os.path.exists(path):
         return
     with open(path) as fh:
         lines = fh.read().splitlines()
-    kept, removed, skipping = [], set(), False
+    kept, removed = [], set()
+    skipping = False      # inside a dropped mcp_servers table / array table
+    in_parent = False     # inside the bare [mcp_servers] parent table
+    value_depth = 0       # >0: still consuming a dropped multi-line value
     for line in lines:
-        header = re.match(r"\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$", line)
-        if header:
-            name = header.group(1)
-            skipping = name.startswith("mcp_servers.")
-            if skipping:
-                removed.add(name.split(".")[1])
-        if not skipping:
-            kept.append(line)
+        if value_depth > 0:
+            value_depth += _value_bracket_depth(line)
+            if value_depth < 0:
+                value_depth = 0
+            continue
+        array_header = re.match(r"\s*\[\[\s*(.+?)\s*\]\]\s*(#.*)?$", line)
+        header = None if array_header else re.match(r"\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$", line)
+        if array_header or header:
+            name = (array_header or header).group(1)
+            parts = _split_dotted(name)
+            in_parent = False
+            if parts and parts[0] == "mcp_servers" and len(parts) >= 2:
+                skipping = True
+                removed.add(parts[1])
+            elif parts == ["mcp_servers"] and header:
+                # Parent table itself stays; its entries are dropped below.
+                skipping = False
+                in_parent = True
+                kept.append(line)
+            elif parts == ["mcp_servers"]:
+                # [[mcp_servers]] array of unnamed tables: drop it whole.
+                skipping = True
+            else:
+                skipping = False
+                kept.append(line)
+            continue
+        if skipping:
+            continue
+        if in_parent:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                kept.append(line)
+                continue
+            name, _ = _first_key(line)
+            if name is None:
+                kept.append(line)
+                continue
+            removed.add(name)
+            eq = line.find("=")
+            value_depth = _value_bracket_depth(line[eq + 1 :]) if eq >= 0 else 0
+            if value_depth < 0:
+                value_depth = 0
+            continue
+        kept.append(line)
     while kept and not kept[-1].strip():
         kept.pop()
     block = [
