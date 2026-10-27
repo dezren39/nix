@@ -98,5 +98,30 @@ for opt in --path --depth --find --user; do
   esac
 done
 
+SNAP_BEFORE="$(find "$TMP_ROOT" | sort)"
+# ─── Missing values are rejected at parse time (#970) ──────────
+# PR #921 made the value-taking options reject a missing value (option
+# last, or an empty string) with exit 2, but no suite pinned that branch:
+# a refactor dropping the -n check would pass the flag-shaped runs above
+# while a trailing option silently took an empty value. Each option must
+# exit 2 naming itself for both shapes.
+for opt in --path --depth --find --user; do
+  run "$opt"
+  [ "$STATUS" -eq 2 ] || fail "$opt (trailing, no value) exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-discover-repos: $opt requires a value"*) echo "ok: $opt trailing rejected, option named" ;;
+    *) fail "$opt (trailing, no value) did not name the option on stderr (got: $ERR)" ;;
+  esac
+  run "$opt" ""
+  [ "$STATUS" -eq 2 ] || fail "$opt (empty value) exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-discover-repos: $opt requires a value"*) echo "ok: $opt empty value rejected, option named" ;;
+    *) fail "$opt (empty value) did not name the option on stderr (got: $ERR)" ;;
+  esac
+done
+
+[ "$(find "$TMP_ROOT" | sort)" = "$SNAP_BEFORE" ] || fail "missing-value runs changed the fixture tree"
+echo "ok: missing-value runs left the fixture tree unchanged"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-discover-repos --path exit-status checks passed"

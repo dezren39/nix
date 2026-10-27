@@ -57,6 +57,27 @@ for opt in --path --depth --docker-age; do
   esac
 done
 
+# ─── Missing values are rejected at parse time (#970) ──────────
+# PR #921 made the value-taking options reject a missing value (option
+# last, or an empty string) with exit 2, but no suite pinned that branch:
+# a refactor dropping the -n check would pass the flag-shaped runs above
+# while a trailing option silently took an empty value. Each option must
+# exit 2 naming itself for both shapes.
+for opt in --path --depth --docker-age; do
+  run "$opt"
+  [ "$STATUS" -eq 2 ] || fail "$opt (trailing, no value) exited $STATUS (want 2)"
+  case "$ERR" in
+    *"clean.sh: $opt requires a value"*) echo "ok: $opt trailing rejected, option named" ;;
+    *) fail "$opt (trailing, no value) did not name the option on stderr (got: $ERR)" ;;
+  esac
+  run "$opt" ""
+  [ "$STATUS" -eq 2 ] || fail "$opt (empty value) exited $STATUS (want 2)"
+  case "$ERR" in
+    *"clean.sh: $opt requires a value"*) echo "ok: $opt empty value rejected, option named" ;;
+    *) fail "$opt (empty value) did not name the option on stderr (got: $ERR)" ;;
+  esac
+done
+
 # ─── No side effects from the rejected runs ────────────────────────────
 if [ "$(snapshot)" = "$BEFORE" ]; then
   echo "ok: rejected runs left the fixture tree unchanged"
