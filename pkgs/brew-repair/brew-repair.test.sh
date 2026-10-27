@@ -5,6 +5,10 @@
 #   '-s --dry-run' silently discarded the dry-run safety flag and ran
 #   real reinstalls, exit 0. An option-like value (leading '-') is now
 #   a parse error: option named, usage on stderr, exit 2, no brew calls.
+# Scenarios G–J cover #926: a failed or unparseable `brew info` scan used
+# to exit 0 printing "All cask apps are healthy!" after checking zero
+# casks; now it names the failing step on stderr and exits 1, and a cask
+# absent from a successful scan counts as unchecked, never "healthy".
 # This drives the REAL brew-repair.sh against a call-logging stub brew
 # with two broken casks (alpha, beta; both .apps missing).
 set -uo pipefail
@@ -32,7 +36,13 @@ cat > "$STUB_BIN/brew" <<'EOS'
 echo "brew $*" >> "$BREW_STUB_LOG"
 case "$1" in
   list) printf '%s\n' alpha beta ;;
-  info) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]},{"token":"beta","artifacts":[{"app":["Beta.app"]}]}]}' ;;
+  info)
+    case "${BREW_STUB_MODE:-broken}" in
+      info-fail) echo "Error: brew info blew up" >&2; exit 1 ;;
+      info-garbage) printf '%s\n' 'this is not json' ;;
+      partial) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]}]}' ;;
+      *) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]},{"token":"beta","artifacts":[{"app":["Beta.app"]}]}]}' ;;
+    esac ;;
   reinstall) exit 0 ;;
 esac
 EOS
@@ -41,6 +51,7 @@ chmod +x "$STUB_BIN/brew"
 run_brew_repair() {
   : > "$LOG"
   HOME="$FAKE_HOME" PATH="$STUB_BIN:$PATH" BREW_STUB_LOG="$LOG" \
+    BREW_STUB_MODE="${BREW_STUB_MODE:-broken}" \
     bash "$SCRIPT" "$@" 2>"$TMP_ROOT/stderr"
 }
 
@@ -104,6 +115,45 @@ rc_f=$?
 [[ $rc_f -eq 2 ]] || fail "F: expected exit 2, got $rc_f"
 grep -q -- "-s requires a cask name" "$TMP_ROOT/stderr" || fail "F: missing-value error not printed"
 [[ $failures -eq $start ]] && ok "F: trailing -s exits 2 (pre-existing #897 guard intact)"
+
+# ─── Scenario G (#926): brew info failure is a loud scan failure ────────────
+start=$failures
+out_g="$(BREW_STUB_MODE=info-fail run_brew_repair)"
+rc_g=$?
+[[ $rc_g -eq 1 ]] || fail "G: expected exit 1, got $rc_g"
+grep -q "'brew info' failed" "$TMP_ROOT/stderr" || fail "G: failing step not named on stderr"
+grep -q "All cask apps are healthy" <<<"$out_g" && fail "G: healthy verdict printed for a failed scan"
+[[ $(reinstall_count) -eq 0 ]] || fail "G: reinstall called after a failed scan"
+[[ $failures -eq $start ]] && ok "G: brew info failure exits 1, names the step, no healthy verdict"
+
+# ─── Scenario H (#926): non-JSON brew info output is a loud scan failure ────
+start=$failures
+out_h="$(BREW_STUB_MODE=info-garbage run_brew_repair)"
+rc_h=$?
+[[ $rc_h -eq 1 ]] || fail "H: expected exit 1, got $rc_h"
+grep -q "could not parse 'brew info' output" "$TMP_ROOT/stderr" || fail "H: parse failure not named on stderr"
+grep -q "All cask apps are healthy" <<<"$out_h" && fail "H: healthy verdict printed for an unparseable scan"
+[[ $failures -eq $start ]] && ok "H: non-JSON brew info exits 1, names the parse step, no healthy verdict"
+
+# ─── Scenario I (#926 control): all apps present is still healthy, exit 0 ───
+mkdir -p "$FAKE_HOME/Applications/Alpha.app" "$FAKE_HOME/Applications/Beta.app"
+start=$failures
+out_i="$(run_brew_repair)"
+rc_i=$?
+[[ $rc_i -eq 0 ]] || fail "I: expected exit 0, got $rc_i"
+grep -q "All cask apps are healthy!" <<<"$out_i" || fail "I: healthy verdict missing for a good scan"
+grep -q "2 healthy" <<<"$out_i" || fail "I: summary does not count both casks healthy"
+[[ $failures -eq $start ]] && ok "I: all-healthy control exits 0 with the healthy verdict"
+
+# ─── Scenario J (#926): cask absent from a successful scan is unchecked ─────
+start=$failures
+out_j="$(BREW_STUB_MODE=partial run_brew_repair)"
+rc_j=$?
+[[ $rc_j -eq 1 ]] || fail "J: expected exit 1, got $rc_j"
+grep -q "beta (installed but unknown to brew" <<<"$out_j" || fail "J: beta not reported unknown"
+grep -q "1 unchecked" <<<"$out_j" || fail "J: summary does not count beta as unchecked"
+grep -q "All cask apps are healthy" <<<"$out_j" && fail "J: healthy verdict printed with an unchecked cask"
+[[ $failures -eq $start ]] && ok "J: unknown cask counts as unchecked, exit 1, no healthy verdict"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2

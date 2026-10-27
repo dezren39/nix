@@ -602,11 +602,13 @@ rec {
               bash ./opencode-share.test.sh
               touch $out
             '';
-        # #927: brew-repair.test.sh drives the real brew-repair.sh against
-        # a call-logging stub brew — '-s --dry-run' / '-s -n' used to
-        # swallow the option as the skip value and run real reinstalls,
-        # so the parse error (exit 2, zero brew calls) and the valid-value
-        # controls cannot regress silently.
+        # #927/#926: brew-repair.test.sh drives the real brew-repair.sh
+        # against a call-logging stub brew — '-s --dry-run' / '-s -n' used
+        # to swallow the option as the skip value and run real reinstalls,
+        # and a failed/unparseable `brew info` scan used to exit 0 as
+        # "All cask apps are healthy!", so the parse errors, the scan
+        # failures, and the valid-value/healthy controls cannot regress
+        # silently.
         brew-repair-tests =
           pkgs.runCommandLocal "brew-repair-tests"
             {

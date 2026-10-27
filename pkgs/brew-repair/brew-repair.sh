@@ -80,9 +80,21 @@ echo ""
 # brew info may return different token names (e.g. docker→docker-desktop)
 # so we also track the original installed name→actual token mapping
 TMPFILE=$(mktemp)
-trap 'rm -f "$TMPFILE"' EXIT
+INFOFILE=$(mktemp)
+ERRFILE=$(mktemp)
+trap 'rm -f "$TMPFILE" "$INFOFILE" "$ERRFILE"' EXIT
 
-brew info --json=v2 --cask "${CASKS[@]}" 2>/dev/null | python3 -c "
+# The healthy/broken verdict is only sound if this scan actually ran, so
+# neither step may fail silently (#926): a failed `brew info` or unparseable
+# output used to leave $TMPFILE empty, and the run still printed
+# "All cask apps are healthy!" with exit 0 after checking zero casks.
+if ! brew info --json=v2 --cask "${CASKS[@]}" > "$INFOFILE" 2> "$ERRFILE"; then
+  echo "brew-repair: error: 'brew info' failed — no casks could be verified" >&2
+  [[ -s "$ERRFILE" ]] && sed 's/^/  /' "$ERRFILE" >&2
+  exit 1
+fi
+
+if ! python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for c in data.get('casks', []):
@@ -91,7 +103,16 @@ for c in data.get('casks', []):
         if isinstance(a, dict) and 'app' in a:
             apps.extend(a['app'])
     print(c['token'] + '|' + '|'.join(apps))
-" > "$TMPFILE" 2>/dev/null || true
+" < "$INFOFILE" > "$TMPFILE" 2> "$ERRFILE"; then
+  echo "brew-repair: error: could not parse 'brew info' output as JSON — no casks could be verified" >&2
+  [[ -s "$ERRFILE" ]] && sed 's/^/  /' "$ERRFILE" >&2
+  exit 1
+fi
+
+if [[ ! -s "$TMPFILE" ]]; then
+  echo "brew-repair: error: 'brew info' returned no cask data for ${#CASKS[@]} installed cask(s) — scan failed, no casks could be verified" >&2
+  exit 1
+fi
 
 # Also build a map of original cask name → token returned by brew info
 # (handles renames like docker→docker-desktop, handbrake→handbrake-app, etc.)
@@ -154,6 +175,7 @@ while IFS='|' read -r cask _rest; do
   SEEN_TOKENS["$cask"]=1
 done < "$TMPFILE"
 
+UNCHECKED=0
 for cask in "${CASKS[@]}"; do
   if [[ -z "${SEEN_TOKENS[$cask]:-}" ]]; then
     # This cask wasn't in JSON output — it's been renamed or removed
@@ -165,18 +187,26 @@ for cask in "${CASKS[@]}"; do
         break
       fi
     done
-    if [[ "$found" == false ]]; then
+    if [[ "$found" == false ]] && ! is_skipped "$cask"; then
+      # Absent from a *successful* scan: not verified, so it counts as
+      # unchecked and must not fold into a "healthy" verdict (#926).
+      UNCHECKED=$((UNCHECKED + 1))
       echo -e "  ${YELLOW}⚠️${NC}  $cask (installed but unknown to brew — may be renamed/removed)"
     fi
   fi
 done
 
 echo ""
-echo -e "${BOLD}Summary:${NC} ${GREEN}${HEALTHY} healthy${NC}, ${RED}${#BROKEN[@]} broken${NC}, ${SKIPPED} skipped, ${FONT_OR_NOAPP} non-app (fonts/plugins/CLIs)"
+echo -e "${BOLD}Summary:${NC} ${GREEN}${HEALTHY} healthy${NC}, ${RED}${#BROKEN[@]} broken${NC}, ${SKIPPED} skipped, ${FONT_OR_NOAPP} non-app (fonts/plugins/CLIs), ${UNCHECKED} unchecked"
 
-if [[ ${#BROKEN[@]} -eq 0 ]]; then
+if [[ ${#BROKEN[@]} -eq 0 && $UNCHECKED -eq 0 ]]; then
   echo -e "\n${GREEN}${BOLD}All cask apps are healthy!${NC}"
   exit 0
+fi
+
+if [[ ${#BROKEN[@]} -eq 0 ]]; then
+  echo -e "\n${YELLOW}${BOLD}${UNCHECKED} cask(s) could not be verified (unknown to brew — may be renamed/removed); not declaring all healthy.${NC}"
+  exit 1
 fi
 
 echo ""
