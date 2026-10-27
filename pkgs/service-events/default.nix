@@ -65,5 +65,27 @@ runCommand "service-events"
     import os
     assert os.path.getsize(p) == 0 and os.path.getsize(p + ".1") == 100
     assert rotate(p, 50, 2) == 0
+    # #920: a drop older than the reconnect window must not produce a
+    # conn.reconnect for an unrelated later start; a fresh drop must.
+    import time
+    import monitor
+    captured = []
+    monitor.append_event = lambda source, event, **f: captured.append((event, f))
+    monitor.launchd_jobs = lambda: {}
+    monitor.processes = lambda: {222: ("opencode", 1, "opencode")}
+    monitor.sockets = lambda pids: {222: ({"4096"}, {"10.0.0.1:4096->10.0.0.2:5000"})}
+    def tick_with_drop(age_s):
+        captured.clear()
+        m = monitor.Monitor()
+        m.first = False
+        m.last_stats = time.time()
+        m.last_rotate = time.time()
+        m.drops[("opencode", 1)] = (time.time() - age_s, 4, 111)
+        m.tick()
+        return [f for e, f in captured if e == "conn.reconnect"], m.drops
+    stale, drops_after = tick_with_drop(259200)
+    assert stale == [] and drops_after == {}, (stale, drops_after)
+    fresh, _ = tick_with_drop(60)
+    assert len(fresh) == 1 and fresh[0]["dropped"] == 4 and fresh[0]["previous_pid"] == 111, fresh
     EOF
   ''
