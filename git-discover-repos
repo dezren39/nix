@@ -325,15 +325,23 @@ seed_auto() {
 }
 
 seed_path() {
-  local p c
+  # A bad --path is a partial failure, not a successful empty scan (#940):
+  # keep scanning the valid paths (their results are still printed), but
+  # return 1 — the house contract git-maintain-repos uses for a
+  # non-directory root — so exit-code-checking callers (clean.sh's
+  # `|| warn "discovery failed"`) can see the failure. The caller captures
+  # this status out of the seeding step and makes it the script's exit
+  # status; see SEED_STATUS below.
+  local p c failed=0
   for p in "${PATHS[@]}"; do
-    [ -d "$p" ] || { echo "git-discover-repos: not a directory: $p" >&2; continue; }
+    [ -d "$p" ] || { echo "git-discover-repos: not a directory: $p" >&2; failed=1; continue; }
     c="$(canon "$p")"
     printf '%s\n' "$c"
     scan_deep "$c"
     scan_deep "$c/.git"
     scan_deep "$c/.worktrees"
   done
+  return "$failed"
 }
 
 if [ "$DRY_RUN" = "1" ]; then
@@ -350,13 +358,36 @@ if [ "$DRY_RUN" = "1" ]; then
     printf '  roots:      %s\n' "${PATHS[@]}"
   fi
   [ -n "$FIND_SPEC" ] && echo "  also find:  $FIND_SPEC"
+  # A dry run still judges its --path arguments (#940): a bad one is the
+  # same non-zero failure as in a real run, not a clean plan.
+  if [ "$MODE" = "path" ]; then
+    _dry_failed=0
+    for _p in "${PATHS[@]}"; do
+      [ -d "$_p" ] || { echo "git-discover-repos: not a directory: $_p" >&2; _dry_failed=1; }
+    done
+    [ "$_dry_failed" = "0" ] || exit 1
+  fi
   exit 0
 fi
 
-if [ "$MODE" = "auto" ]; then seed_auto; else seed_path; fi | sort -u | while IFS= read -r d
+# Seeding used to run in a pipeline (`seed_path | sort -u`), where its exit
+# status could not reach the script's. Seed to a file instead and capture
+# the status: SEED_STATUS (1 when any --path was not a directory, else 0)
+# becomes the exit status at --count and at the end of the script, after
+# every valid result has been printed. --auto's roots are best-effort by
+# design (missing scan roots are skipped), so its status is not captured.
+SEED_FILE="$(mktemp)"
+SEED_STATUS=0
+if [ "$MODE" = "auto" ]; then
+  seed_auto > "$SEED_FILE" || true
+else
+  seed_path > "$SEED_FILE" || SEED_STATUS=$?
+fi
+sort -u "$SEED_FILE" | while IFS= read -r d
 do
   consider "$d"
 done
+rm -f "$SEED_FILE"
 
 # ---------------------------------------------------------------------------
 # Following: hop along git's own links until nothing new turns up.
@@ -407,7 +438,7 @@ if [ "$COUNT_ONLY" = "1" ]; then
   r=$(awk -F'\t' '$1=="repo"' "$OUT_FILE" | wc -l | tr -d ' ')
   w=$(awk -F'\t' '$1=="worktree"' "$OUT_FILE" | wc -l | tr -d ' ')
   echo "repos=$r worktrees=$w total=$((r + w))"
-  exit 0
+  exit "$SEED_STATUS"
 fi
 
 sort -u "$OUT_FILE" | filter_out \
@@ -461,3 +492,7 @@ if [ -n "$FIND_SPEC" ]; then
                -type d \( "${FIND_EXPR[@]}" \) -prune -print 2>/dev/null)
   done < <(sort -u "$OUT_FILE")
 fi
+
+# The seeding verdict is the script's verdict (#940): without this explicit
+# exit, a run that printed a bad --path error above would still exit 0 here.
+exit "$SEED_STATUS"
