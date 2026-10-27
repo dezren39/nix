@@ -76,6 +76,22 @@ if grep -q "unbound variable" <<<"$out_e"; then
 fi
 [[ $failures -eq $start ]] && ok "E: --source with no value prints error + usage, exit 1"
 
+# ─── Scenario F (#930): --source with a flag-shaped value errors ────────────
+# --source --dry-run used to swallow --dry-run as the source directory, so
+# the "preview" ran the real mount path (check_deps and beyond).
+start=$failures
+out_f="$(bash "$SCRIPT" --source --dry-run "$GOOD1" 2>&1)"
+rc_f=$?
+[[ $rc_f -eq 1 ]] || fail "F: expected exit 1, got $rc_f"
+grep -q -- "--source requires a directory argument" <<<"$out_f" || fail "F: flag-shaped value not rejected with the missing-value error"
+if grep -q "Missing dependencies" <<<"$out_f"; then
+  fail "F: entered the real-mount check_deps path (regression)"
+fi
+if grep -q "Mounting:" <<<"$out_f"; then
+  fail "F: a mount was attempted (regression)"
+fi
+[[ $failures -eq $start ]] && ok "F: --source --dry-run errors at parse time, no mount attempted"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1
