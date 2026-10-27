@@ -216,39 +216,47 @@ while [[ $# -gt 0 ]]; do
       [[ -n "${2:-}" ]] || { echo "Error: --exclude requires a value" >&2; exit 1; }
       EXTRA_EXCLUDES+=("$2"); shift 2 ;;
     --exact)
+      # NOTE (#912): the empty-occurrence guard must compare against the
+      # count before this occurrence consumed values — testing the
+      # cumulative array lets a repeated empty flag pass silently.
       shift
+      before=${#FILTER_EXACT[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
         FILTER_EXACT+=("$1"); shift
       done
-      [[ ${#FILTER_EXACT[@]} -gt 0 ]] || { echo "Error: --exact requires at least one value" >&2; exit 1; }
+      [[ ${#FILTER_EXACT[@]} -gt $before ]] || { echo "Error: --exact requires at least one value" >&2; exit 1; }
       ;;
     --prefix|--starts-with)
       shift
+      before=${#FILTER_PREFIX[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
         FILTER_PREFIX+=("$1"); shift
       done
-      [[ ${#FILTER_PREFIX[@]} -gt 0 ]] || { echo "Error: --prefix/--starts-with requires at least one value" >&2; exit 1; }
+      [[ ${#FILTER_PREFIX[@]} -gt $before ]] || { echo "Error: --prefix/--starts-with requires at least one value" >&2; exit 1; }
       ;;
     --suffix|--ends-with)
       shift
+      before=${#FILTER_SUFFIX[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
         FILTER_SUFFIX+=("$1"); shift
       done
-      [[ ${#FILTER_SUFFIX[@]} -gt 0 ]] || { echo "Error: --suffix/--ends-with requires at least one value" >&2; exit 1; }
+      [[ ${#FILTER_SUFFIX[@]} -gt $before ]] || { echo "Error: --suffix/--ends-with requires at least one value" >&2; exit 1; }
       ;;
     --regex)
       shift
+      before=${#FILTER_REGEX[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
         FILTER_REGEX+=("$1"); shift
       done
-      [[ ${#FILTER_REGEX[@]} -gt 0 ]] || { echo "Error: --regex requires at least one value" >&2; exit 1; }
+      [[ ${#FILTER_REGEX[@]} -gt $before ]] || { echo "Error: --regex requires at least one value" >&2; exit 1; }
       ;;
     --match)
       shift
+      before=${#FILTER_MATCH[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
         FILTER_MATCH+=("$1"); shift
       done
-      [[ ${#FILTER_MATCH[@]} -gt 0 ]] || { echo "Error: --match requires at least one value" >&2; exit 1; }
+      [[ ${#FILTER_MATCH[@]} -gt $before ]] || { echo "Error: --match requires at least one value" >&2; exit 1; }
       ;;
     -h|--help)           usage; exit 0 ;;
     *)
