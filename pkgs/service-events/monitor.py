@@ -12,14 +12,40 @@ argument values beyond the program name, or request contents.
 """
 
 import json
+import math
 import os
 import re
 import subprocess
+import sys
 import time
 
 from event import LOG_DIR, append_event, rotate
 
-INTERVAL = float(os.environ.get("SERVICE_EVENTS_INTERVAL", "5"))
+
+def parse_interval(raw):
+    """SERVICE_EVENTS_INTERVAL must be a positive, finite number of seconds.
+
+    #918: the raw float() parse crashed at import for non-numeric values,
+    crashed at the unprotected time.sleep() in main() for negative/nan/inf,
+    and busy-looped the samplers at 0. Fail at startup instead, naming the
+    variable and the offending value, so a typo is visible in the agent's
+    stderr log rather than a silent crash-loop.
+    """
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = math.nan
+    if not math.isfinite(value) or value <= 0:
+        print(
+            f"service-monitor: invalid SERVICE_EVENTS_INTERVAL={raw!r}: "
+            "must be a positive finite number of seconds",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return value
+
+
+INTERVAL = parse_interval(os.environ.get("SERVICE_EVENTS_INTERVAL", "5"))
 LABELS = ("org.nixos.openchamber", "org.nixos.mcpx")
 LABEL_PREFIXES = ("application.dev.openchamber.desktop",)
 

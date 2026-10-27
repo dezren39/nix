@@ -35,6 +35,15 @@ runCommand "service-events"
     $out/bin/service-event test check.bad =novalue 2>$TMPDIR/empty.err || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-event empty-key field: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid field '=novalue'" $TMPDIR/empty.err || { echo "service-event empty-key field: argument not named in error" >&2; exit 1; }
+    # #918: a bad SERVICE_EVENTS_INTERVAL exits 2 at startup naming the
+    # variable and value, instead of crashing at import/sleep or busy-looping.
+    rc=0
+    SERVICE_EVENTS_INTERVAL=abc $out/bin/service-monitor 2>$TMPDIR/interval.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-monitor bad interval: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "invalid SERVICE_EVENTS_INTERVAL='abc'" $TMPDIR/interval.err || { echo "service-monitor bad interval: variable/value not named in error" >&2; exit 1; }
+    rc=0
+    SERVICE_EVENTS_INTERVAL=0 $out/bin/service-monitor 2>/dev/null || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-monitor zero interval: expected exit 2, got $rc" >&2; exit 1; }
     ${python3}/bin/python3 - "$log" <<'EOF'
     import json, sys
     lines = open(sys.argv[1]).read().splitlines()
