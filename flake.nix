@@ -607,7 +607,9 @@ rec {
         # git-discover-repos through bad, mixed, regular-file, all-valid,
         # --count and --dry-run --path runs — a bad --path used to exit 0,
         # so exit-code-checking callers (clean.sh) saw a successful empty
-        # scan instead of a bad argument.
+        # scan instead of a bad argument. It also pins PR #939's
+        # flag-shaped-value guards (#951): --path/--depth/--find/--user
+        # with a flag-shaped next token exit 2 naming the option.
         git-discover-repos-tests =
           pkgs.runCommandLocal "git-discover-repos-tests"
             {
@@ -622,6 +624,82 @@ rec {
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./git-discover-repos.test.sh
+              touch $out
+            '';
+        # #951: clean.test.sh drives the real clean.sh parser -- PR #939
+        # made its value-taking options reject a flag-shaped next token
+        # ("--path --dry-run" used to swallow --dry-run and run the
+        # cleanup for real), but added no test for clean.sh. The suite
+        # pins --path/--depth/--docker-age rejection (exit 2, option
+        # named, no side effects) plus a valid-value control that runs
+        # only the unknown-scratch sweep over an empty isolated HOME.
+        clean-tests =
+          pkgs.runCommandLocal "clean-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.git
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/clean.sh $src/clean.test.sh $src/git-discover-repos ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              chmod u+w ./clean.sh ./clean.test.sh ./git-discover-repos
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./clean.test.sh
+              touch $out
+            '';
+        # #951: git-maintain-repos.test.sh drives the real
+        # git-maintain-repos parser -- PR #939's flag-shaped guards for
+        # --path/--depth/--jobs/--pack-threads/--reflog-expire had no
+        # test. The suite pins rejection (exit 2, option named, no side
+        # effects) plus a --dry-run valid-value control over a fixture
+        # repo.
+        git-maintain-repos-tests =
+          pkgs.runCommandLocal "git-maintain-repos-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.git
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/git-maintain-repos $src/git-maintain-repos.test.sh $src/git-discover-repos ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              chmod u+w ./git-maintain-repos ./git-maintain-repos.test.sh ./git-discover-repos
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./git-maintain-repos.test.sh
+              touch $out
+            '';
+        # #951: spotlight-exclude-artifacts.test.sh drives the real
+        # spotlight-exclude-artifacts parser -- PR #939's flag-shaped
+        # guards for --path/--depth had no test ("--path --dry-run" used
+        # to run the real marking pass). The suite pins rejection
+        # (exit 2, option named, no markers written) plus a --dry-run
+        # valid-value control over a fixture repo.
+        spotlight-exclude-artifacts-tests =
+          pkgs.runCommandLocal "spotlight-exclude-artifacts-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.git
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/spotlight-exclude-artifacts $src/spotlight-exclude-artifacts.test.sh $src/git-discover-repos ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              chmod u+w ./spotlight-exclude-artifacts ./spotlight-exclude-artifacts.test.sh ./git-discover-repos
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./spotlight-exclude-artifacts.test.sh
               touch $out
             '';
         # #453: opencode-tmp-guard.test.sh extracts the real guard script
