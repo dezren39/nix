@@ -84,5 +84,19 @@ run --path "$BAD" --dry-run
 [ "$STATUS" -ne 0 ] || fail "--dry-run on a bad --path exited 0"
 echo "ok: --dry-run valid exits 0, bad exits non-zero"
 
+# ─── Flag-shaped values are rejected at parse time (#951) ──────────────
+# PR #939 made the value-taking options reject a flag-shaped next token
+# (--path --dry-run used to print "not a directory: --dry-run" and exit
+# per the bad-path rules above instead of failing at parse time), but
+# added no test for it. Each option must exit 2 naming itself.
+for opt in --path --depth --find --user; do
+  run "$opt" --dry-run
+  [ "$STATUS" -eq 2 ] || fail "$opt --dry-run exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-discover-repos: $opt requires a value"*) echo "ok: $opt --dry-run rejected, option named" ;;
+    *) fail "$opt --dry-run did not name the option on stderr (got: $ERR)" ;;
+  esac
+done
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-discover-repos --path exit-status checks passed"
