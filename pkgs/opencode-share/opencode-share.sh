@@ -316,9 +316,11 @@ TARGETS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source)
-      # NOTE (#908): guard the missing-value case — under `set -u` a
-      # trailing --source otherwise dies on unbound $2 with no usage.
-      if [[ $# -lt 2 ]]; then
+      # NOTE (#908/#930): guard the missing-value case — under `set -u` a
+      # trailing --source otherwise dies on unbound $2 with no usage, and a
+      # flag-shaped value (--source --dry-run) was swallowed as the source,
+      # discarding the flag and running the mount for real.
+      if [[ $# -lt 2 || "$2" == -* ]]; then
         err "--source requires a directory argument"
         echo ""
         usage

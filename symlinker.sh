@@ -190,16 +190,16 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --input-dir)
-      [[ -n "${2:-}" ]] || { echo "Error: --input-dir requires a value" >&2; exit 1; }
+      [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --input-dir requires a value" >&2; exit 1; }
       INPUT_DIR="$2"; shift 2 ;;
     --output-dir)
-      [[ -n "${2:-}" ]] || { echo "Error: --output-dir requires a value" >&2; exit 1; }
+      [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --output-dir requires a value" >&2; exit 1; }
       OUTPUT_DIR="$2"; shift 2 ;;
     --backup-suffix)
-      [[ -n "${2:-}" ]] || { echo "Error: --backup-suffix requires a value" >&2; exit 1; }
+      [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --backup-suffix requires a value" >&2; exit 1; }
       BACKUP_SUFFIX="$2"; shift 2 ;;
     --undo)
-      [[ -n "${2:-}" ]] || { echo "Error: --undo requires a timestamp" >&2; exit 1; }
+      [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --undo requires a timestamp" >&2; exit 1; }
       UNDO_TIMESTAMP="$2"; shift 2 ;;
     --dry-run)           DRY_RUN=true;       shift ;;
     --force)             FORCE=true;         shift ;;
@@ -213,7 +213,7 @@ while [[ $# -gt 0 ]]; do
     --only-files)        ONLY_FILES=true;    shift ;;
     --only-dirs)         ONLY_DIRS=true;     shift ;;
     --exclude)
-      [[ -n "${2:-}" ]] || { echo "Error: --exclude requires a value" >&2; exit 1; }
+      [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --exclude requires a value" >&2; exit 1; }
       EXTRA_EXCLUDES+=("$2"); shift 2 ;;
     --exact)
       # NOTE (#912): the empty-occurrence guard must compare against the

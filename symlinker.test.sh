@@ -201,6 +201,35 @@ else
   fail "F: repeated --exact with values on both occurrences should pass"
 fi
 
+# ─── Scenario G (#930): flag-shaped values for value-taking options error ──
+# --input-dir --dry-run used to swallow --dry-run as the input dir, so the
+# preview flag was discarded. Every value-taking option must reject a
+# following token starting with '-' in its missing-value error shape.
+G="$TMP_ROOT/g"; mkdir -p "$G/in" "$G/out" "$G/cache"
+printf 'x\n' > "$G/in/foo"
+g_run() { XDG_CACHE_HOME="$G/cache" bash "$SCRIPT" "$@" >/dev/null 2>"$G/err"; }
+g_expect_error() { # g_expect_error <desc> <message> <args...>
+  local desc="$1" msg="$2"; shift 2
+  if g_run "$@"; then
+    fail "G: $desc — expected exit 1, got 0"
+  elif grep -qF -- "$msg" "$G/err"; then
+    echo "ok: G: $desc"
+  else
+    fail "G: $desc — expected error '$msg', got: $(cat "$G/err")"
+  fi
+}
+g_expect_error "--input-dir --dry-run errors" "Error: --input-dir requires a value" --input-dir --dry-run
+g_expect_error "--output-dir --force errors" "Error: --output-dir requires a value" --input-dir "$G/in" --output-dir --force
+g_expect_error "--backup-suffix --dry-run errors" "Error: --backup-suffix requires a value" --input-dir "$G/in" --output-dir "$G/out" --backup-suffix --dry-run
+g_expect_error "--undo --dry-run errors" "Error: --undo requires a timestamp" --input-dir "$G/in" --output-dir "$G/out" --undo --dry-run
+g_expect_error "--exclude --dry-run errors" "Error: --exclude requires a value" --input-dir "$G/in" --output-dir "$G/out" --exclude --dry-run
+check "G: error runs wrote no links" test -z "$(ls -A "$G/out")"
+if g_run --input-dir "$G/in" --output-dir "$G/out" --dry-run; then
+  echo "ok: G: valid values still parse (--dry-run run passes)"
+else
+  fail "G: valid --input-dir/--output-dir values should still pass"
+fi
+
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2
   exit 1
