@@ -47,6 +47,19 @@ runCommand "service-events"
     $out/bin/service-event test check.bad ts=2000-01-01T00:00:00 2>$TMPDIR/reserved.err || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-event reserved field: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid field 'ts=2000-01-01T00:00:00'" $TMPDIR/reserved.err || { echo "service-event reserved field: argument not named in error" >&2; exit 1; }
+    # #934: a failed write (log dir cannot be created — Library is a
+    # regular file) exits 1 keeping the stderr message, not 0.
+    mkdir -p $TMPDIR/badhome
+    touch $TMPDIR/badhome/Library
+    rc=0
+    HOME=$TMPDIR/badhome $out/bin/service-event test check.bad pid=42 2>$TMPDIR/write.err || rc=$?
+    [ "$rc" -eq 1 ] || { echo "service-event failed write: expected exit 1, got $rc" >&2; exit 1; }
+    grep -q "cannot write" $TMPDIR/write.err || { echo "service-event failed write: stderr message missing" >&2; exit 1; }
+    # #935: a digit-like Unicode value (superscript two) is stored as a
+    # string and the event is appended — no traceback, exit 0.
+    HOME=$TMPDIR/unihome $out/bin/service-event test check.unicode 'count=²' pid=42
+    grep -q '"count": "²"' $TMPDIR/unihome/Library/Logs/nix-services/events.jsonl || { echo "service-event unicode digit: value not stored as string" >&2; exit 1; }
+    grep -q '"pid": 42' $TMPDIR/unihome/Library/Logs/nix-services/events.jsonl || { echo "service-event unicode digit: ASCII int conversion changed" >&2; exit 1; }
     rc=0
     SERVICE_EVENTS_INTERVAL=0 $out/bin/service-monitor 2>/dev/null || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-monitor zero interval: expected exit 2, got $rc" >&2; exit 1; }

@@ -10,6 +10,7 @@ secret: this log is meant to be read and pasted into issues. dezren39/nix#670.
 import datetime
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -58,7 +59,12 @@ def append_event(source, event, **fields):
         with open(LOG, "a") as fh:
             fh.write(json.dumps(record, sort_keys=False) + "\n")
     except OSError as exc:
+        # #934: report failure to the caller (the CLI turns it into a
+        # non-zero exit) but never raise — monitor.py imports this and
+        # must not die on a log-write failure.
         print(f"service-event: cannot write {LOG}: {exc}", file=sys.stderr)
+        return False
+    return True
 
 
 def main(argv):
@@ -89,9 +95,19 @@ def main(argv):
             )
             print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
             return 2
-        fields[key] = int(value) if value.lstrip("-").isdigit() and len(value) < 19 else value
-    append_event(argv[1], argv[2], **fields)
-    return 0
+        # #935: gate on a plain ASCII integer shape, not str.isdigit() —
+        # isdigit() is also true for Unicode digit characters int()
+        # rejects (superscript/subscript digits), which used to crash
+        # here with a traceback and lose the event. Digit-like Unicode
+        # values are stored as strings, like any other non-integer.
+        fields[key] = (
+            int(value)
+            if re.fullmatch(r"-?[0-9]+", value) and len(value) < 19
+            else value
+        )
+    # #934: a failed write is not success — callers that guard with
+    # || true are unaffected, everyone else now gets the real signal.
+    return 0 if append_event(argv[1], argv[2], **fields) else 1
 
 
 if __name__ == "__main__":
