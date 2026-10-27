@@ -10,7 +10,7 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 | Area                                                                          | Current focus                                             |
 | ----------------------------------------------------------------------------- | --------------------------------------------------------- |
-| [mcpx moves to developing-today/code](#mcpx-moves-to-developing-todaycode)    | Remove the vendored copy and build from the code repo     |
+| [mcpx moves to developing-today/code](#mcpx-moves-to-developing-todaycode)    | Built from the code repo; the darwin build is what remains |
 | [Keeping agent work safe on disk](#keeping-agent-work-safe-on-disk)           | The temp-dir guard, and finding out what deleted files    |
 | [OpenCode and OpenChamber integration](#opencode-and-openchamber-integration) | Pins, the mcpx config, MCP sign-ins                       |
 | [Sidepulse patches](#sidepulse-patches)                                       | Port a 12-patch stack to upstream                         |
@@ -25,10 +25,8 @@ The OpenCode fork does not bundle mcpx. It links one only if the consumer passes
 
 | Title                                    | Horizon | Status   | Intent                                                                                                             | Links                                                                  |
 | ---------------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Make mcpx consumable from the code repo  | Now     | planned  | Choose how to consume it and make it build on aarch64-darwin.                                                      | `developing-today/code#308`, `developing-today/code#237`               |
+| Make mcpx consumable from the code repo  | Now     | planned  | How to consume it is settled (source-only input, #468); what remains is making it build on aarch64-darwin.          | `developing-today/code#237`                                            |
 | Port the useful differences into code    | Now     | planned  | The `EnsureDaemon` check, `MCPX_STATE_DIR` and any tests that exist only here.                                     | [plan](planning/plans/mcpx-extraction.md), `developing-today/code#306` |
-| Move the mcpx backlog                    | Now     | planned  | About 100 open mcpx issues here need new homes. GitHub cannot transfer across owners.                              | `developing-today/code#309`                                            |
-| Build mcpx from the code repo            | Next    | done     | Added the `mcpx-src` input, kept passing `mcpx` to the fork, deleted `pkgs/mcpx`.                                   | [plan](planning/plans/mcpx-extraction.md), #468                        |
 | Fork flake decides where mcpx comes from | Next    | proposed | Whether the OpenCode flake keeps mcpx optional or defaults to the code repo's build.                               | `developing-today/opencode#82`                                         |
 | mcpx config for the github server        | Next    | proposed | The config lets the github server use PR and issue write tools. This stays here, since the config file lives here. | #371                                                                   |
 
