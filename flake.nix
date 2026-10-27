@@ -546,6 +546,26 @@ rec {
               bash ./opencode-db-pids.test.sh
               touch $out
             '';
+        # #941: opencode-db-args.test.sh pins the argument parsers of
+        # opencode-db-vacuum.sh / opencode-db-prune.sh — every
+        # value-taking option must reject an empty or flag-shaped value
+        # naming the option, so "--into --dry-run" cannot swallow the
+        # flag and run a real vacuum (the #930 pattern). Self-contained
+        # apart from sqlite3 for the vacuum happy-path control.
+        opencode-db-args-tests =
+          pkgs.runCommandLocal "opencode-db-args-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.sqlite ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-args.test.sh ./
+              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-args.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-db-args.test.sh
+              touch $out
+            '';
         # #557: var-folders-clean.test.sh (the #553 test for clean.sh's
         # /private/var/folders sweep) was run by nothing, tested a pasted
         # copy of the loops instead of the shipped logic, and exited 0 on

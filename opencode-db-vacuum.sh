@@ -156,10 +156,13 @@ Typical use, in order:
 EOF
 }
 
+# Value-taking options reject an empty or flag-shaped value (#941, the
+# #930 pattern): "--into --dry-run" must die naming --into, not swallow
+# --dry-run as the target path and run a real vacuum.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --db) DB="${2:?--db needs a path}"; shift 2 ;;
-    --into) INTO="${2:?--into needs a path}"; shift 2 ;;
+    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; DB="$2"; shift 2 ;;
+    --into) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--into needs a path"; INTO="$2"; shift 2 ;;
     --auto-vacuum) SET_AUTOVACUUM=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-backup) KEEP_BACKUP=0; shift ;;
