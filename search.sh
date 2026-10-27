@@ -6,9 +6,31 @@
 
 set -euo pipefail
 
-# Get list of all Homebrew-installed apps
-mapfile -t BREW_APPS < <(brew list --cask 2>/dev/null | tr '[:upper:]' '[:lower:]')
-mapfile -t BREW_NAMES < <(brew list --cask 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr ' .' '-')
+# Get list of all Homebrew-installed apps. Capture `brew list --cask`
+# once, with its exit status checked (#957): the old process
+# substitutions hid a failed `brew list` — its status was invisible
+# and its stderr discarded by 2>/dev/null — so brew breakage (or a
+# missing brew) looked exactly like "no casks installed" and every
+# app was reported as not brew-installed, with exit 0. Name the
+# failing step on stderr, surface brew's own stderr, and exit 1.
+# A genuinely empty successful list keeps the normal path below.
+BREW_ERR=$(mktemp)
+trap 'rm -f "$BREW_ERR"' EXIT
+
+if ! BREW_LIST=$(brew list --cask 2>"$BREW_ERR"); then
+    echo "search: error: 'brew list --cask' failed — installed casks could not be enumerated" >&2
+    if [[ -s "$BREW_ERR" ]]; then
+        sed 's/^/  /' "$BREW_ERR" >&2
+    fi
+    exit 1
+fi
+
+BREW_APPS=()
+BREW_NAMES=()
+if [[ -n "$BREW_LIST" ]]; then
+    mapfile -t BREW_APPS <<< "$(printf '%s' "$BREW_LIST" | tr '[:upper:]' '[:lower:]')"
+    mapfile -t BREW_NAMES <<< "$(printf '%s' "$BREW_LIST" | tr '[:upper:]' '[:lower:]' | tr ' .' '-')"
+fi
 
 check_if_brew_installed() {
     local app_path="$1"
