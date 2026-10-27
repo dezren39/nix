@@ -744,6 +744,30 @@ rec {
               bash ./install-vscode-patch-agent.test.sh
               touch $out
             '';
+        # #969: patch-vscode-insiders.test.sh drives the real
+        # patch-vscode-insiders.sh against a fixture app tree via the
+        # VSCODE_INSIDERS_APP_DIR seam -- the #925 write-only-when-changed
+        # rule and the #925/#938 missing-target / missing-JS exit-1
+        # contracts were verified only by hand (with the /Applications
+        # prefix retargeted in scratch copies), so they could regress
+        # silently.
+        patch-vscode-insiders-tests =
+          pkgs.runCommandLocal "patch-vscode-insiders-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/patch-vscode-insiders.sh $src/patch-vscode-insiders.test.sh ./
+              chmod u+w ./patch-vscode-insiders.sh ./patch-vscode-insiders.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./patch-vscode-insiders.test.sh
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used

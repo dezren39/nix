@@ -4,7 +4,10 @@
 #
 # Usage: bash ~/nix/patch-vscode-insiders.sh
 
-CSS_FILE="/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css"
+# VSCODE_INSIDERS_APP_DIR overrides the app location for tests (#969);
+# the default is exactly the historical hardcoded path.
+APP_DIR="${VSCODE_INSIDERS_APP_DIR:-/Applications/Visual Studio Code - Insiders.app}"
+CSS_FILE="$APP_DIR/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.css"
 
 if [ ! -f "$CSS_FILE" ]; then
   echo "ERROR: VSCode Insiders CSS file not found at:"
@@ -95,7 +98,7 @@ if missing:
 " || status=1
 
 # Patch JS file to set title/header/footer height to 0
-JS_FILE="/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js"
+JS_FILE="$APP_DIR/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js"
 
 if [ -f "$JS_FILE" ]; then
   echo "Patching VSCode Insiders workbench JS..."
