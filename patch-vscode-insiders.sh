@@ -122,6 +122,14 @@ if content != original:
     with open(path, 'w') as f:
         f.write(content)
 " || status=1
+else
+  # #931: a missing JS file is Patch 5's target missing in its most
+  # complete form — name it and fail like a missing target does, rather
+  # than silently skipping Patch 5 and exiting with the CSS status.
+  echo "ERROR: VSCode Insiders JS file not found at:"
+  echo "  $JS_FILE"
+  echo "  ✗ Patch 5: Target not found (JS workbench file missing)"
+  status=1
 fi
 
 exit $status
