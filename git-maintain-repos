@@ -165,7 +165,7 @@ FILTER="--repos-only"
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto) AUTO_SET=1 ;;                        # names the default scope; conflicts with --system/--no-system
-    --path) ROOT="${2:-}"; shift ;;
+    --path) { [ -n "${2:-}" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; ROOT="$2"; shift; } ;;
     --quick) DEPTH="quick" ;;
     --deep) DEPTH="deep" ;;
     --safe) DEPTH="safe" ;;
@@ -173,7 +173,7 @@ while [ $# -gt 0 ]; do
     --no-system) SCOPE="walk"; SCOPE_SET=1 ;;
     --recursive|--walk) RECURSIVE=1; DEPTH_LIMIT="" ;;
     --no-recursive|--no-walk) RECURSIVE=0 ;;
-    --depth) DEPTH_LIMIT="${2:-1}"; shift ;;
+    --depth) { [ -n "${2:-}" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; shift; } ;;
     --follow) FOLLOW=1 ;;
     --no-follow) FOLLOW=0 ;;
     --repos-only) FILTER="--repos-only" ;;
@@ -181,9 +181,9 @@ while [ $# -gt 0 ]; do
     --fsck) FSCK=1 ;;
     --clean-orphans) CLEAN_ORPHANS=1 ;;
     --expire-reflog) EXPIRE_REFLOG=1 ;;
-    --jobs) JOBS="${2:-4}"; shift ;;
-    --pack-threads) PACK_THREADS="${2:-3}"; shift ;;
-    --reflog-expire) REFLOG_EXPIRE="${2:-1.week.ago}"; shift ;;
+    --jobs) { [ -n "${2:-}" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; JOBS="$2"; shift; } ;;
+    --pack-threads) { [ -n "${2:-}" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; PACK_THREADS="$2"; shift; } ;;
+    --reflog-expire) { [ -n "${2:-}" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; REFLOG_EXPIRE="$2"; shift; } ;;
     --no-register) REGISTER=0 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;

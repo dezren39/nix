@@ -131,10 +131,10 @@ FOLLOW_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto)           MODE="auto" ;;
-    --path)           MODE="path"; PATHS+=("${2:-}"); shift ;;
+    --path)           { [ -n "${2:-}" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; MODE="path"; PATHS+=("$2"); shift; } ;;
     --recursive|--walk)       DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1;  RECURSIVE_SET=1 ;;
-    --depth)                  DEPTH_LIMIT="${2:-1}"; RECURSIVE_SET=1; shift ;;
+    --depth)                  { [ -n "${2:-}" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
     --follow)         FOLLOW=1; FOLLOW_SET=1 ;;
     --no-follow)      FOLLOW=0; FOLLOW_SET=1 ;;
     --repos-only)     FILTER="repos" ;;
@@ -143,9 +143,9 @@ while [ $# -gt 0 ]; do
     --bare-only)      FILTER="bare" ;;
     --paths-only)     PATHS_ONLY=1 ;;
     --no-bare)        INCLUDE_BARE=0 ;;
-    --find)           FIND_SPEC="${2:-all}"; shift ;;
+    --find)           { [ -n "${2:-}" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; FIND_SPEC="$2"; shift; } ;;
     --status)         WANT_STATUS=1 ;;
-    --user)           TARGET_USER="${2:-}"; shift ;;
+    --user)           { [ -n "${2:-}" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; TARGET_USER="$2"; shift; } ;;
     --print0)         PRINT0=1 ;;
     --count)          COUNT_ONLY=1 ;;
     --dry-run)        DRY_RUN=1 ;;

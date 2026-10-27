@@ -119,10 +119,10 @@ while [ $# -gt 0 ]; do
     --auto) AUTO_SET=1 ;;                        # names the default scope
     --no-system) DO_WALK=1; DO_SYSTEM=0; SCOPE_SET=1 ;;
     --system) DO_WALK=0; DO_SYSTEM=1; SCOPE_SET=1 ;;
-    --path) ROOT="${2:-}"; shift ;;
+    --path) { [ -n "${2:-}" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; ROOT="$2"; shift; } ;;
     --recursive|--walk) DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1; RECURSIVE_SET=1 ;;
-    --depth) DEPTH_LIMIT="${2:-1}"; RECURSIVE_SET=1; shift ;;
+    --depth) { [ -n "${2:-}" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
     --follow) FOLLOW=1 ;;
     --no-follow) FOLLOW=0 ;;
     --dry-run) DRY_RUN=1 ;;
