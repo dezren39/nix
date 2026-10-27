@@ -152,28 +152,87 @@ def _jsonc_loads(text):
     return json.loads("".join(out))
 
 
+def _live_key_span(text, key):
+    """(key_start, value_start) of the live top-level `key` in JSONC text,
+    or None. Scans the text skipping // and /* */ comments and string
+    literals, tracking brace depth, so an occurrence inside a comment or
+    a string — or nested inside another object — is not mistaken for the
+    live key (#929). value_start is the index just past the ':' and any
+    whitespace following it."""
+    i, n, depth = 0, len(text), 0
+    while i < n:
+        c = text[i]
+        if c == "/" and text[i + 1 : i + 2] == "/":
+            j = text.find("\n", i)
+            i = n if j < 0 else j + 1
+        elif c == "/" and text[i + 1 : i + 2] == "*":
+            j = text.find("*/", i + 2)
+            if j < 0:
+                return None
+            i = j + 2
+        elif c == '"':
+            start = i
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            if i >= n:
+                return None
+            i += 1
+            if depth != 1:
+                continue
+            try:
+                name = json.loads(text[start:i])
+            except ValueError:
+                continue
+            j = i
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            if j >= n or text[j] != ":":
+                continue
+            if name != key:
+                continue
+            j += 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            return start, j
+        elif c == "{":
+            depth += 1
+            i += 1
+        elif c == "}":
+            depth -= 1
+            i += 1
+        else:
+            i += 1
+    return None
+
+
 def _replace_context_servers(text, entry):
     """Swap the existing "context_servers" object value for the mcpx-only
     entry, preserving everything outside that span (and its trailing comma,
     when present) byte-for-byte. Returns the text unchanged when the existing
     value already is the mcpx-only entry, or None when no balanced object
     value can be located — the caller then warns and leaves the file alone
-    rather than guessing (#905)."""
-    m = re.search(r'"context_servers"\s*:\s*', text)
-    if not m or m.end() >= len(text) or text[m.end()] != "{":
+    rather than guessing (#905). The key is located with _live_key_span, so
+    a commented-out or quoted "context_servers" block cannot absorb the
+    replacement (#929)."""
+    live = _live_key_span(text, "context_servers")
+    if live is None:
         return None
-    end = _object_span(text, m.end())
+    key_start, value_start = live
+    if value_start >= len(text) or text[value_start] != "{":
+        return None
+    end = _object_span(text, value_start)
     if end is None:
         return None
     try:
-        if _jsonc_loads(text[m.end() : end]) == entry:
+        if _jsonc_loads(text[value_start:end]) == entry:
             return text
     except ValueError:
         pass
     rest = text[end:]
     comma = re.match(r"[ \t]*,", rest)
     tail = rest[comma.end() :] if comma else rest
-    return text[: m.start()] + f'"context_servers": {json.dumps(entry)}' + ("," if comma else "") + tail
+    return text[:key_start] + f'"context_servers": {json.dumps(entry)}' + ("," if comma else "") + tail
 
 
 def zed(path):
@@ -189,9 +248,7 @@ def zed(path):
         text = fh.read()
     entry = {"mcpx": {"command": MCPX, "args": ARGS, "env": {}}}
     block = f'  "context_servers": {json.dumps(entry)},\n'
-    if block in text:
-        return
-    if '"context_servers"' in text:
+    if _live_key_span(text, "context_servers") is not None:
         replaced = _replace_context_servers(text, entry)
         if replaced is None:
             print(f"mcp-clients: {path}: has its own context_servers; not changed. Make mcpx its only entry: {json.dumps(entry)}",
