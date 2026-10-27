@@ -65,8 +65,24 @@ is_skipped() {
 echo -e "${BOLD}${BLUE}brew-repair${NC} — scanning installed casks..."
 echo ""
 
-# Get all installed casks
-mapfile -t CASKS < <(brew list --cask 2>/dev/null)
+# Get all installed casks. Capture the output with its exit status
+# preserved (#949): the old process substitution hid a failed
+# `brew list` — its status was invisible and its stderr discarded —
+# so brew breakage looked exactly like an empty machine and the run
+# printed "No casks installed." with exit 0. Mirror the #926 handling
+# below: name the failing step on stderr, surface brew's own stderr,
+# and exit 1. A genuinely empty successful list keeps the path below.
+LISTFILE=$(mktemp)
+LISTERR=$(mktemp)
+trap 'rm -f "$LISTFILE" "$LISTERR"' EXIT
+
+if ! brew list --cask > "$LISTFILE" 2> "$LISTERR"; then
+  echo "brew-repair: error: 'brew list' failed — installed casks could not be enumerated" >&2
+  [[ -s "$LISTERR" ]] && sed 's/^/  /' "$LISTERR" >&2
+  exit 1
+fi
+
+mapfile -t CASKS < "$LISTFILE"
 
 if [[ ${#CASKS[@]} -eq 0 ]]; then
   echo "No casks installed."
@@ -82,7 +98,7 @@ echo ""
 TMPFILE=$(mktemp)
 INFOFILE=$(mktemp)
 ERRFILE=$(mktemp)
-trap 'rm -f "$TMPFILE" "$INFOFILE" "$ERRFILE"' EXIT
+trap 'rm -f "$TMPFILE" "$INFOFILE" "$ERRFILE" "$LISTFILE" "$LISTERR"' EXIT
 
 # The healthy/broken verdict is only sound if this scan actually ran, so
 # neither step may fail silently (#926): a failed `brew info` or unparseable

@@ -9,6 +9,10 @@
 # to exit 0 printing "All cask apps are healthy!" after checking zero
 # casks; now it names the failing step on stderr and exits 1, and a cask
 # absent from a successful scan counts as unchecked, never "healthy".
+# Scenarios K–L cover #949: a failed `brew list` used to exit 0 printing
+# "No casks installed." (its status and stderr were lost in a process
+# substitution); now it names the step on stderr and exits 1, while a
+# genuinely empty successful list keeps the exit-0 empty path.
 # This drives the REAL brew-repair.sh against a call-logging stub brew
 # with two broken casks (alpha, beta; both .apps missing).
 set -uo pipefail
@@ -35,7 +39,12 @@ cat > "$STUB_BIN/brew" <<'EOS'
 #!/usr/bin/env bash
 echo "brew $*" >> "$BREW_STUB_LOG"
 case "$1" in
-  list) printf '%s\n' alpha beta ;;
+  list)
+    case "${BREW_STUB_MODE:-broken}" in
+      list-fail) echo "Error: brew list blew up" >&2; exit 1 ;;
+      list-empty) exit 0 ;;
+      *) printf '%s\n' alpha beta ;;
+    esac ;;
   info)
     case "${BREW_STUB_MODE:-broken}" in
       info-fail) echo "Error: brew info blew up" >&2; exit 1 ;;
@@ -154,6 +163,25 @@ grep -q "beta (installed but unknown to brew" <<<"$out_j" || fail "J: beta not r
 grep -q "1 unchecked" <<<"$out_j" || fail "J: summary does not count beta as unchecked"
 grep -q "All cask apps are healthy" <<<"$out_j" && fail "J: healthy verdict printed with an unchecked cask"
 [[ $failures -eq $start ]] && ok "J: unknown cask counts as unchecked, exit 1, no healthy verdict"
+
+# ─── Scenario K (#949): brew list failure is a loud failure ─────────────────
+start=$failures
+out_k="$(BREW_STUB_MODE=list-fail run_brew_repair)"
+rc_k=$?
+[[ $rc_k -eq 1 ]] || fail "K: expected exit 1, got $rc_k"
+grep -q "'brew list' failed" "$TMP_ROOT/stderr" || fail "K: failing step not named on stderr"
+grep -q "brew list blew up" "$TMP_ROOT/stderr" || fail "K: brew's own stderr not surfaced"
+grep -q "No casks installed" <<<"$out_k" && fail "K: 'No casks installed.' printed for a failed brew list"
+[[ $(reinstall_count) -eq 0 ]] || fail "K: reinstall called after a failed brew list"
+[[ $failures -eq $start ]] && ok "K: brew list failure exits 1, names the step, surfaces stderr, no empty verdict"
+
+# ─── Scenario L (#949 control): empty successful brew list stays exit 0 ─────
+start=$failures
+out_l="$(BREW_STUB_MODE=list-empty run_brew_repair)"
+rc_l=$?
+[[ $rc_l -eq 0 ]] || fail "L: expected exit 0, got $rc_l"
+grep -q "No casks installed." <<<"$out_l" || fail "L: empty-list message missing for a successful empty brew list"
+[[ $failures -eq $start ]] && ok "L: successful empty brew list exits 0 with 'No casks installed.'"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
