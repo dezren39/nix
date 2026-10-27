@@ -14,10 +14,20 @@ fi
 
 echo "Patching VSCode Insiders workbench CSS..."
 
+# #909: propagate Python failures — a missing patch target must make the
+# script exit non-zero (the launchd agent has no exit-code consumer, so the
+# log line is the only failure signal), and files are written back only
+# when their content actually changed (the agent's WatchPaths are these
+# very files, so a no-change rewrite touches what it watches).
+status=0
+
 python3 -c "
+import sys
 path = '$CSS_FILE'
 with open(path, 'r') as f:
     content = f.read()
+original = content
+missing = []
 
 patches_applied = 0
 
@@ -31,6 +41,7 @@ if old in content:
 elif new in content:
     print('  ~ Patch 1: Already applied')
 else:
+    missing.append('Patch 1')
     print('  ✗ Patch 1: Target not found (CSS structure may have changed)')
 
 # Patch 2: Hide .part>.title height (top black bar) - use height:0 not display:none so JS layout reclaims space
@@ -43,6 +54,7 @@ if old2 in content:
 elif new2 in content:
     print('  ~ Patch 2: Already applied')
 else:
+    missing.append('Patch 2')
     print('  ✗ Patch 2: Target not found')
 
 # Patch 3: Hide terminal tabs sidebar (nth-child selector)
@@ -69,14 +81,18 @@ if patch4 not in content:
 else:
     print('  ~ Patch 4: Already applied')
 
-with open(path, 'w') as f:
-    f.write(content)
+if content != original:
+    with open(path, 'w') as f:
+        f.write(content)
 
 print(f'\nDone. {patches_applied} new patch(es) applied.')
 if patches_applied > 0:
     print('Restart VSCode Insiders (Cmd+Q then reopen) for changes to take effect.')
     print('Dismiss the \"corrupt installation\" warning — this is expected.')
-"
+if missing:
+    print('ERROR: target not found for: ' + ', '.join(missing) + ' (CSS structure may have changed)')
+    sys.exit(1)
+" || status=1
 
 # Patch JS file to set title/header/footer height to 0
 JS_FILE="/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js"
@@ -84,9 +100,11 @@ JS_FILE="/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/
 if [ -f "$JS_FILE" ]; then
   echo "Patching VSCode Insiders workbench JS..."
   python3 -c "
+import sys
 path = '$JS_FILE'
 with open(path, 'r') as f:
     content = f.read()
+original = content
 
 old = '.HEADER_HEIGHT=35}static{this.TITLE_HEIGHT=35}static{this.Footer_HEIGHT=35}'
 new = '.HEADER_HEIGHT=0 }static{this.TITLE_HEIGHT=0 }static{this.Footer_HEIGHT=0 }'
@@ -97,8 +115,13 @@ elif new in content:
     print('  ~ Patch 5: Already applied')
 else:
     print('  ✗ Patch 5: Target not found')
+    print('ERROR: target not found for: Patch 5 (JS structure may have changed)')
+    sys.exit(1)
 
-with open(path, 'w') as f:
-    f.write(content)
-"
+if content != original:
+    with open(path, 'w') as f:
+        f.write(content)
+" || status=1
 fi
+
+exit $status
