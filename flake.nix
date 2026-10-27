@@ -624,6 +624,25 @@ rec {
               bash ./git-discover-repos.test.sh
               touch $out
             '';
+        # #945: install-vscode-patch-agent.test.sh drives the real
+        # installer with a scratch HOME and a stub launchctl -- a missing
+        # LaunchAgents dir, a failing launchctl load, and a blocked dir
+        # all used to print "Installed and loaded" and exit 0, so the
+        # patch agent could silently never be installed.
+        install-vscode-patch-agent-tests =
+          pkgs.runCommandLocal "install-vscode-patch-agent-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/install-vscode-patch-agent.sh $src/install-vscode-patch-agent.test.sh ./
+              chmod u+w ./install-vscode-patch-agent.sh ./install-vscode-patch-agent.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./install-vscode-patch-agent.test.sh
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used

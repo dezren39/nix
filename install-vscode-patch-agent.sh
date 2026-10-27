@@ -15,8 +15,17 @@ chmod +x "$PATCH_SCRIPT"
 # Unload existing agent if present
 launchctl unload "$PLIST_PATH" 2>/dev/null
 
+# Create the LaunchAgents directory when it is missing (a fresh account
+# may not have one yet); without this the write below fails -- and until
+# #945 the failure was invisible, because the script still printed the
+# success banner and exited 0.
+if ! mkdir -p "$(dirname "$PLIST_PATH")"; then
+  echo "ERROR: Could not create LaunchAgents directory $(dirname "$PLIST_PATH")" >&2
+  exit 1
+fi
+
 # Write the plist
-cat > "$PLIST_PATH" << 'EOF'
+if ! cat > "$PLIST_PATH" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -42,9 +51,16 @@ cat > "$PLIST_PATH" << 'EOF'
 </dict>
 </plist>
 EOF
+then
+  echo "ERROR: Could not write plist to $PLIST_PATH" >&2
+  exit 1
+fi
 
-# Load the agent
-launchctl load "$PLIST_PATH"
+# Load the agent; a failed load must not be reported as success (#945).
+if ! launchctl load "$PLIST_PATH"; then
+  echo "ERROR: launchctl load failed for $PLIST_PATH" >&2
+  exit 1
+fi
 
 echo "✓ Installed and loaded com.drewry.patch-vscode-insiders"
 echo "  Patch script: $PATCH_SCRIPT"
