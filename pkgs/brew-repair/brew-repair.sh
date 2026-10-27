@@ -43,7 +43,7 @@ while [[ $# -gt 0 ]]; do
     -n|--dry-run) DRY_RUN=true; shift ;;
     -q|--quiet) QUIET=true; shift ;;
     -s|--skip)
-      if [[ $# -lt 2 ]]; then
+      if [[ $# -lt 2 || "$2" == -* ]]; then
         echo "brew-repair: $1 requires a cask name" >&2
         usage >&2
         exit 2
