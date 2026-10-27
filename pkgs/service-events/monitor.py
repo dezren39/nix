@@ -58,6 +58,13 @@ ROTATED_LOGS = (
     "~/Library/Logs/OpenChamber/main.log",
 )
 LONG_LIVED_S = 30
+# #920: a drop only counts as reconnected if a replacement opens a
+# connection within this window. Restarts and deploys replace a server in
+# seconds to a few minutes; a start hours or days later is a new, unrelated
+# process (for launchd-managed servers the (role, ppid=1) key is effectively
+# the role alone), and reporting it as a reconnect fabricates a recovery
+# with the old drop's count and a multi-day gap.
+RECONNECT_WINDOW_S = 600
 STATS_EVERY_S = 300
 ROTATE_BYTES = 20 * 1024 * 1024
 ROTATE_KEEP = 3
@@ -188,6 +195,11 @@ class Monitor:
                       parent_role=parent, program=program)
         self.procs = procs
         self.first = False
+
+        # #920: expire drops older than the reconnect window before they can
+        # be consumed below, so a stale entry is discarded, not reported as
+        # a reconnect of an unrelated later start.
+        self.drops = {key: drop for key, drop in self.drops.items() if now - drop[0] <= RECONNECT_WINDOW_S}
 
         servers = [pid for pid, (role, _, _) in procs.items() if role != "mcpx-daemon"]
         for pid, (ports, conns) in sockets(servers).items():
