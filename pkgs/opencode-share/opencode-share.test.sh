@@ -64,6 +64,18 @@ else
   [[ $failures -eq $start ]] && ok "D: no ((x++)) post-increment traps remain"
 fi
 
+# ─── Scenario E (#908): --source with no value errors cleanly ───────────────
+start=$failures
+out_e="$(bash "$SCRIPT" --source 2>&1)"
+rc_e=$?
+[[ $rc_e -eq 1 ]] || fail "E: expected exit 1, got $rc_e"
+grep -q -- "--source requires a directory argument" <<<"$out_e" || fail "E: missing-value error not printed"
+grep -q "Usage:" <<<"$out_e" || fail "E: usage not printed"
+if grep -q "unbound variable" <<<"$out_e"; then
+  fail "E: still crashes on unbound variable (regression)"
+fi
+[[ $failures -eq $start ]] && ok "E: --source with no value prints error + usage, exit 1"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1

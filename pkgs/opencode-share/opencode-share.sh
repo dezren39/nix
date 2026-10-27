@@ -316,6 +316,14 @@ TARGETS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source)
+      # NOTE (#908): guard the missing-value case — under `set -u` a
+      # trailing --source otherwise dies on unbound $2 with no usage.
+      if [[ $# -lt 2 ]]; then
+        err "--source requires a directory argument"
+        echo ""
+        usage
+        exit 1
+      fi
       SOURCE="$2"
       shift 2
       ;;

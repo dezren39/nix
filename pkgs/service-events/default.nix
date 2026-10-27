@@ -24,6 +24,17 @@ runCommand "service-events"
     export HOME=$TMPDIR
     $out/bin/service-event test check.one pid=42 cause=deploy
     log=$HOME/Library/Logs/nix-services/events.jsonl
+    # #913: malformed fields (no '=', or an empty key) exit 2 naming the
+    # argument, and append nothing — the python check below still sees
+    # exactly one line in the log.
+    rc=0
+    $out/bin/service-event test check.bad badarg pid=42 2>$TMPDIR/bad.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event no-'=' field: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "invalid field 'badarg'" $TMPDIR/bad.err || { echo "service-event no-'=' field: argument not named in error" >&2; exit 1; }
+    rc=0
+    $out/bin/service-event test check.bad =novalue 2>$TMPDIR/empty.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event empty-key field: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "invalid field '=novalue'" $TMPDIR/empty.err || { echo "service-event empty-key field: argument not named in error" >&2; exit 1; }
     ${python3}/bin/python3 - "$log" <<'EOF'
     import json, sys
     lines = open(sys.argv[1]).read().splitlines()

@@ -15,6 +15,10 @@
 #          undo-of-undo header truncated the source undo file before it was
 #          read ("0 unlinked", exit 0, records destroyed). Run ids now bump
 #          to the next free digits-only value when artifacts already exist.
+#   #912 — the name-filter flags' empty-occurrence guard tested the
+#          cumulative FILTER_* array, so a repeated flag with no values
+#          (--exact foo --exact) passed silently; the guard now compares
+#          against the count before that occurrence consumed values.
 # This drives the REAL symlinker.sh (no pasted copies) against temp dirs.
 # The #886 scenario stubs `date` so every invocation lands in the same
 # "second" deterministically.
@@ -167,6 +171,35 @@ else
 fi
 check "E: original left under its .bak.<run-ts> name" \
   cmp -s "$E/out/plain.txt.bak.$ts_e" <(printf 'old\n')
+
+# ─── Scenario F (#912): repeated filter flag with no values errors ──────────
+# The empty-occurrence guard used to test the cumulative FILTER_* array, so
+# `--exact foo --exact` passed silently. Each occurrence must consume at
+# least one value of its own.
+F="$TMP_ROOT/f"; mkdir -p "$F/in" "$F/out" "$F/cache"
+printf 'x\n' > "$F/in/foo"; printf 'x\n' > "$F/in/bar"
+f_run() { XDG_CACHE_HOME="$F/cache" bash "$SCRIPT" --input-dir "$F/in" --output-dir "$F/out" --dry-run "$@" >/dev/null 2>"$F/err"; }
+f_expect_error() { # f_expect_error <desc> <message> <args...>
+  local desc="$1" msg="$2"; shift 2
+  if f_run "$@"; then
+    fail "F: $desc — expected exit 1, got 0"
+  elif grep -qF -- "$msg" "$F/err"; then
+    echo "ok: F: $desc"
+  else
+    fail "F: $desc — expected error '$msg', got: $(cat "$F/err")"
+  fi
+}
+f_expect_error "repeated --exact with no values errors" "--exact requires at least one value" --exact foo --exact
+f_expect_error "repeated --prefix with no values errors" "--prefix/--starts-with requires at least one value" --prefix f --prefix
+f_expect_error "repeated --suffix with no values errors" "--suffix/--ends-with requires at least one value" --suffix o --suffix
+f_expect_error "repeated --regex with no values errors" "--regex requires at least one value" --regex 'f.o' --regex
+f_expect_error "repeated --match with no values errors" "--match requires at least one value" --match o --match --force
+f_expect_error "first-use empty --exact still errors" "--exact requires at least one value" --exact
+if f_run --exact foo --exact bar; then
+  echo "ok: F: repeated --exact with values on both occurrences still passes"
+else
+  fail "F: repeated --exact with values on both occurrences should pass"
+fi
 
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2
