@@ -624,6 +624,29 @@ rec {
               bash ./git-discover-repos.test.sh
               touch $out
             '';
+        # #453: opencode-tmp-guard.test.sh extracts the real guard script
+        # from opencode-tmp-guard.nix and drives it against a fixture temp
+        # tree -- the depth-4 scan used to miss worktree .git pointer files
+        # and repos at depth >= 5 (the metadata dirhelper sweeps first),
+        # node_modules .git dirs were walked, and a regular file at
+        # $TMPDIR/opencode made every run a silent no-op.
+        opencode-tmp-guard-tests =
+          pkgs.runCommandLocal "opencode-tmp-guard-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-tmp-guard.nix $src/opencode-tmp-guard.test.sh ./
+              chmod u+w ./opencode-tmp-guard.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-tmp-guard.test.sh
+              touch $out
+            '';
         # #945: install-vscode-patch-agent.test.sh drives the real
         # installer with a scratch HOME and a stub launchctl -- a missing
         # LaunchAgents dir, a failing launchctl load, and a blocked dir

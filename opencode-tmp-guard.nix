@@ -22,6 +22,9 @@
 #     link was swept) -> fold its contents into the durable directory, keeping
 #     both copies on a name clash, then relink.
 #   * symlink present -> refresh its access time, so the sweep never takes it.
+#   * anything else sits at that path (a regular file, a fifo, ...) -> log a
+#     WARN naming it and leave it alone: removing a user's file automatically
+#     is a policy call, and a silent no-op run is how #453's second gap hid.
 #
 # Every git repo or worktree still under $TMPDIR has its .git metadata (the
 # folder, or a worktree's pointer file) refreshed on every run, whatever its
@@ -66,11 +69,18 @@ let
       else
         log "WARN $L still not empty (written during the move); next run retries"
       fi
+    elif [ -e "$L" ]; then
+      log "WARN $L exists but is not a directory or symlink; leaving it in place (durable directory is $D)"
     elif [ ! -e "$L" ]; then
       /bin/ln -s "$D" "$L" && log "created $L -> $D"
     fi
 
-    repos=$(/usr/bin/find "$T" -maxdepth 4 -name .git -prune -print 2>/dev/null)
+    # No depth cap (#453): a worktree's .git pointer file under
+    # <repo>/.worktrees/<name>/ and repos nested deeper than 4 levels were
+    # never refreshed, which is exactly the metadata the sweep takes first.
+    # Cost stays bounded by pruning: .git itself is never descended into,
+    # and node_modules trees are skipped whole.
+    repos=$(/usr/bin/find "$T" -name node_modules -prune -o -name .git -prune -print 2>/dev/null)
 
     # .git metadata, every repo, every run, regardless of age. It is tiny, and
     # it is what the sweep took first (HEAD, config, loose refs, info/exclude,
