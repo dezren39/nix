@@ -41,6 +41,12 @@ runCommand "service-events"
     SERVICE_EVENTS_INTERVAL=abc $out/bin/service-monitor 2>$TMPDIR/interval.err || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-monitor bad interval: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid SERVICE_EVENTS_INTERVAL='abc'" $TMPDIR/interval.err || { echo "service-monitor bad interval: variable/value not named in error" >&2; exit 1; }
+    # #919: reserved field names (ts/source/event) exit 2 naming the field,
+    # and append nothing — the python check below still sees exactly one line.
+    rc=0
+    $out/bin/service-event test check.bad ts=2000-01-01T00:00:00 2>$TMPDIR/reserved.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event reserved field: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "invalid field 'ts=2000-01-01T00:00:00'" $TMPDIR/reserved.err || { echo "service-event reserved field: argument not named in error" >&2; exit 1; }
     rc=0
     SERVICE_EVENTS_INTERVAL=0 $out/bin/service-monitor 2>/dev/null || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-monitor zero interval: expected exit 2, got $rc" >&2; exit 1; }

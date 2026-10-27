@@ -78,6 +78,17 @@ def main(argv):
             )
             print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
             return 2
+        # #919: ts/source/event are the record's own fields. A ts= field used
+        # to silently overwrite the real timestamp via record.update(), and
+        # source=/event= crashed append_event() with a TypeError traceback,
+        # losing the event. Reject them the same loud way, before appending.
+        if key in ("ts", "source", "event"):
+            print(
+                f"service-event: invalid field {arg!r}: {key!r} is a reserved field name",
+                file=sys.stderr,
+            )
+            print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
+            return 2
         fields[key] = int(value) if value.lstrip("-").isdigit() and len(value) < 19 else value
     append_event(argv[1], argv[2], **fields)
     return 0
