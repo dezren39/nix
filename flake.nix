@@ -602,6 +602,28 @@ rec {
               bash ./opencode-share.test.sh
               touch $out
             '';
+        # #927: brew-repair.test.sh drives the real brew-repair.sh against
+        # a call-logging stub brew — '-s --dry-run' / '-s -n' used to
+        # swallow the option as the skip value and run real reinstalls,
+        # so the parse error (exit 2, zero brew calls) and the valid-value
+        # controls cannot regress silently.
+        brew-repair-tests =
+          pkgs.runCommandLocal "brew-repair-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+              ];
+              src = ./pkgs/brew-repair;
+            }
+            ''
+              cp $src/brew-repair.sh $src/brew-repair.test.sh ./
+              chmod u+w ./brew-repair.sh ./brew-repair.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./brew-repair.test.sh
+              touch $out
+            '';
         # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
         # repo's only *.test.ts suite) was run by nothing — no check,
         # workflow, or recipe referenced it, unlike the flake-tidy,
