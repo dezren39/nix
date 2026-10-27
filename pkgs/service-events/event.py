@@ -68,8 +68,16 @@ def main(argv):
     fields = {}
     for arg in argv[3:]:
         key, sep, value = arg.partition("=")
-        if not sep:
-            continue
+        # #913: a field that is not key=value (or has an empty key) used to
+        # be silently dropped / stored under "", so the event was written
+        # incomplete with exit 0. Fail loudly instead, before appending.
+        if not sep or not key:
+            print(
+                f"service-event: invalid field {arg!r}: expected key=value",
+                file=sys.stderr,
+            )
+            print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
+            return 2
         fields[key] = int(value) if value.lstrip("-").isdigit() and len(value) < 19 else value
     append_event(argv[1], argv[2], **fields)
     return 0
