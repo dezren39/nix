@@ -377,13 +377,58 @@ def _replace_context_servers(text, entry):
     return text[:key_start] + f'"context_servers": {json.dumps(entry)}' + ("," if comma else "") + tail
 
 
+def _only_ws_comments(s):
+    """True when s holds nothing but whitespace and // /* */ comments."""
+    i, n = 0, len(s)
+    while i < n:
+        if s[i] in " \t\r\n":
+            i += 1
+        elif s.startswith("//", i):
+            j = s.find("\n", i)
+            i = n if j < 0 else j + 1
+        elif s.startswith("/*", i):
+            j = s.find("*/", i + 2)
+            if j < 0:
+                return False
+            i = j + 2
+        else:
+            return False
+    return True
+
+
+def _top_level_brace(text):
+    """Index of the top-level object's opening '{', skipping leading
+    whitespace and comments, or None when the first meaningful character
+    is not '{' (#950)."""
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] in " \t\r\n":
+            i += 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j + 1
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            if j < 0:
+                return None
+            i = j + 2
+        elif text[i] == "{":
+            return i
+        else:
+            return None
+    return None
+
+
 def zed(path):
     """Zed's settings.json is JSON with comments, so it is edited as text: a
     context_servers block naming only mcpx is added after the opening brace.
     One that already exists is replaced in place — its whole value span,
     located by brace matching — so a foreign block does not keep servers
     that bypass mcpx (#905). A block whose span cannot be located is left
-    unchanged with a warning, never a guessed edit."""
+    unchanged with a warning, never a guessed edit. The insert path accepts
+    any opening-brace shape ({} , single-line, '{ // comment'); a file with
+    no locatable top-level object raises instead of silently skipping
+    enforcement (#950)."""
     if not os.path.exists(path):
         return
     with open(path) as fh:
@@ -399,11 +444,33 @@ def zed(path):
         if replaced != text:
             write(path, replaced, "context_servers = mcpx only (replaced existing block)")
         return
-    m = re.search(r"^\{[ \t]*\n", text, re.M)
-    if not m:
-        print(f"mcp-clients: {path}: no top-level '{{' line; not changed", file=sys.stderr)
+    # Insert path (#950): the opening brace need not be alone on its line.
+    # Locate the top-level '{' wherever it sits; insert as the first member
+    # in a shape that fits the file, preserving everything else byte-for-byte.
+    # A file with no locatable top-level object is a client failure (#906
+    # path: main names it and the run exits non-zero), never a silent skip.
+    start = _top_level_brace(text)
+    if start is None:
+        raise ValueError("no top-level '{' object; not changed")
+    end = _object_span(text, start)
+    if end is None:
+        raise ValueError("top-level object never closes; not changed")
+    if _only_ws_comments(text[start + 1 : end - 1]):
+        # Empty object: the entry goes just before the closing brace,
+        # with no trailing comma.
+        entry_text = f'"context_servers": {json.dumps(entry)}'
+        write(path, text[: end - 1] + entry_text + text[end - 1 :], "context_servers = mcpx")
         return
-    write(path, text[: m.end()] + block + text[m.end():], "context_servers = mcpx")
+    line_end = text.find("\n", start)
+    if line_end >= 0 and _only_ws_comments(text[start + 1 : line_end]):
+        # '{' (plus at most a comment) ends its line — the conventional
+        # shape, and the '{ // comment' shape: insert on the next line.
+        write(path, text[: line_end + 1] + block + text[line_end + 1 :], "context_servers = mcpx")
+        return
+    # Content shares the opening line (single-line object, or a member
+    # after a block comment): insert directly after the '{'.
+    inline = f' "context_servers": {json.dumps(entry)},'
+    write(path, text[: start + 1] + inline + text[start + 1 :], "context_servers = mcpx")
 
 
 def main():

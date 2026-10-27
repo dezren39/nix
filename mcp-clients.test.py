@@ -7,6 +7,10 @@ Covers the two PR #904 fallout bugs:
 - #905: a Zed settings.json with a foreign context_servers block gets that
   block replaced with the mcpx-only entry (brace-matched, string/comment
   aware); everything outside the block is preserved byte-for-byte.
+- #950: a Zed settings.json whose opening brace is not alone on a line
+  ({} , single-line, '{ // comment') still gains context_servers; a file
+  with no locatable top-level object fails the run (#906 way) instead of
+  silently exiting 0 unenforced.
 - #944: Codex servers spelled as inline-table entries under [mcp_servers]
   or as [[mcp_servers.*]] array-of-tables blocks are removed (not just
   plain [mcp_servers.*] tables) and named in the removed: report.
@@ -14,6 +18,7 @@ Covers the two PR #904 fallout bugs:
 Run: python3 mcp-clients.test.py  (exit 0 = all probes passed)
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -201,6 +206,66 @@ check("929 string mention does not absorb the replacement",
       '"context_servers": {"mcpx":' in out and '"other"' not in out, out)
 check("929 string mention preserved",
       '"note": "see \\"context_servers\\": {\\"x\\"} docs"' in out, out)
+shutil.rmtree(home)
+
+# #950: empty single-line object {} -- context_servers inserted, output
+# parses as JSON, second run no-op.
+home = fresh_home()
+zed_path = seed(home, ".config/zed/settings.json", '{}')
+r = run(home)
+out = read(zed_path)
+try:
+    parsed = json.loads(out)
+except ValueError:
+    parsed = {}
+check("950 {} gains context_servers", r.returncode == 0
+      and set(parsed.get("context_servers", {})) == {"mcpx"}, f"exit={r.returncode} out={out}")
+r2 = run(home)
+check("950 second run no-op after {} insert", r2.returncode == 0 and read(zed_path) == out)
+shutil.rmtree(home)
+
+# #950: complete single-line object -- inserted, theme preserved, parses.
+home = fresh_home()
+zed_path = seed(home, ".config/zed/settings.json", '{"theme": "One Dark"}\n')
+r = run(home)
+out = read(zed_path)
+try:
+    parsed = json.loads(out)
+except ValueError:
+    parsed = {}
+check("950 single-line object gains context_servers", r.returncode == 0
+      and set(parsed.get("context_servers", {})) == {"mcpx"}
+      and parsed.get("theme") == "One Dark", f"exit={r.returncode} out={out}")
+r2 = run(home)
+check("950 second run no-op after single-line insert", r2.returncode == 0 and read(zed_path) == out)
+shutil.rmtree(home)
+
+# #950: '{ // comment' shape -- comment kept byte-for-byte, block inserted
+# after the brace line, remaining content untouched.
+home = fresh_home()
+zed_path = seed(home, ".config/zed/settings.json",
+                '{ // my settings\n  "theme": "One Dark"\n}\n')
+r = run(home)
+out = read(zed_path)
+check("950 brace-with-comment gains context_servers", r.returncode == 0
+      and '"context_servers": {"mcpx":' in out, f"exit={r.returncode} out={out}")
+check("950 brace-line comment preserved", out.startswith('{ // my settings\n'), out)
+check("950 brace-with-comment body preserved", out.endswith('  "theme": "One Dark"\n}\n'), out)
+r2 = run(home)
+check("950 second run no-op after comment insert", r2.returncode == 0 and read(zed_path) == out)
+shutil.rmtree(home)
+
+# #950: no locatable top-level object -- the Zed step fails the #906 way:
+# named on stderr, exit non-zero, file unchanged, other clients enforced.
+home = fresh_home()
+seed(home, ".claude.json", '{"mcpServers": {"other": {"command": "x"}}}')
+zed_path = seed(home, ".config/zed/settings.json", 'not an object\n')
+original = read(zed_path)
+r = run(home)
+check("950 uneditable Zed exits non-zero", r.returncode != 0, f"exit={r.returncode}")
+check("950 uneditable Zed named on stderr", "Zed" in r.stderr and "settings.json" in r.stderr, r.stderr)
+check("950 uneditable Zed file unchanged", read(zed_path) == original)
+check("950 Claude still enforced despite Zed failure", '"mcpx"' in read(os.path.join(home, ".claude.json")))
 shutil.rmtree(home)
 
 # #944: Codex servers spelled as inline-table entries under the
