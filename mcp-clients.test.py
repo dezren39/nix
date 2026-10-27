@@ -136,5 +136,69 @@ check("905 unbalanced block left unchanged with warning",
       f"exit={r.returncode} stderr={r.stderr}")
 shutil.rmtree(home)
 
+# #929: a commented-out context_servers block before a live foreign block --
+# the live block is replaced, the comment is preserved byte-for-byte.
+home = fresh_home()
+comment = ('  // "context_servers": {\n'
+           '  //   "old": {"command": "old"}\n'
+           '  // },\n')
+zed_path = seed(home, ".config/zed/settings.json",
+                '{\n' + comment +
+                '  "context_servers": {"other": {"command": "x"}},\n'
+                '  "theme": "Dark"\n}\n')
+r = run(home)
+out = read(zed_path)
+check("929 line-comment block does not absorb the replacement",
+      '"context_servers": {"mcpx":' in out and '"other"' not in out, out)
+check("929 line comment preserved byte-for-byte", comment in out, out)
+r2 = run(home)
+check("929 second run no-op after comment case", r2.returncode == 0 and read(zed_path) == out)
+shutil.rmtree(home)
+
+# #929: /* */ block-comment variant -- same expectations.
+home = fresh_home()
+comment = ('  /* "context_servers": {\n'
+           '       "old": {"command": "old"}\n'
+           '     }, */\n')
+zed_path = seed(home, ".config/zed/settings.json",
+                '{\n' + comment +
+                '  "context_servers": {"other": {"command": "x"}},\n'
+                '  "theme": "Dark"\n}\n')
+r = run(home)
+out = read(zed_path)
+check("929 block-comment block does not absorb the replacement",
+      '"context_servers": {"mcpx":' in out and '"other"' not in out, out)
+check("929 block comment preserved byte-for-byte", comment in out, out)
+shutil.rmtree(home)
+
+# #929: comment-only occurrence -- no live key, so the mcpx block is inserted
+# and the comment stays untouched.
+home = fresh_home()
+zed_path = seed(home, ".config/zed/settings.json",
+                '{\n' + comment +
+                '  "theme": "Dark"\n}\n')
+r = run(home)
+out = read(zed_path)
+check("929 comment-only occurrence takes the insert path",
+      '"context_servers": {"mcpx":' in out and comment in out, out)
+r2 = run(home)
+check("929 second run no-op after insert", r2.returncode == 0 and read(zed_path) == out)
+shutil.rmtree(home)
+
+# #929: a string mentioning context_servers before the live key -- the
+# scanner skips string literals, so the live block is replaced and the
+# string is preserved.
+home = fresh_home()
+zed_path = seed(home, ".config/zed/settings.json",
+                '{\n  "note": "see \\"context_servers\\": {\\"x\\"} docs",\n'
+                '  "context_servers": {"other": {"command": "x"}}\n}\n')
+r = run(home)
+out = read(zed_path)
+check("929 string mention does not absorb the replacement",
+      '"context_servers": {"mcpx":' in out and '"other"' not in out, out)
+check("929 string mention preserved",
+      '"note": "see \\"context_servers\\": {\\"x\\"} docs"' in out, out)
+shutil.rmtree(home)
+
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
 sys.exit(1 if FAILURES else 0)
