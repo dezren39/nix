@@ -583,6 +583,27 @@ rec {
               bash ./symlinker.test.sh
               touch $out
             '';
+        # #940: git-discover-repos.test.sh drives the real
+        # git-discover-repos through bad, mixed, regular-file, all-valid,
+        # --count and --dry-run --path runs — a bad --path used to exit 0,
+        # so exit-code-checking callers (clean.sh) saw a successful empty
+        # scan instead of a bad argument.
+        git-discover-repos-tests =
+          pkgs.runCommandLocal "git-discover-repos-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.git ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/git-discover-repos $src/git-discover-repos.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              chmod u+w ./git-discover-repos ./git-discover-repos.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./git-discover-repos.test.sh
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used
