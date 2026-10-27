@@ -22,6 +22,10 @@ cp -f "$HOME/Library/Application Support/Zed/extensions/index.json" ./.zed/index
 # dir (or any other find failure) would leave it emptied when set -e exits.
 installed_tmp=$(mktemp ./.zed/.installed.txt.XXXXXX)
 trap 'rm -f "$installed_tmp"' EXIT
-find "$HOME/Library/Application Support/Zed/extensions/installed" -mindepth 1 -maxdepth 1 -exec basename {} \; > "$installed_tmp"
+# Sort the list (#946): raw find order is readdir order, so the committed
+# snapshot reshuffled between runs. LC_ALL=C sort makes regeneration
+# byte-identical when nothing changed; pipefail keeps the #860 guarantee —
+# a failed find fails the pipeline, set -e exits, and the mv never runs.
+find "$HOME/Library/Application Support/Zed/extensions/installed" -mindepth 1 -maxdepth 1 -exec basename {} \; | LC_ALL=C sort > "$installed_tmp"
 mv -f "$installed_tmp" ./.zed/installed.txt
 trap - EXIT
