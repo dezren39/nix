@@ -1473,6 +1473,16 @@ def _unquote_attr_names(text: str) -> str:
     theirs.  Used by the follows checkers, which compare whole lines
     against candidate strings built from bare names (#705).
     """
+    # Bolt Optimization: Fast path to bypass re.sub.
+    # Quoted attribute names require a quote '"' preceding an attribute operator ('.' or '=').
+    # If no '"' exists, or if the first '"' occurs after the last '.' or '=', no attribute name is quoted.
+    q_idx = text.find('"')
+    if q_idx == -1:
+        return text
+    last_op = max(text.rfind("="), text.rfind("."))
+    if last_op == -1 or q_idx > last_op:
+        return text
+
     return re.sub(
         rf"{_QUOTED_NAME}(?=\s*(?:\.|=))",
         lambda m: _unquote_name(m.group(0)),
