@@ -58,8 +58,11 @@ for opt in --path --depth --docker-age; do
 done
 
 # ─── No side effects from the rejected runs ────────────────────────────
-[ "$(snapshot)" = "$BEFORE" ] || fail "rejected runs changed the fixture tree"
-echo "ok: rejected runs left the fixture tree unchanged"
+if [ "$(snapshot)" = "$BEFORE" ]; then
+  echo "ok: rejected runs left the fixture tree unchanged"
+else
+  fail "rejected runs changed the fixture tree"
+fi
 
 # ─── Valid-value control ───────────────────────────────────────────────
 run --path "$VALID" --depth 2 --docker-age 7 --only-unknown-scratch

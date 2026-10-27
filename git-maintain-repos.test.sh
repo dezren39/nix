@@ -60,8 +60,11 @@ for opt in --path --depth --jobs --pack-threads --reflog-expire; do
 done
 
 # ─── No side effects from the rejected runs ────────────────────────────
-[ "$(snapshot)" = "$BEFORE" ] || fail "rejected runs changed the fixture tree"
-echo "ok: rejected runs left the fixture tree unchanged"
+if [ "$(snapshot)" = "$BEFORE" ]; then
+  echo "ok: rejected runs left the fixture tree unchanged"
+else
+  fail "rejected runs changed the fixture tree"
+fi
 
 # ─── Valid-value control ───────────────────────────────────────────────
 run --path "$VALID" --depth 2 --jobs 1 --pack-threads 1 --reflog-expire 1.day.ago --dry-run
