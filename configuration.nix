@@ -32,6 +32,7 @@ lib.recursiveUpdate {
     ./services.nix
     # OpenChamber server agent + desktop client; see the header there.
     ./openchamber.nix
+    ./opencode-tmp-guard.nix
     # ./home.nix
   ];
 
