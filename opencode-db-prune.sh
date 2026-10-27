@@ -191,18 +191,21 @@ Net, not gross:
 EOF
 }
 
+# Value-taking options reject an empty or flag-shaped value (#941, the
+# #930 pattern): "--db --apply" must die naming --db, not swallow --apply
+# as the database path.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --db) DB="${2:?--db needs a path}"; shift 2 ;;
-    --protect-days) PROTECT_DAYS="${2:?--protect-days needs a number}"; shift 2 ;;
+    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; DB="$2"; shift 2 ;;
+    --protect-days) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--protect-days needs a number"; PROTECT_DAYS="$2"; shift 2 ;;
     --protect-roots) PROTECT_ROOTS=1; shift ;;
     --apply) APPLY=1; shift ;;
-    --backup) BACKUP="${2:?--backup needs a path}"; shift 2 ;;
+    --backup) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--backup needs a path"; BACKUP="$2"; shift 2 ;;
     --no-backup) DO_BACKUP=0; shift ;;
-    --archive) ARCHIVE="${2:?--archive needs a path}"; shift 2 ;;
-    --restore-session) RESTORE_SESSION="${2:?--restore-session needs a session id}"; shift 2 ;;
-    --from) FROM="${2:?--from needs a path}"; shift 2 ;;
-    --batch) BATCH="${2:?--batch needs a number}"; shift 2 ;;
+    --archive) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--archive needs a path"; ARCHIVE="$2"; shift 2 ;;
+    --restore-session) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--restore-session needs a session id"; RESTORE_SESSION="$2"; shift 2 ;;
+    --from) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--from needs a path"; FROM="$2"; shift 2 ;;
+    --batch) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--batch needs a number"; BATCH="$2"; shift 2 ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
