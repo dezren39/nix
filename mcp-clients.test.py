@@ -14,6 +14,11 @@ Covers the two PR #904 fallout bugs:
 - #944: Codex servers spelled as inline-table entries under [mcp_servers]
   or as [[mcp_servers.*]] array-of-tables blocks are removed (not just
   plain [mcp_servers.*] tables) and named in the removed: report.
+- #956: Codex servers spelled at the TOML root -- dotted keys
+  (mcp_servers.<name>...) or a bare mcp_servers = { ... } inline table
+  (single- or multi-line) -- are removed and named; unrelated root keys
+  (including multi-line values and non-mcp_servers dotted keys) are
+  preserved, and the result parses as valid TOML.
 
 Run: python3 mcp-clients.test.py  (exit 0 = all probes passed)
 """
@@ -336,6 +341,89 @@ check("944 mixed report names all removed servers",
 r2 = run(home)
 check("944 mixed second run no-op", r2.returncode == 0 and read(codex_path) == out)
 shutil.rmtree(home)
+
+# #956: Codex servers spelled as root-level dotted keys -- removed and
+# named; unrelated root keys (a non-mcp_servers dotted key, and a kept
+# multi-line inline table whose inner lines merely mention mcp_servers)
+# are preserved byte-for-byte; result parses and holds only mcpx.
+def codex_server_names(text):
+    try:
+        import tomllib
+        return set(tomllib.loads(text).get("mcp_servers", {}))
+    except Exception:
+        return None
+
+
+home = fresh_home()
+notes_block = ('notes = [\n'
+               '  "mcp_servers.evil.command = \\"not real\\"",\n'
+               ']\n')
+codex_path = seed(home, ".codex/config.toml",
+                  'model = "gpt-5"\n'
+                  + notes_block +
+                  'unrelated.key = "keep"\n'
+                  'mcp_servers.evil.command = "evil"\n'
+                  'mcp_servers.evil.args = ["--x"]\n'
+                  'mcp_servers.sneaky = { command = "evil2" }\n'
+                  '\n'
+                  '[other]\n'
+                  'x = 1\n')
+r = run(home)
+out = read(codex_path)
+check("956 dotted-key servers removed", "evil2" not in out and "sneaky" not in out and "mcp_servers.evil.args" not in out, out)
+check("956 dotted-key report names removed servers", "removed: evil, sneaky" in r.stdout, r.stdout)
+check("956 dotted-key result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+check("956 unrelated root keys preserved byte-for-byte",
+      'model = "gpt-5"\n' in out and notes_block in out and 'unrelated.key = "keep"\n' in out, out)
+check("956 dotted case keeps other sections", "[other]" in out and "x = 1" in out, out)
+r2 = run(home)
+check("956 dotted second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #956: a root-level mcp_servers inline table on one line -- foreign
+# servers dropped and named, the result parses (previously declaring
+# mcpx on top of the surviving table made config.toml invalid TOML).
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  'mcp_servers = { evil = { command = "evil" }, other2 = { command = "evil2" } }\n'
+                  'model = "gpt-5"\n')
+r = run(home)
+out = read(codex_path)
+check("956 root inline-table servers removed", "evil" not in out and "other2" not in out, out)
+check("956 root inline-table report names removed servers",
+      "removed: evil, other2" in r.stdout, r.stdout)
+check("956 root inline-table result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+check("956 root inline-table keeps model", 'model = "gpt-5"' in out, out)
+r2 = run(home)
+check("956 root inline-table second run no-op",
+      r2.returncode == 0 and read(codex_path) == out and r2.stdout == "", f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #956: the same inline table spread over several lines, one server with
+# a nested multi-line table of its own -- all dropped and named, the
+# nested command line is not mistaken for another server.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  'model = "gpt-5"\n'
+                  'mcp_servers = {\n'
+                  '  evil = { command = "evil" },\n'
+                  '  multi = {\n'
+                  '    command = "evil2"\n'
+                  '  }\n'
+                  '}\n')
+r = run(home)
+out = read(codex_path)
+check("956 multi-line inline-table servers removed", "evil" not in out and "multi" not in out, out)
+check("956 multi-line inline-table report names removed servers",
+      "removed: evil, multi" in r.stdout, r.stdout)
+check("956 multi-line inline-table result parses with only mcpx",
+      codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("956 multi-line inline-table second run no-op",
+      r2.returncode == 0 and read(codex_path) == out and r2.stdout == "", f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
 
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
 sys.exit(1 if FAILURES else 0)

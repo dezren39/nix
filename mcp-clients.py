@@ -163,10 +163,101 @@ def _first_key(line):
     return name, line
 
 
+_KEY_PART = r"(?:[A-Za-z0-9_-]+|\"(?:[^\"\\]|\\.)*\"|\'[^\']*\')"
+_DOTTED_KEY_RE = _KEY_PART + r"(?:\s*\.\s*" + _KEY_PART + r")*"
+
+
+def _dotted_assignment(line):
+    """(parts, eq_index) for a TOML `key = value` line whose key is a
+    (possibly dotted) bare/quoted key, or (None, -1) when the line is not
+    such an assignment. The '=' is the first one outside quotes."""
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        if c == '"':
+            i += 1
+            while i < n and line[i] != '"':
+                i += 2 if line[i] == "\\" else 1
+            i += 1
+        elif c == "'":
+            j = line.find("'", i + 1)
+            i = n if j < 0 else j + 1
+        elif c == "#":
+            return None, -1
+        elif c == "=":
+            key = line[:i].strip()
+            if not key or not re.fullmatch(_DOTTED_KEY_RE, key):
+                return None, -1
+            return _split_dotted(key), i
+        else:
+            i += 1
+    return None, -1
+
+
+def _inline_table_keys(value):
+    """Top-level key names of the inline table whose '{' is the first one
+    in value, skipping strings and comments. Dotted keys inside the table
+    report their first part (the server name for a Codex table)."""
+    start = value.find("{")
+    if start < 0:
+        return []
+    names, depth, expecting, i, n = [], 0, False, start, len(value)
+    while i < n:
+        c = value[i]
+        if c == "#":
+            j = value.find("\n", i)
+            i = n if j < 0 else j + 1
+        elif value.startswith('"""', i) or value.startswith("'" * 3, i):
+            j = value.find(value[i : i + 3], i + 3)
+            i = n if j < 0 else j + 3
+        elif c == '"':
+            i += 1
+            while i < n and value[i] != '"':
+                i += 2 if value[i] == "\\" else 1
+            i += 1
+        elif c == "'":
+            j = value.find("'", i + 1)
+            i = n if j < 0 else j + 1
+        elif c in "{[(":
+            depth += 1
+            if c == "{" and depth == 1:
+                expecting = True
+            i += 1
+        elif c in "}])":
+            depth -= 1
+            i += 1
+            if depth == 0:
+                break
+        elif depth == 1 and c == ",":
+            expecting = True
+            i += 1
+        elif depth == 1 and expecting:
+            if c in " \t\r\n":
+                i += 1
+                continue
+            m = re.match(_DOTTED_KEY_RE, value[i:])
+            if m:
+                j = i + m.end()
+                k = j
+                while k < n and value[k] in " \t":
+                    k += 1
+                if k < n and value[k] == "=":
+                    names.append(_split_dotted(m.group(0))[0])
+                i = j
+            else:
+                i += 1
+            expecting = False
+        else:
+            i += 1
+    return names
+
+
 def codex(path):
     """~/.codex/config.toml: drop every mcp_servers entry, however spelled
-    ([mcp_servers.<name>] tables, [[mcp_servers.<name>]] array tables, and
-    inline entries under the [mcp_servers] parent table), then add
+    ([mcp_servers.<name>] tables, [[mcp_servers.<name>]] array tables,
+    inline entries under the [mcp_servers] parent table, and root-level
+    spellings: dotted keys mcp_servers.<name>... and a bare
+    mcp_servers = { ... } inline table at the TOML root, #956), then add
     [mcp_servers.mcpx]."""
     if not os.path.exists(path):
         return
@@ -175,12 +266,23 @@ def codex(path):
     kept, removed = [], set()
     skipping = False      # inside a dropped mcp_servers table / array table
     in_parent = False     # inside the bare [mcp_servers] parent table
+    at_root = True        # no table header seen yet (TOML root, #956)
     value_depth = 0       # >0: still consuming a dropped multi-line value
-    for line in lines:
+    kept_depth = 0        # >0: still consuming a kept multi-line value
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        idx += 1
         if value_depth > 0:
             value_depth += _value_bracket_depth(line)
             if value_depth < 0:
                 value_depth = 0
+            continue
+        if kept_depth > 0:
+            kept.append(line)
+            kept_depth += _value_bracket_depth(line)
+            if kept_depth < 0:
+                kept_depth = 0
             continue
         array_header = re.match(r"\s*\[\[\s*(.+?)\s*\]\]\s*(#.*)?$", line)
         header = None if array_header else re.match(r"\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$", line)
@@ -188,6 +290,7 @@ def codex(path):
             name = (array_header or header).group(1)
             parts = _split_dotted(name)
             in_parent = False
+            at_root = False
             if parts and parts[0] == "mcp_servers" and len(parts) >= 2:
                 skipping = True
                 removed.add(parts[1])
@@ -219,6 +322,33 @@ def codex(path):
             value_depth = _value_bracket_depth(line[eq + 1 :]) if eq >= 0 else 0
             if value_depth < 0:
                 value_depth = 0
+            continue
+        if at_root:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                parts, eq = _dotted_assignment(line)
+                if parts and parts[0] == "mcp_servers":
+                    if len(parts) >= 2:
+                        removed.add(parts[1])
+                        value_depth = _value_bracket_depth(line[eq + 1 :])
+                        if value_depth < 0:
+                            value_depth = 0
+                        continue
+                    gathered = [line[eq + 1 :]]
+                    depth = _value_bracket_depth(gathered[0])
+                    while depth > 0 and idx < len(lines):
+                        gathered.append(lines[idx])
+                        depth += _value_bracket_depth(lines[idx])
+                        idx += 1
+                    for server in _inline_table_keys("\n".join(gathered)):
+                        removed.add(server)
+                    continue
+            kept.append(line)
+            _parts, eq = _dotted_assignment(line)
+            segment = line[eq + 1 :] if eq >= 0 else line
+            kept_depth = _value_bracket_depth(segment)
+            if kept_depth < 0:
+                kept_depth = 0
             continue
         kept.append(line)
     while kept and not kept[-1].strip():
