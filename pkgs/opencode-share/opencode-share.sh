@@ -390,9 +390,12 @@ fi
 ERRORS=0
 for target in "${TARGETS[@]}"; do
   case "$ACTION" in
-    mount) do_mount "$target" || ((ERRORS++)) ;;
-    unmount) do_unmount "$target" || ((ERRORS++)) ;;
-    status) do_status "$target" || ((ERRORS++)) ;;
+    # NOTE (#907): do not use a post-increment for ERRORS here — it
+    # evaluates to 0 when ERRORS=0, so the compound returns status 1 and
+    # `set -e` aborts the whole run at the first failing target.
+    mount) do_mount "$target" || ERRORS=$((ERRORS + 1)) ;;
+    unmount) do_unmount "$target" || ERRORS=$((ERRORS + 1)) ;;
+    status) do_status "$target" || ERRORS=$((ERRORS + 1)) ;;
   esac
 done
 
