@@ -635,6 +635,33 @@ rec {
               bash ./symlink-scripts.test.sh
               touch $out
             '';
+        # #983: search.test.sh drives the real search.sh with a stub
+        # brew — PR #959's #957 fix (a failed `brew list --cask` exits
+        # 1 naming the step instead of reporting every app) shipped
+        # with no test and no check. The suite pins failing/missing
+        # brew (exit 1, step named, no findings), working brew (only
+        # non-cask apps reported), empty list (all apps, exit 0), and
+        # `brew list` running exactly once per invocation.
+        search-tests =
+          pkgs.runCommandLocal "search-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.findutils
+                pkgs.gnugrep
+                pkgs.gnused
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/search.sh $src/search.test.sh ./
+              chmod u+w ./search.sh ./search.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./search.test.sh
+              touch $out
+            '';
         # #940: git-discover-repos.test.sh drives the real
         # git-discover-repos through bad, mixed, regular-file, all-valid,
         # --count and --dry-run --path runs — a bad --path used to exit 0,

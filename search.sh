@@ -64,8 +64,11 @@ check_if_brew_installed() {
     fi
 }
 
-echo "Checking /Applications..."
-find /Applications -maxdepth 1 -name "*.app" -print0 | while IFS= read -r -d '' app; do
+# First leg scans /Applications; SEARCH_APPLICATIONS_DIR overrides the
+# directory for tests (#983) — the default behaviour is unchanged.
+APPLICATIONS_DIR="${SEARCH_APPLICATIONS_DIR:-/Applications}"
+echo "Checking $APPLICATIONS_DIR..."
+find "$APPLICATIONS_DIR" -maxdepth 1 -name "*.app" -print0 | while IFS= read -r -d '' app; do
     check_if_brew_installed "$app"
 done
 
