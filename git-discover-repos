@@ -243,7 +243,8 @@ scan_deep() {
   [ -d "$1" ] || return 0
   find -H "$1" "${DEPTH_ARGS[@]}" \( "${PRUNE_EXPR[@]}" \) -prune -print -o -name .git -print 2>/dev/null |
     while IFS= read -r hit; do
-      case "$(basename "$hit")" in
+      # Fast parameter expansion avoids subshell execution of basename in discovery loop
+      case "${hit##*/}" in
         .git) printf '%s\n' "${hit%/.git}" ;;
         *)    printf '%s\n' "$hit" >> "$ARTIFACTS_FILE" ;;
       esac
@@ -307,7 +308,7 @@ seed_auto() {
   done
   local d b
   for d in "$SCAN_HOME"/*/; do
-    d="${d%/}"; b="$(basename "$d")"
+    d="${d%/}"; b="${d##*/}"
     case "$b" in
       *git*) scan_deep "$(canon "$d")" ;;
       *)     is_numeric "$b" && scan_deep "$(canon "$d")" ;;
@@ -463,7 +464,7 @@ if [ -n "$FIND_SPEC" ]; then
   build_name_expr FIND_EXPR "${FIND_NAMES[@]}"
 
   reason_for() {
-    local b; b="$(basename "$1")"
+    local b; b="${1##*/}"
     local n
     for n in "${TRASH_NAMES[@]}"; do [ "$b" = "$n" ] && { echo trash; return; }; done
     for n in "${RISKY_NAMES[@]}"; do [ "$b" = "$n" ] && { echo risky; return; }; done
