@@ -27,6 +27,20 @@
 #   The agent state DB is snapshotted with sqlite3 .backup so the
 #   archived copy is transaction-consistent. Script:
 #   ./openclaw-backup.sh (vendored here; same credential pattern).
+# - supabase-backup (twice daily 04:42 + 16:42): pg_dump of the muse-dev
+#   Supabase project to R2 (supabase-backups), content-hashed names.
+#   Migrated from the sandbox 2026-10-28 (developing-today/code#1723);
+#   the unit is declared here per Drew's all-services-in-nix rule the
+#   same day. Script: ~/tools/supabase-backup.sh (wrapper; the dump
+#   program + config live in ~/tools/supabase-backup/).
+# - cold-store-nightly (daily 03:12): the cold-store reaper's nightly
+#   backup set (D1 exports, Supabase filing, Turso exports) to Google
+#   Drive. Migrated from the sandbox 2026-10-28 (code#1723). Script:
+#   ~/tools/cold-store-nightly.sh (wrapper; the job script itself lives
+#   in developing-today/code, pkgs/cold-store-reaper).
+# - cold-store-drill (monthly, day 1, 05:12; the script self-gates to
+#   Jan/Apr/Jul/Oct): restore drill for the cold-store backups.
+#   Script: ~/tools/cold-store-drill.sh (code#1723).
 #
 # Pruning discipline: each job prunes only the dated directories it
 # created itself. The sandbox's backup job writes into its own tree under
@@ -59,7 +73,7 @@ let
 in
 {
   options.services.laptop-backups = {
-    enable = lib.mkEnableOption "the laptop backup jobs (dashboard state + repo archive)";
+    enable = lib.mkEnableOption "the laptop backup jobs (dashboard, repo archive, openclaw, supabase, cold-store)";
 
     dashboard = {
       enable = lib.mkOption {
@@ -104,6 +118,63 @@ in
         description = "Daily run time (local) for the OpenClaw backup.";
       };
     };
+
+    supabase = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Twice-daily pg_dump backup of the muse-dev Supabase project to R2 (code#1723).";
+      };
+      onCalendar = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [
+          "04:42"
+          "16:42"
+        ];
+        description = "Daily run times (local) for the Supabase backup.";
+      };
+      script = lib.mkOption {
+        type = lib.types.str;
+        default = "${home}/tools/supabase-backup.sh";
+        description = "Path of the Supabase backup wrapper script to run.";
+      };
+    };
+
+    coldStoreNightly = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Daily cold-store nightly backup set to Google Drive (code#1723).";
+      };
+      onCalendar = lib.mkOption {
+        type = lib.types.str;
+        default = "03:12";
+        description = "Daily run time (local) for the cold-store nightly backup.";
+      };
+      script = lib.mkOption {
+        type = lib.types.str;
+        default = "${home}/tools/cold-store-nightly.sh";
+        description = "Path of the cold-store nightly wrapper script to run.";
+      };
+    };
+
+    coldStoreDrill = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Monthly cold-store restore drill; the script self-gates to Jan/Apr/Jul/Oct (code#1723).";
+      };
+      onCalendar = lib.mkOption {
+        type = lib.types.str;
+        default = "*-*-01 05:12:00";
+        description = "Monthly run time (local, day 1) for the cold-store restore drill.";
+      };
+      script = lib.mkOption {
+        type = lib.types.str;
+        default = "${home}/tools/cold-store-drill.sh";
+        description = "Path of the cold-store drill wrapper script to run.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -137,6 +208,36 @@ in
           };
         };
       })
+      (lib.mkIf cfg.supabase.enable {
+        supabase-backup = {
+          Unit.Description = "Twice-daily Supabase muse-dev pg_dump backup to R2 (code#1723)";
+          Service = {
+            Type = "oneshot";
+            ExecStart = cfg.supabase.script;
+            TimeoutStartSec = "30m";
+          };
+        };
+      })
+      (lib.mkIf cfg.coldStoreNightly.enable {
+        cold-store-nightly = {
+          Unit.Description = "Cold-store nightly backup set (D1 + Supabase + Turso exports to Drive) (code#1723)";
+          Service = {
+            Type = "oneshot";
+            ExecStart = cfg.coldStoreNightly.script;
+            TimeoutStartSec = "30m";
+          };
+        };
+      })
+      (lib.mkIf cfg.coldStoreDrill.enable {
+        cold-store-drill = {
+          Unit.Description = "Cold-store restore drill (quarterly months; script self-gates) (code#1723)";
+          Service = {
+            Type = "oneshot";
+            ExecStart = cfg.coldStoreDrill.script;
+            TimeoutStartSec = "15m";
+          };
+        };
+      })
     ];
 
     systemd.user.timers = lib.mkMerge [
@@ -167,6 +268,39 @@ in
           Unit.Description = "Run the OpenClaw backup daily";
           Timer = {
             OnCalendar = cfg.openclaw.onCalendar;
+            Persistent = true;
+            RandomizedDelaySec = "15m";
+          };
+          Install.WantedBy = [ "timers.target" ];
+        };
+      })
+      (lib.mkIf cfg.supabase.enable {
+        supabase-backup = {
+          Unit.Description = "Run the Supabase muse-dev backup twice daily";
+          Timer = {
+            OnCalendar = cfg.supabase.onCalendar;
+            Persistent = true;
+            RandomizedDelaySec = "15m";
+          };
+          Install.WantedBy = [ "timers.target" ];
+        };
+      })
+      (lib.mkIf cfg.coldStoreNightly.enable {
+        cold-store-nightly = {
+          Unit.Description = "Run the cold-store nightly backup daily";
+          Timer = {
+            OnCalendar = cfg.coldStoreNightly.onCalendar;
+            Persistent = true;
+            RandomizedDelaySec = "15m";
+          };
+          Install.WantedBy = [ "timers.target" ];
+        };
+      })
+      (lib.mkIf cfg.coldStoreDrill.enable {
+        cold-store-drill = {
+          Unit.Description = "Run the cold-store restore drill monthly (script self-gates to quarterly months)";
+          Timer = {
+            OnCalendar = cfg.coldStoreDrill.onCalendar;
             Persistent = true;
             RandomizedDelaySec = "15m";
           };
