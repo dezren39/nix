@@ -146,18 +146,30 @@ mkdir -p "$STAGE/aggregator" "$STAGE/meta-quota-export" "$STAGE/journals" "$OUTD
 
 # --- data set (explicit list only; the aggregator .env is deliberately NOT
 # --- included — no config/secret files belong in this archive) ---
+# Every staging copy is checked (#1023): the manifest below is generated
+# by walking the staged tree, so an unchecked cp failure (a present but
+# unreadable dataset file) was invisible to the manifest verify — the
+# run reported full success with an incomplete archive, uploaded it to
+# both remotes, and advanced the journal cursor. A failed copy fails
+# the run here via fail(), naming the source, before any upload and
+# before the cursor can advance. A missing file stays a WARN, as
+# before: absent and present-but-unreadable are different events.
 for f in actions.json comments.json fleet-feed.json quota-current.json \
          registry.json quota-gatherer-state.json quota-gatherer-heartbeat.json; do
-  if [ -f "$AGG/$f" ]; then cp -a "$AGG/$f" "$STAGE/aggregator/$f";
+  if [ -f "$AGG/$f" ]; then cp -a "$AGG/$f" "$STAGE/aggregator/$f" \
+    || fail "dataset copy failed: $AGG/$f";
   else echo "pm-dashboard-backup: WARN missing $AGG/$f" >&2; fi
 done
-if [ -d "$AGG/snapshots" ]; then cp -a "$AGG/snapshots" "$STAGE/aggregator/snapshots"; fi
+if [ -d "$AGG/snapshots" ]; then cp -a "$AGG/snapshots" "$STAGE/aggregator/snapshots" \
+  || fail "dataset copy failed: $AGG/snapshots"; fi
 for f in latest.json history.jsonl; do
-  if [ -f "$META/$f" ]; then cp -a "$META/$f" "$STAGE/meta-quota-export/$f";
+  if [ -f "$META/$f" ]; then cp -a "$META/$f" "$STAGE/meta-quota-export/$f" \
+    || fail "dataset copy failed: $META/$f";
   else echo "pm-dashboard-backup: WARN missing $META/$f" >&2; fi
 done
 
-if [ -d "$DUMP_DIR" ]; then cp -a "$DUMP_DIR" "$STAGE/db-dumps"; fi
+if [ -d "$DUMP_DIR" ]; then cp -a "$DUMP_DIR" "$STAGE/db-dumps" \
+  || fail "dataset copy failed: $DUMP_DIR"; fi
 
 # --- journals: window start = min(last successful run, 24h ago) ---
 NOW_EPOCH="$(date +%s)"
