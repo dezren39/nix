@@ -81,8 +81,11 @@ for opt in --path --depth; do
 done
 
 # ─── No side effects from the rejected runs ────────────────────────────
-[ -z "$(markers)" ] || fail "rejected runs wrote marker files: $(markers)"
-echo "ok: rejected runs wrote no markers"
+if [ -z "$(markers)" ]; then
+  echo "ok: rejected runs wrote no markers"
+else
+  fail "rejected runs wrote marker files: $(markers)"
+fi
 
 # ─── Valid-value control (dry run: discovers, marks nothing) ──────────
 run --no-system --path "$VALID" --depth 2 --dry-run
@@ -95,8 +98,11 @@ case "$OUT" in
   *"would mark: $VALID/repo1/.git"*) echo "ok: control discovered the fixture repo and would mark its .git" ;;
   *) fail "control did not discover the fixture repo (got: $OUT)" ;;
 esac
-[ -z "$(markers)" ] || fail "dry-run control wrote marker files: $(markers)"
-echo "ok: dry-run control wrote no markers"
+if [ -z "$(markers)" ]; then
+  echo "ok: dry-run control wrote no markers"
+else
+  fail "dry-run control wrote marker files: $(markers)"
+fi
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all spotlight-exclude-artifacts flag-shaped-value checks passed"

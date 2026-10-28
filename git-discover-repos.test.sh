@@ -48,11 +48,14 @@ run() { # run <args...> — sets OUT, ERR, STATUS
 }
 
 # ─── Bad path only ──────────────────────────────────────────────────────────
+group_start=$failures
 run --path "$BAD"
 [ "$STATUS" -ne 0 ] || fail "bad --path exited 0"
 case "$ERR" in *"not a directory: $BAD"*) echo "ok: bad path named on stderr" ;; *) fail "bad path not named on stderr (got: $ERR)" ;; esac
 [ -z "$OUT" ] || fail "bad --path printed stdout: $OUT"
-echo "ok: bad --path exits $STATUS with no stdout"
+if [ "$failures" -eq "$group_start" ]; then
+  echo "ok: bad --path exits $STATUS with no stdout"
+fi
 
 # ─── Mixed bad + valid ──────────────────────────────────────────────────────
 run --path "$BAD" --path "$VALID"
@@ -61,9 +64,12 @@ case "$OUT" in *"repo"$'\t'"$VALID_CANON/repo1"*) echo "ok: mixed run still list
 case "$ERR" in *"not a directory: $BAD"*) : ;; *) fail "mixed run did not name the bad path on stderr (got: $ERR)" ;; esac
 
 # ─── A regular file is not a directory ──────────────────────────────────────
+group_start=$failures
 run --path "$NOTDIR"
 [ "$STATUS" -ne 0 ] || fail "--path naming a regular file exited 0"
-echo "ok: regular-file --path exits $STATUS"
+if [ "$failures" -eq "$group_start" ]; then
+  echo "ok: regular-file --path exits $STATUS"
+fi
 
 # ─── All-valid control ──────────────────────────────────────────────────────
 run --path "$VALID"
@@ -71,18 +77,24 @@ run --path "$VALID"
 case "$OUT" in *"repo"$'\t'"$VALID_CANON/repo1"*) echo "ok: all-valid run lists the repo and exits 0" ;; *) fail "all-valid run output changed (got: $OUT)" ;; esac
 
 # ─── --count follows the same verdict ───────────────────────────────────────
+group_start=$failures
 run --path "$VALID" --count
 [ "$STATUS" -eq 0 ] || fail "--count on valid input exited $STATUS"
 run --path "$BAD" --count
 [ "$STATUS" -ne 0 ] || fail "--count on a bad --path exited 0"
-echo "ok: --count valid exits 0, bad exits non-zero"
+if [ "$failures" -eq "$group_start" ]; then
+  echo "ok: --count valid exits 0, bad exits non-zero"
+fi
 
 # ─── --dry-run follows the same verdict ─────────────────────────────────────
+group_start=$failures
 run --path "$VALID" --dry-run
 [ "$STATUS" -eq 0 ] || fail "--dry-run on valid input exited $STATUS"
 run --path "$BAD" --dry-run
 [ "$STATUS" -ne 0 ] || fail "--dry-run on a bad --path exited 0"
-echo "ok: --dry-run valid exits 0, bad exits non-zero"
+if [ "$failures" -eq "$group_start" ]; then
+  echo "ok: --dry-run valid exits 0, bad exits non-zero"
+fi
 
 # ─── Flag-shaped values are rejected at parse time (#951) ──────────────
 # PR #939 made the value-taking options reject a flag-shaped next token
@@ -120,8 +132,11 @@ for opt in --path --depth --find --user; do
   esac
 done
 
-[ "$(find "$TMP_ROOT" | sort)" = "$SNAP_BEFORE" ] || fail "missing-value runs changed the fixture tree"
-echo "ok: missing-value runs left the fixture tree unchanged"
+if [ "$(find "$TMP_ROOT" | sort)" = "$SNAP_BEFORE" ]; then
+  echo "ok: missing-value runs left the fixture tree unchanged"
+else
+  fail "missing-value runs changed the fixture tree"
+fi
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-discover-repos --path exit-status checks passed"
