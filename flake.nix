@@ -1030,6 +1030,58 @@ rec {
               bash ./modules/pm-dashboard-backup-manifest.test.sh
               touch $out
             '';
+        # #1026: pm-dashboard-backup-record.test.sh drives the real
+        # modules/pm-dashboard-backup.sh with stubbed bws/journalctl/
+        # rclone -- every run must leave .last-run.json at the backup
+        # root: result=complete with the archive sha256 and all three
+        # destinations ok on the happy path, and result=failed naming
+        # the failing step (with per-destination results) on a stubbed
+        # R2 upload failure.
+        pm-dashboard-backup-record-tests =
+          pkgs.runCommandLocal "pm-dashboard-backup-record-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+                pkgs.gnutar
+                pkgs.zstd
+                pkgs.util-linux
+              ];
+              src = inputs.self;
+            }
+            ''
+              mkdir -p modules
+              cp $src/modules/pm-dashboard-backup.sh $src/modules/pm-dashboard-backup-record.test.sh ./modules/
+              chmod u+w ./modules/pm-dashboard-backup.sh ./modules/pm-dashboard-backup-record.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./modules/pm-dashboard-backup-record.test.sh
+              touch $out
+            '';
+        # #1026: laptop-backups-watchdog.test.sh drives the real
+        # modules/laptop-backups-watchdog.sh with a stub systemctl and
+        # generated run records: fresh complete + recent timers exits
+        # 0; a stale or failed record exits non-zero naming
+        # pm-dashboard-backup; a stale timer exits non-zero naming it.
+        laptop-backups-watchdog-tests =
+          pkgs.runCommandLocal "laptop-backups-watchdog-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+                pkgs.coreutils
+              ];
+              src = inputs.self;
+            }
+            ''
+              mkdir -p modules
+              cp $src/modules/laptop-backups-watchdog.sh $src/modules/laptop-backups-watchdog.test.sh ./modules/
+              chmod u+w ./modules/laptop-backups-watchdog.sh ./modules/laptop-backups-watchdog.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./modules/laptop-backups-watchdog.test.sh
+              touch $out
+            '';
         # #965: mcp-clients.test.py -- the regression suite for
         # mcp-clients.py, the every-switch enforcement point that keeps
         # Claude/Codex/Zed MCP config mcpx-only -- was run by nothing:

@@ -16,6 +16,10 @@
 # offsite legs. That date is pruned by a later run, once it is no
 # longer the run date.
 #
+# Every run also writes a durable JSON run record at
+# ~/backups/dashboard/.last-run.json (#1026), read by the
+# laptop-backups watchdog (modules/laptop-backups-watchdog.sh).
+#
 # Credentials come from Bitwarden Secrets Manager at runtime, referenced
 # by key name only and never logged (the repo-archive-backup pattern):
 # cloudflare.r2-backups-access-key-id, cloudflare.r2-backups-secret-
@@ -31,6 +35,7 @@ ROOT="$HOME/backups/dashboard"
 OUTDIR="$ROOT/$DATE"
 ARCHIVE="$OUTDIR/dashboard-$DATE.tar.zst"
 MARKER="$ROOT/.last-run-epoch"
+RECORD="$ROOT/.last-run.json"
 R2_BUCKET="supabase-backups"
 R2_PREFIX="dashboard"
 DRIVE_DIR="Cloud/cold-store/db-backups/pm-aggregator"
@@ -44,9 +49,73 @@ fail() { echo "pm-dashboard-backup: FAILED $*" >&2; exit 1; }
 # empty until the staging dir exists; the handler removes it when set
 # and prints the FAILED marker on any non-zero exit.
 STAGE=""
+# --- run record (#1026, design #1024 phase 3) --------------------------------
+# Every real run (complete or failed) leaves one JSON record at
+# $RECORD beside the journal cursor: the artefact the laptop-backups
+# watchdog reads to name a stopped or failing backup. The EXIT trap
+# below is the only writer — the same single handler as #1010 (a
+# second trap would replace it). STEP names the step in progress and
+# each destination moves not-attempted -> in-progress -> ok as its leg
+# runs; on a failed exit an in-progress destination is recorded
+# failed. The single-instance SKIP below is not a run and leaves no
+# record (RECORD_SKIP=1). The record lives at the backup root, never
+# inside a dated day dir, so neither prune can remove it (the local
+# prune iterates only $ROOT/20??-??-??, the remote prunes only dated
+# dirs). A failed record carries result=failed, so the watchdog keys
+# on finish time + result and a failure can never masquerade as
+# freshness.
+STEP="validate-date"
+DEST_LOCAL="not-attempted"
+DEST_R2="not-attempted"
+DEST_DRIVE="not-attempted"
+ARC_SHA=""
+# Suppressed until DATE validation passes: an invalid DATE must be
+# rejected before ANY side effect (#989, pinned by the date suite),
+# so a rejected run leaves no record and no backup root.
+RECORD_SKIP=1
+write_record() {
+  local rc="$1" result="complete" d_local="$DEST_LOCAL" d_r2="$DEST_R2" d_drive="$DEST_DRIVE"
+  if [ "$rc" -ne 0 ]; then
+    result="failed"
+    [ "$d_local" = "in-progress" ] && d_local="failed"
+    [ "$d_r2" = "in-progress" ] && d_r2="failed"
+    [ "$d_drive" = "in-progress" ] && d_drive="failed"
+  fi
+  command -v python3 >/dev/null 2>&1 || return 0
+  mkdir -p "$ROOT" 2>/dev/null || return 0
+  RECORD_PATH="$RECORD" RECORD_RESULT="$result" RECORD_RC="$rc" \
+  RECORD_STEP="$STEP" RECORD_DATE="$DATE" RECORD_STARTED="$CREATED_AT" \
+  RECORD_SHA="$ARC_SHA" RECORD_LOCAL="$d_local" RECORD_R2="$d_r2" \
+  RECORD_DRIVE="$d_drive" \
+  python3 - <<'PYEOF' 2>/dev/null || true
+import json, os
+from datetime import datetime, timezone
+rec = {
+    "job": "pm-dashboard-backup",
+    "date": os.environ["RECORD_DATE"],
+    "started_at": os.environ["RECORD_STARTED"],
+    "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "result": os.environ["RECORD_RESULT"],
+    "exit_code": int(os.environ["RECORD_RC"]),
+    "failing_step": os.environ["RECORD_STEP"] if os.environ["RECORD_RESULT"] == "failed" else None,
+    "archive_sha256": os.environ["RECORD_SHA"] or None,
+    "destinations": {
+        "local": os.environ["RECORD_LOCAL"],
+        "r2": os.environ["RECORD_R2"],
+        "drive": os.environ["RECORD_DRIVE"],
+    },
+}
+tmp = os.environ["RECORD_PATH"] + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(rec, fh, indent=2)
+    fh.write("\n")
+os.replace(tmp, os.environ["RECORD_PATH"])
+PYEOF
+}
 on_exit() {
   rc=$?
   if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi
+  if [ "$RECORD_SKIP" -ne 1 ]; then write_record "$rc"; fi
   if [ $rc -ne 0 ]; then echo "pm-dashboard-backup: FAILED exit=$rc" >&2; fi
 }
 trap on_exit EXIT
@@ -65,11 +134,13 @@ if [[ ! "$DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
 fi
 
 mkdir -p "$ROOT"
+RECORD_SKIP=0
 
 # --- single instance -------------------------------------------------------
 exec 9>"$ROOT/.pm-dashboard-backup.lock"
 if ! flock -n 9; then
   log "SKIP another pm-dashboard-backup run holds the lock"
+  RECORD_SKIP=1
   exit 0
 fi
 
@@ -89,6 +160,7 @@ if ! command -v bws >/dev/null 2>&1 && [ -x "$HOME/tools/bin/bws" ]; then
 fi
 command -v bws >/dev/null 2>&1 || fail "bws not in PATH"
 
+STEP="credentials"
 # --- credentials from Bitwarden (names only in code/logs) ------------------
 if [ -z "${BWS_ACCESS_TOKEN:-}" ] && [ -f "$HOME/.config/bws/access-token" ]; then
   BWS_ACCESS_TOKEN="$(cat "$HOME/.config/bws/access-token")"
@@ -135,6 +207,7 @@ DUMP_SCRIPT="${PM_DB_DUMP_SCRIPT:-$HOME/tools/pm-stack-db-backup.sh}"
 DUMP_DIR="$HOME/backups/db-dumps/$DATE"
 DUMP_RAN=0
 if [ -x "$DUMP_SCRIPT" ]; then
+  STEP="db-dump"
   log "running DB dump step: $DUMP_SCRIPT"
   "$DUMP_SCRIPT" "$DATE" || fail "DB dump step failed"
   DUMP_RAN=1
@@ -143,6 +216,8 @@ else
 fi
 
 # === leg 1: the local archive (dashboard-backup.sh, code#1459) ============
+STEP="local-archive"
+DEST_LOCAL="in-progress"
 STAGE="$(mktemp -d)"
 mkdir -p "$STAGE/aggregator" "$STAGE/meta-quota-export" "$STAGE/journals" "$OUTDIR"
 
@@ -313,6 +388,7 @@ fi
 rm -rf "$VDIR"
 
 ARC_SHA="$(sha256sum "$ARCHIVE" | cut -d' ' -f1)"
+DEST_LOCAL="ok"
 log "local OK $ARCHIVE ($(stat -c%s "$ARCHIVE") bytes, sha256 $ARC_SHA)"
 
 # --- prune local day dirs older than 30 days (only this script's own;
@@ -352,15 +428,22 @@ prune_remote() { # $1 rclone dir holding <date> subdirs, $2 label
   done
 }
 
+STEP="r2-upload"
+DEST_R2="in-progress"
 R2_DEST="r2bak:$R2_BUCKET/$R2_PREFIX/$DATE/dashboard-$DATE.tar.zst"
 rclone copyto "$ARCHIVE" "$R2_DEST" || fail "R2 upload failed"
 verify_remote "$R2_DEST" "R2"
 prune_remote "r2bak:$R2_BUCKET/$R2_PREFIX" "R2"
+DEST_R2="ok"
 
+STEP="drive-upload"
+DEST_DRIVE="in-progress"
 DRIVE_DEST="drive:$DRIVE_DIR/$DATE/dashboard-$DATE.tar.zst"
 rclone copyto "$ARCHIVE" "$DRIVE_DEST" || fail "Drive upload failed"
 verify_remote "$DRIVE_DEST" "Drive"
 prune_remote "drive:$DRIVE_DIR" "Drive"
+DEST_DRIVE="ok"
+STEP="complete"
 
 # --- journal cursor: advance ONLY now that all three legs have succeeded ---
 # (#981: this write used to sit right after the local leg, so a run that
