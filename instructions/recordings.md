@@ -1,7 +1,20 @@
 # Recordings: append the moments worth remembering
 
 When something happens in a session that you would stop and tell the user about,
-**also append a JSON line to `~/git/ai_recordings.jsonl`**.
+**also record it** with the `record` tool (developing-today/code `bin/record.mjs`,
+tracking issue: developing-today/code#1853):
+
+```sh
+record '<json-or-loose-text>'
+```
+
+The tool appends one JSON line to `~/git/ai_recordings.jsonl` (override with
+`AI_RECORDINGS_FILE`), stamps `ts`/`pwd`/repo/origin/git HEAD for you, and
+**never rejects**: input it cannot normalise is quarantined verbatim to
+`~/git/ai_recordings.jsonl.quarantine`, and an unwritable target is a silent
+no-op — recording can never fail your task. Do not hand-edit the JSONL file;
+if `record` is unavailable on PATH, run it from a developing-today/code
+checkout: `node <checkout>/bin/record.mjs '<...>'`.
 
 Append only. Never edit or rewrite existing lines. You do not need to read the
 file first, though reading it is not forbidden.
@@ -31,7 +44,9 @@ in addition to the explanation, not instead of it.
 ## Format
 
 One JSON object per line. There is no required schema. Ideally valid JSON;
-malformed-but-structured beats nothing, and nothing beats silence.
+malformed-but-structured beats nothing, and nothing beats silence — the tool
+also accepts loose structured text (`kind=mistake | note: ... | lesson: ...`)
+and quarantines whatever it cannot normalise rather than dropping it.
 
 A reasonable starting shape — add or drop fields freely:
 
@@ -47,6 +62,3 @@ Prefer specifics over summary: file:line, the quoted failure text, the command
 and its real output, the number that was wrong and the number that was right.
 These lines will be normalised into a database later, so detail now is cheap and
 absence is permanent.
-
-Future: see `dezren39/nix` for the tracking issue on a tool or plugin to accept
-these directly.
