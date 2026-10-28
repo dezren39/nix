@@ -37,7 +37,19 @@ DRIVE_DIR="Cloud/cold-store/db-backups/pm-aggregator"
 
 log() { echo "pm-dashboard-backup: $*"; }
 fail() { echo "pm-dashboard-backup: FAILED $*" >&2; exit 1; }
-trap 'rc=$?; if [ $rc -ne 0 ]; then echo "pm-dashboard-backup: FAILED exit=$rc" >&2; fi' EXIT
+# One EXIT handler for both duties (#1010): bash traps replace, not
+# stack, so a second `trap ... EXIT` for the staging dir (installed
+# where STAGE is created below) silently discarded the FAILED-exit
+# logging for the whole archive/upload half of the script. STAGE is
+# empty until the staging dir exists; the handler removes it when set
+# and prints the FAILED marker on any non-zero exit.
+STAGE=""
+on_exit() {
+  rc=$?
+  if [ -n "$STAGE" ]; then rm -rf "$STAGE"; fi
+  if [ $rc -ne 0 ]; then echo "pm-dashboard-backup: FAILED exit=$rc" >&2; fi
+}
+trap on_exit EXIT
 
 # --- DATE validation (#989) -------------------------------------------------
 # DATE becomes a directory under $ROOT, the archive filename, and both
@@ -126,7 +138,6 @@ fi
 
 # === leg 1: the local archive (dashboard-backup.sh, code#1459) ============
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/aggregator" "$STAGE/meta-quota-export" "$STAGE/journals" "$OUTDIR"
 
 # --- data set (explicit list only; the aggregator .env is deliberately NOT
