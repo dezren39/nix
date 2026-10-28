@@ -1,4 +1,4 @@
-// Fixture test for cleanupCount in src/extension.ts (#1002).
+// Fixture test for cleanupCount in src/extension.ts (#1002, #1014).
 //
 // Run: node pkgs/buffer-backup/cleanup-count.test.mjs
 //
@@ -118,6 +118,66 @@ function remainingNames(dir) {
   assert.strictEqual(entries.reduce((s, e) => s + e.size, 0), 10240);
   fs.rmSync(dir, { recursive: true, force: true });
   console.log("pass: cleanupSize control unchanged");
+}
+
+// 5. Failed unlink, cleanupCount (#1014): the oldest file sits in a
+//    read-only day directory, so unlinking it fails. It must NOT be
+//    counted as deleted: the pass keeps deleting newer files until
+//    the target (max - rollout = 5) is actually reached, leaving the
+//    undeletable oldest plus the 4 newest deletable files. The buggy
+//    accounting stopped one file early, leaving 6 files.
+//    (Assumes a non-root test user: root bypasses directory write
+//    permissions and could unlink from a read-only directory.)
+function fixtureUndeletableOldest(count, sizeBytes = 16) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "buffer-backup-test-"));
+  const base = Date.UTC(2026, 0, 1) / 1000;
+  const oldDay = path.join(dir, "2026-01-01");
+  fs.mkdirSync(oldDay);
+  const oldest = path.join(oldDay, "f00.txt");
+  fs.writeFileSync(oldest, "x".repeat(sizeBytes));
+  fs.utimesSync(oldest, base, base);
+  const day = path.join(dir, "2026-01-02");
+  fs.mkdirSync(day);
+  for (let i = 1; i < count; i++) {
+    const name = `f${String(i).padStart(2, "0")}.txt`;
+    const full = path.join(day, name);
+    fs.writeFileSync(full, "x".repeat(sizeBytes));
+    fs.utimesSync(full, base + i * 10, base + i * 10);
+  }
+  fs.chmodSync(oldDay, 0o555);
+  return { dir, oldDay };
+}
+
+function removeFixture(dir, oldDay) {
+  try { fs.chmodSync(oldDay, 0o755); } catch {}
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+{
+  const { dir, oldDay } = fixtureUndeletableOldest(30);
+  cleanupCount({ backupDir: dir, maxFileCount: 10, rolloutFileCount: 5 });
+  const names = remainingNames(dir);
+  assert.deepStrictEqual(names, ["f00.txt", "f26.txt", "f27.txt", "f28.txt", "f29.txt"]);
+  removeFixture(dir, oldDay);
+  console.log("pass: cleanupCount does not count a failed unlink as deleted (#1014)");
+}
+
+// 6. Failed unlink, cleanupSize (#1014): same read-only-oldest fixture
+//    at 30x1024B with the scenario-4 limits (max 0.02MB, rollout
+//    0.01MB). The pass must keep
+//    deleting until the accounted total reaches the target, leaving
+//    the undeletable oldest plus the 9 newest files (10 files /
+//    10240B on disk). The buggy accounting ended the pass one file
+//    early, still over the size target.
+{
+  const { dir, oldDay } = fixtureUndeletableOldest(30, 1024);
+  cleanupSize({ backupDir: dir, maxTotalMb: 0.02, rolloutMb: 0.01 });
+  const entries = listBackups(dir);
+  assert.strictEqual(entries.length, 10);
+  assert.strictEqual(entries[0].name, "f00.txt", "undeletable oldest must survive");
+  assert.strictEqual(entries.reduce((s, e) => s + e.size, 0), 10240);
+  removeFixture(dir, oldDay);
+  console.log("pass: cleanupSize does not count a failed unlink as deleted (#1014)");
 }
 
 console.log("cleanup-count.test.mjs: all assertions passed");

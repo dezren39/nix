@@ -274,11 +274,13 @@ function cleanupSize(cfg: Config): void {
     if (total <= targetB) {
       break;
     }
-    total -= e.size;
     try {
       fs.unlinkSync(e.full);
+      total -= e.size;
     } catch {
-      // skip
+      // skip: a failed unlink is not a deletion (#1014) — do not
+      // deduct its size, or the budget believes a file that still
+      // exists on disk is gone.
     }
     rmEmpty(path.dirname(e.full));
   }
@@ -303,11 +305,12 @@ function cleanupCount(cfg: Config): void {
     if (remaining <= target) {
       break;
     }
-    remaining--;
     try {
       fs.unlinkSync(e.full);
+      remaining--;
     } catch {
-      // skip
+      // skip: a failed unlink is not a deletion (#1014) — do not
+      // decrement the count for a file that still exists on disk.
     }
     rmEmpty(path.dirname(e.full));
   }
