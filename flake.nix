@@ -610,6 +610,31 @@ rec {
               bash ./symlinker.test.sh
               touch $out
             '';
+        # #967: symlink-scripts.test.sh drives the real symlink-commands
+        # and symlink-plugins — in place against the repo's real
+        # commands/ and plugins/, and as verbatim copies in a fixture
+        # tree for the edge cases — pinning fresh link, already-linked
+        # no-op, identical-file replacement (not a warning), conflict /
+        # elsewhere / broken-symlink preservation with exit 1, --dry-run
+        # changing nothing, unknown option exit 2, and the glob
+        # divergence (commands links every regular file; plugins only
+        # *.{js,ts}, so *.test.mjs is never linked). Neither script had
+        # a suite or a check before this.
+        symlink-scripts-tests =
+          pkgs.runCommandLocal "symlink-scripts-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/symlink-commands $src/symlink-plugins $src/symlink-scripts.test.sh ./
+              cp -r $src/commands $src/plugins ./
+              chmod u+w ./symlink-commands ./symlink-plugins ./symlink-scripts.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./symlink-scripts.test.sh
+              touch $out
+            '';
         # #940: git-discover-repos.test.sh drives the real
         # git-discover-repos through bad, mixed, regular-file, all-valid,
         # --count and --dry-run --path runs — a bad --path used to exit 0,
