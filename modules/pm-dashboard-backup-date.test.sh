@@ -140,18 +140,22 @@ expect_rejected feb30 2026-02-30
 run_scenario ragged 2026-2-3
 expect_rejected ragged 2026-2-3
 
-run_scenario valid 2026-10-28
+# The happy-path date is today: a fixed calendar date falls out of
+# the script's 30-day retention window a month later and the prune
+# would delete the archive before the upload assertions run.
+TODAY="$(date +%F)"
+run_scenario valid "$TODAY"
 if [[ "$RC" -eq 0 ]]; then
   echo "ok: valid: script exited 0"
 else
   fail "valid: expected exit 0, got $RC; log: $(cat "$LOG")"
 fi
-if [[ -f "$SCEN_HOME/backups/dashboard/2026-10-28/dashboard-2026-10-28.tar.zst" ]]; then
+if [[ -f "$SCEN_HOME/backups/dashboard/$TODAY/dashboard-$TODAY.tar.zst" ]]; then
   echo "ok: valid: archive exists locally"
 else
   fail "valid: local archive missing"
 fi
-if compgen -G "$SCEN_STORE/*dashboard-2026-10-28.tar.zst*" >/dev/null; then
+if compgen -G "$SCEN_STORE/*dashboard-$TODAY.tar.zst*" >/dev/null; then
   echo "ok: valid: archive uploaded to the stub remotes"
 else
   fail "valid: archive missing from the stub remotes"
