@@ -28,6 +28,13 @@ jobs:
   cleanup:
     name: Remove stale branches solely behind the default branch
     runs-on: ubuntu-latest
+    # Every job gets an explicit cap (#405); this workflow was created
+    # after that pass and slipped in without one (#1019). Healthy runs
+    # take 12-25s, so 10 minutes (the buffer-backup jobs' precedent) is
+    # ~25x headroom and can only fire on a genuine hang — without it a
+    # hung run holds the branch-cleanup concurrency group for GitHub's
+    # 360-minute default and blocks the next scheduled run.
+    timeout-minutes: 10
     steps:
       - name: Check out with full history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
