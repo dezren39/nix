@@ -132,6 +132,57 @@ def _value_bracket_depth(text):
     return depth
 
 
+def _ml_string_scan(text, state):
+    """Scan text for TOML multi-line string delimiters.
+
+    state is the delimiter of a multi-line string already open at the
+    start of text, or None. Returns (new_state, rest): new_state is the
+    delimiter still open at the end of text (None when it closed or was
+    never opened); rest is what follows the closing delimiter when a
+    string open at entry closed mid-text ('' otherwise). Single-line
+    strings and comments are honoured while looking for an opening
+    delimiter, mirroring _value_bracket_depth's approximations; inside
+    a multi-line basic string a backslash-escaped delimiter does not
+    close it. (#990)
+    """
+    i, n = 0, len(text)
+    while i < n:
+        if state is not None:
+            j = text.find(state, i)
+            while j >= 0 and state == '"""':
+                backslashes = 0
+                k = j - 1
+                while k >= 0 and text[k] == "\\":
+                    backslashes += 1
+                    k -= 1
+                if backslashes % 2 == 0:
+                    break
+                j = text.find(state, j + 3)
+            if j < 0:
+                return state, ""
+            rest = text[j + 3 :]
+            state = None
+            i = n
+            return None, rest
+        c = text[i]
+        if c == "#":
+            break
+        if text.startswith('"""', i) or text.startswith("\'\'\'", i):
+            state = text[i : i + 3]
+            i += 3
+        elif c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif c == "\'":
+            j = text.find("\'", i + 1)
+            i = n if j < 0 else j + 1
+        else:
+            i += 1
+    return state, ""
+
+
 def _first_key(line):
     """(name, rest) for the first key of a TOML assignment line, or
     (None, line) when the line does not start with a key followed by '='."""
@@ -269,10 +320,31 @@ def codex(path):
     at_root = True        # no table header seen yet (TOML root, #956)
     value_depth = 0       # >0: still consuming a dropped multi-line value
     kept_depth = 0        # >0: still consuming a kept multi-line value
+    ml = None             # open multi-line string delimiter (""" or '''), #990
+    ml_drop = False       # the open multi-line string is a dropped value
     idx = 0
     while idx < len(lines):
         line = lines[idx]
         idx += 1
+        if ml is not None:
+            # Inside a multi-line string value: this line is string
+            # content, never a table header or a key, whatever it looks
+            # like -- a header-shaped line here must not switch modes
+            # and swallow the rest of the string (#990).
+            if not skipping and value_depth == 0 and not ml_drop:
+                kept.append(line)
+            ml, rest = _ml_string_scan(line, ml)
+            if ml is None:
+                ml_drop = False
+            if value_depth > 0:
+                value_depth += _value_bracket_depth(rest)
+                if value_depth < 0:
+                    value_depth = 0
+            elif kept_depth > 0:
+                kept_depth += _value_bracket_depth(rest)
+                if kept_depth < 0:
+                    kept_depth = 0
+            continue
         if value_depth > 0:
             value_depth += _value_bracket_depth(line)
             if value_depth < 0:
@@ -307,6 +379,9 @@ def codex(path):
                 kept.append(line)
             continue
         if skipping:
+            _sp, eq = _dotted_assignment(line)
+            if eq >= 0:
+                ml = _ml_string_scan(line[eq + 1 :], None)[0]
             continue
         if in_parent:
             stripped = line.strip()
@@ -322,6 +397,9 @@ def codex(path):
             value_depth = _value_bracket_depth(line[eq + 1 :]) if eq >= 0 else 0
             if value_depth < 0:
                 value_depth = 0
+            if eq >= 0:
+                ml = _ml_string_scan(line[eq + 1 :], None)[0]
+                ml_drop = ml is not None
             continue
         if at_root:
             stripped = line.strip()
@@ -333,6 +411,8 @@ def codex(path):
                         value_depth = _value_bracket_depth(line[eq + 1 :])
                         if value_depth < 0:
                             value_depth = 0
+                        ml = _ml_string_scan(line[eq + 1 :], None)[0]
+                        ml_drop = ml is not None
                         continue
                     gathered = [line[eq + 1 :]]
                     depth = _value_bracket_depth(gathered[0])
@@ -349,8 +429,13 @@ def codex(path):
             kept_depth = _value_bracket_depth(segment)
             if kept_depth < 0:
                 kept_depth = 0
+            if eq >= 0:
+                ml = _ml_string_scan(segment, None)[0]
             continue
         kept.append(line)
+        _kp, eq = _dotted_assignment(line)
+        if eq >= 0:
+            ml = _ml_string_scan(line[eq + 1 :], None)[0]
     while kept and not kept[-1].strip():
         kept.pop()
     block = [

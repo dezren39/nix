@@ -14,6 +14,11 @@ Covers the two PR #904 fallout bugs:
 - #944: Codex servers spelled as inline-table entries under [mcp_servers]
   or as [[mcp_servers.*]] array-of-tables blocks are removed (not just
   plain [mcp_servers.*] tables) and named in the removed: report.
+- #990: a header-shaped line inside a multi-line basic or
+  literal string value is string content, never a table header --
+  the Codex parser tracks multi-line string state so such a line
+  cannot switch modes, swallow the rest of the string, and
+  corrupt the file.
 - #956: Codex servers spelled at the TOML root -- dotted keys
   (mcp_servers.<name>...) or a bare mcp_servers = { ... } inline table
   (single- or multi-line) -- are removed and named; unrelated root keys
@@ -422,6 +427,101 @@ check("956 multi-line inline-table result parses with only mcpx",
 r2 = run(home)
 check("956 multi-line inline-table second run no-op",
       r2.returncode == 0 and read(codex_path) == out and r2.stdout == "", f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+
+# #990: a header-shaped line inside a multi-line basic string in an
+# ordinary table is string content -- the fixture from the issue must
+# round-trip: string preserved byte-for-byte, the following table
+# survives, no server reported removed, output valid TOML.
+home = fresh_home()
+string_block = ('instructions = """\n'
+                'See this example TOML:\n'
+                '[mcp_servers.evil]\n'
+                'command = "evil"\n'
+                '"""\n')
+codex_path = seed(home, ".codex/config.toml",
+                  'model = "gpt-5"\n'
+                  '\n'
+                  '[profiles.demo]\n'
+                  + string_block +
+                  '\n'
+                  '[profiles.demo2]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990 basic-string fixture preserved byte-for-byte", string_block in out, out)
+check("990 basic-string following table survives", "[profiles.demo2]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990 basic-string reports no server removed", "removed: none" in r.stdout, r.stdout)
+check("990 basic-string result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 basic-string second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990: the same for a multi-line literal string, with a REAL
+# [mcp_servers.real] table alongside -- the real one is still removed
+# and reported, the ghost inside the literal string is not.
+home = fresh_home()
+literal_block = ("literal = '''\n"
+                 "[mcp_servers.ghost]\n"
+                 'command = "ghost"\n'
+                 "'''\n")
+codex_path = seed(home, ".codex/config.toml",
+                  '[profiles.demo]\n'
+                  + literal_block +
+                  '\n'
+                  '[mcp_servers.real]\n'
+                  'command = "real"\n')
+r = run(home)
+out = read(codex_path)
+check("990 literal-string preserved byte-for-byte", literal_block in out, out)
+check("990 real server alongside string removed", "[mcp_servers.real]" not in out and 'command = "real"' not in out, out)
+check("990 report names only the real server", "removed: real" in r.stdout and "ghost" not in r.stdout, r.stdout)
+check("990 literal-string result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 literal-string second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 at the TOML root: a dotted mcp_servers line inside a root-level
+# multi-line string is not a server; a real root dotted server next to
+# it is still removed and named.
+home = fresh_home()
+root_block = ('instructions = """\n'
+              'mcp_servers.evil.command = "evil"\n'
+              '"""\n')
+codex_path = seed(home, ".codex/config.toml",
+                  root_block +
+                  'mcp_servers.real.command = "real"\n')
+r = run(home)
+out = read(codex_path)
+check("990 root string content preserved byte-for-byte", root_block in out, out)
+check("990 root report names only the real server", "removed: real" in r.stdout, r.stdout)
+check("990 root result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 root second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 under the [mcp_servers] parent: an entry whose value is a
+# multi-line string containing a header-shaped line -- the entry is
+# dropped as one entry, the phantom header inside its string is not
+# treated as a table (and not reported).
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers]\n'
+                  'notes = """\n'
+                  '[mcp_servers.phantom]\n'
+                  '"""\n')
+r = run(home)
+out = read(codex_path)
+check("990 parent string entry dropped whole", "notes" not in out and "phantom" not in out, out)
+check("990 parent report has no phantom", "phantom" not in r.stdout, r.stdout)
+check("990 parent result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 parent second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
 shutil.rmtree(home)
 
 
