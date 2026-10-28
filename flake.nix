@@ -224,16 +224,6 @@ rec {
     bdwgc.flake = false;
   };
   outputs = inputs: rec {
-    # Home-manager modules exported for other flakes. The laptop NixOS
-    # configuration (developing-today/code) imports laptop-backups so
-    # the laptop backup jobs deploy with nixos switch (code#1516, nix#976),
-    # and codex-remote-control so the Codex daemon deploys the same way
-    # (code#1685, nix#1028).
-    homeModules = {
-      laptop-backups = ./modules/laptop-backups.nix;
-      codex-remote-control = ./modules/codex-remote-control.nix;
-    };
-
     # flake-tidy config (pkgs/flake-tidy reads it via `nix eval .#flakeTidy`,
     # its outputs import probe, or a --config file — the tidy check passes
     # this evaluated value as a file; see #476). The
