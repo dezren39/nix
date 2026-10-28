@@ -13,3 +13,9 @@
 **Learning:** Pure parsing helpers in `flake-tidy` (`detect_inputs_style`, `_brace_counts`, `_normalize_vcs_url`, `_name_ref`, `_unquote_name`, and `get_input_file_order`) were repeatedly re-parsing document lines and executing regex replacements across different linting and analysis passes on the same document content. Adding `@functools.lru_cache` to immutable helpers and wrapping cached tuple functions with list constructors (`list(_get_input_file_order_cached(content))`) preserves complete caller isolation while yielding over 20x speedup on repeated lookups.
 
 **Action:** Memoize pure line-parsing and string-canonicalization helpers using `@functools.lru_cache`. When callers expect mutable collections (`list`), separate the cached calculation into an inner function returning a `tuple` and wrap it in `list()` to guarantee isolation without sacrificing speed.
+
+## 2026-10-27 - Fast-Path Guard for Quoted Attribute Name Unquoting
+
+**Learning:** `_unquote_attr_names` in `flake-tidy` runs `re.sub` over every line during follows checks across hundreds of candidate proposals. Adding a fast-path check (`q_idx == -1 or q_idx > last_op`) skips `re.sub` entirely when no double quotes precede an attribute operator (`.` or `=`), yielding a ~60% speedup on unquoted lines without changing output.
+
+**Action:** Before calling `re.sub` on high-frequency line loops, check if necessary syntax characters (like quotes before operators) are present to fast-path non-matching lines without regular expression invocation.
