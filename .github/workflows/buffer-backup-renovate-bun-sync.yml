@@ -1,0 +1,132 @@
+name: buffer-backup renovate bun sync
+
+# Auto-sync bun.lock on Renovate bumps for pkgs/buffer-backup (#1060).
+#
+# The companion gate (buffer-backup-lock-sync.yml, #998) only CHECKS
+# that bun.lock and package-lock.json agree — it has contents:read and
+# cannot fix anything. Renovate updates package-lock.json (npm) only,
+# so every Renovate bump for this package arrived red and stayed red
+# until a human ran `bun install` in pkgs/buffer-backup and pushed to
+# the Renovate branch by hand (PRs #1049 and #1058 both landed in that
+# state). This workflow is the missing half: on a Renovate PR for this
+# package it regenerates bun.lock and commits it back to the PR
+# branch, then the gate re-runs on the new head and the PR can go
+# green on its own.
+#
+# Why a dedicated token: pushes made with the workflow's default
+# GITHUB_TOKEN do not trigger new workflow runs, so a sync commit
+# pushed with it would leave the gate stuck on the stale red head.
+# The commit-back push here uses a dedicated fine-grained PAT stored
+# as the repo Actions secret RENOVATE_BUN_SYNC_TOKEN (secret NAME
+# only — the value lives only in GitHub's secret store):
+#   - repository access: dezren39/nix only
+#   - permissions: Contents: read and write (nothing else)
+#   - created/owned by Drew; expiry is his call at creation time
+# Checkout and the lock check use the default token with
+# persist-credentials: false; the PAT is used only for the final push,
+# via an explicit remote URL on that one command. If the secret is
+# absent the job fails loudly naming it (see the token step) instead
+# of silently leaving the PR red. Upgrade path: if PAT upkeep ever
+# bites, swap this for a GitHub App installation token minted in-job
+# (same secret-name indirection, short-lived tokens, no user-tied
+# credential) — the rest of the workflow does not change.
+#
+# Loop safety, two independent guards:
+#   1. The sync commit touches ONLY pkgs/buffer-backup/bun.lock —
+#      never package.json or package-lock.json.
+#   2. Every run starts with check-lock-sync.py: if the locks already
+#      agree the run is a green no-op and commits nothing, so a
+#      re-triggered run on the sync commit's own head cannot loop.
+#
+# The gate stays a gate: this workflow is Renovate-only (author +
+# branch + same-repo guards below). A hand-made PR that desyncs the
+# lockfiles gets no sync run and still fails buffer-backup-lock-sync.
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - "pkgs/buffer-backup/package.json"
+      - "pkgs/buffer-backup/package-lock.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One sync per PR at a time, never cancelled mid-push: a cancelled
+  # run between commit and push would strand the regenerated lock.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  bun-sync:
+    name: regenerate bun.lock
+    if: |
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      startsWith(github.head_ref, 'renovate/') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+
+      - name: Check whether the lockfiles already agree
+        id: check
+        run: |
+          if python3 pkgs/buffer-backup/check-lock-sync.py; then
+            echo "in_sync=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::bun.lock and package-lock.json already agree — nothing to sync."
+          else
+            echo "in_sync=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Lockfiles disagree — regenerating bun.lock."
+          fi
+
+      - name: Require the sync token before changing anything
+        if: steps.check.outputs.in_sync == 'false'
+        env:
+          SYNC_TOKEN: ${{ secrets.RENOVATE_BUN_SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "::error::Repo Actions secret RENOVATE_BUN_SYNC_TOKEN is not set. Drew: create a fine-grained PAT scoped to dezren39/nix only with Contents: read and write, and store it under that exact secret name (see the header of .github/workflows/buffer-backup-renovate-bun-sync.yml and #1060)."
+            exit 1
+          fi
+
+      - name: Set up bun
+        if: steps.check.outputs.in_sync == 'false'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          # Keep in step with the version pinned in pkgs/bun-bin.
+          bun-version: "1.3.14"
+
+      - name: Regenerate bun.lock
+        if: steps.check.outputs.in_sync == 'false'
+        working-directory: pkgs/buffer-backup
+        run: bun install
+
+      - name: Verify the lockfiles now agree (commit nothing if not)
+        if: steps.check.outputs.in_sync == 'false'
+        run: python3 pkgs/buffer-backup/check-lock-sync.py
+
+      - name: Commit bun.lock back to the Renovate branch
+        if: steps.check.outputs.in_sync == 'false'
+        env:
+          SYNC_TOKEN: ${{ secrets.RENOVATE_BUN_SYNC_TOKEN }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- pkgs/buffer-backup/bun.lock; then
+            echo "::notice::bun.lock unchanged by the sync — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- pkgs/buffer-backup/bun.lock
+          git commit -m "chore(buffer-backup): regenerate bun.lock for Renovate bump (#1060)"
+          # Dedicated token (not GITHUB_TOKEN) so this push triggers a
+          # fresh run of the lock-sync gate on the new head.
+          git push "https://x-access-token:${SYNC_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
