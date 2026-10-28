@@ -800,6 +800,34 @@ rec {
               bash ./patch-vscode-insiders.test.sh
               touch $out
             '';
+        # #981: pm-dashboard-backup.test.sh drives the real
+        # modules/pm-dashboard-backup.sh with stubbed bws/journalctl/
+        # rclone -- the .last-run-epoch journal cursor used to advance
+        # right after the local leg, so a run failing on R2/Drive still
+        # moved the window start and its journals never reached the
+        # offsite copies. The suite pins marker-unchanged on R2 and on
+        # Drive failure, and marker-advances on the happy path.
+        pm-dashboard-backup-tests =
+          pkgs.runCommandLocal "pm-dashboard-backup-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+                pkgs.gnutar
+                pkgs.zstd
+                pkgs.util-linux
+              ];
+              src = inputs.self;
+            }
+            ''
+              mkdir -p modules
+              cp $src/modules/pm-dashboard-backup.sh $src/modules/pm-dashboard-backup.test.sh ./modules/
+              chmod u+w ./modules/pm-dashboard-backup.sh ./modules/pm-dashboard-backup.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./modules/pm-dashboard-backup.test.sh
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used
