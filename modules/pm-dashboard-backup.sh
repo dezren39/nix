@@ -188,7 +188,6 @@ PYEOF
 fi
 rm -rf "$VDIR"
 
-echo "$NOW_EPOCH" > "$MARKER"
 ARC_SHA="$(sha256sum "$ARCHIVE" | cut -d' ' -f1)"
 log "local OK $ARCHIVE ($(stat -c%s "$ARCHIVE") bytes, sha256 $ARC_SHA)"
 
@@ -228,5 +227,11 @@ DRIVE_DEST="drive:$DRIVE_DIR/$DATE/dashboard-$DATE.tar.zst"
 rclone copyto "$ARCHIVE" "$DRIVE_DEST" || fail "Drive upload failed"
 verify_remote "$DRIVE_DEST" "Drive"
 prune_remote "drive:$DRIVE_DIR" "Drive"
+
+# --- journal cursor: advance ONLY now that all three legs have succeeded ---
+# (#981: this write used to sit right after the local leg, so a run that
+# failed on R2/Drive still advanced the cursor and its journal window was
+# never included in any later archive.)
+echo "$NOW_EPOCH" > "$MARKER"
 
 log "OK dashboard $DATE backed up to local + R2 + Drive (sha256 $ARC_SHA)"
