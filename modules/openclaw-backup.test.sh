@@ -37,9 +37,11 @@
 #     called with --since at the cursor, not at 24h ago.
 #   * upload failure — a forced R2 copyto failure exits non-zero and
 #     leaves the journal marker un-advanced.
-# The #1035 scenario (stubbed rclone lsf exiting non-zero must fail
-# the run) lands with the #1035 fix itself, per that issue; the lsf
-# stub below already supports failing modes for it to reuse.
+#   * prune listing failure (#1035) — stubbed rclone lsf exits
+#     non-zero: the run fails naming the remote listing step, the
+#     stub's stderr is in the log, no full OK line, the Drive leg
+#     never runs, and the journal marker is unchanged (the #1021
+#     pattern, mirrored from pm-dashboard-backup).
 # Dates are computed relative to today (the script's prune cutoff
 # uses the real date), so the suite does not rot on a fixed calendar.
 set -uo pipefail
@@ -128,6 +130,10 @@ case "$cmd" in
     cat "$f"
     ;;
   lsf)
+    if [[ "${RCLONE_LSF_FAIL:-}" == "1" ]]; then
+      echo "stub rclone: forced lsf failure" >&2
+      exit 1
+    fi
     if [[ -n "${RCLONE_LSF_FILE:-}" && -f "${RCLONE_LSF_FILE:-}" ]]; then
       cat "$RCLONE_LSF_FILE"
     fi
@@ -170,6 +176,7 @@ MARKER_AFTER=""
 RUN_HOME=""
 DATE_ARG="$RUN_DATE"
 FAIL_MODE=""
+LSF_FAIL=""
 TAR_OVERLAY=""
 
 setup_home() {
@@ -189,7 +196,7 @@ run_backup() {
   [[ -n "$TAR_OVERLAY" ]] && path_prefix="$TAR_OVERLAY:$BIN"
   HOME="$RUN_HOME" PATH="$path_prefix:$PATH" BWS_ACCESS_TOKEN="fake-token" \
     OPENCLAW_REAL_TAR="$REAL_TAR" \
-    RCLONE_FAIL="$FAIL_MODE" \
+    RCLONE_FAIL="$FAIL_MODE" RCLONE_LSF_FAIL="${LSF_FAIL:-}" \
     RCLONE_STUB_DIR="$TMP_ROOT/$name/rclone-store" \
     RCLONE_CALLS_LOG="$TMP_ROOT/$name/rclone-calls.log" \
     RCLONE_LSF_FILE="$TMP_ROOT/$name/lsf.txt" \
@@ -349,6 +356,43 @@ if grep -q "^purge .*/\($RECENT_DATE\|$RUN_DATE\)\$" "$TMP_ROOT/prune/rclone-cal
   fail "prune: a recent or run-date remote dir was purged"
 else
   ok "prune: no remote purge of recent or run-date dirs"
+fi
+
+# --- prune listing failure fails the run (#1035) ------------------------------
+setup_home lsf-fail
+LSF_FAIL=1
+run_backup lsf-fail
+LSF_FAIL=""
+if [[ "$RC" -ne 0 ]]; then
+  ok "lsf-fail: script exited non-zero ($RC)"
+else
+  fail "lsf-fail: expected non-zero exit, got 0; log: $(cat "$TMP_ROOT/lsf-fail.log")"
+fi
+if grep -q 'openclaw-backup: FAILED prune listing failed on R2' "$TMP_ROOT/lsf-fail.log"; then
+  ok "lsf-fail: FAILED line names the remote and the listing step"
+else
+  fail "lsf-fail: no FAILED prune-listing line: $(cat "$TMP_ROOT/lsf-fail.log")"
+fi
+if grep -q 'stub rclone: forced lsf failure' "$TMP_ROOT/lsf-fail.log"; then
+  ok "lsf-fail: rclone stderr surfaced in the log"
+else
+  fail "lsf-fail: rclone stderr not in log: $(cat "$TMP_ROOT/lsf-fail.log")"
+fi
+if grep -q 'OK openclaw' "$TMP_ROOT/lsf-fail.log"; then
+  fail "lsf-fail: full OK line printed on a failed run"
+else
+  ok "lsf-fail: no full OK line printed"
+fi
+copytos="$(grep -c '^copyto' "$TMP_ROOT/lsf-fail/rclone-calls.log" 2>/dev/null || true)"
+if [[ "$copytos" -eq 1 ]]; then
+  ok "lsf-fail: only the R2 copy (before its prune) was attempted; Drive never ran"
+else
+  fail "lsf-fail: expected exactly 1 copyto attempt, got $copytos"
+fi
+if [[ "$MARKER_AFTER" == "$PRESET" ]]; then
+  ok "lsf-fail: journal marker unchanged at $PRESET"
+else
+  fail "lsf-fail: marker moved on a failed run — was $PRESET, now $MARKER_AFTER"
 fi
 
 # --- journal window honours an older-than-24h cursor ---------------------------
