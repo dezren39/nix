@@ -210,6 +210,27 @@ def _inline_table_keys(value):
         elif value.startswith('"""', i) or value.startswith("'" * 3, i):
             j = value.find(value[i : i + 3], i + 3)
             i = n if j < 0 else j + 3
+        elif depth == 1 and expecting and c in "\"'":
+            # A quoted key in key position (#1005): try the dotted-key
+            # match before the string-skip branches below consume it as
+            # a string value. _DOTTED_KEY_RE already handles quoted parts.
+            m = re.match(_DOTTED_KEY_RE, value[i:])
+            j = i + m.end() if m else i
+            k = j
+            while k < n and value[k] in " \t":
+                k += 1
+            if m and k < n and value[k] == "=":
+                names.append(_split_dotted(m.group(0))[0])
+                i = j
+            elif c == '"':
+                i += 1
+                while i < n and value[i] != '"':
+                    i += 2 if value[i] == "\\" else 1
+                i += 1
+            else:
+                j2 = value.find("'", i + 1)
+                i = n if j2 < 0 else j2 + 1
+            expecting = False
         elif c == '"':
             i += 1
             while i < n and value[i] != '"':
