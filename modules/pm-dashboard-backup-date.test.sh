@@ -88,7 +88,11 @@ run_scenario() {
   local home="$TMP_ROOT/$name/home"
   mkdir -p "$home/.local/state/pm-aggregator" "$home/atlas/meta-quota-export"
   printf '{}\n' >"$home/.local/state/pm-aggregator/actions.json"
+  # Full required set (#1025): a missing required member now fails
+  # the run at verify, so the fixture carries every required file.
+  for f in comments.json fleet-feed.json quota-current.json registry.json quota-gatherer-state.json quota-gatherer-heartbeat.json; do printf '{}\n' >"$home/.local/state/pm-aggregator/$f"; done
   printf '{}\n' >"$home/atlas/meta-quota-export/latest.json"
+  printf '{}\n' >"$home/atlas/meta-quota-export/history.jsonl"
   HOME="$home" PATH="$BIN:$PATH" BWS_ACCESS_TOKEN="<redacted>" \
     RCLONE_STUB_DIR="$TMP_ROOT/$name/rclone-store" \
     PM_DB_DUMP_SCRIPT="$home/no-such-dump-script.sh" \

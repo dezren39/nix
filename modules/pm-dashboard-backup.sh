@@ -133,9 +133,11 @@ export RCLONE_CONFIG_R2BAK_NO_CHECK_BUCKET="true"
 # archive carries the dashboard state set only and says so in the log.
 DUMP_SCRIPT="${PM_DB_DUMP_SCRIPT:-$HOME/tools/pm-stack-db-backup.sh}"
 DUMP_DIR="$HOME/backups/db-dumps/$DATE"
+DUMP_RAN=0
 if [ -x "$DUMP_SCRIPT" ]; then
   log "running DB dump step: $DUMP_SCRIPT"
   "$DUMP_SCRIPT" "$DATE" || fail "DB dump step failed"
+  DUMP_RAN=1
 else
   log "no DB dump script at $DUMP_SCRIPT (code#1514 pending) - dashboard state only"
 fi
@@ -143,6 +145,35 @@ fi
 # === leg 1: the local archive (dashboard-backup.sh, code#1459) ============
 STAGE="$(mktemp -d)"
 mkdir -p "$STAGE/aggregator" "$STAGE/meta-quota-export" "$STAGE/journals" "$OUTDIR"
+
+# --- expected set (#1025, design #1024 phase 2) ------------------------------
+# The dataset's expected members, declared ONCE here: "<class> <kind>
+# <path-in-archive>" per line. The manifest step records every member's
+# status (present, with sha256+size for files, or missing) and the
+# archive verify step fails the run when a REQUIRED member is missing —
+# until now the manifest was generated from whatever staging produced,
+# so verification was self-referential and a member deleted/renamed at
+# the source silently shrank the backup set. Classes preserve the
+# intent the staging code below has always had: existing state files
+# are required (their WARN-for-missing becomes a failed run at verify);
+# the snapshots tree and the journal logs are optional (journals keep
+# their tolerated-unavailable placeholder, but are now recorded);
+# db-dumps is CONDITIONALLY required — required when the DB dump step
+# ran (DUMP_RAN=1), optional otherwise.
+EXPECTED_SET="required file aggregator/actions.json
+required file aggregator/comments.json
+required file aggregator/fleet-feed.json
+required file aggregator/quota-current.json
+required file aggregator/registry.json
+required file aggregator/quota-gatherer-state.json
+required file aggregator/quota-gatherer-heartbeat.json
+required file meta-quota-export/latest.json
+required file meta-quota-export/history.jsonl
+conditional tree db-dumps
+optional tree aggregator/snapshots
+optional file journals/pm-aggregator.log
+optional file journals/quota-gatherer.log
+optional file journals/meta-quota-export.log"
 
 # --- data set (explicit list only; the aggregator .env is deliberately NOT
 # --- included — no config/secret files belong in this archive) ---
@@ -185,11 +216,13 @@ for svc in pm-aggregator quota-gatherer meta-quota-export; do
     || echo "(journal unavailable for $svc)" > "$STAGE/journals/$svc.log"
 done
 
-# --- manifest ---
+# --- manifest (files as staged + the expected set's per-member status) ---
+EXPECTED_SET="$EXPECTED_SET" DUMP_RAN="$DUMP_RAN" \
 python3 - "$STAGE" "$DATE" "$CREATED_AT" <<'PYEOF'
 import hashlib, json, os, sys
 stage, date, created = sys.argv[1], sys.argv[2], sys.argv[3]
 files = []
+by_path = {}
 for root, _dirs, names in os.walk(stage):
     for n in sorted(names):
         p = os.path.join(root, n)
@@ -200,13 +233,45 @@ for root, _dirs, names in os.walk(stage):
         with open(p, "rb") as fh:
             for chunk in iter(lambda: fh.read(1 << 20), b""):
                 h.update(chunk)
-        files.append({"path": rel, "sha256": h.hexdigest(), "size": os.path.getsize(p)})
+        entry = {"path": rel, "sha256": h.hexdigest(), "size": os.path.getsize(p)}
+        files.append(entry)
+        by_path[rel] = entry
 files.sort(key=lambda f: f["path"])
+expected = []
+for line in os.environ.get("EXPECTED_SET", "").splitlines():
+    parts = line.split(None, 2)
+    if len(parts) != 3:
+        continue
+    cls, kind, rel = parts
+    if cls == "conditional":
+        cls = "required" if os.environ.get("DUMP_RAN") == "1" else "optional"
+    member = {"path": rel, "class": cls, "kind": kind}
+    if kind == "tree":
+        full = os.path.join(stage, rel)
+        if os.path.isdir(full):
+            member["status"] = "present"
+            member["files"] = sum(1 for f in files
+                                  if f["path"] == rel or f["path"].startswith(rel + "/"))
+        else:
+            member["status"] = "missing"
+    elif rel in by_path:
+        member["status"] = "present"
+        member["sha256"] = by_path[rel]["sha256"]
+        member["size"] = by_path[rel]["size"]
+    else:
+        member["status"] = "missing"
+    expected.append(member)
 with open(os.path.join(stage, "manifest.json"), "w") as fh:
     json.dump({"archive": f"dashboard-{date}", "created_at": created,
                "host": os.uname().nodename, "scope": "laptop",
-               "files": files}, fh, indent=2)
-print(f"pm-dashboard-backup: manifest covers {len(files)} files")
+               "files": files, "expected": expected}, fh, indent=2)
+missing_req = [m["path"] for m in expected
+               if m["status"] == "missing" and m["class"] == "required"]
+print(f"pm-dashboard-backup: manifest covers {len(files)} files, "
+      f"{len(expected)} expected members "
+      f"({len(expected) - sum(1 for m in expected if m['status'] == 'missing')} present, "
+      f"{sum(1 for m in expected if m['status'] == 'missing')} missing, "
+      f"{len(missing_req)} required-missing)")
 PYEOF
 
 # --- tarball (atomic replace) + verify against manifest ---
@@ -226,6 +291,19 @@ for f in m["files"]:
     if hashlib.sha256(open(p, "rb").read()).hexdigest() != f["sha256"] \
        or os.path.getsize(p) != f["size"]:
         print("MISMATCH", p); bad += 1
+# Expected set (#1025): a required member missing from the archive —
+# whether the manifest recorded it missing at staging or it is absent
+# here despite being recorded present — fails verification, naming
+# the member, before anything is uploaded.
+for member in m.get("expected", []):
+    p = member["path"]
+    present = os.path.isdir(p) if member.get("kind") == "tree" else os.path.isfile(p)
+    if member["class"] == "required" and (member["status"] == "missing" or not present):
+        print(f"pm-dashboard-backup: FAILED required dataset member missing: {p}",
+              file=sys.stderr)
+        bad += 1
+    elif member["status"] == "present" and not present:
+        print("MISSING", p); bad += 1
 sys.exit(1 if bad else 0)
 PYEOF
 ); then
