@@ -58,6 +58,31 @@ jobs:
           fi
 
           inactive_days="${INACTIVE_DAYS_INPUT:-14}"
+
+          # Validate before any use (#1015): inactive_days feeds the
+          # bash arithmetic below, where a fractional value dies with a
+          # raw syntax error and a negative value silently moves the
+          # cutoff into the future, making every solely-behind branch a
+          # deletion candidate. Same pattern as HEALTH_TIMEOUT in
+          # simple-rebuild.sh (#880): digits only, positive, bounded,
+          # and the error names the input and the offending value.
+          case "$inactive_days" in
+            *[!0-9]*|'')
+              echo "branch-cleanup: inactive_days must be a positive integer (got: $inactive_days)" >&2
+              exit 1
+              ;;
+          esac
+          _days="$inactive_days"
+          while [[ "$_days" == 0?* ]]; do _days="${_days#0}"; done
+          if (( ${#_days} > 4 || _days > 3650 || _days <= 0 )); then
+            echo "branch-cleanup: inactive_days must be between 1 and 3650 days (got: $inactive_days)" >&2
+            exit 1
+          fi
+          # Normalize: leading zeros would otherwise be read as octal
+          # in the arithmetic below ("08" would even error out).
+          inactive_days="$_days"
+          unset _days
+
           max_deletions=50
           cutoff=$(( $(date +%s) - inactive_days * 86400 ))
 
