@@ -17,6 +17,12 @@
 #     both remotes, sha256-verified by the script itself), and the
 #     earlier backfill date — no longer the run date — is then
 #     pruned by that later run.
+#   * a failed remote prune listing (#1021: stub rclone lsf exits 1)
+#     fails the run — non-zero exit, a FAILED line naming the remote
+#     and the listing step, the stub's stderr in the log, no full OK
+#     line, and the journal cursor unchanged — while a genuinely
+#     empty successful listing (lsf exits 0, no output) still
+#     completes successfully.
 # (Named -prune.test.sh because the #981 journal-cursor suite for the
 # same script is modules/pm-dashboard-backup.test.sh.)
 # Stubs use #!/bin/sh: the nix build sandbox has no /usr/bin/env.
@@ -98,6 +104,8 @@ case "$cmd" in
     ;;
   lsf)
     # last arg is the remote dir; --dirs-only lists subdir names with /
+    if [ "${RCLONE_LSF_FAIL:-}" = "1" ]; then echo "rclone stub: forced lsf failure" >&2; exit 1; fi
+    if [ "${RCLONE_LSF_EMPTY:-}" = "1" ]; then exit 0; fi
     for last; do :; done
     dir="$(map_path "$last")"
     [ -d "$dir" ] || exit 0
@@ -131,6 +139,7 @@ echo old > "$REMOTE/drive/Cloud/cold-store/db-backups/pm-aggregator/$OTHER_OLD/d
 
 run_backup() { # run_backup <date> — sets RC; log in $TMP_ROOT/run-<date>.log
   HOME="$HOME_DIR" PATH="$BIN:$PATH" FAKE_REMOTE="$REMOTE" \
+    RCLONE_LSF_FAIL="${LSF_FAIL:-}" RCLONE_LSF_EMPTY="${LSF_EMPTY:-}" \
     BWS_ACCESS_TOKEN="test-token" PM_DB_DUMP_SCRIPT="$TMP_ROOT/no-dump-script" \
     bash "$SCRIPT" "$1" > "$TMP_ROOT/run-$1.log" 2>&1
   RC=$?
@@ -171,6 +180,51 @@ check "current-date archive exists on the Drive remote" \
   test -f "$REMOTE/drive/Cloud/cold-store/db-backups/pm-aggregator/$TODAY/dashboard-$TODAY.tar.zst"
 check "backfill date is pruned by a later run once it is not the run date" \
   test ! -e "$ROOT/$OLD"
+
+# --- scenario 3: a failed prune listing fails the run (#1021) ---------------
+PRESET=1000000000
+echo "$PRESET" > "$ROOT/.last-run-epoch"
+LSF_FAIL=1
+run_backup "$TODAY"
+LSF_FAIL=""
+if [ "$RC" -ne 0 ]; then
+  echo "ok: lsf-failure run exits non-zero ($RC)"
+else
+  fail "lsf-failure run exits non-zero — got 0; log: $(cat "$TMP_ROOT/run-$TODAY.log")"
+fi
+check "lsf-failure FAILED line names the remote and the listing step" \
+  grep -q "pm-dashboard-backup: FAILED prune listing failed on R2" "$TMP_ROOT/run-$TODAY.log"
+check "lsf-failure surfaces rclone's stderr in the log" \
+  grep -q "rclone stub: forced lsf failure" "$TMP_ROOT/run-$TODAY.log"
+if grep -q "OK dashboard $TODAY backed up to local + R2 + Drive" "$TMP_ROOT/run-$TODAY.log"; then
+  fail "lsf-failure run printed the full OK line"
+else
+  echo "ok: lsf-failure run printed no full OK line"
+fi
+if [ "$(cat "$ROOT/.last-run-epoch")" = "$PRESET" ]; then
+  echo "ok: lsf-failure run left the journal cursor unchanged"
+else
+  fail "lsf-failure run advanced the journal cursor — was $PRESET, now $(cat "$ROOT/.last-run-epoch")"
+fi
+
+# --- scenario 4: a genuinely empty successful listing still succeeds --------
+# (lsf exits 0 with no output, the fresh-remote shape: nothing to prune
+# is a success, not a failure — the distinction #1021 draws.)
+LSF_EMPTY=1
+run_backup "$TODAY"
+LSF_EMPTY=""
+if [ "$RC" -eq 0 ]; then
+  echo "ok: empty-listing run exits 0"
+else
+  fail "empty-listing run exits 0 — got $RC; log: $(cat "$TMP_ROOT/run-$TODAY.log")"
+fi
+check "empty-listing run printed the full OK line" \
+  grep -q "OK dashboard $TODAY backed up to local + R2 + Drive" "$TMP_ROOT/run-$TODAY.log"
+if [ "$(cat "$ROOT/.last-run-epoch")" != "$PRESET" ]; then
+  echo "ok: empty-listing run advanced the journal cursor"
+else
+  fail "empty-listing run did not advance the journal cursor"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
