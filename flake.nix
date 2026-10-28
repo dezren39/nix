@@ -662,6 +662,38 @@ rec {
               bash ./search.test.sh
               touch $out
             '';
+        # #982: pm-dashboard-backup-prune.test.sh drives the real
+        # modules/pm-dashboard-backup.sh with stubbed bws/journalctl/
+        # rclone against a scratch HOME — a backfill for a date older
+        # than the 30-day cutoff was pruned by the script's own
+        # retention sweep (locally before upload, remotely after it)
+        # in the same run, deleting the archive it had just built and
+        # verified. The suite pins: the run date is never pruned by
+        # its own run on any of the three destinations, genuinely old
+        # other days still are, and a later run prunes the backfill.
+        pm-dashboard-backup-prune-tests =
+          pkgs.runCommandLocal "pm-dashboard-backup-prune-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.findutils
+                pkgs.gnutar
+                pkgs.gnused
+                pkgs.python3
+                pkgs.util-linux
+                pkgs.zstd
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/modules/pm-dashboard-backup.sh $src/modules/pm-dashboard-backup-prune.test.sh ./
+              chmod u+w ./pm-dashboard-backup.sh ./pm-dashboard-backup-prune.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./pm-dashboard-backup-prune.test.sh
+              touch $out
+            '';
         # #940: git-discover-repos.test.sh drives the real
         # git-discover-repos through bad, mixed, regular-file, all-valid,
         # --count and --dry-run --path runs — a bad --path used to exit 0,
