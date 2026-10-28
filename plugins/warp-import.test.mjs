@@ -168,7 +168,7 @@ await test("FALLBACK: warp API throwing degrades to export+import and says so", 
   })
 
   // Stub the CLI so nothing is actually exported or imported.
-  process.env.OPENCODE_BIN = "/usr/bin/true"
+  process.env.OPENCODE_BIN = "true"
   const out = await buildTool(env).execute({ session: "ses_aaa" }, ctx)
   delete process.env.OPENCODE_BIN
 
@@ -185,7 +185,7 @@ await test("FALLBACK: workspace returning no directory is treated as a failure",
   const { env } = makeEnv({
     onPost: ({ url }) => (url === "/experimental/workspace" ? { data: { id: "w1" } } : { data: undefined }),
   })
-  process.env.OPENCODE_BIN = "/usr/bin/true"
+  process.env.OPENCODE_BIN = "true"
   const out = await buildTool(env).execute({ session: "ses_aaa" }, ctx)
   delete process.env.OPENCODE_BIN
   assert.match(out, /FALLBACK/)
@@ -199,7 +199,7 @@ await test("happy path reports workspace, move warning and warp warning", async 
         ? { data: { id: "ws_1", directory: WT, branch: "feat/x" } }
         : { data: undefined },
   })
-  process.env.OPENCODE_BIN = "/usr/bin/true"
+  process.env.OPENCODE_BIN = "true"
   const out = await buildTool(env).execute({ session: "ses_aaa", branch: "feat/x" }, ctx)
   delete process.env.OPENCODE_BIN
 
@@ -217,7 +217,7 @@ await test("happy path reports workspace, move warning and warp warning", async 
 
 await test("use_current_directory skips the workspace call entirely", async () => {
   const { env, calls } = makeEnv()
-  process.env.OPENCODE_BIN = "/usr/bin/true"
+  process.env.OPENCODE_BIN = "true"
   const out = await buildTool(env).execute({ session: "ses_aaa", use_current_directory: true }, ctx)
   delete process.env.OPENCODE_BIN
   assert.ok(!calls.some((c) => c.url === "/experimental/workspace"))
@@ -229,7 +229,7 @@ await test("CLI failure is reported, not thrown, and does not select a session",
     onPost: ({ url }) =>
       url === "/experimental/workspace" ? { data: { id: "ws_1", directory: WT } } : { data: undefined },
   })
-  process.env.OPENCODE_BIN = "/usr/bin/false"
+  process.env.OPENCODE_BIN = "false"
   const out = await buildTool(env).execute({ session: "ses_aaa" }, ctx)
   delete process.env.OPENCODE_BIN
   assert.match(out, /failed while moving the session/)
@@ -252,7 +252,7 @@ await test("TUI select failure is non-fatal and reported", async () => {
       return { error: { data: { message: "no tui attached" } } }
     },
   })
-  process.env.OPENCODE_BIN = "/usr/bin/true"
+  process.env.OPENCODE_BIN = "true"
   const out = await buildTool(env).execute({ session: "ses_aaa" }, ctx)
   delete process.env.OPENCODE_BIN
   assert.match(out, /Moved session ses_aaa/)
@@ -275,7 +275,7 @@ await test("no low-level client falls back to serverUrl fetch, and its failure d
     directory: CWD,
     worktree: CWD,
   }
-  process.env.OPENCODE_BIN = "/usr/bin/true"
+  process.env.OPENCODE_BIN = "true"
   const out = await buildTool(env).execute({ session: "ses_aaa" }, ctx)
   delete process.env.OPENCODE_BIN
   assert.match(out, /FALLBACK: workspace creation failed/)
@@ -285,7 +285,7 @@ await test("no low-level client falls back to serverUrl fetch, and its failure d
 
 await test("no client and no serverUrl still degrades cleanly", async () => {
   const env = { client: { session: { list: async () => ({ data: SESSIONS }) } }, directory: CWD, worktree: CWD }
-  process.env.OPENCODE_BIN = "/usr/bin/true"
+  process.env.OPENCODE_BIN = "true"
   const out = await buildTool(env).execute({ session: "ses_aaa" }, ctx)
   delete process.env.OPENCODE_BIN
   assert.match(out, /FALLBACK/)
