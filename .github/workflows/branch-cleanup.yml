@@ -71,15 +71,30 @@ jobs:
           git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*"
 
           # Fail the run (before any deletion) if the open-PR list cannot
-          # be read: those heads are part of the protected set.
-          gh pr list --state open --limit 1000 --json headRefName --jq ".[].headRefName" > open-pr-heads.txt
+          # be read: those heads and bases are part of the protected set.
+          # Bases are protected because GitHub closes an open PR whose
+          # base branch is deleted (stacked PRs, #985).
+          gh pr list --state open --limit 1000 --json headRefName,baseRefName --jq ".[].headRefName" > open-pr-heads.txt
           mapfile -t open_pr_heads < open-pr-heads.txt
           rm -f open-pr-heads.txt
+          gh pr list --state open --limit 1000 --json headRefName,baseRefName --jq ".[].baseRefName" > open-pr-bases.txt
+          mapfile -t open_pr_bases < open-pr-bases.txt
+          rm -f open-pr-bases.txt
           is_open_pr_head() {
             local candidate="$1"
             local head
             for head in "${open_pr_heads[@]:-}"; do
               if [[ "$head" == "$candidate" ]]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+          is_open_pr_base() {
+            local candidate="$1"
+            local base
+            for base in "${open_pr_bases[@]:-}"; do
+              if [[ "$base" == "$candidate" ]]; then
                 return 0
               fi
             done
@@ -94,6 +109,10 @@ jobs:
             fi
             if is_open_pr_head "$branch"; then
               echo "SKIP open-pr-head: $branch"
+              continue
+            fi
+            if is_open_pr_base "$branch"; then
+              echo "SKIP open-pr-base: $branch"
               continue
             fi
             newest="$(git log -1 --format=%ct "origin/$branch")"
