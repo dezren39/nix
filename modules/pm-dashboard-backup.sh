@@ -239,7 +239,16 @@ verify_remote() { # $1 rclone path, $2 label
 }
 prune_remote() { # $1 rclone dir holding <date> subdirs, $2 label
   local subs day
-  subs="$(rclone lsf --dirs-only "$1" 2>/dev/null || true)"
+  # A failed listing fails the run, like a failed purge below (#1021):
+  # this used to be `2>/dev/null || true`, so an expired-credential /
+  # renamed-bucket / network failure read exactly like a fresh remote
+  # (empty list, nothing pruned) and the run still exited 0 with the
+  # full OK line and an advanced journal cursor. rclone's stderr is
+  # deliberately not discarded, so the cause reaches the log. A
+  # genuinely empty listing still succeeds: lsf exits 0 with no
+  # output and the loop below simply has nothing to prune.
+  subs="$(rclone lsf --dirs-only "$1")" \
+    || fail "prune listing failed on $2 ($1)"
   for day in $subs; do
     day="${day%/}"
     if [[ "$day" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] && [[ "$day" != "$DATE" && "$day" < "$CUTOFF" ]]; then
