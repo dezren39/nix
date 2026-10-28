@@ -136,16 +136,21 @@ def _ml_string_scan(text, state):
     """Scan text for TOML multi-line string delimiters.
 
     state is the delimiter of a multi-line string already open at the
-    start of text, or None. Returns (new_state, rest): new_state is the
-    delimiter still open at the end of text (None when it closed or was
-    never opened); rest is what follows the closing delimiter when a
-    string open at entry closed mid-text ('' otherwise). Single-line
-    strings and comments are honoured while looking for an opening
-    delimiter, mirroring _value_bracket_depth's approximations; inside
-    a multi-line basic string a backslash-escaped delimiter does not
-    close it. (#990)
+    start of text, or None. Returns (new_state, outside): new_state is
+    the delimiter still open at the end of text (None when it closed or
+    was never opened); outside is every part of text that lies outside
+    a multi-line string (before an opening, between a closing and the
+    next opening, after a final closing), for bracket accounting.
+    Scanning continues after a closing delimiter: one line can close
+    one string and open another. Single-line strings and comments are
+    honoured while looking for an opening delimiter, mirroring
+    _value_bracket_depth's approximations; inside a multi-line basic
+    string a backslash-escaped delimiter does not close it, and the
+    search resumes one character past an escaped candidate because
+    the real delimiter can start inside the same run of quotes (an
+    escaped quote directly before the closing delimiter). (#990)
     """
-    i, n = 0, len(text)
+    outside, seg, i, n = [], 0, 0, len(text)
     while i < n:
         if state is not None:
             j = text.find(state, i)
@@ -157,17 +162,18 @@ def _ml_string_scan(text, state):
                     k -= 1
                 if backslashes % 2 == 0:
                     break
-                j = text.find(state, j + 3)
+                j = text.find(state, j + 1)
             if j < 0:
                 return state, ""
-            rest = text[j + 3 :]
+            i = j + 3
+            seg = i
             state = None
-            i = n
-            return None, rest
+            continue
         c = text[i]
         if c == "#":
             break
-        if text.startswith('"""', i) or text.startswith("\'\'\'", i):
+        if text.startswith('"""', i) or text.startswith("'" * 3, i):
+            outside.append(text[seg:i])
             state = text[i : i + 3]
             i += 3
         elif c == '"':
@@ -175,12 +181,14 @@ def _ml_string_scan(text, state):
             while i < n and text[i] != '"':
                 i += 2 if text[i] == "\\" else 1
             i += 1
-        elif c == "\'":
-            j = text.find("\'", i + 1)
+        elif c == "'":
+            j = text.find("'", i + 1)
             i = n if j < 0 else j + 1
         else:
             i += 1
-    return state, ""
+    if state is None:
+        outside.append(text[seg:])
+    return state, "".join(outside)
 
 
 def _first_key(line):
@@ -349,12 +357,15 @@ def codex(path):
             value_depth += _value_bracket_depth(line)
             if value_depth < 0:
                 value_depth = 0
+            ml = _ml_string_scan(line, None)[0]
+            ml_drop = ml is not None
             continue
         if kept_depth > 0:
             kept.append(line)
             kept_depth += _value_bracket_depth(line)
             if kept_depth < 0:
                 kept_depth = 0
+            ml = _ml_string_scan(line, None)[0]
             continue
         array_header = re.match(r"\s*\[\[\s*(.+?)\s*\]\]\s*(#.*)?$", line)
         header = None if array_header else re.match(r"\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$", line)
@@ -382,6 +393,11 @@ def codex(path):
             _sp, eq = _dotted_assignment(line)
             if eq >= 0:
                 ml = _ml_string_scan(line[eq + 1 :], None)[0]
+            else:
+                # Continuation line of a dropped multi-line value
+                # (array element, table entry): a multi-line string
+                # may open here even though the line is no assignment.
+                ml = _ml_string_scan(line, None)[0]
             continue
         if in_parent:
             stripped = line.strip()
@@ -393,7 +409,7 @@ def codex(path):
                 kept.append(line)
                 continue
             removed.add(name)
-            eq = line.find("=")
+            _dp, eq = _dotted_assignment(line)
             value_depth = _value_bracket_depth(line[eq + 1 :]) if eq >= 0 else 0
             if value_depth < 0:
                 value_depth = 0

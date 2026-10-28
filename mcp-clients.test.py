@@ -525,5 +525,97 @@ check("990 parent second run no-op", r2.returncode == 0 and read(codex_path) == 
 shutil.rmtree(home)
 
 
+# #990 review follow-up: an escaped quote directly before the closing
+# delimiter of a multi-line basic string in a DROPPED table -- the
+# string still closes there, so the following kept table survives.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers.old]\n'
+                  'command = """echo \\""""\n'
+                  '\n'
+                  '[profiles.demo]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990r escaped-quote string closes, old removed", "removed: old" in r.stdout, r.stdout)
+check("990r escaped-quote following table survives", "[profiles.demo]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990r escaped-quote result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r escaped-quote second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 review follow-up: a multi-line string that opens on a
+# continuation line of a dropped array value -- its content lines are
+# string content, never assignments, and the table after the dropped
+# one survives.
+home = fresh_home()
+array_block = ("args = [\n"
+               "  '''help text\n"
+               'example = """\n'
+               "  ''',\n"
+               "]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers.old]\n'
+                  + array_block +
+                  '\n'
+                  '[profiles.demo]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990r array-string old removed and reported", "removed: old" in r.stdout and "[mcp_servers.old]" not in out, out)
+check("990r array-string following table survives", "[profiles.demo]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990r array-string result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r array-string second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 review follow-up: a quoted server name containing '=' under
+# the [mcp_servers] parent -- the assignment separator is the one
+# outside the quotes, so its multi-line string value does not leak
+# string state into the following table.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers]\n'
+                  '"old=name" = { command = """echo""" }\n'
+                  '\n'
+                  '[profiles.demo]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990r quoted-name entry removed and reported", "old=name" in r.stdout and "old=name" not in out, out)
+check("990r quoted-name following table survives", "[profiles.demo]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990r quoted-name result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r quoted-name second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 review follow-up: two multi-line strings starting on the same
+# line of a kept value -- the scan continues after the first closing
+# delimiter, so the second string's content is not mistaken for TOML
+# and a real server table after it is still removed.
+home = fresh_home()
+items_block = ('items = ["""first""", """second\n'
+               'x = """\n'
+               ']\n')
+codex_path = seed(home, ".codex/config.toml",
+                  '[profiles.demo]\n'
+                  + items_block +
+                  '\n'
+                  '[mcp_servers.old]\n'
+                  'command = "old"\n')
+r = run(home)
+out = read(codex_path)
+check("990r two-strings value preserved byte-for-byte", items_block in out, out)
+check("990r two-strings real server removed", "removed: old" in r.stdout and 'command = "old"' not in out, out)
+check("990r two-strings result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r two-strings second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
 sys.exit(1 if FAILURES else 0)
