@@ -119,6 +119,10 @@ export RCLONE_CONFIG_R2BAK_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export RCLONE_CONFIG_R2BAK_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
 export RCLONE_CONFIG_R2BAK_ENDPOINT="$R2_ENDPOINT"
 export RCLONE_CONFIG_R2BAK_REGION="auto"
+# The r2-backups token cannot HeadBucket (403), so rclone must skip its
+# bucket check - otherwise it falls back to CreateBucket and the upload
+# fails with AccessDenied (found 2026-10-28 via the openclaw-backup job).
+export RCLONE_CONFIG_R2BAK_NO_CHECK_BUCKET="true"
 
 
 # --- optional pm-stack DB dumps (code#1514) --------------------------------

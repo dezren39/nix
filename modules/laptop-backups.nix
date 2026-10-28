@@ -19,6 +19,14 @@
 #   (~/repo-archive -> local + R2 + Drive). The unit + timer are declared
 #   here so the schedule lives in the flake; the script itself stays at
 #   ~/tools/repo-archive-backup.sh, the path its author maintains.
+# - openclaw-backup (daily ~04:05): the OpenClaw state dir (~/.openclaw,
+#   minus the tmp/ and cache/ scratch trees) as a dated tar.zst with a
+#   sha256 manifest to the local backup dir, R2 (supabase-backups,
+#   openclaw/<date>/) and Google Drive (Cloud/cold-store/db-backups/
+#   openclaw/<date>/), every copy sha256-verified, 30-day retention.
+#   The agent state DB is snapshotted with sqlite3 .backup so the
+#   archived copy is transaction-consistent. Script:
+#   ./openclaw-backup.sh (vendored here; same credential pattern).
 #
 # Pruning discipline: each job prunes only the dated directories it
 # created itself. The sandbox's backup job writes into its own tree under
@@ -34,6 +42,9 @@ let
   home = config.home.homeDirectory;
   dashboardPkg = pkgs.writeShellScriptBin "pm-dashboard-backup" (
     builtins.readFile ./pm-dashboard-backup.sh
+  );
+  openclawPkg = pkgs.writeShellScriptBin "openclaw-backup" (
+    builtins.readFile ./openclaw-backup.sh
   );
   servicePath = lib.makeBinPath [
     pkgs.coreutils
@@ -80,6 +91,19 @@ in
         description = "Path of the repo-archive backup script to run.";
       };
     };
+
+    openclaw = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Daily OpenClaw state backup (~/.openclaw) to local dir + R2 + Google Drive.";
+      };
+      onCalendar = lib.mkOption {
+        type = lib.types.str;
+        default = "04:05";
+        description = "Daily run time (local) for the OpenClaw backup.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -103,6 +127,16 @@ in
           };
         };
       })
+      (lib.mkIf cfg.openclaw.enable {
+        openclaw-backup = {
+          Unit.Description = "Daily OpenClaw state backup - local + R2 + Drive";
+          Service = {
+            Type = "oneshot";
+            ExecStart = "${openclawPkg}/bin/openclaw-backup";
+            Environment = "PATH=${servicePath}:${home}/tools/bin:/run/current-system/sw/bin";
+          };
+        };
+      })
     ];
 
     systemd.user.timers = lib.mkMerge [
@@ -122,6 +156,17 @@ in
           Unit.Description = "Run the repo-archive backup daily";
           Timer = {
             OnCalendar = cfg.repoArchive.onCalendar;
+            Persistent = true;
+            RandomizedDelaySec = "15m";
+          };
+          Install.WantedBy = [ "timers.target" ];
+        };
+      })
+      (lib.mkIf cfg.openclaw.enable {
+        openclaw-backup = {
+          Unit.Description = "Run the OpenClaw backup daily";
+          Timer = {
+            OnCalendar = cfg.openclaw.onCalendar;
             Persistent = true;
             RandomizedDelaySec = "15m";
           };
