@@ -962,6 +962,38 @@ rec {
               bash ./modules/pm-dashboard-backup-copy.test.sh
               touch $out
             '';
+        # #1025: pm-dashboard-backup-manifest.test.sh drives the real
+        # modules/pm-dashboard-backup.sh with stubbed bws/journalctl/
+        # rclone -- the manifest used to be generated from the staging
+        # tree, so verification was self-referential and a dataset
+        # member deleted at the source silently shrank the backup
+        # set. The suite pins the expected set: a deleted required
+        # member fails the run (named, nothing uploaded, cursor
+        # unchanged), a missing optional member completes and is
+        # recorded missing in manifest.json, and db-dumps is
+        # conditionally required (dump step ran but produced no dir
+        # fails; dir produced is recorded required + present).
+        pm-dashboard-backup-manifest-tests =
+          pkgs.runCommandLocal "pm-dashboard-backup-manifest-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+                pkgs.gnutar
+                pkgs.zstd
+                pkgs.util-linux
+              ];
+              src = inputs.self;
+            }
+            ''
+              mkdir -p modules
+              cp $src/modules/pm-dashboard-backup.sh $src/modules/pm-dashboard-backup-manifest.test.sh ./modules/
+              chmod u+w ./modules/pm-dashboard-backup.sh ./modules/pm-dashboard-backup-manifest.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./modules/pm-dashboard-backup-manifest.test.sh
+              touch $out
+            '';
         # #965: mcp-clients.test.py -- the regression suite for
         # mcp-clients.py, the every-switch enforcement point that keeps
         # Claude/Codex/Zed MCP config mcpx-only -- was run by nothing:

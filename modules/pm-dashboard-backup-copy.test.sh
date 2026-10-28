@@ -15,8 +15,10 @@
 #   * unreadable snapshots file   — same, naming the snapshots tree
 #   * unreadable meta-export file — same, naming the file
 #   * unreadable db-dumps file    — same, naming the dumps dir
-#   * missing files (control)     — WARN as before, exit 0, archive
-#     uploaded, marker advances: absent is not unreadable
+#   * missing required file (control) — WARN at staging as before
+#     (absent is not unreadable: no dataset-copy failure), but since
+#     #1025 the run then FAILS at verify naming the member, uploads
+#     nothing, and leaves the marker unchanged
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -157,28 +159,36 @@ expect_copy_failure unreadable-meta "latest.json"
 setup_and_run unreadable-dumps "backups/db-dumps/$DATE_ARG/dump.sql"
 expect_copy_failure unreadable-dumps "db-dumps"
 
-# Control: missing dataset files still only WARN; the run succeeds,
-# uploads, and advances the marker (absent is not unreadable).
+# Control: a missing dataset file still only WARNs at staging (absent
+# is not unreadable — no dataset-copy failure), but comments.json is a
+# REQUIRED member under the #1025 expected set, so the run now fails
+# at verify naming it, uploads nothing, and keeps the marker. (Before
+# #1025 this control expected success; #1025 supersedes that half.)
 setup_and_run missing-warn "MISSING:.local/state/pm-aggregator/comments.json"
-if [[ "$RC" -eq 0 ]]; then
-  echo "ok: missing-warn: script exited 0"
+if [[ "$RC" -ne 0 ]]; then
+  echo "ok: missing-warn: script exited non-zero ($RC)"
 else
-  fail "missing-warn: expected exit 0, got $RC; log: $(cat "$TMP_ROOT/missing-warn.log")"
+  fail "missing-warn: expected non-zero exit, got 0; log: $(cat "$TMP_ROOT/missing-warn.log")"
+fi
+if grep -q "pm-dashboard-backup: FAILED required dataset member missing: aggregator/comments.json" "$TMP_ROOT/missing-warn.log"; then
+  echo "ok: missing-warn: verify FAILED line names the missing member"
+else
+  fail "missing-warn: no verify FAILED line naming comments.json; log: $(cat "$TMP_ROOT/missing-warn.log")"
 fi
 if grep -q "WARN missing .*comments.json" "$TMP_ROOT/missing-warn.log"; then
   echo "ok: missing-warn: WARN printed for the missing file"
 else
   fail "missing-warn: no WARN for comments.json; log: $(cat "$TMP_ROOT/missing-warn.log")"
 fi
-if [[ "$(uploads)" -eq 2 ]]; then
-  echo "ok: missing-warn: archive uploaded to both stub remotes"
+if [[ "$(uploads)" -eq 0 ]]; then
+  echo "ok: missing-warn: nothing uploaded"
 else
-  fail "missing-warn: expected 2 uploads, got $(uploads)"
+  fail "missing-warn: expected 0 uploads, got $(uploads)"
 fi
-if [[ "$(marker)" =~ ^[0-9]+$ ]] && [[ "$(marker)" -gt "$PRESET" ]]; then
-  echo "ok: missing-warn: marker advanced past $PRESET (now $(marker))"
+if [[ "$(marker)" == "$PRESET" ]]; then
+  echo "ok: missing-warn: marker unchanged at $PRESET"
 else
-  fail "missing-warn: marker did not advance on a successful run — was $PRESET, now $(marker)"
+  fail "missing-warn: marker advanced on a failed run — was $PRESET, now $(marker)"
 fi
 
 if (( failures > 0 )); then
