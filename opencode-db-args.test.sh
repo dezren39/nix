@@ -85,6 +85,86 @@ if command -v sqlite3 >/dev/null; then
   fi
 fi
 
+# ---------------------------------------------------------------------------
+# Preflight schema guard (#1051): prune's guard must assert every table the
+# run later assumes (post-delete verification counts session/message/part/
+# event_sequence; the eligibility SQL joins session on id/parent_id/
+# time_updated), and vacuum must refuse up front for the tables its swap
+# verification counts -- before any delete or compacted copy. A drifted DB
+# used to be pruned first and fail mid-verification.
+# ---------------------------------------------------------------------------
+if command -v sqlite3 >/dev/null; then
+  fx="$HOME/fx1051"; mkdir -p "$fx"
+
+  # Full-schema fixture: one old session, 3 snapshots of msg_1 (seq 1-3,
+  # so exactly seq 1-2 are eligible under --protect-days 0).
+  mk_fixture() { # $1 = db path
+    sqlite3 "$1" <<'SQL'
+CREATE TABLE session(id TEXT PRIMARY KEY, parent_id TEXT, time_updated INTEGER);
+CREATE TABLE message(id TEXT);
+CREATE TABLE part(id TEXT);
+CREATE TABLE event(aggregate_id TEXT, type TEXT, seq INTEGER, data TEXT);
+CREATE TABLE event_sequence(aggregate_id TEXT, seq INTEGER, owner_id TEXT);
+INSERT INTO session VALUES ('ses_old', NULL, 1000);
+INSERT INTO event VALUES ('ses_old','message.updated.1',1,'{"info":{"id":"msg_1"}}');
+INSERT INTO event VALUES ('ses_old','message.updated.1',2,'{"info":{"id":"msg_1"}}');
+INSERT INTO event VALUES ('ses_old','message.updated.1',3,'{"info":{"id":"msg_1"}}');
+INSERT INTO event_sequence VALUES ('ses_old',1,NULL),('ses_old',2,NULL),('ses_old',3,NULL);
+SQL
+  }
+  event_count() { sqlite3 "$1" "SELECT COUNT(*) FROM event;"; }
+
+  # check_prune_refused <db> <expected message fragment>
+  check_prune_refused() {
+    local db="$1" want="$2" out rc
+    out="$(bash "$PRUNE" --db "$db" --protect-days 0 --apply -y --no-backup 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+      fail "prune on $db: exited 0, expected preflight refusal"
+    elif ! printf '%s' "$out" | grep -q -- "$want"; then
+      fail "prune on $db: refusal does not name '$want': $out"
+    elif [ "$(event_count "$db")" != "3" ]; then
+      fail "prune on $db: event rows changed despite refusal"
+    else
+      ok "prune refuses $db preflight ($want), rows unchanged"
+    fi
+  }
+
+  db="$fx/missing-message.db"; mk_fixture "$db"; sqlite3 "$db" "DROP TABLE message;"
+  check_prune_refused "$db" "message table missing"
+
+  db="$fx/missing-part.db"; mk_fixture "$db"; sqlite3 "$db" "DROP TABLE part;"
+  check_prune_refused "$db" "part table missing"
+
+  db="$fx/missing-parent.db"; mk_fixture "$db"
+  sqlite3 "$db" "CREATE TABLE session2(id TEXT PRIMARY KEY, time_updated INTEGER); INSERT INTO session2 SELECT id, time_updated FROM session; DROP TABLE session; ALTER TABLE session2 RENAME TO session;"
+  check_prune_refused "$db" "session has no 'parent_id' column"
+
+  # Control: the full-schema fixture prunes exactly as before (2 deleted,
+  # newest kept, verification passes).
+  db="$fx/full.db"; mk_fixture "$db"
+  out="$(bash "$PRUNE" --db "$db" --protect-days 0 --apply -y --no-backup 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    fail "prune on full-schema fixture exited $rc: $out"
+  elif [ "$(event_count "$db")" != "1" ]; then
+    fail "prune on full-schema fixture left $(event_count "$db") event rows, expected 1"
+  else
+    ok "prune full-schema fixture deletes only the 2 superseded snapshots"
+  fi
+
+  # Vacuum: missing message table refuses up front; no compacted copy.
+  db="$fx/vac-missing-message.db"; mk_fixture "$db"; sqlite3 "$db" "DROP TABLE message;"
+  out="$(bash "$VAC" --db "$db" -y 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "vacuum on $db: exited 0, expected preflight refusal"
+  elif ! printf '%s' "$out" | grep -q -- "message table missing"; then
+    fail "vacuum on $db: refusal does not name the missing table: $out"
+  elif [ -e "$db.compact" ]; then
+    fail "vacuum on $db: compacted copy was created despite refusal"
+  else
+    ok "vacuum refuses missing-message DB up front, no compacted copy"
+  fi
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
