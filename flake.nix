@@ -653,6 +653,7 @@ rec {
               mkdir -p lib
               cp $src/lib/common.sh lib/
               chmod u+w ./git-discover-repos ./git-discover-repos.test.sh
+              patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./git-discover-repos.test.sh
@@ -679,6 +680,7 @@ rec {
               mkdir -p lib
               cp $src/lib/common.sh lib/
               chmod u+w ./clean.sh ./clean.test.sh ./git-discover-repos
+              patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./clean.test.sh
@@ -690,6 +692,12 @@ rec {
         # test. The suite pins rejection (exit 2, option named, no side
         # effects) plus a --dry-run valid-value control over a fixture
         # repo.
+        # #978: the check copies must be shebang-patched (here and in the
+        # discover/clean/spotlight checks): consumers execute the sibling
+        # git-discover-repos directly, and the nix build sandbox has no
+        # /usr/bin/env, so the unpatched `#!/usr/bin/env bash` copy fails
+        # with "bad interpreter", its stderr is swallowed by the consumer,
+        # and discovery silently reports 0 repos.
         git-maintain-repos-tests =
           pkgs.runCommandLocal "git-maintain-repos-tests"
             {
@@ -704,6 +712,7 @@ rec {
               mkdir -p lib
               cp $src/lib/common.sh lib/
               chmod u+w ./git-maintain-repos ./git-maintain-repos.test.sh ./git-discover-repos
+              patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./git-maintain-repos.test.sh
@@ -729,6 +738,7 @@ rec {
               mkdir -p lib
               cp $src/lib/common.sh lib/
               chmod u+w ./spotlight-exclude-artifacts ./spotlight-exclude-artifacts.test.sh ./git-discover-repos
+              patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./spotlight-exclude-artifacts.test.sh
