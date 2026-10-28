@@ -617,5 +617,80 @@ check("990r two-strings second run no-op", r2.returncode == 0 and read(codex_pat
 shutil.rmtree(home)
 
 
+# #990 re-review follow-up: a multi-line string that opens on an
+# array continuation line of a KEPT table -- kept values outside the
+# TOML root track bracket depth too, so the string content line is
+# never scanned as an assignment and the real server after the array
+# is still removed.
+home = fresh_home()
+kept_array_block = ("items = [\n"
+                    "  '''content\n"
+                    "example = \"\"\"\n"
+                    "  ''',\n"
+                    "]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  "[profiles.demo]\n"
+                  + kept_array_block +
+                  "\n"
+                  "[mcp_servers.old]\n"
+                  "command = \"old\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rr kept-array value preserved byte-for-byte", kept_array_block in out, out)
+check("990rr kept-array real server removed", "removed: old" in r.stdout and "command = \"old\"" not in out, out)
+check("990rr kept-array result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rr kept-array second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 re-review follow-up: a multi-line literal string that ends
+# with a content quote (a closing run of four quotes) in a dropped
+# server array -- the whole run is the delimiter end, so the second
+# string on the line still opens and the following kept table is
+# not silently deleted.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  "[mcp_servers.old]\n"
+                  "args = ['''one'''', '''two\n"
+                  "example = \"\"\"\n"
+                  "''']\n"
+                  "\n"
+                  "[profiles.demo]\n"
+                  "model = \"gpt-5-mini\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rr quote-run old removed and reported", "removed: old" in r.stdout and "[mcp_servers.old]" not in out, out)
+check("990rr quote-run following table survives", "[profiles.demo]" in out and "model = \"gpt-5-mini\"" in out, out)
+check("990rr quote-run result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rr quote-run second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 re-review follow-up: a root array line that closes one
+# multi-line string and opens another -- the outside text between
+# them (an opening bracket) counts toward the kept value depth, so
+# a bracket-shaped line inside the array is not mistaken for a
+# table header and root server removal still happens.
+home = fresh_home()
+root_array_block = ("items = [\"\"\"first\n"
+                    "\"\"\", [\"\"\"second\n"
+                    "\"\"\"],\n"
+                    "[\"not-a-table\"]\n"
+                    "]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  root_array_block +
+                  "mcp_servers.old.command = \"old\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rr outside-text value preserved byte-for-byte", root_array_block in out, out)
+check("990rr outside-text root server removed", "removed: old" in r.stdout and "mcp_servers.old" not in out, out)
+check("990rr outside-text result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rr outside-text second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
 sys.exit(1 if FAILURES else 0)

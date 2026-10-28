@@ -112,7 +112,15 @@ def _value_bracket_depth(text):
             break
         if text.startswith('"""', i) or text.startswith("'''", i):
             j = text.find(text[i : i + 3], i + 3)
-            i = n if j < 0 else j + 3
+            if j < 0:
+                i = n
+            else:
+                i = j + 3
+                run = 0
+                while j + run < n and text[j + run] == text[j]:
+                    run += 1
+                if 4 <= run <= 5:
+                    i = j + run
         elif c == '"':
             i += 1
             while i < n and text[i] != '"':
@@ -148,7 +156,11 @@ def _ml_string_scan(text, state):
     string a backslash-escaped delimiter does not close it, and the
     search resumes one character past an escaped candidate because
     the real delimiter can start inside the same run of quotes (an
-    escaped quote directly before the closing delimiter). (#990)
+    escaped quote directly before the closing delimiter). A closing
+    run of four or five quotes (content quote(s) against the
+    delimiter) is consumed whole, and when a line closes one string
+    and leaves another open, the outside text gathered between them
+    is returned for bracket accounting, not discarded. (#990)
     """
     outside, seg, i, n = [], 0, 0, len(text)
     while i < n:
@@ -164,8 +176,21 @@ def _ml_string_scan(text, state):
                     break
                 j = text.find(state, j + 1)
             if j < 0:
-                return state, ""
+                # A string opened earlier on this same line (after a
+                # closing one) is still open: the outside segments
+                # gathered so far (brackets between the strings) are
+                # real accounting, not nothing. (#990 re-review)
+                return state, "".join(outside)
             i = j + 3
+            # A closing run of four or five quotes is one or two
+            # content quotes directly before the delimiter; consume
+            # the whole run, or the leftover quote(s) are re-read as
+            # a new single-line string that swallows what follows.
+            run = 0
+            while j + run < n and text[j + run] == state[0]:
+                run += 1
+            if 4 <= run <= 5:
+                i = j + run
             seg = i
             state = None
             continue
@@ -450,8 +475,12 @@ def codex(path):
             continue
         kept.append(line)
         _kp, eq = _dotted_assignment(line)
+        segment = line[eq + 1 :] if eq >= 0 else line
+        kept_depth = _value_bracket_depth(segment)
+        if kept_depth < 0:
+            kept_depth = 0
         if eq >= 0:
-            ml = _ml_string_scan(line[eq + 1 :], None)[0]
+            ml = _ml_string_scan(segment, None)[0]
     while kept and not kept[-1].strip():
         kept.pop()
     block = [
