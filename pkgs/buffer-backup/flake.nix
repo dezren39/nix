@@ -73,6 +73,28 @@
               touch $out
             '';
 
+        # #1013: cleanup-count.test.mjs -- the #1002 regression suite
+        # for cleanupCount one-pass convergence (plus the cleanupSize
+        # control) -- was run by nothing: no flake check, workflow, or
+        # npm script referenced it, so an extension.ts change could
+        # silently break the #1002 post-condition and merge green.
+        # Run the real suite here, following the house pattern (#965):
+        # the test reads src/extension.ts relative to its own
+        # location, so copy both into the check tree in that layout.
+        # The buffer-backup workflow also runs the suite directly.
+        checks.cleanup-count =
+          pkgs.runCommand "buffer-backup-cleanup-count"
+            {
+              nativeBuildInputs = [ pkgs.nodejs_22 ];
+            }
+            ''
+              mkdir -p src
+              cp ${./cleanup-count.test.mjs} cleanup-count.test.mjs
+              cp ${./src/extension.ts} src/extension.ts
+              node cleanup-count.test.mjs
+              touch $out
+            '';
+
         devShells.default = pkgs.mkShell {
           packages = [
             pkgs.bun
