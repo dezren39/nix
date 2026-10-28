@@ -147,15 +147,32 @@ jobs:
             exit 0
           fi
 
+          deleted=0
+          failed=()
           for branch in "${candidates[@]}"; do
             if [[ "$dry_run" == "true" ]]; then
               echo "WOULD-DELETE: $branch"
               echo "- would delete \`$branch\`" >> "$GITHUB_STEP_SUMMARY"
-            else
-              git push origin --delete "$branch"
+            elif git push origin --delete "$branch"; then
+              deleted=$((deleted + 1))
               echo "DELETED: $branch"
               echo "- deleted \`$branch\`" >> "$GITHUB_STEP_SUMMARY"
+            else
+              # One failed deletion must not abort the run (#1004):
+              # record it, keep going, and fail visibly at the end.
+              failed+=("$branch")
+              echo "FAILED: $branch"
+              echo "- FAILED to delete \`$branch\`" >> "$GITHUB_STEP_SUMMARY"
             fi
           done
 
+          if [[ "$dry_run" != "true" ]]; then
+            echo "Deleted: $deleted; failed: ${#failed[@]}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           echo "Branch cleanup finished: $count candidate(s), mode=$mode."
+
+          if (( ${#failed[@]} > 0 )); then
+            echo "Branch cleanup: ${#failed[@]} deletion(s) failed: ${failed[*]}"
+            exit 1
+          fi
