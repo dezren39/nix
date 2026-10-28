@@ -668,9 +668,9 @@ note "protect-roots : $([ "$PROTECT_ROOTS" -eq 1 ] && echo 'yes (root sessions s
 note "mode          : $([ "$APPLY" -eq 1 ] && echo 'APPLY (will delete)' || echo 'dry run (read-only)')"
 [ -n "$ARCHIVE" ] && note "archive       : $ARCHIVE (${COMPRESSOR})"
 
-check_not_running
-
 # Guard against a schema that does not match what this script was written for.
+# Read-only, so it precedes check_not_running: a drifted DB gets the schema
+# refusal even on a machine where opencode is up.
 for col in aggregate_id seq owner_id; do
   sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "PRAGMA table_info(event_sequence);" \
     | cut -d'|' -f2 | grep -qx "$col" \
@@ -679,6 +679,25 @@ done
 sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "PRAGMA table_info(event);" \
   | cut -d'|' -f2 | grep -qx 'aggregate_id' \
   || die "event table shape unexpected -- refusing to run"
+
+# The post-delete verification counts session/message/part/event_sequence,
+# and the eligibility SQL joins session on id/parent_id/time_updated -- a
+# missing table or session column used to be discovered only AFTER the
+# batched delete had already committed (#1051). Assert the whole assumed
+# set up front, in the same refusal shape as the guard above.
+for t in session message part event event_sequence; do
+  sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='$t';" \
+    | grep -qx '1' \
+    || die "$t table missing -- schema changed, refusing to run"
+done
+for col in id parent_id time_updated; do
+  sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" "PRAGMA table_info(session);" \
+    | cut -d'|' -f2 | grep -qx "$col" \
+    || die "session has no '$col' column -- schema changed, refusing to run"
+done
+
+check_not_running
 
 # ---------------------------------------------------------------------------
 # Shared SQL: the set of rows eligible for deletion.

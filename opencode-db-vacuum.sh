@@ -182,6 +182,22 @@ command -v sqlite3 >/dev/null || die "sqlite3 not found on PATH"
 [ -f "$DB" ] || die "no database at $DB"
 note "database: $DB"
 
+# A real run's swap verification counts session/message/part/event; a
+# missing table used to surface only after VACUUM INTO had already built
+# the compacted copy (#1051). Refuse up front -- read-only, so it precedes
+# the running-process check and a drifted DB gets the schema refusal even
+# on a machine where opencode is up. --dry-run is read-only measurement
+# and stays exempt: it never reaches the verification, and a scratch DB
+# must still measure cleanly.
+if [ "$DRY_RUN" -eq 0 ]; then
+  for t in session message part event; do
+    sqlite3 -readonly "file:$(uri_escape_path "$DB")?mode=ro" \
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='$t';" \
+      | grep -qx '1' \
+      || die "$t table missing -- schema changed, refusing to run"
+  done
+fi
+
 # opencode holds the db open with busy_timeout=5000; VACUUM needs an exclusive
 # lock, and the swap below replaces the file outright, so a live holder must
 # stop the run. Same shape as opencode-db-prune.sh's check_not_running.
