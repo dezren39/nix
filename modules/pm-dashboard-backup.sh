@@ -10,6 +10,12 @@
 # (Cloud/cold-store/db-backups/pm-aggregator/<date>/), each verified by
 # sha256 against the local archive, with the same 30-day retention.
 #
+# Retention never prunes the current run's own date (#982): a backfill
+# or re-run for a date older than the cutoff must not delete the
+# archive it just built and verified before (or just uploaded by) the
+# offsite legs. That date is pruned by a later run, once it is no
+# longer the run date.
+#
 # Credentials come from Bitwarden Secrets Manager at runtime, referenced
 # by key name only and never logged (the repo-archive-backup pattern):
 # cloudflare.r2-backups-access-key-id, cloudflare.r2-backups-secret-
@@ -191,12 +197,13 @@ rm -rf "$VDIR"
 ARC_SHA="$(sha256sum "$ARCHIVE" | cut -d' ' -f1)"
 log "local OK $ARCHIVE ($(stat -c%s "$ARCHIVE") bytes, sha256 $ARC_SHA)"
 
-# --- prune local day dirs older than 30 days (only this script's own) ---
+# --- prune local day dirs older than 30 days (only this script's own;
+# --- never $DATE itself, #982 — this prune runs before the uploads) ---
 CUTOFF="$(date -d '30 days ago' +%F)"
 for d in "$ROOT"/20??-??-??; do
   [ -d "$d" ] || continue
   day="$(basename "$d")"
-  if [[ "$day" < "$CUTOFF" ]]; then rm -rf "$d"; log "pruned local $day"; fi
+  if [[ "$day" != "$DATE" && "$day" < "$CUTOFF" ]]; then rm -rf "$d"; log "pruned local $day"; fi
 done
 
 # === legs 2+3: offsite copies, sha256-verified =============================
@@ -211,7 +218,7 @@ prune_remote() { # $1 rclone dir holding <date> subdirs, $2 label
   subs="$(rclone lsf --dirs-only "$1" 2>/dev/null || true)"
   for day in $subs; do
     day="${day%/}"
-    if [[ "$day" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] && [[ "$day" < "$CUTOFF" ]]; then
+    if [[ "$day" =~ ^20[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] && [[ "$day" != "$DATE" && "$day" < "$CUTOFF" ]]; then
       rclone purge "$1/$day" >/dev/null 2>&1 || fail "prune failed on $2 ($day)"
       log "pruned $2 $day"
     fi
