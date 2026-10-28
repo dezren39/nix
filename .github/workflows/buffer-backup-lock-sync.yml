@@ -49,3 +49,22 @@ jobs:
 
       - name: Check bun.lock and package-lock.json agree
         run: python3 pkgs/buffer-backup/check-lock-sync.py
+
+  # #1013: cleanup-count.test.mjs -- the #1002 regression suite for
+  # cleanupCount one-pass convergence -- was run by nothing, so an
+  # extension.ts change could silently break the #1002 post-condition
+  # and merge green. This job runs the real suite on every
+  # pkgs/buffer-backup/** change (the path triggers above already
+  # cover it). The suite uses only the node standard library and
+  # reads src/extension.ts relative to its own location, so a plain
+  # node run suffices; the same suite is also wired as the
+  # cleanup-count check in pkgs/buffer-backup/flake.nix.
+  cleanup-count:
+    name: cleanup-count test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run cleanup-count regression suite (#1002)
+        run: node pkgs/buffer-backup/cleanup-count.test.mjs
