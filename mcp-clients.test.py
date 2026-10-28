@@ -400,6 +400,28 @@ check("956 root inline-table second run no-op",
       r2.returncode == 0 and read(codex_path) == out and r2.stdout == "", f"stdout={r2.stdout!r}")
 shutil.rmtree(home)
 
+# #1005: the same root inline table with quoted server names -- the only
+# spelling for names with dots or spaces. Both quoted names are removed
+# AND named in the report (previously the quoted keys were consumed as
+# string values by _inline_table_keys and never reported).
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  'mcp_servers = { "my.server" = { command = "x" }, '
+                  "'my server' = { command = \"y\" }, "
+                  'plain = { command = "z" } }\n'
+                  'model = "gpt-5"\n')
+r = run(home)
+out = read(codex_path)
+check("1005 quoted inline-table servers removed", "my.server" not in out and "my server" not in out and "plain" not in out, out)
+check("1005 quoted inline-table report names removed servers",
+      "removed: my server, my.server, plain" in r.stdout, r.stdout)
+check("1005 quoted inline-table result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+check("1005 quoted inline-table keeps model", 'model = "gpt-5"' in out, out)
+r2 = run(home)
+check("1005 quoted inline-table second run no-op",
+      r2.returncode == 0 and read(codex_path) == out and r2.stdout == "", f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
 # #956: the same inline table spread over several lines, one server with
 # a nested multi-line table of its own -- all dropped and named, the
 # nested command line is not mistaken for another server.
