@@ -292,14 +292,24 @@ function cleanupCount(cfg: Config): void {
   if (entries.length <= cfg.maxFileCount) {
     return;
   }
-  const n = Math.min(cfg.rolloutFileCount, entries.length);
-  for (let i = 0; i < n; i++) {
+  // Mirror cleanupSize: a single pass must restore the limit, freeing
+  // the rollout as headroom — delete oldest-first until at most
+  // maxFileCount - rolloutFileCount remain. Deleting only
+  // rolloutFileCount files per pass (the previous behaviour) left a
+  // far-over-limit directory still over maxFileCount after the pass.
+  const target = Math.max(cfg.maxFileCount - cfg.rolloutFileCount, 0);
+  let remaining = entries.length;
+  for (const e of entries) {
+    if (remaining <= target) {
+      break;
+    }
+    remaining--;
     try {
-      fs.unlinkSync(entries[i].full);
+      fs.unlinkSync(e.full);
     } catch {
       // skip
     }
-    rmEmpty(path.dirname(entries[i].full));
+    rmEmpty(path.dirname(e.full));
   }
 }
 
