@@ -897,6 +897,36 @@ rec {
               bash ./modules/pm-dashboard-backup.test.sh
               touch $out
             '';
+        # #989: pm-dashboard-backup-date.test.sh drives the real
+        # modules/pm-dashboard-backup.sh with stubbed bws/journalctl/
+        # rclone -- the DATE argument used to be taken from $1 with no
+        # validation, so 'not-a-date' backed up successfully and could
+        # never be pruned, '../../x' created directories outside the
+        # backup root, and '2026-02-30' was accepted as a day name.
+        # The suite pins rejection (non-zero, value named, nothing
+        # created or uploaded) for malformed, traversing, nonexistent,
+        # and non-strict dates, plus a valid-date happy path.
+        pm-dashboard-backup-date-tests =
+          pkgs.runCommandLocal "pm-dashboard-backup-date-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.python3
+                pkgs.gnutar
+                pkgs.zstd
+                pkgs.util-linux
+              ];
+              src = inputs.self;
+            }
+            ''
+              mkdir -p modules
+              cp $src/modules/pm-dashboard-backup.sh $src/modules/pm-dashboard-backup-date.test.sh ./modules/
+              chmod u+w ./modules/pm-dashboard-backup.sh ./modules/pm-dashboard-backup-date.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./modules/pm-dashboard-backup-date.test.sh
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used

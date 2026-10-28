@@ -39,6 +39,19 @@ log() { echo "pm-dashboard-backup: $*"; }
 fail() { echo "pm-dashboard-backup: FAILED $*" >&2; exit 1; }
 trap 'rc=$?; if [ $rc -ne 0 ]; then echo "pm-dashboard-backup: FAILED exit=$rc" >&2; fi' EXIT
 
+# --- DATE validation (#989) -------------------------------------------------
+# DATE becomes a directory under $ROOT, the archive filename, and both
+# rclone destination prefixes, and the retention prunes assume a real
+# YYYY-MM-DD date (local glob, remote regex). Validate before any side
+# effect: an unvalidated value could never be pruned ('not-a-date'),
+# escaped the backup root ('../../x'), or named a day that does not
+# exist ('2026-02-30'). The round-trip through date -d rejects
+# normalized non-dates; the regex pins the strict shape.
+if [[ ! "$DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] \
+  || [ "$(date -d "$DATE" +%F 2>/dev/null)" != "$DATE" ]; then
+  fail "invalid DATE '$DATE' - expected a real calendar date as YYYY-MM-DD"
+fi
+
 mkdir -p "$ROOT"
 
 # --- single instance -------------------------------------------------------
