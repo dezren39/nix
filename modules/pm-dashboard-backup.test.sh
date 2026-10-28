@@ -133,6 +133,49 @@ run_scenario drive-fail Drive
 expect_marker_unchanged drive-fail
 
 run_scenario happy ""
+
+# --- post-staging failure keeps the FAILED-exit marker (#1010) ------------
+# The :40 EXIT trap used to be replaced by the staging dir's own EXIT
+# trap, so a bare command failing after staging (production runs under
+# the writeShellScriptBin `bash -e` shebang) exited with no
+# "FAILED exit=" line. Force tar to fail at the archive step, run the
+# script the production way (bash -e), and require: non-zero exit, the
+# FAILED marker with tar's exit code, and no staging dir left behind.
+TARBIN="$TMP_ROOT/tar-fail-bin"
+mkdir -p "$TARBIN"
+{ printf '#!%s\n' "$BASH"; cat <<'STUB'
+echo "stub tar: forced failure" >&2
+exit 3
+STUB
+} >"$TARBIN/tar"
+chmod +x "$TARBIN/tar"
+
+tf_home="$TMP_ROOT/tar-fail/home"
+mkdir -p "$tf_home/backups/dashboard" "$tf_home/.local/state/pm-aggregator" \
+  "$tf_home/atlas/meta-quota-export" "$tf_home/tmp"
+printf '{}\n' >"$tf_home/.local/state/pm-aggregator/actions.json"
+printf '{}\n' >"$tf_home/atlas/meta-quota-export/latest.json"
+HOME="$tf_home" PATH="$TARBIN:$BIN:$PATH" BWS_ACCESS_TOKEN="<redacted>" \
+  RCLONE_STUB_DIR="$TMP_ROOT/tar-fail/rclone-store" \
+  PM_DB_DUMP_SCRIPT="$tf_home/no-such-dump-script.sh" \
+  TMPDIR="$tf_home/tmp" \
+  bash -e "$SCRIPT" 2026-10-28 >"$TMP_ROOT/tar-fail.log" 2>&1
+tf_rc=$?
+if [[ "$tf_rc" -eq 3 ]]; then
+  echo "ok: tar-fail: script exited with tar's code (3)"
+else
+  fail "tar-fail: expected exit 3, got $tf_rc; log: $(cat "$TMP_ROOT/tar-fail.log")"
+fi
+if grep -q 'pm-dashboard-backup: FAILED exit=3' "$TMP_ROOT/tar-fail.log"; then
+  echo "ok: tar-fail: FAILED exit=3 marker printed for a post-staging failure"
+else
+  fail "tar-fail: no 'FAILED exit=3' marker in log: $(cat "$TMP_ROOT/tar-fail.log")"
+fi
+if [[ -z "$(ls -A "$tf_home/tmp")" ]]; then
+  echo "ok: tar-fail: staging dir removed by the EXIT handler"
+else
+  fail "tar-fail: staging dir left behind in TMPDIR: $(ls -A "$tf_home/tmp")"
+fi
 if [[ "$RC" -eq 0 ]]; then
   echo "ok: happy: script exited 0"
 else
