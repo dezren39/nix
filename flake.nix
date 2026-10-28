@@ -900,6 +900,42 @@ rec {
               bash ./modules/pm-dashboard-backup.test.sh
               touch $out
             '';
+        # #1036: openclaw-backup.test.sh drives the real
+        # modules/openclaw-backup.sh with stubbed bws/journalctl/
+        # sqlite3/rclone -- the script shipped with no suite at all
+        # while its pm-dashboard sibling has three. The suite pins:
+        # a staging source-tar failure fails the run (#1034), the
+        # happy path (verified archive, sqlite snapshot, both offsite
+        # copies, cursor advances), invalid DATE rejection, the
+        # flock single-instance SKIP, local + remote prune of only
+        # >30-day dirs (never recent or the run date), the journal
+        # window honouring an older-than-24h cursor, and an upload
+        # failure leaving the cursor un-advanced. (The #1035
+        # lsf-failure scenario lands with that fix.)
+        openclaw-backup-tests =
+          pkgs.runCommandLocal "openclaw-backup-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.findutils
+                pkgs.gnugrep
+                pkgs.gnutar
+                pkgs.python3
+                pkgs.util-linux
+                pkgs.zstd
+              ];
+              src = inputs.self;
+            }
+            ''
+              mkdir -p modules
+              cp $src/modules/openclaw-backup.sh $src/modules/openclaw-backup.test.sh ./modules/
+              chmod u+w ./modules/openclaw-backup.sh ./modules/openclaw-backup.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./modules/openclaw-backup.test.sh
+              touch $out
+            '';
         # #989: pm-dashboard-backup-date.test.sh drives the real
         # modules/pm-dashboard-backup.sh with stubbed bws/journalctl/
         # rclone -- the DATE argument used to be taken from $1 with no
