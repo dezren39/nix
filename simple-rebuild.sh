@@ -125,6 +125,34 @@ while (( $# )); do
   shift
 done
 
+# Validate GENERATION whole, here at parse time (#1022), in the shape of
+# the HEALTH_TIMEOUT block below (#880) and branch-cleanup's inactive_days
+# (#1015). The parse above takes any token not starting with `--` as the
+# generation, and the value's only use is the rollback path's
+# `sudo darwin-rebuild --switch-generation "$generation"` -- so -1, abc,
+# 3.5, 0, a 26-digit string, and even the single-dash typo -no-commit (with
+# no_commit left unset) were all accepted here and failed only later,
+# after a sudo prompt, inside darwin-rebuild's own parser. Judge it now,
+# before any phase: digits only, positive, with an INT_MAX range backstop
+# judged on the stripped value by digit count first, then by value (at
+# most 10 digits always fits zsh's 64-bit arithmetic). Leading zeros are
+# normalized away, as they would otherwise be read as octal downstream.
+if [[ -n "$generation" ]]; then
+  case "$generation" in
+    *[!0-9]*|'')
+      echo "simple-rebuild.sh: --activate-only GENERATION must be a positive integer (got: $generation)" >&2
+      exit 2 ;;
+  esac
+  _gen="$generation"
+  while [[ "$_gen" == 0?* ]]; do _gen="${_gen#0}"; done
+  if (( ${#_gen} > 10 || _gen > 2147483647 || _gen <= 0 )); then
+    echo "simple-rebuild.sh: --activate-only GENERATION must be a positive integer (got: $generation)" >&2
+    exit 2
+  fi
+  generation="$_gen"
+  unset _gen
+fi
+
 # Every marker commit goes through here so --no-commit has one place to act.
 commit_marker() {
   if (( no_commit )); then
