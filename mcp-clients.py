@@ -216,6 +216,18 @@ def _ml_string_scan(text, state):
     return state, "".join(outside)
 
 
+def _scan_depth(text):
+    """(ml_state, bracket_depth) for a value segment, with the depth
+    counted on the outside text _ml_string_scan returns -- the
+    escape-aware scanner's view -- rather than by re-scanning the raw
+    segment with _value_bracket_depth, whose triple-quote handling is
+    not escape-aware: an escaped delimiter inside a multi-line basic
+    string was treated as a closing one and the string content's
+    brackets were counted, leaving kept/value depth stuck (#990)."""
+    ml, outside = _ml_string_scan(text, None)
+    return ml, _value_bracket_depth(outside)
+
+
 def _first_key(line):
     """(name, rest) for the first key of a TOML assignment line, or
     (None, line) when the line does not start with a key followed by '='."""
@@ -379,18 +391,18 @@ def codex(path):
                     kept_depth = 0
             continue
         if value_depth > 0:
-            value_depth += _value_bracket_depth(line)
+            ml, d = _scan_depth(line)
+            value_depth += d
             if value_depth < 0:
                 value_depth = 0
-            ml = _ml_string_scan(line, None)[0]
             ml_drop = ml is not None
             continue
         if kept_depth > 0:
             kept.append(line)
-            kept_depth += _value_bracket_depth(line)
+            ml, d = _scan_depth(line)
+            kept_depth += d
             if kept_depth < 0:
                 kept_depth = 0
-            ml = _ml_string_scan(line, None)[0]
             continue
         array_header = re.match(r"\s*\[\[\s*(.+?)\s*\]\]\s*(#.*)?$", line)
         header = None if array_header else re.match(r"\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$", line)
@@ -435,12 +447,13 @@ def codex(path):
                 continue
             removed.add(name)
             _dp, eq = _dotted_assignment(line)
-            value_depth = _value_bracket_depth(line[eq + 1 :]) if eq >= 0 else 0
-            if value_depth < 0:
-                value_depth = 0
             if eq >= 0:
-                ml = _ml_string_scan(line[eq + 1 :], None)[0]
+                ml, value_depth = _scan_depth(line[eq + 1 :])
+                if value_depth < 0:
+                    value_depth = 0
                 ml_drop = ml is not None
+            else:
+                value_depth = 0
             continue
         if at_root:
             stripped = line.strip()
@@ -449,17 +462,18 @@ def codex(path):
                 if parts and parts[0] == "mcp_servers":
                     if len(parts) >= 2:
                         removed.add(parts[1])
-                        value_depth = _value_bracket_depth(line[eq + 1 :])
+                        ml, value_depth = _scan_depth(line[eq + 1 :])
                         if value_depth < 0:
                             value_depth = 0
-                        ml = _ml_string_scan(line[eq + 1 :], None)[0]
                         ml_drop = ml is not None
                         continue
                     gathered = [line[eq + 1 :]]
-                    depth = _value_bracket_depth(gathered[0])
+                    gml, rest = _ml_string_scan(gathered[0], None)
+                    depth = _value_bracket_depth(rest)
                     while depth > 0 and idx < len(lines):
                         gathered.append(lines[idx])
-                        depth += _value_bracket_depth(lines[idx])
+                        gml, rest = _ml_string_scan(lines[idx], gml)
+                        depth += _value_bracket_depth(rest)
                         idx += 1
                     for server in _inline_table_keys("\n".join(gathered)):
                         removed.add(server)
@@ -467,20 +481,16 @@ def codex(path):
             kept.append(line)
             _parts, eq = _dotted_assignment(line)
             segment = line[eq + 1 :] if eq >= 0 else line
-            kept_depth = _value_bracket_depth(segment)
+            ml, kept_depth = _scan_depth(segment)
             if kept_depth < 0:
                 kept_depth = 0
-            if eq >= 0:
-                ml = _ml_string_scan(segment, None)[0]
             continue
         kept.append(line)
         _kp, eq = _dotted_assignment(line)
         segment = line[eq + 1 :] if eq >= 0 else line
-        kept_depth = _value_bracket_depth(segment)
+        ml, kept_depth = _scan_depth(segment)
         if kept_depth < 0:
             kept_depth = 0
-        if eq >= 0:
-            ml = _ml_string_scan(segment, None)[0]
     while kept and not kept[-1].strip():
         kept.pop()
     block = [

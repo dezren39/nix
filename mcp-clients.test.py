@@ -692,5 +692,31 @@ check("990rr outside-text second run no-op", r2.returncode == 0 and read(codex_p
       f"stdout={r2.stdout!r}")
 shutil.rmtree(home)
 
+# #990 re-re-review follow-up: a kept table's multi-line basic string
+# containing an ESCAPED triple-quote followed by a bracket -- bracket
+# depth for the kept value must come from the escape-aware scanner's
+# outside text, not from _value_bracket_depth re-scanning the raw
+# segment (it treats the escaped delimiter as a closing one and counts
+# the content bracket, leaving kept_depth stuck so the real server
+# table after the array is retained and nothing is reported removed).
+home = fresh_home()
+esc_items_block = ("items = [\"\"\"first \\\"\"\" [\n"
+                   "\"\"\"]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  "[profiles.demo]\n"
+                  + esc_items_block +
+                  "\n"
+                  "[mcp_servers.old]\n"
+                  "command = \"old\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rrr escaped-delimiter value preserved byte-for-byte", esc_items_block in out, out)
+check("990rrr escaped-delimiter real server removed", "removed: old" in r.stdout and "[mcp_servers.old]" not in out, out)
+check("990rrr escaped-delimiter result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rrr escaped-delimiter second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
 sys.exit(1 if FAILURES else 0)
