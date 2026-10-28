@@ -14,6 +14,11 @@ Covers the two PR #904 fallout bugs:
 - #944: Codex servers spelled as inline-table entries under [mcp_servers]
   or as [[mcp_servers.*]] array-of-tables blocks are removed (not just
   plain [mcp_servers.*] tables) and named in the removed: report.
+- #990: a header-shaped line inside a multi-line basic or
+  literal string value is string content, never a table header --
+  the Codex parser tracks multi-line string state so such a line
+  cannot switch modes, swallow the rest of the string, and
+  corrupt the file.
 - #956: Codex servers spelled at the TOML root -- dotted keys
   (mcp_servers.<name>...) or a bare mcp_servers = { ... } inline table
   (single- or multi-line) -- are removed and named; unrelated root keys
@@ -446,6 +451,294 @@ check("956 multi-line inline-table second run no-op",
       r2.returncode == 0 and read(codex_path) == out and r2.stdout == "", f"stdout={r2.stdout!r}")
 shutil.rmtree(home)
 
+
+# #990: a header-shaped line inside a multi-line basic string in an
+# ordinary table is string content -- the fixture from the issue must
+# round-trip: string preserved byte-for-byte, the following table
+# survives, no server reported removed, output valid TOML.
+home = fresh_home()
+string_block = ('instructions = """\n'
+                'See this example TOML:\n'
+                '[mcp_servers.evil]\n'
+                'command = "evil"\n'
+                '"""\n')
+codex_path = seed(home, ".codex/config.toml",
+                  'model = "gpt-5"\n'
+                  '\n'
+                  '[profiles.demo]\n'
+                  + string_block +
+                  '\n'
+                  '[profiles.demo2]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990 basic-string fixture preserved byte-for-byte", string_block in out, out)
+check("990 basic-string following table survives", "[profiles.demo2]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990 basic-string reports no server removed", "removed: none" in r.stdout, r.stdout)
+check("990 basic-string result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 basic-string second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990: the same for a multi-line literal string, with a REAL
+# [mcp_servers.real] table alongside -- the real one is still removed
+# and reported, the ghost inside the literal string is not.
+home = fresh_home()
+literal_block = ("literal = '''\n"
+                 "[mcp_servers.ghost]\n"
+                 'command = "ghost"\n'
+                 "'''\n")
+codex_path = seed(home, ".codex/config.toml",
+                  '[profiles.demo]\n'
+                  + literal_block +
+                  '\n'
+                  '[mcp_servers.real]\n'
+                  'command = "real"\n')
+r = run(home)
+out = read(codex_path)
+check("990 literal-string preserved byte-for-byte", literal_block in out, out)
+check("990 real server alongside string removed", "[mcp_servers.real]" not in out and 'command = "real"' not in out, out)
+check("990 report names only the real server", "removed: real" in r.stdout and "ghost" not in r.stdout, r.stdout)
+check("990 literal-string result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 literal-string second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 at the TOML root: a dotted mcp_servers line inside a root-level
+# multi-line string is not a server; a real root dotted server next to
+# it is still removed and named.
+home = fresh_home()
+root_block = ('instructions = """\n'
+              'mcp_servers.evil.command = "evil"\n'
+              '"""\n')
+codex_path = seed(home, ".codex/config.toml",
+                  root_block +
+                  'mcp_servers.real.command = "real"\n')
+r = run(home)
+out = read(codex_path)
+check("990 root string content preserved byte-for-byte", root_block in out, out)
+check("990 root report names only the real server", "removed: real" in r.stdout, r.stdout)
+check("990 root result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 root second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 under the [mcp_servers] parent: an entry whose value is a
+# multi-line string containing a header-shaped line -- the entry is
+# dropped as one entry, the phantom header inside its string is not
+# treated as a table (and not reported).
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers]\n'
+                  'notes = """\n'
+                  '[mcp_servers.phantom]\n'
+                  '"""\n')
+r = run(home)
+out = read(codex_path)
+check("990 parent string entry dropped whole", "notes" not in out and "phantom" not in out, out)
+check("990 parent report has no phantom", "phantom" not in r.stdout, r.stdout)
+check("990 parent result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990 parent second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+
+# #990 review follow-up: an escaped quote directly before the closing
+# delimiter of a multi-line basic string in a DROPPED table -- the
+# string still closes there, so the following kept table survives.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers.old]\n'
+                  'command = """echo \\""""\n'
+                  '\n'
+                  '[profiles.demo]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990r escaped-quote string closes, old removed", "removed: old" in r.stdout, r.stdout)
+check("990r escaped-quote following table survives", "[profiles.demo]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990r escaped-quote result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r escaped-quote second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 review follow-up: a multi-line string that opens on a
+# continuation line of a dropped array value -- its content lines are
+# string content, never assignments, and the table after the dropped
+# one survives.
+home = fresh_home()
+array_block = ("args = [\n"
+               "  '''help text\n"
+               'example = """\n'
+               "  ''',\n"
+               "]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers.old]\n'
+                  + array_block +
+                  '\n'
+                  '[profiles.demo]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990r array-string old removed and reported", "removed: old" in r.stdout and "[mcp_servers.old]" not in out, out)
+check("990r array-string following table survives", "[profiles.demo]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990r array-string result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r array-string second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 review follow-up: a quoted server name containing '=' under
+# the [mcp_servers] parent -- the assignment separator is the one
+# outside the quotes, so its multi-line string value does not leak
+# string state into the following table.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  '[mcp_servers]\n'
+                  '"old=name" = { command = """echo""" }\n'
+                  '\n'
+                  '[profiles.demo]\n'
+                  'model = "gpt-5-mini"\n')
+r = run(home)
+out = read(codex_path)
+check("990r quoted-name entry removed and reported", "old=name" in r.stdout and "old=name" not in out, out)
+check("990r quoted-name following table survives", "[profiles.demo]" in out and 'model = "gpt-5-mini"' in out, out)
+check("990r quoted-name result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r quoted-name second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 review follow-up: two multi-line strings starting on the same
+# line of a kept value -- the scan continues after the first closing
+# delimiter, so the second string's content is not mistaken for TOML
+# and a real server table after it is still removed.
+home = fresh_home()
+items_block = ('items = ["""first""", """second\n'
+               'x = """\n'
+               ']\n')
+codex_path = seed(home, ".codex/config.toml",
+                  '[profiles.demo]\n'
+                  + items_block +
+                  '\n'
+                  '[mcp_servers.old]\n'
+                  'command = "old"\n')
+r = run(home)
+out = read(codex_path)
+check("990r two-strings value preserved byte-for-byte", items_block in out, out)
+check("990r two-strings real server removed", "removed: old" in r.stdout and 'command = "old"' not in out, out)
+check("990r two-strings result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990r two-strings second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+
+# #990 re-review follow-up: a multi-line string that opens on an
+# array continuation line of a KEPT table -- kept values outside the
+# TOML root track bracket depth too, so the string content line is
+# never scanned as an assignment and the real server after the array
+# is still removed.
+home = fresh_home()
+kept_array_block = ("items = [\n"
+                    "  '''content\n"
+                    "example = \"\"\"\n"
+                    "  ''',\n"
+                    "]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  "[profiles.demo]\n"
+                  + kept_array_block +
+                  "\n"
+                  "[mcp_servers.old]\n"
+                  "command = \"old\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rr kept-array value preserved byte-for-byte", kept_array_block in out, out)
+check("990rr kept-array real server removed", "removed: old" in r.stdout and "command = \"old\"" not in out, out)
+check("990rr kept-array result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rr kept-array second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 re-review follow-up: a multi-line literal string that ends
+# with a content quote (a closing run of four quotes) in a dropped
+# server array -- the whole run is the delimiter end, so the second
+# string on the line still opens and the following kept table is
+# not silently deleted.
+home = fresh_home()
+codex_path = seed(home, ".codex/config.toml",
+                  "[mcp_servers.old]\n"
+                  "args = ['''one'''', '''two\n"
+                  "example = \"\"\"\n"
+                  "''']\n"
+                  "\n"
+                  "[profiles.demo]\n"
+                  "model = \"gpt-5-mini\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rr quote-run old removed and reported", "removed: old" in r.stdout and "[mcp_servers.old]" not in out, out)
+check("990rr quote-run following table survives", "[profiles.demo]" in out and "model = \"gpt-5-mini\"" in out, out)
+check("990rr quote-run result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rr quote-run second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 re-review follow-up: a root array line that closes one
+# multi-line string and opens another -- the outside text between
+# them (an opening bracket) counts toward the kept value depth, so
+# a bracket-shaped line inside the array is not mistaken for a
+# table header and root server removal still happens.
+home = fresh_home()
+root_array_block = ("items = [\"\"\"first\n"
+                    "\"\"\", [\"\"\"second\n"
+                    "\"\"\"],\n"
+                    "[\"not-a-table\"]\n"
+                    "]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  root_array_block +
+                  "mcp_servers.old.command = \"old\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rr outside-text value preserved byte-for-byte", root_array_block in out, out)
+check("990rr outside-text root server removed", "removed: old" in r.stdout and "mcp_servers.old" not in out, out)
+check("990rr outside-text result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rr outside-text second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #990 re-re-review follow-up: a kept table's multi-line basic string
+# containing an ESCAPED triple-quote followed by a bracket -- bracket
+# depth for the kept value must come from the escape-aware scanner's
+# outside text, not from _value_bracket_depth re-scanning the raw
+# segment (it treats the escaped delimiter as a closing one and counts
+# the content bracket, leaving kept_depth stuck so the real server
+# table after the array is retained and nothing is reported removed).
+home = fresh_home()
+esc_items_block = ("items = [\"\"\"first \\\"\"\" [\n"
+                   "\"\"\"]\n")
+codex_path = seed(home, ".codex/config.toml",
+                  "[profiles.demo]\n"
+                  + esc_items_block +
+                  "\n"
+                  "[mcp_servers.old]\n"
+                  "command = \"old\"\n")
+r = run(home)
+out = read(codex_path)
+check("990rrr escaped-delimiter value preserved byte-for-byte", esc_items_block in out, out)
+check("990rrr escaped-delimiter real server removed", "removed: old" in r.stdout and "[mcp_servers.old]" not in out, out)
+check("990rrr escaped-delimiter result parses with only mcpx", codex_server_names(out) == {"mcpx"}, out)
+r2 = run(home)
+check("990rrr escaped-delimiter second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
+      f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
 
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
 sys.exit(1 if FAILURES else 0)
