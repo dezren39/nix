@@ -25,6 +25,12 @@
 # existing rclone "drive" remote. Declared as a systemd user
 # service+timer in dezren39/nix (modules/laptop-backups.nix).
 
+# Fail a pipeline when ANY of its commands fail, not just the last one:
+# without pipefail, the staging pipeline below reported the extraction
+# tar's exit 0 and masked a source tar that had failed mid-read, so a
+# torn copy of a live file was archived and reported as success (#1034).
+set -o pipefail
+
 DATE="${1:-$(date +%F)}"
 CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 OC="$HOME/.openclaw"
@@ -64,7 +70,9 @@ fi
 
 # --- tools (same resolutions as pm-dashboard-backup) -----------------------
 if ! command -v rclone >/dev/null 2>&1; then
-  RCLONE_BIN="$(ls -d /nix/store/*-rclone-[0-9]*/bin/rclone 2>/dev/null | sort -V | tail -1)"
+  # || true: no store match is the expected empty case, checked next;
+  # pipefail must not turn the failed ls into the pipeline's status.
+  RCLONE_BIN="$(ls -d /nix/store/*-rclone-[0-9]*/bin/rclone 2>/dev/null | sort -V | tail -1 || true)"
   [ -n "$RCLONE_BIN" ] && [ -x "$RCLONE_BIN" ] || fail "rclone not found in PATH or nix store"
   mkdir -p "$ROOT/.bin"
   ln -sf "$RCLONE_BIN" "$ROOT/.bin/rclone"
@@ -87,7 +95,7 @@ bws_get() {
 k = sys.argv[1]
 for s in json.load(sys.stdin):
     if s.get("key") == k:
-        print(s.get("value", "")); break' "$1"
+        print(s.get("value", "")); break' "$1" || true
 }
 R2_ACCESS_KEY_ID="$(bws_get cloudflare.r2-backups-access-key-id)"
 R2_SECRET_ACCESS_KEY="$(bws_get cloudflare.r2-backups-secret-access-key)"
@@ -116,6 +124,9 @@ STAGE="$(mktemp -d)"
 mkdir -p "$OUTDIR"
 
 # --- data set: the state dir minus scratch/transients ---
+# pipefail (set at the top) is load-bearing here: if the source tar
+# fails mid-read (a live file changed), this pipeline must fail even
+# though the extraction tar exits 0 (#1034).
 tar -cf - -C "$OC" \
   --exclude='./tmp' --exclude='./cache' --exclude='./.git' \
   --exclude='*.sqlite-wal' --exclude='*.sqlite-shm' --exclude='*.lock' \
@@ -190,7 +201,7 @@ PYEOF
 fi
 rm -rf "$VDIR"
 
-ARC_SHA="$(sha256sum "$ARCHIVE" | cut -d' ' -f1)"
+ARC_SHA="$(sha256sum "$ARCHIVE" | cut -d' ' -f1)" || fail "sha256sum of $ARCHIVE failed"
 log "local OK $ARCHIVE ($(stat -c%s "$ARCHIVE") bytes, sha256 $ARC_SHA)"
 
 # --- prune local day dirs older than 30 days (never $DATE itself) ---
@@ -204,7 +215,9 @@ done
 # === legs 2+3: offsite copies, sha256-verified =============================
 verify_remote() { # $1 rclone path, $2 label
   local got
-  got="$(rclone cat "$1" 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  # || got="": a failed cat must surface as the sha mismatch fail
+  # below (clear message), not as a bare pipefail abort.
+  got="$(rclone cat "$1" 2>/dev/null | sha256sum | cut -d' ' -f1)" || got=""
   [ "$got" = "$ARC_SHA" ] || fail "$2 copy sha256 mismatch (got $got)"
   log "$2 OK sha256 verified ($1)"
 }
