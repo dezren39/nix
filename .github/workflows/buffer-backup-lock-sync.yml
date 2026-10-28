@@ -1,0 +1,51 @@
+name: buffer-backup lock sync
+
+# Lock-sync gate for pkgs/buffer-backup (#998, after #781).
+#
+# This package carries two lockfiles for one package.json: Renovate
+# updates package-lock.json (npm) only, while the shipped nix build
+# installs from bun.lock only (flake.nix: `bun install
+# --frozen-lockfile`). The lock-sync check existed in the package's
+# sub-flake but no workflow ran it, so PR #980 bumped @types/node to
+# ^26 in package.json + package-lock.json, merged green, and left
+# bun.lock resolving @types/node 24.19.2 — the npm and bun/nix paths
+# silently compiled against different type definitions, the exact
+# drift #781 was filed to stop.
+#
+# This workflow runs the check automatically whenever anything under
+# pkgs/buffer-backup/ changes (or this workflow itself changes), so a
+# lockfile-only change that desyncs the locks fails visibly instead
+# of merging green. The check is a plain python3 script — no nix or
+# bun install needed — so the gate stays fast.
+
+"on":
+  pull_request:
+    paths:
+      - "pkgs/buffer-backup/**"
+      - ".github/workflows/buffer-backup-lock-sync.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pkgs/buffer-backup/**"
+      - ".github/workflows/buffer-backup-lock-sync.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  # Same shape as mcpx-nixbuild: push-to-main runs are keyed by run_id
+  # so every merged tree gets its own completed check; PR runs share a
+  # per-ref group so a new push supersedes its stale run.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock-sync:
+    name: lock-sync check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check bun.lock and package-lock.json agree
+        run: python3 pkgs/buffer-backup/check-lock-sync.py

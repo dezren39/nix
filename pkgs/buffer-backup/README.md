@@ -191,7 +191,11 @@ python3 check-lock-sync.py   # or: nix flake check  (runs the lock-sync check)
 ```
 
 The check fails when the two lockfiles resolve any `package.json`
-dependency to different versions.
+dependency to different versions. It also runs automatically in CI:
+the `buffer-backup lock sync` workflow runs `check-lock-sync.py` on
+every PR and push to main that touches `pkgs/buffer-backup/**`, so a
+lockfile-only Renovate PR that desyncs the locks fails visibly instead
+of merging green (#998).
 
 ### With Nix
 
