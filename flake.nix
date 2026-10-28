@@ -927,6 +927,27 @@ rec {
               bash ./modules/pm-dashboard-backup-date.test.sh
               touch $out
             '';
+        # #965: mcp-clients.test.py -- the regression suite for
+        # mcp-clients.py, the every-switch enforcement point that keeps
+        # Claude/Codex/Zed MCP config mcpx-only -- was run by nothing:
+        # no flake check, workflow, or justfile recipe referenced it,
+        # unlike every neighbouring suite. Run the real suite here so
+        # `nix flake check` fails when an enforcement spelling/parsing
+        # fix (#905/#906/#929/#944/#950/#956/#990) regresses.
+        mcp-clients-tests =
+          pkgs.runCommandLocal "mcp-clients-tests"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/mcp-clients.py $src/mcp-clients.test.py ./
+              chmod u+w ./mcp-clients.py ./mcp-clients.test.py
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              python3 ./mcp-clients.test.py
+              touch $out
+            '';
         # #907: opencode-share.test.sh drives the real opencode-share.sh
         # in --dry-run mode through [good, missing, good], all-good, and
         # all-fail target lists — the post-increment error counter used
