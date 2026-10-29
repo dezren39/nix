@@ -45,9 +45,27 @@ while [ $# -gt 0 ]; do
 done
 
 case "$KEEP" in *[!0-9]*|'') die "--keep must be a non-negative integer, got: $KEEP" ;; esac
+# Leading zeros are decimal here, not octal (#1087): bash arithmetic reads
+# 08/09 as invalid octal and 010 as 8, while the [ ] tests overflow on
+# oversized digit strings. Normalize at validation time like the sibling
+# scripts (#880/#1015/#1022): strip leading zeros, then range-check by
+# digit count first (at most 10 digits always fits the shell's 64-bit
+# arithmetic), then by value against INT_MAX, as in opencode-db-prune.sh
+# (#867). After this block both values are plain decimal <= INT_MAX, so
+# every later test and arithmetic use is safe.
+KEEP_NORM=${KEEP#"${KEEP%%[!0]*}"}; KEEP_NORM=${KEEP_NORM:-0}
+if [ "${#KEEP_NORM}" -gt 10 ] || [ "$KEEP_NORM" -gt 2147483647 ]; then
+  die "--keep must be a non-negative integer no larger than 2147483647, got: $KEEP"
+fi
+KEEP=$KEEP_NORM; unset KEEP_NORM
 [ "$KEEP" -ge 1 ] || die "--keep must be at least 1 (the newest backup is never deleted)"
 if [ -n "$MAX_AGE_DAYS" ]; then
   case "$MAX_AGE_DAYS" in *[!0-9]*|'') die "--max-age-days must be a non-negative integer, got: $MAX_AGE_DAYS" ;; esac
+  AGE_NORM=${MAX_AGE_DAYS#"${MAX_AGE_DAYS%%[!0]*}"}; AGE_NORM=${AGE_NORM:-0}
+  if [ "${#AGE_NORM}" -gt 10 ] || [ "$AGE_NORM" -gt 2147483647 ]; then
+    die "--max-age-days must be a non-negative integer no larger than 2147483647, got: $MAX_AGE_DAYS"
+  fi
+  MAX_AGE_DAYS=$AGE_NORM; unset AGE_NORM
 fi
 
 [ -d "$DIR" ] || { echo "opencode-db-backup-prune: no backup dir at $DIR — nothing to do"; exit 0; }

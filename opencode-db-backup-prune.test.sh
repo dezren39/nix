@@ -141,6 +141,47 @@ out="$(bash "$PRUNE" --keep --apply 2>&1)"; rc=$?
   || fail "flag-shaped --keep value not rejected naming --keep: rc=$rc out=$out"
 ok "flag-shaped values rejected naming the option (#930 pattern)"
 
+# --- numeric validation: leading zeros and range backstops (#1087) -------
+# --keep 08 with more backups than the keep count reaches the arithmetic
+# path that used to crash on the octal-invalid literal: 10 dirs, keep 08
+# (decimal 8) lists exactly the oldest 2, exits 0, no raw bash errors.
+B="$WORK/zeros"; mkdir -p "$B"
+for d in 20260101T000000 20260102T000000 20260103T000000 20260104T000000 20260105T000000 20260106T000000 20260107T000000 20260108T000000 20260109T000000 20260110T000000; do
+  mkdir -p "$B/$d"; echo fixture > "$B/$d/opencode.db"
+done
+out="$(bash "$PRUNE" --dir "$B" --keep 08 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "--keep 08 exited $rc: $out"
+n="$(printf '%s' "$out" | grep -c 'would delete:')"
+[ "$n" -eq 2 ] || fail "--keep 08 listed $n candidates, expected 2: $out"
+printf '%s' "$out" | grep -q 'value too great for base' && fail "--keep 08 leaked a raw octal error: $out"
+printf '%s' "$out" | grep -q 'kept newest 8' || fail "--keep 08 summary does not say kept newest 8: $out"
+ok "--keep 08 behaves as decimal 8 on the arithmetic path"
+
+# --keep 010 is decimal 10, not octal 8: with 10 dirs nothing is pruned.
+out="$(bash "$PRUNE" --dir "$B" --keep 010 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "--keep 010 exited $rc: $out"
+printf '%s' "$out" | grep -q 'nothing to prune' || fail "--keep 010 did not behave as decimal 10: $out"
+ok "--keep 010 behaves as decimal 10, not octal 8"
+
+# Oversized --keep: one clear parse-time rejection naming the option and
+# the value, exit 2, no raw integer-expression leak, no misleading reason.
+out="$(bash "$PRUNE" --dir "$B" --keep 99999999999999999999999 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] || fail "oversized --keep exited $rc, expected 2: $out"
+printf '%s' "$out" | grep -q -- '--keep' || fail "oversized --keep rejection does not name --keep: $out"
+printf '%s' "$out" | grep -q '99999999999999999999999' || fail "oversized --keep rejection does not name the value: $out"
+printf '%s' "$out" | grep -q 'integer expression expected' && fail "oversized --keep leaked a raw test error: $out"
+printf '%s' "$out" | grep -q 'at least 1' && fail "oversized --keep died with the misleading at-least-1 reason: $out"
+ok "oversized --keep rejected at parse time naming option and value"
+
+# Oversized --max-age-days: same parse-time rejection; it must never reach
+# the per-candidate test, which used to error per candidate and exit 0
+# with age pruning silently disabled.
+out="$(bash "$PRUNE" --dir "$B" --keep 2 --max-age-days 999999999999999999999 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] || fail "oversized --max-age-days exited $rc, expected 2: $out"
+printf '%s' "$out" | grep -q -- '--max-age-days' || fail "oversized --max-age-days rejection does not name --max-age-days: $out"
+printf '%s' "$out" | grep -q 'integer expression expected' && fail "oversized --max-age-days leaked a raw test error: $out"
+ok "oversized --max-age-days rejected at parse time (no silent exit 0)"
+
 if [ "$failures" -gt 0 ]; then
   echo "opencode-db-backup-prune.test: $failures failure(s)" >&2
   exit 1
