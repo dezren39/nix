@@ -144,7 +144,7 @@ into projects). Also atuin (Ctrl-R history), starship, direnv+nix-direnv, git
 | Package | Lang | Wrapper | What it does |
 | --- | --- | --- | --- |
 | **flake-tidy** ⭐ | Python 3 (~3300 lines) | `writeShellApplication` | Deduplicates/merges/flattens flake inputs by adding `follows`; edits `flake.nix`, reruns `nix flake lock` with backout, reformats. `dedup`/`merge`/`flatten`/`all` subcommands, `--check`/`--dry-run`. **~144 pytest tests** + fixtures. |
-| bun-bin | Nix | `mkDerivation` | Prebuilt Bun (currently 1.3.14); Darwin re-signs via `install_name_tool`+`rcodesign`. Hashes in `hashes.json`. |
+| bun-bin | Nix | `mkDerivation` | Prebuilt Bun (currently 1.4.4); Darwin re-signs via `install_name_tool`+`rcodesign`. Hashes in `hashes.json`. |
 | mcpx | Go | `buildGo127Module` | MCP gateway / Code Mode runner, built from the pinned `mcpx-src` input (developing-today/code's `pkgs/mcpx`, the only copy); its daemon runs as a launchd agent. Darwin skips the Linux-only takeover tests (flake.nix). |
 | brew-repair | Bash (+py) | `writeShellScriptBin` | Detects casks brew thinks are installed but whose `.app` is missing; selectively reinstalls. `--dry-run/--quiet/--skip`. |
 | opencode-share | Bash | `writeShellApplication` | Shares one `.opencode` across projects via nested **bindfs** mounts while keeping per-project `plans/`. mount/unmount/status/dry-run. |
