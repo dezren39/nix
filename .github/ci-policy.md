@@ -21,6 +21,11 @@ Per-workflow application in this repo:
   `branches: [main]`, so a commit never fires the suite twice via
   push + pull_request) and on a nightly schedule backstop. Nothing
   the old PR build covered vanishes: main + nightly run it.
+- `flake packages build` — #49: class 4 like `mcpx nix build`.
+  On `pull_request` it instantiates every `x86_64-linux` package's
+  drvPath (eval only); the full per-package `nix build` matrix runs on
+  push to `main` and nightly. mcpx is excluded — it stays owned by
+  `mcpx nix build` above.
 - `buffer-backup lock sync` — already light (plain python3/node, no
   build); unchanged by the two-tier split.
 - `opencode` — a comment-triggered (`/oc`) bot, not a build check;
