@@ -25,8 +25,9 @@ ok() { echo "ok: $1"; }
 STUB_BIN="$TMP_ROOT/bin"
 mkdir -p "$STUB_BIN"
 cat > "$STUB_BIN/scutil" <<'EOS'
-#!/usr/bin/env bash
-# scutil --get LocalHostName
+#!/bin/sh
+# scutil --get LocalHostName (stub shebang is /bin/sh: the nix build
+# sandbox has no /usr/bin/env — same convention as search.test.sh)
 echo TESTMAC1
 EOS
 chmod +x "$STUB_BIN/scutil"
@@ -88,12 +89,22 @@ diff -q "$TMP_ROOT/d/before" "$TMP_ROOT/d/flake.nix" >/dev/null && ok "D: failed
 REAL_AWK="$(command -v awk)"
 mkdir -p "$TMP_ROOT/bwk-bin"
 cat > "$TMP_ROOT/bwk-bin/awk" <<EOS
-#!/usr/bin/env bash
+#!/bin/sh
+# Stub shebang is /bin/sh (POSIX form of the bash original): the nix
+# build sandbox has no /usr/bin/env — same convention as search.test.sh.
 prev=""
+# NL below is a literal newline: a command substitution would strip it
+# and leave NL empty, which would then match every -v argument.
+NL="
+"
 for arg in "\$@"; do
-  if [[ "\$prev" == -v && "\$arg" == *\$'\n'* ]]; then
-    echo "awk: newline in string" >&2
-    exit 2
+  if [ "\$prev" = -v ]; then
+    case "\$arg" in
+      *"\$NL"*)
+        echo "awk: newline in string" >&2
+        exit 2
+        ;;
+    esac
   fi
   prev="\$arg"
 done
