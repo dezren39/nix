@@ -68,7 +68,30 @@ reclaim_root_owned() {
 }
 
 reclaim_root_owned
-git add .
+
+# Is the git on PATH actually usable? On a clean macOS install the only git
+# is /usr/bin/git, an Xcode Command Line Tools shim: invoking it pops the CLT
+# install dialog and exits non-zero, which under `set -e` killed ./s at the
+# `git add .` below -- before anything was built, let alone switched (#1069).
+# Git in this script is bookkeeping only (staging so the flake sees new
+# files, and the marker commits), so when it is missing or is the
+# uninstalled CLT shim, skip the git steps for this run instead of gating
+# the switch on Xcode. The probe must not invoke git itself (that is what
+# triggers the shim's dialog): /usr/bin/git counts as usable only when
+# xcode-select reports a developer directory (CLT or Xcode.app) behind it;
+# a git from the nix profile or the current system is usable as-is. Marker
+# commits simply resume on the next run from an installed system.
+git_ok=1
+if ! command -v git >/dev/null 2>&1; then
+  git_ok=0
+elif [[ "$(command -v git)" == /usr/bin/git ]] && ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+  git_ok=0
+fi
+if (( git_ok )); then
+  git add .
+else
+  echo "no usable git (missing, or the Xcode CLT shim on a clean install); skipping git add + marker commits for this run"
+fi
 
 # Keep Nix's GitHub token current. nix.conf (this directory, so tracked)
 # `include`s ~/.local/share/nix/access-tokens.conf, which holds the token and
@@ -157,6 +180,10 @@ fi
 commit_marker() {
   if (( no_commit )); then
     echo "--no-commit: skipping commit \"$1\""
+    return 0
+  fi
+  if (( ! git_ok )); then
+    echo "no usable git: skipping commit \"$1\""
     return 0
   fi
   git commit --no-verify --allow-empty -m "$1"
@@ -389,8 +416,24 @@ phase_activate() {
     return
   fi
 
-  echo "softwareupdate --install-rosetta --agree-to-license"
-  softwareupdate --install-rosetta --agree-to-license
+  # Rosetta is best-effort, never a gate on the switch (#1069). This used to
+  # run bare under `set -e`, before activation: on a clean install any
+  # failure -- no network yet, softwareupdate not offering it, the reduced
+  # Rosetta in macOS 27 -- aborted the run before the system was ever
+  # activated. Nothing in the activation itself needs Rosetta; only the
+  # x86_64 Homebrew prefix (nix-homebrew's enableRosetta) uses it later, and
+  # that can be installed once the machine is up. Skip when it is already
+  # installed (the runtime's presence is the installed marker) or not
+  # Apple Silicon, and let a failed install warn and continue.
+  if [[ "$(uname -m)" != arm64 ]]; then
+    echo "not Apple Silicon; skipping Rosetta install"
+  elif [[ -e /Library/Apple/usr/libexec/oah/libRosettaRuntime ]]; then
+    echo "Rosetta already installed; skipping softwareupdate --install-rosetta"
+  else
+    echo "softwareupdate --install-rosetta --agree-to-license (best-effort)"
+    softwareupdate --install-rosetta --agree-to-license ||
+      echo "warning: Rosetta install did not complete; continuing with the switch -- rerun 'softwareupdate --install-rosetta --agree-to-license' once the machine is online for x86_64 Homebrew" >&2
+  fi
 
   # Activate exactly the system phase_build made: register it as the next
   # system generation, then run its activation. This is what
@@ -501,7 +544,11 @@ record_activation() {
   service_event "$how.recorded" generation="$gen" store="$store" \
     current="$(basename "$(readlink -f /run/current-system)")"
   reclaim_root_owned
-  git add .
+  if (( git_ok )); then
+    git add .
+  else
+    echo "no usable git: skipping git add after $how"
+  fi
   commit_marker "$(hostname) $how gen $gen $store"
 }
 
