@@ -753,6 +753,27 @@ rec {
               bash ./clean.test.sh
               touch $out
             '';
+        # #1077: pkgs/adopt/adopt.test.sh was run by nothing — no flake
+        # check, workflow, recipe, or package referenced it, so a
+        # regression in adopt.sh (which edits flake.nix) landed silently.
+        # The suite drives the real adopt.sh against a scratch flake,
+        # including the BWK-strict awk shim cases for #1074. Run it here
+        # (checks are eachSystem, so aarch64-darwin gets it too).
+        adopt-tests =
+          pkgs.runCommandLocal "adopt-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = ./pkgs/adopt;
+            }
+            ''
+              cp -r $src ./adopt-src
+              chmod -R u+w ./adopt-src
+              cd ./adopt-src
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./adopt.test.sh
+              touch $out
+            '';
         # #951: git-maintain-repos.test.sh drives the real
         # git-maintain-repos parser -- PR #939's flag-shaped guards for
         # --path/--depth/--jobs/--pack-threads/--reflog-expire had no
