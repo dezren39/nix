@@ -1,0 +1,13 @@
+#!/usr/bin/env zsh
+# ./adopt [TEMPLATE] [adopt options] -- add this Mac as a darwin host.
+#
+# A wrapper, nothing more: the implementation is the flake app in
+# pkgs/adopt (`nix run .#adopt`); this exists so adopting a Mac from a
+# fresh clone is `./adopt`, like `./s` and `./r` for switching. Everything
+# after ./adopt is forwarded to the app (template, --host, --dry-run, ...).
+#
+# ${0:A:h} is the zsh spelling rebuild.sh/simple-rebuild.sh use: absolutise
+# + resolve symlinks, then dirname -- so the flake is found relative to
+# this script, not to wherever the caller happens to be.
+cd "${0:A:h}" || exit 1
+exec nix --extra-experimental-features 'nix-command flakes' run .#adopt -- "$@"
