@@ -273,6 +273,57 @@ brew_upgrade() {
     echo "brew upgrade failed; the switch itself succeeded" >&2
 }
 
+# Install or update Xcode from the Mac App Store, as you, after the switch.
+#
+# Xcode is managed, but deliberately NOT through masApps.nix (#1069): brew
+# bundle runs *during* activation, so its App Store requirement and
+# multi-GB download sat on the switch's critical path and could fail or
+# stall it, above all on a clean install. Here -- post-switch, like
+# brew_upgrade above -- ./s calls `mas` itself (mas is a system package,
+# systemPackages.nix, so it is on PATH from the system profile once a
+# switch has installed it):
+#
+#   Xcode.app absent   mas install 497799835
+#   Xcode.app present  mas upgrade 497799835  (no-op when already current)
+#
+# so every ./s keeps Xcode installed and up to date. It assumes the App
+# Store is signed in (Drew, 2026-10-28) -- mas cannot sign in itself on
+# modern macOS -- and a failure (signed out, no prior "purchase", network)
+# is reported without failing or undoing the switch. Rollbacks return
+# before this point and skip it.
+#
+# Afterwards, point the developer directory at Xcode and accept its
+# license / run its first launch here, mirroring configuration.nix's
+# postActivation: that copy only runs at the *next* switch, which would
+# leave a just-installed Xcode unselected until then.
+#
+# No separate Command Line Tools install is needed alongside this: full
+# Xcode carries the same tools (xcodebuild, the SDKs, and git/clang via
+# the xcode-select shims), and once selected it satisfies the
+# Xcode-or-CLT requirement of Homebrew and of builds that call xcrun.
+xcode_mas() {
+  local xcode_app_id=497799835
+  if ! command -v mas >/dev/null 2>&1; then
+    echo "skipping Xcode: mas not on PATH (a system package; present after the first switch that installs it)" >&2
+    return 0
+  fi
+  if [[ -d /Applications/Xcode.app ]]; then
+    echo "mas upgrade $xcode_app_id (Xcode, as $USER)"
+    mas upgrade "$xcode_app_id" ||
+      echo "Xcode upgrade failed; the switch itself succeeded" >&2
+  else
+    echo "mas install $xcode_app_id (Xcode, as $USER; this is a multi-GB download)"
+    mas install "$xcode_app_id" ||
+      echo "Xcode install failed (App Store signed in? Xcode previously \"purchased\"?); the switch itself succeeded" >&2
+  fi
+  if [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+    echo "xcode-select -s Xcode.app, xcodebuild -license accept + -runFirstLaunch (as root)"
+    sudo /usr/bin/xcode-select -s /Applications/Xcode.app/Contents/Developer 2>/dev/null || true
+    sudo /usr/bin/xcodebuild -license accept 2>/dev/null || true
+    sudo /usr/bin/xcodebuild -runFirstLaunch 2>/dev/null || true
+  fi
+}
+
 # After a switch, the servers this flake runs as launchd agents must actually
 # be up. Without this a broken agent is invisible here: launchd retries it
 # quietly and the failure shows up later as an app that cannot connect. On
@@ -508,6 +559,10 @@ phase_activate() {
   # root escalation, strictly worse than the password prompt it removes.
 
   record_activation "switch"
+
+  # After recording, so a slow or failed App Store download can never delay
+  # or cloud the record of a switch that has already happened.
+  xcode_mas
 
   # Last, so the steps above still run and the generation that is now active
   # is recorded either way; an agent that is not up makes `just switch` exit
