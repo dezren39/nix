@@ -58,8 +58,19 @@ runCommand "service-events"
     # #935: a digit-like Unicode value (superscript two) is stored as a
     # string and the event is appended — no traceback, exit 0.
     HOME=$TMPDIR/unihome $out/bin/service-event test check.unicode 'count=²' pid=42
-    grep -q '"count": "²"' $TMPDIR/unihome/Library/Logs/nix-services/events.jsonl || { echo "service-event unicode digit: value not stored as string" >&2; exit 1; }
-    grep -q '"pid": 42' $TMPDIR/unihome/Library/Logs/nix-services/events.jsonl || { echo "service-event unicode digit: ASCII int conversion changed" >&2; exit 1; }
+    # Assert on the parsed record, not the raw bytes (#1115): event.py
+    # writes with json.dumps (default ensure_ascii=True), so the stored
+    # line holds the ASCII escape \u00b2, never the literal character a
+    # byte-level grep for '"count": "²"' looks for — that grep could never
+    # match and reddened this package's build on main.
+    ${python3}/bin/python3 - "$TMPDIR/unihome/Library/Logs/nix-services/events.jsonl" <<'EOF'
+    import json, sys
+    lines = open(sys.argv[1]).read().splitlines()
+    assert len(lines) == 1, lines
+    rec = json.loads(lines[0])
+    assert rec["count"] == "²" and isinstance(rec["count"], str), rec
+    assert rec["pid"] == 42 and isinstance(rec["pid"], int), rec
+    EOF
     rc=0
     SERVICE_EVENTS_INTERVAL=0 $out/bin/service-monitor 2>/dev/null || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-monitor zero interval: expected exit 2, got $rc" >&2; exit 1; }
