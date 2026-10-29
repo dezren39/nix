@@ -31,7 +31,9 @@ set -euo pipefail
 
 DB_DEFAULT="${HOME}/.local/share/opencode/opencode.db"
 DB="$DB_DEFAULT"
+DB_SET=0
 INTO=""
+INTO_SET=0
 DRY_RUN=0
 ASSUME_YES=0
 SET_AUTOVACUUM=0
@@ -159,10 +161,13 @@ EOF
 # Value-taking options reject an empty or flag-shaped value (#941, the
 # #930 pattern): "--into --dry-run" must die naming --into, not swallow
 # --dry-run as the target path and run a real vacuum.
+# They also reject a repeat (#1112, the adopt #1103 pattern): a repeated
+# --db used to silently discard the first path, redirecting this
+# destructive operation to a different database with no error.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; DB="$2"; shift 2 ;;
-    --into) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--into needs a path"; INTO="$2"; shift 2 ;;
+    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; [ "$DB_SET" -eq 0 ] || die "--db may be given only once"; DB="$2"; DB_SET=1; shift 2 ;;
+    --into) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--into needs a path"; [ "$INTO_SET" -eq 0 ] || die "--into may be given only once"; INTO="$2"; INTO_SET=1; shift 2 ;;
     --auto-vacuum) SET_AUTOVACUUM=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-backup) KEEP_BACKUP=0; shift ;;

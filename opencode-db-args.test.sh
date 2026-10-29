@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression test for the argument parsers of opencode-db-vacuum.sh and
-# opencode-db-prune.sh (#941, the #930 pattern).
+# opencode-db-prune.sh (#941, the #930 pattern; #1112 repeats/conflicts).
 #
 # A value-taking option must reject an empty or flag-shaped value, dying
 # with a message that names the option — otherwise the next option is
@@ -55,6 +55,68 @@ for opt in --db --protect-days --backup --archive --restore-session --from --bat
   check_rejected "$PRUNE" "$opt"      # no value at all
   check_rejected "$PRUNE" "$opt" ""   # empty value
 done
+
+# Repeated value options (#1112, the adopt #1103 pattern): the last value
+# used to silently win, so a duplicated --db redirected the destructive
+# operation to a different database with no error. Every value-taking
+# option in both scripts must reject a repeat at parse time, naming the
+# option with "may be given only once", before any work happens.
+check_repeated() {
+  local script="$1" opt="$2"; shift 2
+  local out rc
+  out="$(bash "$script" "$@" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "$script $*: repeated $opt exited 0"
+  elif ! printf '%s' "$out" | grep -q -- "$opt may be given only once"; then
+    fail "$script $*: repeated $opt error does not name the repetition: $out"
+  else
+    ok "$script repeated $opt rejected at parse time"
+  fi
+}
+check_repeated "$VAC" --db --db /tmp/a.db --db /tmp/b.db
+check_repeated "$VAC" --into --into /tmp/a.out --into /tmp/b.out
+check_repeated "$PRUNE" --db --db /tmp/a.db --db /tmp/b.db
+check_repeated "$PRUNE" --protect-days --protect-days 1 --protect-days 2
+check_repeated "$PRUNE" --backup --backup /tmp/a.bak --backup /tmp/b.bak
+check_repeated "$PRUNE" --archive --archive /tmp/a.arc --archive /tmp/b.arc
+check_repeated "$PRUNE" --restore-session --restore-session ses_a --restore-session ses_b
+check_repeated "$PRUNE" --from --from /tmp/a.src --from /tmp/b.src
+check_repeated "$PRUNE" --batch --batch 1 --batch 2
+
+# Prune --backup + --no-backup (#1112): in either order the combination
+# used to silently produce no backup at all, ignoring the explicit
+# --backup. It must be rejected at parse time naming the combination.
+check_backup_conflict() {
+  local out rc
+  out="$(bash "$PRUNE" "$@" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "prune $*: --backup + --no-backup exited 0"
+  elif ! printf '%s' "$out" | grep -q -- "--backup and --no-backup may not be combined"; then
+    fail "prune $*: --backup + --no-backup error does not name the combination: $out"
+  else
+    ok "prune $* rejected (--backup + --no-backup)"
+  fi
+}
+check_backup_conflict --backup /tmp/a.bak --no-backup
+check_backup_conflict --no-backup --backup /tmp/a.bak
+
+# Controls for the new guards: a single --backup, a lone --no-backup, and
+# single uses of the guarded options still parse (an unknown option after
+# them is reported as unknown, proving parsing continued past them).
+check_parses_past() {
+  local script="$1"; shift
+  local out rc
+  out="$(bash "$script" "$@" --bogus 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ] || ! printf '%s' "$out" | grep -q "unknown option: --bogus"; then
+    fail "$script $*: expected 'unknown option: --bogus', got rc=$rc: $out"
+  else
+    ok "$script $* parses (no false repeat/conflict rejection)"
+  fi
+}
+check_parses_past "$PRUNE" --backup /tmp/a.bak
+check_parses_past "$PRUNE" --no-backup
+check_parses_past "$PRUNE" --protect-days 7 --archive /tmp/a.arc --batch 10
+check_parses_past "$VAC" --into /tmp/a.out
 
 # Controls: a valid value is consumed and parsing continues to the next
 # token (an unknown option after it must be reported as unknown, proving
