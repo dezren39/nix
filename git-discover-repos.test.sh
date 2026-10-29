@@ -138,5 +138,59 @@ else
   fail "missing-value runs changed the fixture tree"
 fi
 
+# ─── Repeated value options are rejected at parse time (#1120) ─────
+# --depth/--find/--user used to assign unconditionally, so a repeat
+# silently discarded the first value (a duplicated --user scanned a
+# different home; a duplicated --find dropped a spec). Each repeat must
+# exit 2 naming the option, adopt #1103 style. --path stays multi-valued.
+for opt in --depth --find --user; do
+  case "$opt" in
+    --user) run --path "$VALID" --dry-run --user hatch --user root ;;
+    *)      run --path "$VALID" --dry-run "$opt" 2 "$opt" 5 ;;
+  esac
+  [ "$STATUS" -eq 2 ] || fail "repeated $opt exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-discover-repos: $opt may be given only once"*) echo "ok: repeated $opt rejected, option named" ;;
+    *) fail "repeated $opt did not name the option on stderr (got: $ERR)" ;;
+  esac
+done
+run --path "$VALID" --path "$VALID" --dry-run
+[ "$STATUS" -eq 0 ] || fail "repeated --path (multi-valued by design) exited $STATUS (want 0)"
+echo "ok: repeated --path still accepted"
+
+# ─── Conflicting filter flags are rejected at parse time (#1120) ────
+# --repos-only/--worktrees-only/--both/--bare-only all assigned FILTER
+# unconditionally, so any combination silently last-won.
+for pair in "--repos-only --worktrees-only" "--worktrees-only --bare-only" "--both --repos-only" "--repos-only --repos-only"; do
+  # shellcheck disable=SC2086
+  run --path "$VALID" --dry-run $pair
+  [ "$STATUS" -eq 2 ] || fail "filter pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"may not be combined with"*) echo "ok: filter pair '$pair' rejected as a conflict" ;;
+    *) fail "filter pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --path "$VALID" --dry-run --repos-only
+[ "$STATUS" -eq 0 ] || fail "single --repos-only exited $STATUS (want 0)"
+echo "ok: single filter flag still accepted"
+
+# ─── --follow with --no-follow is rejected at parse time (#1120) ────
+# FOLLOW_SET was written but never read, so the pair silently resolved
+# by order. Both orders must exit 2; each flag alone still parses.
+for pair in "--follow --no-follow" "--no-follow --follow"; do
+  # shellcheck disable=SC2086
+  run --path "$VALID" --dry-run $pair
+  [ "$STATUS" -eq 2 ] || fail "follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-discover-repos: --follow and --no-follow may not be combined"*) echo "ok: follow pair '$pair' rejected as a conflict" ;;
+    *) fail "follow pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --path "$VALID" --dry-run --follow
+[ "$STATUS" -eq 0 ] || fail "single --follow exited $STATUS (want 0)"
+run --path "$VALID" --dry-run --no-follow
+[ "$STATUS" -eq 0 ] || fail "single --no-follow exited $STATUS (want 0)"
+echo "ok: single --follow / --no-follow still accepted"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-discover-repos --path exit-status checks passed"

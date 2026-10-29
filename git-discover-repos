@@ -127,6 +127,12 @@ TARGET_USER=""
 PATHS=()
 RECURSIVE_SET=0
 FOLLOW_SET=0
+DEPTH_SET=0
+FIND_SET=0
+USER_SET=0
+FILTER_FLAG=""
+FOLLOW_YES_SET=0
+FOLLOW_NO_SET=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -134,18 +140,18 @@ while [ $# -gt 0 ]; do
     --path)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; MODE="path"; PATHS+=("$2"); shift; } ;;
     --recursive|--walk)       DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1;  RECURSIVE_SET=1 ;;
-    --depth)                  { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
-    --follow)         FOLLOW=1; FOLLOW_SET=1 ;;
-    --no-follow)      FOLLOW=0; FOLLOW_SET=1 ;;
-    --repos-only)     FILTER="repos" ;;
-    --worktrees-only) FILTER="worktrees" ;;
-    --both)           FILTER="both" ;;
-    --bare-only)      FILTER="bare" ;;
+    --depth)                  { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$DEPTH_SET" -eq 0 ] || { echo "git-discover-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; DEPTH_SET=1; RECURSIVE_SET=1; shift; } ;;
+    --follow)         { [ "$FOLLOW_NO_SET" -eq 0 ] || { echo "git-discover-repos: --follow and --no-follow may not be combined" >&2; usage >&2; exit 2; }; FOLLOW=1; FOLLOW_SET=1; FOLLOW_YES_SET=1; } ;;
+    --no-follow)      { [ "$FOLLOW_YES_SET" -eq 0 ] || { echo "git-discover-repos: --follow and --no-follow may not be combined" >&2; usage >&2; exit 2; }; FOLLOW=0; FOLLOW_SET=1; FOLLOW_NO_SET=1; } ;;
+    --repos-only)     { [ -z "$FILTER_FLAG" ] || { echo "git-discover-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="repos"; FILTER_FLAG="$1"; } ;;
+    --worktrees-only) { [ -z "$FILTER_FLAG" ] || { echo "git-discover-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="worktrees"; FILTER_FLAG="$1"; } ;;
+    --both)           { [ -z "$FILTER_FLAG" ] || { echo "git-discover-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="both"; FILTER_FLAG="$1"; } ;;
+    --bare-only)      { [ -z "$FILTER_FLAG" ] || { echo "git-discover-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="bare"; FILTER_FLAG="$1"; } ;;
     --paths-only)     PATHS_ONLY=1 ;;
     --no-bare)        INCLUDE_BARE=0 ;;
-    --find)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; FIND_SPEC="$2"; shift; } ;;
+    --find)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$FIND_SET" -eq 0 ] || { echo "git-discover-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; FIND_SPEC="$2"; FIND_SET=1; shift; } ;;
     --status)         WANT_STATUS=1 ;;
-    --user)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; TARGET_USER="$2"; shift; } ;;
+    --user)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$USER_SET" -eq 0 ] || { echo "git-discover-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; TARGET_USER="$2"; USER_SET=1; shift; } ;;
     --print0)         PRINT0=1 ;;
     --count)          COUNT_ONLY=1 ;;
     --dry-run)        DRY_RUN=1 ;;
