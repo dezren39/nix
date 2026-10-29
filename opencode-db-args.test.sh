@@ -11,6 +11,11 @@
 # for every value-taking option in both scripts, plus controls showing
 # valid values still parse.
 #
+# #1129: restore mode (--restore-session) silently ignored the prune-only
+# options --backup/--no-backup/--protect-days/--protect-roots/--batch
+# (only --archive was rejected). The restore branch now rejects each of
+# them naming the option; the pins are below, after the #1112 checks.
+#
 # Run: ./opencode-db-args.test.sh
 # It is run by the flake check `opencode-db-args-tests`.
 set -u
@@ -99,6 +104,31 @@ check_backup_conflict() {
 }
 check_backup_conflict --backup /tmp/a.bak --no-backup
 check_backup_conflict --no-backup --backup /tmp/a.bak
+
+# Restore mode rejects the prune-only options (#1129): each was parsed
+# and then silently dropped by --restore-session — worst, --backup on a
+# restore --apply run produced no backup and no warning. Each must die
+# at the restore branch (exit 1 via die, before any restore work — the
+# --db/--from paths here do not exist, proving the rejection precedes
+# restore preflight), naming the option and that it does not apply to
+# --restore-session, mirroring the existing --archive rejection.
+check_restore_rejected() {
+  local opt="$1"; shift
+  local out rc
+  out="$(bash "$PRUNE" --db /tmp/a.db --restore-session ses_a --from /tmp/a.src "$@" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    fail "prune restore $*: $opt in restore mode exited 0"
+  elif ! printf '%s' "$out" | grep -q -- "$opt is a prune option; it does not apply to --restore-session"; then
+    fail "prune restore $*: error does not name $opt as a prune option not applying to --restore-session: $out"
+  else
+    ok "prune restore $* rejected, naming $opt"
+  fi
+}
+check_restore_rejected --backup --backup /tmp/a.bak
+check_restore_rejected --no-backup --no-backup
+check_restore_rejected --protect-days --protect-days 1
+check_restore_rejected --protect-roots --protect-roots
+check_restore_rejected --batch --batch 1
 
 # Controls for the new guards: a single --backup, a lone --no-backup, and
 # single uses of the guarded options still parse (an unknown option after
