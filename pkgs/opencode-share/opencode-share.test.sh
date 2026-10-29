@@ -92,6 +92,48 @@ if grep -q "Mounting:" <<<"$out_f"; then
 fi
 [[ $failures -eq $start ]] && ok "F: --source --dry-run errors at parse time, no mount attempted"
 
+# ─── Scenario G (#1106): conflicting action flags error at parse time ──────
+# --unmount --status used to run the status report and exit 0 (the unmount
+# was silently ignored); --status --unmount proceeded down the unmount path.
+# Both orders must exit non-zero naming the conflict, before any work.
+# Repeating the SAME action flag is accepted idempotently (pinned here).
+start=$failures
+out_g1="$(bash "$SCRIPT" --unmount --status "$GOOD1" 2>&1)"
+rc_g1=$?
+[[ $rc_g1 -ne 0 ]] || fail "G: --unmount --status expected non-zero exit, got $rc_g1"
+grep -q "conflicting action flags" <<<"$out_g1" || fail "G: --unmount --status did not name the conflict"
+if grep -q "Done (status" <<<"$out_g1"; then
+  fail "G: --unmount --status ran the status report anyway (regression)"
+fi
+out_g2="$(bash "$SCRIPT" --status --unmount "$GOOD1" 2>&1)"
+rc_g2=$?
+[[ $rc_g2 -ne 0 ]] || fail "G: --status --unmount expected non-zero exit, got $rc_g2"
+grep -q "conflicting action flags" <<<"$out_g2" || fail "G: --status --unmount did not name the conflict"
+if grep -q "Missing dependencies" <<<"$out_g2"; then
+  fail "G: --status --unmount reached the unmount dependency check (regression)"
+fi
+out_g3="$(bash "$SCRIPT" -u -s "$GOOD1" 2>&1)"
+rc_g3=$?
+[[ $rc_g3 -ne 0 ]] || fail "G: -u -s expected non-zero exit, got $rc_g3"
+grep -q "conflicting action flags" <<<"$out_g3" || fail "G: -u -s did not name the conflict"
+out_g4="$(bash "$SCRIPT" --status --status "$GOOD1" 2>&1)"
+rc_g4=$?
+[[ $rc_g4 -eq 0 ]] || fail "G: repeated same action --status --status expected exit 0 (idempotent), got $rc_g4"
+grep -q "Done (status 1 target(s))" <<<"$out_g4" || fail "G: repeated --status did not run the status report"
+[[ $failures -eq $start ]] && ok "G: conflicting action flags exit non-zero naming the conflict; same action repeats idempotently"
+
+# ─── Scenario H (#1106): repeated --source errors at parse time ────────────
+# --source A --source B used to silently discard A (the #1103 shape).
+start=$failures
+out_h="$(bash "$SCRIPT" --source "$SRC" --source "$GOOD1" --dry-run "$GOOD1" 2>&1)"
+rc_h=$?
+[[ $rc_h -ne 0 ]] || fail "H: repeated --source expected non-zero exit, got $rc_h"
+grep -q -- "--source may be given only once" <<<"$out_h" || fail "H: repeated --source did not name the repetition"
+if grep -q "Mounting:" <<<"$out_h"; then
+  fail "H: a mount was attempted after repeated --source (regression)"
+fi
+[[ $failures -eq $start ]] && ok "H: repeated --source exits non-zero naming the repetition, no mount attempted"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1
