@@ -29,6 +29,22 @@ MCPX = "/run/current-system/sw/bin/mcpx"
 ARGS = ["--config", os.path.join(HOME, ".config/mcpx/config.json"), "serve"]
 BACKUP_DIR = os.path.join(HOME, ".local/state/mcp-clients/backup")
 DRY_RUN = "--dry-run" in sys.argv
+USAGE = "usage: mcp-clients.py [--dry-run]"
+
+
+def unknown_argument(args):
+    """The first argument that is not the single optional --dry-run (#1133).
+
+    Returns None when the invocation is valid (no arguments, or exactly
+    one --dry-run). A repeated --dry-run is rejected too: its second
+    occurrence is the offending argument.
+    """
+    if args in ([], ["--dry-run"]):
+        return None
+    for arg in args:
+        if arg != "--dry-run":
+            return arg
+    return args[1]
 
 
 def write(path, text, what):
@@ -765,6 +781,13 @@ def zed(path):
 
 
 def main():
+    # Reject unknown arguments before any file is read or written (#1133):
+    # a typo'd --dryrun must not silently become a real enforcement run.
+    bad = unknown_argument(sys.argv[1:])
+    if bad is not None:
+        print(f"mcp-clients: unknown argument: {bad}", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 2
     # Each client runs independently (#906): an exception in one step is
     # reported with the client and file named, the remaining clients are
     # still enforced, and any failure makes the run exit non-zero so the

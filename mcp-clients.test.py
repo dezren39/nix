@@ -25,6 +25,10 @@ Covers the two PR #904 fallout bugs:
   (including multi-line values and non-mcp_servers dotted keys) are
   preserved, and the result parses as valid TOML.
 
+- #1133: any argument other than the single optional --dry-run is
+  rejected before any file is read or written -- usage on stderr naming
+  the offending argument, exit 2, seeded files byte-unchanged, no backup.
+
 Run: python3 mcp-clients.test.py  (exit 0 = all probes passed)
 """
 
@@ -738,6 +742,35 @@ check("990rrr escaped-delimiter result parses with only mcpx", codex_server_name
 r2 = run(home)
 check("990rrr escaped-delimiter second run no-op", r2.returncode == 0 and read(codex_path) == out and r2.stdout == "",
       f"stdout={r2.stdout!r}")
+shutil.rmtree(home)
+
+# #1133: unknown arguments are rejected before any file is touched.
+for bad_args, offending in ((("--dryrun",), "--dryrun"),
+                            (("--bogus",), "--bogus"),
+                            (("stray",), "stray"),
+                            (("--dry-run", "--bogus"), "--bogus"),
+                            (("--dry-run", "--dry-run"), "--dry-run")):
+    home = fresh_home()
+    claude_path = seed(home, ".claude.json", '{"mcpServers": {"other": {"command": "x"}}}')
+    seeded = read(claude_path)
+    label = " ".join(bad_args)
+    r = run(home, *bad_args)
+    check(f"1133 [{label}] exit 2", r.returncode == 2, f"exit={r.returncode}")
+    check(f"1133 [{label}] stderr names the offending argument and usage",
+          offending in r.stderr and "usage" in r.stderr.lower(), r.stderr)
+    check(f"1133 [{label}] seeded file byte-unchanged", read(claude_path) == seeded)
+    check(f"1133 [{label}] no backup created",
+          not os.path.exists(os.path.join(home, ".local/state/mcp-clients/backup")))
+    shutil.rmtree(home)
+
+# #1133: --dry-run still previews without writing.
+home = fresh_home()
+claude_path = seed(home, ".claude.json", '{"mcpServers": {"other": {"command": "x"}}}')
+seeded = read(claude_path)
+r = run(home, "--dry-run")
+check("1133 --dry-run exit 0 and previews", r.returncode == 0 and "(dry run)" in r.stdout,
+      f"exit={r.returncode} stdout={r.stdout!r} stderr={r.stderr!r}")
+check("1133 --dry-run leaves file byte-unchanged", read(claude_path) == seeded)
 shutil.rmtree(home)
 
 print(f"\n{'ALL PASS' if not FAILURES else 'FAILURES: ' + ', '.join(FAILURES)}")
