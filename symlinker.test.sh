@@ -15,6 +15,11 @@
 #          undo-of-undo header truncated the source undo file before it was
 #          read ("0 unlinked", exit 0, records destroyed). Run ids now bump
 #          to the next free digits-only value when artifacts already exist.
+#   #1092 — the type filter classified symlink targets with GNU-only
+#          readlink -f; stock macOS readlink has no -f, its error was
+#          swallowed, and --only-dirs silently dropped symlinks to
+#          directories (exit 0). -f/-d tests follow symlinks portably;
+#          scenario H pins both type filters, incl. a BSD-readlink shim.
 #   #912 — the name-filter flags' empty-occurrence guard tested the
 #          cumulative FILTER_* array, so a repeated flag with no values
 #          (--exact foo --exact) passed silently; the guard now compares
@@ -229,6 +234,57 @@ if g_run --input-dir "$G/in" --output-dir "$G/out" --dry-run; then
 else
   fail "G: valid --input-dir/--output-dir values should still pass"
 fi
+
+
+# ─── Scenario H (#1092): type filters classify symlinks portably ───────────
+# Fixture: real dir, plain file, symlink-to-dir, symlink-to-file, broken
+# symlink. --only-dirs must link realdir + linkdir; --only-files must link
+# plain.txt + linkfile; the broken symlink matches neither. The same
+# expectations must hold under a BSD-readlink shim (rejects -f), which is
+# what stock macOS does to the old readlink -f classification.
+H="$TMP_ROOT/h"; mkdir -p "$H/in/realdir" "$H/bin" "$H/cache"
+printf 'x\n' > "$H/in/plain.txt"
+ln -s "$H/in/realdir"   "$H/in/linkdir"
+ln -s "$H/in/plain.txt" "$H/in/linkfile"
+ln -s "$H/in/missing"   "$H/in/broken"
+REAL_READLINK="$(command -v readlink)"
+{
+  echo '#!/usr/bin/env bash'
+  echo 'for a in "$@"; do if [[ "$a" == "-f" ]]; then echo "readlink: illegal option -- f" >&2; exit 1; fi; done'
+  echo 'exec "'"$REAL_READLINK"'" "$@"'
+} > "$H/bin/readlink"
+chmod +x "$H/bin/readlink"
+h_run() { # h_run <outdir> <filter> [extra PATH prefix]
+  local out="$1" filter="$2" prefix="${3:-}"
+  mkdir -p "$out"
+  if [[ -n "$prefix" ]]; then
+    PATH="$prefix:$PATH" XDG_CACHE_HOME="$H/cache" bash "$SCRIPT" --input-dir "$H/in" --output-dir "$out" "$filter" --no-input >"$out.log" 2>&1
+  else
+    XDG_CACHE_HOME="$H/cache" bash "$SCRIPT" --input-dir "$H/in" --output-dir "$out" "$filter" --no-input >"$out.log" 2>&1
+  fi
+}
+h_expect_dirs() { # h_expect_dirs <desc> <outdir>
+  check "H: $1 links the real dir"   test -L "$2/realdir"
+  check "H: $1 links symlink-to-dir" test -L "$2/linkdir"
+  [[ ! -e "$2/plain.txt" && ! -L "$2/plain.txt" ]] || fail "H: $1 --only-dirs linked a plain file"
+  [[ ! -e "$2/linkfile" && ! -L "$2/linkfile" ]] || fail "H: $1 --only-dirs linked a symlink-to-file"
+  [[ ! -e "$2/broken" && ! -L "$2/broken" ]] || fail "H: $1 --only-dirs linked a broken symlink"
+}
+h_expect_files() { # h_expect_files <desc> <outdir>
+  check "H: $1 links the plain file"   test -L "$2/plain.txt"
+  check "H: $1 links symlink-to-file"  test -L "$2/linkfile"
+  [[ ! -e "$2/realdir" && ! -L "$2/realdir" ]] || fail "H: $1 --only-files linked a real dir"
+  [[ ! -e "$2/linkdir" && ! -L "$2/linkdir" ]] || fail "H: $1 --only-files linked a symlink-to-dir"
+  [[ ! -e "$2/broken" && ! -L "$2/broken" ]] || fail "H: $1 --only-files linked a broken symlink"
+}
+h_run "$H/out-dirs" --only-dirs || fail "H: GNU --only-dirs run exited non-zero"
+h_expect_dirs "GNU --only-dirs" "$H/out-dirs"
+h_run "$H/out-dirs-bsd" --only-dirs "$H/bin" || fail "H: BSD-shim --only-dirs run exited non-zero"
+h_expect_dirs "BSD-shim --only-dirs" "$H/out-dirs-bsd"
+h_run "$H/out-files" --only-files || fail "H: GNU --only-files run exited non-zero"
+h_expect_files "GNU --only-files" "$H/out-files"
+h_run "$H/out-files-bsd" --only-files "$H/bin" || fail "H: BSD-shim --only-files run exited non-zero"
+h_expect_files "BSD-shim --only-files" "$H/out-files-bsd"
 
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2
