@@ -425,6 +425,30 @@ human_size() {
   else printf "%d KB" "$(( bytes / 1024 ))"; fi
 }
 
+# Portable stat helpers (#1068). clean.sh targets macOS, where stat is
+# BSD: GNU-only `stat -c` fails there ("illegal option -- c"), and with
+# 2>/dev/null on the call the failure silently emptied the value. Try the
+# BSD form first and validate its shape -- GNU stat also accepts -f but
+# with file-system semantics, so an unvalidated BSD attempt can return
+# plausible-looking garbage there -- then fall back to GNU.
+stat_mtime_epoch() { # <path> -> mtime as epoch seconds (empty on failure)
+  local _v
+  _v="$(stat -f '%m' "$1" 2>/dev/null)" && case "$_v" in ''|*[!0-9]*) ;; *) printf '%s' "$_v"; return 0 ;; esac
+  stat -c '%Y' "$1" 2>/dev/null # GNU fallback (BSD form above is primary)
+}
+stat_birth_time() { # <path> -> birth time "YYYY-MM-DD HH:MM:SS" (empty if unknown)
+  local _v
+  _v="$(stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$1" 2>/dev/null)" && case "$_v" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]) printf '%s' "$_v"; return 0 ;; esac
+  _v="$(stat -c '%w' "$1" 2>/dev/null)"; [ "$_v" = "-" ] && _v=""
+  printf '%s' "${_v%%.*}"
+}
+stat_mtime_time() { # <path> -> mtime as "YYYY-MM-DD HH:MM:SS" (empty on failure)
+  local _v
+  _v="$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$1" 2>/dev/null)" && case "$_v" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]) printf '%s' "$_v"; return 0 ;; esac
+  _v="$(stat -c '%y' "$1" 2>/dev/null)"
+  printf '%s' "${_v%%.*}"
+}
+
 # Every destructive action funnels through these so --dry-run is honoured
 # uniformly and a missing tool warns instead of aborting the run.
 run() {
@@ -581,8 +605,8 @@ sweep_unknown_large_scratch() {
     [ "$size_mb" -ge "$UNKNOWN_SCRATCH_MIN_MB" ] || continue
     [ -n "$(find "$entry" -maxdepth 0 -mmin "-${age_cutoff_min}" -print 2>/dev/null)" ] && continue  # too fresh
     [ -n "$(lsof +D "$entry" 2>/dev/null | head -1)" ] && continue  # something has it open
-    created="$(stat -c '%w' "$entry" 2>/dev/null)"; created="${created%%.*}"
-    modified="$(stat -c '%y' "$entry" 2>/dev/null)"; modified="${modified%%.*}"
+    created="$(stat_birth_time "$entry")"
+    modified="$(stat_mtime_time "$entry")"
     if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
       status="deleted"
       if [ "$DRY_RUN" = "1" ]; then echo "  would remove (unknown, ${size_mb} MB, >${UNKNOWN_SCRATCH_STALE_DAYS}d): ${entry/#$CALLER_USER_HOME/\~}"; status="would delete"
@@ -1128,8 +1152,16 @@ for _ptbase in "$CALLER_USER_HOME/.local/share/opencode/tmp" "${TMPDIR:-/tmp}" /
   for _ptdir in "$_ptbase"/pytest-of-*; do
     [ -d "$_ptdir" ] || continue
     # Newest real run (ignore the pytest-current symlink) is always preserved.
-    _newest="$(find "$_ptdir" -maxdepth 1 -mindepth 1 -type d -name 'pytest-*' \
-                 -exec stat -c '%Y %n' {} \; 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+    # Computed with the portable stat helper (#1068): the old GNU-only
+    # `stat -c` pipeline silently yielded "" on macOS, disabling this guard.
+    _newest=""; _newest_mtime=-1
+    for _cand in "$_ptdir"/pytest-*; do
+      [ -d "$_cand" ] && [ ! -L "$_cand" ] || continue
+      _cand_mtime="$(stat_mtime_epoch "$_cand")"
+      case "$_cand_mtime" in ''|*[!0-9]*) continue ;; esac
+      if [ "$_cand_mtime" -gt "$_newest_mtime" ]; then _newest="$_cand"; _newest_mtime="$_cand_mtime"; fi
+    done
+    unset _cand _cand_mtime _newest_mtime
     while IFS= read -r _run; do
       [ -n "$_run" ] || continue
       [ "$_run" = "$_newest" ] && continue
