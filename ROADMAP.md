@@ -34,7 +34,6 @@ macOS `dirhelper` deletes files in the per-user temp dir that were not accessed 
 
 | Title                                     | Horizon | Status      | Intent                                                                                                                                                         | Links         |
 | ----------------------------------------- | ------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| Temp-dir guard                            | Now     | in-progress | A launchd agent keeps `$TMPDIR/opencode` a symlink into `~/.local/share/opencode` and refreshes access times. Runs as an interim job until merged and rebuilt. | PR #392 |
 | Uncommitted work in old worktrees         | Now     | proposed    | Staged deletions in two clones are backed up. Check the rest.                                                                                                  | #376          |
 | Free disk space keeps dropping            | Next    | proposed    | Investigate between cleans.                                                                                                                                    | #373          |
 
