@@ -80,7 +80,15 @@ set -euo pipefail
 
 DB_DEFAULT="${HOME}/.local/share/opencode/opencode.db"
 DB="$DB_DEFAULT"
+DB_SET=0
 PROTECT_DAYS=30
+PROTECT_DAYS_SET=0
+BACKUP_SET=0
+NO_BACKUP_SET=0
+ARCHIVE_SET=0
+RESTORE_SESSION_SET=0
+FROM_SET=0
+BATCH_SET=0
 PROTECT_ROOTS=0
 APPLY=0
 BACKUP=""
@@ -194,18 +202,23 @@ EOF
 # Value-taking options reject an empty or flag-shaped value (#941, the
 # #930 pattern): "--db --apply" must die naming --db, not swallow --apply
 # as the database path.
+# They also reject a repeat (#1112, the adopt #1103 pattern): a repeated
+# --db used to silently discard the first path, redirecting this
+# destructive operation to a different database with no error. --backup
+# combined with --no-backup (either order) is likewise rejected: it used
+# to silently produce no backup at all, ignoring the explicit --backup.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; DB="$2"; shift 2 ;;
-    --protect-days) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--protect-days needs a number"; PROTECT_DAYS="$2"; shift 2 ;;
+    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; [ "$DB_SET" -eq 0 ] || die "--db may be given only once"; DB="$2"; DB_SET=1; shift 2 ;;
+    --protect-days) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--protect-days needs a number"; [ "$PROTECT_DAYS_SET" -eq 0 ] || die "--protect-days may be given only once"; PROTECT_DAYS="$2"; PROTECT_DAYS_SET=1; shift 2 ;;
     --protect-roots) PROTECT_ROOTS=1; shift ;;
     --apply) APPLY=1; shift ;;
-    --backup) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--backup needs a path"; BACKUP="$2"; shift 2 ;;
-    --no-backup) DO_BACKUP=0; shift ;;
-    --archive) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--archive needs a path"; ARCHIVE="$2"; shift 2 ;;
-    --restore-session) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--restore-session needs a session id"; RESTORE_SESSION="$2"; shift 2 ;;
-    --from) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--from needs a path"; FROM="$2"; shift 2 ;;
-    --batch) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--batch needs a number"; BATCH="$2"; shift 2 ;;
+    --backup) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--backup needs a path"; [ "$BACKUP_SET" -eq 0 ] || die "--backup may be given only once"; [ "$NO_BACKUP_SET" -eq 0 ] || die "--backup and --no-backup may not be combined"; BACKUP="$2"; BACKUP_SET=1; shift 2 ;;
+    --no-backup) [ "$BACKUP_SET" -eq 0 ] || die "--backup and --no-backup may not be combined"; DO_BACKUP=0; NO_BACKUP_SET=1; shift ;;
+    --archive) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--archive needs a path"; [ "$ARCHIVE_SET" -eq 0 ] || die "--archive may be given only once"; ARCHIVE="$2"; ARCHIVE_SET=1; shift 2 ;;
+    --restore-session) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--restore-session needs a session id"; [ "$RESTORE_SESSION_SET" -eq 0 ] || die "--restore-session may be given only once"; RESTORE_SESSION="$2"; RESTORE_SESSION_SET=1; shift 2 ;;
+    --from) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--from needs a path"; [ "$FROM_SET" -eq 0 ] || die "--from may be given only once"; FROM="$2"; FROM_SET=1; shift 2 ;;
+    --batch) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--batch needs a number"; [ "$BATCH_SET" -eq 0 ] || die "--batch may be given only once"; BATCH="$2"; BATCH_SET=1; shift 2 ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
