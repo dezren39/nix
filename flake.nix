@@ -593,6 +593,27 @@ rec {
               bash ./opencode-db-prune.test.sh
               touch $out
             '';
+        # #1088: opencode-db-vacuum.test.sh drives the real vacuum script
+        # against fixture SQLite DBs -- the VACUUM INTO + verify + swap
+        # core (shrink, 500/500/500/10 row counts, .old backup, integrity),
+        # the existing-.old/.compact refusals, --no-backup, a custom
+        # --into, and --auto-vacuum reading back INCREMENTAL. The args and
+        # pids suites pin only the parser and the pid guard; the
+        # destructive swap had no executable test.
+        opencode-db-vacuum-tests =
+          pkgs.runCommandLocal "opencode-db-vacuum-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.sqlite pkgs.coreutils ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-db-vacuum.sh $src/opencode-db-vacuum.test.sh ./
+              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-vacuum.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-db-vacuum.test.sh
+              touch $out
+            '';
         # #659: opencode-db-backup-prune.test.sh pins the retention for
         # `just opencode-db-backup`'s timestamped backup dirs -- dry-run
         # lists exactly the beyond-keep set and deletes nothing, --apply
