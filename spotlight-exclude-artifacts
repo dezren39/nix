@@ -110,26 +110,29 @@ SCOPE_SET=0
 AUTO_SET=0
 DRY_RUN=0
 ROOT=""
+ROOT_SET=0
 DEPTH_LIMIT=""
+DEPTH_SET=0
 RECURSIVE_SET=0
 FOLLOW=""
+FOLLOW_GIVEN=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto) AUTO_SET=1 ;;                        # names the default scope
     --no-system) DO_WALK=1; DO_SYSTEM=0; SCOPE_SET=1 ;;
     --system) DO_WALK=0; DO_SYSTEM=1; SCOPE_SET=1 ;;
-    --path) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; ROOT="$2"; shift; } ;;
+    --path) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$ROOT_SET" -eq 0 ] || { echo "spotlight-exclude-artifacts: unexpected argument: $2 (target already set to $ROOT)" >&2; usage >&2; exit 2; }; ROOT="$2"; ROOT_SET=1; shift; } ;;
     --recursive|--walk) DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1; RECURSIVE_SET=1 ;;
-    --depth) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
-    --follow) FOLLOW=1 ;;
-    --no-follow) FOLLOW=0 ;;
+    --depth) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$DEPTH_SET" -eq 0 ] || { echo "spotlight-exclude-artifacts: --depth may be given only once" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; DEPTH_SET=1; RECURSIVE_SET=1; shift; } ;;
+    --follow) { [ -z "$FOLLOW_GIVEN" ] || [ "$FOLLOW_GIVEN" = "--follow" ] || { echo "spotlight-exclude-artifacts: --follow conflicts with --no-follow" >&2; usage >&2; exit 2; }; FOLLOW=1; FOLLOW_GIVEN="--follow"; } ;;
+    --no-follow) { [ -z "$FOLLOW_GIVEN" ] || [ "$FOLLOW_GIVEN" = "--no-follow" ] || { echo "spotlight-exclude-artifacts: --no-follow conflicts with --follow" >&2; usage >&2; exit 2; }; FOLLOW=0; FOLLOW_GIVEN="--no-follow"; } ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
     *)
-      if [ -z "$ROOT" ]; then ROOT="$1"; else echo "unexpected argument: $1" >&2; exit 2; fi
+      if [ "$ROOT_SET" -eq 0 ]; then ROOT="$1"; ROOT_SET=1; else echo "unexpected argument: $1" >&2; exit 2; fi
       ;;
   esac
   shift

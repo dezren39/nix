@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression test for spotlight-exclude-artifacts's flag-shaped-value
-# guards (#951).
+# guards (#951) and second-target / repeat / conflict guards (#1119).
 #
 # PR #939 (fix for #930) made spotlight-exclude-artifacts's value-taking
 # options reject a flag-shaped next token — `--path --dry-run` used to
@@ -79,6 +79,56 @@ for opt in --path --depth; do
     *) fail "$opt (empty value) did not name the option on stderr (got: $ERR)" ;;
   esac
 done
+
+
+# ─── Second target is rejected at parse time (#1119) ──────────────────
+# --path used to assign ROOT unconditionally, so a second target in
+# --path or mixed form silently replaced the first and the run exited 0
+# having never walked it (the #1111 clean.sh shape). All three forms
+# must exit 2 naming the offending argument.
+SECOND_A="$TMP_ROOT/second-a"
+SECOND_B="$TMP_ROOT/second-b"
+mkdir -p "$SECOND_A" "$SECOND_B"
+run --no-system --dry-run --path "$SECOND_A" --path "$SECOND_B"
+[ "$STATUS" -eq 2 ] || fail "--path A --path B exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: $SECOND_B"*) echo "ok: --path after --path rejected, second target named" ;;
+  *) fail "--path after --path did not name the second target (got: $ERR)" ;;
+esac
+run --no-system --dry-run "$SECOND_A" --path "$SECOND_B"
+[ "$STATUS" -eq 2 ] || fail "positional then --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: $SECOND_B"*) echo "ok: --path after positional rejected, second target named" ;;
+  *) fail "--path after positional did not name the second target (got: $ERR)" ;;
+esac
+run --no-system --dry-run --path "$SECOND_B" "$SECOND_A"
+[ "$STATUS" -eq 2 ] || fail "--path then positional exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: $SECOND_A"*) echo "ok: positional after --path rejected, second target named" ;;
+  *) fail "positional after --path did not name the second target (got: $ERR)" ;;
+esac
+
+# ─── Repeated --depth is rejected at parse time (#1119, #1103 style) ──
+run --no-system --dry-run --path "$VALID" --depth 1 --depth 3
+[ "$STATUS" -eq 2 ] || fail "repeated --depth exited $STATUS (want 2)"
+case "$ERR" in
+  *"--depth may be given only once"*) echo "ok: repeated --depth rejected, only-once rule named" ;;
+  *) fail "repeated --depth did not name the only-once rule (got: $ERR)" ;;
+esac
+
+# ─── --follow with --no-follow is a conflict (#1119) ──────────────────
+run --no-system --dry-run --path "$VALID" --follow --no-follow
+[ "$STATUS" -eq 2 ] || fail "--follow --no-follow exited $STATUS (want 2)"
+case "$ERR" in
+  *"--no-follow conflicts with --follow"*) echo "ok: --follow then --no-follow rejected as a conflict" ;;
+  *) fail "--follow --no-follow did not name the conflict (got: $ERR)" ;;
+esac
+run --no-system --dry-run --path "$VALID" --no-follow --follow
+[ "$STATUS" -eq 2 ] || fail "--no-follow --follow exited $STATUS (want 2)"
+case "$ERR" in
+  *"--follow conflicts with --no-follow"*) echo "ok: --no-follow then --follow rejected as a conflict" ;;
+  *) fail "--no-follow --follow did not name the conflict (got: $ERR)" ;;
+esac
 
 # ─── No side effects from the rejected runs ────────────────────────────
 if [ -z "$(markers)" ]; then
