@@ -663,6 +663,16 @@ SQL
 
 if [ -n "$RESTORE_SESSION" ]; then
   [ -n "$ARCHIVE" ] && die "--archive is a prune option; --restore-session reads from --from"
+  # #1129: the other prune-only options were parsed and then silently
+  # dropped by restore mode -- worst, --backup produced no backup and no
+  # warning on a restore --apply run (a write to the live DB). Reject
+  # them the same way --archive is rejected, before any restore work.
+  # (PROTECT_ROOTS has no *_SET flag; its value is the flag state.)
+  [ "$BACKUP_SET" -eq 1 ] && die "--backup is a prune option; it does not apply to --restore-session"
+  [ "$NO_BACKUP_SET" -eq 1 ] && die "--no-backup is a prune option; it does not apply to --restore-session"
+  [ "$PROTECT_DAYS_SET" -eq 1 ] && die "--protect-days is a prune option; it does not apply to --restore-session"
+  [ "$PROTECT_ROOTS" -eq 1 ] && die "--protect-roots is a prune option; it does not apply to --restore-session"
+  [ "$BATCH_SET" -eq 1 ] && die "--batch is a prune option; it does not apply to --restore-session"
   restore_session_mode
   exit 0
 fi
