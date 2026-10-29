@@ -25,6 +25,13 @@ INPUT_DIR=""
 OUTPUT_DIR=""
 BACKUP_SUFFIX=".bak.$RUN_TIMESTAMP"
 
+# Only-once tracking for the value options above (#1126): a repeat used
+# to silently last-win, discarding the first value.
+INPUT_DIR_SET=0
+OUTPUT_DIR_SET=0
+BACKUP_SUFFIX_SET=0
+UNDO_SET=0
+
 # Default excludes — override with SYMLINKER_DEFAULT_EXCLUDES (colon-separated)
 IFS=':' read -r -a DEFAULT_EXCLUDES <<< "${SYMLINKER_DEFAULT_EXCLUDES:-.DS_Store}"
 EXTRA_EXCLUDES=()
@@ -191,16 +198,20 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --input-dir)
       [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --input-dir requires a value" >&2; exit 1; }
-      INPUT_DIR="$2"; shift 2 ;;
+      [[ "$INPUT_DIR_SET" -eq 0 ]] || { echo "Error: --input-dir may be given only once" >&2; exit 1; }
+      INPUT_DIR="$2"; INPUT_DIR_SET=1; shift 2 ;;
     --output-dir)
       [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --output-dir requires a value" >&2; exit 1; }
-      OUTPUT_DIR="$2"; shift 2 ;;
+      [[ "$OUTPUT_DIR_SET" -eq 0 ]] || { echo "Error: --output-dir may be given only once" >&2; exit 1; }
+      OUTPUT_DIR="$2"; OUTPUT_DIR_SET=1; shift 2 ;;
     --backup-suffix)
       [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --backup-suffix requires a value" >&2; exit 1; }
-      BACKUP_SUFFIX="$2"; shift 2 ;;
+      [[ "$BACKUP_SUFFIX_SET" -eq 0 ]] || { echo "Error: --backup-suffix may be given only once" >&2; exit 1; }
+      BACKUP_SUFFIX="$2"; BACKUP_SUFFIX_SET=1; shift 2 ;;
     --undo)
       [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --undo requires a timestamp" >&2; exit 1; }
-      UNDO_TIMESTAMP="$2"; shift 2 ;;
+      [[ "$UNDO_SET" -eq 0 ]] || { echo "Error: --undo may be given only once" >&2; exit 1; }
+      UNDO_TIMESTAMP="$2"; UNDO_SET=1; shift 2 ;;
     --dry-run)           DRY_RUN=true;       shift ;;
     --force)             FORCE=true;         shift ;;
     --verbose)           VERBOSE=true;       shift ;;
