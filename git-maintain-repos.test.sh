@@ -95,5 +95,74 @@ case "$OUT" in
   *) fail "valid-value control did not report 1 repo (got: $OUT)" ;;
 esac
 
+# ─── Second target is rejected at parse time (#1121) ───────────────
+# --path used to assign ROOT unconditionally, so a second target in any
+# form silently discarded the first (the positional branch already
+# guarded this; --path did not). Every shape must exit 2 naming the
+# unexpected argument, #1111 style.
+OTHER="$TMP_ROOT/other"
+mkdir -p "$OTHER"
+run --dry-run --path "$VALID" --path "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "repeated --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: --path"*) echo "ok: repeated --path rejected, option named" ;;
+  *) fail "repeated --path did not name the option on stderr (got: $ERR)" ;;
+esac
+run --dry-run "$VALID" --path "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "positional then --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: --path"*) echo "ok: --path after positional rejected, option named" ;;
+  *) fail "--path after positional did not name the option on stderr (got: $ERR)" ;;
+esac
+run --dry-run --path "$VALID" "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "--path then positional exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: $OTHER"*) echo "ok: positional after --path rejected, argument named" ;;
+  *) fail "positional after --path did not name the argument on stderr (got: $ERR)" ;;
+esac
+
+# ─── Mode-flag conflicts are rejected at parse time (#1121) ────────
+# --quick/--safe/--deep used to overwrite DEPTH unconditionally, so
+# --quick --deep silently escalated to the destructive deep pass.
+for pair in "--quick --deep" "--deep --quick" "--safe --deep" "--quick --quick"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "mode pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"may not be combined with"*) echo "ok: mode pair '$pair' rejected as a conflict" ;;
+    *) fail "mode pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --dry-run --path "$VALID" --quick
+[ "$STATUS" -eq 0 ] || fail "single --quick exited $STATUS (want 0)"
+echo "ok: single mode flag still accepted"
+
+# ─── Repeated value options are rejected at parse time (#1121) ─────
+for opt in --depth --jobs --pack-threads --reflog-expire; do
+  case "$opt" in
+    --reflog-expire) run --dry-run --path "$VALID" "$opt" 1.day.ago "$opt" 2.days.ago ;;
+    *)               run --dry-run --path "$VALID" "$opt" 1 "$opt" 2 ;;
+  esac
+  [ "$STATUS" -eq 2 ] || fail "repeated $opt exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-maintain-repos: $opt may be given only once"*) echo "ok: repeated $opt rejected, option named" ;;
+    *) fail "repeated $opt did not name the option on stderr (got: $ERR)" ;;
+  esac
+done
+
+# ─── --system with --no-system is rejected at parse time (#1121) ───
+for pair in "--system --no-system" "--no-system --system"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "scope pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-maintain-repos: --system and --no-system may not be combined"*) echo "ok: scope pair '$pair' rejected as a conflict" ;;
+    *) fail "scope pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --dry-run --path "$VALID" --system
+[ "$STATUS" -eq 0 ] || fail "single --system exited $STATUS (want 0)"
+echo "ok: single --system still accepted"
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-maintain-repos flag-shaped-value checks passed"
