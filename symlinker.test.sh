@@ -113,7 +113,14 @@ grep -q "irrecoverable" "$C/undo.log" || fail "C: undo did not report the irreco
 D="$TMP_ROOT/d"; mkdir -p "$D/bin" "$D/cache"
 REAL_DATE="$(command -v date)"
 {
-  echo '#!/usr/bin/env bash'
+  # The stub is executed by name via PATH (symlinker.sh's `date +%s`),
+  # so its shebang must name an interpreter that exists in every
+  # environment the suite runs in: /usr/bin/env does NOT exist inside
+  # the nix build sandbox, which made this stub die with "bad
+  # interpreter" there and failed all of Scenario D in the flake
+  # check while the direct run passed (#1094). The resolved bash
+  # path works in both (store bash in the sandbox, system bash out).
+  echo "#!$(command -v bash)"
   echo 'if [[ "$*" == "+%s" ]]; then echo 1700000000; else exec "'"$REAL_DATE"'" "$@"; fi'
 } > "$D/bin/date"
 chmod +x "$D/bin/date"
