@@ -182,6 +182,36 @@ printf '%s' "$out" | grep -q -- '--max-age-days' || fail "oversized --max-age-da
 printf '%s' "$out" | grep -q 'integer expression expected' && fail "oversized --max-age-days leaked a raw test error: $out"
 ok "oversized --max-age-days rejected at parse time (no silent exit 0)"
 
+# --- repeated options and --apply/--dry-run conflict (#1125) --------------
+# Repeats must be rejected at parse time (exit 2, naming the option and
+# the only-once rule), before any listing or deletion.
+for opt in --dir --keep --max-age-days; do
+  case "$opt" in
+    --dir) args="--dir $B --dir $B" ;;
+    --keep) args="--dir $B --keep 2 --keep 1" ;;
+    --max-age-days) args="--dir $B --keep 2 --max-age-days 1 --max-age-days 2" ;;
+  esac
+  out="$(bash "$PRUNE" $args 2>&1)"; rc=$?
+  [ "$rc" -eq 2 ] || fail "repeated $opt exited $rc, expected 2: $out"
+  printf '%s' "$out" | grep -q -- "$opt may be given only once" \
+    || fail "repeated $opt rejection does not name the only-once rule: $out"
+done
+ok "repeated --dir/--keep/--max-age-days rejected at parse time naming the option"
+
+# Both orders of --apply + --dry-run are a conflict, rejected at parse
+# time with the tree untouched (in particular --dry-run --apply must
+# not delete anything).
+for pair in "--dry-run --apply" "--apply --dry-run"; do
+  B="$WORK/conflict"; rm -rf "$B"; make_tree "$B"
+  out="$(bash "$PRUNE" --dir "$B" --keep 1 $pair 2>&1)"; rc=$?
+  [ "$rc" -eq 2 ] || fail "$pair exited $rc, expected 2: $out"
+  printf '%s' "$out" | grep -q -- "--apply and --dry-run may not be combined" \
+    || fail "$pair rejection does not name the conflict: $out"
+  [ "$(listing "$B")" = "20260101T000000 20260201T000000 20260301T000000 20260401T000000 20260501T000000 loose-file.txt not-a-backup " ] \
+    || fail "$pair changed the tree: $(listing "$B")"
+done
+ok "--apply with --dry-run rejected as a conflict in either order, tree untouched"
+
 if [ "$failures" -gt 0 ]; then
   echo "opencode-db-backup-prune.test: $failures failure(s)" >&2
   exit 1
