@@ -73,10 +73,58 @@ mkdir -p "$B/$recent"
 # --max-age-days 30 the 2026 fixtures (all >30d old at any run date in
 # 2026+) are listed, and nothing newer than the cutoff can appear —
 # pin the invariant via a huge max age instead: nothing is old enough.
-out="$(bash "$PRUNE" --dir "$B" --keep 1 --max-age-days 36500 2>&1)"
+out="$(bash "$PRUNE" --dir "$B" --keep 1 --max-age-days 36500 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "--max-age-days 36500 exited $rc: $out"
 printf '%s' "$out" | grep -q 'would delete:' \
   && fail "--max-age-days 36500 listed candidates: $out"
+printf '%s' "$out" | grep -q "dry run — 0 of 6 backup(s)" \
+  || fail "--max-age-days 36500 missing 0-of-6 summary: $out"
 ok "--max-age-days filters out candidates not old enough"
+
+# --- --max-age-days: old candidates ARE listed (positive case) ------------
+# Regression test for #1065: the case above can be satisfied by a run that
+# dies on the first candidate, so pin a positive listing, exit code 0, and
+# the summary line. The 2026 fixtures are all >30d old at any run date
+# after 2026-06, so --keep 1 --max-age-days 30 lists the oldest 4.
+B="$WORK/age-positive"; make_tree "$B"
+out="$(bash "$PRUNE" --dir "$B" --keep 1 --max-age-days 30 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "--max-age-days 30 exited $rc: $out"
+n="$(printf '%s' "$out" | grep -c 'would delete:')"
+[ "$n" -eq 4 ] || fail "--max-age-days 30 listed $n candidates, expected 4: $out"
+for d in 20260101T000000 20260201T000000 20260301T000000 20260401T000000; do
+  printf '%s' "$out" | grep -q "would delete: $B/$d\$" || fail "--max-age-days 30 did not list $d: $out"
+done
+printf '%s' "$out" | grep -q "dry run — 4 of 5 backup(s)" \
+  || fail "--max-age-days 30 missing 4-of-5 summary: $out"
+ok "--max-age-days lists old candidates, exits 0, and reports the summary"
+
+# --- --max-age-days under a BSD-date shim: no GNU date -d ------------------
+# macOS date has no -d (it parses with -j -f); emulate it on any host by
+# rejecting -d and translating -j -f to the real (GNU) date. The prune
+# must still list the old candidates and exit 0 (#1065).
+SHIM="$WORK/bsd-shim"; mkdir -p "$SHIM"
+REAL_DATE="$(command -v date)"
+cat > "$SHIM/date" <<SHIM_EOF
+#!/bin/sh
+if [ "\$1" = "-j" ]; then
+  # date -j -f FORMAT INPUT +%s
+  input="\$4"
+  exec "$REAL_DATE" -d "\$input" +%s
+fi
+for a in "\$@"; do
+  [ "\$a" = "-d" ] && { echo "date: illegal option -- d" >&2; exit 1; }
+done
+exec "$REAL_DATE" "\$@"
+SHIM_EOF
+chmod +x "$SHIM/date"
+B="$WORK/age-bsd"; make_tree "$B"
+out="$(PATH="$SHIM:$PATH" bash "$PRUNE" --dir "$B" --keep 1 --max-age-days 30 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "--max-age-days 30 under BSD date exited $rc: $out"
+n="$(printf '%s' "$out" | grep -c 'would delete:')"
+[ "$n" -eq 4 ] || fail "--max-age-days 30 under BSD date listed $n candidates, expected 4: $out"
+printf '%s' "$out" | grep -q "dry run — 4 of 5 backup(s)" \
+  || fail "--max-age-days 30 under BSD date missing 4-of-5 summary: $out"
+ok "--max-age-days works with BSD date (no GNU date -d)"
 
 # --- guards ---------------------------------------------------------------
 out="$(bash "$PRUNE" --dir "$WORK/none" --keep 0 2>&1)"; rc=$?

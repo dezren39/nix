@@ -78,9 +78,11 @@ listed=0
 for ((i = 0; i < cutoff; i++)); do
   name="${candidates[$i]}"
   if [ -n "$MAX_AGE_DAYS" ]; then
-    # Parse YYYYMMDDTHHMMSS as local time.
+    # Parse YYYYMMDDTHHMMSS as local time, portably: BSD date (macOS,
+    # where the backups live) has no GNU -d; it parses with -j -f.
+    # GNU date rejects -j, so try BSD first and fall back to GNU (#1065).
     ts="${name:0:4}-${name:4:2}-${name:6:2} ${name:9:2}:${name:11:2}:${name:13:2}"
-    epoch="$(date -d "$ts" +%s 2>/dev/null)" || die "cannot parse backup timestamp: $name"
+    epoch="$(date -j -f "%Y-%m-%d %H:%M:%S" "$ts" +%s 2>/dev/null || date -d "$ts" +%s 2>/dev/null)" || die "cannot parse backup timestamp: $name"
     age_days=$(( (now_epoch - epoch) / 86400 ))
     [ "$age_days" -gt "$MAX_AGE_DAYS" ] || continue
   fi
