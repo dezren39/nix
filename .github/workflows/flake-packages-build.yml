@@ -23,6 +23,7 @@ on:
       - "flake.nix"
       - "flake.lock"
       - "pkgs/**"
+      - "symlinker.sh"
       - ".github/workflows/flake-packages-build.yml"
   push:
     branches: [main]
@@ -31,6 +32,7 @@ on:
       - "flake.nix"
       - "flake.lock"
       - "pkgs/**"
+      - "symlinker.sh"
       - ".github/workflows/flake-packages-build.yml"
   schedule:
     # Nightly backstop for the full main-tier build (offset from the
