@@ -1,0 +1,109 @@
+name: flake packages build
+
+# CI policy: .github/ci-policy.md (design developing-today/code#1779
+# §3.3/§3.4 — fast PR tier, full main tier).
+#
+# #49: mcpx-nixbuild.yml builds only .#packages.x86_64-linux.mcpx. This
+# workflow covers every other package the flake exposes, so a broken
+# package definition is caught by CI instead of by the next machine
+# rebuild. mcpx stays owned by mcpx-nixbuild.yml and is excluded here
+# to avoid building it twice.
+#
+# Two tiers, same split as mcpx-nixbuild.yml:
+#   - pull_request = eval-only (class 4): instantiate every package's
+#     drvPath. Evaluation cannot catch a stale hash or a failing build
+#     step, but it catches broken expressions cheaply on the PR tier.
+#   - push to main + nightly schedule = full build, one matrix job per
+#     package, fail-fast off so one broken package never hides another.
+
+on:
+  pull_request:
+    paths:
+      - "**.nix"
+      - "flake.nix"
+      - "flake.lock"
+      - "pkgs/**"
+      - ".github/workflows/flake-packages-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**.nix"
+      - "flake.nix"
+      - "flake.lock"
+      - "pkgs/**"
+      - ".github/workflows/flake-packages-build.yml"
+  schedule:
+    # Nightly backstop for the full main-tier build (offset from the
+    # mcpx workflow's 06:23 run).
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Same pattern as mcpx-nixbuild.yml: non-PR runs are keyed by run_id
+  # so a later merge can never cancel an earlier merge's verification;
+  # PR runs share a per-ref group so a new push supersedes a stale run.
+  group: ${{ github.workflow }}-${{ github.event_name != 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  list-packages:
+    name: list packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: List x86_64-linux packages (mcpx excluded — owned by mcpx-nixbuild)
+        id: list
+        run: |
+          set -euo pipefail
+          packages="$(nix eval --json .#packages.x86_64-linux --apply 'attrs: builtins.filter (name: name != "mcpx") (builtins.attrNames attrs)')"
+          printf 'Packages: %s\n' "$packages"
+          printf 'packages=%s\n' "$packages" >> "$GITHUB_OUTPUT"
+
+  nix-eval:
+    name: nix eval ${{ matrix.package }}
+    if: github.event_name == 'pull_request'
+    needs: list-packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.list-packages.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Instantiate package derivation
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: nix eval --raw ".#packages.x86_64-linux.${PACKAGE}.drvPath"
+
+  nix-build:
+    name: nix build ${{ matrix.package }}
+    if: github.event_name != 'pull_request'
+    needs: list-packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.list-packages.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Nix build
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: nix build ".#packages.x86_64-linux.${PACKAGE}" --print-build-logs
