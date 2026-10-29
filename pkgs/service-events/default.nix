@@ -47,6 +47,14 @@ runCommand "service-events"
     $out/bin/service-event test check.bad ts=2000-01-01T00:00:00 2>$TMPDIR/reserved.err || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-event reserved field: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid field 'ts=2000-01-01T00:00:00'" $TMPDIR/reserved.err || { echo "service-event reserved field: argument not named in error" >&2; exit 1; }
+    # #1127: a duplicated field name exits 2 naming the field, and
+    # appends nothing — the python check below still sees exactly one
+    # line in the log (the first value must not silently last-win).
+    rc=0
+    $out/bin/service-event test check.bad pid=1 pid=2 2>$TMPDIR/dup.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event duplicate field: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "duplicate field 'pid=2'" $TMPDIR/dup.err || { echo "service-event duplicate field: field not named in error" >&2; exit 1; }
+    grep -q "'pid' may be given only once" $TMPDIR/dup.err || { echo "service-event duplicate field: only-once rule not named in error" >&2; exit 1; }
     # #934: a failed write (log dir cannot be created — Library is a
     # regular file) exits 1 keeping the stderr message, not 0.
     mkdir -p $TMPDIR/badhome
