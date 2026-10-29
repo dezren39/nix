@@ -18,16 +18,30 @@ name: buffer-backup lock sync
 # of merging green. The check is a plain python3 script — no nix or
 # bun install needed — so the gate stays fast.
 
+# The bun-pin-sync job below (#1091) reuses this workflow's triggers:
+# the bun version is pinned twice — bun-version in
+# buffer-backup-renovate-bun-sync.yml and version in
+# pkgs/bun-bin/hashes.json — and Renovate bumps the workflow pin
+# alone, so the pins split by construction (they already did once,
+# #1089). The job compares the two pins and fails naming both when
+# they disagree.
+
 "on":
   pull_request:
     paths:
       - "pkgs/buffer-backup/**"
       - ".github/workflows/buffer-backup-lock-sync.yml"
+      - ".github/workflows/buffer-backup-renovate-bun-sync.yml"
+      - "pkgs/bun-bin/hashes.json"
+      - "pkgs/bun-bin/check-pin-sync.py"
   push:
     branches: [main]
     paths:
       - "pkgs/buffer-backup/**"
       - ".github/workflows/buffer-backup-lock-sync.yml"
+      - ".github/workflows/buffer-backup-renovate-bun-sync.yml"
+      - "pkgs/bun-bin/hashes.json"
+      - "pkgs/bun-bin/check-pin-sync.py"
 
 permissions:
   contents: read
@@ -68,3 +82,18 @@ jobs:
 
       - name: Run cleanup-count regression suite (#1002)
         run: node pkgs/buffer-backup/cleanup-count.test.mjs
+
+  # #1091: the two bun pins (workflow bun-version vs
+  # pkgs/bun-bin/hashes.json version) were kept in step by a comment
+  # only. This job runs the plain-python comparison whenever either
+  # pin — or the check script itself — changes (see the path
+  # triggers above, extended for exactly these files).
+  bun-pin-sync:
+    name: bun pin-sync check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check workflow bun-version and pkgs/bun-bin agree
+        run: python3 pkgs/bun-bin/check-pin-sync.py
