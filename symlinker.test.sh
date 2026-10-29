@@ -20,6 +20,11 @@
 #          swallowed, and --only-dirs silently dropped symlinks to
 #          directories (exit 0). -f/-d tests follow symlinks portably;
 #          scenario H pins both type filters, incl. a BSD-readlink shim.
+#   #1126 — the value options --input-dir/--output-dir/--backup-suffix/
+#          --undo assigned unconditionally, so a repeat silently last-won
+#          and the first tree (or undo target) was never mentioned. They
+#          now reject a repeat at parse time; accumulate flags stay
+#          repeatable. Scenario I pins this.
 #   #912 — the name-filter flags' empty-occurrence guard tested the
 #          cumulative FILTER_* array, so a repeated flag with no values
 #          (--exact foo --exact) passed silently; the guard now compares
@@ -292,6 +297,37 @@ h_run "$H/out-files" --only-files || fail "H: GNU --only-files run exited non-ze
 h_expect_files "GNU --only-files" "$H/out-files"
 h_run "$H/out-files-bsd" --only-files "$H/bin" || fail "H: BSD-shim --only-files run exited non-zero"
 h_expect_files "BSD-shim --only-files" "$H/out-files-bsd"
+
+# ─── Scenario I (#1126): repeated value options rejected at parse time ───
+# --input-dir/--output-dir/--backup-suffix/--undo each assigned
+# unconditionally, so a repeat silently discarded the first value: a
+# duplicated --input-dir linked the second tree only, and a duplicated
+# --undo undid the second run instead of the first. Each repeat must now
+# fail at parse time (exit 1, naming the option and the only-once rule),
+# before any linking or undo work; accumulate flags stay repeatable.
+I="$TMP_ROOT/i"; mkdir -p "$I/in" "$I/in2" "$I/out" "$I/cache"
+printf 'x\n' > "$I/in/foo"; printf 'y\n' > "$I/in2/bar"
+i_run() { XDG_CACHE_HOME="$I/cache" bash "$SCRIPT" "$@" >/dev/null 2>"$I/err"; }
+i_expect_error() { # i_expect_error <desc> <message> <args...>
+  local desc="$1" msg="$2"; shift 2
+  if i_run "$@"; then
+    fail "I: $desc — expected exit 1, got 0"
+  elif grep -qF -- "$msg" "$I/err"; then
+    echo "ok: I: $desc"
+  else
+    fail "I: $desc — expected error '$msg', got: $(cat "$I/err")"
+  fi
+}
+i_expect_error "repeated --input-dir errors" "Error: --input-dir may be given only once" --input-dir "$I/in" --input-dir "$I/in2" --output-dir "$I/out" --dry-run
+i_expect_error "repeated --output-dir errors" "Error: --output-dir may be given only once" --input-dir "$I/in" --output-dir "$I/out" --output-dir "$I/out"
+i_expect_error "repeated --backup-suffix errors" "Error: --backup-suffix may be given only once" --input-dir "$I/in" --output-dir "$I/out" --backup-suffix .bak.one --backup-suffix .bak.two
+i_expect_error "repeated --undo errors" "Error: --undo may be given only once" --undo 1111111111 --undo 2222222222 --dry-run --no-input
+check "I: rejected repeats wrote no links" test -z "$(ls -A "$I/out")"
+if i_run --input-dir "$I/in" --output-dir "$I/out" --dry-run --exclude foo --exclude bar --exact foo --exact foo; then
+  echo "ok: I: accumulate flags (--exclude/--exact) still repeat"
+else
+  fail "I: accumulate flags (--exclude/--exact) should still repeat: $(cat "$I/err")"
+fi
 
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2
