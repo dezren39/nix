@@ -523,6 +523,12 @@ opencode-db-backup:
     echo "backup: $dest"
     just --justfile {{ justfile() }} opencode-db-check "$dest/opencode.db"
 
+# Retention for opencode-db-backup dirs: dry-run by default (lists what
+# would go), pass --apply to delete. Keeps the newest 3 by default.
+[group('opencode')]
+opencode-db-backup-prune *args:
+    ./opencode-db-backup-prune.sh {{ args }}
+
 # Session/migration counts of an OpenCode database (default: the live one)
 [group('opencode')]
 opencode-db-check db="":

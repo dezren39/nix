@@ -588,6 +588,26 @@ rec {
               bash ./opencode-db-prune.test.sh
               touch $out
             '';
+        # #659: opencode-db-backup-prune.test.sh pins the retention for
+        # `just opencode-db-backup`'s timestamped backup dirs -- dry-run
+        # lists exactly the beyond-keep set and deletes nothing, --apply
+        # deletes exactly that set, the newest backup is never listed,
+        # and non-timestamp entries are never touched. Self-contained:
+        # fixture dirs only, no database needed.
+        opencode-db-backup-prune-tests =
+          pkgs.runCommandLocal "opencode-db-backup-prune-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.coreutils ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-db-backup-prune.sh $src/opencode-db-backup-prune.test.sh ./
+              chmod u+w ./opencode-db-backup-prune.sh ./opencode-db-backup-prune.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-db-backup-prune.test.sh
+              touch $out
+            '';
         # #557: var-folders-clean.test.sh (the #553 test for clean.sh's
         # /private/var/folders sweep) was run by nothing, tested a pasted
         # copy of the loops instead of the shipped logic, and exited 0 on
