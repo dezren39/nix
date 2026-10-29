@@ -419,6 +419,11 @@ rec {
           inherit pkgs;
           lib = pkgs.lib;
         };
+        # `nix run .#adopt`: add this Mac to the hosts map (see pkgs/adopt).
+        adopt = import ./pkgs/adopt {
+          inherit pkgs;
+          lib = pkgs.lib;
+        };
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
         # Cloudflare Wrangler 4.147.0 — custom package (copied from
         # developing-today/code pkgs/wrangler) because nixpkgs lags npm
@@ -1034,6 +1039,10 @@ rec {
         flake-tidy = {
           type = "app";
           program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
+        };
+        adopt = {
+          type = "app";
+          program = "${selfPkgs.adopt}/bin/adopt";
         };
         mcpx = {
           type = "app";
