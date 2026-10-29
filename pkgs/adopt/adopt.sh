@@ -37,6 +37,7 @@ EOF
 }
 
 template="default"
+template_set=0
 host=""
 flake="./flake.nix"
 dry_run=0
@@ -47,7 +48,12 @@ while (( $# )); do
     --dry-run) dry_run=1 ;;
     -h|--help) usage; exit 0 ;;
     -*)        echo "adopt: unknown option $1" >&2; usage >&2; exit 2 ;;
-    *)         template="$1" ;;
+    *)         if (( template_set )); then
+                 echo "adopt: unexpected extra argument '$1' (only one TEMPLATE may be given)" >&2
+                 usage >&2
+                 exit 2
+               fi
+               template="$1"; template_set=1 ;;
   esac
   shift
 done
