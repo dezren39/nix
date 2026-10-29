@@ -883,18 +883,19 @@ name_matches_filters() {
 }
 
 # Returns 0 (true) if the entry passes the type filter.
+# The -f/-d tests follow symlinks, so a symlink is classified by its
+# target (a broken symlink matches neither). Do NOT resolve the target
+# with readlink -f instead: -f is GNU-only, stock macOS readlink rejects
+# it, and the old code silently filtered out every symlink-to-dir under
+# --only-dirs on macOS (#1092).
 type_matches_filter() {
   local entry="$1"
   if $ONLY_FILES; then
     [[ -f "$entry" && ! -d "$entry" ]] && return 0
-    # Also accept symlinks that point to files
-    [[ -L "$entry" ]] && [[ -f "$(readlink -f "$entry" 2>/dev/null)" ]] && return 0
     return 1
   fi
   if $ONLY_DIRS; then
-    [[ -d "$entry" && ! -L "$entry" ]] && return 0
-    # Also accept symlinks that point to dirs
-    [[ -L "$entry" ]] && [[ -d "$(readlink -f "$entry" 2>/dev/null)" ]] && return 0
+    [[ -d "$entry" ]] && return 0
     return 1
   fi
   return 0
