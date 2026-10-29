@@ -106,8 +106,9 @@ esac
 REAL_STAT="$(command -v stat)"
 SHIM_DIR="$TMP_ROOT/bsd-shim"
 mkdir -p "$SHIM_DIR"
-cat > "$SHIM_DIR/stat" <<'SHIM_EOF'
-#!/usr/bin/env bash
+# Executed by name via PATH, so the shebang must name a real interpreter: /usr/bin/env does not exist in the nix build sandbox (#1099). Resolved bash works in both sandbox and direct runs.
+echo "#!$(command -v bash)" > "$SHIM_DIR/stat"
+cat >> "$SHIM_DIR/stat" <<'SHIM_EOF'
 [ -n "${REAL_STAT:-}" ] || exit 1
 for _a in "$@"; do
   if [ "$_a" = "-c" ]; then echo "stat: illegal option -- c" >&2; exit 1; fi
