@@ -39,12 +39,26 @@ EOF
 template="default"
 template_set=0
 host=""
+host_set=0
 flake="./flake.nix"
+flake_set=0
 dry_run=0
 while (( $# )); do
   case "$1" in
-    --host)    [[ $# -ge 2 && "$2" != --* ]] || { echo "adopt: --host needs a value" >&2; exit 2; }; host="$2"; shift ;;
-    --flake)   [[ $# -ge 2 && "$2" != --* ]] || { echo "adopt: --flake needs a value" >&2; exit 2; }; flake="$2"; shift ;;
+    --host)    [[ $# -ge 2 && "$2" != --* ]] || { echo "adopt: --host needs a value" >&2; exit 2; }
+               if (( host_set )); then
+                 echo "adopt: --host may be given only once" >&2
+                 usage >&2
+                 exit 2
+               fi
+               host="$2"; host_set=1; shift ;;
+    --flake)   [[ $# -ge 2 && "$2" != --* ]] || { echo "adopt: --flake needs a value" >&2; exit 2; }
+               if (( flake_set )); then
+                 echo "adopt: --flake may be given only once" >&2
+                 usage >&2
+                 exit 2
+               fi
+               flake="$2"; flake_set=1; shift ;;
     --dry-run) dry_run=1 ;;
     -h|--help) usage; exit 0 ;;
     -*)        echo "adopt: unknown option $1" >&2; usage >&2; exit 2 ;;
