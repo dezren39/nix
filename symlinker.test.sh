@@ -256,7 +256,7 @@ ln -s "$H/in/plain.txt" "$H/in/linkfile"
 ln -s "$H/in/missing"   "$H/in/broken"
 REAL_READLINK="$(command -v readlink)"
 {
-  echo '#!/usr/bin/env bash'
+  echo "#!$(command -v bash)"
   echo 'for a in "$@"; do if [[ "$a" == "-f" ]]; then echo "readlink: illegal option -- f" >&2; exit 1; fi; done'
   echo 'exec "'"$REAL_READLINK"'" "$@"'
 } > "$H/bin/readlink"
