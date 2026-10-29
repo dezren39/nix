@@ -95,6 +95,17 @@ def main(argv):
             )
             print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
             return 2
+        # #1127: a duplicated field name used to silently last-win —
+        # fields[key] below assigned unconditionally, so pid=1 pid=2
+        # logged only pid=2 with exit 0 and the first value was recorded
+        # nowhere. Reject the repeat the same loud way, before appending.
+        if key in fields:
+            print(
+                f"service-event: duplicate field {arg!r}: {key!r} may be given only once",
+                file=sys.stderr,
+            )
+            print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
+            return 2
         # #935: gate on a plain ASCII integer shape, not str.isdigit() —
         # isdigit() is also true for Unicode digit characters int()
         # rejects (superscript/subscript digits), which used to crash
