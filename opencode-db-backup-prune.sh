@@ -29,16 +29,26 @@ DIR="$HOME/.local/share/opencode/backup"
 KEEP=3
 MAX_AGE_DAYS=""
 APPLY=0
+DIR_SET=0
+KEEP_SET=0
+MAX_AGE_DAYS_SET=0
+APPLY_SET=0
+DRY_RUN_SET=0
 
 die() { echo "opencode-db-backup-prune: $*" >&2; exit 2; }
 
+# Value-taking options reject a repeat (#1125, the #1112 / adopt #1103
+# pattern): a repeated --dir/--keep/--max-age-days used to silently
+# discard the first value. --apply combined with --dry-run (either
+# order) is likewise rejected: both set the same flag, so whichever
+# came last used to win -- "--dry-run --apply" actually deleted.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dir) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--dir needs a value"; DIR="$2"; shift 2 ;;
-    --keep) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--keep needs a value"; KEEP="$2"; shift 2 ;;
-    --max-age-days) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--max-age-days needs a value"; MAX_AGE_DAYS="$2"; shift 2 ;;
-    --apply) APPLY=1; shift ;;
-    --dry-run) APPLY=0; shift ;;
+    --dir) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--dir needs a value"; [ "$DIR_SET" -eq 0 ] || die "--dir may be given only once"; DIR="$2"; DIR_SET=1; shift 2 ;;
+    --keep) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--keep needs a value"; [ "$KEEP_SET" -eq 0 ] || die "--keep may be given only once"; KEEP="$2"; KEEP_SET=1; shift 2 ;;
+    --max-age-days) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--max-age-days needs a value"; [ "$MAX_AGE_DAYS_SET" -eq 0 ] || die "--max-age-days may be given only once"; MAX_AGE_DAYS="$2"; MAX_AGE_DAYS_SET=1; shift 2 ;;
+    --apply) [ "$DRY_RUN_SET" -eq 0 ] || die "--apply and --dry-run may not be combined"; APPLY=1; APPLY_SET=1; shift ;;
+    --dry-run) [ "$APPLY_SET" -eq 0 ] || die "--apply and --dry-run may not be combined"; APPLY=0; DRY_RUN_SET=1; shift ;;
     -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
