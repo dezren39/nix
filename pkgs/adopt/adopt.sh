@@ -86,8 +86,9 @@ EOF
       { echo "adopt: template '$tmpl' is not a host name or a file" >&2; return 2; }
     local block
     block="$(awk -v n="$tmpl" '
-      $0 ~ "^      " n " = [{]$" { found = 1 }
+      $0 ~ "^      " n " = [{]" { found = 1; start = NR }
       found { print }
+      found && NR == start && /};[[:space:]]*$/ { exit }
       found && /^      };$/ { exit }
     ' "$flake")"
     [[ -n "$block" ]] ||
@@ -101,7 +102,7 @@ list_hosts() {
   awk '
     /^    hosts = [{]$/ { in_hosts = 1; next }
     in_hosts && /^    };$/ { exit }
-    in_hosts && /^      [A-Za-z0-9_-]+ = [{]$/ { gsub(/[ ={}]/, ""); printf "%s ", $0 }
+    in_hosts && /^      [A-Za-z0-9_-]+ = [{]/ { printf "%s ", $1 }
   ' "$flake"
 }
 

@@ -7,6 +7,8 @@
 #   D  --dry-run changes nothing; an unknown template fails, changing nothing
 #   E  everything also works under a BWK-strict awk shim (#1074: macOS awk
 #      rejects literal newlines in -v assignments; GNU/mawk do not)
+#   F  one-line host entries (NAME = {};) are recognized (#1079): re-adopting
+#      one reports already-a-host and copying one as a template works
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -106,6 +108,33 @@ grep -q '^      TESTMAC1 = {$' "$TMP_ROOT/e/flake.nix" \
   || fail "E: template copy failed under BWK-strict awk"
 grep -q '^      COPYMAC = {$' "$TMP_ROOT/e/flake.nix" \
   && ok "E: template copy works under BWK-strict awk" || fail "E: COPYMAC missing under BWK-strict awk"
+
+# F: one-line host entries (#1079)
+mkdir -p "$TMP_ROOT/f"
+cat > "$TMP_ROOT/f/flake.nix" <<'EOF'
+{
+  outputs = { ... }: {
+    hosts = {
+      ONELINE = {};
+      BODYLINE = { system = "x86_64-darwin"; };
+      MGM9JJ4V3R = {
+        # inherits default system "aarch64-darwin"
+        extraModules = [ ./gpu.nix ];
+      };
+    };
+  };
+}
+EOF
+cp "$TMP_ROOT/f/flake.nix" "$TMP_ROOT/f/before"
+out="$(cd "$TMP_ROOT/f" && bash "$SCRIPT" --host ONELINE)" || fail "F: re-adopting a one-line host exited non-zero"
+[[ "$out" == *"already a host"* ]] && ok "F: one-line host reports already adopted" || fail "F: one-line host did not report already adopted"
+diff -q "$TMP_ROOT/f/before" "$TMP_ROOT/f/flake.nix" >/dev/null && ok "F: re-adopting a one-line host changed nothing" || fail "F: re-adopting a one-line host changed the flake"
+(cd "$TMP_ROOT/f" && bash "$SCRIPT" ONELINE --host NEWMAC >/dev/null) || fail "F: copying a one-line host exited non-zero"
+grep -q '^      NEWMAC = {};$' "$TMP_ROOT/f/flake.nix" && ok "F: one-line entry copied" || fail "F: one-line entry copy missing"
+(cd "$TMP_ROOT/f" && bash "$SCRIPT" BODYLINE --host COPYMAC >/dev/null) || fail "F: copying a one-line host with a body exited non-zero"
+grep -q '^      COPYMAC = { system = "x86_64-darwin"; };$' "$TMP_ROOT/f/flake.nix" && ok "F: one-line entry with body copied" || fail "F: one-line entry with body copy missing"
+out="$(cd "$TMP_ROOT/f" && bash "$SCRIPT" NOSUCHHOST --host OTHERMAC 2>&1)" && fail "F: unknown template exited 0" || ok "F: unknown template fails"
+[[ "$out" == *"ONELINE"* ]] && ok "F: error lists one-line hosts as existing" || fail "F: error omits one-line hosts from existing list"
 
 if (( failures )); then
   echo "$failures failure(s)" >&2
