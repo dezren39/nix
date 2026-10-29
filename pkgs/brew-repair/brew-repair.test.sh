@@ -35,8 +35,9 @@ FAKE_HOME="$TMP_ROOT/home"
 LOG="$TMP_ROOT/brew.log"
 mkdir -p "$STUB_BIN" "$FAKE_HOME/Applications"
 
-cat > "$STUB_BIN/brew" <<'EOS'
-#!/usr/bin/env bash
+# Executed by name via PATH, so the shebang must name a real interpreter: /usr/bin/env does not exist in the nix build sandbox (#1099). Resolved bash works in both sandbox and direct runs.
+echo "#!$(command -v bash)" > "$STUB_BIN/brew"
+cat >> "$STUB_BIN/brew" <<'EOS'
 echo "brew $*" >> "$BREW_STUB_LOG"
 case "$1" in
   list)
