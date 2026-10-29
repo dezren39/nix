@@ -149,6 +149,13 @@ SCOPE="${SCOPE:-auto}"
 DEPTH="${DEPTH:-repack}"
 SCOPE_SET=0
 AUTO_SET=0
+MODE_FLAG=""
+SYSTEM_SET=0
+NO_SYSTEM_SET=0
+DEPTH_LIMIT_SET=0
+JOBS_SET=0
+PACK_THREADS_SET=0
+REFLOG_EXPIRE_SET=0
 FSCK="${FSCK:-0}"
 CLEAN_ORPHANS="${CLEAN_ORPHANS:-0}"
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}"
@@ -165,15 +172,15 @@ FILTER="--repos-only"
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto) AUTO_SET=1 ;;                        # names the default scope; conflicts with --system/--no-system
-    --path) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; ROOT="$2"; shift; } ;;
-    --quick) DEPTH="quick" ;;
-    --deep) DEPTH="deep" ;;
-    --safe) DEPTH="safe" ;;
-    --system) SCOPE="system"; SCOPE_SET=1 ;;
-    --no-system) SCOPE="walk"; SCOPE_SET=1 ;;
+    --path) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ -z "$ROOT" ] || { echo "git-maintain-repos: unexpected argument: $1 (target already set to $ROOT)" >&2; usage >&2; exit 2; }; ROOT="$2"; shift; } ;;
+    --quick) { [ -z "$MODE_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $MODE_FLAG (only one mode option may be given)" >&2; usage >&2; exit 2; }; DEPTH="quick"; MODE_FLAG="$1"; } ;;
+    --deep) { [ -z "$MODE_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $MODE_FLAG (only one mode option may be given)" >&2; usage >&2; exit 2; }; DEPTH="deep"; MODE_FLAG="$1"; } ;;
+    --safe) { [ -z "$MODE_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $MODE_FLAG (only one mode option may be given)" >&2; usage >&2; exit 2; }; DEPTH="safe"; MODE_FLAG="$1"; } ;;
+    --system) { [ "$NO_SYSTEM_SET" -eq 0 ] || { echo "git-maintain-repos: --system and --no-system may not be combined" >&2; usage >&2; exit 2; }; SCOPE="system"; SCOPE_SET=1; SYSTEM_SET=1; } ;;
+    --no-system) { [ "$SYSTEM_SET" -eq 0 ] || { echo "git-maintain-repos: --system and --no-system may not be combined" >&2; usage >&2; exit 2; }; SCOPE="walk"; SCOPE_SET=1; NO_SYSTEM_SET=1; } ;;
     --recursive|--walk) RECURSIVE=1; DEPTH_LIMIT="" ;;
     --no-recursive|--no-walk) RECURSIVE=0 ;;
-    --depth) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; shift; } ;;
+    --depth) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$DEPTH_LIMIT_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; DEPTH_LIMIT_SET=1; shift; } ;;
     --follow) FOLLOW=1 ;;
     --no-follow) FOLLOW=0 ;;
     --repos-only) FILTER="--repos-only" ;;
@@ -181,9 +188,9 @@ while [ $# -gt 0 ]; do
     --fsck) FSCK=1 ;;
     --clean-orphans) CLEAN_ORPHANS=1 ;;
     --expire-reflog) EXPIRE_REFLOG=1 ;;
-    --jobs) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; JOBS="$2"; shift; } ;;
-    --pack-threads) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; PACK_THREADS="$2"; shift; } ;;
-    --reflog-expire) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; REFLOG_EXPIRE="$2"; shift; } ;;
+    --jobs) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$JOBS_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; JOBS="$2"; JOBS_SET=1; shift; } ;;
+    --pack-threads) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$PACK_THREADS_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; PACK_THREADS="$2"; PACK_THREADS_SET=1; shift; } ;;
+    --reflog-expire) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$REFLOG_EXPIRE_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; REFLOG_EXPIRE="$2"; REFLOG_EXPIRE_SET=1; shift; } ;;
     --no-register) REGISTER=0 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;
