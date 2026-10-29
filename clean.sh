@@ -22,6 +22,7 @@ SCOPE="auto"          # auto | system | no-system
 AUTO_SET=0
 SCOPE_SET=0
 TARGET_PATH=""
+TARGET_SET=0
 DEPTH_LIMIT=""
 RECURSIVE_SET=0
 FOLLOW=""
@@ -195,7 +196,7 @@ while [ $# -gt 0 ]; do
     --auto)           AUTO_SET=1 ;;
     --system)         SCOPE="system"; SCOPE_SET=1 ;;
     --no-system)      SCOPE="no-system"; SCOPE_SET=1 ;;
-    --path)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "clean.sh: $1 requires a value" >&2; usage >&2; exit 2; }; TARGET_PATH="$2"; REPO_FLAGS_USED="$REPO_FLAGS_USED --path"; shift; } ;;
+    --path)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "clean.sh: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$TARGET_SET" -eq 0 ] || { echo "clean.sh: unexpected argument: $1 (target already set to $TARGET_PATH)" >&2; usage >&2; exit 2; }; TARGET_PATH="$2"; TARGET_SET=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --path"; shift; } ;;
     --recursive|--walk) REPO_FLAGS_USED="$REPO_FLAGS_USED --recursive"; DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1; RECURSIVE_SET=1 ;;
     --depth)          { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "clean.sh: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --depth"; shift; } ;;
@@ -214,7 +215,7 @@ while [ $# -gt 0 ]; do
     --dry-run)        DRY_RUN=1 ;;
     -h|--help)        usage; exit 0 ;;
     -*)               echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *)                TARGET_PATH="$1" ;;
+    *)                { [ "$TARGET_SET" -eq 0 ] || { echo "clean.sh: unexpected argument: $1 (target already set to $TARGET_PATH)" >&2; usage >&2; exit 2; }; TARGET_PATH="$1"; TARGET_SET=1; } ;;
   esac
   shift
 done

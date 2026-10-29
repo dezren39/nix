@@ -38,6 +38,8 @@ fail() {
 
 VALID="$TMP_ROOT/valid"
 mkdir -p "$VALID"
+OTHER="$TMP_ROOT/other"
+mkdir -p "$OTHER"
 
 run() { # run <args...> — sets OUT, ERR, STATUS
   OUT="$(bash "$SCRIPT" "$@" 2>"$TMP_ROOT/err")"; STATUS=$?
@@ -77,6 +79,38 @@ for opt in --path --depth --docker-age; do
     *) fail "$opt (empty value) did not name the option on stderr (got: $ERR)" ;;
   esac
 done
+
+# ─── Second / conflicting target is rejected at parse time (#1111) ────
+# clean.sh used to assign every positional (and --path) to the single
+# TARGET_PATH variable, so a second target silently discarded the first
+# while the run exited 0 reporting success for a tree it never scanned.
+# Every conflicting-target shape must exit 2 naming the unexpected
+# argument, before any work runs (the snapshot check below covers the
+# no-side-effects part for these runs too).
+run --dry-run "$VALID" "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "second positional exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: $OTHER"*) echo "ok: second positional rejected, argument named" ;;
+  *) fail "second positional did not name the argument on stderr (got: $ERR)" ;;
+esac
+run --dry-run --path "$VALID" "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "--path then positional exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: $OTHER"*) echo "ok: positional after --path rejected, argument named" ;;
+  *) fail "positional after --path did not name the argument on stderr (got: $ERR)" ;;
+esac
+run --dry-run "$VALID" --path "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "positional then --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: --path"*) echo "ok: --path after positional rejected, option named" ;;
+  *) fail "--path after positional did not name the option on stderr (got: $ERR)" ;;
+esac
+run --dry-run --path "$VALID" --path "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "repeated --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: --path"*) echo "ok: repeated --path rejected, option named" ;;
+  *) fail "repeated --path did not name the option on stderr (got: $ERR)" ;;
+esac
 
 # ─── No side effects from the rejected runs ────────────────────────────
 if [ "$(snapshot)" = "$BEFORE" ]; then
