@@ -9,6 +9,7 @@
 #      rejects literal newlines in -v assignments; GNU/mawk do not)
 #   F  one-line host entries (NAME = {};) are recognized (#1079): re-adopting
 #      one reports already-a-host and copying one as a template works
+#   G  a second positional TEMPLATE is rejected with exit 2 (#1080)
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -135,6 +136,18 @@ grep -q '^      NEWMAC = {};$' "$TMP_ROOT/f/flake.nix" && ok "F: one-line entry 
 grep -q '^      COPYMAC = { system = "x86_64-darwin"; };$' "$TMP_ROOT/f/flake.nix" && ok "F: one-line entry with body copied" || fail "F: one-line entry with body copy missing"
 out="$(cd "$TMP_ROOT/f" && bash "$SCRIPT" NOSUCHHOST --host OTHERMAC 2>&1)" && fail "F: unknown template exited 0" || ok "F: unknown template fails"
 [[ "$out" == *"ONELINE"* ]] && ok "F: error lists one-line hosts as existing" || fail "F: error omits one-line hosts from existing list"
+
+
+# G: a second positional TEMPLATE is rejected (#1080)
+new_flake "$TMP_ROOT/g"
+cp "$TMP_ROOT/g/flake.nix" "$TMP_ROOT/g/before"
+out="$(cd "$TMP_ROOT/g" && bash "$SCRIPT" MGM9JJ4V3R default --host TWOMAC 2>&1)"; rc=$?
+(( rc == 2 )) && ok "G: two positionals exit 2" || fail "G: two positionals exited $rc, want 2"
+[[ "$out" == *"only one TEMPLATE"* ]] && ok "G: error names the one-TEMPLATE rule" || fail "G: error does not name the one-TEMPLATE rule"
+diff -q "$TMP_ROOT/g/before" "$TMP_ROOT/g/flake.nix" >/dev/null && ok "G: rejected run changed nothing" || fail "G: rejected run changed the flake"
+out="$(cd "$TMP_ROOT/g" && bash "$SCRIPT" default MGM9JJ4V3R --host TWOMAC 2>&1)"; rc=$?
+(( rc == 2 )) && ok "G: two positionals (default first) exit 2" || fail "G: two positionals (default first) exited $rc, want 2"
+diff -q "$TMP_ROOT/g/before" "$TMP_ROOT/g/flake.nix" >/dev/null && ok "G: second rejected run changed nothing" || fail "G: second rejected run changed the flake"
 
 if (( failures )); then
   echo "$failures failure(s)" >&2
