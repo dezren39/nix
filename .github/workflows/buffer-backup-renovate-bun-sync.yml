@@ -107,7 +107,19 @@ jobs:
       - name: Regenerate bun.lock
         if: steps.check.outputs.in_sync == 'false'
         working-directory: pkgs/buffer-backup
-        run: bun install
+        run: |
+          # Re-resolve from package-lock.json (#1085): with an existing
+          # bun.lock, plain `bun install` keeps locked versions that merely
+          # satisfy package.json's caret ranges, so it never picks up
+          # Renovate's lockfile-only bumps in package-lock.json. Removing
+          # bun.lock first makes bun generate a fresh one, migrating the
+          # exact versions package-lock.json resolves. Do NOT use
+          # `bun update` here: it re-resolves to latest-in-range and can
+          # overshoot package-lock.json, desyncing the other direction.
+          # The verify step below still fails the run (committing nothing)
+          # if the fresh bun.lock disagrees with package-lock.json.
+          rm -f bun.lock
+          bun install
 
       - name: Verify the lockfiles now agree (commit nothing if not)
         if: steps.check.outputs.in_sync == 'false'
