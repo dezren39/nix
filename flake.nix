@@ -566,6 +566,28 @@ rec {
               bash ./opencode-db-args.test.sh
               touch $out
             '';
+        # #1050: opencode-db-prune.test.sh drives the real prune script
+        # against fixture SQLite DBs -- dry-run eligibility, the batched
+        # delete itself (newest/non-snapshot/sync-owned rows survive),
+        # --archive + --restore-session round-trip, integrity asserted.
+        # The destructive core had no executable test while every
+        # peripheral property (args #941, pids #472) was pinned. Needs
+        # gzip for the archive compressor fallback (zstd preferred when
+        # present) and coreutils for date/mktemp.
+        opencode-db-prune-tests =
+          pkgs.runCommandLocal "opencode-db-prune-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.sqlite pkgs.gzip pkgs.coreutils ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-prune.test.sh ./
+              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-prune.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-db-prune.test.sh
+              touch $out
+            '';
         # #557: var-folders-clean.test.sh (the #553 test for clean.sh's
         # /private/var/folders sweep) was run by nothing, tested a pasted
         # copy of the loops instead of the shipped logic, and exited 0 on
