@@ -5,6 +5,8 @@
 #   B  an existing host as template is copied under the new name
 #   C  a template file becomes the entry body
 #   D  --dry-run changes nothing; an unknown template fails, changing nothing
+#   E  everything also works under a BWK-strict awk shim (#1074: macOS awk
+#      rejects literal newlines in -v assignments; GNU/mawk do not)
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,6 +77,35 @@ cp "$TMP_ROOT/d/flake.nix" "$TMP_ROOT/d/before"
 diff -q "$TMP_ROOT/d/before" "$TMP_ROOT/d/flake.nix" >/dev/null && ok "D: dry-run changed nothing" || fail "D: dry-run changed the flake"
 (cd "$TMP_ROOT/d" && bash "$SCRIPT" NOSUCHHOST >/dev/null 2>&1) && fail "D: unknown template exited 0" || ok "D: unknown template fails"
 diff -q "$TMP_ROOT/d/before" "$TMP_ROOT/d/flake.nix" >/dev/null && ok "D: failed run changed nothing" || fail "D: failed run changed the flake"
+
+# E: BWK (macOS) awk strictness (#1074): macOS awk rejects a literal newline
+# in a -v assignment ("newline in string"); GNU awk/mawk accept it, so the
+# original multiline -v insertion passed on Linux and died on a Mac. This
+# shim enforces the BWK rule on any awk, then delegates to the real one.
+REAL_AWK="$(command -v awk)"
+mkdir -p "$TMP_ROOT/bwk-bin"
+cat > "$TMP_ROOT/bwk-bin/awk" <<EOS
+#!/usr/bin/env bash
+prev=""
+for arg in "\$@"; do
+  if [[ "\$prev" == -v && "\$arg" == *\$'\n'* ]]; then
+    echo "awk: newline in string" >&2
+    exit 2
+  fi
+  prev="\$arg"
+done
+exec "$REAL_AWK" "\$@"
+EOS
+chmod +x "$TMP_ROOT/bwk-bin/awk"
+new_flake "$TMP_ROOT/e"
+(cd "$TMP_ROOT/e" && PATH="$TMP_ROOT/bwk-bin:$STUB_BIN:$PATH" bash "$SCRIPT" >/dev/null) \
+  || fail "E: adopt failed under BWK-strict awk"
+grep -q '^      TESTMAC1 = {$' "$TMP_ROOT/e/flake.nix" \
+  && ok "E: TESTMAC1 added under BWK-strict awk" || fail "E: TESTMAC1 missing under BWK-strict awk"
+(cd "$TMP_ROOT/e" && PATH="$TMP_ROOT/bwk-bin:$STUB_BIN:$PATH" bash "$SCRIPT" MGM9JJ4V3R --host COPYMAC >/dev/null) \
+  || fail "E: template copy failed under BWK-strict awk"
+grep -q '^      COPYMAC = {$' "$TMP_ROOT/e/flake.nix" \
+  && ok "E: template copy works under BWK-strict awk" || fail "E: COPYMAC missing under BWK-strict awk"
 
 if (( failures )); then
   echo "$failures failure(s)" >&2

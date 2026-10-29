@@ -86,9 +86,9 @@ EOF
       { echo "adopt: template '$tmpl' is not a host name or a file" >&2; return 2; }
     local block
     block="$(awk -v n="$tmpl" '
-      $0 ~ "^      " n " = \\{$" { found = 1 }
+      $0 ~ "^      " n " = [{]$" { found = 1 }
       found { print }
-      found && /^      \};$/ { exit }
+      found && /^      };$/ { exit }
     ' "$flake")"
     [[ -n "$block" ]] ||
       { echo "adopt: no host '$tmpl' in $flake to copy (existing: $(list_hosts))" >&2; return 1; }
@@ -99,9 +99,9 @@ EOF
 # Host names currently in the hosts map, space-separated (for messages).
 list_hosts() {
   awk '
-    /^    hosts = \{$/ { in_hosts = 1; next }
-    in_hosts && /^    \};$/ { exit }
-    in_hosts && /^      [A-Za-z0-9_-]+ = \{$/ { gsub(/[ ={}]/, ""); printf "%s ", $0 }
+    /^    hosts = [{]$/ { in_hosts = 1; next }
+    in_hosts && /^    };$/ { exit }
+    in_hosts && /^      [A-Za-z0-9_-]+ = [{]$/ { gsub(/[ ={}]/, ""); printf "%s ", $0 }
   ' "$flake"
 }
 
@@ -121,15 +121,29 @@ if (( dry_run )); then
 fi
 
 tmp="$(mktemp "${flake}.adopt.XXXXXX")"
-trap 'rm -f "$tmp"' EXIT
-awk -v block="$block" '
-  /^    hosts = \{$/ { print; print block; done = 1; next }
+blockfile="$(mktemp "${flake}.adopt-block.XXXXXX")"
+trap 'rm -f "$tmp" "$blockfile"' EXIT
+printf '%s\n' "$block" >"$blockfile"
+# The block reaches awk through a file, never a -v assignment: macOS awk
+# (BWK) rejects a literal newline in a -v value ("newline in string"), so
+# the first version of this script died here on a Mac -- and its || handler
+# then misreported that as a missing hosts map (#1074). GNU awk and mawk
+# accept multiline -v, which is why Linux testing missed it.
+awk -v blockfile="$blockfile" '
+  /^    hosts = [{]$/ {
+    print
+    while ((getline line < blockfile) > 0) print line
+    close(blockfile)
+    done = 1
+    next
+  }
   { print }
   END { if (!done) exit 1 }
 ' "$flake" >"$tmp" || { echo "adopt: no 'hosts = {' map found in $flake" >&2; exit 1; }
 chmod 644 "$tmp"
 mv "$tmp" "$flake"
 trap - EXIT
+rm -f "$blockfile"
 
 # No nixfmt pass: the inserted block is written in nixfmt style already, and
 # flake.nix carries pre-existing formatting drift, so formatting the whole

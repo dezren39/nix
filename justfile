@@ -129,6 +129,11 @@ mcpx-check:
 rebuild:
     ./rebuild.sh
 
+# Adopt this Mac as a darwin host: `just adopt [TEMPLATE]` (see pkgs/adopt)
+[group('nix')]
+adopt *args:
+    ./adopt {{ args }}
+
 # Three entry points into one implementation (simple-rebuild.sh), split by
 # privilege: build needs no sudo and runs unattended, activate needs root.
 # Each commits --allow-empty to mark that it happened -- a build names the
