@@ -6,6 +6,21 @@
 
 set -euo pipefail
 
+usage() {
+    echo "Usage: search.sh"
+}
+
+# This script takes no arguments (#1158): any argument was silently
+# ignored and the full scan ran with exit 0. Reject the first argument
+# by name, with usage on stderr and exit 2, before any brew call --
+# the house argument contract. --help prints usage and exits 0.
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        *) echo "search: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+fi
+
 # Get list of all Homebrew-installed apps. Capture `brew list --cask`
 # once, with its exit status checked (#957): the old process
 # substitutions hid a failed `brew list` — its status was invisible
