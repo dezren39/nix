@@ -18,6 +18,9 @@ ignored. These probes pin the new contract:
 - A package file that is valid JSON with the wrong shape (non-object
   top level / dependencies / packages / entry) exits 2 naming the
   file, no traceback (#1159).
+- A package-lock entry whose version is present but not a string
+  exits 2 naming the file and entry, with no regenerate advice
+  (#1204) -- malformed input, not drift.
 
 Run: python3 check-lock-sync.test.py  (exit 0 = all probes passed)
 """
@@ -150,6 +153,32 @@ def main():
             json.dumps({"packages": {"node_modules/example-dep": "1.0.0"}}),
             os.path.join("package-lock.json"),
         )
+
+        # Non-string entry version (#1204): malformed input, exit 2
+        # naming package-lock.json -- never exit-1 drift with the
+        # "Regenerate bun.lock" remedy, which cannot fix a bad file.
+        for name, value in (("number", 123), ("list", ["1.0.0"]),
+                            ("bool", True)):
+            d = os.path.join(tmp, f"nonstring-version-{name}")
+            seed_package(d)
+            write(
+                os.path.join(d, "package-lock.json"),
+                json.dumps(
+                    {"packages": {
+                        "node_modules/example-dep": {"version": value}}}
+                ),
+            )
+            result = run(d)
+            expect_invocation_error(
+                f"non-string entry version ({name})", result,
+                os.path.join("package-lock.json"),
+            )
+            check(
+                f"non-string entry version ({name}) names the entry",
+                "node_modules/example-dep" in result.stderr
+                and "Regenerate" not in result.stderr,
+                f"(stderr={result.stderr!r})",
+            )
 
         # In-sync fixture: exit 0.
         synced = os.path.join(tmp, "synced")

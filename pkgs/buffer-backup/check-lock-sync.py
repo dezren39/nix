@@ -54,7 +54,17 @@ def npm_versions(lock_path: Path) -> dict[str, str]:
                 f"{lock_path}: 'packages' entry '{key}' must be an object"
             )
         if key.startswith("node_modules/") and "version" in entry:
-            versions[key.removeprefix("node_modules/")] = entry["version"]
+            version = entry["version"]
+            # Scalar shape (#1204): as with the container shapes above,
+            # a present-but-non-string version is malformed input --
+            # main() maps this ValueError to exit 2 -- not a mismatch
+            # to report as drift with regenerate advice.
+            if not isinstance(version, str):
+                raise ValueError(
+                    f"{lock_path}: 'packages' entry '{key}'"
+                    " 'version' must be a string"
+                )
+            versions[key.removeprefix("node_modules/")] = version
     return versions
 
 
