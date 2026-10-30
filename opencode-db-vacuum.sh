@@ -29,6 +29,17 @@
 
 set -euo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Sourced up front because the argument parser below uses
+# lib/common.sh's guard helpers (arg_die and friends) -- design #1145
+# phase 2 (#1147), the clean.sh SELF_DIR precedent. die() below stays
+# for runtime failures (exit 1); parse errors go through the shared
+# helpers (exit 2, usage on stderr).
+# shellcheck source=lib/common.sh
+. "$SELF_DIR/lib/common.sh"
+ARG_PROGRAM="opencode-db-vacuum"
+
 DB_DEFAULT="${HOME}/.local/share/opencode/opencode.db"
 DB="$DB_DEFAULT"
 DB_SET=0
@@ -166,15 +177,15 @@ EOF
 # destructive operation to a different database with no error.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; [ "$DB_SET" -eq 0 ] || die "--db may be given only once"; DB="$2"; DB_SET=1; shift 2 ;;
-    --into) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--into needs a path"; [ "$INTO_SET" -eq 0 ] || die "--into may be given only once"; INTO="$2"; INTO_SET=1; shift 2 ;;
+    --db) arg_require_value "$1" "${2:-}"; arg_once "$1" DB_SET; DB="$2"; shift 2 ;;
+    --into) arg_require_value "$1" "${2:-}"; arg_once "$1" INTO_SET; INTO="$2"; shift 2 ;;
     --auto-vacuum) SET_AUTOVACUUM=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-backup) KEEP_BACKUP=0; shift ;;
     --force) FORCE=1; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "unknown option: $1 (try --help)" ;;
+    *) arg_die "unknown option: $1 (try --help)" ;;
   esac
 done
 

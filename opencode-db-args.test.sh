@@ -22,6 +22,12 @@ set -u
 
 cd "$(dirname "$0")" || exit
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Shared conformance probe matrix (design #1145; phase 2 / #1147 folds
+# this suite into it and extends it to opencode-db-backup-prune.sh).
+# shellcheck source=lib/arg-probe.sh
+. "$SELF_DIR/lib/arg-probe.sh"
+
 HOME="$(mktemp -d)"
 export HOME
 trap 'rm -rf "$HOME"' EXIT
@@ -48,6 +54,14 @@ check_rejected() {
 
 VAC=./opencode-db-vacuum.sh
 PRUNE=./opencode-db-prune.sh
+BP=./opencode-db-backup-prune.sh
+
+# run <script> <args...> -- sets OUT, ERR, STATUS (lib/arg-probe.sh harness)
+run() {
+  local script="$1"; shift
+  OUT="$(bash "$script" "$@" 2>"$HOME/probe-err")"; STATUS=$?
+  ERR="$(cat "$HOME/probe-err")"
+}
 
 # Flag-shaped values: the swallowed flag is the dangerous case (#930).
 for opt in --db --into; do
@@ -256,6 +270,47 @@ SQL
     ok "vacuum refuses missing-message DB up front, no compacted copy"
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# Shared probe matrix (lib/arg-probe.sh), extended to backup-prune (#1147):
+# every bad invocation must exit 2 (the contract exit -- the migration onto
+# lib/common.sh helpers moved vacuum/prune parse errors from die's exit 1
+# to arg_die's exit 2), name the option, and have no side effect (all rows
+# are parse-time, before any work). Accepted rows must exit 0.
+# ---------------------------------------------------------------------------
+# vacuum
+probe_rejected "--bogus" "$VAC" --bogus
+probe_rejected "--db requires a value" "$VAC" --db
+probe_rejected "--db requires a value" "$VAC" --db --dry-run
+probe_rejected "--into may be given only once" "$VAC" --into /tmp/a --into /tmp/b
+probe_accepted "$VAC" --help
+# prune
+probe_rejected "--bogus" "$PRUNE" --bogus
+probe_rejected "--db requires a value" "$PRUNE" --db
+probe_rejected "--batch requires a value" "$PRUNE" --batch --apply
+probe_rejected "--db may be given only once" "$PRUNE" --db /tmp/a --db /tmp/b
+probe_rejected "--backup and --no-backup may not be combined" "$PRUNE" --backup /tmp/a --no-backup
+probe_rejected "--backup and --no-backup may not be combined" "$PRUNE" --no-backup --backup /tmp/a
+probe_rejected "--protect-days" "$PRUNE" --protect-days abc
+probe_rejected "--protect-days" "$PRUNE" --protect-days 99999999999999999999999
+probe_rejected "--batch" "$PRUNE" --batch 0
+probe_rejected "--batch" "$PRUNE" --batch abc
+probe_accepted "$PRUNE" --help
+# backup-prune (new to the shared matrix in #1147)
+probe_rejected "--bogus" "$BP" --bogus
+probe_rejected "--dir requires a value" "$BP" --dir
+probe_rejected "--keep requires a value" "$BP" --keep --apply
+probe_rejected "--dir may be given only once" "$BP" --dir /tmp/a --dir /tmp/b
+probe_rejected "--keep may be given only once" "$BP" --keep 1 --keep 2
+probe_rejected "--apply and --dry-run may not be combined" "$BP" --apply --dry-run
+probe_rejected "--apply and --dry-run may not be combined" "$BP" --dry-run --apply
+probe_rejected "--keep" "$BP" --keep 0
+probe_rejected "--keep" "$BP" --keep abc
+probe_rejected "--keep" "$BP" --keep 99999999999999999999999
+probe_rejected "--max-age-days" "$BP" --max-age-days abc
+probe_rejected "--max-age-days" "$BP" --max-age-days 999999999999999999999
+probe_accepted "$BP" --help
+probe_accepted "$BP" --dir "$HOME" --keep 08
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failure(s)" >&2
