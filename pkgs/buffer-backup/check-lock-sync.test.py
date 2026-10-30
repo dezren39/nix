@@ -15,6 +15,9 @@ ignored. These probes pin the new contract:
   traceback.
 - The old signals are unchanged: 0 = in sync, 1 = out of sync with
   the original message.
+- A package file that is valid JSON with the wrong shape (non-object
+  top level / dependencies / packages / entry) exits 2 naming the
+  file, no traceback (#1159).
 
 Run: python3 check-lock-sync.test.py  (exit 0 = all probes passed)
 """
@@ -114,6 +117,38 @@ def main():
         seed_package(partial, with_bun=False)
         expect_invocation_error(
             "missing bun.lock", run(partial), os.path.join(partial, "bun.lock")
+        )
+
+        # Wrong-shaped package files (#1159): valid JSON, wrong shape
+        # must exit 2 naming the offending file, never traceback at 1.
+        def wrong_shape(name, filename, text, needle):
+            d = os.path.join(tmp, name)
+            seed_package(d)
+            write(os.path.join(d, filename), text)
+            expect_invocation_error(name, run(d), needle)
+
+        wrong_shape(
+            "package.json is a list", "package.json", "[]",
+            os.path.join("package.json"),
+        )
+        wrong_shape(
+            "package.json dependencies is a list", "package.json",
+            json.dumps({"dependencies": []}),
+            os.path.join("package.json"),
+        )
+        wrong_shape(
+            "package-lock.json is a list", "package-lock.json", "[]",
+            os.path.join("package-lock.json"),
+        )
+        wrong_shape(
+            "package-lock packages is a list", "package-lock.json",
+            json.dumps({"packages": []}),
+            os.path.join("package-lock.json"),
+        )
+        wrong_shape(
+            "package-lock entry is not an object", "package-lock.json",
+            json.dumps({"packages": {"node_modules/example-dep": "1.0.0"}}),
+            os.path.join("package-lock.json"),
         )
 
         # In-sync fixture: exit 0.
