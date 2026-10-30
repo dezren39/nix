@@ -43,13 +43,7 @@ name: buffer-backup renovate bun sync
 # lockfiles gets no sync run and still fails buffer-backup-lock-sync.
 
 "on":
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [main]
-    paths:
-      - "pkgs/buffer-backup/package.json"
-      - "pkgs/buffer-backup/package-lock.json"
-
+  workflow_dispatch:
 permissions:
   contents: read
 
@@ -57,7 +51,7 @@ concurrency:
   # One sync per PR at a time, never cancelled mid-push: a cancelled
   # run between commit and push would strand the regenerated lock.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   bun-sync:

@@ -17,14 +17,6 @@ name: flake packages build
 #     package, fail-fast off so one broken package never hides another.
 
 on:
-  pull_request:
-    paths:
-      - "**.nix"
-      - "flake.nix"
-      - "flake.lock"
-      - "pkgs/**"
-      - "symlinker.sh"
-      - ".github/workflows/flake-packages-build.yml"
   push:
     branches: [main]
     paths:

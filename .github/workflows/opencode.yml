@@ -13,7 +13,7 @@ on:
 # queue every run (mirrors the openchamber fix for the same flaw).
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
   queue: max
 
 jobs:

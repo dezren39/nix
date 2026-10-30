@@ -27,13 +27,6 @@ name: buffer-backup lock sync
 # they disagree.
 
 "on":
-  pull_request:
-    paths:
-      - "pkgs/buffer-backup/**"
-      - ".github/workflows/buffer-backup-lock-sync.yml"
-      - ".github/workflows/buffer-backup-renovate-bun-sync.yml"
-      - "pkgs/bun-bin/hashes.json"
-      - "pkgs/bun-bin/check-pin-sync.py"
   push:
     branches: [main]
     paths:

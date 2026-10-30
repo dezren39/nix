@@ -22,7 +22,7 @@ permissions:
 
 concurrency:
   group: branch-cleanup
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   cleanup:

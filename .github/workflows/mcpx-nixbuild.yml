@@ -21,12 +21,6 @@ name: mcpx nix build
 #     backstop means nothing the old PR build covered can vanish.
 
 on:
-  pull_request:
-    paths:
-      - "**.nix"
-      - "flake.nix"
-      - "flake.lock"
-      - ".github/workflows/mcpx-nixbuild.yml"
   push:
     branches: [main]
     paths:
