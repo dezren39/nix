@@ -130,6 +130,25 @@ case "$ERR" in
   *) fail "--no-follow --follow did not name the conflict (got: $ERR)" ;;
 esac
 
+# --- --system with --no-system is a conflict (#1135) ---
+# git-maintain-repos rejected this pair in #1124, but spotlight's two
+# flags both wrote the single SCOPE_SET, so the last one silently won.
+for pair in "--system --no-system" "--no-system --system"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "scope pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"spotlight-exclude-artifacts: --system and --no-system may not be combined"*) echo "ok: scope pair '$pair' rejected as a conflict" ;;
+    *) fail "scope pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --dry-run --path "$VALID" --system
+[ "$STATUS" -eq 0 ] || fail "single --system exited $STATUS (want 0)"
+echo "ok: single --system still accepted"
+run --dry-run --path "$VALID" --no-system
+[ "$STATUS" -eq 0 ] || fail "single --no-system exited $STATUS (want 0)"
+echo "ok: single --no-system still accepted"
+
 # ─── No side effects from the rejected runs ────────────────────────────
 if [ -z "$(markers)" ]; then
   echo "ok: rejected runs wrote no markers"

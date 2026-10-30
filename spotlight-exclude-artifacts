@@ -108,6 +108,8 @@ DO_WALK=1
 DO_SYSTEM=1
 SCOPE_SET=0
 AUTO_SET=0
+SYSTEM_SET=0
+NO_SYSTEM_SET=0
 DRY_RUN=0
 ROOT=""
 ROOT_SET=0
@@ -120,8 +122,8 @@ FOLLOW_GIVEN=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto) AUTO_SET=1 ;;                        # names the default scope
-    --no-system) DO_WALK=1; DO_SYSTEM=0; SCOPE_SET=1 ;;
-    --system) DO_WALK=0; DO_SYSTEM=1; SCOPE_SET=1 ;;
+    --no-system) { [ "$SYSTEM_SET" -eq 0 ] || { echo "spotlight-exclude-artifacts: --system and --no-system may not be combined" >&2; usage >&2; exit 2; }; DO_WALK=1; DO_SYSTEM=0; SCOPE_SET=1; NO_SYSTEM_SET=1; } ;;
+    --system) { [ "$NO_SYSTEM_SET" -eq 0 ] || { echo "spotlight-exclude-artifacts: --system and --no-system may not be combined" >&2; usage >&2; exit 2; }; DO_WALK=0; DO_SYSTEM=1; SCOPE_SET=1; SYSTEM_SET=1; } ;;
     --path) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$ROOT_SET" -eq 0 ] || { echo "spotlight-exclude-artifacts: unexpected argument: $2 (target already set to $ROOT)" >&2; usage >&2; exit 2; }; ROOT="$2"; ROOT_SET=1; shift; } ;;
     --recursive|--walk) DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1; RECURSIVE_SET=1 ;;
