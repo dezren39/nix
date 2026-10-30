@@ -15,6 +15,25 @@
 # corrupting anything.
 
 set -euo pipefail
+
+usage() {
+    echo "Usage: full-clean.sh"
+}
+
+# This script takes no arguments (#1167): any argument was silently
+# ignored and the full destructive sequence (switch, prune --apply,
+# vacuum, sudo GC) ran with exit 0 -- so --help and --dry-run cleaned
+# instead of printing usage / doing nothing. Reject the first argument
+# by name, with usage on stderr and exit 2, before any step -- the
+# house argument contract (#1145 rules 1 and 8). --help prints usage
+# and exits 0.
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        *) echo "full-clean: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+fi
+
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }

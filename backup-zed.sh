@@ -1,4 +1,17 @@
 #!/usr/bin/env zsh
+
+# This script takes no arguments (#1167): any argument was silently
+# ignored and the full backup ran with exit 0. Reject the first
+# argument by name, with usage on stderr and exit 2, before any
+# copy -- the house argument contract (#1145 rules 1 and 8).
+# --help prints usage and exits 0, with no side effects.
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help) echo "Usage: backup-zed.sh"; exit 0 ;;
+        *) echo "backup-zed: unknown argument: $1" >&2; echo "Usage: backup-zed.sh" >&2; exit 2 ;;
+    esac
+fi
+
 path=("$HOME/.nix-profile/bin" "/nix/var/nix/profiles/default/bin" "/run/current-system/sw/bin" "$path[@]")
 set -exuo pipefail
 #ulimit -n $(ulimit -Hn)
