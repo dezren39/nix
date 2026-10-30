@@ -18,6 +18,9 @@
 #   unrelated CSS/JS content -> exit 1, Patch 1, Patch 2, Patch 5 named
 #   missing JS file          -> exit 1, Patch 5 named as missing-file
 #   missing CSS file         -> exit 1, CSS-not-found error
+#   --help                   -> exit 0, usage, fixture files unchanged
+#   unknown argument         -> exit 2 naming it, usage on stderr,
+#                               fixture files unchanged (#1177)
 #   no override (when no real Insiders app is installed)
 #                            -> exit 1 naming the default /Applications
 #                               path, pinning the seam's default
@@ -123,6 +126,30 @@ if [ ! -e "$DEFAULT_CSS" ]; then
 else
   echo "ok: seam-default case skipped (a real Insiders app is installed here)"
 fi
+
+# ─── --help: exit 0, usage, no files modified (#1177) ─────────────────
+make_fixture
+CSS_SUM="$(sha256sum "$CSS")"; JS_SUM="$(sha256sum "$JS")"
+OUT="$(VSCODE_INSIDERS_APP_DIR="$APP" bash "$SCRIPT" --help 2>"$TMP_ROOT/help.err")"
+STATUS=$?
+[ "$STATUS" -eq 0 ] || fail "--help exited $STATUS (want 0; got: $OUT)"
+case "$OUT" in
+  *"Usage: bash ~/nix/patch-vscode-insiders.sh"*) echo "ok: --help prints usage" ;;
+  *) fail "--help did not print usage (got: $OUT)" ;;
+esac
+[ "$(sha256sum "$CSS")" = "$CSS_SUM" ] && [ "$(sha256sum "$JS")" = "$JS_SUM" ] \
+  && echo "ok: --help modified no files" || fail "--help modified a fixture file"
+
+# ─── Unknown argument: exit 2 naming it, usage on stderr, no change ──
+OUT="$(VSCODE_INSIDERS_APP_DIR="$APP" bash "$SCRIPT" --bogus 2>"$TMP_ROOT/bogus.err")"
+STATUS=$?
+[ "$STATUS" -eq 2 ] || fail "unknown-argument run exited $STATUS (want 2; got: $OUT)"
+grep -q -- "--bogus" "$TMP_ROOT/bogus.err" \
+  && echo "ok: unknown argument named on stderr" || fail "unknown argument not named on stderr"
+grep -q "Usage: bash ~/nix/patch-vscode-insiders.sh" "$TMP_ROOT/bogus.err" \
+  && echo "ok: unknown argument prints usage on stderr" || fail "unknown argument did not print usage on stderr"
+[ "$(sha256sum "$CSS")" = "$CSS_SUM" ] && [ "$(sha256sum "$JS")" = "$JS_SUM" ] \
+  && echo "ok: unknown argument modified no files" || fail "unknown argument modified a fixture file"
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all patch-vscode-insiders contract checks passed"

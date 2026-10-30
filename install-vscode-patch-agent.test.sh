@@ -15,6 +15,9 @@
 #                 naming the directory/write step, no success banner
 #   happy path:   dir pre-exists -> exit 0, banner, plist byte-identical
 #                 to the missing-dir run
+#   --help:       exit 0, usage printed, no plist written (#1177)
+#   unknown arg:  exit 2 naming it, usage in output, no plist written,
+#                 no success banner (#1177)
 #
 # Run: bash install-vscode-patch-agent.test.sh (exit 0 = all passed)
 set -u
@@ -95,6 +98,27 @@ rc=$(run_installer "$home4" "$stub" 0 "$work/out4")
 [ "$rc" -eq 0 ]; check "945 happy path exits 0" $?
 grep -q "Installed and loaded" "$work/out4"; check "945 happy path banner printed" $?
 cmp -s "$home4/$PLIST_REL" "$work/golden.plist"; check "945 happy path plist byte-identical" $?
+
+# --help: usage, exit 0, no side effects (#1177).
+home5="$work/home5"
+make_home "$home5"
+HOME="$home5" PATH="$stub:$PATH" STUB_LOAD_RC=0 bash "$INSTALLER" --help > "$work/out5" 2>&1
+rc=$?
+[ "$rc" -eq 0 ]; check "1177 --help exits 0" $?
+grep -q "Usage: bash ~/nix/install-vscode-patch-agent.sh" "$work/out5"; check "1177 --help prints usage" $?
+[ ! -e "$home5/$PLIST_REL" ]; check "1177 --help writes no plist" $?
+[ ! -e "$home5/Library/LaunchAgents" ]; check "1177 --help creates no LaunchAgents dir" $?
+
+# unknown argument: exit 2 naming it, no side effects (#1177).
+home6="$work/home6"
+make_home "$home6"
+HOME="$home6" PATH="$stub:$PATH" STUB_LOAD_RC=0 bash "$INSTALLER" --bogus > "$work/out6" 2> "$work/err6"
+rc=$?
+[ "$rc" -eq 2 ]; check "1177 unknown argument exits 2" $?
+grep -q -- "--bogus" "$work/err6"; check "1177 unknown argument named on stderr" $?
+grep -q "Usage: bash ~/nix/install-vscode-patch-agent.sh" "$work/err6"; check "1177 unknown argument prints usage on stderr" $?
+[ ! -e "$home6/$PLIST_REL" ]; check "1177 unknown argument writes no plist" $?
+grep -q "Installed and loaded" "$work/out6"; [ $? -ne 0 ]; check "1177 unknown argument prints no success banner" $?
 
 if [ "$failures" -gt 0 ]; then
   echo "FAILURES: $failures"
