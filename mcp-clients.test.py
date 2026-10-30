@@ -25,6 +25,11 @@ Covers the two PR #904 fallout bugs:
   (including multi-line values and non-mcp_servers dotted keys) are
   preserved, and the result parses as valid TOML.
 
+- #1217: a JSON client whose mcpServers is present but not an object
+  (string, list, number, bool) is a #906 per-client failure -- named on
+  stderr, file byte-for-byte unchanged, other clients still enforced,
+  exit 1; absent or null mcpServers is still treated as no servers.
+
 - #1133: any argument other than the single optional --dry-run is
   rejected before any file is read or written -- usage on stderr naming
   the offending argument, exit 2, seeded files byte-unchanged, no backup.
@@ -87,6 +92,35 @@ check("906 Claude still enforced", '"mcpx"' in read(os.path.join(home, ".claude.
 check("906 Codex still enforced", "[mcp_servers.mcpx]" in read(os.path.join(home, ".codex/config.toml")))
 check("906 Zed still enforced", '"context_servers"' in read(os.path.join(home, ".config/zed/settings.json")))
 shutil.rmtree(home)
+
+# #1217: wrong-shape mcpServers (string, list, number, bool) in a JSON
+# client -- a #906 failure for that client only: exit 1, Claude Code and
+# its file named on stderr, the bad file byte-for-byte unchanged, and
+# the well-formed Copilot client still enforced.
+for shape, label in (('"notanobject"', "string"), ('["a", "b"]', "list"),
+                     ('42', "number"), ('true', "bool")):
+    home = fresh_home()
+    seed(home, ".copilot/mcp-config.json", '{"mcpServers": {"other": {"command": "x"}}}')
+    claude_path = seed(home, ".claude.json", '{"mcpServers": ' + shape + '}')
+    seeded = read(claude_path)
+    r = run(home)
+    check(f"1217 {label} mcpServers exits 1", r.returncode == 1, f"exit={r.returncode} stderr={r.stderr}")
+    check(f"1217 {label} stderr names Claude Code and its file",
+          "Claude Code" in r.stderr and ".claude.json" in r.stderr, r.stderr)
+    check(f"1217 {label} bad file byte-for-byte unchanged", read(claude_path) == seeded)
+    check(f"1217 {label} Copilot still enforced",
+          '"mcpx"' in read(os.path.join(home, ".copilot/mcp-config.json")))
+    shutil.rmtree(home)
+
+# #1217: absent or null mcpServers is still treated as no servers.
+for seed_text, label in (('{}', "absent"), ('{"mcpServers": null}', "null")):
+    home = fresh_home()
+    claude_path = seed(home, ".claude.json", seed_text)
+    r = run(home)
+    check(f"1217 {label} mcpServers enforced at exit 0",
+          r.returncode == 0 and '"mcpx"' in read(claude_path),
+          f"exit={r.returncode} stderr={r.stderr}")
+    shutil.rmtree(home)
 
 # Happy path: all four well-formed, everything enforced, exit 0, second run no-op.
 home = fresh_home()

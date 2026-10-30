@@ -72,9 +72,17 @@ def json_client(path, entry):
     with open(path) as fh:
         data = json.load(fh)
     want = {"mcpx": entry}
-    if data.get("mcpServers") == want:
+    servers = data.get("mcpServers")
+    if servers is not None and not isinstance(servers, dict):
+        # Valid JSON, wrong shape (#1217): a string's characters or a
+        # list's elements are not server names -- treat it as the
+        # malformed client config #906 requires (main names the client
+        # and file, leaves this file unchanged, exits non-zero) instead
+        # of silently rewriting it at exit 0 with a fabricated report.
+        raise ValueError(f"mcpServers is a {type(servers).__name__}, not an object; not changed")
+    if servers == want:
         return
-    removed = sorted(set(data.get("mcpServers") or {}) - {"mcpx"})
+    removed = sorted(set(servers or {}) - {"mcpx"})
     data["mcpServers"] = want
     write(path, json.dumps(data, indent=2) + "\n", f"mcpServers = mcpx only (removed: {', '.join(removed) or 'none'})")
 
