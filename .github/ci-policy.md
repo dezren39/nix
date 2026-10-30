@@ -57,6 +57,9 @@ three watched main-tier workflows (`mcpx nix build`,
 `flake packages build`, or `flake checks build`) on
 `main` files (or appends to) a `main-broken` issue, keyed separately
 per workflow (the workflow name is part of the Breakage-ID). This repo has
-no Jules door, so the issue is released to the fleet queue directly
-(`queue/queued` label; priority-90 packet enqueue is fleet-side via
-that label + the fleet monitor).
+no Jules door, so the watcher enqueues the fix task itself at filing
+time via the pm-dispatch-queue action
+(`developing-today/code/.github/actions/pm-dispatch-queue@main`) at
+critical priority, attached to the issue it just filed. If that
+enqueue step fails, the issue carries the `queue/queued` label and
+the fleet monitor enqueues it as the fallback.
