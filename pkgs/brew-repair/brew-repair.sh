@@ -273,3 +273,7 @@ if [[ ${#FAILED_LIST[@]} -gt 0 ]]; then
     echo "  brew reinstall --cask $cask"
   done
 fi
+
+if [[ $FAILED -gt 0 ]]; then
+  exit 1
+fi
