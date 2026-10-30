@@ -102,3 +102,17 @@ jobs:
         env:
           CHECK: ${{ matrix.check }}
         run: nix build ".#checks.x86_64-linux.${CHECK}" --print-build-logs
+
+  ci-fix:
+    needs: [nix-eval, nix-build]
+    if: failure()
+    permissions:
+      id-token: write
+      issues: read
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: developing-today/code/.github/actions/pm-dispatch-ci-fix@main
+        continue-on-error: true
+        env:
+          GH_TOKEN: "${{ github.token }}"
