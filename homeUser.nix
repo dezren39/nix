@@ -178,6 +178,30 @@ lib.recursiveUpdate {
       # configuration.nix. The opencode wrapper forces it regardless.
       OPENCODE_DB = "$HOME/.local/share/opencode/opencode.db";
 
+      # OpenCode feature flags (Drew, 2026-10-20): both web-search backends
+      # (Exa + Parallel) so the websearch tool works with any provider, and
+      # the interesting experimental features. OPENCODE_EXPERIMENTAL is the
+      # umbrella (code mode already keys off it). NATIVE_LLM is deliberately
+      # not enabled yet.
+      OPENCODE_ENABLE_EXA = "1";
+      OPENCODE_ENABLE_PARALLEL = "1";
+      OPENCODE_ENABLE_EXPERIMENTAL_MODELS = "1";
+      OPENCODE_EXPERIMENTAL = "1";
+      OPENCODE_EXPERIMENTAL_PARALLEL = "1";
+      OPENCODE_EXPERIMENTAL_PLAN_MODE = "1";
+      OPENCODE_EXPERIMENTAL_SCOUT = "1";
+      OPENCODE_EXPERIMENTAL_WORKSPACES = "1";
+      OPENCODE_EXPERIMENTAL_LSP_TOOL = "1";
+      OPENCODE_EXPERIMENTAL_OXFMT = "1";
+      OPENCODE_EXPERIMENTAL_EXA = "1";
+      OPENCODE_EXPERIMENTAL_EVENT_SYSTEM = "1";
+      OPENCODE_EXPERIMENTAL_ICON_DISCOVERY = "1";
+      OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT = "1";
+      # File watcher off by default (Drew, 2026-10-20): the working trees
+      # are giant, and watching costs more than the live-external-edit
+      # awareness it buys. Diffs are git-computed on demand either way.
+      OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER = "1";
+
       # Go: user-local install directory
       GOPATH = "$HOME/go";
       GOBIN = "$HOME/go/bin";
