@@ -12,6 +12,14 @@ name: main-broken watcher
 # Breakage-ID. This repo has no Jules door, so the issue is released to
 # the fleet queue directly at filing time.
 #
+# Matching is by workflow-file PATH, never by name (#1187): the
+# `workflow_run` `workflows:` filter matches on the workflow name, and
+# a workflow whose file is invalid is recorded under its file path,
+# not its name - so a name filter is blind to exactly the most severe
+# breakage (the whole workflow dead, zero jobs). The trigger below
+# therefore carries no name list, and the job gates on
+# `github.event.workflow_run.path` instead.
+#
 # Hybrid pm-dispatch migration (developing-today/code#2672): the issue
 # creation stays in this workflow because the pm-stack GitHub App is
 # not installed on dezren39/nix, so pm-dispatch cannot create issues
@@ -24,7 +32,9 @@ name: main-broken watcher
 
 "on":
   workflow_run:
-    workflows: ["mcpx nix build", "flake packages build", "flake checks build"]
+    # No `workflows:` list - see the header note (#1187). This fires
+    # for every completed workflow run on main; the job's path gate
+    # below is what selects the three watched workflows.
     branches: [main]
     types: [completed]
 
@@ -40,7 +50,17 @@ concurrency:
 jobs:
   file-breakage:
     name: file main-broken issue
-    if: github.event.workflow_run.conclusion == 'failure'
+    # Path gate (#1187): `.github/workflows/mcpx-nixbuild.yml` is
+    # `mcpx nix build`, `flake-packages-build.yml` is
+    # `flake packages build`, `flake-checks-build.yml` is
+    # `flake checks build`. The path is recorded even when the
+    # workflow file is invalid (run 41057856448, #1186), where the
+    # name is the path itself and no name-based filter can match.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      (github.event.workflow_run.path == '.github/workflows/mcpx-nixbuild.yml' ||
+      github.event.workflow_run.path == '.github/workflows/flake-packages-build.yml' ||
+      github.event.workflow_run.path == '.github/workflows/flake-checks-build.yml')
     # Job-level permissions replace the workflow-level grants for this
     # job, so actions/issues are restated here. id-token: write is
     # required by the pm-dispatch-queue action (OIDC, audience
@@ -59,6 +79,7 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
@@ -99,6 +120,7 @@ jobs:
           {
             echo "Main-tier workflow \`$WORKFLOW_NAME\` failed on \`main\`."
             echo ""
+            echo "- Workflow file: $WORKFLOW_PATH"
             echo "- Run: $RUN_URL"
             echo "- Failing jobs: $failing_csv"
             echo "- Head commit: $HEAD_SHA"
