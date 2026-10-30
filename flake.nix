@@ -512,7 +512,13 @@ rec {
         simple-rebuild-tests =
           pkgs.runCommandLocal "simple-rebuild-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.zsh pkgs.coreutils pkgs.gnugrep pkgs.gawk ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.zsh
+                pkgs.coreutils
+                pkgs.gnugrep
+                pkgs.gawk
+              ];
             }
             ''
               cp ${./simple-rebuild.sh} simple-rebuild.sh
@@ -607,7 +613,10 @@ rec {
         opencode-db-args-tests =
           pkgs.runCommandLocal "opencode-db-args-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.sqlite ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.sqlite
+              ];
               src = inputs.self;
             }
             ''
@@ -632,7 +641,12 @@ rec {
         opencode-db-prune-tests =
           pkgs.runCommandLocal "opencode-db-prune-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.sqlite pkgs.gzip pkgs.coreutils ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.sqlite
+                pkgs.gzip
+                pkgs.coreutils
+              ];
               src = inputs.self;
             }
             ''
@@ -656,7 +670,11 @@ rec {
         opencode-db-vacuum-tests =
           pkgs.runCommandLocal "opencode-db-vacuum-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.sqlite pkgs.coreutils ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.sqlite
+                pkgs.coreutils
+              ];
               src = inputs.self;
             }
             ''
@@ -679,7 +697,10 @@ rec {
         opencode-db-backup-prune-tests =
           pkgs.runCommandLocal "opencode-db-backup-prune-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.coreutils ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+              ];
               src = inputs.self;
             }
             ''
@@ -818,7 +839,10 @@ rec {
         git-discover-repos-tests =
           pkgs.runCommandLocal "git-discover-repos-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.git ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.git
+              ];
               src = inputs.self;
             }
             ''
