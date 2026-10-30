@@ -2,6 +2,23 @@
 # Install the launchd agent for auto-patching VSCode Insiders
 # Usage: bash ~/nix/install-vscode-patch-agent.sh
 
+usage() {
+    echo "Usage: bash ~/nix/install-vscode-patch-agent.sh"
+}
+
+# This script takes no arguments (#1177): any argument was silently
+# ignored and the full install (chmod, plist write, launchctl load)
+# ran with exit 0. Reject the first argument by name, with usage on
+# stderr and exit 2, before any install step -- the house argument
+# contract (#1167 / #1145 rules 1 and 8). --help prints usage and
+# exits 0 with no side effects.
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        *) echo "install-vscode-patch-agent: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+fi
+
 PLIST_PATH="$HOME/Library/LaunchAgents/com.drewry.patch-vscode-insiders.plist"
 PATCH_SCRIPT="$HOME/nix/patch-vscode-insiders.sh"
 

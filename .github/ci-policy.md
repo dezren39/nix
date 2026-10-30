@@ -42,10 +42,14 @@ Per-workflow application in this repo:
 - Scheduled singleton workflows keep `cancel-in-progress: false` by
   design (design §2.2: deliberately left alone): `branch-cleanup`
   holds that value (restored by #1178 after #1172 flipped it to
-  `true` without recording the change). `buffer-backup renovate
-  bun sync` is currently `true` — flipped by #1172, contrary to
-  §2.2; its functional repair is tracked separately in #1176, and
-  this doc records the actual value until that lands.
+  `true` without recording the change).
+- `buffer-backup renovate bun sync` — Renovate automation, not a
+  build check: a deliberate exception to the main-only trigger
+  policy, triggered by `pull_request` on the buffer-backup
+  lockfile inputs because it can only act in the context of the
+  Renovate PR it syncs (#1176). It likewise keeps
+  `cancel-in-progress: false` by design — a run is never cancelled
+  mid-push.
 
 Main tier failures are owned by the remediation chain
 (`main-broken-watcher.yml`, design §5): a failure of any of the
