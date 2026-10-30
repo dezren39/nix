@@ -18,6 +18,9 @@ ignored. These probes pin the new contract:
 - A package file that is valid JSON with the wrong shape (non-object
   top level / dependencies / packages / entry) exits 2 naming the
   file, no traceback (#1159).
+- A non-UTF-8 package.json, package-lock.json, or bun.lock exits 2
+  naming that file and noting it is not valid UTF-8, no traceback
+  (#1210) -- mirroring the check-pin-sync probes (#1189).
 - A package-lock entry whose version is present but not a string
   exits 2 naming the file and entry, with no regenerate advice
   (#1204) -- malformed input, not drift.
@@ -63,6 +66,11 @@ def expect_invocation_error(name, result, needle):
 def write(path, text):
     with open(path, "w") as fh:
         fh.write(text)
+
+
+def write_bytes(path, data):
+    with open(path, "wb") as fh:
+        fh.write(data)
 
 
 def seed_package(dirpath, bun_version="1.0.0", with_bun=True):
@@ -177,6 +185,23 @@ def main():
                 f"non-string entry version ({name}) names the entry",
                 "node_modules/example-dep" in result.stderr
                 and "Regenerate" not in result.stderr,
+                f"(stderr={result.stderr!r})",
+            )
+
+        # Non-UTF-8 package files (#1210): exit 2 naming the corrupt
+        # file and noting it is not valid UTF-8, no traceback -- the
+        # pre-fix error carried only a byte position, naming no file.
+        for filename in ("package.json", "package-lock.json", "bun.lock"):
+            d = os.path.join(tmp, f"non-utf8-{filename}")
+            seed_package(d)
+            write_bytes(os.path.join(d, filename), bytes([255, 254]) + b" not utf-8")
+            result = run(d)
+            expect_invocation_error(
+                f"non-UTF-8 {filename}", result, os.path.join(d, filename)
+            )
+            check(
+                f"non-UTF-8 {filename} notes the encoding problem",
+                "not valid UTF-8" in result.stderr,
                 f"(stderr={result.stderr!r})",
             )
 
