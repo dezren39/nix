@@ -3,8 +3,10 @@ name: main-broken watcher
 # CI policy: .github/ci-policy.md (design developing-today/code#1779 §5;
 # Phase 3, developing-today/code#1782).
 #
-# Watches the one main-tier build workflow (mcpx nix build) on main —
-# a single watched workflow, no workflow_run fan-out (the #304 lesson).
+# Watches the main-tier build workflows (mcpx nix build and flake
+# packages build) on main. The Breakage-ID includes the workflow
+# name, so each workflow's failures key their own chain — one filing
+# flow, no per-workflow fan-out copies (the #304 lesson).
 # On failure it files (or appends to) a `main-broken` issue keyed by
 # Breakage-ID. This repo has no Jules door, so the issue is released to
 # the fleet queue directly: the priority-90 packet enqueue itself is
@@ -12,7 +14,7 @@ name: main-broken watcher
 
 "on":
   workflow_run:
-    workflows: ["mcpx nix build"]
+    workflows: ["mcpx nix build", "flake packages build"]
     branches: [main]
     types: [completed]
 
