@@ -11,6 +11,7 @@
 #      one reports already-a-host and copying one as a template works
 #   G  a second positional TEMPLATE is rejected with exit 2 (#1080)
 #   H  a repeated --host or --flake is rejected with exit 2 (#1103)
+#   I  an empty --host or --flake value is rejected with exit 2 (#1212)
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -173,6 +174,21 @@ out="$(cd "$TMP_ROOT/h" && bash "$SCRIPT" --flake ./flake.nix --flake ./other.ni
 [[ "$out" == *"--flake may be given only once"* ]] && ok "H: error names the only-once rule for --flake" || fail "H: error does not name the only-once rule for --flake"
 diff -q "$TMP_ROOT/h/before" "$TMP_ROOT/h/flake.nix" >/dev/null && ok "H: rejected --flake run changed nothing" || fail "H: rejected --flake run changed the flake"
 (cd "$TMP_ROOT/h" && bash "$SCRIPT" --host SINGLE --flake ./flake.nix --dry-run >/dev/null) && ok "H: single --host/--flake still work" || fail "H: single --host/--flake exited non-zero"
+
+# I: an empty --host or --flake value is rejected (#1212)
+new_flake "$TMP_ROOT/i"
+cp "$TMP_ROOT/i/flake.nix" "$TMP_ROOT/i/before"
+out="$(cd "$TMP_ROOT/i" && bash "$SCRIPT" --host "" --dry-run 2>&1)"; rc=$?
+(( rc == 2 )) && ok "I: empty --host exits 2" || fail "I: empty --host exited $rc, want 2"
+[[ "$out" == *"--host value must not be empty"* ]] && ok "I: error names the empty --host rule" || fail "I: error does not name the empty --host rule"
+[[ "$out" == *"Usage: adopt"* ]] && ok "I: empty --host prints usage" || fail "I: empty --host does not print usage"
+diff -q "$TMP_ROOT/i/before" "$TMP_ROOT/i/flake.nix" >/dev/null && ok "I: rejected --host run changed nothing" || fail "I: rejected --host run changed the flake"
+out="$(cd "$TMP_ROOT/i" && bash "$SCRIPT" --flake "" --dry-run 2>&1)"; rc=$?
+(( rc == 2 )) && ok "I: empty --flake exits 2" || fail "I: empty --flake exited $rc, want 2"
+[[ "$out" == *"--flake value must not be empty"* ]] && ok "I: error names the empty --flake rule" || fail "I: error does not name the empty --flake rule"
+[[ "$out" == *"Usage: adopt"* ]] && ok "I: empty --flake prints usage" || fail "I: empty --flake does not print usage"
+diff -q "$TMP_ROOT/i/before" "$TMP_ROOT/i/flake.nix" >/dev/null && ok "I: rejected --flake run changed nothing" || fail "I: rejected --flake run changed the flake"
+(cd "$TMP_ROOT/i" && bash "$SCRIPT" --host VALIDMAC --dry-run >/dev/null) && ok "I: valid --host still works" || fail "I: valid --host run exited non-zero"
 
 if (( failures )); then
   echo "$failures failure(s)" >&2

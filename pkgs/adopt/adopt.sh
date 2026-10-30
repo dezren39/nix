@@ -46,6 +46,7 @@ dry_run=0
 while (( $# )); do
   case "$1" in
     --host)    [[ $# -ge 2 && "$2" != --* ]] || { echo "adopt: --host needs a value" >&2; exit 2; }
+               [[ -n "$2" ]] || { echo "adopt: --host value must not be empty" >&2; usage >&2; exit 2; }
                if (( host_set )); then
                  echo "adopt: --host may be given only once" >&2
                  usage >&2
@@ -53,6 +54,7 @@ while (( $# )); do
                fi
                host="$2"; host_set=1; shift ;;
     --flake)   [[ $# -ge 2 && "$2" != --* ]] || { echo "adopt: --flake needs a value" >&2; exit 2; }
+               [[ -n "$2" ]] || { echo "adopt: --flake value must not be empty" >&2; usage >&2; exit 2; }
                if (( flake_set )); then
                  echo "adopt: --flake may be given only once" >&2
                  usage >&2
