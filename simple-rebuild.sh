@@ -135,11 +135,33 @@ mode="all"
 generation=""
 no_commit=0
 usage="usage: ${0:t} [--no-commit] [--build-only|--activate-only [GENERATION]]"
+# --build-only and --activate-only are alternatives, not last-win (#1149).
+# The split is a privilege boundary (build needs no sudo, activate does),
+# so a pair that silently resolves to whichever came last can cross it in
+# either direction; a repeated --activate-only likewise silently discarded
+# the first GENERATION, and a GENERATION followed by --build-only was
+# stranded in a build run that ignores it, exit 0. Reject all three at
+# parse time, naming the flags, before any phase runs.
+seen_build=0
+seen_activate=0
 while (( $# )); do
   case "$1" in
-    --build-only)    mode="build" ;;
+    --build-only)
+      if (( seen_activate )); then
+        echo "simple-rebuild.sh: --build-only conflicts with --activate-only (choose one)" >&2
+        exit 2
+      fi
+      seen_build=1; mode="build" ;;
     --activate-only)
-      mode="activate"
+      if (( seen_activate )); then
+        echo "simple-rebuild.sh: --activate-only given more than once (choose one GENERATION)" >&2
+        exit 2
+      fi
+      if (( seen_build )); then
+        echo "simple-rebuild.sh: --activate-only conflicts with --build-only (choose one)" >&2
+        exit 2
+      fi
+      seen_activate=1; mode="activate"
       if [[ -n "${2:-}" && "$2" != --* ]]; then generation="$2"; shift; fi
       ;;
     --no-commit)     no_commit=1 ;;
