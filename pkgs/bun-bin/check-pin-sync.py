@@ -20,8 +20,12 @@ it via the bun-pin-sync job in
 (or this script) changes.
 
 Usage: python3 pkgs/bun-bin/check-pin-sync.py [--repo-root DIR]
-Exit 0 when the pins agree, 1 (naming both pins and versions)
-otherwise.
+Exit 0 when the pins agree, 1 (naming both pins and versions) when
+they disagree, 2 for an invocation error — a bad argument, or a pin
+file missing, unreadable, or malformed — so a broken checkout or a
+corrupt edit can never be mistaken for drift by a caller branching
+on exit 1 (#1148; the #1141 convention). Invocation errors are one
+line on stderr naming the offending file, never a traceback.
 """
 
 import json
@@ -41,7 +45,14 @@ def workflow_bun_version(root: Path) -> str | None:
 
 def hashes_bun_version(root: Path) -> str | None:
     data = json.loads((root / HASHES).read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"expected a JSON object, got {type(data).__name__}")
     return data.get("version")
+
+
+def invocation_error(message: str) -> int:
+    print(f"check-pin-sync: error: {message}", file=sys.stderr)
+    return 2
 
 
 def main() -> int:
@@ -55,8 +66,19 @@ def main() -> int:
         # pkgs/bun-bin/check-pin-sync.py -> repo root is two levels up.
         root = Path(__file__).resolve().parents[2]
 
-    workflow_version = workflow_bun_version(root)
-    hashes_version = hashes_bun_version(root)
+    # Guarded reads (#1148): a missing or unreadable pin file is an
+    # invocation error (exit 2, one line naming the file), not a
+    # traceback at exit 1 where callers read "pins out of sync".
+    try:
+        workflow_version = workflow_bun_version(root)
+    except OSError as exc:
+        return invocation_error(f"{root / WORKFLOW}: {exc.strerror or exc}")
+    try:
+        hashes_version = hashes_bun_version(root)
+    except OSError as exc:
+        return invocation_error(f"{root / HASHES}: {exc.strerror or exc}")
+    except (json.JSONDecodeError, ValueError) as exc:
+        return invocation_error(f"{root / HASHES}: invalid JSON: {exc}")
 
     if workflow_version is None or hashes_version is None:
         print("bun pins out of sync: could not read both pins:", file=sys.stderr)
