@@ -35,8 +35,10 @@ Per-workflow application in this repo:
   by design (design §2.2: deliberately left alone).
 
 Main tier failures are owned by the remediation chain
-(`main-broken-watcher.yml`, design §5): a failure of `mcpx nix build`
-on `main` files (or appends to) a `main-broken` issue. This repo has
+(`main-broken-watcher.yml`, design §5): a failure of either watched
+main-tier workflow (`mcpx nix build` or `flake packages build`) on
+`main` files (or appends to) a `main-broken` issue, keyed separately
+per workflow (the workflow name is part of the Breakage-ID). This repo has
 no Jules door, so the issue is released to the fleet queue directly
 (`queue/queued` label; priority-90 packet enqueue is fleet-side via
 that label + the fleet monitor).
