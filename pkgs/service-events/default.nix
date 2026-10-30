@@ -35,6 +35,17 @@ runCommand "service-events"
     $out/bin/service-event test check.bad =novalue 2>$TMPDIR/empty.err || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-event empty-key field: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid field '=novalue'" $TMPDIR/empty.err || { echo "service-event empty-key field: argument not named in error" >&2; exit 1; }
+    # #1208: an empty SOURCE or EVENT positional exits 2 naming the
+    # position, and appends nothing -- the python check below still sees
+    # exactly one line in the log.
+    rc=0
+    $out/bin/service-event "" check.bad 2>$TMPDIR/emptysrc.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event empty SOURCE: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "SOURCE must not be empty" $TMPDIR/emptysrc.err || { echo "service-event empty SOURCE: position not named in error" >&2; exit 1; }
+    rc=0
+    $out/bin/service-event test "" 2>$TMPDIR/emptyevt.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event empty EVENT: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "EVENT must not be empty" $TMPDIR/emptyevt.err || { echo "service-event empty EVENT: position not named in error" >&2; exit 1; }
     # #918: a bad SERVICE_EVENTS_INTERVAL exits 2 at startup naming the
     # variable and value, instead of crashing at import/sleep or busy-looping.
     rc=0
