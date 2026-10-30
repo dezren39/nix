@@ -763,6 +763,35 @@ for bad_args, offending in ((("--dryrun",), "--dryrun"),
           not os.path.exists(os.path.join(home, ".local/state/mcp-clients/backup")))
     shutil.rmtree(home)
 
+# #1205: --help/-h as the sole argument prints usage on stdout, exit
+# 0, and touches nothing; combined with another argument it is
+# rejected like any unknown argument (exit 2, nothing written), so a
+# help request can never trigger an enforcement run.
+for help_args in (("--help",), ("-h",)):
+    home = fresh_home()
+    claude_path = seed(home, ".claude.json", '{"mcpServers": {"other": {"command": "x"}}}')
+    seeded = read(claude_path)
+    label = " ".join(help_args)
+    r = run(home, *help_args)
+    check(f"1205 [{label}] exit 0, usage on stdout, stderr empty",
+          r.returncode == 0 and "usage" in r.stdout.lower() and r.stderr == "",
+          f"exit={r.returncode} stdout={r.stdout!r} stderr={r.stderr!r}")
+    check(f"1205 [{label}] seeded file byte-unchanged", read(claude_path) == seeded)
+    check(f"1205 [{label}] no backup created",
+          not os.path.exists(os.path.join(home, ".local/state/mcp-clients/backup")))
+    shutil.rmtree(home)
+
+for combined in (("--help", "--dry-run"), ("--dry-run", "--help")):
+    home = fresh_home()
+    claude_path = seed(home, ".claude.json", '{"mcpServers": {"other": {"command": "x"}}}')
+    seeded = read(claude_path)
+    label = " ".join(combined)
+    r = run(home, *combined)
+    check(f"1205 [{label}] exit 2 naming --help",
+          r.returncode == 2 and "--help" in r.stderr, f"exit={r.returncode} stderr={r.stderr!r}")
+    check(f"1205 [{label}] seeded file byte-unchanged", read(claude_path) == seeded)
+    shutil.rmtree(home)
+
 # #1133: --dry-run still previews without writing.
 home = fresh_home()
 claude_path = seed(home, ".claude.json", '{"mcpServers": {"other": {"command": "x"}}}')

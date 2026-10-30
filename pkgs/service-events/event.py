@@ -19,6 +19,12 @@ LOG = os.path.join(LOG_DIR, "events.jsonl")
 LOG_BYTES = 10 * 1024 * 1024
 LOG_KEEP = 5
 
+USAGE = "usage: service-event SOURCE EVENT [key=value ...]"
+HELP_NOTE = (
+    "--help/-h as the sole argument prints this usage and exits 0; "
+    "--help/-h is never a SOURCE or EVENT name."
+)
+
 
 def rotate(path, max_bytes, keep, copy_truncate=False):
     """Shift path to path.1 .. path.<keep> once it passes max_bytes.
@@ -68,8 +74,27 @@ def append_event(source, event, **fields):
 
 
 def main(argv):
+    args = argv[1:]
+    # Contract rule 8 (#1205): --help/-h as the sole argument prints
+    # usage on stdout and exits 0, appending nothing. In any other
+    # position it is rejected before appending -- a --help in the
+    # SOURCE position used to append a real event whose source was
+    # the literal string "--help".
+    if args in (["--help"], ["-h"]):
+        print(USAGE)
+        print(HELP_NOTE)
+        return 0
+    if "--help" in args or "-h" in args:
+        bad = "--help" if "--help" in args else "-h"
+        print(
+            f"service-event: invalid argument {bad!r}:"
+            " help is only valid as the sole argument",
+            file=sys.stderr,
+        )
+        print(USAGE, file=sys.stderr)
+        return 2
     if len(argv) < 3:
-        print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 2
     fields = {}
     for arg in argv[3:]:
@@ -82,7 +107,7 @@ def main(argv):
                 f"service-event: invalid field {arg!r}: expected key=value",
                 file=sys.stderr,
             )
-            print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
             return 2
         # #919: ts/source/event are the record's own fields. A ts= field used
         # to silently overwrite the real timestamp via record.update(), and
@@ -93,7 +118,7 @@ def main(argv):
                 f"service-event: invalid field {arg!r}: {key!r} is a reserved field name",
                 file=sys.stderr,
             )
-            print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
             return 2
         # #1127: a duplicated field name used to silently last-win —
         # fields[key] below assigned unconditionally, so pid=1 pid=2
@@ -104,7 +129,7 @@ def main(argv):
                 f"service-event: duplicate field {arg!r}: {key!r} may be given only once",
                 file=sys.stderr,
             )
-            print("usage: service-event SOURCE EVENT [key=value ...]", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
             return 2
         # #935: gate on a plain ASCII integer shape, not str.isdigit() —
         # isdigit() is also true for Unicode digit characters int()

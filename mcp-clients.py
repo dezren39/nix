@@ -11,7 +11,7 @@ it looks for, and with daemon.autostart off nothing is listening there.
 Only the MCP key of each file is changed; everything else is kept. The first
 time a file is changed, a copy is kept in ~/.local/state/mcp-clients/backup.
 Files that do not exist are left alone (the client is not set up here).
-`--dry-run` reports what would change. dezren39/nix#671.
+`--dry-run` reports what would change; `--help` prints usage. dezren39/nix#671.
 
 Each client is handled independently: one client's malformed or unreadable
 file is reported on stderr and the remaining clients are still enforced;
@@ -29,7 +29,7 @@ MCPX = "/run/current-system/sw/bin/mcpx"
 ARGS = ["--config", os.path.join(HOME, ".config/mcpx/config.json"), "serve"]
 BACKUP_DIR = os.path.join(HOME, ".local/state/mcp-clients/backup")
 DRY_RUN = "--dry-run" in sys.argv
-USAGE = "usage: mcp-clients.py [--dry-run]"
+USAGE = "usage: mcp-clients.py [--dry-run] [--help]"
 
 
 def unknown_argument(args):
@@ -781,6 +781,15 @@ def zed(path):
 
 
 def main():
+    # --help/-h as the sole argument prints usage on stdout and exits
+    # 0, reading and writing no client files (#1205, contract rule 8).
+    # Combined with anything else it falls through to the unknown-
+    # argument rejection below, so it can never trigger a run.
+    if sys.argv[1:] in (["--help"], ["-h"]):
+        print(USAGE)
+        print("Enforce mcpx as the only MCP server in every MCP client")
+        print("config on this machine; --dry-run reports instead of writing.")
+        return 0
     # Reject unknown arguments before any file is read or written (#1133):
     # a typo'd --dryrun must not silently become a real enforcement run.
     bad = unknown_argument(sys.argv[1:])
