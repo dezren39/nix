@@ -1,0 +1,193 @@
+name: main-broken watcher
+
+# CI policy: .github/ci-policy.md (design developing-today/code#1779 §5;
+# Phase 3, developing-today/code#1782).
+#
+# Watches the main-tier build workflows (mcpx nix build, flake
+# packages build, and flake checks build) on main. The Breakage-ID
+# includes the workflow name, so each workflow's failures key
+# their own chain — one filing flow, no per-workflow fan-out
+# copies (the #304 lesson).
+# On failure it files (or appends to) a `main-broken` issue keyed by
+# Breakage-ID. This repo has no Jules door, so the issue is released to
+# the fleet queue directly at filing time.
+#
+# Hybrid pm-dispatch migration (developing-today/code#2672): the issue
+# creation stays in this workflow because the pm-stack GitHub App is
+# not installed on dezren39/nix, so pm-dispatch cannot create issues
+# here. The queue enqueue moves to the pm-dispatch-queue action
+# (developing-today/code/.github/actions/pm-dispatch-queue@main), so
+# the fix task exists at filing time instead of waiting for the fleet
+# monitor to enqueue it from the `queue/queued` label. If that enqueue
+# step fails, the agent-note says so and the fleet monitor fallback
+# (enqueue from the `queue/queued` label) applies as before.
+
+"on":
+  workflow_run:
+    workflows: ["mcpx nix build", "flake packages build", "flake checks build"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  actions: read
+  issues: write
+
+concurrency:
+  # One watcher run per upstream run; never cancel a filing in flight.
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  file-breakage:
+    name: file main-broken issue
+    if: github.event.workflow_run.conclusion == 'failure'
+    # Job-level permissions replace the workflow-level grants for this
+    # job, so actions/issues are restated here. id-token: write is
+    # required by the pm-dispatch-queue action (OIDC, audience
+    # pm-dispatch).
+    permissions:
+      actions: read
+      issues: write
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: File or append the breakage issue
+        id: file
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+
+          # Coin the chain's labels if missing (--force is a no-op
+          # update when they already exist).
+          gh label create "kind/ci" --repo "$repo" --color fbca04 --description "CI/CD pipelines, workflows, and build automation" --force
+          gh label create "priority/critical" --repo "$repo" --color b60205 --description "Drop everything: main broken, security exposure, repo-wide outage" --force
+          gh label create "main-broken" --repo "$repo" --color B60205 --description "main branch full-suite (main tier) is red; remediation chain owns this" --force
+          gh label create "queue/queued" --repo "$repo" --color 7057ff --description "Has a queued task in the Supabase agent queue" --force
+          gh label create "status/needs-triage" --repo "$repo" --color fbca04 --description "Not yet triaged; needs a first look" --force
+
+          # Sorted failing job names (comma-joined) feed the Breakage-ID.
+          failing_csv="$(gh api "repos/$repo/actions/runs/$RUN_ID/jobs" --jq '[.jobs[] | select(.conclusion == "failure") | .name] | sort | join(",")')"
+          if [ -z "$failing_csv" ]; then
+            failing_csv="(no failed jobs reported)"
+          fi
+          first_job="${failing_csv%%,*}"
+          breakage_id="$(printf '%s' "$repo|$WORKFLOW_NAME|$failing_csv" | sha256sum | cut -c1-12)"
+          short_sha="${HEAD_SHA:0:7}"
+
+          # Dedup: an open main-broken issue already carrying this ID
+          # gets the new run link appended, and we stop — no duplicate
+          # issue, no duplicate packet.
+          existing="$(gh issue list --repo "$repo" --state open --label main-broken --limit 100 --json number,body | jq -r --arg id "$breakage_id" '[.[] | select(.body != null and (.body | contains($id))) | .number] | first // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$repo" --body "main-broken: still failing — new run: $RUN_URL (Breakage-ID: $breakage_id)"
+            echo "Appended run link to existing breakage issue #$existing; stopping."
+            exit 0
+          fi
+
+          excerpt="$(gh run view "$RUN_ID" --repo "$repo" --log-failed 2>/dev/null | head -n 40 || true)"
+          if [ -z "$excerpt" ]; then
+            excerpt="(failed-job log excerpt unavailable; see the run URL)"
+          fi
+
+          {
+            echo "Main-tier workflow \`$WORKFLOW_NAME\` failed on \`main\`."
+            echo ""
+            echo "- Run: $RUN_URL"
+            echo "- Failing jobs: $failing_csv"
+            echo "- Head commit: $HEAD_SHA"
+            echo ""
+            echo "Breakage-ID: $breakage_id"
+            echo ""
+            echo "## First error excerpt"
+            echo ""
+            echo '```'
+            printf '%s\n' "$excerpt"
+            echo '```'
+          } > breakage-body.md
+
+          issue_url="$(gh issue create --repo "$repo" \
+            --title "main-broken: $repo $WORKFLOW_NAME @$short_sha — $first_job" \
+            --body-file breakage-body.md \
+            --label "kind/ci" --label "priority/critical" --label "main-broken" \
+            --label "queue/queued" --label "status/needs-triage")"
+          issue_number="${issue_url##*/}"
+          echo "Filed breakage issue #$issue_number: $issue_url"
+          issue_title="main-broken: $repo $WORKFLOW_NAME @$short_sha — $first_job"
+          {
+            echo "issue_number=$issue_number"
+            echo "issue_url=$issue_url"
+            echo "issue_title=$issue_title"
+            echo "breakage_id=$breakage_id"
+          } >> "$GITHUB_OUTPUT"
+
+      # HYBRID (developing-today/code#2672): the issue was created by
+      # the step above (the pm-stack GitHub App is not installed on
+      # dezren39/nix, so pm-dispatch cannot create issues here), and
+      # this step enqueues the fix task against that existing issue
+      # (issue_number takes precedence; no new issue is created).
+      # Priority: main-broken breakages are TOP priority in the fleet
+      # queue; on the pm-dispatch scale that is "critical" (10, lower
+      # claims sooner). This replaces the watcher's old "priority-90"
+      # wording, which was a stale artifact of a different scale.
+      - name: Enqueue the fix task via pm-dispatch
+        id: enqueue
+        if: steps.file.outputs.issue_number != ''
+        continue-on-error: true
+        uses: developing-today/code/.github/actions/pm-dispatch-queue@main
+        with:
+          repo: dezren39/nix
+          title: ${{ steps.file.outputs.issue_title }}
+          prompt: |
+            Investigate and fix the main breakage filed as dezren39/nix issue #${{ steps.file.outputs.issue_number }} (${{ steps.file.outputs.issue_url }}).
+
+            Workflow: ${{ github.event.workflow_run.name }}
+            Run: ${{ github.event.workflow_run.html_url }}
+            Breakage-ID: ${{ steps.file.outputs.breakage_id }}
+            First error excerpt: see the "First error excerpt" section of the breakage issue body (${{ steps.file.outputs.issue_url }}).
+
+            Reproduce the failing workflow jobs from that run, find the root cause, and land a fix so the workflow passes on main again. Keep the fix scoped to the breakage.
+          priority: "critical"
+          kind: ci_investigation
+          issue_number: ${{ steps.file.outputs.issue_number }}
+
+      - name: Post the agent-note comment
+        if: steps.file.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.file.outputs.issue_number }}
+          BREAKAGE_ID: ${{ steps.file.outputs.breakage_id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          ENQUEUE_OUTCOME: ${{ steps.enqueue.outcome }}
+          TASK_ID: ${{ steps.enqueue.outputs.task_id }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          {
+            echo "<!-- agent-note:v1 -->"
+            echo "holder: chain (filing) — no Jules door in this repo; released to fleet queue directly"
+            echo ""
+            echo "Filed by main-broken-watcher on failure of \`$WORKFLOW_NAME\` run $RUN_URL."
+            echo "Breakage-ID: $BREAKAGE_ID"
+            if [ "$ENQUEUE_OUTCOME" = "success" ]; then
+              echo "The fix task was enqueued by pm-dispatch at filing time"
+              echo "(pm-dispatch-queue, task id: $TASK_ID), attached to this issue."
+            else
+              echo "The pm-dispatch enqueue FAILED at filing time, so no fix task"
+              echo "was created by pm-dispatch. Fallback: this issue carries the"
+              echo "\`queue/queued\` label and the fleet monitor should enqueue"
+              echo "the fix packet from it, as before this migration."
+            fi
+            echo "No Jules step exists for dezren39/nix (Jules is retired"
+            echo "fleet-wide in workflows; the direct-to-queue handoff is the"
+            echo "design), so the chain (filing) holder releases the breakage"
+            echo "to the fleet queue at filing time."
+          } > agent-note.md
+          gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body-file agent-note.md

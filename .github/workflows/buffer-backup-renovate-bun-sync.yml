@@ -42,6 +42,10 @@ name: buffer-backup renovate bun sync
 # branch + same-repo guards below). A hand-made PR that desyncs the
 # lockfiles gets no sync run and still fails buffer-backup-lock-sync.
 
+# Deliberate exception to the main-only trigger policy (#1172, #1176):
+# this workflow is Renovate automation, not a build check — it can only
+# do its job in the context of the Renovate PR it syncs, so it keeps a
+# pull_request trigger (narrowed below to the two lockfile inputs).
 "on":
   pull_request:
     types: [opened, synchronize, reopened]
@@ -49,7 +53,6 @@ name: buffer-backup renovate bun sync
     paths:
       - "pkgs/buffer-backup/package.json"
       - "pkgs/buffer-backup/package-lock.json"
-
 permissions:
   contents: read
 
@@ -101,13 +104,27 @@ jobs:
         if: steps.check.outputs.in_sync == 'false'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          # Keep in step with the version pinned in pkgs/bun-bin.
+          # Keep in step with the version pinned in pkgs/bun-bin —
+          # enforced by pkgs/bun-bin/check-pin-sync.py via the
+          # bun-pin-sync job in buffer-backup-lock-sync.yml (#1091).
           bun-version: "1.4.4"
 
       - name: Regenerate bun.lock
         if: steps.check.outputs.in_sync == 'false'
         working-directory: pkgs/buffer-backup
-        run: bun install
+        run: |
+          # Re-resolve from package-lock.json (#1085): with an existing
+          # bun.lock, plain `bun install` keeps locked versions that merely
+          # satisfy package.json's caret ranges, so it never picks up
+          # Renovate's lockfile-only bumps in package-lock.json. Removing
+          # bun.lock first makes bun generate a fresh one, migrating the
+          # exact versions package-lock.json resolves. Do NOT use
+          # `bun update` here: it re-resolves to latest-in-range and can
+          # overshoot package-lock.json, desyncing the other direction.
+          # The verify step below still fails the run (committing nothing)
+          # if the fresh bun.lock disagrees with package-lock.json.
+          rm -f bun.lock
+          bun install
 
       - name: Verify the lockfiles now agree (commit nothing if not)
         if: steps.check.outputs.in_sync == 'false'

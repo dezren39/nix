@@ -29,9 +29,22 @@
 
 set -euo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Sourced up front because the argument parser below uses
+# lib/common.sh's guard helpers (arg_die and friends) -- design #1145
+# phase 2 (#1147), the clean.sh SELF_DIR precedent. die() below stays
+# for runtime failures (exit 1); parse errors go through the shared
+# helpers (exit 2, usage on stderr).
+# shellcheck source=lib/common.sh
+. "$SELF_DIR/lib/common.sh"
+ARG_PROGRAM="opencode-db-vacuum"
+
 DB_DEFAULT="${HOME}/.local/share/opencode/opencode.db"
 DB="$DB_DEFAULT"
+DB_SET=0
 INTO=""
+INTO_SET=0
 DRY_RUN=0
 ASSUME_YES=0
 SET_AUTOVACUUM=0
@@ -159,17 +172,20 @@ EOF
 # Value-taking options reject an empty or flag-shaped value (#941, the
 # #930 pattern): "--into --dry-run" must die naming --into, not swallow
 # --dry-run as the target path and run a real vacuum.
+# They also reject a repeat (#1112, the adopt #1103 pattern): a repeated
+# --db used to silently discard the first path, redirecting this
+# destructive operation to a different database with no error.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; DB="$2"; shift 2 ;;
-    --into) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--into needs a path"; INTO="$2"; shift 2 ;;
+    --db) arg_require_value "$1" "${2:-}"; arg_once "$1" DB_SET; DB="$2"; shift 2 ;;
+    --into) arg_require_value "$1" "${2:-}"; arg_once "$1" INTO_SET; INTO="$2"; shift 2 ;;
     --auto-vacuum) SET_AUTOVACUUM=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-backup) KEEP_BACKUP=0; shift ;;
     --force) FORCE=1; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "unknown option: $1 (try --help)" ;;
+    *) arg_die "unknown option: $1 (try --help)" ;;
   esac
 done
 
@@ -324,8 +340,12 @@ note "WAL folded into main database"
 # ---------------------------------------------------------------------------
 if [ "$SET_AUTOVACUUM" -eq 1 ]; then
   step "Setting auto_vacuum=INCREMENTAL"
-  sqlite3 "$DB" 'PRAGMA auto_vacuum=INCREMENTAL;' >/dev/null
-  note "set; it is baked in by the vacuum below"
+  # The pragma is connection-local until a vacuum rebuilds the database:
+  # setting it in its own sqlite3 invocation is lost on disconnect and
+  # the compacted copy comes out with the old value (pinned by
+  # opencode-db-vacuum.test.sh, #1088). It is therefore applied in the
+  # same connection as the VACUUM INTO in step 5 below.
+  note "applied with the vacuum below, in the same connection"
   note "future reclaim becomes: sqlite3 \"$DB\" 'PRAGMA incremental_vacuum;'"
 fi
 
@@ -341,7 +361,11 @@ COMPACT="${INTO:-${DB}.compact}"
 
 step "Vacuuming into $COMPACT"
 note "this rewrites $(gb "$live_bytes") and may take a while..."
-sqlite3 "$DB" "VACUUM INTO '$(sql_literal_escape "$COMPACT")';"
+vacuum_sql="VACUUM INTO '$(sql_literal_escape "$COMPACT")';"
+if [ "$SET_AUTOVACUUM" -eq 1 ]; then
+  vacuum_sql="PRAGMA auto_vacuum=INCREMENTAL; $vacuum_sql"
+fi
+sqlite3 "$DB" "$vacuum_sql"
 
 new_bytes="$(wc -c <"$COMPACT" | tr -d ' ')"
 note "new size: $(gb "$new_bytes")  (was $(gb "$total_bytes"))"

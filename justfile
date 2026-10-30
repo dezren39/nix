@@ -129,6 +129,11 @@ mcpx-check:
 rebuild:
     ./rebuild.sh
 
+# Adopt this Mac as a darwin host: `just adopt [TEMPLATE]` (see pkgs/adopt)
+[group('nix')]
+adopt *args:
+    ./adopt {{ args }}
+
 # Three entry points into one implementation (simple-rebuild.sh), split by
 # privilege: build needs no sudo and runs unattended, activate needs root.
 # Each commits --allow-empty to mark that it happened -- a build names the
@@ -522,6 +527,12 @@ opencode-db-backup:
     chmod 600 "$dest"/opencode.db*
     echo "backup: $dest"
     just --justfile {{ justfile() }} opencode-db-check "$dest/opencode.db"
+
+# Retention for opencode-db-backup dirs: dry-run by default (lists what
+# would go), pass --apply to delete. Keeps the newest 3 by default.
+[group('opencode')]
+opencode-db-backup-prune *args:
+    ./opencode-db-backup-prune.sh {{ args }}
 
 # Session/migration counts of an OpenCode database (default: the live one)
 [group('opencode')]

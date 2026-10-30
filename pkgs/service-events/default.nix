@@ -47,6 +47,14 @@ runCommand "service-events"
     $out/bin/service-event test check.bad ts=2000-01-01T00:00:00 2>$TMPDIR/reserved.err || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-event reserved field: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid field 'ts=2000-01-01T00:00:00'" $TMPDIR/reserved.err || { echo "service-event reserved field: argument not named in error" >&2; exit 1; }
+    # #1127: a duplicated field name exits 2 naming the field, and
+    # appends nothing — the python check below still sees exactly one
+    # line in the log (the first value must not silently last-win).
+    rc=0
+    $out/bin/service-event test check.bad pid=1 pid=2 2>$TMPDIR/dup.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event duplicate field: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "duplicate field 'pid=2'" $TMPDIR/dup.err || { echo "service-event duplicate field: field not named in error" >&2; exit 1; }
+    grep -q "'pid' may be given only once" $TMPDIR/dup.err || { echo "service-event duplicate field: only-once rule not named in error" >&2; exit 1; }
     # #934: a failed write (log dir cannot be created — Library is a
     # regular file) exits 1 keeping the stderr message, not 0.
     mkdir -p $TMPDIR/badhome
@@ -58,8 +66,19 @@ runCommand "service-events"
     # #935: a digit-like Unicode value (superscript two) is stored as a
     # string and the event is appended — no traceback, exit 0.
     HOME=$TMPDIR/unihome $out/bin/service-event test check.unicode 'count=²' pid=42
-    grep -q '"count": "²"' $TMPDIR/unihome/Library/Logs/nix-services/events.jsonl || { echo "service-event unicode digit: value not stored as string" >&2; exit 1; }
-    grep -q '"pid": 42' $TMPDIR/unihome/Library/Logs/nix-services/events.jsonl || { echo "service-event unicode digit: ASCII int conversion changed" >&2; exit 1; }
+    # Assert on the parsed record, not the raw bytes (#1115): event.py
+    # writes with json.dumps (default ensure_ascii=True), so the stored
+    # line holds the ASCII escape \u00b2, never the literal character a
+    # byte-level grep for '"count": "²"' looks for — that grep could never
+    # match and reddened this package's build on main.
+    ${python3}/bin/python3 - "$TMPDIR/unihome/Library/Logs/nix-services/events.jsonl" <<'EOF'
+    import json, sys
+    lines = open(sys.argv[1]).read().splitlines()
+    assert len(lines) == 1, lines
+    rec = json.loads(lines[0])
+    assert rec["count"] == "²" and isinstance(rec["count"], str), rec
+    assert rec["pid"] == 42 and isinstance(rec["pid"], int), rec
+    EOF
     rc=0
     SERVICE_EVENTS_INTERVAL=0 $out/bin/service-monitor 2>/dev/null || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-monitor zero interval: expected exit 2, got $rc" >&2; exit 1; }

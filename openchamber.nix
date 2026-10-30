@@ -31,7 +31,13 @@
 #   * No self-handoff (OPENCHAMBER_SELF_HANDOFF=0). A self-handoff successor
 #     outlives the process launchd tracks; launchd would then see its job exit
 #     and, with KeepAlive, start a second server that collides on the port.
-#     systemd avoids that with MAINPID, which has no launchd equivalent.
+#     systemd's MAINPID adoption has no launchd equivalent -- but it is not
+#     sufficient there either: with KillMode=process, a predecessor systemd
+#     has stopped tracking can survive a stop still holding the
+#     socket-activated listen socket, and the next start hands the same
+#     socket to a second server (dezren39/nix#1117, 2026-10-29). The systemd
+#     model therefore also reaps leftover servers in its start script
+#     (developing-today/code#2465).
 #
 # The desktop app finds this server through OPENCHAMBER_SERVER_URL and
 # OPENCHAMBER_SKIP_LOCAL_SERVER, so it never starts a server or an OpenCode of

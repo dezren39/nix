@@ -15,7 +15,7 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 | [OpenCode and OpenChamber integration](#opencode-and-openchamber-integration) | Pins, the mcpx config, MCP sign-ins                       |
 | [Sidepulse patches](#sidepulse-patches)                                       | Port a 12-patch stack to upstream                         |
 | [The darwin system](#the-darwin-system)                                       | Old notes only, no open work                              |
-| [CI and housekeeping](#ci-and-housekeeping)                                   | Concurrency groups, cleanup scripts                       |
+| [CI and housekeeping](#ci-and-housekeeping)                                   | One argument contract for the repo's scripts              |
 
 ## mcpx moves to developing-today/code
 
@@ -28,7 +28,6 @@ The OpenCode fork does not bundle mcpx. It links one only if the consumer passes
 | Make mcpx consumable from the code repo  | Now     | planned  | Choose how to consume it and make it build on aarch64-darwin.                                                      | `developing-today/code#308`, `developing-today/code#237`               |
 | Port the useful differences into code    | Now     | planned  | The `EnsureDaemon` check, `MCPX_STATE_DIR` and any tests that exist only here.                                     | [plan](planning/plans/mcpx-extraction.md), `developing-today/code#306` |
 | Move the mcpx backlog                    | Now     | planned  | About 100 open mcpx issues here need new homes. GitHub cannot transfer across owners.                              | `developing-today/code#309`                                            |
-| Fork flake decides where mcpx comes from | Next    | proposed | Whether the OpenCode flake keeps mcpx optional or defaults to the code repo's build.                               | `developing-today/opencode#82`                                         |
 
 ## Keeping agent work safe on disk
 
@@ -36,12 +35,8 @@ macOS `dirhelper` deletes files in the per-user temp dir that were not accessed 
 
 | Title                                     | Horizon | Status      | Intent                                                                                                                                                         | Links         |
 | ----------------------------------------- | ------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| Temp-dir guard                            | Now     | in-progress | A launchd agent keeps `$TMPDIR/opencode` a symlink into `~/.local/share/opencode` and refreshes access times. Runs as an interim job until merged and rebuilt. | PR #392, #377 |
-| Confirm what deleted the files            | Now     | proposed    | `log show` returned nothing for `dirhelper`, so the cause is a strong guess.                                                                                   | #377          |
 | Uncommitted work in old worktrees         | Now     | proposed    | Staged deletions in two clones are backed up. Check the rest.                                                                                                  | #376          |
-| Rebuild to activate the bootstrap changes | Now     | proposed    | The `.bootstrap-done` gitignore and the fork OpenCode and OpenChamber are not active until a rebuild.                                                          | #374          |
 | Free disk space keeps dropping            | Next    | proposed    | Investigate between cleans.                                                                                                                                    | #373          |
-| Finish the `clean.sh` recommendations     | Next    | proposed    |                                                                                                                                                                | #375          |
 
 ## OpenCode and OpenChamber integration
 
@@ -56,10 +51,7 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 | Title                                               | Horizon | Status   | Intent                                                                                                                       | Links                        |
 | --------------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Update to upstream main and port the 12-patch stack | Next    | proposed |                                                                                                                              | #327                         |
-| Generate the OpenCode v2 plugin                     | Next    | proposed |                                                                                                                              | #378                         |
-| Fixed-path LED writer helper                        | Next    | proposed | Lets the macOS TCC grant survive Nix rebuilds.                                                                               | #328                         |
-| Patch series: signals                               | Later   | proposed | Error signal, held completion signal, failures that stop expiring, several signals at once, signals that mean what they say. | #329, #330, #331, #332, #333 |
+| Patch series: signals                               | Later   | proposed | Error signal, held completion signal, failures that stop expiring, several signals at once, signals that mean what they say. | #329, #332 |
 
 ## The darwin system
 
@@ -73,9 +65,9 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 ## CI and housekeeping
 
-| Title                                          | Horizon | Status   | Intent                                                                                                                                                                                                                                                            | Links                                                                  |
-| ---------------------------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| macOS Go test failures                         | Next    | proposed | Moot once mcpx is built from the code repo — that build has landed (#469), so this is moot as predicted.                                                                                                                                               | #366                                                                   |
+| Title                                    | Horizon | Status      | Intent                                                                                                                                 | Links       |
+| ---------------------------------------- | ------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| One argument contract for the scripts    | Now     | in-progress | Guard helpers in `lib/common.sh` and one shared conformance probe matrix; the discovery family is the phase 1 pilot, the opencode-db and packaged families follow. | #1145, #1146 |
 
 ## Done
 

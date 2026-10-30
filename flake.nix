@@ -419,6 +419,11 @@ rec {
           inherit pkgs;
           lib = pkgs.lib;
         };
+        # `nix run .#adopt`: add this Mac to the hosts map (see pkgs/adopt).
+        adopt = import ./pkgs/adopt {
+          inherit pkgs;
+          lib = pkgs.lib;
+        };
         codedb = pkgs.callPackage ./pkgs/codedb/package.nix { };
         # Cloudflare Wrangler 4.147.0 — custom package (copied from
         # developing-today/code pkgs/wrangler) because nixpkgs lags npm
@@ -496,6 +501,56 @@ rec {
               pytest -q -p no:cacheprovider
               touch $out
             '';
+        # #1149: simple-rebuild.test.sh pins simple-rebuild.sh's
+        # mode-flag parser -- --build-only with --activate-only in
+        # either order and a repeated --activate-only exit 2 naming
+        # the flags instead of silently last-winning across the
+        # no-sudo/sudo privilege split, and valid invocations parse
+        # exactly as before. The suite extracts the real parser
+        # segment from the script and runs it under zsh (the script's
+        # interpreter), so it needs zsh but no build/activation.
+        simple-rebuild-tests =
+          pkgs.runCommandLocal "simple-rebuild-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.zsh
+                pkgs.coreutils
+                pkgs.gnugrep
+                pkgs.gawk
+              ];
+            }
+            ''
+              cp ${./simple-rebuild.sh} simple-rebuild.sh
+              cp ${./simple-rebuild.test.sh} simple-rebuild.test.sh
+              chmod u+w simple-rebuild.sh simple-rebuild.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./simple-rebuild.test.sh
+              touch $out
+            '';
+        # #1148: check-pin-sync.test.py — the probes for
+        # pkgs/bun-bin/check-pin-sync.py (missing workflow / missing
+        # hashes / malformed hashes must exit 2, never traceback at
+        # the exit-1 "out of sync" signal; in-sync/out-of-sync
+        # baselines unchanged). The test locates the script beside
+        # itself and its no-arg baseline resolves the repo root two
+        # levels up from the script, so copy both pin files into the
+        # check tree in that layout.
+        bun-pin-sync-tests =
+          pkgs.runCommandLocal "bun-pin-sync-tests"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+            }
+            ''
+              mkdir -p pkgs/bun-bin .github/workflows
+              cp ${./pkgs/bun-bin/check-pin-sync.py} pkgs/bun-bin/check-pin-sync.py
+              cp ${./pkgs/bun-bin/check-pin-sync.test.py} pkgs/bun-bin/check-pin-sync.test.py
+              cp ${./pkgs/bun-bin/hashes.json} pkgs/bun-bin/hashes.json
+              cp ${./.github/workflows/buffer-backup-renovate-bun-sync.yml} .github/workflows/buffer-backup-renovate-bun-sync.yml
+              python3 pkgs/bun-bin/check-pin-sync.test.py
+              touch $out
+            '';
         # #414: plugins/warp-import.test.mjs (25 tests) was run by nothing —
         # no workflow, recipe, or check referenced it. Run every
         # plugins/*.test.mjs here so `nix flake check` fails when a plugin
@@ -540,13 +595,16 @@ rec {
             }
             ''
               cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-pids.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-pids.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./opencode-db-pids.test.sh
               touch $out
             '';
-        # #941: opencode-db-args.test.sh pins the argument parsers of
+        # #941: opencode-db-args.test.sh pins the argument parsers of (extended to backup-prune, folded into the shared probe matrix, #1147)
         # opencode-db-vacuum.sh / opencode-db-prune.sh — every
         # value-taking option must reject an empty or flag-shaped value
         # naming the option, so "--into --dry-run" cannot swallow the
@@ -555,12 +613,18 @@ rec {
         opencode-db-args-tests =
           pkgs.runCommandLocal "opencode-db-args-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.sqlite ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.sqlite
+              ];
               src = inputs.self;
             }
             ''
-              cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-args.test.sh ./
-              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-args.test.sh
+              cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-backup-prune.sh $src/opencode-db-args.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
+              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-backup-prune.sh ./opencode-db-args.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./opencode-db-args.test.sh
@@ -577,15 +641,77 @@ rec {
         opencode-db-prune-tests =
           pkgs.runCommandLocal "opencode-db-prune-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.sqlite pkgs.gzip pkgs.coreutils ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.sqlite
+                pkgs.gzip
+                pkgs.coreutils
+              ];
               src = inputs.self;
             }
             ''
               cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-prune.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-prune.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./opencode-db-prune.test.sh
+              touch $out
+            '';
+        # #1088: opencode-db-vacuum.test.sh drives the real vacuum script
+        # against fixture SQLite DBs -- the VACUUM INTO + verify + swap
+        # core (shrink, 500/500/500/10 row counts, .old backup, integrity),
+        # the existing-.old/.compact refusals, --no-backup, a custom
+        # --into, and --auto-vacuum reading back INCREMENTAL. The args and
+        # pids suites pin only the parser and the pid guard; the
+        # destructive swap had no executable test.
+        opencode-db-vacuum-tests =
+          pkgs.runCommandLocal "opencode-db-vacuum-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.sqlite
+                pkgs.coreutils
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-db-vacuum.sh $src/opencode-db-vacuum.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
+              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-vacuum.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-db-vacuum.test.sh
+              touch $out
+            '';
+        # #659: opencode-db-backup-prune.test.sh pins the retention for
+        # `just opencode-db-backup`'s timestamped backup dirs -- dry-run
+        # lists exactly the beyond-keep set and deletes nothing, --apply
+        # deletes exactly that set, the newest backup is never listed,
+        # and non-timestamp entries are never touched. Self-contained:
+        # fixture dirs only, no database needed.
+        opencode-db-backup-prune-tests =
+          pkgs.runCommandLocal "opencode-db-backup-prune-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/opencode-db-backup-prune.sh $src/opencode-db-backup-prune.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
+              chmod u+w ./opencode-db-backup-prune.sh ./opencode-db-backup-prune.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./opencode-db-backup-prune.test.sh
               touch $out
             '';
         # #557: var-folders-clean.test.sh (the #553 test for clean.sh's
@@ -677,6 +803,32 @@ rec {
               bash ./search.test.sh
               touch $out
             '';
+        # #1167: full-clean.test.sh drives the real full-clean.sh
+        # with its steps (./s, prune, vacuum) and PATH commands
+        # (sudo, nix-collect-garbage, nix, df) stubbed to log every
+        # call -- the script has no argument parser, so --help,
+        # --bogus and --dry-run used to run the full destructive
+        # sequence and exit 0. The suite pins those three (no stub
+        # called, correct exits, argument named) plus a no-argument
+        # control that runs the whole stubbed sequence.
+        full-clean-tests =
+          pkgs.runCommandLocal "full-clean-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gnugrep
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/full-clean.sh $src/full-clean.test.sh ./
+              chmod u+w ./full-clean.sh ./full-clean.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./full-clean.test.sh
+              touch $out
+            '';
         # #940: git-discover-repos.test.sh drives the real
         # git-discover-repos through bad, mixed, regular-file, all-valid,
         # --count and --dry-run --path runs — a bad --path used to exit 0,
@@ -687,13 +839,17 @@ rec {
         git-discover-repos-tests =
           pkgs.runCommandLocal "git-discover-repos-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.git ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.git
+              ];
               src = inputs.self;
             }
             ''
               cp $src/git-discover-repos $src/git-discover-repos.test.sh ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./git-discover-repos ./git-discover-repos.test.sh
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
@@ -721,11 +877,33 @@ rec {
               cp $src/clean.sh $src/clean.test.sh $src/git-discover-repos ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./clean.sh ./clean.test.sh ./git-discover-repos
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./clean.test.sh
+              touch $out
+            '';
+        # #1077: pkgs/adopt/adopt.test.sh was run by nothing — no flake
+        # check, workflow, recipe, or package referenced it, so a
+        # regression in adopt.sh (which edits flake.nix) landed silently.
+        # The suite drives the real adopt.sh against a scratch flake,
+        # including the BWK-strict awk shim cases for #1074. Run it here
+        # (checks are eachSystem, so aarch64-darwin gets it too).
+        adopt-tests =
+          pkgs.runCommandLocal "adopt-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+              src = ./pkgs/adopt;
+            }
+            ''
+              cp -r $src ./adopt-src
+              chmod -R u+w ./adopt-src
+              cd ./adopt-src
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./adopt.test.sh
               touch $out
             '';
         # #951: git-maintain-repos.test.sh drives the real
@@ -753,6 +931,7 @@ rec {
               cp $src/git-maintain-repos $src/git-maintain-repos.test.sh $src/git-discover-repos ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./git-maintain-repos ./git-maintain-repos.test.sh ./git-discover-repos
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
@@ -779,6 +958,7 @@ rec {
               cp $src/spotlight-exclude-artifacts $src/spotlight-exclude-artifacts.test.sh $src/git-discover-repos ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./spotlight-exclude-artifacts ./spotlight-exclude-artifacts.test.sh ./git-discover-repos
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
@@ -1014,6 +1194,10 @@ rec {
         flake-tidy = {
           type = "app";
           program = "${selfPkgs.flake-tidy}/bin/flake-tidy";
+        };
+        adopt = {
+          type = "app";
+          program = "${selfPkgs.adopt}/bin/adopt";
         };
         mcpx = {
           type = "app";

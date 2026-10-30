@@ -21,6 +21,11 @@ permissions:
   pull-requests: read
 
 concurrency:
+  # Scheduled singleton (design §2.2, ci-policy.md): never cancel a
+  # cleanup run mid-flight — a manual dispatch queues behind the
+  # scheduled run instead of cancelling it. Restored to false by
+  # #1178 (the #1172 commit flipped it to true without recording
+  # the change anywhere but the diff).
   group: branch-cleanup
   cancel-in-progress: false
 

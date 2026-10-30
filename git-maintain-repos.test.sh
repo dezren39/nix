@@ -25,6 +25,10 @@ set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SELF_DIR/git-maintain-repos"
+# Shared conformance probe matrix helpers (#1146, design #1145 phase 1).
+# shellcheck source=lib/arg-probe.sh
+. "$SELF_DIR/lib/arg-probe.sh"
+
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -94,6 +98,130 @@ case "$OUT" in
   *"1 repos"*) echo "ok: valid values parse, fixture repo discovered, exits 0" ;;
   *) fail "valid-value control did not report 1 repo (got: $OUT)" ;;
 esac
+
+# ─── Second target is rejected at parse time (#1121) ───────────────
+# --path used to assign ROOT unconditionally, so a second target in any
+# form silently discarded the first (the positional branch already
+# guarded this; --path did not). Every shape must exit 2 naming the
+# unexpected argument, #1111 style.
+OTHER="$TMP_ROOT/other"
+mkdir -p "$OTHER"
+run --dry-run --path "$VALID" --path "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "repeated --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: --path"*) echo "ok: repeated --path rejected, option named" ;;
+  *) fail "repeated --path did not name the option on stderr (got: $ERR)" ;;
+esac
+run --dry-run "$VALID" --path "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "positional then --path exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: --path"*) echo "ok: --path after positional rejected, option named" ;;
+  *) fail "--path after positional did not name the option on stderr (got: $ERR)" ;;
+esac
+run --dry-run --path "$VALID" "$OTHER"
+[ "$STATUS" -eq 2 ] || fail "--path then positional exited $STATUS (want 2)"
+case "$ERR" in
+  *"unexpected argument: $OTHER"*) echo "ok: positional after --path rejected, argument named" ;;
+  *) fail "positional after --path did not name the argument on stderr (got: $ERR)" ;;
+esac
+
+# ─── Mode-flag conflicts are rejected at parse time (#1121) ────────
+# --quick/--safe/--deep used to overwrite DEPTH unconditionally, so
+# --quick --deep silently escalated to the destructive deep pass.
+for pair in "--quick --deep" "--deep --quick" "--safe --deep" "--quick --quick"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "mode pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"may not be combined with"*) echo "ok: mode pair '$pair' rejected as a conflict" ;;
+    *) fail "mode pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --dry-run --path "$VALID" --quick
+[ "$STATUS" -eq 0 ] || fail "single --quick exited $STATUS (want 0)"
+echo "ok: single mode flag still accepted"
+
+# ─── Repeated value options are rejected at parse time (#1121) ─────
+for opt in --depth --jobs --pack-threads --reflog-expire; do
+  case "$opt" in
+    --reflog-expire) run --dry-run --path "$VALID" "$opt" 1.day.ago "$opt" 2.days.ago ;;
+    *)               run --dry-run --path "$VALID" "$opt" 1 "$opt" 2 ;;
+  esac
+  [ "$STATUS" -eq 2 ] || fail "repeated $opt exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-maintain-repos: $opt may be given only once"*) echo "ok: repeated $opt rejected, option named" ;;
+    *) fail "repeated $opt did not name the option on stderr (got: $ERR)" ;;
+  esac
+done
+
+# ─── --system with --no-system is rejected at parse time (#1121) ───
+for pair in "--system --no-system" "--no-system --system"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "scope pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-maintain-repos: --system and --no-system may not be combined"*) echo "ok: scope pair '$pair' rejected as a conflict" ;;
+    *) fail "scope pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --dry-run --path "$VALID" --system
+[ "$STATUS" -eq 0 ] || fail "single --system exited $STATUS (want 0)"
+echo "ok: single --system still accepted"
+
+# --- --follow/filter pairs are rejected at parse time (#1135) ---
+# git-discover-repos rejected these in #1123, but git-maintain-repos
+# assigned FOLLOW and FILTER unconditionally, so the last flag silently
+# won (the filter decides which repos get gc'd).
+for pair in "--follow --no-follow" "--no-follow --follow"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-maintain-repos: --follow and --no-follow may not be combined"*) echo "ok: follow pair '$pair' rejected as a conflict" ;;
+    *) fail "follow pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+for pair in "--repos-only --worktrees-only" "--worktrees-only --repos-only"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "filter pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"may not be combined with"*"only one filter option may be given"*) echo "ok: filter pair '$pair' rejected as a conflict" ;;
+    *) fail "filter pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+for flag in --follow --no-follow --repos-only --worktrees-only; do
+  run --dry-run --path "$VALID" "$flag"
+  [ "$STATUS" -eq 0 ] || fail "single $flag exited $STATUS (want 0)"
+  echo "ok: single $flag still accepted"
+done
+
+# ─── Shared conformance probe matrix (#1146, design #1145) ─────────
+# The matrix rows for git-maintain-repos, driven through
+# lib/arg-probe.sh (the same helper every discovery suite uses):
+# unknown, missing/flag-shaped (also pinned per-option above), repeat,
+# both conflict orders, extra positional, and bad numbers -- abc, 0,
+# oversized -- for --depth/--jobs. --pack-threads takes the same rows
+# except 0, which is legal there (git auto-detect), so 0 is probed as
+# accepted; 08 is probed as accepted decimal 8 (rule 6, #881).
+probe_rejected "unknown option: --bogus" --bogus
+probe_rejected "git-maintain-repos: --jobs requires a value" --jobs
+probe_rejected "git-maintain-repos: --jobs requires a value" --jobs --dry-run
+probe_rejected "git-maintain-repos: --jobs may be given only once" --dry-run --path "$VALID" --jobs 1 --jobs 2
+probe_rejected "may not be combined with" --dry-run --path "$VALID" --quick --deep
+probe_rejected "may not be combined with" --dry-run --path "$VALID" --deep --quick
+probe_rejected "git-maintain-repos: --system and --no-system may not be combined" --dry-run --path "$VALID" --system --no-system
+probe_rejected "git-maintain-repos: --system and --no-system may not be combined" --dry-run --path "$VALID" --no-system --system
+probe_rejected "unexpected argument: $OTHER" --dry-run "$VALID" "$OTHER"
+for bad in abc 0 2147483648 99999999999999999999999999; do
+  probe_rejected "git-maintain-repos: --depth must be a positive integer" --dry-run --path "$VALID" --depth "$bad"
+  probe_rejected "git-maintain-repos: --jobs must be a positive integer" --dry-run --path "$VALID" --jobs "$bad"
+done
+for bad in abc 2147483648 99999999999999999999999999; do
+  probe_rejected "git-maintain-repos: --pack-threads must be a non-negative integer" --dry-run --path "$VALID" --pack-threads "$bad"
+done
+probe_accepted --dry-run --path "$VALID" --pack-threads 0
+probe_accepted --dry-run --path "$VALID" --jobs 08 --depth 08
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-maintain-repos flag-shaped-value checks passed"

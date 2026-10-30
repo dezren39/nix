@@ -68,7 +68,30 @@ reclaim_root_owned() {
 }
 
 reclaim_root_owned
-git add .
+
+# Is the git on PATH actually usable? On a clean macOS install the only git
+# is /usr/bin/git, an Xcode Command Line Tools shim: invoking it pops the CLT
+# install dialog and exits non-zero, which under `set -e` killed ./s at the
+# `git add .` below -- before anything was built, let alone switched (#1069).
+# Git in this script is bookkeeping only (staging so the flake sees new
+# files, and the marker commits), so when it is missing or is the
+# uninstalled CLT shim, skip the git steps for this run instead of gating
+# the switch on Xcode. The probe must not invoke git itself (that is what
+# triggers the shim's dialog): /usr/bin/git counts as usable only when
+# xcode-select reports a developer directory (CLT or Xcode.app) behind it;
+# a git from the nix profile or the current system is usable as-is. Marker
+# commits simply resume on the next run from an installed system.
+git_ok=1
+if ! command -v git >/dev/null 2>&1; then
+  git_ok=0
+elif [[ "$(command -v git)" == /usr/bin/git ]] && ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+  git_ok=0
+fi
+if (( git_ok )); then
+  git add .
+else
+  echo "no usable git (missing, or the Xcode CLT shim on a clean install); skipping git add + marker commits for this run"
+fi
 
 # Keep Nix's GitHub token current. nix.conf (this directory, so tracked)
 # `include`s ~/.local/share/nix/access-tokens.conf, which holds the token and
@@ -112,11 +135,33 @@ mode="all"
 generation=""
 no_commit=0
 usage="usage: ${0:t} [--no-commit] [--build-only|--activate-only [GENERATION]]"
+# --build-only and --activate-only are alternatives, not last-win (#1149).
+# The split is a privilege boundary (build needs no sudo, activate does),
+# so a pair that silently resolves to whichever came last can cross it in
+# either direction; a repeated --activate-only likewise silently discarded
+# the first GENERATION, and a GENERATION followed by --build-only was
+# stranded in a build run that ignores it, exit 0. Reject all three at
+# parse time, naming the flags, before any phase runs.
+seen_build=0
+seen_activate=0
 while (( $# )); do
   case "$1" in
-    --build-only)    mode="build" ;;
+    --build-only)
+      if (( seen_activate )); then
+        echo "simple-rebuild.sh: --build-only conflicts with --activate-only (choose one)" >&2
+        exit 2
+      fi
+      seen_build=1; mode="build" ;;
     --activate-only)
-      mode="activate"
+      if (( seen_activate )); then
+        echo "simple-rebuild.sh: --activate-only given more than once (choose one GENERATION)" >&2
+        exit 2
+      fi
+      if (( seen_build )); then
+        echo "simple-rebuild.sh: --activate-only conflicts with --build-only (choose one)" >&2
+        exit 2
+      fi
+      seen_activate=1; mode="activate"
       if [[ -n "${2:-}" && "$2" != --* ]]; then generation="$2"; shift; fi
       ;;
     --no-commit)     no_commit=1 ;;
@@ -157,6 +202,10 @@ fi
 commit_marker() {
   if (( no_commit )); then
     echo "--no-commit: skipping commit \"$1\""
+    return 0
+  fi
+  if (( ! git_ok )); then
+    echo "no usable git: skipping commit \"$1\""
     return 0
   fi
   git commit --no-verify --allow-empty -m "$1"
@@ -244,6 +293,57 @@ brew_upgrade() {
   HOMEBREW_NO_AUTO_UPDATE=1 /opt/homebrew/bin/brew bundle install \
     --file="$brewfile" --upgrade --verbose --force ||
     echo "brew upgrade failed; the switch itself succeeded" >&2
+}
+
+# Install or update Xcode from the Mac App Store, as you, after the switch.
+#
+# Xcode is managed, but deliberately NOT through masApps.nix (#1069): brew
+# bundle runs *during* activation, so its App Store requirement and
+# multi-GB download sat on the switch's critical path and could fail or
+# stall it, above all on a clean install. Here -- post-switch, like
+# brew_upgrade above -- ./s calls `mas` itself (mas is a system package,
+# systemPackages.nix, so it is on PATH from the system profile once a
+# switch has installed it):
+#
+#   Xcode.app absent   mas install 497799835
+#   Xcode.app present  mas upgrade 497799835  (no-op when already current)
+#
+# so every ./s keeps Xcode installed and up to date. It assumes the App
+# Store is signed in (Drew, 2026-10-28) -- mas cannot sign in itself on
+# modern macOS -- and a failure (signed out, no prior "purchase", network)
+# is reported without failing or undoing the switch. Rollbacks return
+# before this point and skip it.
+#
+# Afterwards, point the developer directory at Xcode and accept its
+# license / run its first launch here, mirroring configuration.nix's
+# postActivation: that copy only runs at the *next* switch, which would
+# leave a just-installed Xcode unselected until then.
+#
+# No separate Command Line Tools install is needed alongside this: full
+# Xcode carries the same tools (xcodebuild, the SDKs, and git/clang via
+# the xcode-select shims), and once selected it satisfies the
+# Xcode-or-CLT requirement of Homebrew and of builds that call xcrun.
+xcode_mas() {
+  local xcode_app_id=497799835
+  if ! command -v mas >/dev/null 2>&1; then
+    echo "skipping Xcode: mas not on PATH (a system package; present after the first switch that installs it)" >&2
+    return 0
+  fi
+  if [[ -d /Applications/Xcode.app ]]; then
+    echo "mas upgrade $xcode_app_id (Xcode, as $USER)"
+    mas upgrade "$xcode_app_id" ||
+      echo "Xcode upgrade failed; the switch itself succeeded" >&2
+  else
+    echo "mas install $xcode_app_id (Xcode, as $USER; this is a multi-GB download)"
+    mas install "$xcode_app_id" ||
+      echo "Xcode install failed (App Store signed in? Xcode previously \"purchased\"?); the switch itself succeeded" >&2
+  fi
+  if [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+    echo "xcode-select -s Xcode.app, xcodebuild -license accept + -runFirstLaunch (as root)"
+    sudo /usr/bin/xcode-select -s /Applications/Xcode.app/Contents/Developer 2>/dev/null || true
+    sudo /usr/bin/xcodebuild -license accept 2>/dev/null || true
+    sudo /usr/bin/xcodebuild -runFirstLaunch 2>/dev/null || true
+  fi
 }
 
 # After a switch, the servers this flake runs as launchd agents must actually
@@ -389,8 +489,24 @@ phase_activate() {
     return
   fi
 
-  echo "softwareupdate --install-rosetta --agree-to-license"
-  softwareupdate --install-rosetta --agree-to-license
+  # Rosetta is best-effort, never a gate on the switch (#1069). This used to
+  # run bare under `set -e`, before activation: on a clean install any
+  # failure -- no network yet, softwareupdate not offering it, the reduced
+  # Rosetta in macOS 27 -- aborted the run before the system was ever
+  # activated. Nothing in the activation itself needs Rosetta; only the
+  # x86_64 Homebrew prefix (nix-homebrew's enableRosetta) uses it later, and
+  # that can be installed once the machine is up. Skip when it is already
+  # installed (the runtime's presence is the installed marker) or not
+  # Apple Silicon, and let a failed install warn and continue.
+  if [[ "$(uname -m)" != arm64 ]]; then
+    echo "not Apple Silicon; skipping Rosetta install"
+  elif [[ -e /Library/Apple/usr/libexec/oah/libRosettaRuntime ]]; then
+    echo "Rosetta already installed; skipping softwareupdate --install-rosetta"
+  else
+    echo "softwareupdate --install-rosetta --agree-to-license (best-effort)"
+    softwareupdate --install-rosetta --agree-to-license ||
+      echo "warning: Rosetta install did not complete; continuing with the switch -- rerun 'softwareupdate --install-rosetta --agree-to-license' once the machine is online for x86_64 Homebrew" >&2
+  fi
 
   # Activate exactly the system phase_build made: register it as the next
   # system generation, then run its activation. This is what
@@ -466,6 +582,10 @@ phase_activate() {
 
   record_activation "switch"
 
+  # After recording, so a slow or failed App Store download can never delay
+  # or cloud the record of a switch that has already happened.
+  xcode_mas
+
   # Last, so the steps above still run and the generation that is now active
   # is recorded either way; an agent that is not up makes `just switch` exit
   # non-zero. Rollbacks (above) skip it: an older generation may not define
@@ -501,7 +621,11 @@ record_activation() {
   service_event "$how.recorded" generation="$gen" store="$store" \
     current="$(basename "$(readlink -f /run/current-system)")"
   reclaim_root_owned
-  git add .
+  if (( git_ok )); then
+    git add .
+  else
+    echo "no usable git: skipping git add after $how"
+  fi
   commit_marker "$(hostname) $how gen $gen $store"
 }
 

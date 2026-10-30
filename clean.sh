@@ -15,13 +15,26 @@
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Sourced up front (not at first use further down) because the argument
+# parser below uses lib/common.sh's guard helpers (arg_die and friends).
+# shellcheck source=lib/common.sh
+. "$SELF_DIR/lib/common.sh"
+ARG_PROGRAM="clean.sh"
+
 # ---------------------------------------------------------------------------
 # Flags. Vocabulary matches git-maintain-repos and spotlight-exclude-artifacts.
 # ---------------------------------------------------------------------------
 SCOPE="auto"          # auto | system | no-system
 AUTO_SET=0
 SCOPE_SET=0
+SYSTEM_SET=0
+NO_SYSTEM_SET=0
+DEPTH_SET=0
+DOCKER_AGE_SET=0
+FOLLOW_YES_SET=0
+FOLLOW_NO_SET=0
 TARGET_PATH=""
+TARGET_SET=0
 DEPTH_LIMIT=""
 RECURSIVE_SET=0
 FOLLOW=""
@@ -193,18 +206,18 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto)           AUTO_SET=1 ;;
-    --system)         SCOPE="system"; SCOPE_SET=1 ;;
-    --no-system)      SCOPE="no-system"; SCOPE_SET=1 ;;
-    --path)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "clean.sh: $1 requires a value" >&2; usage >&2; exit 2; }; TARGET_PATH="$2"; REPO_FLAGS_USED="$REPO_FLAGS_USED --path"; shift; } ;;
+    --system)         { arg_conflict --system --no-system "$NO_SYSTEM_SET"; SCOPE="system"; SCOPE_SET=1; SYSTEM_SET=1; } ;;
+    --no-system)      { arg_conflict --system --no-system "$SYSTEM_SET"; SCOPE="no-system"; SCOPE_SET=1; NO_SYSTEM_SET=1; } ;;
+    --path)           { arg_require_value "$1" "${2:-}"; [ "$TARGET_SET" -eq 0 ] || arg_die "unexpected argument: $1 (target already set to $TARGET_PATH)"; TARGET_PATH="$2"; TARGET_SET=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --path"; shift; } ;;
     --recursive|--walk) REPO_FLAGS_USED="$REPO_FLAGS_USED --recursive"; DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1; RECURSIVE_SET=1 ;;
-    --depth)          { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "clean.sh: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --depth"; shift; } ;;
-    --follow)         FOLLOW=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --follow" ;;
-    --no-follow)      FOLLOW=0; REPO_FLAGS_USED="$REPO_FLAGS_USED --no-follow" ;;
+    --depth)          { arg_require_value "$1" "${2:-}"; arg_once "$1" DEPTH_SET; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --depth"; shift; } ;;
+    --follow)         { arg_conflict --follow --no-follow "$FOLLOW_NO_SET"; FOLLOW=1; FOLLOW_YES_SET=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --follow"; } ;;
+    --no-follow)      { arg_conflict --follow --no-follow "$FOLLOW_YES_SET"; FOLLOW=0; FOLLOW_NO_SET=1; REPO_FLAGS_USED="$REPO_FLAGS_USED --no-follow"; } ;;
     --sudo)           USE_SUDO=1 ;;
     --tmpdir)         CLEAN_TMPDIR=1 ;;
     --expire-reflog)  EXPIRE_REFLOG=1 ;;
-    --docker-age)     { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "clean.sh: $1 requires a value" >&2; usage >&2; exit 2; }; DOCKER_AGE_DAYS="$2"; shift; } ;;
+    --docker-age)     { arg_require_value "$1" "${2:-}"; arg_once "$1" DOCKER_AGE_SET; DOCKER_AGE_DAYS="$2"; shift; } ;;
     --opencode-root-scratch) CLEAN_OPENCODE_ROOT=1 ;;
     --prune-unknown-scratch) PRUNE_UNKNOWN_SCRATCH=1 ;;
     --only-unknown-scratch) ONLY_UNKNOWN_SCRATCH=1 ;;
@@ -214,72 +227,31 @@ while [ $# -gt 0 ]; do
     --dry-run)        DRY_RUN=1 ;;
     -h|--help)        usage; exit 0 ;;
     -*)               echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *)                TARGET_PATH="$1" ;;
+    *)                { [ "$TARGET_SET" -eq 0 ] || arg_die "unexpected argument: $1 (target already set to $TARGET_PATH)"; TARGET_PATH="$1"; TARGET_SET=1; } ;;
   esac
   shift
 done
 
 # --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
 # where a non-numeric value fails mid-walk and 0 silently means "the path
-# itself only". Judge it whole, at parse time, like opencode-db-prune.sh
-# judges --protect-days/--batch (#830). Empty means unbounded (--recursive).
-# This block is identical in all four discovery-vocabulary scripts.
+# itself only". Judge it whole, at parse time, with the shared arg_decimal
+# helper (lib/common.sh), like opencode-db-prune.sh judges
+# --protect-days/--batch (#830); the INT_MAX range backstop is #858's.
+# Empty means unbounded (--recursive). This judge is the same in all four
+# discovery-vocabulary scripts.
 if [ -n "$DEPTH_LIMIT" ]; then
-  case "$DEPTH_LIMIT" in
-    *[!0-9]*|'')
-      echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-      exit 2 ;;
-  esac
-  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
-  # value above 2147483647 passes the case above yet find rejects it at walk
-  # time ("Numerical result out of range") while the run still exits 0. The
-  # shell's own integer tests cannot judge this — they are 64-bit — so, like
-  # the --pack-threads backstop (#839/#840), compare by digit count first
-  # (leading zeros stripped; at most 10 digits always fits the shell's
-  # arithmetic), then by value against INT_MAX. Judging the stripped value
-  # here, before the -gt 0 test below, also rejects >64-bit digit strings
-  # cleanly instead of tripping "integer expression expected".
-  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
-  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
-    echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-    exit 2
-  fi
-  unset _dl
-  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "clean.sh: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+  arg_decimal DEPTH_LIMIT --depth "$DEPTH_LIMIT" positive
 fi
 
 # --docker-age is used only in bash arithmetic ($((DOCKER_AGE_DAYS * 24)) and
 # the volume cutoff), where a bare word silently evaluates to 0 -- so
 # `--docker-age abc` used to collapse the age filter to until=0h and prune
 # EVERYTHING, and junk like 10junk/1.5 aborted mid-run with a raw arithmetic
-# error (#829). Judge it whole, at parse time, like opencode-db-prune.sh
-# judges --protect-days/--batch. Covers the DOCKER_AGE_DAYS env var too.
+# error (#829). Judge it whole, at parse time, with arg_decimal (which also
+# normalises the judged form, #881, and caps at INT_MAX so the * 86400 use
+# sites cannot wrap, #862). Covers the DOCKER_AGE_DAYS env var too.
 if [ -n "$DOCKER_AGE_DAYS" ]; then
-  case "$DOCKER_AGE_DAYS" in
-    *[!0-9]*|'')
-      echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
-      exit 2 ;;
-  esac
-  # Range backstop (#862): the use sites multiply this value (* 24, * 86400)
-  # in bash's 64-bit arithmetic, so a digits-only value that merely fits
-  # 64-bit can still wrap at the multiplication (the * 86400 products wrap
-  # negative from ~1.07e14, inverting the stale cutoff to the far future).
-  # Judge the stripped value by digit count first, then by value against
-  # INT_MAX, before the -gt 0 test below — the #840/#858 technique. INT_MAX
-  # is wrap-proof here: the largest multiplier in this file is 86400 and
-  # 2147483647 * 86400 ~ 1.9e14 fits 64-bit easily.
-  _da=${DOCKER_AGE_DAYS#"${DOCKER_AGE_DAYS%%[!0]*}"}; _da=${_da:-0}
-  if [ "${#_da}" -gt 10 ] || [ "$_da" -gt 2147483647 ]; then
-    echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2
-    exit 2
-  fi
-  [ "$_da" -gt 0 ] || { echo "clean.sh: --docker-age must be a positive integer (got: $DOCKER_AGE_DAYS)" >&2; exit 2; }
-  # Normalize to the judged form (#881): the strip above was only judging —
-  # the use sites do bash arithmetic, where a leading zero means octal
-  # (010 silently = 8, 008/009 error mid-sweep). The judged form and the
-  # used form must agree, so hand every use site the stripped decimal.
-  DOCKER_AGE_DAYS="$_da"
-  unset _da
+  arg_decimal DOCKER_AGE_DAYS --docker-age "$DOCKER_AGE_DAYS" positive
 fi
 
 # The numeric env tunables (see TUNABLES in usage) gate deletion — age,
@@ -303,27 +275,11 @@ _clean_positive_vars="ARTIFACT_STALE_DAYS HOME_ARTIFACT_STALE_DAYS CACHE_STALE_D
 for _v in $_clean_positive_vars; do
   _val="${!_v:-}"
   [ -n "$_val" ] || continue
-  case "$_val" in
-    *[!0-9]*|'')
-      echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
-      exit 2 ;;
-  esac
-  # Range backstop (#862), same reasoning as --docker-age above: these
-  # values are multiplied at their use sites (* 86400, * 1440, * 60), so
-  # cap them at INT_MAX with the strip/digit-count/value technique before
-  # the -gt 0 test, which also rejects >64-bit digit strings cleanly.
-  _sv=${_val#"${_val%%[!0]*}"}; _sv=${_sv:-0}
-  if [ "${#_sv}" -gt 10 ] || [ "$_sv" -gt 2147483647 ]; then
-    echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2
-    exit 2
-  fi
-  [ "$_sv" -gt 0 ] || { echo "clean.sh: $_v must be a positive integer (got: $_val)" >&2; exit 2; }
-  # Normalize to the judged form (#881), same as --docker-age above: bash
-  # arithmetic at the use sites reads a leading zero as octal, so the
-  # stripped decimal that was judged must be the value that is used.
-  printf -v "$_v" '%s' "$_sv"
+  # arg_decimal judges digits/range (INT_MAX backstop, #862) and writes
+  # back the normalised decimal (#881), naming the variable.
+  arg_decimal "$_v" "$_v" "$_val" positive
 done
-unset _clean_positive_vars _v _val _sv
+unset _clean_positive_vars _v _val
 # Non-negative tunables: 0 is a documented, meaningful value for each of
 # these (see the header comment above), so they are judged like the
 # positive tunables but without the -gt 0 test (#871).
@@ -331,29 +287,12 @@ _clean_nonnegative_vars="LOG_STALE_DAYS NIX_KEEP_DAYS NIX_KEEP_GENS"
 for _v in $_clean_nonnegative_vars; do
   _val="${!_v:-}"
   [ -n "$_val" ] || continue
-  case "$_val" in
-    *[!0-9]*|'')
-      echo "clean.sh: $_v must be a non-negative integer (got: $_val)" >&2
-      exit 2 ;;
-  esac
-  # Range backstop (#862): LOG_STALE_DAYS is forwarded to find -mtime, a
-  # C-int consumer, and NIX_KEEP_DAYS is multiplied at its use sites
-  # (* 86400, and doubled while widening in nix_keep_window), so cap all
-  # of them at INT_MAX with the same strip/digit-count/value technique
-  # as the positive tunables above.
-  _sv=${_val#"${_val%%[!0]*}"}; _sv=${_sv:-0}
-  if [ "${#_sv}" -gt 10 ] || [ "$_sv" -gt 2147483647 ]; then
-    echo "clean.sh: $_v must be a non-negative integer (got: $_val)" >&2
-    exit 2
-  fi
-  # Normalize to the judged form (#881), same as --docker-age above: bash
-  # arithmetic at the use sites reads a leading zero as octal, so the
-  # stripped decimal that was judged must be the value that is used
-  # (this also keeps the blessed NIX_KEEP_DAYS=000 scorched-earth form:
-  # it normalizes to 0 and still selects that branch).
-  printf -v "$_v" '%s' "$_sv"
+  # Same judge as the positive tunables, without the > 0 test (#871);
+  # normalisation keeps the blessed NIX_KEEP_DAYS=000 scorched-earth
+  # form: it becomes 0 and still selects that branch.
+  arg_decimal "$_v" "$_v" "$_val" non-negative
 done
-unset _clean_nonnegative_vars _v _val _sv
+unset _clean_nonnegative_vars _v _val
 
 # --system touches no repositories, so repository-scoped flags are meaningless
 # alongside it. Erroring beats silently ignoring them.
@@ -423,6 +362,30 @@ human_size() {
   if (( bytes >= 1073741824 )); then printf "%.2f GB" "$(echo "scale=2; $bytes / 1073741824" | bc)"
   elif (( bytes >= 1048576 )); then printf "%.2f MB" "$(echo "scale=2; $bytes / 1048576" | bc)"
   else printf "%d KB" "$(( bytes / 1024 ))"; fi
+}
+
+# Portable stat helpers (#1068). clean.sh targets macOS, where stat is
+# BSD: GNU-only `stat -c` fails there ("illegal option -- c"), and with
+# 2>/dev/null on the call the failure silently emptied the value. Try the
+# BSD form first and validate its shape -- GNU stat also accepts -f but
+# with file-system semantics, so an unvalidated BSD attempt can return
+# plausible-looking garbage there -- then fall back to GNU.
+stat_mtime_epoch() { # <path> -> mtime as epoch seconds (empty on failure)
+  local _v
+  _v="$(stat -f '%m' "$1" 2>/dev/null)" && case "$_v" in ''|*[!0-9]*) ;; *) printf '%s' "$_v"; return 0 ;; esac
+  stat -c '%Y' "$1" 2>/dev/null # GNU fallback (BSD form above is primary)
+}
+stat_birth_time() { # <path> -> birth time "YYYY-MM-DD HH:MM:SS" (empty if unknown)
+  local _v
+  _v="$(stat -f '%SB' -t '%Y-%m-%d %H:%M:%S' "$1" 2>/dev/null)" && case "$_v" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]) printf '%s' "$_v"; return 0 ;; esac
+  _v="$(stat -c '%w' "$1" 2>/dev/null)"; [ "$_v" = "-" ] && _v=""
+  printf '%s' "${_v%%.*}"
+}
+stat_mtime_time() { # <path> -> mtime as "YYYY-MM-DD HH:MM:SS" (empty on failure)
+  local _v
+  _v="$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$1" 2>/dev/null)" && case "$_v" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' '[0-9][0-9]:[0-9][0-9]:[0-9][0-9]) printf '%s' "$_v"; return 0 ;; esac
+  _v="$(stat -c '%y' "$1" 2>/dev/null)"
+  printf '%s' "${_v%%.*}"
 }
 
 # Every destructive action funnels through these so --dry-run is honoured
@@ -514,8 +477,6 @@ LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}"
 # is sound even without a live daemon to ask.
 COLIMA_STOPPED_STALE_DAYS="${COLIMA_STOPPED_STALE_DAYS:-10}"
 
-# shellcheck source=lib/common.sh
-. "$SELF_DIR/lib/common.sh"
 build_name_expr CACHE_EXPR "${CACHE_NAMES[@]}"
 build_name_expr RISK_EXPR  "${RISKY_NAMES[@]}"
 build_name_expr TRASH_EXPR "${TRASH_NAMES[@]}"
@@ -581,8 +542,8 @@ sweep_unknown_large_scratch() {
     [ "$size_mb" -ge "$UNKNOWN_SCRATCH_MIN_MB" ] || continue
     [ -n "$(find "$entry" -maxdepth 0 -mmin "-${age_cutoff_min}" -print 2>/dev/null)" ] && continue  # too fresh
     [ -n "$(lsof +D "$entry" 2>/dev/null | head -1)" ] && continue  # something has it open
-    created="$(stat -c '%w' "$entry" 2>/dev/null)"; created="${created%%.*}"
-    modified="$(stat -c '%y' "$entry" 2>/dev/null)"; modified="${modified%%.*}"
+    created="$(stat_birth_time "$entry")"
+    modified="$(stat_mtime_time "$entry")"
     if [ "$PRUNE_UNKNOWN_SCRATCH" = "1" ]; then
       status="deleted"
       if [ "$DRY_RUN" = "1" ]; then echo "  would remove (unknown, ${size_mb} MB, >${UNKNOWN_SCRATCH_STALE_DAYS}d): ${entry/#$CALLER_USER_HOME/\~}"; status="would delete"
@@ -1128,8 +1089,16 @@ for _ptbase in "$CALLER_USER_HOME/.local/share/opencode/tmp" "${TMPDIR:-/tmp}" /
   for _ptdir in "$_ptbase"/pytest-of-*; do
     [ -d "$_ptdir" ] || continue
     # Newest real run (ignore the pytest-current symlink) is always preserved.
-    _newest="$(find "$_ptdir" -maxdepth 1 -mindepth 1 -type d -name 'pytest-*' \
-                 -exec stat -c '%Y %n' {} \; 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+    # Computed with the portable stat helper (#1068): the old GNU-only
+    # `stat -c` pipeline silently yielded "" on macOS, disabling this guard.
+    _newest=""; _newest_mtime=-1
+    for _cand in "$_ptdir"/pytest-*; do
+      [ -d "$_cand" ] && [ ! -L "$_cand" ] || continue
+      _cand_mtime="$(stat_mtime_epoch "$_cand")"
+      case "$_cand_mtime" in ''|*[!0-9]*) continue ;; esac
+      if [ "$_cand_mtime" -gt "$_newest_mtime" ]; then _newest="$_cand"; _newest_mtime="$_cand_mtime"; fi
+    done
+    unset _cand _cand_mtime _newest_mtime
     while IFS= read -r _run; do
       [ -n "$_run" ] || continue
       [ "$_run" = "$_newest" ] && continue

@@ -54,6 +54,31 @@ fi
 # Edge case: missing root entirely — a no-op, not an error
 bash "$HELPER" "$TMP_ROOT/does-not-exist"
 
+# Argument guard (#1157): a second positional exits 2 naming it, and
+# neither root is swept.
+root1="$TMP_ROOT/root1"; root2="$TMP_ROOT/root2"
+mkdir -p "$root1/aa" "$root2/aa"
+rc=0
+bash "$HELPER" "$root1" "$root2" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -ne 2 ]; then fail "two roots: expected exit 2, got $rc"; fi
+if ! grep -qF "$root2" "$TMP_ROOT/err"; then fail "two roots: second root not named on stderr"; fi
+if ! grep -q "usage: var-folders-clean.sh" "$TMP_ROOT/err"; then fail "two roots: usage not on stderr"; fi
+if [ ! -e "$root1/aa" ] || [ ! -e "$root2/aa" ]; then fail "two roots: a root was swept despite the rejection"; fi
+
+# Argument guard (#1157): a flag-shaped first argument is not a silent
+# no-op — exit 2 naming it, with usage on stderr.
+rc=0
+bash "$HELPER" --bogus >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -ne 2 ]; then fail "--bogus: expected exit 2, got $rc"; fi
+if ! grep -q -- "--bogus" "$TMP_ROOT/err"; then fail "--bogus: argument not named on stderr"; fi
+if ! grep -q "usage: var-folders-clean.sh" "$TMP_ROOT/err"; then fail "--bogus: usage not on stderr"; fi
+
+# --help prints usage and exits 0.
+rc=0
+bash "$HELPER" --help >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -ne 0 ]; then fail "--help: expected exit 0, got $rc"; fi
+if ! grep -q "usage: var-folders-clean.sh" "$TMP_ROOT/out"; then fail "--help: usage not printed"; fi
+
 if [ "$failures" -eq 0 ]; then
   echo "PASS: /private/var/folders cleaning logic verified successfully."
 else

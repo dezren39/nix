@@ -11,6 +11,11 @@ on:
 # with the default single queue a third bot command silently
 # replaces the pending second one. Key by PR/issue number and
 # queue every run (mirrors the openchamber fix for the same flaw).
+# NOTE: queue: max is only valid with cancel-in-progress: false -- GitHub
+# rejects that combination at startup (every run failed to start, 0 jobs,
+# after #1172 set it to true). This workflow is the deliberate exception
+# to the repo-wide cancel-in-progress sweep: false + queue: max is what
+# guarantees no queued /oc command is silently replaced by a later one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: false

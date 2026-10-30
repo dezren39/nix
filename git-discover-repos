@@ -44,6 +44,7 @@ set -uo pipefail
 _self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 . "$_self_dir/lib/common.sh"
+ARG_PROGRAM="git-discover-repos"
 
 usage() {
   cat <<'EOF'
@@ -127,25 +128,31 @@ TARGET_USER=""
 PATHS=()
 RECURSIVE_SET=0
 FOLLOW_SET=0
+DEPTH_SET=0
+FIND_SET=0
+USER_SET=0
+FILTER_FLAG=""
+FOLLOW_YES_SET=0
+FOLLOW_NO_SET=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto)           MODE="auto" ;;
-    --path)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; MODE="path"; PATHS+=("$2"); shift; } ;;
+    --path)           { arg_require_value "$1" "${2:-}"; MODE="path"; PATHS+=("$2"); shift; } ;;
     --recursive|--walk)       DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1;  RECURSIVE_SET=1 ;;
-    --depth)                  { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
-    --follow)         FOLLOW=1; FOLLOW_SET=1 ;;
-    --no-follow)      FOLLOW=0; FOLLOW_SET=1 ;;
-    --repos-only)     FILTER="repos" ;;
-    --worktrees-only) FILTER="worktrees" ;;
-    --both)           FILTER="both" ;;
-    --bare-only)      FILTER="bare" ;;
+    --depth)                  { arg_require_value "$1" "${2:-}"; arg_once "$1" DEPTH_SET; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
+    --follow)         { arg_conflict --follow --no-follow "$FOLLOW_NO_SET"; FOLLOW=1; FOLLOW_SET=1; FOLLOW_YES_SET=1; } ;;
+    --no-follow)      { arg_conflict --follow --no-follow "$FOLLOW_YES_SET"; FOLLOW=0; FOLLOW_SET=1; FOLLOW_NO_SET=1; } ;;
+    --repos-only)     { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="repos"; FILTER_FLAG="$1"; } ;;
+    --worktrees-only) { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="worktrees"; FILTER_FLAG="$1"; } ;;
+    --both)           { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="both"; FILTER_FLAG="$1"; } ;;
+    --bare-only)      { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="bare"; FILTER_FLAG="$1"; } ;;
     --paths-only)     PATHS_ONLY=1 ;;
     --no-bare)        INCLUDE_BARE=0 ;;
-    --find)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; FIND_SPEC="$2"; shift; } ;;
+    --find)           { arg_require_value "$1" "${2:-}"; arg_once "$1" FIND_SET; FIND_SPEC="$2"; shift; } ;;
     --status)         WANT_STATUS=1 ;;
-    --user)           { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-discover-repos: $1 requires a value" >&2; usage >&2; exit 2; }; TARGET_USER="$2"; shift; } ;;
+    --user)           { arg_require_value "$1" "${2:-}"; arg_once "$1" USER_SET; TARGET_USER="$2"; shift; } ;;
     --print0)         PRINT0=1 ;;
     --count)          COUNT_ONLY=1 ;;
     --dry-run)        DRY_RUN=1 ;;
@@ -158,31 +165,13 @@ done
 
 # --depth is turned into a find -maxdepth fragment below, where a
 # non-numeric value fails mid-walk and 0 silently means "the path itself
-# only". Judge it whole, at parse time, like opencode-db-prune.sh judges
-# --protect-days/--batch (#830). Empty means unbounded (--recursive).
-# This block is identical in all four discovery-vocabulary scripts.
+# only". Judge it whole, at parse time, with the shared arg_decimal
+# helper (lib/common.sh), like opencode-db-prune.sh judges
+# --protect-days/--batch (#830); the INT_MAX range backstop is #858's.
+# Empty means unbounded (--recursive). This judge is the same in all
+# four discovery-vocabulary scripts.
 if [ -n "$DEPTH_LIMIT" ]; then
-  case "$DEPTH_LIMIT" in
-    *[!0-9]*|'')
-      echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-      exit 2 ;;
-  esac
-  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
-  # value above 2147483647 passes the case above yet find rejects it at walk
-  # time ("Numerical result out of range") while the run still exits 0. The
-  # shell's own integer tests cannot judge this — they are 64-bit — so, like
-  # the --pack-threads backstop (#839/#840), compare by digit count first
-  # (leading zeros stripped; at most 10 digits always fits the shell's
-  # arithmetic), then by value against INT_MAX. Judging the stripped value
-  # here, before the -gt 0 test below, also rejects >64-bit digit strings
-  # cleanly instead of tripping "integer expression expected".
-  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
-  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
-    echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-    exit 2
-  fi
-  unset _dl
-  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-discover-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+  arg_decimal DEPTH_LIMIT --depth "$DEPTH_LIMIT" positive
 fi
 
 if [ "$DEPTH_LIMIT" = "1" ] && [ "${FOLLOW:-0}" = "1" ] && [ "$RECURSIVE_SET" = "1" ]; then

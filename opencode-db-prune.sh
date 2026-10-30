@@ -78,9 +78,28 @@
 
 set -euo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Sourced up front because the argument parser below uses
+# lib/common.sh's guard helpers (arg_die and friends) -- design #1145
+# phase 2 (#1147), the clean.sh SELF_DIR precedent. die() below stays
+# for runtime failures (exit 1); parse errors go through the shared
+# helpers (exit 2, usage on stderr).
+# shellcheck source=lib/common.sh
+. "$SELF_DIR/lib/common.sh"
+ARG_PROGRAM="opencode-db-prune"
+
 DB_DEFAULT="${HOME}/.local/share/opencode/opencode.db"
 DB="$DB_DEFAULT"
+DB_SET=0
 PROTECT_DAYS=30
+PROTECT_DAYS_SET=0
+BACKUP_SET=0
+NO_BACKUP_SET=0
+ARCHIVE_SET=0
+RESTORE_SESSION_SET=0
+FROM_SET=0
+BATCH_SET=0
 PROTECT_ROOTS=0
 APPLY=0
 BACKUP=""
@@ -194,47 +213,37 @@ EOF
 # Value-taking options reject an empty or flag-shaped value (#941, the
 # #930 pattern): "--db --apply" must die naming --db, not swallow --apply
 # as the database path.
+# They also reject a repeat (#1112, the adopt #1103 pattern): a repeated
+# --db used to silently discard the first path, redirecting this
+# destructive operation to a different database with no error. --backup
+# combined with --no-backup (either order) is likewise rejected: it used
+# to silently produce no backup at all, ignoring the explicit --backup.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --db) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--db needs a path"; DB="$2"; shift 2 ;;
-    --protect-days) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--protect-days needs a number"; PROTECT_DAYS="$2"; shift 2 ;;
+    --db) arg_require_value "$1" "${2:-}"; arg_once "$1" DB_SET; DB="$2"; shift 2 ;;
+    --protect-days) arg_require_value "$1" "${2:-}"; arg_once "$1" PROTECT_DAYS_SET; PROTECT_DAYS="$2"; PROTECT_DAYS_SET=1; shift 2 ;;
     --protect-roots) PROTECT_ROOTS=1; shift ;;
     --apply) APPLY=1; shift ;;
-    --backup) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--backup needs a path"; BACKUP="$2"; shift 2 ;;
-    --no-backup) DO_BACKUP=0; shift ;;
-    --archive) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--archive needs a path"; ARCHIVE="$2"; shift 2 ;;
-    --restore-session) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--restore-session needs a session id"; RESTORE_SESSION="$2"; shift 2 ;;
-    --from) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--from needs a path"; FROM="$2"; shift 2 ;;
-    --batch) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--batch needs a number"; BATCH="$2"; shift 2 ;;
+    --backup) arg_require_value "$1" "${2:-}"; arg_once "$1" BACKUP_SET; arg_conflict --backup --no-backup "$NO_BACKUP_SET"; BACKUP="$2"; BACKUP_SET=1; shift 2 ;;
+    --no-backup) arg_conflict --backup --no-backup "$BACKUP_SET"; DO_BACKUP=0; NO_BACKUP_SET=1; shift ;;
+    --archive) arg_require_value "$1" "${2:-}"; arg_once "$1" ARCHIVE_SET; ARCHIVE="$2"; ARCHIVE_SET=1; shift 2 ;;
+    --restore-session) arg_require_value "$1" "${2:-}"; arg_once "$1" RESTORE_SESSION_SET; RESTORE_SESSION="$2"; RESTORE_SESSION_SET=1; shift 2 ;;
+    --from) arg_require_value "$1" "${2:-}"; arg_once "$1" FROM_SET; FROM="$2"; FROM_SET=1; shift 2 ;;
+    --batch) arg_require_value "$1" "${2:-}"; arg_once "$1" BATCH_SET; BATCH="$2"; BATCH_SET=1; shift 2 ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "unknown option: $1 (try --help)" ;;
+    *) arg_die "unknown option: $1 (try --help)" ;;
   esac
 done
 
-case "$PROTECT_DAYS" in (*[!0-9]*|'') die "--protect-days must be a non-negative integer" ;; esac
-case "$BATCH" in (*[!0-9]*|'') die "--batch must be a positive integer" ;; esac
-# Range backstop (#867): both values are interpolated into SQLite, whose
-# integers are 64-bit — PROTECT_DAYS into the *86400 cutoff multiplication
-# (overflow converts the cutoff to a REAL), BATCH into a LIMIT in the delete
-# loop (an over-int64 literal fails there with a datatype-mismatch error,
-# after staging/archive work). The shell's own integer tests are also 64-bit
-# and trip "integer expression expected" on longer digit strings, so, like
-# the clean.sh backstops (#862/#858), compare by digit count first (leading
-# zeros stripped; at most 10 digits always fits the shell's arithmetic), then
-# by value against INT_MAX, before the -gt 0 test below. INT_MAX is
-# wrap-proof here: 2147483647*86400 ~ 1.9e14 fits int64 easily.
-_pd=${PROTECT_DAYS#"${PROTECT_DAYS%%[!0]*}"}; _pd=${_pd:-0}
-if [ "${#_pd}" -gt 10 ] || [ "$_pd" -gt 2147483647 ]; then
-  die "--protect-days must be a non-negative integer"
-fi
-unset _pd
-_b=${BATCH#"${BATCH%%[!0]*}"}; _b=${_b:-0}
-if [ "${#_b}" -gt 10 ] || [ "$_b" -gt 2147483647 ]; then
-  die "--batch must be a positive integer"
-fi
-unset _b
-[ "$BATCH" -gt 0 ] || die "--batch must be > 0"
+# Numeric values are judged whole, at parse time, with the shared
+# arg_decimal helper (lib/common.sh), like the discovery family
+# (#1147): strict plain decimal, INT_MAX backstop judged by digit
+# count first (#867's hand copies of this block lived here), and the
+# judged (leading-zero-stripped) form is the used form, so a value
+# like 08 can never be read as octal downstream (#881).
+arg_decimal PROTECT_DAYS --protect-days "$PROTECT_DAYS" non-negative
+arg_decimal BATCH --batch "$BATCH" positive
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -650,6 +659,16 @@ SQL
 
 if [ -n "$RESTORE_SESSION" ]; then
   [ -n "$ARCHIVE" ] && die "--archive is a prune option; --restore-session reads from --from"
+  # #1129: the other prune-only options were parsed and then silently
+  # dropped by restore mode -- worst, --backup produced no backup and no
+  # warning on a restore --apply run (a write to the live DB). Reject
+  # them the same way --archive is rejected, before any restore work.
+  # (PROTECT_ROOTS has no *_SET flag; its value is the flag state.)
+  [ "$BACKUP_SET" -eq 1 ] && die "--backup is a prune option; it does not apply to --restore-session"
+  [ "$NO_BACKUP_SET" -eq 1 ] && die "--no-backup is a prune option; it does not apply to --restore-session"
+  [ "$PROTECT_DAYS_SET" -eq 1 ] && die "--protect-days is a prune option; it does not apply to --restore-session"
+  [ "$PROTECT_ROOTS" -eq 1 ] && die "--protect-roots is a prune option; it does not apply to --restore-session"
+  [ "$BATCH_SET" -eq 1 ] && die "--batch is a prune option; it does not apply to --restore-session"
   restore_session_mode
   exit 0
 fi

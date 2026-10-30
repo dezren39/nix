@@ -2017,6 +2017,8 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
     return False
 
 
+# Bolt Optimization: Memoize root input presence check across duplicate/proposal analyses
+@functools.lru_cache(maxsize=512)
 def root_input_exists_in_content(content: str, input_name: str) -> bool:
     """Check if a root input declaration already exists in flake.nix.
 
@@ -2029,6 +2031,8 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
     style, block_start, block_end = detect_inputs_style(content)
 
     if style == "block" and block_start is not None and block_end is not None:
+        # Bolt Optimization: Pre-compile regex prior to line loop
+        pat_block = re.compile(rf"{esc}\s*[.=]")
         # Track brace depth inside inputs = { ... } to only match at depth 1
         depth = 0
         for i in range(block_start, len(lines)):
@@ -2038,7 +2042,7 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
             # Check BEFORE counting this line's braces
             if i > block_start and depth == 1:
                 # NAME = { or NAME.url = etc.
-                if re.match(rf"{esc}\s*[.=]", stripped):
+                if pat_block.match(stripped):
                     return True
             depth += _brace_delta(stripped)
             if depth <= 0 and i > block_start:
@@ -2050,26 +2054,27 @@ def root_input_exists_in_content(content: str, input_name: str) -> bool:
         # declarations (#655) — except the block's own opening line,
         # which IS the root declaration of the parent itself.
         block_ctx = _block_context_for_lines(content)
+        # Bolt Optimization: Pre-compile regex patterns prior to line loop
+        pat_ctx = re.compile(rf"inputs\.{esc}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{")
+        pat_assign = re.compile(rf"inputs\.{esc}\s*=")
+        pat_attr = re.compile(rf"inputs\.{esc}\.(url|follows|flake)\s*=")
+        pat_override = re.compile(rf"inputs\.{esc}\.inputs\.{_SEG_TOKEN_NC}\.(follows|url)\s*=")
+
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
             ctx = block_ctx[i]
             if ctx is not None:
-                if ctx == input_name and re.match(
-                    rf"inputs\.{esc}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{", stripped
-                ):
+                if ctx == input_name and pat_ctx.match(stripped):
                     return True
                 continue
-            if re.match(rf"inputs\.{esc}\s*=", stripped):
+            if pat_assign.match(stripped):
                 return True
-            if re.match(rf"inputs\.{esc}\.(url|follows|flake)\s*=", stripped):
+            if pat_attr.match(stripped):
                 return True
             # inputs.NAME.inputs.X.follows is a shallow override on NAME
-            if re.match(
-                rf"inputs\.{esc}\.inputs\.{_SEG_TOKEN_NC}\.(follows|url)\s*=",
-                stripped,
-            ):
+            if pat_override.match(stripped):
                 return True
     return False
 
@@ -2101,13 +2106,16 @@ def find_commented_follows(
             rf'#\s*inputs\.{_name_ref(target_part)}\.follows\s*=\s*"{re.escape(target)}"'
         )
 
+    # Bolt Optimization: Pre-compile pattern list prior to line iteration
+    compiled_patterns = [re.compile(p) for p in patterns]
+
     lines = content.split("\n")
     for i, line in enumerate(lines):
         stripped = line.strip()
         if not stripped.startswith("#"):
             continue
-        for pat in patterns:
-            if re.search(pat, stripped):
+        for pat in compiled_patterns:
+            if pat.search(stripped):
                 return (i, line)
     return None
 
@@ -2130,12 +2138,16 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
     in_inputs_block = False
     inputs_brace_depth = 0
 
+    # Bolt Optimization: Pre-compile regexes prior to line loop
+    pat_dotted = re.compile(rf"inputs\.{_name_ref(input_name)}\s*=\s*\{{")
+    pat_child = re.compile(rf"{_name_ref(input_name)}\s*=\s*\{{")
+
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
             continue
 
-        if re.match(rf"inputs\.{_name_ref(input_name)}\s*=\s*\{{", stripped):
+        if pat_dotted.match(stripped):
             block_start = i
             break
 
@@ -2148,9 +2160,7 @@ def find_input_block_end(content: str, input_name: str) -> tuple[int, str] | Non
             # Only a direct child of the inputs block (depth 1) can be the
             # root input's block; a same-name block nested inside another
             # input's ``inputs = { ... }`` override must not shadow it.
-            if inputs_brace_depth == 1 and re.match(
-                rf"{_name_ref(input_name)}\s*=\s*\{{", stripped
-            ):
+            if inputs_brace_depth == 1 and pat_child.match(stripped):
                 block_start = i
                 break
             inputs_brace_depth += _brace_delta(stripped)
@@ -2214,6 +2224,10 @@ def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, b
     last = None
     inside_block = False
 
+    # Bolt Optimization: Pre-compile regexes prior to line loop
+    pat_dotted = re.compile(rf"inputs\.{_name_ref(input_name)}\.")
+    pat_block = re.compile(rf"{_name_ref(input_name)}\.")
+
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -2222,12 +2236,12 @@ def find_input_dotted_line(content: str, input_name: str) -> tuple[int | None, b
         # Only match lines at root scope (context is None)
         if ctx is not None:
             continue
-        if re.match(rf"inputs\.{_name_ref(input_name)}\.", stripped):
+        if pat_dotted.match(stripped):
             last = i
             inside_block = False
         if style == "block" and block_start is not None and block_end is not None:
             if block_start < i < block_end:
-                if re.match(rf"{_name_ref(input_name)}\.", stripped):
+                if pat_block.match(stripped):
                     last = i
                     inside_block = True
 
@@ -2246,6 +2260,10 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
     style, block_start, block_end = detect_inputs_style(content)
     block_ctx = _block_context_for_lines(content)
 
+    # Bolt Optimization: Pre-compile regexes prior to line loop
+    pat_block_open = re.compile(rf"{esc}\s*=\s*\{{")
+    pat_dotted_url = re.compile(rf"(?:inputs\.)?{esc}\.url\s*=")
+
     # --- Block style: look inside the input's own block ---
     if style == "block" and block_start is not None and block_end is not None:
         in_target = False
@@ -2259,7 +2277,7 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
             # nested inside another input's ``inputs = { ... }`` override
             # is a different input and must not shadow the root one.
             if not in_target:
-                if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
+                if depth == 0 and pat_block_open.match(stripped):
                     in_target = True
                     depth = _brace_delta(stripped)
                     # Check if url is on the same line — the line is
@@ -2289,7 +2307,7 @@ def find_input_url_line(content: str, input_name: str) -> int | None:
             continue
         if block_ctx[i] is not None:
             continue
-        if re.match(rf"(?:inputs\.)?{esc}\.url\s*=", stripped):
+        if pat_dotted_url.match(stripped):
             return i
 
     return None
@@ -2420,6 +2438,8 @@ def remove_input_url_line(content: str, input_name: str) -> tuple[str, bool]:
     return "\n".join(lines), True
 
 
+# Bolt Optimization: Cache follows target lookups for identical content and input name
+@functools.lru_cache(maxsize=256)
 def _follows_target_for_input(content: str, input_name: str) -> str | None:
     """Return the follows target name for a root input, or *None*.
 
@@ -2429,6 +2449,10 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
     lines = content.split("\n")
     esc = _name_ref(input_name)
     style, block_start, block_end = detect_inputs_style(content)
+
+    # Bolt Optimization: Pre-compile regex patterns prior to line iteration
+    pat_header = re.compile(rf"{esc}\s*=\s*\{{")
+    pat_dotted = re.compile(rf'(?:inputs\.)?{esc}\.follows\s*=\s*"([^"]+)"')
 
     # Block style: look inside the input's block for bare ``follows = "X";``
     if style == "block" and block_start is not None and block_end is not None:
@@ -2443,7 +2467,7 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
                 # (depth 0 while searching) is the root input's block; a
                 # same-name block nested in another input's override is a
                 # different input and must not shadow it.
-                if depth == 0 and re.match(rf"{esc}\s*=\s*\{{", stripped):
+                if depth == 0 and pat_header.match(stripped):
                     in_target = True
                     depth = _brace_delta(stripped)
                     m = re.search(r'\bfollows\s*=\s*"([^"]+)"', stripped)
@@ -2475,7 +2499,7 @@ def _follows_target_for_input(content: str, input_name: str) -> str | None:
             continue
         if block_ctx[i] is not None:
             continue
-        m = re.match(rf'(?:inputs\.)?{esc}\.follows\s*=\s*"([^"]+)"', stripped)
+        m = pat_dotted.match(stripped)
         if m:
             return m.group(1)
 

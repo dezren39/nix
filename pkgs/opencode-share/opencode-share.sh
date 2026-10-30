@@ -9,6 +9,8 @@ VERSION="1.0.0"
 SOURCE="${OPENCODE_SHARE_SOURCE:-$HOME/.config/nix/.opencode}"
 DRY_RUN=false
 ACTION="mount" # mount | unmount | status
+ACTION_SET=false # true once an action flag is given on the command line
+SOURCE_SET=false # true once --source is given (SOURCE itself has a default)
 
 # Colors (disabled if not a terminal)
 if [[ -t 1 ]]; then
@@ -326,15 +328,42 @@ while [[ $# -gt 0 ]]; do
         usage
         exit 1
       fi
+      # NOTE (#1106): a repeated --source used to silently discard the
+      # first value (the #1103 shape). Reject it at parse time.
+      if [[ "$SOURCE_SET" == true ]]; then
+        err "--source may be given only once (repeated --source)"
+        echo ""
+        usage
+        exit 1
+      fi
       SOURCE="$2"
+      SOURCE_SET=true
       shift 2
       ;;
     --unmount | --umount | -u)
+      # NOTE (#1106): a different action flag already given is a conflict,
+      # not a last-win override -- --unmount --status used to run status
+      # and exit 0, leaving the mounts up under a success report.
+      # Repeating the SAME action (any spelling) is accepted idempotently.
+      if [[ "$ACTION_SET" == true && "$ACTION" != "unmount" ]]; then
+        err "conflicting action flags: $1 conflicts with --$ACTION already given"
+        echo ""
+        usage
+        exit 1
+      fi
       ACTION="unmount"
+      ACTION_SET=true
       shift
       ;;
     --status | -s)
+      if [[ "$ACTION_SET" == true && "$ACTION" != "status" ]]; then
+        err "conflicting action flags: $1 conflicts with --$ACTION already given"
+        echo ""
+        usage
+        exit 1
+      fi
       ACTION="status"
+      ACTION_SET=true
       shift
       ;;
     --dry-run | -n)

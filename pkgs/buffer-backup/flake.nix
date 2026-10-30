@@ -73,6 +73,27 @@
               touch $out
             '';
 
+        # #1141: check-lock-sync.test.py -- the invocation probes for
+        # check-lock-sync.py (unknown flag / extra argument / missing
+        # dir / missing lockfile must exit 2, never traceback at the
+        # exit-1 "out of sync" signal). The test locates the script
+        # relative to its own location, so copy both into the check
+        # tree side by side, like cleanup-count below.
+        checks.check-lock-sync-args =
+          pkgs.runCommand "buffer-backup-check-lock-sync-args"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+            }
+            ''
+              cp ${./check-lock-sync.py} check-lock-sync.py
+              cp ${./check-lock-sync.test.py} check-lock-sync.test.py
+              cp ${./package.json} package.json
+              cp ${./package-lock.json} package-lock.json
+              cp ${./bun.lock} bun.lock
+              python3 check-lock-sync.test.py
+              touch $out
+            '';
+
         # #1013: cleanup-count.test.mjs -- the #1002 regression suite
         # for cleanupCount one-pass convergence (plus the cleanupSize
         # control) -- was run by nothing: no flake check, workflow, or

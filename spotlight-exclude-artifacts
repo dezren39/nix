@@ -9,6 +9,7 @@ set -uo pipefail
 _self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 . "$_self_dir/lib/common.sh"
+ARG_PROGRAM="spotlight-exclude-artifacts"
 
 MARKER="$SPOTLIGHT_MARKER"   # from lib/common.sh
 
@@ -108,59 +109,46 @@ DO_WALK=1
 DO_SYSTEM=1
 SCOPE_SET=0
 AUTO_SET=0
+SYSTEM_SET=0
+NO_SYSTEM_SET=0
 DRY_RUN=0
 ROOT=""
+ROOT_SET=0
 DEPTH_LIMIT=""
+DEPTH_SET=0
 RECURSIVE_SET=0
 FOLLOW=""
+FOLLOW_GIVEN=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto) AUTO_SET=1 ;;                        # names the default scope
-    --no-system) DO_WALK=1; DO_SYSTEM=0; SCOPE_SET=1 ;;
-    --system) DO_WALK=0; DO_SYSTEM=1; SCOPE_SET=1 ;;
-    --path) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; ROOT="$2"; shift; } ;;
+    --no-system) { arg_conflict --system --no-system "$SYSTEM_SET"; DO_WALK=1; DO_SYSTEM=0; SCOPE_SET=1; NO_SYSTEM_SET=1; } ;;
+    --system) { arg_conflict --system --no-system "$NO_SYSTEM_SET"; DO_WALK=0; DO_SYSTEM=1; SCOPE_SET=1; SYSTEM_SET=1; } ;;
+    --path) { arg_require_value "$1" "${2:-}"; [ "$ROOT_SET" -eq 0 ] || arg_die "unexpected argument: $2 (target already set to $ROOT)"; ROOT="$2"; ROOT_SET=1; shift; } ;;
     --recursive|--walk) DEPTH_LIMIT=""; RECURSIVE_SET=1 ;;
     --no-recursive|--no-walk) DEPTH_LIMIT=1; RECURSIVE_SET=1 ;;
-    --depth) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "spotlight-exclude-artifacts: $1 requires a value" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
-    --follow) FOLLOW=1 ;;
-    --no-follow) FOLLOW=0 ;;
+    --depth) { arg_require_value "$1" "${2:-}"; arg_once "$1" DEPTH_SET; DEPTH_LIMIT="$2"; RECURSIVE_SET=1; shift; } ;;
+    --follow) { [ -z "$FOLLOW_GIVEN" ] || [ "$FOLLOW_GIVEN" = "--follow" ] || arg_die "--follow conflicts with --no-follow"; FOLLOW=1; FOLLOW_GIVEN="--follow"; } ;;
+    --no-follow) { [ -z "$FOLLOW_GIVEN" ] || [ "$FOLLOW_GIVEN" = "--no-follow" ] || arg_die "--no-follow conflicts with --follow"; FOLLOW=0; FOLLOW_GIVEN="--no-follow"; } ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
     *)
-      if [ -z "$ROOT" ]; then ROOT="$1"; else echo "unexpected argument: $1" >&2; exit 2; fi
+      if [ "$ROOT_SET" -eq 0 ]; then ROOT="$1"; ROOT_SET=1; else echo "unexpected argument: $1" >&2; exit 2; fi
       ;;
   esac
   shift
 done
 # --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
 # where a non-numeric value fails mid-walk and 0 silently means "the path
-# itself only". Judge it whole, at parse time, like opencode-db-prune.sh
-# judges --protect-days/--batch (#830). Empty means unbounded (--recursive).
-# This block is identical in all four discovery-vocabulary scripts.
+# itself only". Judge it whole, at parse time, with the shared arg_decimal
+# helper (lib/common.sh), like opencode-db-prune.sh judges
+# --protect-days/--batch (#830); the INT_MAX range backstop is #858's.
+# Empty means unbounded (--recursive). This judge is the same in all four
+# discovery-vocabulary scripts.
 if [ -n "$DEPTH_LIMIT" ]; then
-  case "$DEPTH_LIMIT" in
-    *[!0-9]*|'')
-      echo "spotlight-exclude-artifacts: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-      exit 2 ;;
-  esac
-  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
-  # value above 2147483647 passes the case above yet find rejects it at walk
-  # time ("Numerical result out of range") while the run still exits 0. The
-  # shell's own integer tests cannot judge this — they are 64-bit — so, like
-  # the --pack-threads backstop (#839/#840), compare by digit count first
-  # (leading zeros stripped; at most 10 digits always fits the shell's
-  # arithmetic), then by value against INT_MAX. Judging the stripped value
-  # here, before the -gt 0 test below, also rejects >64-bit digit strings
-  # cleanly instead of tripping "integer expression expected".
-  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
-  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
-    echo "spotlight-exclude-artifacts: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-    exit 2
-  fi
-  unset _dl
-  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "spotlight-exclude-artifacts: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+  arg_decimal DEPTH_LIMIT --depth "$DEPTH_LIMIT" positive
 fi
 
 if [ "$AUTO_SET" = "1" ] && [ "$SCOPE_SET" = "1" ]; then

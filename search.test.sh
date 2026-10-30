@@ -15,7 +15,9 @@
 #   * working brew -> only apps not in the cask list are reported;
 #   * empty successful list -> all apps reported, exit 0;
 #   * `brew list` runs exactly once per invocation (the stub logs
-#     every call; per-app `brew search` calls are separate).
+#     every call; per-app `brew search` calls are separate);
+#   * an unknown argument -> exit 2 naming it, usage on stderr, and
+#     no brew call at all; --help -> usage, exit 0, no brew call (#1158).
 # The first leg's /Applications is redirected with the script's
 # SEARCH_APPLICATIONS_DIR seam (#983); the second leg uses the
 # scratch HOME's ~/Applications. Stubs use #!/bin/sh: the nix build
@@ -131,6 +133,39 @@ check "failing brew list surfaces brew's own stderr" \
   grep -q "brew is broken" "$TMP_ROOT/err"
 check "failing brew list reports no findings" \
   bash -c "! grep -qx -e foo -e bar '$TMP_ROOT/out'"
+
+# --- unknown argument: exit 2, named, before any brew call (#1158) -----------
+: > "$LOG"
+HOME="$HOME_DIR" SEARCH_APPLICATIONS_DIR="$APPS" STUB_BREW_LOG="$LOG" \
+  STUB_BREW_MODE=working PATH="$BIN:$PATH" \
+  bash "$SCRIPT" --bogus > "$TMP_ROOT/out" 2> "$TMP_ROOT/err"
+RC=$?
+expect_rc "unknown argument exits 2" 2
+check "unknown argument is named on stderr" \
+  grep -q -- "--bogus" "$TMP_ROOT/err"
+check "unknown argument prints usage on stderr" \
+  grep -q "Usage: search.sh" "$TMP_ROOT/err"
+check "unknown argument reports no findings" \
+  bash -c "! grep -qx -e foo -e bar '$TMP_ROOT/out'"
+if [ ! -s "$LOG" ]; then
+  echo "ok: unknown argument made no brew calls"
+else
+  fail "unknown argument made no brew calls -- log: $(cat "$LOG")"
+fi
+
+# --- --help: usage, exit 0, no brew calls -------------------------------------
+: > "$LOG"
+HOME="$HOME_DIR" SEARCH_APPLICATIONS_DIR="$APPS" STUB_BREW_LOG="$LOG" \
+  STUB_BREW_MODE=working PATH="$BIN:$PATH" \
+  bash "$SCRIPT" --help > "$TMP_ROOT/out" 2> "$TMP_ROOT/err"
+RC=$?
+expect_rc "--help exits 0" 0
+check "--help prints usage" grep -q "Usage: search.sh" "$TMP_ROOT/out"
+if [ ! -s "$LOG" ]; then
+  echo "ok: --help made no brew calls"
+else
+  fail "--help made no brew calls -- log: $(cat "$LOG")"
+fi
 
 # --- missing brew: same exit-1 path ------------------------------------------
 run_search missing
