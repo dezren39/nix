@@ -35,7 +35,7 @@ permissions:
 concurrency:
   # One watcher run per upstream run; never cancel a filing in flight.
   group: ${{ github.workflow }}-${{ github.event.workflow_run.id }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   file-breakage:
