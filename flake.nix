@@ -501,6 +501,28 @@ rec {
               pytest -q -p no:cacheprovider
               touch $out
             '';
+        # #1148: check-pin-sync.test.py — the probes for
+        # pkgs/bun-bin/check-pin-sync.py (missing workflow / missing
+        # hashes / malformed hashes must exit 2, never traceback at
+        # the exit-1 "out of sync" signal; in-sync/out-of-sync
+        # baselines unchanged). The test locates the script beside
+        # itself and its no-arg baseline resolves the repo root two
+        # levels up from the script, so copy both pin files into the
+        # check tree in that layout.
+        bun-pin-sync-tests =
+          pkgs.runCommandLocal "bun-pin-sync-tests"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+            }
+            ''
+              mkdir -p pkgs/bun-bin .github/workflows
+              cp ${./pkgs/bun-bin/check-pin-sync.py} pkgs/bun-bin/check-pin-sync.py
+              cp ${./pkgs/bun-bin/check-pin-sync.test.py} pkgs/bun-bin/check-pin-sync.test.py
+              cp ${./pkgs/bun-bin/hashes.json} pkgs/bun-bin/hashes.json
+              cp ${./.github/workflows/buffer-backup-renovate-bun-sync.yml} .github/workflows/buffer-backup-renovate-bun-sync.yml
+              python3 pkgs/bun-bin/check-pin-sync.test.py
+              touch $out
+            '';
         # #414: plugins/warp-import.test.mjs (25 tests) was run by nothing —
         # no workflow, recipe, or check referenced it. Run every
         # plugins/*.test.mjs here so `nix flake check` fails when a plugin
