@@ -244,8 +244,39 @@ class Monitor:
                     self.emit("log.rotate", path=path, bytes=rotated)
 
 
-def main():
-    os.makedirs(LOG_DIR, exist_ok=True)
+USAGE = "usage: service-monitor"
+
+
+def main(argv):
+    # #1199: the launchd caller passes no arguments, and this command takes
+    # none. A stray --help or typo'd flag used to be silently ignored and
+    # start a second long-lived monitor writing real events into the shared
+    # log. Reject arguments before any work, in the package's house style
+    # (service-event: usage at exit 0 for --help, named error at exit 2).
+    args = argv[1:]
+    if args in (["--help"], ["-h"]):
+        print(USAGE)
+        return 0
+    if args:
+        print(
+            f"service-monitor: invalid argument {args[0]!r}: this command takes no arguments",
+            file=sys.stderr,
+        )
+        print(USAGE, file=sys.stderr)
+        return 2
+    # #1200: a log dir that cannot be created (e.g. ~/Library is a regular
+    # file) used to kill the monitor with a raw traceback at exit 1 before
+    # any monitor.start/monitor.error could exist -- a silent launchd
+    # crash-loop. Name the directory and exit 2, like the #918 startup
+    # validation.
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+    except OSError as exc:
+        print(
+            f"service-monitor: cannot create log directory {LOG_DIR}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
     monitor = Monitor()
     append_event("service-monitor", "monitor.start", interval_s=INTERVAL, pid=os.getpid())
     while True:
@@ -257,4 +288,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv))

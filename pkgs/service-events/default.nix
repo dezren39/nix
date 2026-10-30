@@ -41,6 +41,17 @@ runCommand "service-events"
     SERVICE_EVENTS_INTERVAL=abc $out/bin/service-monitor 2>$TMPDIR/interval.err || rc=$?
     [ "$rc" -eq 2 ] || { echo "service-monitor bad interval: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid SERVICE_EVENTS_INTERVAL='abc'" $TMPDIR/interval.err || { echo "service-monitor bad interval: variable/value not named in error" >&2; exit 1; }
+    # #1199: service-monitor takes no arguments -- --help prints usage to
+    # stdout and exits 0, and any other argument exits 2 naming it, both
+    # appending nothing (the python check below still sees exactly one
+    # line in the log).
+    $out/bin/service-monitor --help >$TMPDIR/help.out
+    grep -q "usage: service-monitor" $TMPDIR/help.out || { echo "service-monitor --help: usage missing on stdout" >&2; exit 1; }
+    rc=0
+    $out/bin/service-monitor --bogus 2>$TMPDIR/bogus.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-monitor unknown argument: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "invalid argument '--bogus'" $TMPDIR/bogus.err || { echo "service-monitor unknown argument: argument not named in error" >&2; exit 1; }
+    grep -q "usage: service-monitor" $TMPDIR/bogus.err || { echo "service-monitor unknown argument: usage missing on stderr" >&2; exit 1; }
     # #919: reserved field names (ts/source/event) exit 2 naming the field,
     # and append nothing — the python check below still sees exactly one line.
     rc=0
@@ -63,6 +74,14 @@ runCommand "service-events"
     HOME=$TMPDIR/badhome $out/bin/service-event test check.bad pid=42 2>$TMPDIR/write.err || rc=$?
     [ "$rc" -eq 1 ] || { echo "service-event failed write: expected exit 1, got $rc" >&2; exit 1; }
     grep -q "cannot write" $TMPDIR/write.err || { echo "service-event failed write: stderr message missing" >&2; exit 1; }
+    # #1200: the same bad HOME for service-monitor -- the startup
+    # makedirs fails, so it exits 2 naming the log directory, with no
+    # traceback.
+    rc=0
+    HOME=$TMPDIR/badhome $out/bin/service-monitor 2>$TMPDIR/makedirs.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-monitor bad log dir: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "cannot create log directory" $TMPDIR/makedirs.err || { echo "service-monitor bad log dir: directory not named in error" >&2; exit 1; }
+    ! grep -q "Traceback" $TMPDIR/makedirs.err || { echo "service-monitor bad log dir: traceback leaked to stderr" >&2; exit 1; }
     # #935: a digit-like Unicode value (superscript two) is stored as a
     # string and the event is appended — no traceback, exit 0.
     HOME=$TMPDIR/unihome $out/bin/service-event test check.unicode 'count=²' pid=42
