@@ -30,6 +30,22 @@ name: agents
           - palette
           - suggestions
 
+# Concurrency (openchamber #933 set): one static group serializes
+# every run of this workflow. The dispatch path dedupes only ci-fix
+# (pm-dispatch-task in developing-today/code gates its dedupe step
+# on task == ci-fix), so without this group an overlapping
+# scheduled/manual run launches duplicate bolt/palette/suggestions
+# sessions. A single group for all task selections, not per-task
+# groups: task: all would still overlap task: bolt.
+# cancel-in-progress is the literal false: cancelling the caller
+# does not reliably stop an already-launched session, and a running
+# dispatch must never be cancelled mid-session. queue: max so no
+# scheduled slot is silently dropped when runs queue up.
+concurrency:
+  group: agents
+  cancel-in-progress: false
+  queue: max
+
 permissions:
   id-token: write
   contents: read
