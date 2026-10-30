@@ -42,8 +42,17 @@ name: buffer-backup renovate bun sync
 # branch + same-repo guards below). A hand-made PR that desyncs the
 # lockfiles gets no sync run and still fails buffer-backup-lock-sync.
 
+# Deliberate exception to the main-only trigger policy (#1172, #1176):
+# this workflow is Renovate automation, not a build check — it can only
+# do its job in the context of the Renovate PR it syncs, so it keeps a
+# pull_request trigger (narrowed below to the two lockfile inputs).
 "on":
-  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - "pkgs/buffer-backup/package.json"
+      - "pkgs/buffer-backup/package-lock.json"
 permissions:
   contents: read
 
@@ -51,7 +60,7 @@ concurrency:
   # One sync per PR at a time, never cancelled mid-push: a cancelled
   # run between commit and push would strand the regenerated lock.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   bun-sync:
