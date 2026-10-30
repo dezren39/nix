@@ -35,13 +35,25 @@ from pathlib import Path
 USAGE = "usage: check-lock-sync.py [--help] [package-dir]"
 
 
+def read_text(path: Path) -> str:
+    # Non-UTF-8 guard (#1210), mirroring check-pin-sync (#1189):
+    # read_text() decodes UTF-8 strictly, and a UnicodeDecodeError
+    # message carries only a byte position -- no file name -- so
+    # re-raise it as a ValueError naming the file; main() maps it
+    # to exit 2 like every other invocation error.
+    try:
+        return path.read_text()
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path}: not valid UTF-8: {exc}") from exc
+
+
 def npm_versions(lock_path: Path) -> dict[str, str]:
     # Shape validation (#1159): a file that parses as JSON but has the
     # wrong shape (a list at the top level, a non-object "packages", a
     # non-object entry) used to raise AttributeError/TypeError here and
     # traceback at exit 1 -- the "lockfiles disagree" signal. Raise
     # ValueError naming the file instead; main() maps it to exit 2.
-    lock = json.loads(lock_path.read_text())
+    lock = json.loads(read_text(lock_path))
     if not isinstance(lock, dict):
         raise ValueError(f"{lock_path}: expected a JSON object")
     packages = lock.get("packages", {})
@@ -72,7 +84,7 @@ def bun_versions(lock_path: Path) -> dict[str, str]:
     # bun.lock is JSON-with-trailing-commas (JSONC); the packages
     # entries are regular enough to read with one pattern:
     #   "name": ["name@<version>", "", {...}, "sha512-..."]
-    text = lock_path.read_text()
+    text = read_text(lock_path)
     versions = {}
     for name, version in re.findall(
         r'"(@?[^"/]+(?:/[^"/]+)?)": \["(?:@?[^"@/]+(?:/[^"@/]+)?)@([^"]+)"', text
@@ -129,7 +141,7 @@ def main() -> int:
         if not (root / name).is_file():
             return invocation_error(f"{root / name}: no such file")
     try:
-        package = json.loads((root / "package.json").read_text())
+        package = json.loads(read_text(root / "package.json"))
         # Shape validation (#1159), as in npm_versions: wrong-shaped
         # package.json content is an invocation error, not a traceback.
         if not isinstance(package, dict):
