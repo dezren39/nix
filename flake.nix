@@ -501,6 +501,28 @@ rec {
               pytest -q -p no:cacheprovider
               touch $out
             '';
+        # #1149: simple-rebuild.test.sh pins simple-rebuild.sh's
+        # mode-flag parser -- --build-only with --activate-only in
+        # either order and a repeated --activate-only exit 2 naming
+        # the flags instead of silently last-winning across the
+        # no-sudo/sudo privilege split, and valid invocations parse
+        # exactly as before. The suite extracts the real parser
+        # segment from the script and runs it under zsh (the script's
+        # interpreter), so it needs zsh but no build/activation.
+        simple-rebuild-tests =
+          pkgs.runCommandLocal "simple-rebuild-tests"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.zsh pkgs.coreutils pkgs.gnugrep pkgs.gawk ];
+            }
+            ''
+              cp ${./simple-rebuild.sh} simple-rebuild.sh
+              cp ${./simple-rebuild.test.sh} simple-rebuild.test.sh
+              chmod u+w simple-rebuild.sh simple-rebuild.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./simple-rebuild.test.sh
+              touch $out
+            '';
         # #1148: check-pin-sync.test.py — the probes for
         # pkgs/bun-bin/check-pin-sync.py (missing workflow / missing
         # hashes / malformed hashes must exit 2, never traceback at
