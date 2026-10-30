@@ -784,6 +784,7 @@ rec {
               cp $src/git-discover-repos $src/git-discover-repos.test.sh ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./git-discover-repos ./git-discover-repos.test.sh
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
@@ -811,6 +812,7 @@ rec {
               cp $src/clean.sh $src/clean.test.sh $src/git-discover-repos ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./clean.sh ./clean.test.sh ./git-discover-repos
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
@@ -864,6 +866,7 @@ rec {
               cp $src/git-maintain-repos $src/git-maintain-repos.test.sh $src/git-discover-repos ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./git-maintain-repos ./git-maintain-repos.test.sh ./git-discover-repos
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
@@ -890,6 +893,7 @@ rec {
               cp $src/spotlight-exclude-artifacts $src/spotlight-exclude-artifacts.test.sh $src/git-discover-repos ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./spotlight-exclude-artifacts ./spotlight-exclude-artifacts.test.sh ./git-discover-repos
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"

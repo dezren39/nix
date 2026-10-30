@@ -873,7 +873,17 @@ lib.recursiveUpdate {
         cp ${./lib/common.sh} $out/lib/common.sh
       ''
     }/spotlight-exclude-artifacts
-    git_maintain=${./git-maintain-repos}
+    # git-maintain-repos sources lib/common.sh beside itself too (the
+    # argument guard helpers, #1146), so it gets the same runCommandLocal
+    # wrap as spotlight_exclude above -- a bare ''${./git-maintain-repos}
+    # would land in the store without its library and fail at source time.
+    git_maintain=${
+      pkgs.runCommandLocal "git-maintain-repos" { } ''
+        mkdir -p $out/lib
+        cp ${./git-maintain-repos} $out/git-maintain-repos
+        cp ${./lib/common.sh} $out/lib/common.sh
+      ''
+    }/git-maintain-repos
     as_user="/bin/launchctl asuser $primary_uid /usr/bin/sudo -u ${config.system.primaryUser}"
     helper_env="/usr/bin/env PATH=/run/current-system/sw/bin:/usr/bin:/bin"
 

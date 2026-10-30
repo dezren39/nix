@@ -22,6 +22,10 @@ set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SELF_DIR/git-discover-repos"
+# Shared conformance probe matrix helpers (#1146, design #1145 phase 1).
+# shellcheck source=lib/arg-probe.sh
+. "$SELF_DIR/lib/arg-probe.sh"
+
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -191,6 +195,27 @@ run --path "$VALID" --dry-run --follow
 run --path "$VALID" --dry-run --no-follow
 [ "$STATUS" -eq 0 ] || fail "single --no-follow exited $STATUS (want 0)"
 echo "ok: single --follow / --no-follow still accepted"
+
+# ─── Shared conformance probe matrix (#1146, design #1145) ─────────
+# The matrix rows for git-discover-repos, driven through
+# lib/arg-probe.sh (the same helper every discovery suite uses):
+# unknown, missing/flag-shaped (also pinned per-option above), repeat,
+# both conflict orders, and bad numbers -- abc, 0, oversized -- for
+# --depth. Extra positionals are not a row here by design: positional
+# paths are this script'''s declared repeatable input and accumulate.
+# 08 is probed as accepted decimal 8 (rule 6, #881).
+probe_rejected "unknown option: --bogus" --bogus
+probe_rejected "git-discover-repos: --find requires a value" --find
+probe_rejected "git-discover-repos: --find requires a value" --find --dry-run
+probe_rejected "git-discover-repos: --depth may be given only once" --path "$VALID" --dry-run --depth 2 --depth 5
+probe_rejected "git-discover-repos: --follow and --no-follow may not be combined" --path "$VALID" --dry-run --follow --no-follow
+probe_rejected "git-discover-repos: --follow and --no-follow may not be combined" --path "$VALID" --dry-run --no-follow --follow
+probe_rejected "may not be combined with" --path "$VALID" --dry-run --repos-only --worktrees-only
+probe_rejected "may not be combined with" --path "$VALID" --dry-run --worktrees-only --repos-only
+for bad in abc 0 2147483648 99999999999999999999999999; do
+  probe_rejected "git-discover-repos: --depth must be a positive integer" --path "$VALID" --dry-run --depth "$bad"
+done
+probe_accepted --path "$VALID" --dry-run --depth 08
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-discover-repos --path exit-status checks passed"
