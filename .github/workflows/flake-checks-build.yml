@@ -24,7 +24,6 @@ name: flake checks build
 # safe default here.
 
 on:
-  pull_request:
   push:
     branches: [main]
   schedule:
