@@ -19,7 +19,7 @@ it via the bun-pin-sync job in
 .github/workflows/buffer-backup-lock-sync.yml whenever either pin
 (or this script) changes.
 
-Usage: python3 pkgs/bun-bin/check-pin-sync.py [--repo-root DIR]
+Usage: python3 pkgs/bun-bin/check-pin-sync.py [--help] [--repo-root DIR]
 Exit 0 when the pins agree, 1 (naming both pins and versions) when
 they disagree, 2 for an invocation error — a bad argument, or a pin
 file missing, unreadable, or malformed — so a broken checkout or a
@@ -67,6 +67,14 @@ def invocation_error(message: str) -> int:
 
 def main() -> int:
     args = sys.argv[1:]
+    # --help/-h as the sole argument: usage on stdout, exit 0 (#1205,
+    # contract rule 8) -- the sibling checkers already do this.
+    # Combined with anything else it falls into the usage/exit-2
+    # branch below, so it never reads a pin file.
+    if args in (["--help"], ["-h"]):
+        print(f"usage: {sys.argv[0]} [--repo-root DIR]")
+        print("Exit 0 = pins in sync, 1 = out of sync, 2 = invocation error.")
+        return 0
     if args[:1] == ["--repo-root"] and len(args) == 2:
         root = Path(args[1])
     elif args:

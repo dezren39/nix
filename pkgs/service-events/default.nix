@@ -52,6 +52,17 @@ runCommand "service-events"
     [ "$rc" -eq 2 ] || { echo "service-monitor unknown argument: expected exit 2, got $rc" >&2; exit 1; }
     grep -q "invalid argument '--bogus'" $TMPDIR/bogus.err || { echo "service-monitor unknown argument: argument not named in error" >&2; exit 1; }
     grep -q "usage: service-monitor" $TMPDIR/bogus.err || { echo "service-monitor unknown argument: usage missing on stderr" >&2; exit 1; }
+    # #1205: service-event --help prints usage to stdout and exits 0,
+    # and --help in the SOURCE position exits 2 naming it -- both
+    # append nothing (the python check below still sees exactly one
+    # line in the log; the second case used to append an event whose
+    # source was the literal string "--help").
+    $out/bin/service-event --help >$TMPDIR/event-help.out
+    grep -q "usage: service-event" $TMPDIR/event-help.out || { echo "service-event --help: usage missing on stdout" >&2; exit 1; }
+    rc=0
+    $out/bin/service-event --help some.event 2>$TMPDIR/event-help2.err || rc=$?
+    [ "$rc" -eq 2 ] || { echo "service-event --help as source: expected exit 2, got $rc" >&2; exit 1; }
+    grep -q "invalid argument '--help'" $TMPDIR/event-help2.err || { echo "service-event --help as source: argument not named in error" >&2; exit 1; }
     # #919: reserved field names (ts/source/event) exit 2 naming the field,
     # and append nothing — the python check below still sees exactly one line.
     rc=0

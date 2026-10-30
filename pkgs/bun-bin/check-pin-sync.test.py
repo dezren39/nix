@@ -18,6 +18,8 @@ job branches on. These probes pin the new contract:
   list, object, bool) exits 2 naming hashes.json, never "out of
   sync" (#1204); a null version keeps the deliberate exit-1
   could-not-read branch.
+- --help/-h as the sole argument prints usage on stdout and exits
+  0 (#1205); combined with other arguments it stays exit 2.
 - The old signals are unchanged: 0 = in sync, 1 = out of sync with
   both pins named, and a repeated --repo-root exits 2 with usage.
 
@@ -220,6 +222,28 @@ def main():
             and "9.9.9" in result.stderr,
             f"(rc={result.returncode}, stderr={result.stderr!r})",
         )
+
+    # --help/-h as the sole argument (#1205): usage on stdout,
+    # exit 0, stderr empty -- the sibling checkers' behaviour.
+    for flag in ("--help", "-h"):
+        result = run(flag)
+        check(
+            f"{flag} exits 0 with usage on stdout",
+            result.returncode == 0 and "usage:" in result.stdout
+            and result.stderr == "",
+            f"(rc={result.returncode}, stdout={result.stdout!r}, "
+            f"stderr={result.stderr!r})",
+        )
+
+    # --help combined with another argument: still the usage/exit-2
+    # path, never a pin read.
+    result = run("--help", "--repo-root", HERE)
+    check(
+        "--help combined exits 2 with usage on stderr",
+        result.returncode == 2 and "usage:" in result.stderr
+        and "Traceback" not in result.stderr,
+        f"(rc={result.returncode}, stderr={result.stderr!r})",
+    )
 
     # Repeated --repo-root: the pre-existing usage path, exit 2.
     result = run("--repo-root", HERE, "--repo-root", HERE)
