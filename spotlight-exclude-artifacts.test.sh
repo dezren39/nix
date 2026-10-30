@@ -26,6 +26,10 @@ set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SELF_DIR/spotlight-exclude-artifacts"
+# Shared conformance probe matrix helpers (#1146, design #1145 phase 1).
+# shellcheck source=lib/arg-probe.sh
+. "$SELF_DIR/lib/arg-probe.sh"
+
 MARKER=".metadata_never_index"
 
 TMP_ROOT="$(mktemp -d)"
@@ -172,6 +176,27 @@ if [ -z "$(markers)" ]; then
 else
   fail "dry-run control wrote marker files: $(markers)"
 fi
+
+# ─── Shared conformance probe matrix (#1146, design #1145) ─────────
+# The matrix rows for spotlight-exclude-artifacts, driven through
+# lib/arg-probe.sh (the same helper every discovery suite uses):
+# unknown, missing/flag-shaped (also pinned per-option above), repeat,
+# both conflict orders, extra positional, and bad numbers -- abc, 0,
+# oversized -- for --depth. 08 is probed as accepted decimal 8
+# (rule 6, #881).
+probe_rejected "unknown option: --bogus" --bogus
+probe_rejected "spotlight-exclude-artifacts: --depth requires a value" --depth
+probe_rejected "spotlight-exclude-artifacts: --depth requires a value" --depth --dry-run
+probe_rejected "spotlight-exclude-artifacts: --depth may be given only once" --no-system --dry-run --path "$VALID" --depth 1 --depth 3
+probe_rejected "--no-follow conflicts with --follow" --no-system --dry-run --path "$VALID" --follow --no-follow
+probe_rejected "--follow conflicts with --no-follow" --no-system --dry-run --path "$VALID" --no-follow --follow
+probe_rejected "spotlight-exclude-artifacts: --system and --no-system may not be combined" --dry-run --system --no-system
+probe_rejected "spotlight-exclude-artifacts: --system and --no-system may not be combined" --dry-run --no-system --system
+probe_rejected "unexpected argument: $SECOND_A" --no-system --dry-run --path "$SECOND_B" "$SECOND_A"
+for bad in abc 0 2147483648 99999999999999999999999999; do
+  probe_rejected "spotlight-exclude-artifacts: --depth must be a positive integer" --no-system --dry-run --path "$VALID" --depth "$bad"
+done
+probe_accepted --no-system --path "$VALID" --depth 08 --dry-run
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all spotlight-exclude-artifacts flag-shaped-value checks passed"

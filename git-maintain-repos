@@ -6,6 +6,11 @@
 
 set -uo pipefail
 
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+. "$_self_dir/lib/common.sh"
+ARG_PROGRAM="git-maintain-repos"
+
 # Only consulted when --expire-reflog is passed. Measured across the four
 # largest repos here, expiring at 1.week.ago freed 0 MB: there are effectively
 # no objects held by reflog alone. So the explicit expiry is off by default --
@@ -175,25 +180,25 @@ FILTER="--repos-only"
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto) AUTO_SET=1 ;;                        # names the default scope; conflicts with --system/--no-system
-    --path) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ -z "$ROOT" ] || { echo "git-maintain-repos: unexpected argument: $1 (target already set to $ROOT)" >&2; usage >&2; exit 2; }; ROOT="$2"; shift; } ;;
-    --quick) { [ -z "$MODE_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $MODE_FLAG (only one mode option may be given)" >&2; usage >&2; exit 2; }; DEPTH="quick"; MODE_FLAG="$1"; } ;;
-    --deep) { [ -z "$MODE_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $MODE_FLAG (only one mode option may be given)" >&2; usage >&2; exit 2; }; DEPTH="deep"; MODE_FLAG="$1"; } ;;
-    --safe) { [ -z "$MODE_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $MODE_FLAG (only one mode option may be given)" >&2; usage >&2; exit 2; }; DEPTH="safe"; MODE_FLAG="$1"; } ;;
-    --system) { [ "$NO_SYSTEM_SET" -eq 0 ] || { echo "git-maintain-repos: --system and --no-system may not be combined" >&2; usage >&2; exit 2; }; SCOPE="system"; SCOPE_SET=1; SYSTEM_SET=1; } ;;
-    --no-system) { [ "$SYSTEM_SET" -eq 0 ] || { echo "git-maintain-repos: --system and --no-system may not be combined" >&2; usage >&2; exit 2; }; SCOPE="walk"; SCOPE_SET=1; NO_SYSTEM_SET=1; } ;;
+    --path) { arg_require_value "$1" "${2:-}"; [ -z "$ROOT" ] || arg_die "unexpected argument: $1 (target already set to $ROOT)"; ROOT="$2"; shift; } ;;
+    --quick) { [ -z "$MODE_FLAG" ] || arg_die "$1 may not be combined with $MODE_FLAG (only one mode option may be given)"; DEPTH="quick"; MODE_FLAG="$1"; } ;;
+    --deep) { [ -z "$MODE_FLAG" ] || arg_die "$1 may not be combined with $MODE_FLAG (only one mode option may be given)"; DEPTH="deep"; MODE_FLAG="$1"; } ;;
+    --safe) { [ -z "$MODE_FLAG" ] || arg_die "$1 may not be combined with $MODE_FLAG (only one mode option may be given)"; DEPTH="safe"; MODE_FLAG="$1"; } ;;
+    --system) { arg_conflict --system --no-system "$NO_SYSTEM_SET"; SCOPE="system"; SCOPE_SET=1; SYSTEM_SET=1; } ;;
+    --no-system) { arg_conflict --system --no-system "$SYSTEM_SET"; SCOPE="walk"; SCOPE_SET=1; NO_SYSTEM_SET=1; } ;;
     --recursive|--walk) RECURSIVE=1; DEPTH_LIMIT="" ;;
     --no-recursive|--no-walk) RECURSIVE=0 ;;
-    --depth) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$DEPTH_LIMIT_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; DEPTH_LIMIT_SET=1; shift; } ;;
-    --follow) { [ "$FOLLOW_NO_SET" -eq 0 ] || { echo "git-maintain-repos: --follow and --no-follow may not be combined" >&2; usage >&2; exit 2; }; FOLLOW=1; FOLLOW_YES_SET=1; } ;;
-    --no-follow) { [ "$FOLLOW_YES_SET" -eq 0 ] || { echo "git-maintain-repos: --follow and --no-follow may not be combined" >&2; usage >&2; exit 2; }; FOLLOW=0; FOLLOW_NO_SET=1; } ;;
-    --repos-only) { [ -z "$FILTER_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="--repos-only"; FILTER_FLAG="$1"; } ;;
-    --worktrees-only) { [ -z "$FILTER_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="--worktrees-only"; FILTER_FLAG="$1"; } ;;
+    --depth) { arg_require_value "$1" "${2:-}"; arg_once "$1" DEPTH_LIMIT_SET; DEPTH_LIMIT="$2"; shift; } ;;
+    --follow) { arg_conflict --follow --no-follow "$FOLLOW_NO_SET"; FOLLOW=1; FOLLOW_YES_SET=1; } ;;
+    --no-follow) { arg_conflict --follow --no-follow "$FOLLOW_YES_SET"; FOLLOW=0; FOLLOW_NO_SET=1; } ;;
+    --repos-only) { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="--repos-only"; FILTER_FLAG="$1"; } ;;
+    --worktrees-only) { [ -z "$FILTER_FLAG" ] || arg_die "$1 may not be combined with $FILTER_FLAG (only one filter option may be given)"; FILTER="--worktrees-only"; FILTER_FLAG="$1"; } ;;
     --fsck) FSCK=1 ;;
     --clean-orphans) CLEAN_ORPHANS=1 ;;
     --expire-reflog) EXPIRE_REFLOG=1 ;;
-    --jobs) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$JOBS_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; JOBS="$2"; JOBS_SET=1; shift; } ;;
-    --pack-threads) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$PACK_THREADS_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; PACK_THREADS="$2"; PACK_THREADS_SET=1; shift; } ;;
-    --reflog-expire) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$REFLOG_EXPIRE_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; REFLOG_EXPIRE="$2"; REFLOG_EXPIRE_SET=1; shift; } ;;
+    --jobs) { arg_require_value "$1" "${2:-}"; arg_once "$1" JOBS_SET; JOBS="$2"; shift; } ;;
+    --pack-threads) { arg_require_value "$1" "${2:-}"; arg_once "$1" PACK_THREADS_SET; PACK_THREADS="$2"; shift; } ;;
+    --reflog-expire) { arg_require_value "$1" "${2:-}"; arg_once "$1" REFLOG_EXPIRE_SET; REFLOG_EXPIRE="$2"; shift; } ;;
     --no-register) REGISTER=0 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -231,81 +236,31 @@ esac
 
 # --depth is forwarded verbatim to find -maxdepth (via git-discover-repos),
 # where a non-numeric value fails mid-walk and 0 silently means "the path
-# itself only". Judge it whole, at parse time, like opencode-db-prune.sh
-# judges --protect-days/--batch (#830). Empty means unbounded (--recursive).
-# This block is identical in all four discovery-vocabulary scripts.
+# itself only". Judge it whole, at parse time, with the shared arg_decimal
+# helper (lib/common.sh), like opencode-db-prune.sh judges
+# --protect-days/--batch (#830); the INT_MAX range backstop is #858's.
+# Empty means unbounded (--recursive). This judge is the same in all four
+# discovery-vocabulary scripts.
 if [ -n "$DEPTH_LIMIT" ]; then
-  case "$DEPTH_LIMIT" in
-    *[!0-9]*|'')
-      echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-      exit 2 ;;
-  esac
-  # Range backstop (#858): find parses -maxdepth as a C int, so a digits-only
-  # value above 2147483647 passes the case above yet find rejects it at walk
-  # time ("Numerical result out of range") while the run still exits 0. The
-  # shell's own integer tests cannot judge this — they are 64-bit — so, like
-  # the --pack-threads backstop (#839/#840), compare by digit count first
-  # (leading zeros stripped; at most 10 digits always fits the shell's
-  # arithmetic), then by value against INT_MAX. Judging the stripped value
-  # here, before the -gt 0 test below, also rejects >64-bit digit strings
-  # cleanly instead of tripping "integer expression expected".
-  _dl=${DEPTH_LIMIT#"${DEPTH_LIMIT%%[!0]*}"}; _dl=${_dl:-0}
-  if [ "${#_dl}" -gt 10 ] || [ "$_dl" -gt 2147483647 ]; then
-    echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2
-    exit 2
-  fi
-  unset _dl
-  [ "$DEPTH_LIMIT" -gt 0 ] || { echo "git-maintain-repos: --depth must be a positive integer (got: $DEPTH_LIMIT)" >&2; exit 2; }
+  arg_decimal DEPTH_LIMIT --depth "$DEPTH_LIMIT" positive
 fi
 
 # --jobs is forwarded verbatim to xargs -P, where a non-numeric value fails
 # only after discovery (and the run still exits 0, maintaining nothing) and
 # 0 silently means UNLIMITED parallel git gc across every repo. Judge it
-# whole, at parse time, like --depth above (#836). Covers the JOBS env var
-# too: this judges the variable after parsing, wherever it came from.
-case "$JOBS" in
-  *[!0-9]*|'')
-    echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2
-    exit 2 ;;
-esac
-# Range backstop (#858): xargs parses -P as a C int, so a digits-only value
-# above 2147483647 passes the case above yet xargs rejects it after
-# discovery while the run still exits 0. Same technique as the
-# --pack-threads backstop below (#839/#840): judge the stripped value by
-# digit count first, then by value against INT_MAX, before the -gt 0 test
-# below so >64-bit digit strings are rejected cleanly too.
-_j=${JOBS#"${JOBS%%[!0]*}"}; _j=${_j:-0}
-if [ "${#_j}" -gt 10 ] || [ "$_j" -gt 2147483647 ]; then
-  echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2
-  exit 2
-fi
-unset _j
-[ "$JOBS" -gt 0 ] || { echo "git-maintain-repos: --jobs must be a positive integer (got: $JOBS)" >&2; exit 2; }
+# whole, at parse time, with arg_decimal (#836; INT_MAX backstop #858).
+# Covers the JOBS env var too: this judges the variable after parsing,
+# wherever it came from.
+arg_decimal JOBS --jobs "$JOBS" positive
 
 # --pack-threads is forwarded verbatim to git -c pack.threads=, where junk
 # (abc/10junk/1.5) or a negative value makes every repo's gc fail with a
-# fatal while the run still reports success (#836). Digits only, judged at
-# parse time like --jobs; covers the PACK_THREADS env var too. 0 stays
-# legal here, deliberately: git documents pack.threads=0 as auto-detect
-# (online CPUs), unlike xargs -P 0, which is unlimited.
-case "$PACK_THREADS" in
-  *[!0-9]*|'')
-    echo "git-maintain-repos: --pack-threads must be a non-negative integer (got: $PACK_THREADS)" >&2
-    exit 2 ;;
-esac
-# Range backstop (#839): git parses pack.threads as a C int, so a digits-only
-# value above 2147483647 passes the case above yet git rejects it per-repo at
-# gc time ("bad numeric config value ... out of range") while the run still
-# exits 0. The shell's own integer tests cannot judge this — they are 64-bit
-# and accept e.g. 2147483648 — so compare by digit count first (leading zeros
-# stripped; a stripped value of at most 10 digits always fits the shell's
-# arithmetic), then by value against git's INT_MAX.
-_pt=${PACK_THREADS#"${PACK_THREADS%%[!0]*}"}; _pt=${_pt:-0}
-if [ "${#_pt}" -gt 10 ] || [ "$_pt" -gt 2147483647 ]; then
-  echo "git-maintain-repos: --pack-threads must be a non-negative integer (got: $PACK_THREADS)" >&2
-  exit 2
-fi
-unset _pt
+# fatal while the run still reports success (#836). Judge it whole, at
+# parse time, with arg_decimal (INT_MAX backstop #839/#840); covers the
+# PACK_THREADS env var too. 0 stays legal here, deliberately: git
+# documents pack.threads=0 as auto-detect (online CPUs), unlike xargs
+# -P 0, which is unlimited -- hence non-negative, not positive.
+arg_decimal PACK_THREADS --pack-threads "$PACK_THREADS" non-negative
 
 # Judge REFLOG_EXPIRE exactly once here. git's approxidate grammar is too broad
 # for a regex, so ask git itself to parse it. If it fails, catch it and exit

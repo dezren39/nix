@@ -25,6 +25,10 @@ set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SELF_DIR/git-maintain-repos"
+# Shared conformance probe matrix helpers (#1146, design #1145 phase 1).
+# shellcheck source=lib/arg-probe.sh
+. "$SELF_DIR/lib/arg-probe.sh"
+
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -191,6 +195,33 @@ for flag in --follow --no-follow --repos-only --worktrees-only; do
   [ "$STATUS" -eq 0 ] || fail "single $flag exited $STATUS (want 0)"
   echo "ok: single $flag still accepted"
 done
+
+# ─── Shared conformance probe matrix (#1146, design #1145) ─────────
+# The matrix rows for git-maintain-repos, driven through
+# lib/arg-probe.sh (the same helper every discovery suite uses):
+# unknown, missing/flag-shaped (also pinned per-option above), repeat,
+# both conflict orders, extra positional, and bad numbers -- abc, 0,
+# oversized -- for --depth/--jobs. --pack-threads takes the same rows
+# except 0, which is legal there (git auto-detect), so 0 is probed as
+# accepted; 08 is probed as accepted decimal 8 (rule 6, #881).
+probe_rejected "unknown option: --bogus" --bogus
+probe_rejected "git-maintain-repos: --jobs requires a value" --jobs
+probe_rejected "git-maintain-repos: --jobs requires a value" --jobs --dry-run
+probe_rejected "git-maintain-repos: --jobs may be given only once" --dry-run --path "$VALID" --jobs 1 --jobs 2
+probe_rejected "may not be combined with" --dry-run --path "$VALID" --quick --deep
+probe_rejected "may not be combined with" --dry-run --path "$VALID" --deep --quick
+probe_rejected "git-maintain-repos: --system and --no-system may not be combined" --dry-run --path "$VALID" --system --no-system
+probe_rejected "git-maintain-repos: --system and --no-system may not be combined" --dry-run --path "$VALID" --no-system --system
+probe_rejected "unexpected argument: $OTHER" --dry-run "$VALID" "$OTHER"
+for bad in abc 0 2147483648 99999999999999999999999999; do
+  probe_rejected "git-maintain-repos: --depth must be a positive integer" --dry-run --path "$VALID" --depth "$bad"
+  probe_rejected "git-maintain-repos: --jobs must be a positive integer" --dry-run --path "$VALID" --jobs "$bad"
+done
+for bad in abc 2147483648 99999999999999999999999999; do
+  probe_rejected "git-maintain-repos: --pack-threads must be a non-negative integer" --dry-run --path "$VALID" --pack-threads "$bad"
+done
+probe_accepted --dry-run --path "$VALID" --pack-threads 0
+probe_accepted --dry-run --path "$VALID" --jobs 08 --depth 08
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-maintain-repos flag-shaped-value checks passed"

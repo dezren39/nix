@@ -15,6 +15,7 @@ Sources: open issues, [`TODO.md`](TODO.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 | [OpenCode and OpenChamber integration](#opencode-and-openchamber-integration) | Pins, the mcpx config, MCP sign-ins                       |
 | [Sidepulse patches](#sidepulse-patches)                                       | Port a 12-patch stack to upstream                         |
 | [The darwin system](#the-darwin-system)                                       | Old notes only, no open work                              |
+| [CI and housekeeping](#ci-and-housekeeping)                                   | One argument contract for the repo's scripts              |
 
 ## mcpx moves to developing-today/code
 
@@ -61,6 +62,12 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 | Window manager notes                   | Ideas   | idea   | Auto reload for AeroSpace, centering the mouse on focus, auto-start for AutoRaise, other tiling options. | [TODO.md](TODO.md) |
 | Sudo with Touch ID and system defaults | Ideas   | idea   | Notes on `pam` Touch ID, dock and finder defaults. Check which are already set.                          | [TODO.md](TODO.md) |
 | Linux builder for nix-darwin           | Ideas   | idea   | A note enables `nix.linux-builder`.                                                                      | [TODO.md](TODO.md) |
+
+## CI and housekeeping
+
+| Title                                    | Horizon | Status      | Intent                                                                                                                                 | Links       |
+| ---------------------------------------- | ------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| One argument contract for the scripts    | Now     | in-progress | Guard helpers in `lib/common.sh` and one shared conformance probe matrix; the discovery family is the phase 1 pilot, the opencode-db and packaged families follow. | #1145, #1146 |
 
 ## Done
 

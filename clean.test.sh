@@ -21,6 +21,10 @@ set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SELF_DIR/clean.sh"
+# Shared conformance probe matrix helpers (#1146, design #1145 phase 1).
+# shellcheck source=lib/arg-probe.sh
+. "$SELF_DIR/lib/arg-probe.sh"
+
 
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -273,6 +277,27 @@ for mode in bsd gnu; do
   esac
   [ -e "$PTDIR/pytest-current" ] || fail "pytest guard ($mode stat): pytest-current dangling after the run"
 done
+
+# ─── Shared conformance probe matrix (#1146, design #1145) ─────────
+# The matrix rows for clean.sh, driven through lib/arg-probe.sh (the
+# same helper every discovery suite uses): unknown, missing/flag-shaped
+# (also pinned per-option above), repeat, both conflict orders, extra
+# positional, and bad numbers -- abc, 0, oversized -- for both numeric
+# options. 08 is probed as accepted decimal 8 (rule 6, #881).
+probe_rejected "unknown option: --bogus" --bogus
+probe_rejected "clean.sh: --depth requires a value" --depth
+probe_rejected "clean.sh: --docker-age requires a value" --docker-age --dry-run
+probe_rejected "clean.sh: --depth may be given only once" --dry-run --path "$VALID" --depth 1 --depth 2
+probe_rejected "clean.sh: --system and --no-system may not be combined" --dry-run --system --no-system
+probe_rejected "clean.sh: --system and --no-system may not be combined" --dry-run --no-system --system
+probe_rejected "clean.sh: --follow and --no-follow may not be combined" --dry-run --path "$VALID" --follow --no-follow
+probe_rejected "clean.sh: --follow and --no-follow may not be combined" --dry-run --path "$VALID" --no-follow --follow
+probe_rejected "unexpected argument: $OTHER" --dry-run "$VALID" "$OTHER"
+for bad in abc 0 2147483648 99999999999999999999999999; do
+  probe_rejected "clean.sh: --depth must be a positive integer" --dry-run --path "$VALID" --depth "$bad"
+  probe_rejected "clean.sh: --docker-age must be a positive integer" --dry-run --path "$VALID" --docker-age "$bad"
+done
+probe_accepted --path "$VALID" --depth 08 --docker-age 08 --only-unknown-scratch
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all clean.sh flag-shaped-value checks passed"
