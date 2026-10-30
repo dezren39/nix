@@ -76,6 +76,24 @@ jobs:
       - name: Run cleanup-count regression suite (#1002)
         run: node pkgs/buffer-backup/cleanup-count.test.mjs
 
+  # #1184: check-lock-sync.test.py -- the #1141/#1159 invocation-probe
+  # suite for check-lock-sync.py's exit-2 (bad invocation / malformed
+  # input) vs exit-1 (lockfiles disagree) contract -- was run by
+  # nothing: its only wiring was checks.check-lock-sync-args in the
+  # buffer-backup sub-flake, which no workflow builds. This job runs
+  # the real suite on every pkgs/buffer-backup/** change (the path
+  # triggers above already cover it), mirroring the cleanup-count
+  # job (#1013). The suite is plain python3 -- no nix or bun needed.
+  check-lock-sync-args:
+    name: check-lock-sync args test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run check-lock-sync invocation-probe suite (#1141/#1159)
+        run: python3 pkgs/buffer-backup/check-lock-sync.test.py
+
   # #1091: the two bun pins (workflow bun-version vs
   # pkgs/bun-bin/hashes.json version) were kept in step by a comment
   # only. This job runs the plain-python comparison whenever either
