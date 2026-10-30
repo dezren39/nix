@@ -25,6 +25,20 @@
 # `opencode-db-backup-prune`.
 set -u
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Sourced up front because the argument parser below uses
+# lib/common.sh's guard helpers (arg_die and friends) -- design #1145
+# phase 2 (#1147), the clean.sh SELF_DIR precedent. die() below stays
+# for runtime failures; parse errors go through the shared helpers.
+# (Inserted after the header comment on purpose: --help prints header
+# lines 2-26 verbatim, and they must not shift.)
+# shellcheck source=lib/common.sh
+. "$SELF_DIR/lib/common.sh"
+ARG_PROGRAM="opencode-db-backup-prune"
+
+usage() { sed -n '2,26p' "$0"; }
+
 DIR="$HOME/.local/share/opencode/backup"
 KEEP=3
 MAX_AGE_DAYS=""
@@ -44,38 +58,24 @@ die() { echo "opencode-db-backup-prune: $*" >&2; exit 2; }
 # came last used to win -- "--dry-run --apply" actually deleted.
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dir) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--dir needs a value"; [ "$DIR_SET" -eq 0 ] || die "--dir may be given only once"; DIR="$2"; DIR_SET=1; shift 2 ;;
-    --keep) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--keep needs a value"; [ "$KEEP_SET" -eq 0 ] || die "--keep may be given only once"; KEEP="$2"; KEEP_SET=1; shift 2 ;;
-    --max-age-days) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; } || die "--max-age-days needs a value"; [ "$MAX_AGE_DAYS_SET" -eq 0 ] || die "--max-age-days may be given only once"; MAX_AGE_DAYS="$2"; MAX_AGE_DAYS_SET=1; shift 2 ;;
-    --apply) [ "$DRY_RUN_SET" -eq 0 ] || die "--apply and --dry-run may not be combined"; APPLY=1; APPLY_SET=1; shift ;;
-    --dry-run) [ "$APPLY_SET" -eq 0 ] || die "--apply and --dry-run may not be combined"; APPLY=0; DRY_RUN_SET=1; shift ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
-    *) die "unknown option: $1" ;;
+    --dir) arg_require_value "$1" "${2:-}"; arg_once "$1" DIR_SET; DIR="$2"; DIR_SET=1; shift 2 ;;
+    --keep) arg_require_value "$1" "${2:-}"; arg_once "$1" KEEP_SET; KEEP="$2"; KEEP_SET=1; shift 2 ;;
+    --max-age-days) arg_require_value "$1" "${2:-}"; arg_once "$1" MAX_AGE_DAYS_SET; MAX_AGE_DAYS="$2"; MAX_AGE_DAYS_SET=1; shift 2 ;;
+    --apply) arg_conflict --apply --dry-run "$DRY_RUN_SET"; APPLY=1; APPLY_SET=1; shift ;;
+    --dry-run) arg_conflict --apply --dry-run "$APPLY_SET"; APPLY=0; DRY_RUN_SET=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) arg_die "unknown option: $1" ;;
   esac
 done
 
-case "$KEEP" in *[!0-9]*|'') die "--keep must be a non-negative integer, got: $KEEP" ;; esac
-# Leading zeros are decimal here, not octal (#1087): bash arithmetic reads
-# 08/09 as invalid octal and 010 as 8, while the [ ] tests overflow on
-# oversized digit strings. Normalize at validation time like the sibling
-# scripts (#880/#1015/#1022): strip leading zeros, then range-check by
-# digit count first (at most 10 digits always fits the shell's 64-bit
-# arithmetic), then by value against INT_MAX, as in opencode-db-prune.sh
-# (#867). After this block both values are plain decimal <= INT_MAX, so
-# every later test and arithmetic use is safe.
-KEEP_NORM=${KEEP#"${KEEP%%[!0]*}"}; KEEP_NORM=${KEEP_NORM:-0}
-if [ "${#KEEP_NORM}" -gt 10 ] || [ "$KEEP_NORM" -gt 2147483647 ]; then
-  die "--keep must be a non-negative integer no larger than 2147483647, got: $KEEP"
-fi
-KEEP=$KEEP_NORM; unset KEEP_NORM
-[ "$KEEP" -ge 1 ] || die "--keep must be at least 1 (the newest backup is never deleted)"
+# Numeric values are judged whole, at parse time, with the shared
+# arg_decimal helper (lib/common.sh) (#1147): strict plain decimal
+# (#1087: leading zeros are data, never octal), INT_MAX backstop by
+# digit count first, judged form is the used form. --keep is positive
+# (the newest backup is never deleted); --max-age-days non-negative.
+arg_decimal KEEP --keep "$KEEP" positive
 if [ -n "$MAX_AGE_DAYS" ]; then
-  case "$MAX_AGE_DAYS" in *[!0-9]*|'') die "--max-age-days must be a non-negative integer, got: $MAX_AGE_DAYS" ;; esac
-  AGE_NORM=${MAX_AGE_DAYS#"${MAX_AGE_DAYS%%[!0]*}"}; AGE_NORM=${AGE_NORM:-0}
-  if [ "${#AGE_NORM}" -gt 10 ] || [ "$AGE_NORM" -gt 2147483647 ]; then
-    die "--max-age-days must be a non-negative integer no larger than 2147483647, got: $MAX_AGE_DAYS"
-  fi
-  MAX_AGE_DAYS=$AGE_NORM; unset AGE_NORM
+  arg_decimal MAX_AGE_DAYS --max-age-days "$MAX_AGE_DAYS" non-negative
 fi
 
 [ -d "$DIR" ] || { echo "opencode-db-backup-prune: no backup dir at $DIR — nothing to do"; exit 0; }

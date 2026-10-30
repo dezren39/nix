@@ -589,13 +589,16 @@ rec {
             }
             ''
               cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-pids.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-pids.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./opencode-db-pids.test.sh
               touch $out
             '';
-        # #941: opencode-db-args.test.sh pins the argument parsers of
+        # #941: opencode-db-args.test.sh pins the argument parsers of (extended to backup-prune, folded into the shared probe matrix, #1147)
         # opencode-db-vacuum.sh / opencode-db-prune.sh — every
         # value-taking option must reject an empty or flag-shaped value
         # naming the option, so "--into --dry-run" cannot swallow the
@@ -608,8 +611,11 @@ rec {
               src = inputs.self;
             }
             ''
-              cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-args.test.sh ./
-              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-args.test.sh
+              cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-backup-prune.sh $src/opencode-db-args.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
+              chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-backup-prune.sh ./opencode-db-args.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
               bash ./opencode-db-args.test.sh
@@ -631,6 +637,9 @@ rec {
             }
             ''
               cp $src/opencode-db-vacuum.sh $src/opencode-db-prune.sh $src/opencode-db-prune.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./opencode-db-vacuum.sh ./opencode-db-prune.sh ./opencode-db-prune.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
@@ -652,6 +661,9 @@ rec {
             }
             ''
               cp $src/opencode-db-vacuum.sh $src/opencode-db-vacuum.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./opencode-db-vacuum.sh ./opencode-db-vacuum.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
@@ -672,6 +684,9 @@ rec {
             }
             ''
               cp $src/opencode-db-backup-prune.sh $src/opencode-db-backup-prune.test.sh ./
+              mkdir -p lib
+              cp $src/lib/common.sh lib/
+              cp $src/lib/arg-probe.sh lib/
               chmod u+w ./opencode-db-backup-prune.sh ./opencode-db-backup-prune.test.sh
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
