@@ -21,7 +21,7 @@ Usage: python3 check-lock-sync.py [--help] [package-dir]  (default: this dir)
 Exit 0 when every package.json dependency resolves to the same
 version in both lockfiles, 1 (with the mismatches listed) when the
 lockfiles disagree, 2 for an invocation error — an unknown or extra
-argument, or a package file missing/unreadable — so a mistyped call
+argument, or a package file missing/unreadable/wrong-shaped — so a mistyped call
 can never be mistaken for drift by a caller branching on exit 1
 (#1141; the #1133 shape). Invocation errors are one line on stderr
 naming the offending argument or file, never a traceback.
@@ -36,9 +36,23 @@ USAGE = "usage: check-lock-sync.py [--help] [package-dir]"
 
 
 def npm_versions(lock_path: Path) -> dict[str, str]:
+    # Shape validation (#1159): a file that parses as JSON but has the
+    # wrong shape (a list at the top level, a non-object "packages", a
+    # non-object entry) used to raise AttributeError/TypeError here and
+    # traceback at exit 1 -- the "lockfiles disagree" signal. Raise
+    # ValueError naming the file instead; main() maps it to exit 2.
     lock = json.loads(lock_path.read_text())
+    if not isinstance(lock, dict):
+        raise ValueError(f"{lock_path}: expected a JSON object")
+    packages = lock.get("packages", {})
+    if not isinstance(packages, dict):
+        raise ValueError(f"{lock_path}: 'packages' must be an object")
     versions = {}
-    for key, entry in lock.get("packages", {}).items():
+    for key, entry in packages.items():
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"{lock_path}: 'packages' entry '{key}' must be an object"
+            )
         if key.startswith("node_modules/") and "version" in entry:
             versions[key.removeprefix("node_modules/")] = entry["version"]
     return versions
@@ -106,9 +120,20 @@ def main() -> int:
             return invocation_error(f"{root / name}: no such file")
     try:
         package = json.loads((root / "package.json").read_text())
+        # Shape validation (#1159), as in npm_versions: wrong-shaped
+        # package.json content is an invocation error, not a traceback.
+        if not isinstance(package, dict):
+            return invocation_error(
+                f"{root / 'package.json'}: expected a JSON object"
+            )
+        for field in ("dependencies", "devDependencies"):
+            if not isinstance(package.get(field, {}), dict):
+                return invocation_error(
+                    f"{root / 'package.json'}: '{field}' must be an object"
+                )
         npm = npm_versions(root / "package-lock.json")
         bun = bun_versions(root / "bun.lock")
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
         return invocation_error(str(exc))
     deps = {
         **package.get("dependencies", {}),
