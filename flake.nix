@@ -782,6 +782,32 @@ rec {
               bash ./search.test.sh
               touch $out
             '';
+        # #1167: full-clean.test.sh drives the real full-clean.sh
+        # with its steps (./s, prune, vacuum) and PATH commands
+        # (sudo, nix-collect-garbage, nix, df) stubbed to log every
+        # call -- the script has no argument parser, so --help,
+        # --bogus and --dry-run used to run the full destructive
+        # sequence and exit 0. The suite pins those three (no stub
+        # called, correct exits, argument named) plus a no-argument
+        # control that runs the whole stubbed sequence.
+        full-clean-tests =
+          pkgs.runCommandLocal "full-clean-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gnugrep
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/full-clean.sh $src/full-clean.test.sh ./
+              chmod u+w ./full-clean.sh ./full-clean.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./full-clean.test.sh
+              touch $out
+            '';
         # #940: git-discover-repos.test.sh drives the real
         # git-discover-repos through bad, mixed, regular-file, all-valid,
         # --count and --dry-run --path runs — a bad --path used to exit 0,
