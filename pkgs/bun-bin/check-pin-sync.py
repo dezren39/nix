@@ -76,6 +76,18 @@ def main() -> int:
         print("Exit 0 = pins in sync, 1 = out of sync, 2 = invocation error.")
         return 0
     if args[:1] == ["--repo-root"] and len(args) == 2:
+        # Empty --repo-root (#1216): Path("") is Path("."), so an
+        # unset-variable caller silently checked the cwd -- exiting 0
+        # from the repo root for the wrong reason. Reject it at exit 2
+        # before any pin file is read, like the sibling check-lock-sync
+        # rejects its empty package-dir argument.
+        if args[1] == "":
+            print(
+                "check-pin-sync: error: empty --repo-root argument",
+                file=sys.stderr,
+            )
+            print(f"usage: {sys.argv[0]} [--repo-root DIR]", file=sys.stderr)
+            return 2
         root = Path(args[1])
     elif args:
         print(f"usage: {sys.argv[0]} [--repo-root DIR]", file=sys.stderr)
