@@ -272,6 +272,8 @@ pids, ports, exit codes and store paths, never secrets.
 
 | source | event | means |
 |---|---|---|
+| service-monitor | `monitor.start` | the monitor started (`interval_s`, `pid`) |
+| service-monitor | `monitor.error` | a sampling tick failed (`error`, the exception representation truncated to 300 characters) |
 | service-monitor | `service.start`, `service.exit` | a watched launchd job got a new pid or lost one (`label`, `pid`, `previous_pid`, `last_exit_status`) |
 | service-monitor | `service.running`, `process.running` | what was already running when the monitor started |
 | service-monitor | `process.start`, `process.exit` | an OpenChamber server (`openchamber-server`, `openchamber-desktop`, `openchamber-dev`), an `opencode` or `opencode-service`, or an `mcpx-daemon` started or exited, with its parent's role |
@@ -292,6 +294,10 @@ Limits:
 
 ## Debugging
 
+- **Monitor health:** in `just service-events 500`, frequent `monitor.start`
+  events with different `pid` values can indicate a restart loop. Repeated
+  `monitor.error` events indicate failing sampling ticks; inspect their `error`
+  values even if the monitor process is still running.
 - **Read launchd's view first:** `launchctl print gui/$(id -u)/<label>` (state,
   program, runs, last exit code), then the agent's stderr log, then the app's log.
 - **Exit 78 (`EX_CONFIG`) and nothing new in the app log:** launchd could not run
