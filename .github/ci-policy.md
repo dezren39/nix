@@ -40,9 +40,16 @@ Per-workflow application in this repo:
   build); unchanged by the two-tier split.
 - `opencode` — a comment-triggered (`/oc`) bot, not a build check;
   out of scope for the PR tier.
-- Scheduled singleton workflows (`branch-cleanup`,
-  `buffer-backup renovate bun sync`) keep `cancel-in-progress: false`
-  by design (design §2.2: deliberately left alone).
+- Scheduled singleton workflows (`branch-cleanup`) keep
+  `cancel-in-progress: false` by design (design §2.2: deliberately
+  left alone).
+- `buffer-backup renovate bun sync` — Renovate automation, not a
+  build check: a deliberate exception to the main-only trigger
+  policy, triggered by `pull_request` on the buffer-backup
+  lockfile inputs because it can only act in the context of the
+  Renovate PR it syncs (#1176). It likewise keeps
+  `cancel-in-progress: false` by design — a run is never cancelled
+  mid-push.
 
 Main tier failures are owned by the remediation chain
 (`main-broken-watcher.yml`, design §5): a failure of either watched
