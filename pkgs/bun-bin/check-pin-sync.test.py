@@ -11,6 +11,9 @@ job branches on. These probes pin the new contract:
   one-line error naming the file — no traceback.
 - Malformed hashes.json exits 2 naming the file and the JSON
   problem — no traceback.
+- A non-UTF-8 workflow file or hashes.json exits 2 naming the
+  file — no traceback (#1189: the workflow read's OSError guard
+  did not cover UnicodeDecodeError, so it trace-backed at exit 1).
 - The old signals are unchanged: 0 = in sync, 1 = out of sync with
   both pins named, and a repeated --repo-root exits 2 with usage.
 
@@ -59,6 +62,12 @@ def write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as fh:
         fh.write(text)
+
+
+def write_bytes(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(data)
 
 
 def seed_root(dirpath, workflow_version="1.3.14", hashes_version="1.3.14",
@@ -113,6 +122,33 @@ def main():
             "malformed hashes names the JSON problem",
             "invalid JSON" in result.stderr,
             f"(stderr={result.stderr!r})",
+        )
+
+        # Non-UTF-8 workflow file: exit 2 naming the workflow, no
+        # traceback (#1189 — UnicodeDecodeError escaped the OSError
+        # guard and trace-backed at exit 1, the drift signal).
+        bad_workflow = os.path.join(tmp, "bad-workflow")
+        seed_root(bad_workflow)
+        write_bytes(
+            os.path.join(bad_workflow, WORKFLOW),
+            b'        bun-version: "1.3.14" \xff\xfe\n',
+        )
+        expect_invocation_error(
+            "non-UTF-8 workflow", run("--repo-root", bad_workflow),
+            os.path.join(bad_workflow, WORKFLOW),
+        )
+
+        # Non-UTF-8 hashes.json (control): already exit 2 via the
+        # ValueError branch — pin it so the two guards stay symmetric.
+        bad_hashes = os.path.join(tmp, "bad-hashes")
+        seed_root(bad_hashes)
+        write_bytes(
+            os.path.join(bad_hashes, HASHES),
+            b'{"version": "1.3.14" \xff\xfe}',
+        )
+        expect_invocation_error(
+            "non-UTF-8 hashes", run("--repo-root", bad_hashes),
+            os.path.join(bad_hashes, HASHES),
         )
 
         # In-sync fixture: exit 0 with the original message.

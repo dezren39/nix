@@ -73,6 +73,13 @@ def main() -> int:
         workflow_version = workflow_bun_version(root)
     except OSError as exc:
         return invocation_error(f"{root / WORKFLOW}: {exc.strerror or exc}")
+    except UnicodeDecodeError as exc:
+        # read_text() decodes UTF-8 strictly: a corrupt/binary-damaged
+        # workflow file is an invocation error (#1189), not drift.
+        # UnicodeDecodeError is a ValueError, not an OSError, so the
+        # guard above does not catch it (the hashes read below is
+        # covered only because its ValueError branch catches it).
+        return invocation_error(f"{root / WORKFLOW}: not valid UTF-8: {exc}")
     try:
         hashes_version = hashes_bun_version(root)
     except OSError as exc:
