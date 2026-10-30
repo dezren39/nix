@@ -10,8 +10,17 @@ name: main-broken watcher
 # copies (the #304 lesson).
 # On failure it files (or appends to) a `main-broken` issue keyed by
 # Breakage-ID. This repo has no Jules door, so the issue is released to
-# the fleet queue directly: the priority-90 packet enqueue itself is
-# fleet-side, via the `queue/queued` label + the fleet monitor.
+# the fleet queue directly at filing time.
+#
+# Hybrid pm-dispatch migration (developing-today/code#2672): the issue
+# creation stays in this workflow because the pm-stack GitHub App is
+# not installed on dezren39/nix, so pm-dispatch cannot create issues
+# here. The queue enqueue moves to the pm-dispatch-queue action
+# (developing-today/code/.github/actions/pm-dispatch-queue@main), so
+# the fix task exists at filing time instead of waiting for the fleet
+# monitor to enqueue it from the `queue/queued` label. If that enqueue
+# step fails, the agent-note says so and the fleet monitor fallback
+# (enqueue from the `queue/queued` label) applies as before.
 
 "on":
   workflow_run:
@@ -32,10 +41,19 @@ jobs:
   file-breakage:
     name: file main-broken issue
     if: github.event.workflow_run.conclusion == 'failure'
+    # Job-level permissions replace the workflow-level grants for this
+    # job, so actions/issues are restated here. id-token: write is
+    # required by the pm-dispatch-queue action (OIDC, audience
+    # pm-dispatch).
+    permissions:
+      actions: read
+      issues: write
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: File or append the breakage issue
+        id: file
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -101,16 +119,75 @@ jobs:
             --label "queue/queued" --label "status/needs-triage")"
           issue_number="${issue_url##*/}"
           echo "Filed breakage issue #$issue_number: $issue_url"
+          issue_title="main-broken: $repo $WORKFLOW_NAME @$short_sha — $first_job"
+          {
+            echo "issue_number=$issue_number"
+            echo "issue_url=$issue_url"
+            echo "issue_title=$issue_title"
+            echo "breakage_id=$breakage_id"
+          } >> "$GITHUB_OUTPUT"
 
+      # HYBRID (developing-today/code#2672): the issue was created by
+      # the step above (the pm-stack GitHub App is not installed on
+      # dezren39/nix, so pm-dispatch cannot create issues here), and
+      # this step enqueues the fix task against that existing issue
+      # (issue_number takes precedence; no new issue is created).
+      # Priority: main-broken breakages are TOP priority in the fleet
+      # queue; on the pm-dispatch scale that is "critical" (10, lower
+      # claims sooner). This replaces the watcher's old "priority-90"
+      # wording, which was a stale artifact of a different scale.
+      - name: Enqueue the fix task via pm-dispatch
+        id: enqueue
+        if: steps.file.outputs.issue_number != ''
+        continue-on-error: true
+        uses: developing-today/code/.github/actions/pm-dispatch-queue@main
+        with:
+          repo: dezren39/nix
+          title: ${{ steps.file.outputs.issue_title }}
+          prompt: |
+            Investigate and fix the main breakage filed as dezren39/nix issue #${{ steps.file.outputs.issue_number }} (${{ steps.file.outputs.issue_url }}).
+
+            Workflow: ${{ github.event.workflow_run.name }}
+            Run: ${{ github.event.workflow_run.html_url }}
+            Breakage-ID: ${{ steps.file.outputs.breakage_id }}
+            First error excerpt: see the "First error excerpt" section of the breakage issue body (${{ steps.file.outputs.issue_url }}).
+
+            Reproduce the failing workflow jobs from that run, find the root cause, and land a fix so the workflow passes on main again. Keep the fix scoped to the breakage.
+          priority: "critical"
+          kind: ci_investigation
+          issue_number: ${{ steps.file.outputs.issue_number }}
+
+      - name: Post the agent-note comment
+        if: steps.file.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.file.outputs.issue_number }}
+          BREAKAGE_ID: ${{ steps.file.outputs.breakage_id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          ENQUEUE_OUTCOME: ${{ steps.enqueue.outcome }}
+          TASK_ID: ${{ steps.enqueue.outputs.task_id }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
           {
             echo "<!-- agent-note:v1 -->"
             echo "holder: chain (filing) — no Jules door in this repo; released to fleet queue directly"
             echo ""
             echo "Filed by main-broken-watcher on failure of \`$WORKFLOW_NAME\` run $RUN_URL."
-            echo "Breakage-ID: $breakage_id"
-            echo "The priority-90 packet enqueue is fleet-side: this issue carries the"
-            echo "\`queue/queued\` label and the fleet monitor enqueues the fix packet from it."
-            echo "No Jules step exists for dezren39/nix, so the chain (filing) holder"
-            echo "releases the breakage to the fleet queue at filing time."
+            echo "Breakage-ID: $BREAKAGE_ID"
+            if [ "$ENQUEUE_OUTCOME" = "success" ]; then
+              echo "The fix task was enqueued by pm-dispatch at filing time"
+              echo "(pm-dispatch-queue, task id: $TASK_ID), attached to this issue."
+            else
+              echo "The pm-dispatch enqueue FAILED at filing time, so no fix task"
+              echo "was created by pm-dispatch. Fallback: this issue carries the"
+              echo "\`queue/queued\` label and the fleet monitor should enqueue"
+              echo "the fix packet from it, as before this migration."
+            fi
+            echo "No Jules step exists for dezren39/nix (Jules is retired"
+            echo "fleet-wide in workflows; the direct-to-queue handoff is the"
+            echo "design), so the chain (filing) holder releases the breakage"
+            echo "to the fleet queue at filing time."
           } > agent-note.md
-          gh issue comment "$issue_number" --repo "$repo" --body-file agent-note.md
+          gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body-file agent-note.md
