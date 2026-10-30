@@ -1,7 +1,7 @@
 name: flake checks build
 
 # CI policy: .github/ci-policy.md (design developing-today/code#1779
-# §3.3/§3.4 — fast PR tier, full main tier).
+# §3.3/§3.4, as amended by #1172 — main-only tier).
 #
 # #1134: flake-packages-build.yml covers .#packages and mcpx-nixbuild.yml
 # covers only .#packages.x86_64-linux.mcpx — no workflow ever built the
@@ -10,15 +10,12 @@ name: flake checks build
 # by hand, one at a time (#1094, #1099, #1047, #978). This workflow covers
 # every check the flake exposes.
 #
-# Two tiers, same split as flake-packages-build.yml:
-#   - pull_request = eval-only (class 4): instantiate every check's
-#     drvPath. Evaluation cannot catch a failing build step, but it
-#     catches broken expressions cheaply on the PR tier. No full check
-#     builds on PRs (ci-policy: never full flake check on a PR).
-#   - push to main + nightly schedule = full build, one matrix job per
-#     check, fail-fast off so one broken check never hides another.
+# Main-only tier (#1172 removed the pull_request eval tier; #1178
+# removed its leftover job): push to main + nightly schedule +
+# workflow_dispatch run the full build, one matrix job per check,
+# fail-fast off so one broken check never hides another.
 #
-# No path filters on any tier: a check's sources include root-level
+# No path filters: a check's sources include root-level
 # scripts and test files, and a path filter that misses one silently
 # excludes that check — the #1108 lesson. Unfiltered triggers are the
 # safe default here.
@@ -36,11 +33,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Same pattern as flake-packages-build.yml: non-PR runs are keyed by
-  # run_id so a later merge can never cancel an earlier merge's
-  # verification; PR runs share a per-ref group so a new push supersedes
-  # a stale run.
-  group: ${{ github.workflow }}-${{ github.event_name != 'pull_request' && github.run_id || github.ref }}
+  # Same pattern as flake-packages-build.yml: runs are keyed by run_id
+  # so a later merge can never cancel an earlier merge's verification.
+  group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -63,29 +58,8 @@ jobs:
           printf 'Checks: %s\n' "$checks"
           printf 'checks=%s\n' "$checks" >> "$GITHUB_OUTPUT"
 
-  nix-eval:
-    name: nix eval ${{ matrix.check }}
-    if: github.event_name == 'pull_request'
-    needs: list-checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        check: ${{ fromJSON(needs.list-checks.outputs.checks) }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-
-      - name: Instantiate check derivation
-        env:
-          CHECK: ${{ matrix.check }}
-        run: nix eval --raw ".#checks.x86_64-linux.${CHECK}.drvPath"
-
   nix-build:
     name: nix build ${{ matrix.check }}
-    if: github.event_name != 'pull_request'
     needs: list-checks
     runs-on: ubuntu-latest
     timeout-minutes: 60

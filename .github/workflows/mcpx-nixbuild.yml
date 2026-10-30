@@ -1,7 +1,7 @@
 name: mcpx nix build
 
 # CI policy: .github/ci-policy.md (design developing-today/code#1779
-# §3.3/§3.4 — fast PR tier, full main tier).
+# §3.3/§3.4, as amended by #1172 — main-only tier).
 #
 # Narrow package-build verification (#418, rewired by #468).
 #
@@ -12,13 +12,12 @@ name: mcpx nix build
 # go-modules derivation is actually built), so the full build is the
 # main-tier check (below).
 #
-# Two tiers (Phase 2, developing-today/code#1781):
-#   - pull_request = eval-only (class 4): parse the changed .nix files
-#     and run the darwin skip-guard eval. No nix build on a PR.
-#   - push to main + nightly schedule = the existing full build. The
-#     push trigger is restricted to branches: [main], so a commit
-#     never fires both tiers via push + pull_request, and the nightly
-#     backstop means nothing the old PR build covered can vanish.
+# Main-only tier (#1172 removed the pull_request eval tier; #1178
+# removed its leftover job): push to main + nightly schedule +
+# workflow_dispatch run the full build. The push trigger is
+# restricted to branches: [main] and a small path set, and the
+# nightly backstop means nothing the old PR build covered can
+# vanish unnoticed — a break lands on main and the watcher files it.
 
 on:
   push:
@@ -36,64 +35,22 @@ permissions:
   contents: read
 
 concurrency:
-  # Non-PR runs (push-to-main, nightly schedule, manual dispatch) each
-  # get their own group (keyed by run_id), so a
-  # later merge can never cancel — or displace a pending — verification
-  # run for an earlier merge: every merged tree gets its own completed
-  # build. Pull-request runs keep sharing a per-ref group, so a new push
-  # to a PR still supersedes its stale run. (Downstream half of the
-  # cross-repo set tracked in developing-today/code#392; the conditional
-  # cancel-in-progress used by code's mcpx-conformance workflow would
-  # still let a third rapid merge displace the second merge's pending
-  # run, so push runs are keyed by run_id here, the pattern
-  # developing-today/opencode's check.yml already uses for main.)
-  group: ${{ github.workflow }}-${{ github.event_name != 'pull_request' && github.run_id || github.ref }}
+  # Every run (push-to-main, nightly schedule, manual dispatch) gets
+  # its own group (keyed by run_id), so a later merge can never
+  # cancel — or displace a pending — verification run for an earlier
+  # merge: every merged tree gets its own completed build.
+  # (Downstream half of the cross-repo set tracked in
+  # developing-today/code#392; the conditional cancel-in-progress
+  # used by code's mcpx-conformance workflow would still let a third
+  # rapid merge displace the second merge's pending run, so runs are
+  # keyed by run_id here, the pattern developing-today/opencode's
+  # check.yml already uses for main.)
+  group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  nix-eval:
-    name: nix eval (PR)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-
-      - name: Parse changed .nix files
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          mapfile -t changed < <(git diff --name-only --diff-filter=ACMR "$BASE_SHA...HEAD" -- '*.nix')
-          if [ "${#changed[@]}" -eq 0 ]; then
-            # flake.lock-only (or workflow-only) change: parse the flake
-            # itself so the eval tier still exercises the wiring.
-            changed=("flake.nix")
-          fi
-          printf 'Parsing: %s\n' "${changed[@]}"
-          for f in "${changed[@]}"; do
-            nix-instantiate --parse "$f" > /dev/null
-          done
-
-      # developing-today/code#418: the darwin -skip override in flake.nix
-      # keys on the canonical checkPhase line in code's package.nix. The
-      # override throws when the pattern stops matching, so forcing the
-      # darwin checkPhase here (eval only, no darwin build) fails this
-      # workflow on an mcpx-src pin bump that drifts the line — before the
-      # break can surface on a Mac.
-      - name: Darwin mcpx skip guard
-        run: |
-          phase="$(nix eval --raw .#packages.aarch64-darwin.mcpx.checkPhase)"
-          printf '%s\n' "$phase"
-          grep -F -- "-skip=" <<<"$phase"
-
   nix-build:
     name: nix build
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -101,7 +58,10 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
-      # See the eval job: same darwin skip guard, eval only.
+      # Darwin mcpx skip guard (eval only, no darwin build): the
+      # darwin -skip override in flake.nix keys on the canonical
+      # checkPhase line in code's package.nix and throws when the
+      # pattern stops matching (developing-today/code#418).
       - name: Darwin mcpx skip guard
         run: |
           phase="$(nix eval --raw .#packages.aarch64-darwin.mcpx.checkPhase)"
