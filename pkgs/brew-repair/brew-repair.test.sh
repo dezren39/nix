@@ -9,6 +9,9 @@
 # to exit 0 printing "All cask apps are healthy!" after checking zero
 # casks; now it names the failing step on stderr and exits 1, and a cask
 # absent from a successful scan counts as unchecked, never "healthy".
+# Scenarios M-N cover #1156: a failed reinstall counted in FAILED used
+# to leave the exit status at 0; now any failed reinstall exits 1 while
+# an all-success reinstall run still exits 0.
 # Scenarios K–L cover #949: a failed `brew list` used to exit 0 printing
 # "No casks installed." (its status and stderr were lost in a process
 # substitution); now it names the step on stderr and exits 1, while a
@@ -53,7 +56,11 @@ case "$1" in
       partial) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]}]}' ;;
       *) printf '%s\n' '{"casks":[{"token":"alpha","artifacts":[{"app":["Alpha.app"]}]},{"token":"beta","artifacts":[{"app":["Beta.app"]}]}]}' ;;
     esac ;;
-  reinstall) exit 0 ;;
+  reinstall)
+    case "${BREW_STUB_MODE:-broken}" in
+      reinstall-fail) echo "Error: brew reinstall blew up" >&2; exit 1 ;;
+      *) exit 0 ;;
+    esac ;;
 esac
 EOS
 chmod +x "$STUB_BIN/brew"
@@ -183,6 +190,30 @@ rc_l=$?
 [[ $rc_l -eq 0 ]] || fail "L: expected exit 0, got $rc_l"
 grep -q "No casks installed." <<<"$out_l" || fail "L: empty-list message missing for a successful empty brew list"
 [[ $failures -eq $start ]] && ok "L: successful empty brew list exits 0 with 'No casks installed.'"
+
+# ─── Scenario M (#1156): every reinstall fails -> exit 1, results printed ──
+rm -rf "$FAKE_HOME/Applications/Alpha.app" "$FAKE_HOME/Applications/Beta.app"
+start=$failures
+out_m="$(BREW_STUB_MODE=reinstall-fail run_brew_repair)"
+rc_m=$?
+[[ $rc_m -eq 1 ]] || fail "M: expected exit 1, got $rc_m"
+grep -q "0 fixed" <<<"$out_m" || fail "M: Results line does not show 0 fixed"
+grep -q "2 failed" <<<"$out_m" || fail "M: Results line does not show 2 failed"
+grep -q "need manual intervention" <<<"$out_m" || fail "M: manual-intervention list missing"
+grep -q "brew reinstall --cask alpha" <<<"$out_m" || fail "M: alpha not named in failed list"
+grep -q "brew reinstall --cask beta" <<<"$out_m" || fail "M: beta not named in failed list"
+[[ $(reinstall_count) -eq 2 ]] || fail "M: expected 2 reinstall attempts, got $(reinstall_count)"
+[[ $failures -eq $start ]] && ok "M: failing reinstalls exit 1, Results and failed-cask list printed"
+
+# ─── Scenario N (#1156 control): every reinstall succeeds -> exit 0 ───────
+start=$failures
+out_n="$(run_brew_repair)"
+rc_n=$?
+[[ $rc_n -eq 0 ]] || fail "N: expected exit 0, got $rc_n"
+grep -q "2 fixed" <<<"$out_n" || fail "N: Results line does not show 2 fixed"
+grep -q "0 failed" <<<"$out_n" || fail "N: Results line does not show 0 failed"
+[[ $(reinstall_count) -eq 2 ]] || fail "N: expected 2 reinstall attempts, got $(reinstall_count)"
+[[ $failures -eq $start ]] && ok "N: all-success reinstalls exit 0"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
