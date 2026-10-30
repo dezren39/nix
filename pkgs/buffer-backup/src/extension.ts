@@ -266,7 +266,12 @@ function cleanupSize(cfg: Config): void {
   const entries = listBackups(cfg.backupDir);
   let total = entries.reduce((s, e) => s + e.size, 0);
   const maxB = cfg.maxTotalMb * 1024 * 1024;
-  const targetB = maxB - cfg.rolloutMb * 1024 * 1024;
+  // Floor the target at the newest backup's size (#1211): with
+  // rolloutMb >= maxTotalMb the raw target is <= 0, which a pass
+  // can only reach by emptying the directory — it deleted every
+  // backup, newest included. The newest backup always survives.
+  const newestB = entries.length ? entries[entries.length - 1].size : 0;
+  const targetB = Math.max(maxB - cfg.rolloutMb * 1024 * 1024, newestB);
   if (total <= maxB) {
     return;
   }
@@ -299,7 +304,10 @@ function cleanupCount(cfg: Config): void {
   // maxFileCount - rolloutFileCount remain. Deleting only
   // rolloutFileCount files per pass (the previous behaviour) left a
   // far-over-limit directory still over maxFileCount after the pass.
-  const target = Math.max(cfg.maxFileCount - cfg.rolloutFileCount, 0);
+  // Floor the target at 1 (#1211): with rolloutFileCount >=
+  // maxFileCount the raw target is 0 and the pass deleted every
+  // backup, newest included. The newest backup always survives.
+  const target = Math.max(cfg.maxFileCount - cfg.rolloutFileCount, 1);
   let remaining = entries.length;
   for (const e of entries) {
     if (remaining <= target) {

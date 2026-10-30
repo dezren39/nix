@@ -1,4 +1,4 @@
-// Fixture test for cleanupCount in src/extension.ts (#1002, #1014).
+// Fixture test for cleanupCount in src/extension.ts (#1002, #1014, #1211).
 //
 // Run: node pkgs/buffer-backup/cleanup-count.test.mjs
 //
@@ -178,6 +178,50 @@ function removeFixture(dir, oldDay) {
   assert.strictEqual(entries.reduce((s, e) => s + e.size, 0), 10240);
   removeFixture(dir, oldDay);
   console.log("pass: cleanupSize does not count a failed unlink as deleted (#1014)");
+}
+
+// 7. rollout == max, cleanupCount (#1211): the raw target is 0 and
+//    the unguarded pass deleted all 20 files. The floored target
+//    leaves exactly the newest backup.
+{
+  const dir = fixture(20);
+  cleanupCount({ backupDir: dir, maxFileCount: 10, rolloutFileCount: 10 });
+  assert.deepStrictEqual(remainingNames(dir), ["f19.txt"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupCount with rollout == max leaves the newest backup (#1211)");
+}
+
+// 8. rollout > max, cleanupCount (#1211): same floor applies.
+{
+  const dir = fixture(20);
+  cleanupCount({ backupDir: dir, maxFileCount: 10, rolloutFileCount: 25 });
+  assert.deepStrictEqual(remainingNames(dir), ["f19.txt"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupCount with rollout > max leaves the newest backup (#1211)");
+}
+
+// 9. rollout == max, cleanupSize (#1211): the raw target is 0 bytes;
+//    the floored target (newest file's size) leaves exactly it.
+{
+  const dir = fixture(20, 1024);
+  cleanupSize({ backupDir: dir, maxTotalMb: 0.01, rolloutMb: 0.01 });
+  const entries = listBackups(dir);
+  assert.strictEqual(entries.length, 1);
+  assert.strictEqual(entries[0].name, "f19.txt", "newest file must survive");
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupSize with rollout == max leaves the newest backup (#1211)");
+}
+
+// 10. rollout > max, cleanupSize (#1211): the raw target is
+//     negative; same floor applies.
+{
+  const dir = fixture(20, 1024);
+  cleanupSize({ backupDir: dir, maxTotalMb: 0.01, rolloutMb: 0.05 });
+  const entries = listBackups(dir);
+  assert.strictEqual(entries.length, 1);
+  assert.strictEqual(entries[0].name, "f19.txt", "newest file must survive");
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.log("pass: cleanupSize with rollout > max leaves the newest backup (#1211)");
 }
 
 console.log("cleanup-count.test.mjs: all assertions passed");
