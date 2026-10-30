@@ -96,6 +96,20 @@ def main(argv):
     if len(argv) < 3:
         print(USAGE, file=sys.stderr)
         return 2
+    # #1208: an empty SOURCE or EVENT is not a name -- a caller with an
+    # unset variable (service-event "$SRC" started) used to append a
+    # record with "source": "" and exit 0, so the junk event was silent
+    # at both ends. Reject it the same loud way as every other malformed
+    # input above, before appending; the sibling check-lock-sync
+    # rejects its empty positional argument the same way.
+    for position, value in (("SOURCE", argv[1]), ("EVENT", argv[2])):
+        if not value:
+            print(
+                f"service-event: invalid argument: {position} must not be empty",
+                file=sys.stderr,
+            )
+            print(USAGE, file=sys.stderr)
+            return 2
     fields = {}
     for arg in argv[3:]:
         key, sep, value = arg.partition("=")
