@@ -26,6 +26,16 @@ Per-workflow application in this repo:
   drvPath (eval only); the full per-package `nix build` matrix runs on
   push to `main` and nightly. mcpx is excluded — it stays owned by
   `mcpx nix build` above.
+- `flake checks build` — #1134: class 4 like `flake packages build`.
+  On `pull_request` it instantiates every `x86_64-linux` check's
+  drvPath (eval only); the full per-check `nix build` matrix
+  (fail-fast off) runs on push to `main` and nightly, covering every
+  `checks` derivation — the 23 `*-tests` suites plus `formatting`,
+  `tidy`, and `mcpx-darwin-skip`. The check list is derived from the
+  flake (`nix eval --json .#checks.x86_64-linux`), never hardcoded.
+  No path filters on any tier: check sources include root-level
+  scripts and test files, and a filter that misses one silently
+  excludes that check (#1108).
 - `buffer-backup lock sync` — already light (plain python3/node, no
   build); unchanged by the two-tier split.
 - `opencode` — a comment-triggered (`/oc`) bot, not a build check;
@@ -35,8 +45,10 @@ Per-workflow application in this repo:
   by design (design §2.2: deliberately left alone).
 
 Main tier failures are owned by the remediation chain
-(`main-broken-watcher.yml`, design §5): a failure of `mcpx nix build`
-on `main` files (or appends to) a `main-broken` issue. This repo has
+(`main-broken-watcher.yml`, design §5): a failure of either watched
+main-tier workflow (`mcpx nix build` or `flake packages build`) on
+`main` files (or appends to) a `main-broken` issue, keyed separately
+per workflow (the workflow name is part of the Breakage-ID). This repo has
 no Jules door, so the issue is released to the fleet queue directly
 (`queue/queued` label; priority-90 packet enqueue is fleet-side via
 that label + the fleet monitor).
