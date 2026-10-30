@@ -152,6 +152,9 @@ AUTO_SET=0
 MODE_FLAG=""
 SYSTEM_SET=0
 NO_SYSTEM_SET=0
+FOLLOW_YES_SET=0
+FOLLOW_NO_SET=0
+FILTER_FLAG=""
 DEPTH_LIMIT_SET=0
 JOBS_SET=0
 PACK_THREADS_SET=0
@@ -181,10 +184,10 @@ while [ $# -gt 0 ]; do
     --recursive|--walk) RECURSIVE=1; DEPTH_LIMIT="" ;;
     --no-recursive|--no-walk) RECURSIVE=0 ;;
     --depth) { [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { echo "git-maintain-repos: $1 requires a value" >&2; usage >&2; exit 2; }; [ "$DEPTH_LIMIT_SET" -eq 0 ] || { echo "git-maintain-repos: $1 may be given only once" >&2; usage >&2; exit 2; }; DEPTH_LIMIT="$2"; DEPTH_LIMIT_SET=1; shift; } ;;
-    --follow) FOLLOW=1 ;;
-    --no-follow) FOLLOW=0 ;;
-    --repos-only) FILTER="--repos-only" ;;
-    --worktrees-only) FILTER="--worktrees-only" ;;
+    --follow) { [ "$FOLLOW_NO_SET" -eq 0 ] || { echo "git-maintain-repos: --follow and --no-follow may not be combined" >&2; usage >&2; exit 2; }; FOLLOW=1; FOLLOW_YES_SET=1; } ;;
+    --no-follow) { [ "$FOLLOW_YES_SET" -eq 0 ] || { echo "git-maintain-repos: --follow and --no-follow may not be combined" >&2; usage >&2; exit 2; }; FOLLOW=0; FOLLOW_NO_SET=1; } ;;
+    --repos-only) { [ -z "$FILTER_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="--repos-only"; FILTER_FLAG="$1"; } ;;
+    --worktrees-only) { [ -z "$FILTER_FLAG" ] || { echo "git-maintain-repos: $1 may not be combined with $FILTER_FLAG (only one filter option may be given)" >&2; usage >&2; exit 2; }; FILTER="--worktrees-only"; FILTER_FLAG="$1"; } ;;
     --fsck) FSCK=1 ;;
     --clean-orphans) CLEAN_ORPHANS=1 ;;
     --expire-reflog) EXPIRE_REFLOG=1 ;;

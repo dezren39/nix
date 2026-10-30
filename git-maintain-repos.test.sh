@@ -164,5 +164,33 @@ run --dry-run --path "$VALID" --system
 [ "$STATUS" -eq 0 ] || fail "single --system exited $STATUS (want 0)"
 echo "ok: single --system still accepted"
 
+# --- --follow/filter pairs are rejected at parse time (#1135) ---
+# git-discover-repos rejected these in #1123, but git-maintain-repos
+# assigned FOLLOW and FILTER unconditionally, so the last flag silently
+# won (the filter decides which repos get gc'd).
+for pair in "--follow --no-follow" "--no-follow --follow"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-maintain-repos: --follow and --no-follow may not be combined"*) echo "ok: follow pair '$pair' rejected as a conflict" ;;
+    *) fail "follow pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+for pair in "--repos-only --worktrees-only" "--worktrees-only --repos-only"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "filter pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"may not be combined with"*"only one filter option may be given"*) echo "ok: filter pair '$pair' rejected as a conflict" ;;
+    *) fail "filter pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+for flag in --follow --no-follow --repos-only --worktrees-only; do
+  run --dry-run --path "$VALID" "$flag"
+  [ "$STATUS" -eq 0 ] || fail "single $flag exited $STATUS (want 0)"
+  echo "ok: single $flag still accepted"
+done
+
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all git-maintain-repos flag-shaped-value checks passed"

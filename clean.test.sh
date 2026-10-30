@@ -112,6 +112,48 @@ case "$ERR" in
   *) fail "repeated --path did not name the option on stderr (got: $ERR)" ;;
 esac
 
+# --- Sibling conflict/repeat pairs are rejected at parse time (#1135) ---
+# The 2026-10-29 batch guarded these pairs in the sibling scripts, but
+# clean.sh still silently last-won them: --system/--no-system both wrote
+# SCOPE_SET, --follow/--no-follow both wrote FOLLOW, and --depth /
+# --docker-age assigned unconditionally. Every shape must exit 2 naming
+# the conflict / only-once rule, mirroring git-maintain-repos /
+# git-discover-repos.
+for pair in "--system --no-system" "--no-system --system"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "scope pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"clean.sh: --system and --no-system may not be combined"*) echo "ok: scope pair '$pair' rejected as a conflict" ;;
+    *) fail "scope pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+for pair in "--follow --no-follow" "--no-follow --follow"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"clean.sh: --follow and --no-follow may not be combined"*) echo "ok: follow pair '$pair' rejected as a conflict" ;;
+    *) fail "follow pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+for opt in --depth --docker-age; do
+  run --dry-run --path "$VALID" "$opt" 1 "$opt" 2
+  [ "$STATUS" -eq 2 ] || fail "repeated $opt exited $STATUS (want 2)"
+  case "$ERR" in
+    *"clean.sh: $opt may be given only once"*) echo "ok: repeated $opt rejected, option named" ;;
+    *) fail "repeated $opt did not name the option on stderr (got: $ERR)" ;;
+  esac
+done
+for flag in --system --no-system --follow --no-follow; do
+  case "$flag" in
+    --system) run "$flag" --only-unknown-scratch ;;
+    *)        run --path "$VALID" "$flag" --only-unknown-scratch ;;
+  esac
+  [ "$STATUS" -eq 0 ] || fail "single $flag exited $STATUS (want 0, stderr: $ERR)"
+  echo "ok: single $flag still accepted"
+done
+
 # ─── No side effects from the rejected runs ────────────────────────────
 if [ "$(snapshot)" = "$BEFORE" ]; then
   echo "ok: rejected runs left the fixture tree unchanged"
