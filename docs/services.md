@@ -280,6 +280,8 @@ pids, ports, exit codes and store paths, never secrets.
 | service-monitor | `conn.close` | connections open 30 s or longer (streams, sockets) closed while the server stayed up |
 | service-monitor | `conn.stats` | every 5 minutes per server: connections opened and closed |
 | service-monitor | `log.rotate` | an agent log passed 20 MB and was rotated (copy, then truncate; 3 kept) |
+| service-monitor | `monitor.start` | the monitor itself (re)started (`interval_s`, `pid`) |
+| service-monitor | `monitor.error` | a sampling tick raised and was swallowed, so the monitor never dies (`error`, the exception repr truncated to 300 chars) |
 | rebuild | `switch.begin`, `switch.activated`, `switch.fail`, `switch.incomplete`, `switch.recorded` | a `just switch`. Activation output goes to `~/Library/Logs/nix-services/switch-<time>.log`; `switch.incomplete` means `/run/current-system` did not move (#656) |
 | openchamber-deploy | `deploy.restart`, `deploy.opencode-handover`, `deploy.unchanged` | what the switch decided for OpenChamber, with `cause` (`first-deploy`, `start-script-changed`, `ui-password-changed`, `opencode-changed`) |
 | openchamber-agent, mcpx-agent | `agent.start` | the agent's start script ran (pid, store path) |
@@ -314,6 +316,12 @@ Limits:
   running":** `just service-events 500` and look for `process.exit` of `opencode`
   next to `conn.drop`. Then check that the desktop app runs no server of its own
   ([What runs](#what-runs)).
+- **Gaps or nonsense in the event log itself:** check the monitor's own
+  events first. Frequent `monitor.start` means the monitor is in a restart
+  loop (check its launchd runs and last exit code). Repeated
+  `monitor.error` means sampling ticks are failing and being swallowed:
+  read the `error` field before trusting gaps in the other events, because
+  the events a failed tick would have written are simply missing.
 - **A switch that did not finish:** the newest
   `~/Library/Logs/nix-services/switch-*.log` has the activation's output. It ends
   where activation stopped.
