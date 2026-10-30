@@ -4,6 +4,24 @@
 #
 # Usage: bash ~/nix/patch-vscode-insiders.sh
 
+usage() {
+    echo "Usage: bash ~/nix/patch-vscode-insiders.sh"
+}
+
+# This script takes no arguments (#1177): any argument was silently
+# ignored and the full patch sequence ran against the VS Code Insiders
+# app bundle with exit 0 -- so --help rewrote the app bundle instead of
+# printing usage. Reject the first argument by name, with usage on
+# stderr and exit 2, before any patch step -- the house argument
+# contract (#1167 / #1145 rules 1 and 8). --help prints usage and
+# exits 0 with no side effects.
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        *) echo "patch-vscode-insiders: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+fi
+
 # VSCODE_INSIDERS_APP_DIR overrides the app location for tests (#969);
 # the default is exactly the historical hardcoded path.
 APP_DIR="${VSCODE_INSIDERS_APP_DIR:-/Applications/Visual Studio Code - Insiders.app}"
