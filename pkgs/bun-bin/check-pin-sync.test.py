@@ -14,6 +14,10 @@ job branches on. These probes pin the new contract:
 - A non-UTF-8 workflow file or hashes.json exits 2 naming the
   file — no traceback (#1189: the workflow read's OSError guard
   did not cover UnicodeDecodeError, so it trace-backed at exit 1).
+- A hashes.json version that is present but not a string (number,
+  list, object, bool) exits 2 naming hashes.json, never "out of
+  sync" (#1204); a null version keeps the deliberate exit-1
+  could-not-read branch.
 - The old signals are unchanged: 0 = in sync, 1 = out of sync with
   both pins named, and a repeated --repo-root exits 2 with usage.
 
@@ -149,6 +153,48 @@ def main():
         expect_invocation_error(
             "non-UTF-8 hashes", run("--repo-root", bad_hashes),
             os.path.join(bad_hashes, HASHES),
+        )
+
+        # Non-string hashes version (#1204): malformed input, exit 2
+        # naming hashes.json -- never the exit-1 "out of sync" drift
+        # signal a caller branches on.
+        for name, value in (
+            ("number", 1.314),
+            ("list", ["1.3.14"]),
+            ("object", {"v": "1.3.14"}),
+            ("bool", True),
+        ):
+            d = os.path.join(tmp, f"nonstring-{name}")
+            seed_root(
+                d,
+                hashes_text=json.dumps({"version": value, "hashes": {}}),
+            )
+            result = run("--repo-root", d)
+            expect_invocation_error(
+                f"non-string hashes version ({name})", result,
+                os.path.join(d, HASHES),
+            )
+            check(
+                f"non-string hashes version ({name}) is not drift",
+                "out of sync" not in result.stderr,
+                f"(stderr={result.stderr!r})",
+            )
+
+        # Null hashes version: the deliberate pre-existing behaviour --
+        # hashes_version is None, so the could-not-read branch reports
+        # exit 1. Pinned here so the choice is documented, not drifted
+        # into accidentally (#1204).
+        null_root = os.path.join(tmp, "null-version")
+        seed_root(
+            null_root,
+            hashes_text=json.dumps({"version": None, "hashes": {}}),
+        )
+        result = run("--repo-root", null_root)
+        check(
+            "null hashes version exits 1 (could-not-read branch)",
+            result.returncode == 1
+            and "could not read both pins" in result.stderr,
+            f"(rc={result.returncode}, stderr={result.stderr!r})",
         )
 
         # In-sync fixture: exit 0 with the original message.

@@ -47,7 +47,17 @@ def hashes_bun_version(root: Path) -> str | None:
     data = json.loads((root / HASHES).read_text())
     if not isinstance(data, dict):
         raise ValueError(f"expected a JSON object, got {type(data).__name__}")
-    return data.get("version")
+    version = data.get("version")
+    # Scalar shape (#1204): a present-but-non-string version (a number,
+    # list, object or bool from a hand edit or bad merge) is malformed
+    # input, not drift -- main() maps this ValueError to exit 2, the
+    # same path as the container-shape check above. A missing/null
+    # version keeps returning None (the could-not-read branch, exit 1).
+    if version is not None and not isinstance(version, str):
+        raise ValueError(
+            f"'version' must be a string, got {type(version).__name__}"
+        )
+    return version
 
 
 def invocation_error(message: str) -> int:
