@@ -1,16 +1,17 @@
 name: agents
 
-# Single home for this repo's dispatch-scheduled agents, replacing the
-# retired Jules scheduled tasks + Suggestions.
+# Thin caller: single home for this repo's dispatch-scheduled agents,
+# replacing the retired Jules scheduled tasks + Suggestions.
+#
+# This file is only a caller: the task list, slot table, and prompts live
+# centrally in developing-today/code — in the reusable workflow
+# .github/workflows/pm-scheduled.yml and the pm-dispatch-task prompt
+# library.
 #
 # Times are America/Chicago converted from CDT: tasks (bolt + palette)
 # at 00:00 CDT = 05:00 UTC, suggestions at 11:00 CDT = 16:00 UTC.
 # GitHub cron is UTC-only, so during CST the local fire time shifts one
 # hour earlier (tasks 23:00 CST previous day, suggestions 10:00 CST).
-#
-# Prompts live in the central library in developing-today/code's
-# pm-dispatch-task action (prompts/<task>.md) — no checkout is needed
-# here and no prompt text is duplicated in this repo.
 
 "on":
   schedule:
@@ -35,51 +36,10 @@ permissions:
 
 jobs:
   scheduled:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch bolt
-        id: bolt
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 5 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'all' || inputs.task == 'bolt'))
-        uses: developing-today/code/.github/actions/pm-dispatch-task@main
-        with:
-          task: bolt
-
-      - name: Dispatch palette
-        id: palette
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 5 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'all' || inputs.task == 'palette'))
-        uses: developing-today/code/.github/actions/pm-dispatch-task@main
-        with:
-          task: palette
-
-      - name: Dispatch suggestions
-        id: suggestions
-        if: (github.event_name == 'schedule' && github.event.schedule == '0 16 * * *') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'all' || inputs.task == 'suggestions'))
-        uses: developing-today/code/.github/actions/pm-dispatch-task@main
-        with:
-          task: suggestions
-
-      - name: Summary
-        if: always()
-        env:
-          BOLT_TASK_ID: ${{ steps.bolt.outputs.task_id }}
-          BOLT_SESSION_ID: ${{ steps.bolt.outputs.session_id }}
-          BOLT_ISSUE_NUMBER: ${{ steps.bolt.outputs.issue_number }}
-          BOLT_ISSUE_URL: ${{ steps.bolt.outputs.issue_url }}
-          PALETTE_TASK_ID: ${{ steps.palette.outputs.task_id }}
-          PALETTE_SESSION_ID: ${{ steps.palette.outputs.session_id }}
-          PALETTE_ISSUE_NUMBER: ${{ steps.palette.outputs.issue_number }}
-          PALETTE_ISSUE_URL: ${{ steps.palette.outputs.issue_url }}
-          SUGGESTIONS_TASK_ID: ${{ steps.suggestions.outputs.task_id }}
-          SUGGESTIONS_SESSION_ID: ${{ steps.suggestions.outputs.session_id }}
-          SUGGESTIONS_ISSUE_NUMBER: ${{ steps.suggestions.outputs.issue_number }}
-          SUGGESTIONS_ISSUE_URL: ${{ steps.suggestions.outputs.issue_url }}
-        run: |
-          {
-            echo "## Scheduled agents"
-            echo ""
-            echo "| task | task_id | session_id | issue_number | issue_url |"
-            echo "| --- | --- | --- | --- | --- |"
-            echo "| bolt | $BOLT_TASK_ID | $BOLT_SESSION_ID | $BOLT_ISSUE_NUMBER | $BOLT_ISSUE_URL |"
-            echo "| palette | $PALETTE_TASK_ID | $PALETTE_SESSION_ID | $PALETTE_ISSUE_NUMBER | $PALETTE_ISSUE_URL |"
-            echo "| suggestions | $SUGGESTIONS_TASK_ID | $SUGGESTIONS_SESSION_ID | $SUGGESTIONS_ISSUE_NUMBER | $SUGGESTIONS_ISSUE_URL |"
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: developing-today/code/.github/workflows/pm-scheduled.yml@main
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      schedule: ${{ github.event.schedule }}
+      tasks: ${{ github.event_name == 'workflow_dispatch' && inputs.task != 'all' && inputs.task || '' }}
