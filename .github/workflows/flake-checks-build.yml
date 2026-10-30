@@ -78,7 +78,7 @@ jobs:
         run: nix build ".#checks.x86_64-linux.${CHECK}" --print-build-logs
 
   ci-fix:
-    needs: [nix-eval, nix-build]
+    needs: [list-checks, nix-build]
     if: failure()
     permissions:
       id-token: write
