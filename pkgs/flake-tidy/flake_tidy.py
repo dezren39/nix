@@ -178,6 +178,10 @@ class ConfigLoadError(Exception):
     """The flakeTidy config could not be loaded from any source."""
 
 
+class LockLoadError(Exception):
+    """flake.lock could not be loaded: unreadable, invalid JSON, or wrong shape."""
+
+
 def _load_config_file(path: str, verbose: bool = False) -> dict[str, Any]:
     """Load config JSON from an explicit file. Any failure is fatal: the
     caller asked for this exact file, so silently using another source (or
@@ -469,9 +473,38 @@ def is_excluded_full(
 
 
 def load_lock(flake_dir: str) -> dict:
-    """Load and parse flake.lock."""
-    with open(os.path.join(flake_dir, "flake.lock")) as f:
-        return json.load(f)
+    """Load and parse flake.lock, validating its top-level shape (#1234).
+
+    A malformed lock is a usage error, not a crash: invalid JSON, a
+    non-object top level, or a missing/non-object 'nodes' raises
+    LockLoadError (mapped to a clean exit-2 error by main()) instead of
+    surfacing as a KeyError/TypeError/JSONDecodeError traceback later at
+    the first lock["nodes"] use.
+    """
+    path = os.path.join(flake_dir, "flake.lock")
+    try:
+        with open(path) as f:
+            lock = json.load(f)
+    except OSError as e:
+        raise LockLoadError(f"cannot read flake.lock at {path}: {e}") from e
+    except json.JSONDecodeError as e:
+        raise LockLoadError(f"flake.lock at {path} is not valid JSON: {e}") from e
+    if not isinstance(lock, dict):
+        raise LockLoadError(
+            f"flake.lock at {path} must contain a JSON object, "
+            f"got {type(lock).__name__}"
+        )
+    nodes = lock.get("nodes")
+    if nodes is None:
+        raise LockLoadError(
+            f"flake.lock at {path} is missing required key 'nodes'"
+        )
+    if not isinstance(nodes, dict):
+        raise LockLoadError(
+            f"flake.lock at {path} has invalid 'nodes': must be an object, "
+            f"got {type(nodes).__name__}"
+        )
+    return lock
 
 
 # Hosts that route repository paths case-insensitively: a git URL to
@@ -5375,22 +5408,26 @@ def main() -> None:
     # Step 2: Run the requested action
     total_proposals = 0
 
-    if args.action == "dedup":
-        total_proposals = dedup(
-            flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
-        )
-    elif args.action == "merge":
-        total_proposals = merge(
-            flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
-        )
-    elif args.action == "flatten":
-        total_proposals = flatten(
-            flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
-        )
-    elif args.action == "all":
-        total_proposals = run_all(
-            flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
-        )
+    try:
+        if args.action == "dedup":
+            total_proposals = dedup(
+                flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
+            )
+        elif args.action == "merge":
+            total_proposals = merge(
+                flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
+            )
+        elif args.action == "flatten":
+            total_proposals = flatten(
+                flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
+            )
+        elif args.action == "all":
+            total_proposals = run_all(
+                flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
+            )
+    except LockLoadError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(2)
 
     # Step 3: Final format (if we made changes)
     if not dry_run and not check and total_proposals > 0:
