@@ -193,6 +193,7 @@ probe_rejected "--follow conflicts with --no-follow" --no-system --dry-run --pat
 probe_rejected "spotlight-exclude-artifacts: --system and --no-system may not be combined" --dry-run --system --no-system
 probe_rejected "spotlight-exclude-artifacts: --system and --no-system may not be combined" --dry-run --no-system --system
 probe_rejected "unexpected argument: $SECOND_A" --no-system --dry-run --path "$SECOND_B" "$SECOND_A"
+probe_rejected "spotlight-exclude-artifacts: empty positional argument (target must not be empty)" --no-system --dry-run ""
 for bad in abc 0 2147483648 99999999999999999999999999; do
   probe_rejected "spotlight-exclude-artifacts: --depth must be a positive integer" --no-system --dry-run --path "$VALID" --depth "$bad"
 done

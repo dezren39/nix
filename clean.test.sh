@@ -293,6 +293,7 @@ probe_rejected "clean.sh: --system and --no-system may not be combined" --dry-ru
 probe_rejected "clean.sh: --follow and --no-follow may not be combined" --dry-run --path "$VALID" --follow --no-follow
 probe_rejected "clean.sh: --follow and --no-follow may not be combined" --dry-run --path "$VALID" --no-follow --follow
 probe_rejected "unexpected argument: $OTHER" --dry-run "$VALID" "$OTHER"
+probe_rejected "clean.sh: empty positional argument (target must not be empty)" --dry-run ""
 for bad in abc 0 2147483648 99999999999999999999999999; do
   probe_rejected "clean.sh: --depth must be a positive integer" --dry-run --path "$VALID" --depth "$bad"
   probe_rejected "clean.sh: --docker-age must be a positive integer" --dry-run --path "$VALID" --docker-age "$bad"
