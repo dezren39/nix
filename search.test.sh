@@ -17,7 +17,9 @@
 #   * `brew list` runs exactly once per invocation (the stub logs
 #     every call; per-app `brew search` calls are separate);
 #   * an unknown argument -> exit 2 naming it, usage on stderr, and
-#     no brew call at all; --help -> usage, exit 0, no brew call (#1158).
+#     no brew call at all; --help -> usage, exit 0, no brew call (#1158);
+#   * a missing first-leg directory -> a "does not exist" notice,
+#     exit 0, no raw find error, and the ~/Applications leg still runs (#1255).
 # The first leg's /Applications is redirected with the script's
 # SEARCH_APPLICATIONS_DIR seam (#983); the second leg uses the
 # scratch HOME's ~/Applications. Stubs use #!/bin/sh: the nix build
@@ -165,6 +167,27 @@ if [ ! -s "$LOG" ]; then
   echo "ok: --help made no brew calls"
 else
   fail "--help made no brew calls -- log: $(cat "$LOG")"
+fi
+
+# --- missing first-leg directory: notice, exit 0, second leg still runs (#1255)
+: > "$LOG"
+HOME="$HOME_DIR" SEARCH_APPLICATIONS_DIR="$TMP_ROOT/does-not-exist" STUB_BREW_LOG="$LOG" \
+  STUB_BREW_MODE=working PATH="$BIN:$PATH" \
+  bash "$SCRIPT" > "$TMP_ROOT/out" 2> "$TMP_ROOT/err"
+RC=$?
+expect_rc "missing applications directory exits 0" 0
+check "missing applications directory prints the does-not-exist notice" \
+  grep -q "does-not-exist directory does not exist" "$TMP_ROOT/out"
+check "missing applications directory emits no raw find error" \
+  bash -c "! grep -q 'find:' '$TMP_ROOT/err'"
+check "second leg still runs after a missing first-leg directory" \
+  grep -q "Checking ~/Applications" "$TMP_ROOT/out"
+check "second leg still reports its non-cask app (bar)" \
+  grep -qx bar "$TMP_ROOT/out"
+if [ "$(list_calls)" = "1" ]; then
+  echo "ok: brew list ran exactly once (missing dir)"
+else
+  fail "brew list ran exactly once (missing dir) — got $(list_calls)"
 fi
 
 # --- missing brew: same exit-1 path ------------------------------------------
