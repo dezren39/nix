@@ -43,7 +43,9 @@ while [[ $# -gt 0 ]]; do
     -n|--dry-run) DRY_RUN=true; shift ;;
     -q|--quiet) QUIET=true; shift ;;
     -s|--skip)
-      if [[ $# -lt 2 || "$2" == -* ]]; then
+      # NOTE (#1220): an empty value (-s "" / --skip "") is not a cask
+      # name either; reject it with the same parse error.
+      if [[ $# -lt 2 || -z "${2:-}" || "$2" == -* ]]; then
         echo "brew-repair: $1 requires a cask name" >&2
         usage >&2
         exit 2

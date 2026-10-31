@@ -134,6 +134,20 @@ if grep -q "Mounting:" <<<"$out_h"; then
 fi
 [[ $failures -eq $start ]] && ok "H: repeated --source exits non-zero naming the repetition, no mount attempted"
 
+# ─── Scenario I (#1220): --source with an empty value errors ─────────────
+# --source "" used to be accepted (blank Source, late failure / a status
+# run that exited 0). It must hit the same parse error as a missing value.
+start=$failures
+out_i="$(bash "$SCRIPT" --source '' --status "$GOOD1" 2>&1)"
+rc_i=$?
+[[ $rc_i -eq 1 ]] || fail "I: expected exit 1, got $rc_i"
+grep -q -- "--source requires a directory argument" <<<"$out_i" || fail "I: empty-value error not printed"
+grep -q "Usage:" <<<"$out_i" || fail "I: usage not printed"
+if grep -q "Done (status" <<<"$out_i"; then
+  fail "I: status report ran with an empty --source (regression)"
+fi
+[[ $failures -eq $start ]] && ok "I: --source '' prints error + usage, exit 1, no status work"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1

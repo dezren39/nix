@@ -329,6 +329,33 @@ else
   fail "I: accumulate flags (--exclude/--exact) should still repeat: $(cat "$I/err")"
 fi
 
+# ─── Scenario J (#1220): empty multi-value filter values error ────────────
+# --prefix "" used to count as a value for the #912 guard and then plan an
+# unfiltered run. Every multi-value collector must reject an empty value
+# at parse time naming the option.
+J="$TMP_ROOT/j"; mkdir -p "$J/in" "$J/out" "$J/cache"
+printf 'x\n' > "$J/in/foo"; printf 'x\n' > "$J/in/bar"
+j_run() { XDG_CACHE_HOME="$J/cache" bash "$SCRIPT" --input-dir "$J/in" --output-dir "$J/out" --dry-run "$@" >/dev/null 2>"$J/err"; }
+j_expect_error() { # j_expect_error <desc> <message> <args...>
+  local desc="$1" msg="$2"; shift 2
+  if j_run "$@"; then
+    fail "J: $desc — expected exit 1, got 0"
+  elif grep -qF -- "$msg" "$J/err"; then
+    echo "ok: J: $desc"
+  else
+    fail "J: $desc — expected error '$msg', got: $(cat "$J/err")"
+  fi
+}
+j_expect_error "empty --prefix errors" "--prefix/--starts-with requires a non-empty value" --prefix ''
+j_expect_error "empty --starts-with errors" "--prefix/--starts-with requires a non-empty value" --starts-with ''
+j_expect_error "empty --suffix errors" "--suffix/--ends-with requires a non-empty value" --suffix ''
+j_expect_error "empty --ends-with errors" "--suffix/--ends-with requires a non-empty value" --ends-with ''
+j_expect_error "empty --exact errors" "--exact requires a non-empty value" --exact ''
+j_expect_error "empty --regex errors" "--regex requires a non-empty value" --regex ''
+j_expect_error "empty --match errors" "--match requires a non-empty value" --match ''
+j_expect_error "empty value after a real --prefix value errors" "--prefix/--starts-with requires a non-empty value" --prefix f ''
+check "J: rejected empty filters wrote no links" test -z "$(ls -A "$J/out")"
+
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2
   exit 1

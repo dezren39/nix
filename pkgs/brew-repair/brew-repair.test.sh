@@ -215,6 +215,21 @@ grep -q "0 failed" <<<"$out_n" || fail "N: Results line does not show 0 failed"
 [[ $(reinstall_count) -eq 2 ]] || fail "N: expected 2 reinstall attempts, got $(reinstall_count)"
 [[ $failures -eq $start ]] && ok "N: all-success reinstalls exit 0"
 
+# ─── Scenario O (#1220): --skip/-s with an empty value is a parse error ───
+start=$failures
+run_brew_repair --skip '' -n >/dev/null
+rc_o=$?
+[[ $rc_o -eq 2 ]] || fail "O: expected exit 2 for --skip '', got $rc_o"
+grep -q -- "--skip requires a cask name" "$TMP_ROOT/stderr" || fail "O: --skip not named on stderr"
+grep -q "Usage:" "$TMP_ROOT/stderr" || fail "O: usage not on stderr"
+[[ ! -s "$LOG" ]] || fail "O: brew was called at all for --skip ''"
+run_brew_repair -s '' >/dev/null
+rc_o2=$?
+[[ $rc_o2 -eq 2 ]] || fail "O: expected exit 2 for -s '', got $rc_o2"
+grep -q -- "-s requires a cask name" "$TMP_ROOT/stderr" || fail "O: -s not named on stderr"
+[[ ! -s "$LOG" ]] || fail "O: brew was called at all for -s ''"
+[[ $failures -eq $start ]] && ok "O: --skip '' and -s '' exit 2, usage on stderr, zero brew calls"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1
