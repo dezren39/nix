@@ -1224,6 +1224,15 @@ rec {
                   services.mcpx = {
                     enable = true;
                     settings.daemon.autostart = false;
+                    # #1244: a settings-written mcpServers must survive
+                    # (merged per-server; servers wins for `example`).
+                    settings.mcpServers.from-settings = {
+                      command = "/bin/settings-only";
+                    };
+                    settings.mcpServers.example = {
+                      command = "/bin/should-lose";
+                      args = [ "settings" ];
+                    };
                     servers.example = {
                       command = "/bin/true";
                       args = [ "mcp" ];
@@ -1271,8 +1280,44 @@ rec {
               [ "$marker" = "present" ] || { echo "environment did not reach the unit" >&2; exit 1; }
               [ "$environmentFile" = "/home/mcpx-test/mcpx.env" ] || { echo "EnvironmentFile=$environmentFile, want the runtime file path" >&2; exit 1; }
               [ "$mcpxConfig" = "$configFile" ] || { echo "MCPX_CONFIG=$mcpxConfig does not name the rendered config $configFile" >&2; exit 1; }
-              jq -e '.daemon.autostart == false and .mcpServers.example.command == "/bin/true" and .mcpServers.example.args == ["mcp"]' "$configFile" > /dev/null \
+              jq -e '.daemon.autostart == false and .mcpServers.example.command == "/bin/true" and .mcpServers.example.args == ["mcp"] and .mcpServers."from-settings".command == "/bin/settings-only"' "$configFile" > /dev/null \
                 || { echo "rendered config.json mismatch:" >&2; cat "$configFile" >&2; exit 1; }
+              touch $out
+            '';
+        # #1244: settings.mcpServers with servers unset must not be
+        # erased by the empty servers default.
+        mcpx-nixos-settings-mcpservers =
+          let
+            eval = inputs.nixpkgs.lib.nixosSystem {
+              system = pkgs.stdenv.hostPlatform.system;
+              modules = [
+                inputs.self.nixosModules.mcpx
+                {
+                  services.mcpx = {
+                    enable = true;
+                    settings.mcpServers.only = {
+                      command = "/bin/only-from-settings";
+                      args = [ "mcp" ];
+                    };
+                  };
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = {
+                    device = "/dev/null";
+                    fsType = "ext4";
+                  };
+                  system.stateVersion = "25.11";
+                }
+              ];
+            };
+          in
+          pkgs.runCommandLocal "mcpx-nixos-settings-mcpservers-check"
+            {
+              configFile = eval.config.services.mcpx.configFile;
+              nativeBuildInputs = [ pkgs.jq ];
+            }
+            ''
+              jq -e '.mcpServers.only.command == "/bin/only-from-settings" and .mcpServers.only.args == ["mcp"] and (.mcpServers | length) == 1' "$configFile" > /dev/null \
+                || { echo "settings.mcpServers was not preserved:" >&2; cat "$configFile" >&2; exit 1; }
               touch $out
             '';
         mcpx-home-manager-module =
