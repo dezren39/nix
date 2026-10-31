@@ -1,4 +1,4 @@
-"""Malformed flake.lock handling (#1234, #1237).
+"""Malformed flake.lock handling (#1234, #1237, #1243).
 
 load_lock() must validate the lock shape and raise LockLoadError (mapped
 by main() to a clean exit-2 error naming flake.lock) instead of letting
@@ -124,6 +124,67 @@ class TestLoadLockNodeValidation:
         }
         (d / "flake.lock").write_text(json.dumps(lock))
         assert flake_tidy.load_lock(str(d)) == lock
+
+
+class TestLoadLockInputsValueValidation:
+    @pytest.mark.parametrize(
+        "value",
+        [42, {"x": 1}, ["b", 42], [{"x": 1}], None, True],
+        ids=["number", "dict", "list-nonstring", "list-dict", "null", "bool"],
+    )
+    def test_invalid_inputs_value_raises(self, tmp_path, value):
+        d = tmp_path / "badinputs"
+        d.mkdir()
+        lock = {"nodes": {"root": {"inputs": {"a": value}}}, "root": "root"}
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(
+            flake_tidy.LockLoadError,
+            match="flake.lock.*input .a..*node .root.",
+        ):
+            flake_tidy.load_lock(str(d))
+
+    def test_invalid_inputs_value_in_non_root_node_raises(self, tmp_path):
+        d = tmp_path / "badinputs2"
+        d.mkdir()
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a"}},
+                "a": {"inputs": {"b": 42}},
+            },
+            "root": "root",
+        }
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(
+            flake_tidy.LockLoadError,
+            match="flake.lock.*input .b..*node .a.",
+        ):
+            flake_tidy.load_lock(str(d))
+
+    @pytest.mark.parametrize(
+        "lock",
+        [
+            {"nodes": {"root": {"inputs": {"a": 42}}}, "root": "root"},
+            {"nodes": {"root": {"inputs": {"a": {"x": 1}}}}, "root": "root"},
+            {"nodes": {"root": {"inputs": {"a": ["b", 42]}}}, "root": "root"},
+        ],
+        ids=["number-value", "dict-value", "list-nonstring-element"],
+    )
+    def test_inputs_value_check_mode_exit_2_no_traceback(
+        self, tmp_path, monkeypatch, capsys, lock
+    ):
+        flake_dir, cfg = _write_flake_dir(tmp_path, json.dumps(lock))
+        code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, ["--check"])
+        assert code == 2
+        assert "flake.lock" in err
+        assert "Traceback" not in out + err
+
+    def test_inputs_value_non_check_mode_exit_2(self, tmp_path, monkeypatch, capsys):
+        lock = {"nodes": {"root": {"inputs": {"a": 42}}}, "root": "root"}
+        flake_dir, cfg = _write_flake_dir(tmp_path, json.dumps(lock))
+        code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, [])
+        assert code == 2
+        assert "flake.lock" in err
+        assert "Traceback" not in out + err
 
 
 class TestMalformedLockMain:
