@@ -499,11 +499,12 @@ def is_excluded_full(
 
 
 def load_lock(flake_dir: str) -> dict:
-    """Load and parse flake.lock, validating its shape (#1234, #1237).
+    """Load and parse flake.lock, validating its shape (#1234, #1237, #1243).
 
     A malformed lock is a usage error, not a crash: invalid JSON, a
     non-object top level, a missing/non-object 'nodes', a non-object
-    node entry or 'inputs'/'locked'/'original' sub-value, or a
+    node entry or 'inputs'/'locked'/'original' sub-value, an 'inputs'
+    value that is not a string or a list of strings, or a
     'root' naming a node absent from 'nodes' raises LockLoadError
     (mapped to a clean exit-2 error by main()) instead of surfacing as
     a KeyError/TypeError/JSONDecodeError traceback later at the first
@@ -551,6 +552,18 @@ def load_lock(flake_dir: str) -> dict:
                     f"'{node_name}': must be an object, "
                     f"got {type(node[key]).__name__}"
                 )
+        for input_name, ref in node.get("inputs", {}).items():
+            if isinstance(ref, str):
+                continue
+            if isinstance(ref, list) and all(
+                isinstance(part, str) for part in ref
+            ):
+                continue
+            raise LockLoadError(
+                f"flake.lock at {path} has invalid input '{input_name}' "
+                f"in node '{node_name}': must be a string or a list of "
+                f"strings, got {type(ref).__name__}"
+            )
     if root is not None and root not in nodes:
         raise LockLoadError(
             f"flake.lock at {path} has invalid 'root': node '{root}' "
