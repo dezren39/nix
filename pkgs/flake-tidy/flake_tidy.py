@@ -211,6 +211,8 @@ def _load_config_file(path: str, verbose: bool = False) -> dict[str, Any]:
         raise ConfigLoadError(f"cannot read config file {path}: {e}") from e
     except json.JSONDecodeError as e:
         raise ConfigLoadError(f"config file {path} is not valid JSON: {e}") from e
+    except UnicodeDecodeError as e:
+        raise ConfigLoadError(f"config file {path} is not valid UTF-8: {e}") from e
     if not isinstance(cfg, dict):
         raise ConfigLoadError(f"config file {path} must contain a JSON object")
     if verbose:
@@ -518,6 +520,8 @@ def load_lock(flake_dir: str) -> dict:
         raise LockLoadError(f"cannot read flake.lock at {path}: {e}") from e
     except json.JSONDecodeError as e:
         raise LockLoadError(f"flake.lock at {path} is not valid JSON: {e}") from e
+    except UnicodeDecodeError as e:
+        raise LockLoadError(f"flake.lock at {path} is not valid UTF-8: {e}") from e
     if not isinstance(lock, dict):
         raise LockLoadError(
             f"flake.lock at {path} must contain a JSON object, "
