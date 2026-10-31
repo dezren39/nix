@@ -79,6 +79,38 @@ bash "$HELPER" --help >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
 if [ "$rc" -ne 0 ]; then fail "--help: expected exit 0, got $rc"; fi
 if ! grep -q "usage: var-folders-clean.sh" "$TMP_ROOT/out"; then fail "--help: usage not printed"; fi
 
+# Deletion failure (#1262): an rm shim on PATH fails only for the aa
+# entry, regardless of the privileges the suite runs with (a read-only
+# fixture dir does not stop root — the #1257 lesson). aa is not the
+# last thing swept: the zz contents are removed after it, so a final-
+# command accident cannot leak the failure out as the exit code. The
+# script must exit non-zero, name aa on stderr, leave aa in place,
+# and still sweep everything else.
+shim_dir="$TMP_ROOT/rm-shim"
+mkdir -p "$shim_dir"
+# Resolve the real rm before the shim shadows it: there is no
+# portable absolute path (/bin/rm does not exist on NixOS).
+real_rm="$(command -v rm)"
+cat > "$shim_dir/rm" <<SHIM_EOF
+#!/bin/sh
+for arg in "\$@"; do
+  case "\$arg" in
+    */aa) echo "rm: cannot remove (shimmed failure)" >&2; exit 1 ;;
+  esac
+done
+exec $real_rm "\$@"
+SHIM_EOF
+chmod +x "$shim_dir/rm"
+fail_root="$TMP_ROOT/failfolders"
+mkdir -p "$fail_root/aa" "$fail_root/zz"
+touch "$fail_root/aa/file" "$fail_root/zz/file2"
+rc=0
+PATH="$shim_dir:$PATH" bash "$HELPER" "$fail_root" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -eq 0 ]; then fail "rm failure: expected non-zero exit, got 0"; fi
+if ! grep -qF "$fail_root/aa" "$TMP_ROOT/err"; then fail "rm failure: failed entry not named on stderr"; fi
+if [ ! -e "$fail_root/aa/file" ]; then fail "rm failure: shimmed entry was removed anyway"; fi
+if [ -e "$fail_root/zz/file2" ]; then fail "rm failure: zz contents were not swept after the failure"; fi
+
 if [ "$failures" -eq 0 ]; then
   echo "PASS: /private/var/folders cleaning logic verified successfully."
 else

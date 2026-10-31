@@ -9,6 +9,9 @@
 # is a no-op. This is the exact sweep clean.sh runs with
 # --tmpdir (CLEAN_TMPDIR=1); clean.sh calls this script so the test
 # (var-folders-clean.test.sh) exercises the shipped logic, not a copy.
+#
+# A deletion that fails is named on stderr and the script exits 1
+# once the rest of the sweep has run (#1262).
 set -uo pipefail
 
 usage() {
@@ -33,13 +36,24 @@ fi
 
 folders="${1:?usage: var-folders-clean.sh <folders-root>}"
 
+failed=0
 if [ -d "$folders" ]; then
   while IFS= read -r -d "" i; do
-    [ "$(basename "$i")" != "zz" ] && rm -rf "$i" 2>/dev/null
+    if [ "$(basename "$i")" != "zz" ] && ! rm -rf "$i" 2>/dev/null; then
+      failed=$((failed + 1))
+      echo "var-folders-clean.sh: failed to delete: $i" >&2
+    fi
   done < <(find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
   if [ -d "$folders/zz" ]; then
     while IFS= read -r -d "" i; do
-      rm -rf "$i" 2>/dev/null
+      if ! rm -rf "$i" 2>/dev/null; then
+        failed=$((failed + 1))
+        echo "var-folders-clean.sh: failed to delete: $i" >&2
+      fi
     done < <(find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
   fi
+fi
+if [ "$failed" -gt 0 ]; then
+  echo "var-folders-clean.sh: $failed deletion(s) failed" >&2
+  exit 1
 fi
