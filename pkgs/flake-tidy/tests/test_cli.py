@@ -95,6 +95,23 @@ class TestCLI:
         assert self.parser.parse_args(["--max-depth", "0"]).max_depth == 0
         assert self.parser.parse_args(["--max-depth", "6"]).max_depth == 6
 
+    def test_flake_dir_empty_rejected(self, capsys):
+        """--flake-dir '' is a parse error (#1229).
+
+        os.path.abspath("") is the caller's current directory, so an
+        explicitly empty value used to silently tidy whatever directory
+        the caller happened to be standing in -- and in non-check mode
+        format and edit its flake.nix -- instead of being rejected.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            self.parser.parse_args(["--flake-dir", ""])
+        assert excinfo.value.code == 2
+        assert "--flake-dir" in capsys.readouterr().err
+
+        # The default (option omitted) and non-empty values are unchanged.
+        assert self.parser.parse_args([]).flake_dir == "."
+        assert self.parser.parse_args(["--flake-dir", "/tmp/x"]).flake_dir == "/tmp/x"
+
     def test_include_args(self):
         """--include foo bar."""
         args = self.parser.parse_args(["--include", "foo", "bar"])
