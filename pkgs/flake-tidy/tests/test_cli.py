@@ -214,3 +214,65 @@ class TestCLI:
         """--exclude-flatten foo."""
         args = self.parser.parse_args(["--exclude-flatten", "foo"])
         assert args.exclude_flatten == ["foo"]
+
+
+class TestMissingFlakeFiles:
+    """main() missing flake.lock / flake.nix is exit 2, not 1 (#1250).
+
+    Exit 1 is the --check verdict ("changes needed") on a well-formed
+    flake; a directory with no flake at all is an invocation error,
+    like ConfigLoadError / LockLoadError in the same main() and the
+    missing-file guards in check-lock-sync / check-pin-sync.
+    """
+
+    def _run_main(self, monkeypatch, capsys, tmp_path, files, extra_args):
+        from unittest.mock import patch
+
+        for name in files:
+            (tmp_path / name).write_text("{}\n" if name.endswith(".lock") else "{ inputs = {}; }\n")
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text("{}\n")
+        argv = ["flake-tidy", *extra_args, "--config", str(cfg), "--flake-dir", str(tmp_path)]
+        monkeypatch.setattr(sys, "argv", argv)
+        with patch.object(flake_tidy, "run_nixfmt", return_value=None):
+            with pytest.raises(SystemExit) as excinfo:
+                flake_tidy.main()
+        out, err = capsys.readouterr()
+        return excinfo.value.code, out, err
+
+    @pytest.mark.parametrize("extra_args", [["--check"], []], ids=["check", "non-check"])
+    def test_missing_flake_lock_exit_2(self, monkeypatch, capsys, tmp_path, extra_args):
+        code, out, err = self._run_main(monkeypatch, capsys, tmp_path, ["flake.nix"], extra_args)
+        assert code == 2
+        assert "no flake.lock" in err
+        assert "Traceback" not in out + err
+
+    @pytest.mark.parametrize("extra_args", [["--check"], []], ids=["check", "non-check"])
+    def test_missing_flake_nix_exit_2(self, monkeypatch, capsys, tmp_path, extra_args):
+        code, out, err = self._run_main(monkeypatch, capsys, tmp_path, ["flake.lock"], extra_args)
+        assert code == 2
+        assert "no flake.nix" in err
+        assert "Traceback" not in out + err
+
+    def test_missing_both_exit_2(self, monkeypatch, capsys, tmp_path):
+        code, out, err = self._run_main(monkeypatch, capsys, tmp_path, [], ["--check"])
+        assert code == 2
+        assert "no flake.lock" in err
+
+    def test_verdict_control_still_exit_1(self, monkeypatch, capsys, tmp_path):
+        """A well-formed flake needing changes still exits 1 in --check."""
+        import shutil
+
+        fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "sample-flake")
+        work = tmp_path / "sample"
+        shutil.copytree(fixture, work)
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text("{}\n")
+        monkeypatch.setattr(sys, "argv", ["flake-tidy", "--check", "--config", str(cfg), "--flake-dir", str(work)])
+        from unittest.mock import patch
+
+        with patch.object(flake_tidy, "run_nixfmt", return_value=None):
+            with pytest.raises(SystemExit) as excinfo:
+                flake_tidy.main()
+        assert excinfo.value.code == 1
+        assert "check failed" in capsys.readouterr().out

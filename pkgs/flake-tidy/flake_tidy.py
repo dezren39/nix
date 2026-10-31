@@ -5465,10 +5465,10 @@ def main() -> None:
 
     if not os.path.isfile(os.path.join(flake_dir, "flake.lock")):
         print(f"error: no flake.lock in {flake_dir}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
     if not os.path.isfile(os.path.join(flake_dir, "flake.nix")):
         print(f"error: no flake.nix in {flake_dir}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
 
     verbose = args.verbose
     dry_run = args.dry_run
