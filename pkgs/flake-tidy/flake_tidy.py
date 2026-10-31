@@ -481,13 +481,15 @@ def is_excluded_full(
 
 
 def load_lock(flake_dir: str) -> dict:
-    """Load and parse flake.lock, validating its top-level shape (#1234).
+    """Load and parse flake.lock, validating its shape (#1234, #1237).
 
     A malformed lock is a usage error, not a crash: invalid JSON, a
-    non-object top level, or a missing/non-object 'nodes' raises
-    LockLoadError (mapped to a clean exit-2 error by main()) instead of
-    surfacing as a KeyError/TypeError/JSONDecodeError traceback later at
-    the first lock["nodes"] use.
+    non-object top level, a missing/non-object 'nodes', a non-object
+    node entry or 'inputs'/'locked'/'original' sub-value, or a
+    'root' naming a node absent from 'nodes' raises LockLoadError
+    (mapped to a clean exit-2 error by main()) instead of surfacing as
+    a KeyError/TypeError/JSONDecodeError traceback later at the first
+    lock["nodes"] use, or silently passing for a missing root node.
     """
     path = os.path.join(flake_dir, "flake.lock")
     try:
@@ -517,6 +519,24 @@ def load_lock(flake_dir: str) -> dict:
         raise LockLoadError(
             f"flake.lock at {path} has invalid 'root': must be a string, "
             f"got {type(root).__name__}"
+        )
+    for node_name, node in nodes.items():
+        if not isinstance(node, dict):
+            raise LockLoadError(
+                f"flake.lock at {path} has invalid node '{node_name}': "
+                f"must be an object, got {type(node).__name__}"
+            )
+        for key in ("inputs", "locked", "original"):
+            if key in node and not isinstance(node[key], dict):
+                raise LockLoadError(
+                    f"flake.lock at {path} has invalid '{key}' in node "
+                    f"'{node_name}': must be an object, "
+                    f"got {type(node[key]).__name__}"
+                )
+    if root is not None and root not in nodes:
+        raise LockLoadError(
+            f"flake.lock at {path} has invalid 'root': node '{root}' "
+            f"is not present in 'nodes'"
         )
     return lock
 

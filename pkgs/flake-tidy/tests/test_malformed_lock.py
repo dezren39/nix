@@ -1,4 +1,4 @@
-"""Malformed flake.lock handling (#1234).
+"""Malformed flake.lock handling (#1234, #1237).
 
 load_lock() must validate the lock shape and raise LockLoadError (mapped
 by main() to a clean exit-2 error naming flake.lock) instead of letting
@@ -83,6 +83,49 @@ class TestLoadLockValidation:
         assert flake_tidy.load_lock(str(d)) == lock
 
 
+class TestLoadLockNodeValidation:
+    @pytest.mark.parametrize("node", ["oops", 42, ["x"], None])
+    def test_non_object_node_value_raises(self, tmp_path, node):
+        d = tmp_path / "badnode"
+        d.mkdir()
+        lock = {"nodes": {"root": node}, "root": "root"}
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(flake_tidy.LockLoadError, match="flake.lock.*node .root."):
+            flake_tidy.load_lock(str(d))
+
+    @pytest.mark.parametrize("key", ["inputs", "locked", "original"])
+    @pytest.mark.parametrize("value", ["oops", ["x"], 42])
+    def test_non_object_sub_value_raises(self, tmp_path, key, value):
+        d = tmp_path / "badsub"
+        d.mkdir()
+        lock = {"nodes": {"root": {key: value}}, "root": "root"}
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(flake_tidy.LockLoadError, match=f"flake.lock.*{key}.*node .root."):
+            flake_tidy.load_lock(str(d))
+
+    def test_missing_root_node_raises(self, tmp_path):
+        d = tmp_path / "missingroot"
+        d.mkdir()
+        lock = {"nodes": {"other": {"inputs": {}}}, "root": "root"}
+        (d / "flake.lock").write_text(json.dumps(lock))
+        with pytest.raises(flake_tidy.LockLoadError, match="flake.lock.*root.*not present"):
+            flake_tidy.load_lock(str(d))
+
+    def test_well_formed_input_references_load(self, tmp_path):
+        d = tmp_path / "goodrefs"
+        d.mkdir()
+        lock = {
+            "nodes": {
+                "root": {"inputs": {"a": "a", "b": ["a", "b"]}},
+                "a": {"locked": {}, "original": {}},
+            },
+            "root": "root",
+            "version": 7,
+        }
+        (d / "flake.lock").write_text(json.dumps(lock))
+        assert flake_tidy.load_lock(str(d)) == lock
+
+
 class TestMalformedLockMain:
     @pytest.mark.parametrize(
         "lock_text",
@@ -98,6 +141,33 @@ class TestMalformedLockMain:
     def test_check_mode_exit_2_no_traceback(self, tmp_path, monkeypatch, capsys, lock_text):
         flake_dir, cfg = _write_flake_dir(tmp_path, lock_text)
         code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, ["--check"])
+        assert code == 2
+        assert "flake.lock" in err
+        assert "Traceback" not in out + err
+
+    @pytest.mark.parametrize(
+        "lock",
+        [
+            {"nodes": {"root": "oops"}, "root": "root"},
+            {"nodes": {"root": 42}, "root": "root"},
+            {"nodes": {"root": {"inputs": "oops"}}, "root": "root"},
+            {"nodes": {"root": {"inputs": []}}, "root": "root"},
+            {"nodes": {"root": {"inputs": {}}, "y": {"locked": "oops", "original": {}}}, "root": "root"},
+            {"nodes": {"other": {"inputs": {}}}, "root": "root"},
+        ],
+        ids=["node-string", "node-number", "inputs-string", "inputs-list", "locked-string", "missing-root-node"],
+    )
+    def test_node_shape_check_mode_exit_2_no_traceback(self, tmp_path, monkeypatch, capsys, lock):
+        flake_dir, cfg = _write_flake_dir(tmp_path, json.dumps(lock))
+        code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, ["--check"])
+        assert code == 2
+        assert "flake.lock" in err
+        assert "Traceback" not in out + err
+
+    def test_node_shape_non_check_mode_exit_2(self, tmp_path, monkeypatch, capsys):
+        lock = {"nodes": {"root": "oops"}, "root": "root"}
+        flake_dir, cfg = _write_flake_dir(tmp_path, json.dumps(lock))
+        code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, [])
         assert code == 2
         assert "flake.lock" in err
         assert "Traceback" not in out + err
