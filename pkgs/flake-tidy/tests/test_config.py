@@ -125,6 +125,27 @@ class TestLoadConfigFile:
         with pytest.raises(flake_tidy.ConfigLoadError):
             flake_tidy.load_config(str(tmp_path), config_file=str(path))
 
+    def test_empty_config_file_is_fatal_even_with_env_set(self, tmp_path, monkeypatch):
+        """load_config(config_file='') rejects naming --config (#1233).
+
+        The empty explicit value must not fall through the falsy chain
+        to $FLAKE_TIDY_CONFIG: the env config is a different config
+        from the one the caller asked for.
+        """
+        path = tmp_path / "cfg.json"
+        path.write_text(json.dumps({"max-depth": 3}))
+        monkeypatch.setenv("FLAKE_TIDY_CONFIG", str(path))
+        with pytest.raises(flake_tidy.ConfigLoadError, match="--config"):
+            flake_tidy.load_config(str(tmp_path), config_file="")
+
+    def test_empty_config_file_is_fatal_without_env(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("FLAKE_TIDY_CONFIG", raising=False)
+        monkeypatch.setattr(
+            flake_tidy.subprocess, "run", _fake_run_failing
+        )
+        with pytest.raises(flake_tidy.ConfigLoadError, match="--config"):
+            flake_tidy.load_config(str(tmp_path), config_file="")
+
 
 class TestLoadConfigStrict:
     def test_strict_raises_when_no_source_loads(self, tmp_path, monkeypatch):

@@ -240,6 +240,14 @@ def load_config(
     cfg: dict[str, Any] | None = None
     failures: list[str] = []
 
+    # An explicitly empty --config is an error, not an omission (#1233):
+    # the falsy chain below would silently discard it and load a config
+    # the caller did not ask for (env / nix eval / probe). An empty
+    # $FLAKE_TIDY_CONFIG still conventionally means unset, so only the
+    # explicit argument ("" rather than None) is rejected here.
+    if config_file == "":
+        raise ConfigLoadError("--config must not be empty")
+
     explicit = config_file or os.environ.get("FLAKE_TIDY_CONFIG")
     if explicit:
         cfg = _load_config_file(explicit, verbose=verbose)
@@ -5240,6 +5248,20 @@ def _non_empty_flake_dir(value: str) -> str:
     return value
 
 
+def _non_empty_config_file(value: str) -> str:
+    """argparse type for --config (#1233).
+
+    An explicitly empty value was silently discarded by load_config's
+    falsy `config_file or $FLAKE_TIDY_CONFIG` chain, so the run loaded
+    -- and in non-check mode rewrote the flake against -- a config the
+    caller did not ask for. Reject it at parse time, before any pass;
+    omitting --config (default None) is unaffected.
+    """
+    if value == "":
+        raise argparse.ArgumentTypeError("--config must not be empty")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -5262,6 +5284,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         dest="config_file",
+        type=_non_empty_config_file,
         default=None,
         metavar="FILE",
         help="Load flakeTidy config from this JSON file instead of `nix eval` "
