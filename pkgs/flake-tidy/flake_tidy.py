@@ -504,6 +504,12 @@ def load_lock(flake_dir: str) -> dict:
             f"flake.lock at {path} has invalid 'nodes': must be an object, "
             f"got {type(nodes).__name__}"
         )
+    root = lock.get("root")
+    if root is not None and not isinstance(root, str):
+        raise LockLoadError(
+            f"flake.lock at {path} has invalid 'root': must be a string, "
+            f"got {type(root).__name__}"
+        )
     return lock
 
 

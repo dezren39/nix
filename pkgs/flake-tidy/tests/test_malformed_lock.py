@@ -67,6 +67,14 @@ class TestLoadLockValidation:
         with pytest.raises(flake_tidy.LockLoadError, match="flake.lock.*'nodes'"):
             flake_tidy.load_lock(str(d))
 
+    @pytest.mark.parametrize("root", [42, ["root"], {"name": "root"}])
+    def test_non_string_root_raises(self, tmp_path, root):
+        d = tmp_path / "badroot"
+        d.mkdir()
+        (d / "flake.lock").write_text(json.dumps({"nodes": {}, "root": root}))
+        with pytest.raises(flake_tidy.LockLoadError, match="flake.lock.*'root'"):
+            flake_tidy.load_lock(str(d))
+
     def test_well_formed_lock_loads(self, tmp_path):
         d = tmp_path / "good"
         d.mkdir()
