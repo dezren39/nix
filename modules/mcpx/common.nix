@@ -8,9 +8,10 @@
 # `package`, `settings` (rendered to config.json) and `servers` — and
 # it is identical on every platform; only the service definition
 # differs. No secret management, per the issue: credentials come from
-# the environment the service runs in (`services.mcpx.environment`)
-# or from files the user points at — mcpx's own `${VAR}` expansion in
-# a server's `auth` reads those at runtime, nothing is rendered into
+# a runtime file the service reads at start
+# (`services.mcpx.environmentFile`, never copied into the store) or
+# from files the user points at — mcpx's own `${VAR}` expansion in a
+# server's `auth` reads those at runtime, nothing is rendered into
 # the config beyond what the user wrote in `settings`/`servers`.
 {
   config,
@@ -72,10 +73,27 @@ in
       default = { };
       example = lib.literalExpression ''{ MCPX_STATE_DIR = "/var/lib/mcpx"; }'';
       description = ''
-        Extra environment variables for the daemon process. This is
-        the supported way to hand the daemon credentials: the values
-        are the user's own, set in their own configuration — the
-        module itself manages no secrets.
+        Extra environment variables for the daemon process. NOT for
+        secrets: values are rendered into the generated unit/plist
+        in the world-readable Nix store, exactly like any other
+        literal in a Nix configuration. For credentials use
+        `environmentFile` — a runtime file the module never copies
+        into the store.
+      '';
+    };
+
+    environmentFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      example = lib.literalExpression ''"/run/user/1000/mcpx/env"'';
+      description = ''
+        Path to a runtime environment file (`KEY=VALUE` lines) the
+        service reads at start (systemd `EnvironmentFile`). This is
+        the credential path: the file lives outside the Nix store,
+        owned and permissioned by the user, and only its path — never
+        its contents — enters the configuration. Linux only:
+        launchd has no equivalent, so the darwin branch of the
+        home-manager module asserts this stays unset there.
       '';
     };
 

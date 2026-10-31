@@ -25,7 +25,19 @@ in
 
   config = lib.mkIf cfg.enable (
     lib.mkMerge [
-      { home.packages = [ cfg.package ]; }
+      {
+        home.packages = [ cfg.package ];
+
+        # Point every other mcpx client at the same config the
+        # daemon runs, two ways: MCPX_CONFIG in the session
+        # environment (mcpx reads exactly that file instead of
+        # searching), and the discoverable
+        # ~/.config/mcpx/config.json, a link whose resolved target
+        # is the very store path the daemon is started with — so a
+        # client that discovers it computes the same daemon socket.
+        home.sessionVariables.MCPX_CONFIG = cfg.configFile;
+        xdg.configFile."mcpx/config.json".source = cfg.configFile;
+      }
 
       (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
         systemd.user.services.mcpx = {
@@ -41,11 +53,20 @@ in
             Restart = "always";
             TimeoutStopSec = 20;
             WorkingDirectory = "%h";
+          }
+          // lib.optionalAttrs (cfg.environmentFile != null) {
+            EnvironmentFile = cfg.environmentFile;
           };
         };
       })
 
       (lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+        assertions = [
+          {
+            assertion = cfg.environmentFile == null;
+            message = "services.mcpx.environmentFile has no launchd equivalent; on darwin, hand the daemon credentials through files its servers point at instead.";
+          }
+        ];
         launchd.agents.mcpx = {
           enable = true;
           config = {

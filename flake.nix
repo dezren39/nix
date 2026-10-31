@@ -1229,6 +1229,7 @@ rec {
                       args = [ "mcp" ];
                     };
                     environment.MCPX_TEST_MARKER = "present";
+                    environmentFile = "/home/mcpx-test/mcpx.env";
                   };
                   # The minimum a nixosSystem evaluation asks for.
                   boot.loader.grub.enable = false;
@@ -1250,6 +1251,8 @@ rec {
               workingDirectory = unit.serviceConfig.WorkingDirectory;
               marker = unit.environment.MCPX_TEST_MARKER;
               wantedBy = pkgs.lib.concatStringsSep " " unit.wantedBy;
+              environmentFile = unit.serviceConfig.EnvironmentFile;
+              mcpxConfig = eval.config.environment.sessionVariables.MCPX_CONFIG;
               configFile = eval.config.services.mcpx.configFile;
               nativeBuildInputs = [ pkgs.jq ];
             }
@@ -1266,6 +1269,8 @@ rec {
               [ "$workingDirectory" = "%h" ] || { echo "WorkingDirectory=$workingDirectory, want %h" >&2; exit 1; }
               [ "$wantedBy" = "default.target" ] || { echo "wantedBy=$wantedBy, want default.target" >&2; exit 1; }
               [ "$marker" = "present" ] || { echo "environment did not reach the unit" >&2; exit 1; }
+              [ "$environmentFile" = "/home/mcpx-test/mcpx.env" ] || { echo "EnvironmentFile=$environmentFile, want the runtime file path" >&2; exit 1; }
+              [ "$mcpxConfig" = "$configFile" ] || { echo "MCPX_CONFIG=$mcpxConfig does not name the rendered config $configFile" >&2; exit 1; }
               jq -e '.daemon.autostart == false and .mcpServers.example.command == "/bin/true" and .mcpServers.example.args == ["mcp"]' "$configFile" > /dev/null \
                 || { echo "rendered config.json mismatch:" >&2; cat "$configFile" >&2; exit 1; }
               touch $out
@@ -1285,6 +1290,7 @@ rec {
                       args = [ "mcp" ];
                     };
                     environment.MCPX_TEST_MARKER = "present";
+                    environmentFile = "/home/mcpx-test/mcpx.env";
                   };
                   home = {
                     username = "mcpx-test";
@@ -1303,6 +1309,9 @@ rec {
               timeoutStopSec = toString service.TimeoutStopSec;
               wantedBy = pkgs.lib.concatStringsSep " " eval.config.systemd.user.services.mcpx.Install.WantedBy;
               marker = eval.config.systemd.user.services.mcpx.environment.MCPX_TEST_MARKER;
+              environmentFile = service.EnvironmentFile;
+              mcpxConfig = eval.config.home.sessionVariables.MCPX_CONFIG;
+              xdgSource = eval.config.xdg.configFile."mcpx/config.json".source;
               configFile = eval.config.services.mcpx.configFile;
               nativeBuildInputs = [ pkgs.jq ];
             }
@@ -1318,6 +1327,9 @@ rec {
               [ "$timeoutStopSec" = "20" ] || { echo "TimeoutStopSec=$timeoutStopSec, want 20" >&2; exit 1; }
               [ "$wantedBy" = "default.target" ] || { echo "WantedBy=$wantedBy, want default.target" >&2; exit 1; }
               [ "$marker" = "present" ] || { echo "environment did not reach the unit" >&2; exit 1; }
+              [ "$environmentFile" = "/home/mcpx-test/mcpx.env" ] || { echo "EnvironmentFile=$environmentFile, want the runtime file path" >&2; exit 1; }
+              [ "$mcpxConfig" = "$configFile" ] || { echo "MCPX_CONFIG=$mcpxConfig does not name the rendered config $configFile" >&2; exit 1; }
+              [ "$xdgSource" = "$configFile" ] || { echo "xdg config source=$xdgSource is not the rendered config $configFile" >&2; exit 1; }
               jq -e '.daemon.autostart == false and .mcpServers.example.command == "/bin/true" and .mcpServers.example.args == ["mcp"]' "$configFile" > /dev/null \
                 || { echo "rendered config.json mismatch:" >&2; cat "$configFile" >&2; exit 1; }
               touch $out

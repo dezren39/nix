@@ -38,6 +38,13 @@ in
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ];
 
+    # Point every other mcpx client at the same config the daemon
+    # runs: MCPX_CONFIG names exactly one file and bypasses
+    # discovery (mcpx's internal/settings + internal/config), so a
+    # CLI or MCP client in a user session computes the same daemon
+    # socket instead of falling back to a config of its own.
+    environment.sessionVariables.MCPX_CONFIG = cfg.configFile;
+
     systemd.user.services.mcpx = {
       description = "mcpx daemon";
       wantedBy = [ "default.target" ];
@@ -47,6 +54,9 @@ in
         Restart = "always";
         TimeoutStopSec = 20;
         WorkingDirectory = "%h";
+      }
+      // lib.optionalAttrs (cfg.environmentFile != null) {
+        EnvironmentFile = cfg.environmentFile;
       };
     };
   };
