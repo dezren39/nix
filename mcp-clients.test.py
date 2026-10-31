@@ -25,6 +25,12 @@ Covers the two PR #904 fallout bugs:
   (including multi-line values and non-mcp_servers dotted keys) are
   preserved, and the result parses as valid TOML.
 
+- #1228: a Zed settings.json whose live context_servers value is not an
+  object (string, list, number, bool, null) is a #906 per-client failure --
+  named on stderr as not an object, file byte-for-byte unchanged, other
+  clients still enforced, exit 1; the #905 unbalanced-object warn-and-leave
+  at exit 0 is unchanged.
+
 - #1217: a JSON client whose mcpServers is present but not an object
   (string, list, number, bool) is a #906 per-client failure -- named on
   stderr, file byte-for-byte unchanged, other clients still enforced,
@@ -190,6 +196,51 @@ r = run(home)
 check("905 unbalanced block left unchanged with warning",
       r.returncode == 0 and read(zed_path) == original and "not changed" in r.stderr,
       f"exit={r.returncode} stderr={r.stderr}")
+shutil.rmtree(home)
+
+# #1228: wrong-shape context_servers (string, list, number, bool, null) in
+# Zed -- a #906 failure for Zed only: exit 1, Zed and its file named on
+# stderr saying the value is not an object, the bad file byte-for-byte
+# unchanged, and the well-formed Copilot client still enforced.
+for shape, label in (('"bogus"', "string"), ('["a", "b"]', "list"),
+                     ('42', "number"), ('true', "bool"), ('null', "null")):
+    home = fresh_home()
+    seed(home, ".copilot/mcp-config.json", '{"mcpServers": {"other": {"command": "x"}}}')
+    zed_path = seed(home, ".config/zed/settings.json",
+                    '{\n  "theme": "Dark",\n  "context_servers": ' + shape + '\n}\n')
+    seeded = read(zed_path)
+    r = run(home)
+    check(f"1228 {label} context_servers exits 1", r.returncode == 1, f"exit={r.returncode} stderr={r.stderr}")
+    check(f"1228 {label} stderr names Zed, its file, and not-an-object",
+          "Zed" in r.stderr and ".config/zed/settings.json" in r.stderr and "not an object" in r.stderr, r.stderr)
+    check(f"1228 {label} bad file byte-for-byte unchanged", read(zed_path) == seeded)
+    check(f"1228 {label} Copilot still enforced",
+          '"mcpx"' in read(os.path.join(home, ".copilot/mcp-config.json")))
+    shutil.rmtree(home)
+
+# #1228/Codex: a comment between the colon and an object value must not be
+# misclassified as a non-object value -- block and line comments alike are
+# skipped, the foreign object is replaced, and the run exits 0.
+for comment, label in (("/* servers */ ", "block comment"), ("// servers\n  ", "line comment")):
+    home = fresh_home()
+    zed_path = seed(home, ".config/zed/settings.json",
+                    '{\n  "context_servers": ' + comment + '{"other": {"command": "x"}}\n}\n')
+    r = run(home)
+    check(f"1228 {label} before object exits 0", r.returncode == 0, f"exit={r.returncode} stderr={r.stderr}")
+    check(f"1228 {label} before object replaced with mcpx only",
+          '"mcpx"' in read(zed_path) and '"other"' not in read(zed_path), read(zed_path))
+    shutil.rmtree(home)
+
+# #1228/Codex: a comment before a wrong-shape value still fails -- skipping
+# the comment exposes the string, it does not hide it.
+home = fresh_home()
+zed_path = seed(home, ".config/zed/settings.json",
+                '{\n  "context_servers": /* servers */ "bogus"\n}\n')
+seeded = read(zed_path)
+r = run(home)
+check("1228 comment before string exits 1", r.returncode == 1, f"exit={r.returncode} stderr={r.stderr}")
+check("1228 comment before string names not-an-object", "not an object" in r.stderr, r.stderr)
+check("1228 comment before string file unchanged", read(zed_path) == seeded)
 shutil.rmtree(home)
 
 # #929: a commented-out context_servers block before a live foreign block --
