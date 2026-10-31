@@ -200,6 +200,10 @@ class LockLoadError(Exception):
     """flake.lock could not be loaded: unreadable, invalid JSON, or wrong shape."""
 
 
+class FlakeNixLoadError(Exception):
+    """flake.nix could not be decoded as UTF-8."""
+
+
 def _load_config_file(path: str, verbose: bool = False) -> dict[str, Any]:
     """Load config JSON from an explicit file. Any failure is fatal: the
     caller asked for this exact file, so silently using another source (or
@@ -1451,8 +1455,12 @@ def path_depth(path: list[tuple[str, str, bool]]) -> int:
 
 
 def read_flake_nix(flake_dir: str) -> str:
-    with open(os.path.join(flake_dir, "flake.nix")) as f:
-        return f.read()
+    path = os.path.join(flake_dir, "flake.nix")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError as e:
+        raise FlakeNixLoadError(f"flake.nix at {path} is not valid UTF-8: {e}") from e
 
 
 def write_flake_nix(flake_dir: str, content: str) -> None:
@@ -5539,6 +5547,9 @@ def main() -> None:
                 flake_dir, config, dry_run=dry_run, check=check, verbose=verbose
             )
     except LockLoadError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(2)
+    except FlakeNixLoadError as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(2)
 

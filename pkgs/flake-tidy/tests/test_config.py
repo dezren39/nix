@@ -378,3 +378,27 @@ class TestNonUtf8ConfigMain:
         assert excinfo.value.code == 2
         assert "badcfg.json" in err
         assert "Traceback" not in out + err
+
+
+class TestNonUtf8FlakeNixMain:
+    @pytest.mark.parametrize("extra_args", [["--check"], []], ids=["check", "non-check"])
+    def test_non_utf8_flake_nix_exit_2(self, tmp_path, monkeypatch, capsys, extra_args):
+        from unittest.mock import patch
+
+        (tmp_path / "flake.nix").write_bytes(b"{ inputs = {}; outputs = _: {}; }\n\xff")
+        lock = {"nodes": {"root": {"inputs": {}}}, "root": "root", "version": 7}
+        (tmp_path / "flake.lock").write_text(json.dumps(lock))
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text("{}")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["flake-tidy", *extra_args, "--config", str(cfg), "--flake-dir", str(tmp_path)],
+        )
+        with patch.object(flake_tidy, "run_nixfmt", return_value=None):
+            with pytest.raises(SystemExit) as excinfo:
+                flake_tidy.main()
+        out, err = capsys.readouterr()
+        assert excinfo.value.code == 2
+        assert "flake.nix" in err
+        assert "Traceback" not in out + err
