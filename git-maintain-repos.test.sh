@@ -196,6 +196,29 @@ for flag in --follow --no-follow --repos-only --worktrees-only; do
   echo "ok: single $flag still accepted"
 done
 
+# ─── --no-recursive --follow is rejected at parse time (#1268) ─────
+# git-discover-repos rejects this pair at exit 2, but maintain used to
+# forward both and read discovery through a process substitution with
+# stderr discarded, so the failure looked like an empty tree:
+# "0 repos" at exit 0. Both orders must now exit 2 naming the pair.
+for pair in "--no-recursive --follow" "--follow --no-recursive"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "no-recursive/follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"git-maintain-repos: --no-recursive conflicts with --follow"*) echo "ok: pair '$pair' rejected as a conflict" ;;
+    *) fail "pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+# Control: --no-recursive alone still discovers the fixture repo
+# (depth 1 matches the repo at the path itself).
+run --dry-run --path "$VALID/repo1" --no-recursive
+[ "$STATUS" -eq 0 ] || fail "--no-recursive control exited $STATUS (want 0)"
+case "$OUT" in
+  *"1 repos"*) echo "ok: --no-recursive control discovers the fixture repo" ;;
+  *) fail "--no-recursive control did not report 1 repo (got: $OUT)" ;;
+esac
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for git-maintain-repos, driven through
 # lib/arg-probe.sh (the same helper every discovery suite uses):

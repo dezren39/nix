@@ -152,6 +152,18 @@ if [ -n "$DEPTH_LIMIT" ]; then
   arg_decimal DEPTH_LIMIT --depth "$DEPTH_LIMIT" positive
 fi
 
+# --no-recursive (a depth-1 walk) + --follow is the combination
+# git-discover-repos rejects at exit 2; an explicit --depth 1 with
+# --follow is the same combination in discover's vocabulary. Judge it
+# here, at parse time (#1268): forwarding it used to be invisible
+# because discovery ran in a process substitution with stderr
+# discarded, so the wrapper reported "0 marked" and exited 0.
+if [ "$DEPTH_LIMIT" = "1" ] && [ "$FOLLOW" = "1" ]; then
+  echo "spotlight-exclude-artifacts: --no-recursive conflicts with --follow" >&2
+  echo "                            (git-discover-repos rejects a depth-1 walk that follows symlinks; use --depth N with N>1 for a bounded walk plus following)" >&2
+  exit 2
+fi
+
 if [ "$AUTO_SET" = "1" ] && [ "$SCOPE_SET" = "1" ]; then
   echo "spotlight-exclude-artifacts: --auto conflicts with --system/--no-system" >&2
   echo "                            (--auto just names the default: system + repos)" >&2
@@ -189,24 +201,40 @@ if [ "$DO_WALK" = "1" ]; then
   [ -n "$FOLLOW" ] && { [ "$FOLLOW" = "1" ] && DARGS+=(--follow) || DARGS+=(--no-follow); }
   echo "spotlight-exclude-artifacts: discovering repos${ROOT:+ under $ROOT}"
 
-  # One discovery pass emits both record kinds:
-  #   repo|worktree <TAB> PATH
-  #   FOUND <TAB> reason <TAB> status <TAB> PATH
-  # so repos and their artifact dirs are found with a single walk.
-  while IFS=$'\t' read -r f1 f2 f3 f4; do
-    case "$f1" in
-      repo|worktree)
-        mark "$f2/.git"
-        ;;
-      FOUND)
-        # Skip git-tracked risky dirs: an untracked marker inside a committed
-        # vendor/ would surface in every `git status`.
-        if [ "$f3" = "tracked" ]; then skipped=$((skipped + 1)); else mark "$f4"; fi
-        ;;
-    esac
-  done < <("$_self_dir/git-discover-repos" "${DARGS[@]}" --find all --status 2>/dev/null)
+  # Discovery failure must be loud (#1268): the old process substitution
+  # discarded stderr and the exit status, so a git-discover-repos failure
+  # looked exactly like an empty tree -- "0 marked" at exit 0. Capture the
+  # output and stderr, check the status, and fail the run if discovery did.
+  DISCOVER_ERR="$(mktemp "${TMPDIR:-/tmp}/spotlight-discover.XXXXXX")"
+  discover_out="$("$_self_dir/git-discover-repos" "${DARGS[@]}" --find all --status 2>"$DISCOVER_ERR")"
+  discover_rc=$?
+  if [ "$discover_rc" -ne 0 ]; then
+    echo "spotlight-exclude-artifacts: git-discover-repos failed with exit $discover_rc" >&2
+    [ -s "$DISCOVER_ERR" ] && cat "$DISCOVER_ERR" >&2
+    failed=$((failed + 1))
+    DISCOVERY_FAILED=1
+  else
+    # One discovery pass emits both record kinds:
+    #   repo|worktree <TAB> PATH
+    #   FOUND <TAB> reason <TAB> status <TAB> PATH
+    # so repos and their artifact dirs are found with a single walk.
+    while IFS=$'\t' read -r f1 f2 f3 f4; do
+      case "$f1" in
+        repo|worktree)
+          mark "$f2/.git"
+          ;;
+        FOUND)
+          # Skip git-tracked risky dirs: an untracked marker inside a committed
+          # vendor/ would surface in every `git status`.
+          if [ "$f3" = "tracked" ]; then skipped=$((skipped + 1)); else mark "$f4"; fi
+          ;;
+      esac
+    done <<< "$discover_out"
+  fi
+  rm -f "$DISCOVER_ERR"
 fi
 
 printf 'spotlight-exclude-artifacts: %d marked, %d already, %d absent, %d need root, %d failed\n' \
   "$created" "$existing" "$skipped" "$needroot" "$failed"
+[ "${DISCOVERY_FAILED:-0}" = "1" ] && exit 1
 exit 0
