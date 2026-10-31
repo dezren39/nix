@@ -118,7 +118,12 @@ def validate_config(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
             warnings.append(f"unknown config key: '{key}'")
 
     if "max-depth" in cfg:
-        if not isinstance(cfg["max-depth"], (int, float)):
+        # bool is an int subclass, and json.load accepts the non-standard
+        # NaN/Infinity literals as floats: both must be rejected here,
+        # since NaN silently disables the depth limit downstream (#1241).
+        if isinstance(cfg["max-depth"], bool) or not isinstance(
+            cfg["max-depth"], int
+        ):
             errors.append(
                 f"max-depth must be int, got {type(cfg['max-depth']).__name__}"
             )
