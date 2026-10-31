@@ -141,6 +141,19 @@ def validate_config(cfg: dict[str, Any]) -> tuple[list[str], list[str]]:
                     f"{section_name}.{key} must be {schema_section[key].__name__}, "
                     f"got {type(section[key]).__name__}"
                 )
+            elif schema_section[key] is list:
+                # Element check (#1239): a list of the right type can
+                # still carry an empty or non-string name. An empty
+                # include name matches nothing, so --check passed
+                # vacuously; an empty exclude silently dropped real
+                # proposals; a non-string entry (e.g. 42) was accepted
+                # the same way. Reject every such entry, naming it.
+                for entry in section[key]:
+                    if not isinstance(entry, str) or entry == "":
+                        errors.append(
+                            f"{section_name}.{key} entries must be "
+                            f"non-empty strings, got {entry!r}"
+                        )
 
     return errors, warnings
 
@@ -5282,6 +5295,27 @@ def _non_empty_config_file(value: str) -> str:
     return value
 
 
+def _non_empty_name(option: str):
+    """argparse type factory for the --include*/--exclude* options (#1239).
+
+    An explicitly empty name was accepted silently, with the worst
+    polarity for a CI gate: `--include ""` matches nothing, so --check
+    passed vacuously on a flake needing changes, and an empty exclude
+    name silently dropped real proposals. Reject an empty name at parse
+    time, naming the option, mirroring _non_empty_flake_dir (#1229) and
+    _non_empty_config_file (#1233); well-formed names are unaffected.
+    """
+
+    def check(value: str) -> str:
+        if value == "":
+            raise argparse.ArgumentTypeError(
+                f"{option} names must not be empty"
+            )
+        return value
+
+    return check
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -5337,6 +5371,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Includes (replace config values)
     parser.add_argument(
         "--include",
+        type=_non_empty_name("--include"),
         nargs="+",
         default=None,
         metavar="NAME",
@@ -5344,6 +5379,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--include-dedup",
+        type=_non_empty_name("--include-dedup"),
         nargs="+",
         default=None,
         metavar="NAME",
@@ -5351,6 +5387,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--include-merge",
+        type=_non_empty_name("--include-merge"),
         nargs="+",
         default=None,
         metavar="NAME",
@@ -5358,6 +5395,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--include-flatten",
+        type=_non_empty_name("--include-flatten"),
         nargs="+",
         default=None,
         metavar="NAME",
@@ -5367,6 +5405,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Excludes (append to config values)
     parser.add_argument(
         "--exclude-input",
+        type=_non_empty_name("--exclude-input"),
         nargs="+",
         default=None,
         metavar="NAME",
@@ -5374,6 +5413,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--exclude-dedup",
+        type=_non_empty_name("--exclude-dedup"),
         nargs="+",
         default=None,
         metavar="NAME",
@@ -5381,6 +5421,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--exclude-merge",
+        type=_non_empty_name("--exclude-merge"),
         nargs="+",
         default=None,
         metavar="NAME",
@@ -5388,6 +5429,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--exclude-flatten",
+        type=_non_empty_name("--exclude-flatten"),
         nargs="+",
         default=None,
         metavar="NAME",
