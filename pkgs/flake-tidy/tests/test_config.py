@@ -225,6 +225,17 @@ class TestMergeCLI:
         # Dedup/flatten should remain unchanged
         assert result["include"]["dedup"] == ["*"]
 
+    def test_merge_cli_negative_max_depth_rejected(self, default_config):
+        """CLI --max-depth < 0 is rejected at merge time (#1224).
+
+        Pins the programmatic path (a hand-built Namespace bypasses the
+        parser type) to the same "max-depth must be >= 0" rejection the
+        config validator gives the config-file spelling.
+        """
+        args = self._make_args(max_depth=-1)
+        with pytest.raises(ValueError, match="max-depth must be >= 0"):
+            flake_tidy.merge_cli_into_config(default_config, args)
+
     def test_merge_cli_excludes_append(self, default_config):
         """CLI --exclude-input appends to config."""
         # Pre-seed an exclusion in config

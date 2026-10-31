@@ -348,6 +348,13 @@ def merge_cli_into_config(
     config = _deep_copy_config(config)
 
     if args.max_depth is not None:
+        # NOTE (#1224): validate_config runs only inside load_config,
+        # before this merge overwrites the value -- a negative CLI
+        # --max-depth used to slip past it unchecked. Reject it here too
+        # (the parser type guards the real CLI path) with the same error
+        # the config validator uses.
+        if args.max_depth < 0:
+            raise ValueError("max-depth must be >= 0")
         config["max-depth"] = args.max_depth
 
     # Includes: CLI replaces config
@@ -5166,6 +5173,20 @@ def run_all(
 # ---------------------------------------------------------------------------
 
 
+def _non_negative_max_depth(value: str) -> int:
+    """argparse type for --max-depth (#1224).
+
+    A negative depth is truthy at every use site, so it silently
+    disabled all traversal while the run still exited 0. The config
+    validator rejects the same value in a config file ("max-depth must
+    be >= 0", exit 2); reject it here at parse time, before any pass.
+    """
+    depth = int(value)
+    if depth < 0:
+        raise argparse.ArgumentTypeError("max-depth must be >= 0")
+    return depth
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -5211,7 +5232,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--max-depth",
-        type=int,
+        type=_non_negative_max_depth,
         default=None,
         help="Maximum depth to traverse (default: 6, 0=unlimited)",
     )

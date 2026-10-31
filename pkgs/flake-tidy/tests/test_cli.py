@@ -77,6 +77,24 @@ class TestCLI:
         args_default = self.parser.parse_args([])
         assert args_default.max_depth is None
 
+    def test_max_depth_negative_rejected(self, capsys):
+        """--max-depth -1 is a parse error (#1224).
+
+        The same value in a config file is rejected by validate_config
+        ("max-depth must be >= 0", exit 2); the CLI spelling used to
+        bypass the validator (it runs only in load_config, before
+        merge_cli_into_config overwrites the value) and silently
+        disabled all traversal while exiting 0.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            self.parser.parse_args(["--max-depth", "-1"])
+        assert excinfo.value.code == 2
+        assert "max-depth must be >= 0" in capsys.readouterr().err
+
+        # 0 (unlimited) and positive values behave exactly as before.
+        assert self.parser.parse_args(["--max-depth", "0"]).max_depth == 0
+        assert self.parser.parse_args(["--max-depth", "6"]).max_depth == 6
+
     def test_include_args(self):
         """--include foo bar."""
         args = self.parser.parse_args(["--include", "foo", "bar"])
