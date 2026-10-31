@@ -669,15 +669,25 @@ def _replace_context_servers(text, entry):
     when present) byte-for-byte. Returns the text unchanged when the existing
     value already is the mcpx-only entry, or None when no balanced object
     value can be located — the caller then warns and leaves the file alone
-    rather than guessing (#905). The key is located with _live_key_span, so
+    rather than guessing (#905). A live value that is present but not an
+    object raises ValueError instead (#1228). The key is located with
+    _live_key_span, so
     a commented-out or quoted "context_servers" block cannot absorb the
     replacement (#929)."""
     live = _live_key_span(text, "context_servers")
     if live is None:
         return None
     key_start, value_start = live
-    if value_start >= len(text) or text[value_start] != "{":
+    if value_start >= len(text):
         return None
+    if text[value_start] != "{":
+        # Valid JSONC, wrong shape (#1228): a string/list/number/bool/null
+        # value has a locatable span -- it is simply not an object. That is
+        # malformed client config under #906, not the #905 unlocatable-span
+        # case, so fail this client (main names it and its file, leaves the
+        # file unchanged, exits non-zero) instead of warn-and-leave at
+        # exit 0, mirroring the JSON clients' #1217 wrong-shape failure.
+        raise ValueError("context_servers is not an object; not changed")
     end = _object_span(text, value_start)
     if end is None:
         return None
