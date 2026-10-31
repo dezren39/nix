@@ -227,7 +227,7 @@ while [ $# -gt 0 ]; do
     --dry-run)        DRY_RUN=1 ;;
     -h|--help)        usage; exit 0 ;;
     -*)               echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *)                { [ "$TARGET_SET" -eq 0 ] || arg_die "unexpected argument: $1 (target already set to $TARGET_PATH)"; TARGET_PATH="$1"; TARGET_SET=1; } ;;
+    *)                { [ -n "$1" ] || arg_die "empty positional argument (target must not be empty)"; [ "$TARGET_SET" -eq 0 ] || arg_die "unexpected argument: $1 (target already set to $TARGET_PATH)"; TARGET_PATH="$1"; TARGET_SET=1; } ;;
   esac
   shift
 done

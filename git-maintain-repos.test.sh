@@ -213,6 +213,7 @@ probe_rejected "may not be combined with" --dry-run --path "$VALID" --deep --qui
 probe_rejected "git-maintain-repos: --system and --no-system may not be combined" --dry-run --path "$VALID" --system --no-system
 probe_rejected "git-maintain-repos: --system and --no-system may not be combined" --dry-run --path "$VALID" --no-system --system
 probe_rejected "unexpected argument: $OTHER" --dry-run "$VALID" "$OTHER"
+probe_rejected "git-maintain-repos: empty positional argument (target must not be empty)" --dry-run ""
 for bad in abc 0 2147483648 99999999999999999999999999; do
   probe_rejected "git-maintain-repos: --depth must be a positive integer" --dry-run --path "$VALID" --depth "$bad"
   probe_rejected "git-maintain-repos: --jobs must be a positive integer" --dry-run --path "$VALID" --jobs "$bad"

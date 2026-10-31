@@ -205,6 +205,7 @@ while [ $# -gt 0 ]; do
     --one) shift; break ;;                       # internal single-repo mode
     -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
     *)
+      [ -n "$1" ] || arg_die "empty positional argument (target must not be empty)"
       if [ -z "$ROOT" ]; then ROOT="$1"; else echo "unexpected argument: $1" >&2; exit 2; fi
       ;;
   esac
