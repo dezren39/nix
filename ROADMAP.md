@@ -67,7 +67,7 @@ Sidepulse drives an LED strip from OpenCode state. This repo carries a patch sta
 
 | Title                                    | Horizon | Status      | Intent                                                                                                                                 | Links       |
 | ---------------------------------------- | ------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| One argument contract for the scripts    | Now     | in-progress | Guard helpers in `lib/common.sh` and one shared conformance probe matrix; the discovery family is the phase 1 pilot, the opencode-db and packaged families follow. | #1145, #1146 |
+| One argument contract for the scripts    | Now     | in-progress | Guard helpers in `lib/common.sh` and one shared conformance probe matrix; the discovery-family phase 1 landed (#1146); the opencode-db and packaged families follow. | #1145 |
 
 ## Done
 
