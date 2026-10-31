@@ -218,6 +218,31 @@ for shape, label in (('"bogus"', "string"), ('["a", "b"]', "list"),
           '"mcpx"' in read(os.path.join(home, ".copilot/mcp-config.json")))
     shutil.rmtree(home)
 
+# #1228/Codex: a comment between the colon and an object value must not be
+# misclassified as a non-object value -- block and line comments alike are
+# skipped, the foreign object is replaced, and the run exits 0.
+for comment, label in (("/* servers */ ", "block comment"), ("// servers\n  ", "line comment")):
+    home = fresh_home()
+    zed_path = seed(home, ".config/zed/settings.json",
+                    '{\n  "context_servers": ' + comment + '{"other": {"command": "x"}}\n}\n')
+    r = run(home)
+    check(f"1228 {label} before object exits 0", r.returncode == 0, f"exit={r.returncode} stderr={r.stderr}")
+    check(f"1228 {label} before object replaced with mcpx only",
+          '"mcpx"' in read(zed_path) and '"other"' not in read(zed_path), read(zed_path))
+    shutil.rmtree(home)
+
+# #1228/Codex: a comment before a wrong-shape value still fails -- skipping
+# the comment exposes the string, it does not hide it.
+home = fresh_home()
+zed_path = seed(home, ".config/zed/settings.json",
+                '{\n  "context_servers": /* servers */ "bogus"\n}\n')
+seeded = read(zed_path)
+r = run(home)
+check("1228 comment before string exits 1", r.returncode == 1, f"exit={r.returncode} stderr={r.stderr}")
+check("1228 comment before string names not-an-object", "not an object" in r.stderr, r.stderr)
+check("1228 comment before string file unchanged", read(zed_path) == seeded)
+shutil.rmtree(home)
+
 # #929: a commented-out context_servers block before a live foreign block --
 # the live block is replaced, the comment is preserved byte-for-byte.
 home = fresh_home()

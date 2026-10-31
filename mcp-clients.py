@@ -615,7 +615,8 @@ def _live_key_span(text, key):
     literals, tracking brace depth, so an occurrence inside a comment or
     a string — or nested inside another object — is not mistaken for the
     live key (#929). value_start is the index just past the ':' and any
-    whitespace following it."""
+    whitespace and comments following it, so a comment between the colon
+    and the value does not hide the value's real shape."""
     i, n, depth = 0, len(text), 0
     while i < n:
         c = text[i]
@@ -649,8 +650,19 @@ def _live_key_span(text, key):
             if name != key:
                 continue
             j += 1
-            while j < n and text[j] in " \t\r\n":
-                j += 1
+            while j < n:
+                if text[j] in " \t\r\n":
+                    j += 1
+                elif text[j] == "/" and text[j + 1 : j + 2] == "/":
+                    k = text.find("\n", j)
+                    j = n if k < 0 else k + 1
+                elif text[j] == "/" and text[j + 1 : j + 2] == "*":
+                    k = text.find("*/", j + 2)
+                    if k < 0:
+                        return None
+                    j = k + 2
+                else:
+                    break
             return start, j
         elif c == "{":
             depth += 1
