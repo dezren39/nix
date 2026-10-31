@@ -41,9 +41,10 @@ in
       example = lib.literalExpression "{ daemon.autostart = false; }";
       description = ''
         mcpx settings, rendered verbatim into the daemon's
-        config.json (see `services.mcpx.configFile`). `servers` are
-        merged in as `mcpServers` and win over a `mcpServers` key
-        written here.
+        config.json (see `services.mcpx.configFile`). A `mcpServers`
+        key written here is kept: it is merged per-server with
+        `servers`, and `servers` wins for any server name defined
+        in both places.
       '';
     };
 
@@ -61,7 +62,9 @@ in
       '';
       description = ''
         MCP servers the daemon pools, rendered as `mcpServers` in
-        config.json. Each server's attributes pass through untouched
+        config.json, merged per-server over any `mcpServers` key in
+        `settings` (a name defined here wins). Each server's
+        attributes pass through untouched
         (`command`, `args`, `env`, `auth`, pooling keys, ...). Use
         absolute paths for `command`: a daemon inherits the PATH of
         whatever started it, so a bare name can fail to resolve.
@@ -110,7 +113,15 @@ in
 
   config = lib.mkIf cfg.enable {
     services.mcpx.configFile = pkgs.writeText "mcpx-config.json" (
-      builtins.toJSON (cfg.settings // { mcpServers = cfg.servers; })
+      builtins.toJSON (
+        cfg.settings
+        // {
+          # Merge, don't replace (#1244): a mcpServers key in
+          # settings survives when servers is unset/empty, and
+          # servers wins per-server for names defined in both.
+          mcpServers = (cfg.settings.mcpServers or { }) // cfg.servers;
+        }
+      )
     );
   };
 }
