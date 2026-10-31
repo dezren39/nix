@@ -1,4 +1,4 @@
-"""Malformed flake.lock handling (#1234, #1237, #1243).
+"""Malformed flake.lock handling (#1234, #1237, #1243, #1251).
 
 load_lock() must validate the lock shape and raise LockLoadError (mapped
 by main() to a clean exit-2 error naming flake.lock) instead of letting
@@ -42,6 +42,13 @@ class TestLoadLockValidation:
         d.mkdir()
         (d / "flake.lock").write_text("not json{{{")
         with pytest.raises(flake_tidy.LockLoadError, match="flake.lock.*not valid JSON"):
+            flake_tidy.load_lock(str(d))
+
+    def test_non_utf8_raises(self, tmp_path):
+        d = tmp_path / "nonutf8"
+        d.mkdir()
+        (d / "flake.lock").write_bytes(b'{"nodes": {}}' + b"\xff\xfe")
+        with pytest.raises(flake_tidy.LockLoadError, match="flake.lock.*not valid UTF-8"):
             flake_tidy.load_lock(str(d))
 
     def test_missing_nodes_raises(self, tmp_path):
@@ -236,6 +243,19 @@ class TestMalformedLockMain:
     def test_non_check_mode_exit_2_no_traceback(self, tmp_path, monkeypatch, capsys):
         flake_dir, cfg = _write_flake_dir(tmp_path, "{}")
         code, out, err = _run_main(monkeypatch, capsys, flake_dir, cfg, [])
+        assert code == 2
+        assert "flake.lock" in err
+        assert "Traceback" not in out + err
+
+    @pytest.mark.parametrize("extra_args", [["--check"], []], ids=["check", "non-check"])
+    def test_non_utf8_exit_2_no_traceback(self, tmp_path, monkeypatch, capsys, extra_args):
+        (tmp_path / "flake.nix").write_text("{ inputs = {}; outputs = _: {}; }\n")
+        (tmp_path / "flake.lock").write_bytes(
+            b'{"nodes": {"root": {"inputs": {}}}, "root": "root"}' + b"\xff"
+        )
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({}))
+        code, out, err = _run_main(monkeypatch, capsys, str(tmp_path), str(cfg), extra_args)
         assert code == 2
         assert "flake.lock" in err
         assert "Traceback" not in out + err

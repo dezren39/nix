@@ -208,6 +208,12 @@ class TestLoadConfigFile:
         with pytest.raises(flake_tidy.ConfigLoadError):
             flake_tidy.load_config(str(tmp_path), config_file=str(path))
 
+    def test_non_utf8_config_file_is_fatal(self, tmp_path):
+        path = tmp_path / "cfg.json"
+        path.write_bytes(b'{"max-depth": 3}' + b"\xff")
+        with pytest.raises(flake_tidy.ConfigLoadError, match="not valid UTF-8"):
+            flake_tidy.load_config(str(tmp_path), config_file=str(path))
+
     def test_empty_config_file_is_fatal_even_with_env_set(self, tmp_path, monkeypatch):
         """load_config(config_file='') rejects naming --config (#1233).
 
@@ -349,3 +355,26 @@ class TestMergeCLI:
         assert "self" in result["exclude"]["input"]
         assert "nixpkgs-unstable" in result["exclude"]["input"]
         assert len(result["exclude"]["input"]) == 2
+
+
+class TestNonUtf8ConfigMain:
+    """A non-UTF-8 explicit config exits 2 naming the file, no traceback (#1251)."""
+
+    @pytest.mark.parametrize("extra_args", [["--check"], []], ids=["check", "non-check"])
+    def test_non_utf8_config_exit_2(self, tmp_path, monkeypatch, capsys, extra_args):
+        from unittest.mock import patch
+
+        (tmp_path / "flake.nix").write_text("{ inputs = {}; outputs = _: {}; }\n")
+        lock = {"nodes": {"root": {"inputs": {}}}, "root": "root", "version": 7}
+        (tmp_path / "flake.lock").write_text(json.dumps(lock))
+        cfg = tmp_path / "badcfg.json"
+        cfg.write_bytes(b'{"max-depth": 3}' + b"\xff")
+        argv = ["flake-tidy", *extra_args, "--config", str(cfg), "--flake-dir", str(tmp_path)]
+        monkeypatch.setattr(sys, "argv", argv)
+        with patch.object(flake_tidy, "run_nixfmt", return_value=None):
+            with pytest.raises(SystemExit) as excinfo:
+                flake_tidy.main()
+        out, err = capsys.readouterr()
+        assert excinfo.value.code == 2
+        assert "badcfg.json" in err
+        assert "Traceback" not in out + err
