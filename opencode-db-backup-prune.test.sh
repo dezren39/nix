@@ -59,15 +59,20 @@ out="$(bash "$PRUNE" --dir "$B" --keep 2 --apply 2>&1)"; rc=$?
 ok "apply deletes exactly the listed set; non-timestamp entries survive"
 
 # --- apply with failing deletions: no false success (#1257) ----------------
-# A read-only backup dir makes every rm fail. The script must exit
-# nonzero, print no 'deleted:' line, and count 0 deletions — a failed
-# retention run must not be indistinguishable from a successful one
-# (PR #1063 Codex P2). Permissions are restored before asserting so the
-# EXIT trap can clean the fixture up.
+# An rm shim on PATH makes every deletion fail, regardless of the
+# privileges the suite runs with (a read-only fixture dir does not stop
+# root). The script must exit nonzero, print no 'deleted:' line, and
+# count 0 deletions — a failed retention run must not be
+# indistinguishable from a successful one (PR #1063 Codex P2).
+SHIM="$WORK/rm-shim"; mkdir -p "$SHIM"
+cat > "$SHIM/rm" <<'SHIM_EOF'
+#!/bin/sh
+echo "rm: cannot remove (shimmed failure)" >&2
+exit 1
+SHIM_EOF
+chmod +x "$SHIM/rm"
 B="$WORK/fail"; make_tree "$B"
-chmod 555 "$B"
-out="$(bash "$PRUNE" --dir "$B" --keep 2 --apply 2>&1)"; rc=$?
-chmod 755 "$B"
+out="$(PATH="$SHIM:$PATH" bash "$PRUNE" --dir "$B" --keep 2 --apply 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] || fail "apply with failing deletions exited 0: $out"
 printf '%s' "$out" | grep -q 'deleted:' \
   && fail "apply with failing deletions printed 'deleted:': $out"
