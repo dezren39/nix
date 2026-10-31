@@ -383,7 +383,16 @@ while [[ $# -gt 0 ]]; do
     --)
       shift
       # Everything after -- is a target
+      # NOTE (#1223): an empty target ("") must be rejected here too --
+      # cd "" succeeds and resolves to the caller's cwd, so without this
+      # guard the cwd would be reported on / mounted as if named.
       for arg in "$@"; do
+        if [[ -z "$arg" ]]; then
+          err "empty target argument (target must not be empty)"
+          echo ""
+          usage
+          exit 1
+        fi
         TARGETS+=("$(cd "$arg" 2>/dev/null && pwd -P || echo "$arg")")
       done
       break
@@ -395,6 +404,15 @@ while [[ $# -gt 0 ]]; do
       exit 1
       ;;
     *)
+      # NOTE (#1223): reject an empty target at parse time -- cd ""
+      # succeeds in the resolution subshell and yields the caller's cwd,
+      # so an empty target would silently report on / mount the cwd.
+      if [[ -z "$1" ]]; then
+        err "empty target argument (target must not be empty)"
+        echo ""
+        usage
+        exit 1
+      fi
       # Resolve to absolute physical path
       TARGETS+=("$(cd "$1" 2>/dev/null && pwd -P || echo "$1")")
       shift

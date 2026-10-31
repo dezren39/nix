@@ -148,6 +148,30 @@ if grep -q "Done (status" <<<"$out_i"; then
 fi
 [[ $failures -eq $start ]] && ok "I: --source '' prints error + usage, exit 1, no status work"
 
+# ─── Scenario J (#1223): empty target argument errors ─────────────
+# An empty target ("") used to resolve to the caller's cwd (cd "" succeeds
+# in the resolution subshell), so --status '' reported on the cwd at exit 0
+# and the default mount action would have mounted it. Both spellings --
+# plain and after -- -- must be rejected at parse time.
+start=$failures
+out_j="$(bash "$SCRIPT" --status '' 2>&1)"
+rc_j=$?
+[[ $rc_j -eq 1 ]] || fail "J: expected exit 1 for empty target, got $rc_j"
+grep -q -- "empty target argument" <<<"$out_j" || fail "J: empty-target error not printed"
+grep -q "Usage:" <<<"$out_j" || fail "J: usage not printed"
+if grep -q "Done (status" <<<"$out_j"; then
+  fail "J: status report ran for an empty target (cwd regression)"
+fi
+out_j2="$(bash "$SCRIPT" --status -- '' 2>&1)"
+rc_j2=$?
+[[ $rc_j2 -eq 1 ]] || fail "J: expected exit 1 for empty target after --, got $rc_j2"
+grep -q -- "empty target argument" <<<"$out_j2" || fail "J: empty-target error not printed after --"
+grep -q "Usage:" <<<"$out_j2" || fail "J: usage not printed after --"
+if grep -q "Done (status" <<<"$out_j2"; then
+  fail "J: status report ran for an empty target after -- (cwd regression)"
+fi
+[[ $failures -eq $start ]] && ok "J: empty target (plain and after --) prints error + usage, exit 1, no status work"
+
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
   exit 1
