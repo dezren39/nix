@@ -12,6 +12,8 @@
 #   G  a second positional TEMPLATE is rejected with exit 2 (#1080)
 #   H  a repeated --host or --flake is rejected with exit 2 (#1103)
 #   I  an empty --host or --flake value is rejected with exit 2 (#1212)
+#   J  one-line entries ending in a trailing comment are recognized as
+#      ended (#1269): copying one copies exactly that entry, even as last host
 set -uo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -189,6 +191,31 @@ out="$(cd "$TMP_ROOT/i" && bash "$SCRIPT" --flake "" --dry-run 2>&1)"; rc=$?
 [[ "$out" == *"Usage: adopt"* ]] && ok "I: empty --flake prints usage" || fail "I: empty --flake does not print usage"
 diff -q "$TMP_ROOT/i/before" "$TMP_ROOT/i/flake.nix" >/dev/null && ok "I: rejected --flake run changed nothing" || fail "I: rejected --flake run changed the flake"
 (cd "$TMP_ROOT/i" && bash "$SCRIPT" --host VALIDMAC --dry-run >/dev/null) && ok "I: valid --host still works" || fail "I: valid --host run exited non-zero"
+
+# J: one-line entries with a trailing comment (#1269)
+mkdir -p "$TMP_ROOT/j"
+cat > "$TMP_ROOT/j/flake.nix" <<'EOF'
+{
+  outputs = { ... }: {
+    hosts = {
+      MGM9JJ4V3R = {
+        # inherits default system "aarch64-darwin"
+        extraModules = [ ./gpu.nix ];
+      };
+      COMMENTED = {}; # laptop
+      LASTONE = { system = "x86_64-darwin"; }; # last host
+    };
+  };
+}
+EOF
+(cd "$TMP_ROOT/j" && bash "$SCRIPT" COMMENTED --host NEWMAC >/dev/null) || fail "J: copying a commented one-line host exited non-zero"
+grep -q '^      NEWMAC = {}; # laptop$' "$TMP_ROOT/j/flake.nix" && ok "J: commented one-line entry copied exactly" || fail "J: commented one-line entry copy missing or over-copied"
+[[ "$(grep -c 'extraModules' "$TMP_ROOT/j/flake.nix")" == 1 ]] && ok "J: copy did not swallow the preceding multiline host" || fail "J: copy swallowed other hosts"
+[[ "$(grep -c 'LASTONE' "$TMP_ROOT/j/flake.nix")" == 1 ]] && ok "J: copy did not swallow the following host" || fail "J: copy swallowed the following host"
+(cd "$TMP_ROOT/j" && bash "$SCRIPT" LASTONE --host COPYMAC >/dev/null) || fail "J: copying a commented last host exited non-zero"
+grep -q '^      COPYMAC = { system = "x86_64-darwin"; }; # last host$' "$TMP_ROOT/j/flake.nix" && ok "J: commented last-host entry copied exactly" || fail "J: commented last-host entry copy missing or over-copied"
+[[ "$(grep -c '^    };$' "$TMP_ROOT/j/flake.nix")" == 1 ]] && ok "J: hosts map still closes exactly once" || fail "J: hosts map closing braces duplicated (invalid Nix)"
+[[ "$(grep -c 'x86_64-darwin' "$TMP_ROOT/j/flake.nix")" == 2 ]] && ok "J: last-host body present exactly twice (original + copy)" || fail "J: last-host body count wrong after copy"
 
 if (( failures )); then
   echo "$failures failure(s)" >&2
