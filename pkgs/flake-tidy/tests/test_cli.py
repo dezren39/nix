@@ -112,6 +112,24 @@ class TestCLI:
         assert self.parser.parse_args([]).flake_dir == "."
         assert self.parser.parse_args(["--flake-dir", "/tmp/x"]).flake_dir == "/tmp/x"
 
+    def test_config_empty_rejected(self, capsys):
+        """--config '' is a parse error (#1233).
+
+        load_config picks the explicit source with a falsy chain
+        (config_file or $FLAKE_TIDY_CONFIG), so an explicitly empty
+        value used to be silently discarded and the run loaded a config
+        from the env var / nix eval / import probe -- a config the
+        caller did not ask for -- instead of being rejected.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            self.parser.parse_args(["--config", ""])
+        assert excinfo.value.code == 2
+        assert "--config" in capsys.readouterr().err
+
+        # Omitting --config and non-empty values are unchanged.
+        assert self.parser.parse_args([]).config_file is None
+        assert self.parser.parse_args(["--config", "/tmp/x.json"]).config_file == "/tmp/x.json"
+
     def test_include_args(self):
         """--include foo bar."""
         args = self.parser.parse_args(["--include", "foo", "bar"])
