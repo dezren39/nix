@@ -130,6 +130,51 @@ class TestCLI:
         assert self.parser.parse_args([]).config_file is None
         assert self.parser.parse_args(["--config", "/tmp/x.json"]).config_file == "/tmp/x.json"
 
+    def test_include_exclude_empty_name_rejected(self, capsys):
+        """--include*/--exclude* '' is a parse error naming the option (#1239).
+
+        An empty include name matches nothing, so --check used to pass
+        vacuously (exit 0) on a flake needing changes; an empty exclude
+        name silently dropped real proposals. Every one of the eight
+        list options rejects an empty name at parse time.
+        """
+        options = [
+            "--include",
+            "--include-dedup",
+            "--include-merge",
+            "--include-flatten",
+            "--exclude-input",
+            "--exclude-dedup",
+            "--exclude-merge",
+            "--exclude-flatten",
+        ]
+        for option in options:
+            with pytest.raises(SystemExit) as excinfo:
+                self.parser.parse_args([option, ""])
+            assert excinfo.value.code == 2
+            assert option in capsys.readouterr().err
+
+    def test_include_mixed_list_with_empty_name_rejected(self, capsys):
+        """--include nixpkgs '' is a parse error too (#1239).
+
+        The guard is per element, not per list: one empty name in an
+        otherwise well-formed list still vacuums/drops part of the run.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            self.parser.parse_args(["--include", "nixpkgs", ""])
+        assert excinfo.value.code == 2
+        assert "--include" in capsys.readouterr().err
+
+        with pytest.raises(SystemExit) as excinfo:
+            self.parser.parse_args(["--exclude-input", "nixpkgs", ""])
+        assert excinfo.value.code == 2
+        assert "--exclude-input" in capsys.readouterr().err
+
+        # Well-formed names are unchanged.
+        assert self.parser.parse_args(["--include", "nixpkgs"]).include == [
+            "nixpkgs"
+        ]
+
     def test_include_args(self):
         """--include foo bar."""
         args = self.parser.parse_args(["--include", "foo", "bar"])

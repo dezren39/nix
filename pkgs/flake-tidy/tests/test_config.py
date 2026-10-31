@@ -36,6 +36,45 @@ class TestValidateConfig:
         assert "unknown config key" in warnings[0]
         assert "unknown-option" in warnings[0]
 
+    def test_validate_config_empty_include_entry(self):
+        """error when an include entry is an empty string (#1239).
+
+        The empty name matches nothing, so a config carrying it made
+        --check pass vacuously on a flake needing changes.
+        """
+        cfg = {"include": {"input": [""]}}
+        errors, warnings = flake_tidy.validate_config(cfg)
+        assert len(errors) == 1
+        assert "include.input" in errors[0]
+
+    def test_validate_config_non_string_exclude_entry(self):
+        """error when an exclude entry is not a string (#1239)."""
+        cfg = {"exclude": {"input": [42]}}
+        errors, warnings = flake_tidy.validate_config(cfg)
+        assert len(errors) == 1
+        assert "exclude.input" in errors[0]
+        assert "42" in errors[0]
+
+    def test_validate_config_empty_exclude_entry(self):
+        """error when an exclude entry is an empty string (#1239).
+
+        The empty exclude silently dropped real proposals (2 of the
+        sample flake's 4) instead of being rejected.
+        """
+        cfg = {"exclude": {"dedup": ["nixpkgs", ""]}}
+        errors, warnings = flake_tidy.validate_config(cfg)
+        assert len(errors) == 1
+        assert "exclude.dedup" in errors[0]
+
+    def test_validate_config_well_formed_names_pass(self):
+        """well-formed include/exclude names are unchanged (#1239)."""
+        cfg = {
+            "include": {"input": ["nixpkgs", "*"]},
+            "exclude": {"input": ["self"], "follows": ["a.nixpkgs"]},
+        }
+        errors, warnings = flake_tidy.validate_config(cfg)
+        assert errors == []
+
     def test_validate_config_bad_include_type(self):
         """error when include.input is not list."""
         cfg = {"include": {"input": "nixpkgs"}}
