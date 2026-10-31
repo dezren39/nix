@@ -80,6 +80,34 @@ fi
 
 [ -d "$DIR" ] || { echo "opencode-db-backup-prune: no backup dir at $DIR — nothing to do"; exit 0; }
 
+# A digit-shaped name is not necessarily a timestamp (#1261): month 13,
+# Feb 30, hour 24 etc. can never come from the backup writer's
+# date +%Y%m%dT%H%M%S, and the header policy says non-timestamp entries
+# are never touched. Validate the calendar value at selection time --
+# before any counting, --keep accounting, or deletion -- so an invalid
+# name is never counted as a backup, never occupies a --keep slot, and
+# is never deleted, and no --apply run can delete earlier candidates
+# and only then die parsing a later one.
+valid_backup_timestamp() {
+  local name="$1"
+  local year=$((10#${name:0:4})) month=$((10#${name:4:2})) day=$((10#${name:6:2}))
+  local hour=$((10#${name:9:2})) minute=$((10#${name:11:2})) second=$((10#${name:13:2}))
+  local days_in_month
+  [ "$month" -ge 1 ] && [ "$month" -le 12 ] || return 1
+  [ "$hour" -le 23 ] && [ "$minute" -le 59 ] && [ "$second" -le 59 ] || return 1
+  case "$month" in
+    1|3|5|7|8|10|12) days_in_month=31 ;;
+    4|6|9|11) days_in_month=30 ;;
+    2)
+      days_in_month=28
+      if { [ $((year % 4)) -eq 0 ] && [ $((year % 100)) -ne 0 ]; } || [ $((year % 400)) -eq 0 ]; then
+        days_in_month=29
+      fi
+      ;;
+  esac
+  [ "$day" -ge 1 ] && [ "$day" -le "$days_in_month" ]
+}
+
 # Timestamp-named directories only, oldest first (name order = time order).
 candidates=()
 while IFS= read -r name; do
@@ -89,7 +117,7 @@ done < <(
     [ -d "$entry" ] || continue
     name="${entry%/}"; name="${name##*/}"
     case "$name" in
-      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]) echo "$name" ;;
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]) valid_backup_timestamp "$name" && echo "$name" ;;
     esac
   done | sort
 )

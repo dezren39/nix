@@ -84,6 +84,40 @@ printf '%s' "$out" | grep -q 'failed to delete:' \
   || fail "apply with failing deletions changed the tree: $(listing "$B")"
 ok "failed deletions exit nonzero, print no 'deleted:', and count 0"
 
+# --- impossible timestamps are not backups (#1261) ------------------------
+# A digit-shaped but impossible name (month 13, Feb 30, hour 24) must
+# never be counted, never occupy a --keep slot, and never be deleted.
+# Plain mode: with keep 2 over 5 valid backups the count stays 5 (not 8)
+# and exactly the oldest 3 valid backups are listed.
+B="$WORK/invalid"; make_tree "$B"
+for d in 20201301T000000 20260230T000000 20260101T240000; do
+  mkdir -p "$B/$d"; echo fixture > "$B/$d/opencode.db"
+done
+out="$(bash "$PRUNE" --dir "$B" --keep 2 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "invalid-timestamp dry run exited $rc: $out"
+n="$(printf '%s' "$out" | grep -c 'would delete:')"
+[ "$n" -eq 3 ] || fail "invalid-timestamp dry run listed $n candidates, expected 3: $out"
+for d in 20201301T000000 20260230T000000 20260101T240000; do
+  printf '%s' "$out" | grep -q "$d" && fail "invalid-timestamp dry run mentioned $d: $out"
+done
+printf '%s' "$out" | grep -q "3 of 5 backup(s)" || fail "invalid timestamps counted as backups: $out"
+[ -d "$B/20201301T000000" ] && [ -d "$B/20260230T000000" ] && [ -d "$B/20260101T240000" ] \
+  || fail "invalid-timestamp dry run removed an invalid dir: $(listing "$B")"
+ok "impossible timestamps are not counted, kept-slot occupants, or listed"
+
+# --apply --max-age-days: all validation happens before any deletion, so
+# the run completes at exit 0, deletes exactly the old valid candidates,
+# and leaves every invalid dir untouched (no partial apply then exit 2).
+B="$WORK/invalid-apply"; mkdir -p "$B"
+for d in 20200101T000000 20200102T000000 20201301T000000 20260101T000000; do
+  mkdir -p "$B/$d"; echo fixture > "$B/$d/opencode.db"
+done
+out="$(bash "$PRUNE" --dir "$B" --keep 1 --max-age-days 30 --apply 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] || fail "invalid-timestamp apply exited $rc: $out"
+[ "$(listing "$B")" = "20201301T000000 20260101T000000 " ] \
+  || fail "invalid-timestamp apply left wrong tree: $(listing "$B")"
+ok "--apply --max-age-days completes, deletes valid old backups, leaves the impossible-date dir"
+
 # --- --keep 1: newest still never deleted ---------------------------------
 B="$WORK/one"; make_tree "$B"
 bash "$PRUNE" --dir "$B" --keep 1 --apply >/dev/null 2>&1
