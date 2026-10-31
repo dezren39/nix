@@ -19,6 +19,50 @@ class TestValidateConfig:
         assert errors == []
         assert warnings == []
 
+    def test_validate_config_max_depth_bool(self):
+        """error when max-depth is a bool (#1241).
+
+        bool is an int subclass, so true silently acted as depth 1.
+        """
+        cfg = {"max-depth": True}
+        errors, warnings = flake_tidy.validate_config(cfg)
+        assert len(errors) == 1
+        assert "max-depth" in errors[0]
+        assert "bool" in errors[0]
+
+    def test_validate_config_max_depth_non_integer_float(self):
+        """error when max-depth is a non-integer float (#1241)."""
+        cfg = {"max-depth": 2.5}
+        errors, warnings = flake_tidy.validate_config(cfg)
+        assert len(errors) == 1
+        assert "max-depth" in errors[0]
+
+    def test_validate_config_max_depth_nan(self):
+        """error when max-depth is NaN (#1241).
+
+        json.load accepts the NaN literal; NaN < 0 is False, so the old
+        range check passed it and depth > NaN was always False, silently
+        disabling the depth limit.
+        """
+        cfg = json.loads('{"max-depth": NaN}')
+        errors, warnings = flake_tidy.validate_config(cfg)
+        assert len(errors) == 1
+        assert "max-depth" in errors[0]
+
+    def test_validate_config_max_depth_infinity(self):
+        """error when max-depth is +/-Infinity (#1241)."""
+        for value in (float("inf"), float("-inf")):
+            cfg = {"max-depth": value}
+            errors, warnings = flake_tidy.validate_config(cfg)
+            assert len(errors) == 1
+            assert "max-depth" in errors[0]
+
+    def test_validate_config_max_depth_non_negative_ints_pass(self):
+        """non-negative int max-depth (incl. 0 = unlimited) passes (#1241)."""
+        for value in (0, 6):
+            errors, warnings = flake_tidy.validate_config({"max-depth": value})
+            assert errors == []
+
     def test_validate_config_max_depth_string(self):
         """error when max-depth is string."""
         cfg = {"max-depth": "six"}
