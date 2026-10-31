@@ -20,6 +20,9 @@ job branches on. These probes pin the new contract:
   could-not-read branch.
 - --help/-h as the sole argument prints usage on stdout and exits
   0 (#1205); combined with other arguments it stays exit 2.
+- An empty --repo-root value exits 2 naming --repo-root and the
+  empty value, plus usage, before any pin file is read (#1216);
+  Path("") is Path("."), so it used to silently check the cwd.
 - The old signals are unchanged: 0 = in sync, 1 = out of sync with
   both pins named, and a repeated --repo-root exits 2 with usage.
 
@@ -243,6 +246,26 @@ def main():
         result.returncode == 2 and "usage:" in result.stderr
         and "Traceback" not in result.stderr,
         f"(rc={result.returncode}, stderr={result.stderr!r})",
+    )
+
+    # Empty --repo-root (#1216): Path("") is Path("."), so an
+    # unset-variable caller used to silently check the cwd -- exit 0
+    # from the repo root. Reject at exit 2 with an error naming
+    # --repo-root and the empty value, plus usage, before any pin
+    # file is read. This cannot use expect_invocation_error: that
+    # helper pins the one-line shape of the file-error path, while
+    # this path prints the error line plus the usage line.
+    result = run("--repo-root", "")
+    check(
+        "empty --repo-root exits 2 naming --repo-root, empty, usage",
+        result.returncode == 2
+        and "empty" in result.stderr
+        and "--repo-root" in result.stderr
+        and "usage:" in result.stderr
+        and "Traceback" not in result.stderr
+        and result.stdout == "",
+        f"(rc={result.returncode}, stdout={result.stdout!r}, "
+        f"stderr={result.stderr!r})",
     )
 
     # Repeated --repo-root: the pre-existing usage path, exit 2.
