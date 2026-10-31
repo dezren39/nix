@@ -233,6 +233,9 @@ while [[ $# -gt 0 ]]; do
       shift
       before=${#FILTER_EXACT[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
+        # NOTE (#1220): an empty value counts toward the #912 guard but
+        # silently changes the filter; reject it at parse time.
+        [[ -n "$1" ]] || { echo "Error: --exact requires a non-empty value" >&2; exit 1; }
         FILTER_EXACT+=("$1"); shift
       done
       [[ ${#FILTER_EXACT[@]} -gt $before ]] || { echo "Error: --exact requires at least one value" >&2; exit 1; }
@@ -241,6 +244,9 @@ while [[ $# -gt 0 ]]; do
       shift
       before=${#FILTER_PREFIX[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
+        # NOTE (#1220): an empty value counts toward the #912 guard but
+        # silently changes the filter; reject it at parse time.
+        [[ -n "$1" ]] || { echo "Error: --prefix/--starts-with requires a non-empty value" >&2; exit 1; }
         FILTER_PREFIX+=("$1"); shift
       done
       [[ ${#FILTER_PREFIX[@]} -gt $before ]] || { echo "Error: --prefix/--starts-with requires at least one value" >&2; exit 1; }
@@ -249,6 +255,9 @@ while [[ $# -gt 0 ]]; do
       shift
       before=${#FILTER_SUFFIX[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
+        # NOTE (#1220): an empty value counts toward the #912 guard but
+        # silently changes the filter; reject it at parse time.
+        [[ -n "$1" ]] || { echo "Error: --suffix/--ends-with requires a non-empty value" >&2; exit 1; }
         FILTER_SUFFIX+=("$1"); shift
       done
       [[ ${#FILTER_SUFFIX[@]} -gt $before ]] || { echo "Error: --suffix/--ends-with requires at least one value" >&2; exit 1; }
@@ -257,6 +266,9 @@ while [[ $# -gt 0 ]]; do
       shift
       before=${#FILTER_REGEX[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
+        # NOTE (#1220): an empty value counts toward the #912 guard but
+        # silently changes the filter; reject it at parse time.
+        [[ -n "$1" ]] || { echo "Error: --regex requires a non-empty value" >&2; exit 1; }
         FILTER_REGEX+=("$1"); shift
       done
       [[ ${#FILTER_REGEX[@]} -gt $before ]] || { echo "Error: --regex requires at least one value" >&2; exit 1; }
@@ -265,6 +277,9 @@ while [[ $# -gt 0 ]]; do
       shift
       before=${#FILTER_MATCH[@]}
       while [[ $# -gt 0 && "$1" != --* ]]; do
+        # NOTE (#1220): an empty value counts toward the #912 guard but
+        # silently changes the filter; reject it at parse time.
+        [[ -n "$1" ]] || { echo "Error: --match requires a non-empty value" >&2; exit 1; }
         FILTER_MATCH+=("$1"); shift
       done
       [[ ${#FILTER_MATCH[@]} -gt $before ]] || { echo "Error: --match requires at least one value" >&2; exit 1; }

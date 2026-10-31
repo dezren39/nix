@@ -322,7 +322,9 @@ while [[ $# -gt 0 ]]; do
       # trailing --source otherwise dies on unbound $2 with no usage, and a
       # flag-shaped value (--source --dry-run) was swallowed as the source,
       # discarding the flag and running the mount for real.
-      if [[ $# -lt 2 || "$2" == -* ]]; then
+      # NOTE (#1220): an empty value (--source "") also slips past the
+      # flag-shaped check, so reject it with the same parse error.
+      if [[ $# -lt 2 || -z "${2:-}" || "$2" == -* ]]; then
         err "--source requires a directory argument"
         echo ""
         usage
