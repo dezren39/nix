@@ -5187,6 +5187,20 @@ def _non_negative_max_depth(value: str) -> int:
     return depth
 
 
+def _non_empty_flake_dir(value: str) -> str:
+    """argparse type for --flake-dir (#1229).
+
+    An explicitly empty value was silently rewritten to the caller's
+    current directory by os.path.abspath("") in main(), so a caller
+    with an unset directory variable tidied -- and in non-check mode
+    formatted and edited -- the wrong flake. Reject it at parse time,
+    before any pass; the default "." (option omitted) is unaffected.
+    """
+    if value == "":
+        raise argparse.ArgumentTypeError("--flake-dir must not be empty")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -5202,6 +5216,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--flake-dir",
+        type=_non_empty_flake_dir,
         default=".",
         help="Path to the flake directory (default: current directory)",
     )
