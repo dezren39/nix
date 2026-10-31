@@ -103,6 +103,7 @@ fi
 now_epoch="$(date +%s)"
 cutoff=$((total - KEEP))
 listed=0
+failed=0
 for ((i = 0; i < cutoff; i++)); do
   name="${candidates[$i]}"
   if [ -n "$MAX_AGE_DAYS" ]; then
@@ -114,17 +115,29 @@ for ((i = 0; i < cutoff; i++)); do
     age_days=$(( (now_epoch - epoch) / 86400 ))
     [ "$age_days" -gt "$MAX_AGE_DAYS" ] || continue
   fi
-  listed=$((listed + 1))
   if [ "$APPLY" -eq 1 ]; then
-    rm -rf -- "$DIR/$name"
-    echo "deleted: $DIR/$name"
+    # A failed deletion must not be reported as success (#1257, the
+    # PR #1063 Codex P2): count and print only removals that actually
+    # happened, and exit nonzero below if any candidate survived.
+    if rm -rf -- "$DIR/$name"; then
+      listed=$((listed + 1))
+      echo "deleted: $DIR/$name"
+    else
+      failed=$((failed + 1))
+      echo "opencode-db-backup-prune: failed to delete: $DIR/$name" >&2
+    fi
   else
+    listed=$((listed + 1))
     echo "would delete: $DIR/$name"
   fi
 done
 
 if [ "$APPLY" -eq 1 ]; then
   echo "opencode-db-backup-prune: deleted $listed of $total backup(s) in $DIR (kept newest $KEEP)"
+  if [ "$failed" -gt 0 ]; then
+    echo "opencode-db-backup-prune: $failed deletion(s) failed" >&2
+    exit 1
+  fi
 else
   echo "opencode-db-backup-prune: dry run — $listed of $total backup(s) in $DIR would be deleted (kept newest $KEEP); re-run with --apply to delete"
 fi
