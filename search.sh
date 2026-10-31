@@ -81,11 +81,21 @@ check_if_brew_installed() {
 
 # First leg scans /Applications; SEARCH_APPLICATIONS_DIR overrides the
 # directory for tests (#983) — the default behaviour is unchanged.
+# A missing first-leg directory is NOT fatal (#1255): it gets the same
+# treatment as the ~/Applications leg below — a plain "does not exist"
+# notice, then the remaining leg still runs and the script exits 0.
+# (Contrast #957 above: a failed `brew list` is fatal because without
+# it no comparison is possible at all; a missing scan directory only
+# empties one of the two scan sources.)
 APPLICATIONS_DIR="${SEARCH_APPLICATIONS_DIR:-/Applications}"
 echo "Checking $APPLICATIONS_DIR..."
-find "$APPLICATIONS_DIR" -maxdepth 1 -name "*.app" -print0 | while IFS= read -r -d '' app; do
-    check_if_brew_installed "$app"
-done
+if [ -d "$APPLICATIONS_DIR" ]; then
+    find "$APPLICATIONS_DIR" -maxdepth 1 -name "*.app" -print0 | while IFS= read -r -d '' app; do
+        check_if_brew_installed "$app"
+    done
+else
+    echo "$APPLICATIONS_DIR directory does not exist"
+fi
 
 echo "Checking ~/Applications..."
 if [ -d ~/Applications ]; then
