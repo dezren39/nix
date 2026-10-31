@@ -283,6 +283,26 @@ rec {
       _hostName: hostConfiguration: inputs.darwin.lib.darwinSystem hostConfiguration
     ) darwinSystemConfigurations;
 
+    # Reusable mcpx modules (#343): the option set — services.mcpx
+    # enable / package / settings / servers — lives in
+    # modules/mcpx/common.nix and is shared by every platform module;
+    # `package` defaults to this flake's own mcpx build and consumers
+    # can override it. darwinModules.mcpx is the remaining slice of
+    # #343: it lands only with a darwin evaluation to prove it, which
+    # the fleet's Linux build hosts cannot run.
+    nixosModules.mcpx =
+      { lib, pkgs, ... }:
+      {
+        imports = [ ./modules/mcpx/nixos.nix ];
+        services.mcpx.package = lib.mkDefault inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.mcpx;
+      };
+    homeManagerModules.mcpx =
+      { lib, pkgs, ... }:
+      {
+        imports = [ ./modules/mcpx/home-manager.nix ];
+        services.mcpx.package = lib.mkDefault inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.mcpx;
+      };
+
     # Shared package definitions — used by packages, apps, devShells, and checks
     mkPackages =
       pkgs:
@@ -1182,6 +1202,137 @@ rec {
               grep -F 'export default {' first-opencode.js
 
               touch "$out"
+            '';
+      }
+      // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        # #343: the mcpx modules, evaluated end to end on Linux. Full
+        # module-system evaluation is the equivalence proof available
+        # here: the NixOS unit must carry the launchd agent's
+        # semantics (start at login, keep running, 20 s stop window,
+        # $HOME working directory, explicit --config) and the
+        # rendered config.json must carry settings verbatim plus
+        # servers as mcpServers — for both the NixOS and the
+        # home-manager module. A module edit that breaks evaluation
+        # or drops a field fails here instead of at switch time.
+        mcpx-nixos-module =
+          let
+            eval = inputs.nixpkgs.lib.nixosSystem {
+              system = pkgs.stdenv.hostPlatform.system;
+              modules = [
+                inputs.self.nixosModules.mcpx
+                {
+                  services.mcpx = {
+                    enable = true;
+                    settings.daemon.autostart = false;
+                    servers.example = {
+                      command = "/bin/true";
+                      args = [ "mcp" ];
+                    };
+                    environment.MCPX_TEST_MARKER = "present";
+                    environmentFile = "/home/mcpx-test/mcpx.env";
+                  };
+                  # The minimum a nixosSystem evaluation asks for.
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = {
+                    device = "/dev/null";
+                    fsType = "ext4";
+                  };
+                  system.stateVersion = "25.11";
+                }
+              ];
+            };
+            unit = eval.config.systemd.user.services.mcpx;
+          in
+          pkgs.runCommandLocal "mcpx-nixos-module-check"
+            {
+              execStart = unit.serviceConfig.ExecStart;
+              restart = unit.serviceConfig.Restart;
+              timeoutStopSec = toString unit.serviceConfig.TimeoutStopSec;
+              workingDirectory = unit.serviceConfig.WorkingDirectory;
+              marker = unit.environment.MCPX_TEST_MARKER;
+              wantedBy = pkgs.lib.concatStringsSep " " unit.wantedBy;
+              environmentFile = unit.serviceConfig.EnvironmentFile;
+              mcpxConfig = eval.config.environment.sessionVariables.MCPX_CONFIG;
+              configFile = eval.config.services.mcpx.configFile;
+              nativeBuildInputs = [ pkgs.jq ];
+            }
+            ''
+              case "$execStart" in
+              *"/bin/mcpx daemon --config "*) ;;
+              *)
+                echo "ExecStart lost the daemon --config form: $execStart" >&2
+                exit 1
+                ;;
+              esac
+              [ "$restart" = "always" ] || { echo "Restart=$restart, want always" >&2; exit 1; }
+              [ "$timeoutStopSec" = "20" ] || { echo "TimeoutStopSec=$timeoutStopSec, want 20" >&2; exit 1; }
+              [ "$workingDirectory" = "%h" ] || { echo "WorkingDirectory=$workingDirectory, want %h" >&2; exit 1; }
+              [ "$wantedBy" = "default.target" ] || { echo "wantedBy=$wantedBy, want default.target" >&2; exit 1; }
+              [ "$marker" = "present" ] || { echo "environment did not reach the unit" >&2; exit 1; }
+              [ "$environmentFile" = "/home/mcpx-test/mcpx.env" ] || { echo "EnvironmentFile=$environmentFile, want the runtime file path" >&2; exit 1; }
+              [ "$mcpxConfig" = "$configFile" ] || { echo "MCPX_CONFIG=$mcpxConfig does not name the rendered config $configFile" >&2; exit 1; }
+              jq -e '.daemon.autostart == false and .mcpServers.example.command == "/bin/true" and .mcpServers.example.args == ["mcp"]' "$configFile" > /dev/null \
+                || { echo "rendered config.json mismatch:" >&2; cat "$configFile" >&2; exit 1; }
+              touch $out
+            '';
+        mcpx-home-manager-module =
+          let
+            eval = inputs.home-manager.lib.homeManagerConfiguration {
+              inherit pkgs;
+              modules = [
+                inputs.self.homeManagerModules.mcpx
+                {
+                  services.mcpx = {
+                    enable = true;
+                    settings.daemon.autostart = false;
+                    servers.example = {
+                      command = "/bin/true";
+                      args = [ "mcp" ];
+                    };
+                    environment.MCPX_TEST_MARKER = "present";
+                    environmentFile = "/home/mcpx-test/mcpx.env";
+                  };
+                  home = {
+                    username = "mcpx-test";
+                    homeDirectory = "/home/mcpx-test";
+                    stateVersion = "25.11";
+                  };
+                }
+              ];
+            };
+            service = eval.config.systemd.user.services.mcpx.Service;
+          in
+          pkgs.runCommandLocal "mcpx-home-manager-module-check"
+            {
+              execStart = service.ExecStart;
+              restart = service.Restart;
+              timeoutStopSec = toString service.TimeoutStopSec;
+              wantedBy = pkgs.lib.concatStringsSep " " eval.config.systemd.user.services.mcpx.Install.WantedBy;
+              marker = eval.config.systemd.user.services.mcpx.environment.MCPX_TEST_MARKER;
+              environmentFile = service.EnvironmentFile;
+              mcpxConfig = eval.config.home.sessionVariables.MCPX_CONFIG;
+              xdgSource = eval.config.xdg.configFile."mcpx/config.json".source;
+              configFile = eval.config.services.mcpx.configFile;
+              nativeBuildInputs = [ pkgs.jq ];
+            }
+            ''
+              case "$execStart" in
+              *"/bin/mcpx daemon --config "*) ;;
+              *)
+                echo "ExecStart lost the daemon --config form: $execStart" >&2
+                exit 1
+                ;;
+              esac
+              [ "$restart" = "always" ] || { echo "Restart=$restart, want always" >&2; exit 1; }
+              [ "$timeoutStopSec" = "20" ] || { echo "TimeoutStopSec=$timeoutStopSec, want 20" >&2; exit 1; }
+              [ "$wantedBy" = "default.target" ] || { echo "WantedBy=$wantedBy, want default.target" >&2; exit 1; }
+              [ "$marker" = "present" ] || { echo "environment did not reach the unit" >&2; exit 1; }
+              [ "$environmentFile" = "/home/mcpx-test/mcpx.env" ] || { echo "EnvironmentFile=$environmentFile, want the runtime file path" >&2; exit 1; }
+              [ "$mcpxConfig" = "$configFile" ] || { echo "MCPX_CONFIG=$mcpxConfig does not name the rendered config $configFile" >&2; exit 1; }
+              [ "$xdgSource" = "$configFile" ] || { echo "xdg config source=$xdgSource is not the rendered config $configFile" >&2; exit 1; }
+              jq -e '.daemon.autostart == false and .mcpServers.example.command == "/bin/true" and .mcpServers.example.args == ["mcp"]' "$configFile" > /dev/null \
+                || { echo "rendered config.json mismatch:" >&2; cat "$configFile" >&2; exit 1; }
+              touch $out
             '';
       }
     );
