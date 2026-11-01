@@ -25,3 +25,15 @@
 **Learning:** Pure content-scanning functions like `root_input_exists_in_content` and `_follows_target_for_input` were repeatedly re-parsing `flake.nix` lines and re-compiling string regular expressions (`re.match(rf"...")`) inside `for` loops across multiple deduplication and candidate proposal checks. Memoizing pure query functions with `@functools.lru_cache` and pre-compiling regex objects (`re.compile`) prior to entering line-by-line loops eliminated repeated string formatting and regex compilation overhead, yielding over 25x speedup for line-scanning queries.
 
 **Action:** Pre-compile dynamic regular expressions into `re.Pattern` objects before entering line-iteration loops, and apply `@functools.lru_cache` to pure document query functions that return immutable types (`bool`, `str | None`).
+
+## 2026-10-31 - Module-level Pre-compiled Token Regexes and Unquoting Fast-Path
+
+**Learning:** Flake line parsing in `_get_input_file_order_cached`, `_block_context_for_lines_cached`, and `_nested_inputs_prefix_for_lines_cached` repeatedly called `re.match` using dynamic f-strings built from `_SEG_TOKEN` and `_NAME_TOKEN` across every line of input files. Pre-compiling static token matching regexes at the module level provided a 2.3x speedup. Furthermore, `_unquote_name` unconditionally executed `re.sub(r"\\(.)", r"\1", ...)` on all quoted tokens; adding a fast-path check `if "\\" in inner:` avoids regex substitution on standard quoted identifiers, speeding unquoting by over 2.6x.
+
+**Action:** Pre-compile token patterns into module-level regex constants (`_BLOCK_OPEN_RE`, etc.) when parsing structural documents, and guard escape-character regex replacements (`re.sub`) with substring containment checks (`if "\\" in s:`).
+
+## 2026-11-01 - Early Line-Level Keyword Filtering and Query Memoization for Follows Checks
+
+**Learning:** `follows_exists_in_content` and `follows_path_has_any_target` are called repeatedly during deduplication, merge, and flattening proposal checks. In uncached line loops, processing every non-comment line through whitespace collapsing and attribute unquoting wastes CPU time on irrelevant lines; adding an early check (`"follows" not in stripped`) bypasses all normalization overhead for lines that cannot possibly match. Furthermore, caching the pure query results via `@functools.lru_cache` on inner functions accepting `tuple[str, ...]` yields a ~35x speedup on repeated lookups while preserving list argument compatibility for callers.
+
+**Action:** Add fast substring checks in line-iteration loops to reject irrelevant lines before running costly string normalizations, and memoize pure query functions that accept list parameters by wrapping a tuple-based inner function with `@functools.lru_cache`.

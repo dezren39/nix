@@ -1518,12 +1518,26 @@ _NAME_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z_][a-zA-Z0-9_'-]*)"
 _SEG_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
 _SEG_TOKEN_NC = rf"(?:{_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
 
+# Bolt Optimization: Pre-compile module-level regular expressions for token scanning,
+# block opening, and input declaration matching to eliminate repeated compilation overhead.
+_BLOCK_OPEN_RE = re.compile(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{")
+_DOTTED_BLOCK_OPEN_RE = re.compile(
+    rf"^(\s*)inputs\.{_NAME_TOKEN}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{"
+)
+_INPUTS_DOTTED_NAME_RE = re.compile(rf"inputs\.{_NAME_TOKEN}\s*[.=]")
+_BARE_NAME_DECL_RE = re.compile(rf"{_NAME_TOKEN}\s*[.=]")
+_INPUTS_BLOCK_OPEN_RE = re.compile(r"inputs\s*=\s*\{")
+
 
 @functools.lru_cache(maxsize=512)
 def _unquote_name(token: str) -> str:
     """Attribute name for a matched name token (see ``_NAME_TOKEN``)."""
     if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
-        return re.sub(r"\\(.)", r"\1", token[1:-1])
+        inner = token[1:-1]
+        # Bolt Optimization: fast-path unescape if no backslash exists
+        if "\\" in inner:
+            return re.sub(r"\\(.)", r"\1", inner)
+        return inner
     return token
 
 
@@ -1675,7 +1689,7 @@ def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
         # (#652 remainder, context tracking from #655).
         m = None
         if not in_inputs_block:
-            dm = re.match(rf"inputs\.{_NAME_TOKEN}\s*[.=]", stripped)
+            dm = _INPUTS_DOTTED_NAME_RE.match(stripped)
             if dm and (
                 contexts[idx] is None or contexts[idx] == _unquote_name(dm.group(1))
             ):
@@ -1690,7 +1704,7 @@ def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
         # Detect start of inputs = { block. A nested `inputs = {` inside
         # another input's override is not the root block: re-entering here
         # would reset the brace depth and lose every later root input (#640).
-        if not in_inputs_block and re.match(r"inputs\s*=\s*\{", stripped):
+        if not in_inputs_block and _INPUTS_BLOCK_OPEN_RE.match(stripped):
             in_inputs_block = True
             brace_depth = _brace_delta(stripped)
             continue
@@ -1708,7 +1722,7 @@ def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
             if depth_before != 1:
                 continue
 
-            m = re.match(rf"{_NAME_TOKEN}\s*[.=]", stripped)
+            m = _BARE_NAME_DECL_RE.match(stripped)
             if m:
                 name = _unquote_name(m.group(1))
                 if (
@@ -1761,7 +1775,7 @@ def _block_context_for_lines_cached(content: str) -> tuple[str | None, ...]:
 
         # Check for block open: <name> = { (inside the inputs block)
         pushed = False
-        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
+        m = _BLOCK_OPEN_RE.match(line)
         if m:
             name = _unquote_name(m.group(2))
             if name == "inputs":
@@ -1782,10 +1796,7 @@ def _block_context_for_lines_cached(content: str) -> tuple[str | None, ...]:
         # a nested inputs.<child> = { stays attributed to the outer
         # input until its braces close.
         if not pushed and not stack and not inputs_stack:
-            dm = re.match(
-                rf"^(\s*)inputs\.{_NAME_TOKEN}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{",
-                line,
-            )
+            dm = _DOTTED_BLOCK_OPEN_RE.match(line)
             if dm:
                 name = _unquote_name(dm.group(2))
                 stack.append((name, brace_depth))
@@ -1859,7 +1870,7 @@ def _nested_inputs_prefix_for_lines_cached(content: str) -> tuple[tuple[str, ...
 
         opens, closes = _brace_counts(line)
 
-        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
+        m = _BLOCK_OPEN_RE.match(line)
         if m:
             name = _unquote_name(m.group(2))
             if name == "inputs":
@@ -1978,43 +1989,41 @@ def _nested_segments(normalized: str) -> list[str]:
     return parts
 
 
-def follows_exists_in_content(
-    content: str, follows_parts: list[str], target: str
+# Bolt Optimization: Memoize follows existence checks across repeated deduplication and flattening iterations
+@functools.lru_cache(maxsize=1024)
+def _follows_exists_in_content_cached(
+    content: str, follows_parts: tuple[str, ...], target: str
 ) -> bool:
-    """Check if a follows declaration already exists (active) in flake.nix.
-
-    Checks both absolute and relative forms, and is block-context-aware:
-    a line ``inputs.nix.inputs.X.follows`` inside a ``determinate = { ... }``
-    block is NOT the same as root-level ``nix.inputs.X.follows``.
-    """
+    """Check if a follows declaration already exists (active) in flake.nix."""
+    parts = list(follows_parts)
     # Build candidate strings for ROOT-level scope (block_context == None)
-    full = ".".join(f"inputs.{p}" for p in follows_parts) + f'.follows = "{target}"'
+    full = ".".join(f"inputs.{p}" for p in parts) + f'.follows = "{target}"'
     relative_inputs = (
-        follows_parts[0]
+        parts[0]
         + "."
-        + ".".join(f"inputs.{p}" for p in follows_parts[1:])
+        + ".".join(f"inputs.{p}" for p in parts[1:])
         + f'.follows = "{target}"'
-        if len(follows_parts) >= 2
-        else f'{follows_parts[0]}.follows = "{target}"'
+        if len(parts) >= 2
+        else f'{parts[0]}.follows = "{target}"'
     )
     # Bolt Optimization: Pre-normalize whitespace in candidate strings ONCE
     # outside the loop using " ".join(s.split()) which is ~6x faster than re.sub(r"\s+", " ", s).
     # Store candidates in sets for O(1) membership testing.
     root_candidates = {" ".join(full.split()), " ".join(relative_inputs.split())}
 
-    # Build candidate strings for BLOCK scope (inside follows_parts[0] block)
+    # Build candidate strings for BLOCK scope (inside parts[0] block)
     raw_block_candidates: list[str] = []
-    if len(follows_parts) >= 2:
-        # Inside the block of follows_parts[0], the path is relative
+    if len(parts) >= 2:
+        # Inside the block of parts[0], the path is relative
         inner = (
-            ".".join(f"inputs.{p}" for p in follows_parts[1:])
+            ".".join(f"inputs.{p}" for p in parts[1:])
             + f'.follows = "{target}"'
         )
         raw_block_candidates.append(inner)
         # bare follows for depth 2
-        if len(follows_parts) == 2:
+        if len(parts) == 2:
             raw_block_candidates.append(f'follows = "{target}"')
-    elif len(follows_parts) == 1:
+    elif len(parts) == 1:
         # Inside the block of the single part, bare follows matches
         raw_block_candidates.append(f'follows = "{target}"')
     block_candidates = {" ".join(c.split()) for c in raw_block_candidates}
@@ -2025,11 +2034,12 @@ def follows_exists_in_content(
     block_context = _block_context_for_lines(content)
     nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
-    first_part = follows_parts[0] if follows_parts else None
+    first_part = parts[0] if parts else None
 
     for i, line in enumerate(lines):
         stripped = line.strip().rstrip(";").strip()
-        if stripped.startswith("#"):
+        # Bolt Optimization: Skip comments and non-follows lines early without normalizations
+        if stripped.startswith("#") or "follows" not in stripped:
             continue
         # Bolt Optimization: " ".join(s.split()) replaces re.sub(r"\s+", " ", s) for fast whitespace collapsing.
         normalized = _unquote_attr_names(" ".join(stripped.split()))
@@ -2040,7 +2050,7 @@ def follows_exists_in_content(
         # would attribute the declaration to the wrong attribute path.
         nested_prefix = nested_prefixes[i]
         if nested_prefix is not None:
-            rel = _nested_relative_path(follows_parts, nested_prefix)
+            rel = _nested_relative_path(parts, nested_prefix)
             if rel is not None:
                 candidate = f'{rel}.follows = "{target}"'
                 if " ".join(candidate.split()) in _nested_segments(normalized):
@@ -2054,38 +2064,52 @@ def follows_exists_in_content(
             if normalized in root_candidates:
                 return True
         elif ctx == first_part:
-            # Inside the block of the first follows_parts element
+            # Inside the block of the first parts element
             if normalized in block_candidates:
                 return True
 
     return False
 
 
-def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
-    """Check if a follows for the given attribute path exists with ANY target.
+def follows_exists_in_content(
+    content: str, follows_parts: list[str], target: str
+) -> bool:
+    """Check if a follows declaration already exists (active) in flake.nix.
 
-    Block-context-aware: a line inside a different block is not a match.
+    Checks both absolute and relative forms, and is block-context-aware:
+    a line ``inputs.nix.inputs.X.follows`` inside a ``determinate = { ... }``
+    block is NOT the same as root-level ``nix.inputs.X.follows``.
     """
+    return _follows_exists_in_content_cached(content, tuple(follows_parts), target)
+
+
+# Bolt Optimization: Memoize follows path checks across repeated deduplication and flattening iterations
+@functools.lru_cache(maxsize=1024)
+def _follows_path_has_any_target_cached(
+    content: str, follows_parts: tuple[str, ...]
+) -> bool:
+    """Check if a follows for the given attribute path exists with ANY target."""
+    parts = list(follows_parts)
     # Root-level prefixes
-    full_prefix = ".".join(f"inputs.{p}" for p in follows_parts) + ".follows"
+    full_prefix = ".".join(f"inputs.{p}" for p in parts) + ".follows"
     relative_inputs = (
-        follows_parts[0]
+        parts[0]
         + "."
-        + ".".join(f"inputs.{p}" for p in follows_parts[1:])
+        + ".".join(f"inputs.{p}" for p in parts[1:])
         + ".follows"
-        if len(follows_parts) >= 2
-        else f"{follows_parts[0]}.follows"
+        if len(parts) >= 2
+        else f"{parts[0]}.follows"
     )
     root_prefixes = [full_prefix, relative_inputs]
 
-    # Block-level prefixes (inside follows_parts[0] block)
+    # Block-level prefixes (inside parts[0] block)
     block_prefixes: list[str] = []
-    if len(follows_parts) >= 2:
-        inner = ".".join(f"inputs.{p}" for p in follows_parts[1:]) + ".follows"
+    if len(parts) >= 2:
+        inner = ".".join(f"inputs.{p}" for p in parts[1:]) + ".follows"
         block_prefixes.append(inner)
-        if len(follows_parts) == 2:
+        if len(parts) == 2:
             block_prefixes.append("follows")
-    elif len(follows_parts) == 1:
+    elif len(parts) == 1:
         block_prefixes.append("follows")
 
     # Bolt Optimization: Construct prefix tuples ONCE for fast C-level startswith checks
@@ -2095,11 +2119,12 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
     block_context = _block_context_for_lines(content)
     nested_prefixes = _nested_inputs_prefix_for_lines(content)
     lines = content.split("\n")
-    first_part = follows_parts[0] if follows_parts else None
+    first_part = parts[0] if parts else None
 
     for i, line in enumerate(lines):
         stripped = line.strip().rstrip(";").strip()
-        if stripped.startswith("#"):
+        # Bolt Optimization: Skip comments and non-follows lines early without normalizations
+        if stripped.startswith("#") or "follows" not in stripped:
             continue
         # Bolt Optimization: " ".join(s.split()) replaces re.sub(r"\s+", " ", s) for fast whitespace collapsing.
         normalized = _unquote_attr_names(" ".join(stripped.split()))
@@ -2107,7 +2132,7 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
         # Nested inputs scope (#647): see follows_exists_in_content.
         nested_prefix = nested_prefixes[i]
         if nested_prefix is not None:
-            rel = _nested_relative_path(follows_parts, nested_prefix)
+            rel = _nested_relative_path(parts, nested_prefix)
             if rel is not None:
                 pfx = f"{rel}.follows"
                 pfx_tuple = (pfx + " =", pfx + "=")
@@ -2126,6 +2151,14 @@ def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
                 return True
 
     return False
+
+
+def follows_path_has_any_target(content: str, follows_parts: list[str]) -> bool:
+    """Check if a follows for the given attribute path exists with ANY target.
+
+    Block-context-aware: a line inside a different block is not a match.
+    """
+    return _follows_path_has_any_target_cached(content, tuple(follows_parts))
 
 
 # Bolt Optimization: Memoize root input presence check across duplicate/proposal analyses
