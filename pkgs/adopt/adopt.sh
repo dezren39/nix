@@ -110,8 +110,8 @@ EOF
     block="$(awk -v n="$tmpl" '
       $0 ~ "^      " n " = [{]" { found = 1; start = NR }
       found { print }
-      found && NR == start && /};[[:space:]]*$/ { exit }
-      found && /^      };$/ { exit }
+      found && NR == start && /};[[:space:]]*(#.*)?$/ { exit }
+      found && /^      };[[:space:]]*(#.*)?$/ { exit }
     ' "$flake")"
     [[ -n "$block" ]] ||
       { echo "adopt: no host '$tmpl' in $flake to copy (existing: $(list_hosts))" >&2; return 1; }
