@@ -34,6 +34,12 @@
 #          moved --force backups outside the output dir (and aimed the
 #          --skip-backup rm -rf there too). It is now rejected at parse
 #          time. Scenario K pins this.
+#   #1280 — a broken symlink in --input-dir failed realpath in the
+#          forward scan and the bare `|| continue` dropped it uncounted:
+#          a mixed input summary omitted it entirely and a broken-only
+#          input reported "Nothing found". Unresolvable entries are now
+#          named in an Unresolvable report and counted in the summary;
+#          they are still never linked. Scenario L pins this.
 # This drives the REAL symlinker.sh (no pasted copies) against temp dirs.
 # The #886 scenario stubs `date` so every invocation lands in the same
 # "second" deterministically.
@@ -397,6 +403,47 @@ fi
 check "K: normal suffix created the symlink" test -L "$K/out/tool"
 check "K: normal suffix backed up alongside the link" test -d "$K/out/tool.old"
 check "K: normal suffix backup kept the conflict contents" grep -qx original "$K/out/tool.old/keep.txt"
+
+# ─── Scenario L (#1280): broken symlink in --input-dir is accounted for ──
+# The unfiltered forward scan resolved each entry with
+# `realpath "$entry" || continue`; a broken symlink fails realpath, so it
+# was dropped with no counter, no name, and — when it was the only
+# entry — a false "Nothing found" at exit 0. It must be named in an
+# Unresolvable report, counted in the summary, and never linked.
+L="$TMP_ROOT/l"; mkdir -p "$L/in" "$L/in2" "$L/out" "$L/out2" "$L/cache"
+printf 'x\n' > "$L/in/real.txt"
+ln -s "$L/missing-target" "$L/in/broken.txt"
+ln -s "$L/missing-target" "$L/in2/broken.txt"
+l_run() { XDG_CACHE_HOME="$L/cache" bash "$SCRIPT" "$@"; }
+if l_run --input-dir "$L/in" --output-dir "$L/out" --dry-run --no-input >"$L/mixed.log" 2>&1; then
+  echo "ok: L: mixed dry-run exits 0"
+else
+  fail "L: mixed dry-run should exit 0: $(cat "$L/mixed.log")"
+fi
+grep -q "broken.txt" "$L/mixed.log" || fail "L: mixed output does not name the broken symlink"
+grep -q "1 to create" "$L/mixed.log" || fail "L: mixed output lost the resolvable entry"
+grep -q "1 unresolvable" "$L/mixed.log" || fail "L: mixed summary does not count 1 unresolvable: $(cat "$L/mixed.log")"
+if l_run --input-dir "$L/in" --output-dir "$L/out" --no-input >"$L/real.log" 2>&1; then
+  echo "ok: L: mixed real run exits 0"
+else
+  fail "L: mixed real run should exit 0: $(cat "$L/real.log")"
+fi
+check "L: mixed real run links the resolvable entry" test -L "$L/out/real.txt"
+[[ ! -e "$L/out/broken.txt" && ! -L "$L/out/broken.txt" ]] || fail "L: broken symlink was linked"
+grep -q "1 unresolvable" "$L/real.log" || fail "L: mixed real-run summary does not count 1 unresolvable"
+if l_run --input-dir "$L/in2" --output-dir "$L/out2" --dry-run --no-input >"$L/only.log" 2>&1; then
+  echo "ok: L: broken-only dry-run exits 0"
+else
+  fail "L: broken-only dry-run should exit 0: $(cat "$L/only.log")"
+fi
+grep -q "broken.txt" "$L/only.log" || fail "L: broken-only output does not name the broken symlink"
+grep -q "1 unresolvable" "$L/only.log" || fail "L: broken-only summary does not count 1 unresolvable: $(cat "$L/only.log")"
+if grep -q "Nothing found" "$L/only.log"; then
+  fail "L: broken-only output still prints Nothing found"
+else
+  echo "ok: L: broken-only output does not print Nothing found"
+fi
+check "L: broken-only run linked nothing" test -z "$(ls -A "$L/out2")"
 
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2
