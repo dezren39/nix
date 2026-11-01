@@ -177,6 +177,32 @@ else
   fail "dry-run control wrote marker files: $(markers)"
 fi
 
+# ─── --no-recursive --follow is rejected at parse time (#1268) ─────
+# git-discover-repos rejects this pair at exit 2 (spotlight forwards
+# --no-recursive as --depth 1, the same combination in discover's
+# vocabulary), but spotlight used to read discovery through a process
+# substitution with stderr discarded, so the failure looked like an
+# empty tree: "0 marked" at exit 0. Both orders, and the explicit
+# --depth 1 spelling, must now exit 2 naming the pair, writing nothing.
+for pair in "--no-recursive --follow" "--follow --no-recursive" "--depth 1 --follow"; do
+  # shellcheck disable=SC2086
+  run --no-system --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "no-recursive/follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"spotlight-exclude-artifacts: --no-recursive conflicts with --follow"*) echo "ok: pair '$pair' rejected as a conflict" ;;
+    *) fail "pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+[ -z "$(markers)" ] && echo "ok: rejected conflict runs wrote no markers" || fail "rejected conflict runs wrote markers"
+# Control: --no-recursive alone still discovers and would mark the
+# repo (depth 1 matches the repo at the path itself).
+run --no-system --dry-run --path "$VALID/repo1" --no-recursive
+[ "$STATUS" -eq 0 ] || fail "--no-recursive control exited $STATUS (want 0)"
+case "$OUT" in
+  *"would mark: $VALID/repo1/.git"*) echo "ok: --no-recursive control would mark the fixture repo" ;;
+  *) fail "--no-recursive control did not report the fixture repo (got: $OUT)" ;;
+esac
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for spotlight-exclude-artifacts, driven through
 # lib/arg-probe.sh (the same helper every discovery suite uses):

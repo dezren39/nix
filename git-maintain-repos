@@ -212,6 +212,17 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# --no-recursive + --follow is a combination git-discover-repos rejects
+# at exit 2 (a non-recursive walk cannot follow symlinks). Judge it here,
+# at parse time (#1268): forwarding it used to be invisible because
+# discovery ran in a process substitution with stderr discarded, so the
+# wrapper reported a successful "0 repos" and exited 0.
+if [ "$RECURSIVE" = "0" ] && [ "$FOLLOW" = "1" ]; then
+  echo "git-maintain-repos: --no-recursive conflicts with --follow" >&2
+  echo "                    (git-discover-repos rejects a non-recursive walk that follows symlinks)" >&2
+  exit 2
+fi
+
 # DEPTH and SCOPE are mode vocabularies, not free text. DEPTH comes from the
 # environment (or --quick/--safe/--deep) and is dispatched on below: anything
 # that is not quick|repack|safe falls through to the deep pass — gc
@@ -416,7 +427,24 @@ if [ -n "$ROOT" ]; then DISCOVER_ARGS+=(--path "$ROOT"); else DISCOVER_ARGS+=(--
 [ -n "$DEPTH_LIMIT" ] && DISCOVER_ARGS+=(--depth "$DEPTH_LIMIT")
 [ -n "$FOLLOW" ] && { [ "$FOLLOW" = "1" ] && DISCOVER_ARGS+=(--follow) || DISCOVER_ARGS+=(--no-follow); }
 
-mapfile -t repos < <("$SELF_DIR/git-discover-repos" "${DISCOVER_ARGS[@]}" 2>/dev/null | cut -f2)
+# Discovery failure must be loud (#1268): the old process substitution
+# discarded stderr and the exit status, so a git-discover-repos failure
+# looked exactly like an empty tree -- "0 repos" at exit 0. Capture the
+# output and stderr and check the status, the way clean.sh does.
+DISCOVER_ERR="$(mktemp "${TMPDIR:-/tmp}/git-maintain-repos-discover.XXXXXX")"
+discover_out="$("$SELF_DIR/git-discover-repos" "${DISCOVER_ARGS[@]}" 2>"$DISCOVER_ERR")"
+discover_rc=$?
+if [ "$discover_rc" -ne 0 ]; then
+  echo "git-maintain-repos: git-discover-repos failed with exit $discover_rc" >&2
+  [ -s "$DISCOVER_ERR" ] && cat "$DISCOVER_ERR" >&2
+  rm -f "$DISCOVER_ERR"
+  exit "$discover_rc"
+fi
+rm -f "$DISCOVER_ERR"
+repos=()
+if [ -n "$discover_out" ]; then
+  mapfile -t repos < <(printf '%s\n' "$discover_out" | cut -f2)
+fi
 
 echo "git-maintain-repos: $ROOT — ${#repos[@]} repos, scope=$SCOPE, depth=$DEPTH, jobs=$JOBS, reflog=$REFLOG_EXPIRE"
 [ ${#repos[@]} -eq 0 ] && exit 0
