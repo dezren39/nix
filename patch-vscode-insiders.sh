@@ -42,9 +42,15 @@ echo "Patching VSCode Insiders workbench CSS..."
 # very files, so a no-change rewrite touches what it watches).
 status=0
 
-python3 -c "
-import sys
-path = '$CSS_FILE'
+# #1288: the workbench paths reach the embedded Python via the
+# PATCH_TARGET_FILE environment variable, never by interpolation into
+# the Python source -- a path containing an apostrophe (or any other
+# quote) spliced into a single-quoted Python literal broke both patch
+# blocks with a SyntaxError and no patch applied.
+
+PATCH_TARGET_FILE="$CSS_FILE" python3 -c "
+import os, sys
+path = os.environ['PATCH_TARGET_FILE']
 with open(path, 'r') as f:
     content = f.read()
 original = content
@@ -120,9 +126,9 @@ JS_FILE="$APP_DIR/Contents/Resources/app/out/vs/workbench/workbench.desktop.main
 
 if [ -f "$JS_FILE" ]; then
   echo "Patching VSCode Insiders workbench JS..."
-  python3 -c "
-import sys
-path = '$JS_FILE'
+  PATCH_TARGET_FILE="$JS_FILE" python3 -c "
+import os, sys
+path = os.environ['PATCH_TARGET_FILE']
 with open(path, 'r') as f:
     content = f.read()
 original = content
