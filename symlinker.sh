@@ -941,6 +941,7 @@ filtered_count=0
 skip_links=();     skip_targets=()
 create_links=();   create_targets=()
 conflict_links=(); conflict_targets=()
+unresolvable_links=(); unresolvable_targets=()
 
 while IFS= read -r -d '' entry; do
   name="$(basename "$entry")"
@@ -963,7 +964,20 @@ while IFS= read -r -d '' entry; do
     continue
   fi
 
-  target="$(realpath "$entry" 2>/dev/null)" || continue
+  if [[ -L "$entry" && ! -e "$entry" ]] || ! target="$(realpath "$entry" 2>/dev/null)"; then
+    # Unresolvable entry (a broken symlink, or one realpath cannot
+    # resolve): its target does not exist, so it must never be linked
+    # (#1092), but it must not vanish
+    # either (#1280) — record it by name, with its dangling target
+    # when it has one, so the report and summary account for it.
+    unresolvable_links+=("$entry")
+    if [[ -L "$entry" ]]; then
+      unresolvable_targets+=("$(readlink "$entry")")
+    else
+      unresolvable_targets+=("")
+    fi
+    continue
+  fi
   link="$OUTPUT_DIR/$name"
 
   if [[ -L "$link" ]]; then
@@ -981,6 +995,25 @@ while IFS= read -r -d '' entry; do
 done < <(find "$INPUT_DIR" -mindepth 1 -maxdepth 1 -print0 | sort -z)
 
 total=$(( ${#skip_links[@]} + ${#create_links[@]} + ${#conflict_links[@]} ))
+if (( total == 0 )) && (( ${#unresolvable_links[@]} > 0 )); then
+  # Broken-only input is not an empty input (#1280): report the
+  # unresolvable entries instead of claiming nothing was found.
+  log "=== Unresolvable (target does not exist, not linked) ==="
+  for i in "${!unresolvable_links[@]}"; do
+    log "  $(disp "${unresolvable_links[$i]}") ->"
+    if [[ -n "${unresolvable_targets[$i]}" ]]; then
+      log "    $(disp "${unresolvable_targets[$i]}") (missing)"
+    else
+      log "    (target cannot be resolved)"
+    fi
+    log ""
+  done
+  summary_line="Summary: 0 skipped, 0 to create, 0 conflicts, ${excluded_count} excluded"
+  (( filtered_count > 0 )) && summary_line+=", ${filtered_count} filtered"
+  summary_line+=", ${#unresolvable_links[@]} unresolvable"
+  log "$summary_line"
+  exit 0
+fi
 if (( total == 0 )); then
   if $HAS_NAME_FILTERS || $ONLY_FILES || $ONLY_DIRS; then
     log "Nothing matched in $(disp "$INPUT_DIR") (${filtered_count} filtered out, ${excluded_count} excluded)."
@@ -1077,10 +1110,26 @@ if (( ${#conflict_links[@]} > 0 )); then
   fi
 fi
 
+# ─── Report: Unresolvable ───────────────────────────────────────────────────
+
+if (( ${#unresolvable_links[@]} > 0 )); then
+  log "=== Unresolvable (target does not exist, not linked) ==="
+  for i in "${!unresolvable_links[@]}"; do
+    log "  $(disp "${unresolvable_links[$i]}") ->"
+    if [[ -n "${unresolvable_targets[$i]}" ]]; then
+      log "    $(disp "${unresolvable_targets[$i]}") (missing)"
+    else
+      log "    (target cannot be resolved)"
+    fi
+    log ""
+  done
+fi
+
 # ─── Summary ─────────────────────────────────────────────────────────────────
 
 summary_line="Summary: ${#skip_links[@]} skipped, ${#create_links[@]} to create, ${#conflict_links[@]} conflicts, ${excluded_count} excluded"
 (( filtered_count > 0 )) && summary_line+=", ${filtered_count} filtered"
+(( ${#unresolvable_links[@]} > 0 )) && summary_line+=", ${#unresolvable_links[@]} unresolvable"
 log "$summary_line"
 
 # ─── Conflict error (default) ───────────────────────────────────────────────
@@ -1207,6 +1256,7 @@ print_results() {
   (( ${#done_error_paths[@]} > 0 )) && summary+=", ${#done_error_paths[@]} error(s)"
   summary+=", ${excluded_count} excluded"
   (( filtered_count > 0 )) && summary+=", ${filtered_count} filtered"
+  (( ${#unresolvable_links[@]} > 0 )) && summary+=", ${#unresolvable_links[@]} unresolvable"
   if $DRY_RUN; then
     log "${prefix}${summary}"
   else
