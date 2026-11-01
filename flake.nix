@@ -849,6 +849,35 @@ rec {
               bash ./full-clean.test.sh
               touch $out
             '';
+        # #1190: rebuild-backup-zed.test.sh drives the real
+        # rebuild.sh and backup-zed.sh under zsh (their interpreter)
+        # -- PR #1169 added their no-argument guards alongside
+        # full-clean.sh's, but only the bash script got a test. The
+        # suite stubs git/nix/simple-rebuild.sh for rebuild.sh and
+        # uses a fixture HOME for backup-zed.sh, pinning --help/-h
+        # (exit 0, usage, no side effects), unknown arguments
+        # (exit 2, argument named, no side effects), and no-argument
+        # controls for both scripts.
+        rebuild-backup-zed-tests =
+          pkgs.runCommandLocal "rebuild-backup-zed-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.zsh
+                pkgs.coreutils
+                pkgs.gnugrep
+                pkgs.findutils
+              ];
+              src = inputs.self;
+            }
+            ''
+              cp $src/rebuild.sh $src/backup-zed.sh $src/rebuild-backup-zed.test.sh ./
+              chmod u+w ./rebuild.sh ./backup-zed.sh ./rebuild-backup-zed.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./rebuild-backup-zed.test.sh
+              touch $out
+            '';
         # #940: git-discover-repos.test.sh drives the real
         # git-discover-repos through bad, mixed, regular-file, all-valid,
         # --count and --dry-run --path runs — a bad --path used to exit 0,
