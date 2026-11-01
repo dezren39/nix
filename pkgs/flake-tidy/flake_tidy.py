@@ -1416,12 +1416,26 @@ _NAME_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z_][a-zA-Z0-9_'-]*)"
 _SEG_TOKEN = rf"({_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
 _SEG_TOKEN_NC = rf"(?:{_QUOTED_NAME}|[a-zA-Z0-9_'-]+)"
 
+# Bolt Optimization: Pre-compile module-level regular expressions for token scanning,
+# block opening, and input declaration matching to eliminate repeated compilation overhead.
+_BLOCK_OPEN_RE = re.compile(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{")
+_DOTTED_BLOCK_OPEN_RE = re.compile(
+    rf"^(\s*)inputs\.{_NAME_TOKEN}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{"
+)
+_INPUTS_DOTTED_NAME_RE = re.compile(rf"inputs\.{_NAME_TOKEN}\s*[.=]")
+_BARE_NAME_DECL_RE = re.compile(rf"{_NAME_TOKEN}\s*[.=]")
+_INPUTS_BLOCK_OPEN_RE = re.compile(r"inputs\s*=\s*\{")
+
 
 @functools.lru_cache(maxsize=512)
 def _unquote_name(token: str) -> str:
     """Attribute name for a matched name token (see ``_NAME_TOKEN``)."""
     if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
-        return re.sub(r"\\(.)", r"\1", token[1:-1])
+        inner = token[1:-1]
+        # Bolt Optimization: fast-path unescape if no backslash exists
+        if "\\" in inner:
+            return re.sub(r"\\(.)", r"\1", inner)
+        return inner
     return token
 
 
@@ -1573,7 +1587,7 @@ def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
         # (#652 remainder, context tracking from #655).
         m = None
         if not in_inputs_block:
-            dm = re.match(rf"inputs\.{_NAME_TOKEN}\s*[.=]", stripped)
+            dm = _INPUTS_DOTTED_NAME_RE.match(stripped)
             if dm and (
                 contexts[idx] is None or contexts[idx] == _unquote_name(dm.group(1))
             ):
@@ -1588,7 +1602,7 @@ def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
         # Detect start of inputs = { block. A nested `inputs = {` inside
         # another input's override is not the root block: re-entering here
         # would reset the brace depth and lose every later root input (#640).
-        if not in_inputs_block and re.match(r"inputs\s*=\s*\{", stripped):
+        if not in_inputs_block and _INPUTS_BLOCK_OPEN_RE.match(stripped):
             in_inputs_block = True
             brace_depth = _brace_delta(stripped)
             continue
@@ -1606,7 +1620,7 @@ def _get_input_file_order_cached(content: str) -> tuple[str, ...]:
             if depth_before != 1:
                 continue
 
-            m = re.match(rf"{_NAME_TOKEN}\s*[.=]", stripped)
+            m = _BARE_NAME_DECL_RE.match(stripped)
             if m:
                 name = _unquote_name(m.group(1))
                 if (
@@ -1659,7 +1673,7 @@ def _block_context_for_lines_cached(content: str) -> tuple[str | None, ...]:
 
         # Check for block open: <name> = { (inside the inputs block)
         pushed = False
-        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
+        m = _BLOCK_OPEN_RE.match(line)
         if m:
             name = _unquote_name(m.group(2))
             if name == "inputs":
@@ -1680,10 +1694,7 @@ def _block_context_for_lines_cached(content: str) -> tuple[str | None, ...]:
         # a nested inputs.<child> = { stays attributed to the outer
         # input until its braces close.
         if not pushed and not stack and not inputs_stack:
-            dm = re.match(
-                rf"^(\s*)inputs\.{_NAME_TOKEN}(?:\.{_SEG_TOKEN_NC})*\s*=\s*\{{",
-                line,
-            )
+            dm = _DOTTED_BLOCK_OPEN_RE.match(line)
             if dm:
                 name = _unquote_name(dm.group(2))
                 stack.append((name, brace_depth))
@@ -1757,7 +1768,7 @@ def _nested_inputs_prefix_for_lines_cached(content: str) -> tuple[tuple[str, ...
 
         opens, closes = _brace_counts(line)
 
-        m = re.match(rf"^(\s*){_SEG_TOKEN}\s*=\s*\{{", line)
+        m = _BLOCK_OPEN_RE.match(line)
         if m:
             name = _unquote_name(m.group(2))
             if name == "inputs":
