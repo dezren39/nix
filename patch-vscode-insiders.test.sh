@@ -21,6 +21,8 @@
 #   --help                   -> exit 0, usage, fixture files unchanged
 #   unknown argument         -> exit 2 naming it, usage on stderr,
 #                               fixture files unchanged (#1177)
+#   apostrophe in app path   -> exit 0, all patches applied, no
+#                               SyntaxError (#1288)
 #   no override (when no real Insiders app is installed)
 #                            -> exit 1 naming the default /Applications
 #                               path, pinning the seam's default
@@ -150,6 +152,23 @@ grep -q "Usage: bash ~/nix/patch-vscode-insiders.sh" "$TMP_ROOT/bogus.err" \
   && echo "ok: unknown argument prints usage on stderr" || fail "unknown argument did not print usage on stderr"
 [ "$(sha256sum "$CSS")" = "$CSS_SUM" ] && [ "$(sha256sum "$JS")" = "$JS_SUM" ] \
   && echo "ok: unknown argument modified no files" || fail "unknown argument modified a fixture file"
+
+# ─── Apostrophe in app path: patches apply as for a plain path (#1288) ──
+APP="$TMP_ROOT/o'brien.app"
+WB="$APP/Contents/Resources/app/out/vs/workbench"
+CSS="$WB/workbench.desktop.main.css"
+JS="$WB/workbench.desktop.main.js"
+make_fixture
+run_patch
+[ "$STATUS" -eq 0 ] || fail "apostrophe-path run exited $STATUS (want 0; got: $OUT)"
+case "$OUT" in
+  *SyntaxError*) fail "apostrophe-path output contained a SyntaxError (got: $OUT)" ;;
+  *) echo "ok: apostrophe path produced no SyntaxError" ;;
+esac
+grep -qF 'display:none!important;height:0!important' "$CSS" \
+  && echo "ok: apostrophe path Patch 1 applied" || fail "apostrophe path Patch 1 not in CSS"
+grep -qF 'HEADER_HEIGHT=0' "$JS" \
+  && echo "ok: apostrophe path Patch 5 applied" || fail "apostrophe path Patch 5 not in JS"
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)" >&2; exit 1; }
 echo "all patch-vscode-insiders contract checks passed"
