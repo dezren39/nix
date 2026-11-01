@@ -274,13 +274,14 @@ for mode in bsd gnu; do
   # suite failed on any machine with real pytest runs in /tmp even though
   # the guard fired. Match a single would-delete line naming this
   # fixture's run directory, end-anchored so pytest-1x/pytest-2x host
-  # runs cannot trip it either.
-  if printf '%s\n' "$OUT" | grep -q 'would delete: .*pytest-of-fixture/pytest-1$'; then
+  # runs cannot trip it either. Here-strings, not pipes: grep -q in a
+  # pipeline under pipefail can SIGPIPE the writer on large output.
+  if grep -q 'would delete: .*pytest-of-fixture/pytest-1$' <<<"$OUT"; then
     echo "ok: pytest guard ($mode stat) schedules the older run for deletion"
   else
     fail "pytest guard ($mode stat): older pytest-1 not scheduled for deletion"
   fi
-  if printf '%s\n' "$OUT" | grep -q 'would delete: .*pytest-of-fixture/pytest-2$'; then
+  if grep -q 'would delete: .*pytest-of-fixture/pytest-2$' <<<"$OUT"; then
     fail "pytest guard ($mode stat): newest pytest-2 scheduled for deletion -- guard did not fire"
   else
     echo "ok: pytest guard ($mode stat) preserves the newest run"
