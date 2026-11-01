@@ -331,6 +331,53 @@ unset VAR_FOLDERS_ROOT
 [ "$STATUS" -eq 0 ] || fail "--tmpdir success control exited $STATUS (want 0, stderr: $ERR)"
 [ ! -e "$vf2/aa" ] && [ ! -e "$vf2/zz/file2" ] && echo "ok: success control swept the fixture" || fail "success control did not sweep the fixture"
 
+# ─── --only-tmpdir survives the privilege re-exec (Codex P1 on #1273) ──
+# The parser consumes "$@" before the privilege block, and ONLY_TMPDIR
+# was neither skipped past brew_cleanup nor carried into the sudo
+# re-exec -- so a non-root \`clean.sh --only-tmpdir\` (no --no-sudo) ran
+# brew maintenance, then re-executed WITHOUT the flag and performed the
+# default full cleanup instead of just the sweep. Stub sudo: it records
+# its argv + the ONLY_TMPDIR it was handed and exits 0 without running
+# anything, so this is safe anywhere; as root the privilege block is
+# skipped entirely and so is this section.
+if [ "$(id -u)" -ne 0 ]; then
+  sudo_stub_dir="$TMP_ROOT/sudo-stub"
+  mkdir -p "$sudo_stub_dir"
+  export SUDO_STUB_LOG="$TMP_ROOT/sudo-stub.log"
+  : > "$SUDO_STUB_LOG"
+  {
+    printf '#!%s\n' "$(command -v bash)"
+    cat <<'STUB_EOF'
+{
+  printf 'args: %s\n' "$*"
+  printf 'ONLY_TMPDIR=%s\n' "${ONLY_TMPDIR:-unset}"
+} >> "$SUDO_STUB_LOG"
+exit 0
+STUB_EOF
+  } > "$sudo_stub_dir/sudo"
+  chmod +x "$sudo_stub_dir/sudo"
+  OLD_PATH="$PATH"
+  PATH="$sudo_stub_dir:$PATH"
+  run --only-tmpdir
+  PATH="$OLD_PATH"
+  [ "$STATUS" -eq 0 ] || fail "--only-tmpdir sudo re-exec exited $STATUS (want 0, stderr: $ERR)"
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"ONLY_TMPDIR=1"*) echo "ok: --only-tmpdir carried into the sudo re-exec" ;;
+    *) fail "--only-tmpdir did not reach the sudo re-exec (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"--preserve-env="*ONLY_TMPDIR*) echo "ok: ONLY_TMPDIR named in --preserve-env" ;;
+    *) fail "ONLY_TMPDIR missing from --preserve-env (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  case "$OUT" in
+    *"brew cleanup"*) fail "--only-tmpdir ran pre-sudo brew cleanup" ;;
+    *) echo "ok: --only-tmpdir skipped pre-sudo brew cleanup" ;;
+  esac
+  unset SUDO_STUB_LOG
+else
+  echo "skip: --only-tmpdir re-exec test needs a non-root runner"
+fi
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for clean.sh, driven through lib/arg-probe.sh (the
 # same helper every discovery suite uses): unknown, missing/flag-shaped
