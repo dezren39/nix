@@ -11,7 +11,17 @@
 # (var-folders-clean.test.sh) exercises the shipped logic, not a copy.
 #
 # A deletion that fails is named on stderr and the script exits 1
-# once the rest of the sweep has run (#1262).
+# once the rest of the sweep has run (#1262). An enumeration that
+# fails is likewise named on stderr and exits 1 (#1321): each find
+# runs in a pipeline whose first-command status is read back from
+# PIPESTATUS — a process substitution's status is invisible to
+# the script, so a failed find used to run the loops zero times and
+# exit 0 with nothing (or only part) deleted. No temp file holds
+# the enumeration: mktemp honours TMPDIR, which on the real macOS
+# layout lives inside the swept root, so the sweep itself could
+# delete the file's directory mid-run (Codex review, PR #1322).
+# lastpipe keeps the delete loops in this shell so the failed
+# counter survives the pipeline.
 set -uo pipefail
 
 usage() {
@@ -38,19 +48,29 @@ folders="${1:?usage: var-folders-clean.sh <folders-root>}"
 
 failed=0
 if [ -d "$folders" ]; then
-  while IFS= read -r -d "" i; do
+  shopt -s lastpipe
+  find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | while IFS= read -r -d "" i; do
     if [ "$(basename "$i")" != "zz" ] && ! rm -rf "$i" 2>/dev/null; then
       failed=$((failed + 1))
       echo "var-folders-clean.sh: failed to delete: $i" >&2
     fi
-  done < <(find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-  if [ -d "$folders/zz" ]; then
-    while IFS= read -r -d "" i; do
+  done
+  root_enum_rc=${PIPESTATUS[0]}
+  if [ "$root_enum_rc" -ne 0 ]; then
+    failed=$((failed + 1))
+    echo "var-folders-clean.sh: failed to enumerate: $folders" >&2
+  elif [ -d "$folders/zz" ]; then
+    find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | while IFS= read -r -d "" i; do
       if ! rm -rf "$i" 2>/dev/null; then
         failed=$((failed + 1))
         echo "var-folders-clean.sh: failed to delete: $i" >&2
       fi
-    done < <(find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+    done
+    zz_enum_rc=${PIPESTATUS[0]}
+    if [ "$zz_enum_rc" -ne 0 ]; then
+      failed=$((failed + 1))
+      echo "var-folders-clean.sh: failed to enumerate: $folders/zz" >&2
+    fi
   fi
 fi
 if [ "$failed" -gt 0 ]; then
