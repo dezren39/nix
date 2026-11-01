@@ -243,6 +243,19 @@ if [ -n "$DEPTH_LIMIT" ]; then
   arg_decimal DEPTH_LIMIT --depth "$DEPTH_LIMIT" positive
 fi
 
+# --no-recursive (a depth-1 walk) + --follow is the combination
+# git-discover-repos rejects at exit 2; an explicit --depth 1 with
+# --follow is the same combination in discover's vocabulary. Judge it
+# here, at parse time (#1276): forwarding it used to be invisible
+# because discovery discarded stderr and only warned, so the wrapper
+# reported a successful "0 repos" and exited 0 -- the #1268 failure
+# mode in the one wrapper that fix left behind.
+if [ "$DEPTH_LIMIT" = "1" ] && [ "$FOLLOW" = "1" ]; then
+  echo "clean.sh: --no-recursive conflicts with --follow" >&2
+  echo "          (git-discover-repos rejects a depth-1 walk that follows symlinks; use --depth N with N>1 for a bounded walk plus following)" >&2
+  exit 2
+fi
+
 # --docker-age is used only in bash arithmetic ($((DOCKER_AGE_DAYS * 24)) and
 # the volume cutoff), where a bare word silently evaluates to 0 -- so
 # `--docker-age abc` used to collapse the age filter to until=0h and prune
@@ -1292,13 +1305,23 @@ fi
 DISCOVERY_FILE="$(mktemp)"
 REPOS_ONLY_FILE="$(mktemp)"
 OWNERS_FILE="$(mktemp)"
-trap 'rm -f "$DISCOVERY_FILE" "$REPOS_ONLY_FILE" "$OWNERS_FILE"' EXIT
+DISCOVER_ERR="$(mktemp)"
+trap 'rm -f "$DISCOVERY_FILE" "$REPOS_ONLY_FILE" "$OWNERS_FILE" "$DISCOVER_ERR"' EXIT
 
 # ONE discovery pass feeds everything below: .trash removal, artifact pruning,
 # Spotlight markers and the maintenance repo list.
+# Discovery failure must be loud (#1276): the old call discarded stderr
+# and only warned, so a git-discover-repos failure looked exactly like
+# an empty tree -- "0 repos" at exit 0 while the caches half had run.
+# Surface discover's stderr and exit with its status instead.
 echo "🔎 discovering repositories and artifacts"
-"$SELF_DIR/git-discover-repos" "${DARGS[@]}" --find all --status > "$DISCOVERY_FILE" 2>/dev/null \
-  || warn "discovery failed"
+"$SELF_DIR/git-discover-repos" "${DARGS[@]}" --find all --status > "$DISCOVERY_FILE" 2> "$DISCOVER_ERR"
+discover_rc=$?
+if [ "$discover_rc" -ne 0 ]; then
+  echo "clean.sh: git-discover-repos failed with exit $discover_rc" >&2
+  [ -s "$DISCOVER_ERR" ] && cat "$DISCOVER_ERR" >&2
+  exit "$discover_rc"
+fi
 awk -F'\t' '$1=="repo"{print $2}' "$DISCOVERY_FILE" > "$REPOS_ONLY_FILE"
 # Artifact ownership is resolved against repos AND worktrees, while maintenance
 # still runs against REPOS_ONLY_FILE alone. Keeping these separate matters: a

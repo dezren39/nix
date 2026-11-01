@@ -173,6 +173,41 @@ case "$OUT" in
   *) fail "valid-value control output changed (got: $OUT)" ;;
 esac
 
+# ─── --no-recursive --follow is rejected at parse time (#1276) ─────
+# git-discover-repos rejects this pair at exit 2 (clean.sh forwards
+# --no-recursive as --depth 1, the same combination in discover's
+# vocabulary), but clean.sh used to discard discover's stderr, warn
+# only "discovery failed", and complete the sweep on an empty set at
+# exit 0 -- the #1268 failure mode in the one wrapper that fix left
+# behind. Both spellings, in both orders, must now exit 2 naming the
+# pair, before any work.
+REPO_PARENT="$TMP_ROOT/repos1276"
+mkdir -p "$REPO_PARENT/repo1/.git"
+for pair in "--no-recursive --follow" "--follow --no-recursive" "--depth 1 --follow" "--follow --depth 1"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$REPO_PARENT" $pair
+  [ "$STATUS" -eq 2 ] || fail "no-recursive/follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"clean.sh: --no-recursive conflicts with --follow"*) echo "ok: pair '$pair' rejected as a conflict" ;;
+    *) fail "pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+# Control: --no-recursive alone still discovers the fixture repo
+# (depth 1 matches the repo at the path itself).
+run --dry-run --path "$REPO_PARENT/repo1" --no-recursive
+[ "$STATUS" -eq 0 ] || fail "--no-recursive control (#1276) exited $STATUS (want 0, stderr: $ERR)"
+case "$OUT" in
+  *"1 repos"*) echo "ok: --no-recursive control discovers the fixture repo" ;;
+  *) fail "--no-recursive control did not report 1 repo (got: $OUT)" ;;
+esac
+# Control: --depth 2 --follow is not the conflicting pair and still runs.
+run --dry-run --path "$REPO_PARENT" --depth 2 --follow
+[ "$STATUS" -eq 0 ] || fail "--depth 2 --follow control (#1276) exited $STATUS (want 0, stderr: $ERR)"
+case "$OUT" in
+  *"1 repos"*) echo "ok: --depth 2 --follow control discovers the fixture repo" ;;
+  *) fail "--depth 2 --follow control did not report 1 repo (got: $OUT)" ;;
+esac
+
 # ─── Portable stat: BSD-stat shim regression (#1068) ──────────────────
 # clean.sh is a macOS tool, but three sites used GNU-only `stat -c`;
 # BSD stat rejects -c, 2>/dev/null swallowed it, and the values came
