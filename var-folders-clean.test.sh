@@ -163,6 +163,22 @@ if ! grep -qF "failed to enumerate: $enum_zz/zz" "$TMP_ROOT/err"; then fail "fin
 if [ -e "$enum_zz/aa" ]; then fail "find failure (zz): top-level sweep did not run"; fi
 if [ ! -e "$enum_zz/zz/keepme" ]; then fail "find failure (zz): zz contents were removed anyway"; fi
 
+# TMPDIR inside the swept root (Codex P1 on PR #1322): on the real
+# macOS layout the caller's TMPDIR lives under a top-level entry of
+# the root, so any enumeration state the script stores via mktemp
+# there is deleted by its own first pass and the zz pass then fails
+# spuriously. The sweep must not depend on TMPDIR at all: with
+# TMPDIR pointed inside the root, a normal sweep still exits 0 and
+# clears zz.
+tmpdir_root="$TMP_ROOT/tmpdirfolders"
+mkdir -p "$tmpdir_root/aa/user/T" "$tmpdir_root/zz"
+touch "$tmpdir_root/aa/user/T/scratch" "$tmpdir_root/zz/keepme"
+rc=0
+TMPDIR="$tmpdir_root/aa/user/T" bash "$HELPER" "$tmpdir_root" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || rc=$?
+if [ "$rc" -ne 0 ]; then fail "TMPDIR inside root: expected exit 0, got $rc"; fi
+if [ -e "$tmpdir_root/aa" ]; then fail "TMPDIR inside root: top-level entries were not swept"; fi
+if [ -e "$tmpdir_root/zz/keepme" ]; then fail "TMPDIR inside root: zz contents were not swept"; fi
+
 if [ "$failures" -eq 0 ]; then
   echo "PASS: /private/var/folders cleaning logic verified successfully."
 else
