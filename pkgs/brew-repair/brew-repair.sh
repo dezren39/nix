@@ -241,6 +241,10 @@ if [[ "$DRY_RUN" == true ]]; then
   done
   echo ""
   echo "Run without -n to fix these."
+  if [[ $UNCHECKED -gt 0 ]]; then
+    echo -e "\n${YELLOW}${BOLD}${UNCHECKED} cask(s) could not be verified (unknown to brew — may be renamed/removed); not declaring success.${NC}"
+    exit 1
+  fi
   exit 0
 fi
 
@@ -276,6 +280,11 @@ if [[ ${#FAILED_LIST[@]} -gt 0 ]]; then
   done
 fi
 
-if [[ $FAILED -gt 0 ]]; then
+if [[ $UNCHECKED -gt 0 ]]; then
+  echo ""
+  echo -e "${YELLOW}${BOLD}${UNCHECKED} cask(s) could not be verified (unknown to brew — may be renamed/removed); not declaring success.${NC}"
+fi
+
+if [[ $FAILED -gt 0 || $UNCHECKED -gt 0 ]]; then
   exit 1
 fi

@@ -12,6 +12,11 @@
 # Scenarios M-N cover #1156: a failed reinstall counted in FAILED used
 # to leave the exit status at 0; now any failed reinstall exits 1 while
 # an all-success reinstall run still exits 0.
+# Scenarios P-Q cover #1284: a mixed broken+unchecked run used to exit 0
+# in both dry-run and reinstall modes — the #926 unchecked guard only ran
+# when BROKEN==0, the dry-run branch exited 0 unconditionally, and the
+# reinstall verdict consulted only FAILED. Now UNCHECKED>0 exits 1 with a
+# could-not-be-verified statement in both modes.
 # Scenarios K–L cover #949: a failed `brew list` used to exit 0 printing
 # "No casks installed." (its status and stderr were lost in a process
 # substitution); now it names the step on stderr and exits 1, while a
@@ -229,6 +234,31 @@ rc_o2=$?
 grep -q -- "-s requires a cask name" "$TMP_ROOT/stderr" || fail "O: -s not named on stderr"
 [[ ! -s "$LOG" ]] || fail "O: brew was called at all for -s ''"
 [[ $failures -eq $start ]] && ok "O: --skip '' and -s '' exit 2, usage on stderr, zero brew calls"
+
+# ─── Scenario P (#1284): mixed broken+unchecked dry run exits 1 ───────────
+rm -rf "$FAKE_HOME/Applications/Alpha.app"
+start=$failures
+out_p="$(BREW_STUB_MODE=partial run_brew_repair -n)"
+rc_p=$?
+[[ $rc_p -eq 1 ]] || fail "P: expected exit 1, got $rc_p"
+grep -q "1 broken" <<<"$out_p" || fail "P: summary does not count alpha as broken"
+grep -q "1 unchecked" <<<"$out_p" || fail "P: summary does not count beta as unchecked"
+grep -q "brew reinstall --cask alpha" <<<"$out_p" || fail "P: alpha not listed as would-reinstall"
+grep -q "1 cask(s) could not be verified" <<<"$out_p" || fail "P: unverified-casks statement missing"
+[[ $(reinstall_count) -eq 0 ]] || fail "P: dry run reinstalled something"
+[[ $failures -eq $start ]] && ok "P: mixed broken+unchecked dry run exits 1, names the unverified count, no reinstall"
+
+# ─── Scenario Q (#1284): mixed broken+unchecked reinstall exits 1 ─────────
+start=$failures
+out_q="$(BREW_STUB_MODE=partial run_brew_repair)"
+rc_q=$?
+[[ $rc_q -eq 1 ]] || fail "Q: expected exit 1, got $rc_q"
+grep -q "1 unchecked" <<<"$out_q" || fail "Q: summary does not count beta as unchecked"
+grep -q "1 fixed" <<<"$out_q" || fail "Q: Results line does not show 1 fixed"
+grep -q "0 failed" <<<"$out_q" || fail "Q: Results line does not show 0 failed"
+grep -q "1 cask(s) could not be verified" <<<"$out_q" || fail "Q: unverified-casks statement missing"
+[[ $(reinstall_count) -eq 1 ]] || fail "Q: expected 1 reinstall attempt, got $(reinstall_count)"
+[[ $failures -eq $start ]] && ok "Q: mixed broken+unchecked reinstall exits 1 despite 1 fixed / 0 failed, names the unverified count"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures failure(s)" >&2
