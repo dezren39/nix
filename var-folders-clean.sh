@@ -11,7 +11,12 @@
 # (var-folders-clean.test.sh) exercises the shipped logic, not a copy.
 #
 # A deletion that fails is named on stderr and the script exits 1
-# once the rest of the sweep has run (#1262).
+# once the rest of the sweep has run (#1262). An enumeration that
+# fails is likewise named on stderr and exits 1 (#1321): the find
+# output is captured to a temp file first so its exit status is
+# actually checked — a process substitution's status is invisible
+# to the script, so a failed find used to run the loops zero times
+# and exit 0 with nothing (or only part) deleted.
 set -uo pipefail
 
 usage() {
@@ -38,19 +43,31 @@ folders="${1:?usage: var-folders-clean.sh <folders-root>}"
 
 failed=0
 if [ -d "$folders" ]; then
-  while IFS= read -r -d "" i; do
-    if [ "$(basename "$i")" != "zz" ] && ! rm -rf "$i" 2>/dev/null; then
-      failed=$((failed + 1))
-      echo "var-folders-clean.sh: failed to delete: $i" >&2
-    fi
-  done < <(find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
-  if [ -d "$folders/zz" ]; then
+  entries_file="$(mktemp)"
+  trap 'rm -f "$entries_file"' EXIT
+  if find "$folders" -mindepth 1 -maxdepth 1 -print0 2>/dev/null > "$entries_file"; then
     while IFS= read -r -d "" i; do
-      if ! rm -rf "$i" 2>/dev/null; then
+      if [ "$(basename "$i")" != "zz" ] && ! rm -rf "$i" 2>/dev/null; then
         failed=$((failed + 1))
         echo "var-folders-clean.sh: failed to delete: $i" >&2
       fi
-    done < <(find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+    done < "$entries_file"
+    if [ -d "$folders/zz" ]; then
+      if find "$folders/zz" -mindepth 1 -maxdepth 1 -print0 2>/dev/null > "$entries_file"; then
+        while IFS= read -r -d "" i; do
+          if ! rm -rf "$i" 2>/dev/null; then
+            failed=$((failed + 1))
+            echo "var-folders-clean.sh: failed to delete: $i" >&2
+          fi
+        done < "$entries_file"
+      else
+        failed=$((failed + 1))
+        echo "var-folders-clean.sh: failed to enumerate: $folders/zz" >&2
+      fi
+    fi
+  else
+    failed=$((failed + 1))
+    echo "var-folders-clean.sh: failed to enumerate: $folders" >&2
   fi
 fi
 if [ "$failed" -gt 0 ]; then
