@@ -16,6 +16,9 @@
 #                            extension still attempted
 #   last-line failure      -> non-zero exit, the failed extension named
 #   two failures           -> non-zero exit, both named, count is 2
+#   -h / --help (#1319)    -> usage on stdout, exit 0, zero installs
+#   any other argument     -> the argument named on stderr, usage on
+#                            stderr, exit 2, zero installs attempted
 #
 # Run: ./code-install-extensions.test.sh
 set -uo pipefail
@@ -68,6 +71,21 @@ run() { # run <fail-extensions> — sets OUT, ERR, STATUS, CALL_LOG
   ERR="$(cat "$TMP_ROOT/err")"
 }
 
+run_args() { # run_args <arg> -- sets OUT, ERR, STATUS, CALL_LOG
+  CALL_LOG="$TMP_ROOT/calls.log"
+  : >"$CALL_LOG"
+  OUT="$(FAIL_EXTENSIONS="" CODE_STUB_LOG="$CALL_LOG" PATH="$STUB_DIR:$PATH" bash "$SCRIPT" "$1" 2>"$TMP_ROOT/err")"; STATUS=$?
+  ERR="$(cat "$TMP_ROOT/err")"
+}
+
+check_no_attempts() { # check_no_attempts <label>
+  if [ ! -s "$CALL_LOG" ]; then
+    ok "$1: zero installs attempted"
+  else
+    fail "$1: installs were attempted for a non-install invocation"
+  fi
+}
+
 check_all_attempted() { # check_all_attempted <label>
   if [ "$(cat "$CALL_LOG")" = "$(cat "$EXPECTED_LOG")" ]; then
     ok "$1: all $EXPECTED_COUNT extensions attempted in order with --force"
@@ -113,6 +131,33 @@ case "$ERR" in
   *) fail "two failures: summary did not count/name both (got: $ERR)" ;;
 esac
 check_all_attempted "two failures"
+
+# ─── --help prints usage and installs nothing (#1319) ────────────────
+run_args --help
+[ "$STATUS" -eq 0 ] || fail "--help exited $STATUS (want 0, stderr: $ERR)"
+case "$OUT" in
+  *"Usage: code-install-extensions.sh"*) ok "--help: usage printed" ;;
+  *) fail "--help: usage missing from stdout (got: $OUT)" ;;
+esac
+check_no_attempts "--help"
+
+# ─── -h prints usage and installs nothing (#1319) ────────────────────
+run_args -h
+[ "$STATUS" -eq 0 ] || fail "-h exited $STATUS (want 0, stderr: $ERR)"
+case "$OUT" in
+  *"Usage: code-install-extensions.sh"*) ok "-h: usage printed" ;;
+  *) fail "-h: usage missing from stdout (got: $OUT)" ;;
+esac
+check_no_attempts "-h"
+
+# ─── Unknown argument is named, exits 2, installs nothing (#1319) ────
+run_args --bogus
+[ "$STATUS" -eq 2 ] || fail "unknown argument exited $STATUS (want 2, stderr: $ERR)"
+case "$ERR" in
+  *"unknown argument: --bogus"*"Usage: code-install-extensions.sh"*) ok "unknown argument: named on stderr with usage" ;;
+  *) fail "unknown argument: not named with usage on stderr (got: $ERR)" ;;
+esac
+check_no_attempts "unknown argument"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures code-install-extensions check(s) failed" >&2

@@ -12,6 +12,23 @@
 # The summary after the list names and counts any failures and exits
 # non-zero when there were any.
 
+usage() {
+    echo "Usage: code-install-extensions.sh"
+}
+
+# This script takes no arguments (#1319): any argument was silently
+# ignored and all 691 installs ran with exit 0 -- so --help and
+# --dry-run installed instead of printing usage / doing nothing.
+# Reject the first argument by name, with usage on stderr and exit 2,
+# before any install -- the house argument contract (#1145 rules 1
+# and 8). -h/--help prints usage and exits 0.
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        *) echo "code-install-extensions: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+fi
+
 attempted_extensions=0
 failed_extensions=()
 
