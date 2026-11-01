@@ -354,6 +354,7 @@ if [ "$(id -u)" -ne 0 ]; then
   printf 'NIX_KEEP_DAYS=%s\n' "${NIX_KEEP_DAYS:-unset}"
   printf 'PYTEST_KEEP_HOURS=%s\n' "${PYTEST_KEEP_HOURS:-unset}"
   printf 'VSCODE_PRUNE_HEAVY=%s\n' "${VSCODE_PRUNE_HEAVY:-unset}"
+  printf 'PRUNE_UNKNOWN_SCRATCH=%s\n' "${PRUNE_UNKNOWN_SCRATCH:-unset}"
 } >> "$SUDO_STUB_LOG"
 exit 0
 STUB_EOF
@@ -410,6 +411,57 @@ STUB_EOF
       *) fail "$_tunable missing from --preserve-env (args: $_args_line)" ;;
     esac
   done
+  # CLI flags survive the same re-exec (#1313): the parser consumed
+  # "$@" before the privilege block, so the root run re-parsed an empty
+  # argument list and silently widened a scoped run (one target,
+  # --no-system, no git maintenance) to the default full-machine run.
+  # clean.sh now captures the original arguments before parsing and
+  # re-passes them; the stub's args line must show every flag below.
+  : > "$SUDO_STUB_LOG"
+  OLD_PATH="$PATH"
+  PATH="$sudo_stub_dir:$PATH"
+  run --no-system --path "$VALID" --depth 2 --follow --no-git-maintenance --quick --prune-unknown-scratch
+  PATH="$OLD_PATH"
+  [ "$STATUS" -eq 0 ] || fail "flag-survival sudo re-exec exited $STATUS (want 0, stderr: $ERR)"
+  _args_line="$(grep '^args:' "$SUDO_STUB_LOG")"
+  for _flag in "--no-system" "--path $VALID" "--depth 2" "--follow" "--no-git-maintenance" "--quick" "--prune-unknown-scratch"; do
+    case "$_args_line" in
+      *"$_flag"*) echo "ok: $_flag reaches the sudo re-exec" ;;
+      *) fail "$_flag missing from the sudo re-exec (args: $_args_line)" ;;
+    esac
+  done
+  unset _flag _args_line
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"PRUNE_UNKNOWN_SCRATCH=1"*) echo "ok: PRUNE_UNKNOWN_SCRATCH=1 carried into the sudo re-exec" ;;
+    *) fail "PRUNE_UNKNOWN_SCRATCH did not reach the sudo re-exec (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  _args_line="$(grep '^args:' "$SUDO_STUB_LOG")"
+  case "$_args_line" in
+    *",PRUNE_UNKNOWN_SCRATCH,"*) echo "ok: PRUNE_UNKNOWN_SCRATCH named in --preserve-env" ;;
+    *) fail "PRUNE_UNKNOWN_SCRATCH missing from --preserve-env (args: $_args_line)" ;;
+  esac
+  unset _args_line
+  # A positional target survives too (same empty-"$@" mechanism).
+  : > "$SUDO_STUB_LOG"
+  OLD_PATH="$PATH"
+  PATH="$sudo_stub_dir:$PATH"
+  run "$VALID"
+  PATH="$OLD_PATH"
+  [ "$STATUS" -eq 0 ] || fail "positional-target sudo re-exec exited $STATUS (want 0, stderr: $ERR)"
+  case "$(grep '^args:' "$SUDO_STUB_LOG")" in
+    *" $VALID") echo "ok: positional target reaches the sudo re-exec" ;;
+    *) fail "positional target missing from the sudo re-exec (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  # --sudo --dry-run is a true no-op (#1313): it must never invoke sudo
+  # at all -- the old code re-executed with DRY_RUN reset to 0, a real
+  # writing run as root despite the no-op message.
+  : > "$SUDO_STUB_LOG"
+  OLD_PATH="$PATH"
+  PATH="$sudo_stub_dir:$PATH"
+  run --sudo --dry-run
+  PATH="$OLD_PATH"
+  [ "$STATUS" -eq 0 ] || fail "--sudo --dry-run exited $STATUS (want 0, stderr: $ERR)"
+  [ ! -s "$SUDO_STUB_LOG" ] && echo "ok: --sudo --dry-run never invokes sudo" || fail "--sudo --dry-run invoked sudo (stub log: $(cat "$SUDO_STUB_LOG"))"
   unset _tunable _args_line
   unset SUDO_STUB_LOG
 else

@@ -218,6 +218,13 @@ TUNABLES (environment)
 EOF
 }
 
+# The parser below consumes "$@" (shift in the loop), so capture the
+# original arguments first: the privilege block re-executes "$0" with
+# these, so the root run re-parses the user's full CLI intent (#1313).
+# Mirroring every parser-set variable into the carried env instead
+# silently lost each flag nobody had mirrored yet.
+ORIGINAL_ARGS=("$@")
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --auto)           AUTO_SET=1 ;;
@@ -446,10 +453,17 @@ if [ "$EUID" -ne 0 ]; then
     info "no-sudo: staying unprivileged; root-owned paths will be skipped"
     export CALLER_USER_HOME="$(realpath ~)"
   else
+    # --sudo --dry-run is a no-op (see the message printed above): never
+    # re-exec, and never run the pre-sudo brew cleanup below -- both
+    # write. Exit before either happens (#1313).
+    if [ "$DRY_RUN" = "1" ]; then
+      info "sudo dry-run: staying unprivileged; no re-exec, nothing is written"
+      exit 0
+    fi
     # --only-tmpdir is an isolated mode: skip the unrelated pre-sudo brew
     # maintenance, and carry ONLY_TMPDIR through the re-exec below (the
-    # parser has consumed "$@" by then, so the env seam is the only way
-    # the privileged invocation learns it must run just the sweep).
+    # original arguments are re-passed there, and the env seam also
+    # carries the env-set form the privileged invocation must learn).
     if [ "$DO_CACHES" = "1" ] && [ "$ONLY_TMPDIR" != "1" ]; then brew_cleanup; fi
     CALLER_USER_HOME="$(realpath ~)" DISK_FREE_START="$DISK_FREE_START" \
       ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}" LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}" \
@@ -469,10 +483,10 @@ if [ "$EUID" -ne 0 ]; then
       UNKNOWN_SCRATCH_MIN_MB="$UNKNOWN_SCRATCH_MIN_MB" \
       UNKNOWN_SCRATCH_STALE_DAYS="$UNKNOWN_SCRATCH_STALE_DAYS" \
       VSCODE_PRUNE_HEAVY="${VSCODE_PRUNE_HEAVY:-0}" \
-      CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" DOCKER_AGE_DAYS="$DOCKER_AGE_DAYS" ONLY_TMPDIR="$ONLY_TMPDIR" \
+      CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" DOCKER_AGE_DAYS="$DOCKER_AGE_DAYS" ONLY_TMPDIR="$ONLY_TMPDIR" PRUNE_UNKNOWN_SCRATCH="$PRUNE_UNKNOWN_SCRATCH" ONLY_UNKNOWN_SCRATCH="$ONLY_UNKNOWN_SCRATCH" \
       CLEAN_OPENCODE_ROOT="$CLEAN_OPENCODE_ROOT" VAR_FOLDERS_ROOT="$VAR_FOLDERS_ROOT" \
-      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,COLIMA_STOPPED_STALE_DAYS,OPENCODE_TMP_STALE_DAYS,OPENCODE_WORKTREE_STALE_DAYS,OPENCODE_ROOT_STALE_DAYS,OPENCODE_TIDY_PROTECT_DAYS,OPENCODE_TIDY_LARGE_MB,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS,CLEAN_OPENCODE_ROOT,VAR_FOLDERS_ROOT,ONLY_TMPDIR,NIX_KEEP_DAYS,NIX_KEEP_GENS,SHORT_SCRATCH_STALE_HOURS,PG_SCRATCH_STALE_HOURS,ACTIVE_ARTIFACT_STALE_HOURS,PYTEST_KEEP_HOURS,UNKNOWN_SCRATCH_MIN_MB,UNKNOWN_SCRATCH_STALE_DAYS,VSCODE_PRUNE_HEAVY \
-        "$0" "$@"
+      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,COLIMA_STOPPED_STALE_DAYS,OPENCODE_TMP_STALE_DAYS,OPENCODE_WORKTREE_STALE_DAYS,OPENCODE_ROOT_STALE_DAYS,OPENCODE_TIDY_PROTECT_DAYS,OPENCODE_TIDY_LARGE_MB,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS,CLEAN_OPENCODE_ROOT,VAR_FOLDERS_ROOT,ONLY_TMPDIR,PRUNE_UNKNOWN_SCRATCH,ONLY_UNKNOWN_SCRATCH,NIX_KEEP_DAYS,NIX_KEEP_GENS,SHORT_SCRATCH_STALE_HOURS,PG_SCRATCH_STALE_HOURS,ACTIVE_ARTIFACT_STALE_HOURS,PYTEST_KEEP_HOURS,UNKNOWN_SCRATCH_MIN_MB,UNKNOWN_SCRATCH_STALE_DAYS,VSCODE_PRUNE_HEAVY \
+        "$0" "${ORIGINAL_ARGS[@]}"
     exit $?
   fi
 fi
