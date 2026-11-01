@@ -894,11 +894,11 @@ rec {
               src = inputs.self;
             }
             ''
-              cp $src/clean.sh $src/clean.test.sh $src/git-discover-repos ./
+              cp $src/clean.sh $src/clean.test.sh $src/git-discover-repos $src/var-folders-clean.sh ./
               mkdir -p lib
               cp $src/lib/common.sh lib/
               cp $src/lib/arg-probe.sh lib/
-              chmod u+w ./clean.sh ./clean.test.sh ./git-discover-repos
+              chmod u+w ./clean.sh ./clean.test.sh ./git-discover-repos ./var-folders-clean.sh
               patchShebangs ./git-discover-repos
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"

@@ -278,6 +278,106 @@ for mode in bsd gnu; do
   [ -e "$PTDIR/pytest-current" ] || fail "pytest guard ($mode stat): pytest-current dangling after the run"
 done
 
+# ─── --tmpdir sweep failure surfaces in clean.sh's result (#1270) ──
+# var-folders-clean.sh exits 1 naming failed deletions (#1262), but
+# clean.sh used to call it bare (no set -e anywhere), so a partially
+# failed --tmpdir sweep still ended at exit 0. Drive the REAL sweep
+# through the VAR_FOLDERS_ROOT seam with the #1262 rm shim (one
+# entry, aa, fails regardless of the suite's privileges): clean.sh
+# must exit non-zero, name the sweep as failed, leave aa in place, and
+# still sweep the rest. The success control must exit 0.
+# The runs use --only-tmpdir, NOT --system --tmpdir: HALF 1 does real
+# host cleanup (absolute-path brew, /Library/Caches/Homebrew, Trash)
+# before it reaches the sweep, so a --system run would delete host
+# data merely by running this suite on a developer machine.
+# --only-tmpdir runs just the shared sweep and exits with its result.
+vf="$TMP_ROOT/varfolders"
+mkdir -p "$vf/aa" "$vf/bb" "$vf/zz"
+touch "$vf/aa/file" "$vf/zz/file2"
+shim_dir="$TMP_ROOT/rm-shim"
+mkdir -p "$shim_dir"
+real_rm="$(command -v rm)"
+cat > "$shim_dir/rm" <<SHIM_EOF
+#!$(command -v bash)
+for arg in "\$@"; do
+  case "\$arg" in
+    */aa) echo "rm: cannot remove (shimmed failure)" >&2; exit 1 ;;
+  esac
+done
+exec $real_rm "\$@"
+SHIM_EOF
+chmod +x "$shim_dir/rm"
+OLD_PATH="$PATH"
+export VAR_FOLDERS_ROOT="$vf"
+PATH="$shim_dir:$PATH"
+run --only-tmpdir --no-sudo
+PATH="$OLD_PATH"
+[ "$STATUS" -ne 0 ] || fail "--tmpdir with a failing deletion exited $STATUS (want non-zero)"
+case "$ERR" in
+  *"/private/var/folders sweep failed"*) echo "ok: --tmpdir failure named the sweep as failed" ;;
+  *) fail "--tmpdir failure did not name the sweep on stderr (got: $ERR)" ;;
+esac
+[ -e "$vf/aa/file" ] && echo "ok: shimmed entry left in place" || fail "shimmed entry was removed anyway"
+[ ! -e "$vf/bb" ] && [ ! -e "$vf/zz/file2" ] && echo "ok: rest of the sweep still ran" || fail "sweep stopped at the failure"
+# Success control: same path, no shim -- everything swept, exit 0.
+vf2="$TMP_ROOT/varfolders-ok"
+mkdir -p "$vf2/aa" "$vf2/zz"
+touch "$vf2/aa/file" "$vf2/zz/file2"
+OLD_PATH="$PATH"
+export VAR_FOLDERS_ROOT="$vf2"
+run --only-tmpdir --no-sudo
+PATH="$OLD_PATH"
+unset VAR_FOLDERS_ROOT
+[ "$STATUS" -eq 0 ] || fail "--tmpdir success control exited $STATUS (want 0, stderr: $ERR)"
+[ ! -e "$vf2/aa" ] && [ ! -e "$vf2/zz/file2" ] && echo "ok: success control swept the fixture" || fail "success control did not sweep the fixture"
+
+# ─── --only-tmpdir survives the privilege re-exec (Codex P1 on #1273) ──
+# The parser consumes "$@" before the privilege block, and ONLY_TMPDIR
+# was neither skipped past brew_cleanup nor carried into the sudo
+# re-exec -- so a non-root \`clean.sh --only-tmpdir\` (no --no-sudo) ran
+# brew maintenance, then re-executed WITHOUT the flag and performed the
+# default full cleanup instead of just the sweep. Stub sudo: it records
+# its argv + the ONLY_TMPDIR it was handed and exits 0 without running
+# anything, so this is safe anywhere; as root the privilege block is
+# skipped entirely and so is this section.
+if [ "$(id -u)" -ne 0 ]; then
+  sudo_stub_dir="$TMP_ROOT/sudo-stub"
+  mkdir -p "$sudo_stub_dir"
+  export SUDO_STUB_LOG="$TMP_ROOT/sudo-stub.log"
+  : > "$SUDO_STUB_LOG"
+  {
+    printf '#!%s\n' "$(command -v bash)"
+    cat <<'STUB_EOF'
+{
+  printf 'args: %s\n' "$*"
+  printf 'ONLY_TMPDIR=%s\n' "${ONLY_TMPDIR:-unset}"
+} >> "$SUDO_STUB_LOG"
+exit 0
+STUB_EOF
+  } > "$sudo_stub_dir/sudo"
+  chmod +x "$sudo_stub_dir/sudo"
+  OLD_PATH="$PATH"
+  PATH="$sudo_stub_dir:$PATH"
+  run --only-tmpdir
+  PATH="$OLD_PATH"
+  [ "$STATUS" -eq 0 ] || fail "--only-tmpdir sudo re-exec exited $STATUS (want 0, stderr: $ERR)"
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"ONLY_TMPDIR=1"*) echo "ok: --only-tmpdir carried into the sudo re-exec" ;;
+    *) fail "--only-tmpdir did not reach the sudo re-exec (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  case "$(cat "$SUDO_STUB_LOG")" in
+    *"--preserve-env="*ONLY_TMPDIR*) echo "ok: ONLY_TMPDIR named in --preserve-env" ;;
+    *) fail "ONLY_TMPDIR missing from --preserve-env (stub log: $(cat "$SUDO_STUB_LOG"))" ;;
+  esac
+  case "$OUT" in
+    *"brew cleanup"*) fail "--only-tmpdir ran pre-sudo brew cleanup" ;;
+    *) echo "ok: --only-tmpdir skipped pre-sudo brew cleanup" ;;
+  esac
+  unset SUDO_STUB_LOG
+else
+  echo "skip: --only-tmpdir re-exec test needs a non-root runner"
+fi
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for clean.sh, driven through lib/arg-probe.sh (the
 # same helper every discovery suite uses): unknown, missing/flag-shaped

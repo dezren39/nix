@@ -44,6 +44,8 @@ MAINT_DEPTH="--deep"
 REPO_FLAGS_USED=""
 USE_SUDO=""          # empty = decide from --dry-run
 CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
+VAR_FOLDERS_ROOT="${VAR_FOLDERS_ROOT:-/private/var/folders}" # the --tmpdir sweep's root (env seam so tests can point it at a fixture)
+TMPDIR_SWEEP_FAILED=0   # set at the --tmpdir call site when var-folders-clean.sh reports deletion failures (#1270)
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
 DOCKER_AGE_DAYS="${DOCKER_AGE_DAYS:-}"  # set = age-scoped docker prune, VM preserved
 PRUNE_UNKNOWN_SCRATCH="${PRUNE_UNKNOWN_SCRATCH:-0}" # opt-in: delete, not just flag, the name-blind catch-all
@@ -54,6 +56,13 @@ UNKNOWN_SCRATCH_STALE_DAYS="${UNKNOWN_SCRATCH_STALE_DAYS:-7}"
 # or without --prune-unknown-scratch) without paying for docker/brew/git
 # maintenance/etc. first.
 ONLY_UNKNOWN_SCRATCH="${ONLY_UNKNOWN_SCRATCH:-0}"
+# --only-tmpdir: skip everything else in the script and just run the
+# /private/var/folders sweep (run_tmpdir_sweep below), then exit with
+# its result. The isolated form of --tmpdir, for trying the sweep (or
+# driving it from tests) without paying for HALF 1's docker/brew/git
+# maintenance first -- a plain `--system --tmpdir` test run would do
+# real host cleanup outside any fixture before reaching the sweep.
+ONLY_TMPDIR="${ONLY_TMPDIR:-0}"
 # Collects every name-blind catch-all hit (flagged or, with
 # --prune-unknown-scratch, deleted) for the report printed at the very end.
 # A plain array, not a file: this runs once per invocation, in one process,
@@ -137,6 +146,12 @@ OPT-IN DESTRUCTION (both off by default; measured as not worth their risk)
                     no sudo prompt (nothing it touches is root-owned),
                     combine with --dry-run or --prune-unknown-scratch the
                     same as a full run.
+  --only-tmpdir     Run JUST the /private/var/folders sweep above, then
+                    exit with its result (non-zero when the sweep reports
+                    deletion failures) -- everything else in this script
+                    is skipped. The isolated form of --tmpdir: no HALF 1
+                    system cleanup runs first, so it is safe to point at
+                    a fixture (see VAR_FOLDERS_ROOT) from tests.
 
 TUNABLES (environment)
   (validated at startup: a non-integer value — or 0 where 0 is not
@@ -221,6 +236,7 @@ while [ $# -gt 0 ]; do
     --opencode-root-scratch) CLEAN_OPENCODE_ROOT=1 ;;
     --prune-unknown-scratch) PRUNE_UNKNOWN_SCRATCH=1 ;;
     --only-unknown-scratch) ONLY_UNKNOWN_SCRATCH=1 ;;
+    --only-tmpdir)    ONLY_TMPDIR=1 ;;
     --no-sudo)        USE_SUDO=0 ;;
     --no-git-maintenance|--no-maintenance|--no-git) DO_MAINTENANCE=0 ;;
     --quick)          MAINT_DEPTH="--quick" ;;
@@ -417,7 +433,11 @@ if [ "$EUID" -ne 0 ]; then
     info "no-sudo: staying unprivileged; root-owned paths will be skipped"
     export CALLER_USER_HOME="$(realpath ~)"
   else
-    if [ "$DO_CACHES" = "1" ]; then brew_cleanup; fi
+    # --only-tmpdir is an isolated mode: skip the unrelated pre-sudo brew
+    # maintenance, and carry ONLY_TMPDIR through the re-exec below (the
+    # parser has consumed "$@" by then, so the env seam is the only way
+    # the privileged invocation learns it must run just the sweep).
+    if [ "$DO_CACHES" = "1" ] && [ "$ONLY_TMPDIR" != "1" ]; then brew_cleanup; fi
     CALLER_USER_HOME="$(realpath ~)" DISK_FREE_START="$DISK_FREE_START" \
       ARTIFACT_STALE_DAYS="${ARTIFACT_STALE_DAYS:-1}" LOG_STALE_DAYS="${LOG_STALE_DAYS:-0}" \
       CACHE_STALE_DAYS="${CACHE_STALE_DAYS:-3}" \
@@ -428,9 +448,9 @@ if [ "$EUID" -ne 0 ]; then
       OPENCODE_ROOT_STALE_DAYS="${OPENCODE_ROOT_STALE_DAYS:-7}" \
       OPENCODE_TIDY_PROTECT_DAYS="${OPENCODE_TIDY_PROTECT_DAYS:-1}" \
       OPENCODE_TIDY_LARGE_MB="${OPENCODE_TIDY_LARGE_MB:-200}" \
-      CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" DOCKER_AGE_DAYS="$DOCKER_AGE_DAYS" \
-      CLEAN_OPENCODE_ROOT="$CLEAN_OPENCODE_ROOT" \
-      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,COLIMA_STOPPED_STALE_DAYS,OPENCODE_TMP_STALE_DAYS,OPENCODE_WORKTREE_STALE_DAYS,OPENCODE_ROOT_STALE_DAYS,OPENCODE_TIDY_PROTECT_DAYS,OPENCODE_TIDY_LARGE_MB,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS,CLEAN_OPENCODE_ROOT \
+      CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" DOCKER_AGE_DAYS="$DOCKER_AGE_DAYS" ONLY_TMPDIR="$ONLY_TMPDIR" \
+      CLEAN_OPENCODE_ROOT="$CLEAN_OPENCODE_ROOT" VAR_FOLDERS_ROOT="$VAR_FOLDERS_ROOT" \
+      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,COLIMA_STOPPED_STALE_DAYS,OPENCODE_TMP_STALE_DAYS,OPENCODE_WORKTREE_STALE_DAYS,OPENCODE_ROOT_STALE_DAYS,OPENCODE_TIDY_PROTECT_DAYS,OPENCODE_TIDY_LARGE_MB,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS,CLEAN_OPENCODE_ROOT,VAR_FOLDERS_ROOT,ONLY_TMPDIR \
         "$0" "$@"
     exit $?
   fi
@@ -570,6 +590,20 @@ print_unknown_scratch_report() {
   done
 }
 
+# The --tmpdir sweep itself, shared by HALF 1 and --only-tmpdir: the
+# sweep lives in var-folders-clean.sh so its test
+# (var-folders-clean.test.sh, run by the flake check) exercises the
+# shipped logic instead of a pasted copy (#557). The helper exits 1
+# naming any deletions that failed (#1262); that signal must not die at
+# this, its only, call site (#1270): warn now and remember the failure
+# in TMPDIR_SWEEP_FAILED -- the caller decides when the run exits
+# non-zero (HALF 1: at the very end, after the remaining sweeps and the
+# final report; --only-tmpdir: immediately).
+run_tmpdir_sweep() {
+  bash "$SELF_DIR/var-folders-clean.sh" "$VAR_FOLDERS_ROOT" \
+    || { TMPDIR_SWEEP_FAILED=1; warn "/private/var/folders sweep failed: var-folders-clean.sh could not delete everything (see above)"; }
+}
+
 if [ "$ONLY_UNKNOWN_SCRATCH" = "1" ]; then
   echo "🗒️  --only-unknown-scratch: running just the name-blind catch-all"
   sweep_unknown_large_scratch "$CALLER_USER_HOME/.local/share/opencode/tmp"
@@ -582,6 +616,17 @@ if [ "$ONLY_UNKNOWN_SCRATCH" = "1" ]; then
   else
     print_unknown_scratch_report
   fi
+  exit 0
+fi
+
+if [ "$ONLY_TMPDIR" = "1" ]; then
+  echo "🧻 --only-tmpdir: running just the /private/var/folders sweep"
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  would clear /private/var/folders (keeping zz)"
+    exit 0
+  fi
+  run_tmpdir_sweep
+  [ "$TMPDIR_SWEEP_FAILED" = "1" ] && exit 1
   exit 0
 fi
 
@@ -1262,10 +1307,10 @@ if [ "$CLEAN_TMPDIR" != "1" ]; then
 elif [ "$DRY_RUN" = "1" ]; then
   echo "  would clear /private/var/folders (keeping zz)"
 else
-  # The sweep itself lives in var-folders-clean.sh so its test
-  # (var-folders-clean.test.sh, run by the flake check) exercises the
-  # shipped logic instead of a pasted copy (#557).
-  bash "$SELF_DIR/var-folders-clean.sh" /private/var/folders
+  # Shared with --only-tmpdir (see run_tmpdir_sweep above): a failure
+  # here is remembered and the run exits non-zero at the very end,
+  # once the remaining sweeps and the final report have run (#1270).
+  run_tmpdir_sweep
 fi
 
 del "$CALLER_USER_HOME/.Trash/"* "$ROOT_HOME/.Trash/"*
@@ -1990,3 +2035,12 @@ else echo "⚠️  No net disk reclaimed ($(human_size $(( -RECLAIMED ))) more u
 # just got deleted (size/dates captured before the delete, since the path is
 # gone by the time this prints).
 print_unknown_scratch_report
+
+# A failed --tmpdir sweep fails the run (#1270): var-folders-clean.sh's
+# exit-1 signal is captured at its call site above (TMPDIR_SWEEP_FAILED)
+# and lands here, after every other sweep and the final report, so a
+# partially failed sweep no longer ends at exit 0.
+if [ "$TMPDIR_SWEEP_FAILED" = "1" ]; then
+  warn "/private/var/folders sweep failed -- clean.sh exiting non-zero"
+  exit 1
+fi
