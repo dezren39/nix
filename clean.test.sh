@@ -377,6 +377,43 @@ STUB_EOF
 else
   echo "skip: --only-tmpdir re-exec test needs a non-root runner"
 fi
+# ─── Depth-1 + --follow rejected; discovery failure is loud (#1276) ──
+# clean.sh was the one discovery wrapper #1268 left behind: it accepted
+# --no-recursive --follow (and --depth 1 --follow), forwarded the pair to
+# git-discover-repos, which rejects it at exit 2 -- and then discarded
+# discover's stderr, warned generically, and completed the sweep on an
+# empty discovery set at exit 0. Both spellings, in either order, must
+# now exit 2 at parse time naming the pair. A discovery failure for any
+# other reason (here: a nonexistent --path, which discover exits 1 on)
+# must surface discover's stderr and exit non-zero instead. The
+# controls -- --no-recursive alone discovering normally, and
+# --depth 2 --follow parsing -- are unchanged.
+for pair in "--no-recursive --follow" "--follow --no-recursive" "--depth 1 --follow" "--follow --depth 1"; do
+  # shellcheck disable=SC2086
+  run --dry-run --path "$VALID" $pair
+  [ "$STATUS" -eq 2 ] || fail "depth-1/follow pair '$pair' exited $STATUS (want 2)"
+  case "$ERR" in
+    *"clean.sh: --no-recursive conflicts with --follow"*) echo "ok: pair '$pair' rejected as a conflict" ;;
+    *) fail "pair '$pair' was not named as a conflict on stderr (got: $ERR)" ;;
+  esac
+done
+run --dry-run --path "$TMP_ROOT/no-such-dir"
+[ "$STATUS" -ne 0 ] || fail "discovery failure (nonexistent --path) exited 0 (want non-zero)"
+case "$ERR" in
+  *"git-discover-repos failed with exit 1"*"not a directory"*) echo "ok: discovery failure surfaced discover stderr and exited $STATUS" ;;
+  *) fail "discovery failure did not surface discover stderr (got: $ERR)" ;;
+esac
+FIXTURE_REPO="$TMP_ROOT/disc/repo1"
+mkdir -p "$FIXTURE_REPO/.git"
+run --dry-run --path "$FIXTURE_REPO" --no-recursive
+[ "$STATUS" -eq 0 ] || fail "--no-recursive control exited $STATUS (stderr: $ERR)"
+case "$OUT" in
+  *"1 repos, 0 worktrees"*) echo "ok: --no-recursive control reports 1 repo" ;;
+  *) fail "--no-recursive control output changed (got: $OUT)" ;;
+esac
+run --path "$VALID" --depth 2 --follow --only-unknown-scratch
+[ "$STATUS" -eq 0 ] || fail "--depth 2 --follow control exited $STATUS (stderr: $ERR)"
+echo "ok: --depth 2 --follow still accepted"
 
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for clean.sh, driven through lib/arg-probe.sh (the
