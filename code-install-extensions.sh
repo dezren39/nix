@@ -1,3 +1,29 @@
+#!/usr/bin/env bash
+# code-install-extensions.sh — install the VS Code extensions listed in
+# config.toml (the source-of-truth list, ARCHITECTURE.md).
+#
+# The `code --install-extension <id> --force` lines below are the list
+# itself and are intentionally left bare: the `code` function defined
+# here shadows the `code` binary for those lines, records every
+# failure, and lets every remaining line run, so one failed install
+# never aborts the rest and never hides behind a later line's success
+# (#1287: previously the script's exit status was the last line's
+# alone, so a failed install exited 0 unless it happened to be last).
+# The summary after the list names and counts any failures and exits
+# non-zero when there were any.
+
+attempted_extensions=0
+failed_extensions=()
+
+code() {
+  attempted_extensions=$((attempted_extensions + 1))
+  if ! command code "$@"; then
+    # Calls in this script are `code --install-extension <id> --force`,
+    # so $2 is the extension id.
+    failed_extensions+=("${2:-unknown}")
+  fi
+}
+
 code --install-extension vscode.bat --force
 code --install-extension vscode.builtin-notebook-renderers --force
 code --install-extension vscode.clojure --force
@@ -689,3 +715,11 @@ code --install-extension zhangyue.rust-mod-generator --force
 code --install-extension zignd.html-css-class-completion --force
 code --install-extension ziyasal.vscode-open-in-github --force
 code --install-extension zxh404.vscode-proto3 --force
+
+# ─── Summary ─────────────────────────────────────────────────────────
+if [ "${#failed_extensions[@]}" -gt 0 ]; then
+  echo "code-install-extensions.sh: ${#failed_extensions[@]} of $attempted_extensions extension(s) failed to install:" >&2
+  printf '  failed: %s\n' "${failed_extensions[@]}" >&2
+  exit 1
+fi
+echo "code-install-extensions.sh: all $attempted_extensions extensions installed successfully"

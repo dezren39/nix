@@ -1116,6 +1116,33 @@ rec {
               bash ./brew-repair.test.sh
               touch $out
             '';
+        # #1287: code-install-extensions.test.sh drives the real
+        # code-install-extensions.sh with a stub `code` — a failed
+        # install used to exit 0 unless it was the script's last line,
+        # so the all-succeed, middle-failure, last-line-failure, and
+        # two-failure shapes (exit status, failure summary naming and
+        # counting the failures, and every extension still attempted
+        # in order) cannot regress silently.
+        code-install-extensions-tests =
+          pkgs.runCommandLocal "code-install-extensions-tests"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gnugrep
+                pkgs.gnused
+                pkgs.gawk
+              ];
+            }
+            ''
+              cp ${./code-install-extensions.sh} code-install-extensions.sh
+              cp ${./code-install-extensions.test.sh} code-install-extensions.test.sh
+              chmod u+w code-install-extensions.sh code-install-extensions.test.sh
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              bash ./code-install-extensions.test.sh
+              touch $out
+            '';
         # #478: archive/skills/plannotator-setup-goal/SKILL.test.ts (the
         # repo's only *.test.ts suite) was run by nothing — no check,
         # workflow, or recipe referenced it, unlike the flake-tidy,
