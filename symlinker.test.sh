@@ -29,6 +29,11 @@
 #          cumulative FILTER_* array, so a repeated flag with no values
 #          (--exact foo --exact) passed silently; the guard now compares
 #          against the count before that occurrence consumed values.
+#   #1274 — --backup-suffix accepted a value containing '/', but the
+#          suffix is spliced onto the conflict path, so a slash suffix
+#          moved --force backups outside the output dir (and aimed the
+#          --skip-backup rm -rf there too). It is now rejected at parse
+#          time. Scenario K pins this.
 # This drives the REAL symlinker.sh (no pasted copies) against temp dirs.
 # The #886 scenario stubs `date` so every invocation lands in the same
 # "second" deterministically.
@@ -355,6 +360,43 @@ j_expect_error "empty --regex errors" "--regex requires a non-empty value" --reg
 j_expect_error "empty --match errors" "--match requires a non-empty value" --match ''
 j_expect_error "empty value after a real --prefix value errors" "--prefix/--starts-with requires a non-empty value" --prefix f ''
 check "J: rejected empty filters wrote no links" test -z "$(ls -A "$J/out")"
+
+# ─── Scenario K (#1274): slash in --backup-suffix rejected at parse time ──
+# The suffix is concatenated onto the conflict path (bak="${lnk}<suffix>")
+# and handed to mv (and, with --skip-backup, to rm -rf), so '/../x' used
+# to move the backup outside the output dir at exit 0. Any '/' in the
+# value must fail at parse time, before any work: error naming the
+# option, exit 1, no symlink created, conflict untouched. A normal
+# suffix (.old) must still back up alongside the link as today.
+K="$TMP_ROOT/k"; mkdir -p "$K/in/tool" "$K/out/tool" "$K/cache"
+printf 'original\n' > "$K/out/tool/keep.txt"
+printf 'new\n' > "$K/in/tool/new.txt"
+k_run() { XDG_CACHE_HOME="$K/cache" bash "$SCRIPT" --input-dir "$K/in" --output-dir "$K/out" --force --yes "$@" >"$K/log" 2>"$K/err"; }
+if k_run --backup-suffix '/../x'; then
+  fail "K: slash --backup-suffix should exit 1, got 0"
+elif grep -qF "Error: --backup-suffix must not contain '/'" "$K/err"; then
+  echo "ok: K: slash --backup-suffix rejected at parse time naming the option"
+else
+  fail "K: slash --backup-suffix — expected parse error naming --backup-suffix, got: $(cat "$K/err")"
+fi
+check "K: rejected run created no symlink" test ! -L "$K/out/tool"
+check "K: rejected run left the conflict dir in place" test -d "$K/out/tool"
+check "K: rejected run left conflict contents untouched" grep -qx original "$K/out/tool/keep.txt"
+[[ ! -e "$TMP_ROOT/x" && ! -e "$K/x" ]] || fail "K: rejected run created an escaped backup path"
+if k_run --backup-suffix '/../../escape/moved'; then
+  fail "K: multi-step slash --backup-suffix should exit 1, got 0"
+else
+  echo "ok: K: multi-step slash --backup-suffix also rejected"
+fi
+check "K: conflict still untouched after second rejection" grep -qx original "$K/out/tool/keep.txt"
+if k_run --backup-suffix .old; then
+  echo "ok: K: normal --backup-suffix .old run passes"
+else
+  fail "K: normal --backup-suffix .old should pass: $(cat "$K/err") $(cat "$K/log")"
+fi
+check "K: normal suffix created the symlink" test -L "$K/out/tool"
+check "K: normal suffix backed up alongside the link" test -d "$K/out/tool.old"
+check "K: normal suffix backup kept the conflict contents" grep -qx original "$K/out/tool.old/keep.txt"
 
 if (( failures > 0 )); then
   echo "symlinker tests: $failures failure(s)" >&2

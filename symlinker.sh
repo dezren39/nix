@@ -207,6 +207,7 @@ while [[ $# -gt 0 ]]; do
     --backup-suffix)
       [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --backup-suffix requires a value" >&2; exit 1; }
       [[ "$BACKUP_SUFFIX_SET" -eq 0 ]] || { echo "Error: --backup-suffix may be given only once" >&2; exit 1; }
+      [[ "$2" != */* ]] || { echo "Error: --backup-suffix must not contain '/' (got: $2)" >&2; exit 1; }
       BACKUP_SUFFIX="$2"; BACKUP_SUFFIX_SET=1; shift 2 ;;
     --undo)
       [[ -n "${2:-}" && "$2" != -* ]] || { echo "Error: --undo requires a timestamp" >&2; exit 1; }
