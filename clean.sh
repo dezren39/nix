@@ -44,6 +44,8 @@ MAINT_DEPTH="--deep"
 REPO_FLAGS_USED=""
 USE_SUDO=""          # empty = decide from --dry-run
 CLEAN_TMPDIR="${CLEAN_TMPDIR:-0}"   # opt-in: wipe /private/var/folders
+VAR_FOLDERS_ROOT="${VAR_FOLDERS_ROOT:-/private/var/folders}" # the --tmpdir sweep's root (env seam so tests can point it at a fixture)
+TMPDIR_SWEEP_FAILED=0   # set at the --tmpdir call site when var-folders-clean.sh reports deletion failures (#1270)
 EXPIRE_REFLOG="${EXPIRE_REFLOG:-0}" # opt-in: force reflog expiry during maintenance
 DOCKER_AGE_DAYS="${DOCKER_AGE_DAYS:-}"  # set = age-scoped docker prune, VM preserved
 PRUNE_UNKNOWN_SCRATCH="${PRUNE_UNKNOWN_SCRATCH:-0}" # opt-in: delete, not just flag, the name-blind catch-all
@@ -429,8 +431,8 @@ if [ "$EUID" -ne 0 ]; then
       OPENCODE_TIDY_PROTECT_DAYS="${OPENCODE_TIDY_PROTECT_DAYS:-1}" \
       OPENCODE_TIDY_LARGE_MB="${OPENCODE_TIDY_LARGE_MB:-200}" \
       CLEAN_TMPDIR="$CLEAN_TMPDIR" EXPIRE_REFLOG="$EXPIRE_REFLOG" DOCKER_AGE_DAYS="$DOCKER_AGE_DAYS" \
-      CLEAN_OPENCODE_ROOT="$CLEAN_OPENCODE_ROOT" \
-      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,COLIMA_STOPPED_STALE_DAYS,OPENCODE_TMP_STALE_DAYS,OPENCODE_WORKTREE_STALE_DAYS,OPENCODE_ROOT_STALE_DAYS,OPENCODE_TIDY_PROTECT_DAYS,OPENCODE_TIDY_LARGE_MB,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS,CLEAN_OPENCODE_ROOT \
+      CLEAN_OPENCODE_ROOT="$CLEAN_OPENCODE_ROOT" VAR_FOLDERS_ROOT="$VAR_FOLDERS_ROOT" \
+      sudo --preserve-env=CALLER_USER_HOME,DISK_FREE_START,ARTIFACT_STALE_DAYS,LOG_STALE_DAYS,CACHE_STALE_DAYS,HOME_ARTIFACT_STALE_DAYS,COLIMA_STOPPED_STALE_DAYS,OPENCODE_TMP_STALE_DAYS,OPENCODE_WORKTREE_STALE_DAYS,OPENCODE_ROOT_STALE_DAYS,OPENCODE_TIDY_PROTECT_DAYS,OPENCODE_TIDY_LARGE_MB,CLEAN_TMPDIR,EXPIRE_REFLOG,DOCKER_AGE_DAYS,CLEAN_OPENCODE_ROOT,VAR_FOLDERS_ROOT \
         "$0" "$@"
     exit $?
   fi
@@ -1265,7 +1267,12 @@ else
   # The sweep itself lives in var-folders-clean.sh so its test
   # (var-folders-clean.test.sh, run by the flake check) exercises the
   # shipped logic instead of a pasted copy (#557).
-  bash "$SELF_DIR/var-folders-clean.sh" /private/var/folders
+  # The helper exits 1 naming any deletions that failed (#1262); that
+  # signal must not die at this, its only, call site (#1270): warn now
+  # and remember the failure -- the run exits non-zero at the end,
+  # once the remaining sweeps and the final report have run.
+  bash "$SELF_DIR/var-folders-clean.sh" "$VAR_FOLDERS_ROOT" \
+    || { TMPDIR_SWEEP_FAILED=1; warn "/private/var/folders sweep failed: var-folders-clean.sh could not delete everything (see above)"; }
 fi
 
 del "$CALLER_USER_HOME/.Trash/"* "$ROOT_HOME/.Trash/"*
@@ -1990,3 +1997,12 @@ else echo "⚠️  No net disk reclaimed ($(human_size $(( -RECLAIMED ))) more u
 # just got deleted (size/dates captured before the delete, since the path is
 # gone by the time this prints).
 print_unknown_scratch_report
+
+# A failed --tmpdir sweep fails the run (#1270): var-folders-clean.sh's
+# exit-1 signal is captured at its call site above (TMPDIR_SWEEP_FAILED)
+# and lands here, after every other sweep and the final report, so a
+# partially failed sweep no longer ends at exit 0.
+if [ "$TMPDIR_SWEEP_FAILED" = "1" ]; then
+  warn "/private/var/folders sweep failed -- clean.sh exiting non-zero"
+  exit 1
+fi

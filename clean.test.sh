@@ -278,6 +278,65 @@ for mode in bsd gnu; do
   [ -e "$PTDIR/pytest-current" ] || fail "pytest guard ($mode stat): pytest-current dangling after the run"
 done
 
+# ─── --tmpdir sweep failure surfaces in clean.sh's result (#1270) ──
+# var-folders-clean.sh exits 1 naming failed deletions (#1262), but
+# clean.sh used to call it bare (no set -e anywhere), so a partially
+# failed --tmpdir sweep still ended at exit 0. Drive the REAL --tmpdir
+# path through the VAR_FOLDERS_ROOT seam with the #1262 rm shim (one
+# entry, aa, fails regardless of the suite's privileges): clean.sh
+# must exit non-zero, name the sweep as failed, leave aa in place, and
+# still sweep the rest. The success control must exit 0.
+vf="$TMP_ROOT/varfolders"
+mkdir -p "$vf/aa" "$vf/bb" "$vf/zz"
+touch "$vf/aa/file" "$vf/zz/file2"
+shim_dir="$TMP_ROOT/rm-shim"
+mkdir -p "$shim_dir"
+real_rm="$(command -v rm)"
+cat > "$shim_dir/rm" <<SHIM_EOF
+#!/bin/sh
+for arg in "\$@"; do
+  case "\$arg" in
+    */aa) echo "rm: cannot remove (shimmed failure)" >&2; exit 1 ;;
+  esac
+done
+exec $real_rm "\$@"
+SHIM_EOF
+chmod +x "$shim_dir/rm"
+# Stub the unrelated HALF 1 tools (nix GC, docker, brew, ...) to
+# no-ops: they are not under test here, and on a real machine their
+# sections do real, slow system maintenance before the sweep is even
+# reached. In the flake-check sandbox they are absent anyway.
+stub_dir="$TMP_ROOT/tool-stubs"
+mkdir -p "$stub_dir"
+for tool in nix nix-collect-garbage nix-store home-manager docker colima brew uv bun mas pnpm npm yarn pip pip3 cargo go; do
+  printf '#!/bin/sh\nexit 0\n' > "$stub_dir/$tool"
+  chmod +x "$stub_dir/$tool"
+done
+OLD_PATH="$PATH"
+export VAR_FOLDERS_ROOT="$vf"
+PATH="$shim_dir:$stub_dir:$PATH"
+run --system --tmpdir --no-sudo
+PATH="$OLD_PATH"
+[ "$STATUS" -ne 0 ] || fail "--tmpdir with a failing deletion exited $STATUS (want non-zero)"
+case "$ERR" in
+  *"/private/var/folders sweep failed"*) echo "ok: --tmpdir failure named the sweep as failed" ;;
+  *) fail "--tmpdir failure did not name the sweep on stderr (got: $ERR)" ;;
+esac
+[ -e "$vf/aa/file" ] && echo "ok: shimmed entry left in place" || fail "shimmed entry was removed anyway"
+[ ! -e "$vf/bb" ] && [ ! -e "$vf/zz/file2" ] && echo "ok: rest of the sweep still ran" || fail "sweep stopped at the failure"
+# Success control: same path, no shim -- everything swept, exit 0.
+vf2="$TMP_ROOT/varfolders-ok"
+mkdir -p "$vf2/aa" "$vf2/zz"
+touch "$vf2/aa/file" "$vf2/zz/file2"
+OLD_PATH="$PATH"
+export VAR_FOLDERS_ROOT="$vf2"
+PATH="$stub_dir:$PATH"
+run --system --tmpdir --no-sudo
+PATH="$OLD_PATH"
+unset VAR_FOLDERS_ROOT
+[ "$STATUS" -eq 0 ] || fail "--tmpdir success control exited $STATUS (want 0, stderr: $ERR)"
+[ ! -e "$vf2/aa" ] && [ ! -e "$vf2/zz/file2" ] && echo "ok: success control swept the fixture" || fail "success control did not sweep the fixture"
+
 # ─── Shared conformance probe matrix (#1146, design #1145) ─────────
 # The matrix rows for clean.sh, driven through lib/arg-probe.sh (the
 # same helper every discovery suite uses): unknown, missing/flag-shaped
